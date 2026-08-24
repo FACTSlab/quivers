@@ -38,6 +38,8 @@ from quivers.dsl.ast_nodes import Expr, MorphismDecl
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.ir import (
     ConstraintSpec,
+    CSIntegerInterval,
+    CSNonnegativeInteger,
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
@@ -106,12 +108,22 @@ class IRArgTransform(IRArg):
     transform on the renamed target name; `RendererBase` provides
     the constructor.
 
+    Most transforms act on `inner` alone (``inv``, ``neg``,
+    ``one_minus`` = ``1 - inner``, ...). The two-operand ``pow_neg``
+    additionally reads `operand`, emitting ``pow(inner, -operand)``:
+    the JAGS / BUGS Weibull rate parameterisation needs the
+    concentration argument as the exponent, so the reorder helper
+    threads it in as `operand`.
+
     `IRArgTransform` is a renderer-internal IR extension. `Lower`
     never constructs it.
     """
 
     inner: IRArg
-    transform: Literal["inv_square", "inv", "neg", "log", "exp"]
+    transform: Literal[
+        "inv_square", "inv", "neg", "log", "exp", "one_minus", "pow_neg"
+    ]
+    operand: IRArg | None = None
     kind: Literal["transform"] = "transform"
 
 
@@ -408,6 +420,91 @@ class RendererBase(abc.ABC):
         generated-quantities aliasing / similar.
         """
         del ctx, names
+
+
+# ---------------------------------------------------------------------------
+# Host integer inputs (used by index-aware renderers to identify the
+# integer-typed data inputs a program subscripts a plate with).
+# ---------------------------------------------------------------------------
+
+
+def host_integer_input_names(ir: IRProgram) -> frozenset[str]:
+    """Return the names of every :class:`IRDataInput` whose constraint
+    is integer-typed (:class:`CSNonnegativeInteger` or
+    :class:`CSIntegerInterval`).
+
+    These are the exogenous covariates a program subscripts a plate
+    with (``item_idx``, ``cat_idx``, ``out_idx``). Renderers consult
+    the set once per render to discriminate index covariates from
+    ordinary integer observations.
+    """
+    integer_kinds = (CSNonnegativeInteger, CSIntegerInterval)
+    return frozenset(
+        inp.name
+        for inp in ir.inputs
+        if isinstance(inp.constraint, integer_kinds)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-family argument reorder / reparameterisation for the 1-based
+# BUGS-family targets (JAGS, BUGS) whose distribution call convention
+# differs from the QVR / torch parameterisation.
+# ---------------------------------------------------------------------------
+
+
+def reorder_negbin_args(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape ``NegativeBinomial(total_count, probs)`` into JAGS /
+    BUGS' ``dnegbin(prob, size)`` argument order.
+
+    torch's ``NegativeBinomial(total_count=r, probs=p)`` scores
+    ``x`` failures before ``r`` successes with per-trial success
+    probability ``p``, which equals ``dnbinom(x; size = r,
+    prob = 1 - p)`` in the BUGS / JAGS ``dnegbin(prob, size)``
+    convention. This swaps the two arguments and complements the
+    probability (``one_minus``) so the emitted call is
+    ``dnegbin(1 - probs, total_count)``.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    return (
+        (
+            IRArgTransform(inner=by_name["probs"], transform="one_minus"),
+            by_name["total_count"],
+        ),
+        ("prob", "size"),
+    )
+
+
+def reorder_weibull_args(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape ``Weibull(scale, concentration)`` into JAGS / BUGS'
+    ``dweib(v, lambda)`` argument order.
+
+    torch's ``Weibull(scale = s, concentration = k)`` has density
+    ``(k / s) (t / s)^(k-1) exp(-(t / s)^k)``; JAGS / BUGS'
+    ``dweib(v, lambda)`` has density
+    ``v lambda t^(v-1) exp(-lambda t^v)``. Matching the two gives
+    ``v = k`` and ``lambda = s^(-k)``. This reorders to
+    ``(concentration, scale)`` and wraps the scale in the
+    ``pow_neg`` transform (``pow(scale, -concentration)``) so the
+    emitted call is ``dweib(concentration, pow(scale,
+    -concentration))``.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    return (
+        (
+            by_name["concentration"],
+            IRArgTransform(
+                inner=by_name["scale"],
+                transform="pow_neg",
+                operand=by_name["concentration"],
+            ),
+        ),
+        ("shape", "rate"),
+    )
 
 
 # ---------------------------------------------------------------------------

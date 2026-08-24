@@ -38,14 +38,16 @@ programmable joint log-density for a `(sample, observe)` program.
 ## Test gating
 
 Tests use `@pytest.mark.requires_image("panproto-test-<runtime>")`
-(see `tests/transpile/conftest.py`); cells whose image is not
-locally built skip with a clear reason. CI builds them once per
-cache key.
+(see `tests/transpile/conftest.py`). The session fixture starts
+Docker when necessary and builds any missing required images.
+Set `QUIVERS_SKIP_DOCKER=1` to opt out; marked tests then report
+the missing image during setup.
 
 ## I/O contract (per-backend script)
 
-Each `tests/transpile/probes/_scripts/<backend>.py` is copied into
-the container's `/io/probe.py` at run time. It reads:
+Each probe under `tests/transpile/probes/_scripts/` is copied into
+the container at run time. Python backends use `<backend>.py`;
+Gen and Turing use `.jl` scripts. The probe reads:
 
 - `/io/source.<ext>` — transpiled source bytes
 - `/io/points.json` — list of points (`[{params: {...}, data: {...}}, ...]`)

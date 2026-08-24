@@ -105,6 +105,8 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    reorder_negbin_args,
+    reorder_weibull_args,
 )
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
@@ -1166,6 +1168,10 @@ class BUGSRenderer(RendererBase):
         ctx.sb.edge(dc_id, al_id, "arguments")
         if meta.qvr_name == "StudentT":
             args, arg_names = _reorder_studentt_dt(args, arg_names)
+        elif meta.qvr_name == "NegativeBinomial":
+            args, arg_names = reorder_negbin_args(args, arg_names)
+        elif meta.qvr_name == "Weibull":
+            args, arg_names = reorder_weibull_args(args, arg_names)
         renames = meta.arg_aliases.get("bugs", {})
         for arg, aname in zip(args, arg_names, strict=True):
             wrapped = self._apply_alias_transform(arg, aname, renames, meta.qvr_name)
@@ -1221,6 +1227,8 @@ class BUGSRenderer(RendererBase):
         if isinstance(arg, IRArgNumber):
             return "number"
         if isinstance(arg, IRArgTransform):
+            if arg.transform in ("log", "exp", "pow_neg"):
+                return "function_call"
             return "binary_expression"
         if isinstance(arg, IRArgRef):
             decl_plate = self._lookup_decl_plate_if_known(arg)
@@ -1603,10 +1611,64 @@ class BUGSRenderer(RendererBase):
             return self._emit_unary_call(ctx, "log", first_inner)
         if wrapped.transform == "exp":
             return self._emit_unary_call(ctx, "exp", first_inner)
+        if wrapped.transform == "one_minus":
+            return self._emit_one_minus(ctx, first_inner)
+        if wrapped.transform == "pow_neg":
+            if wrapped.operand is None:
+                raise UnsupportedConstruct(
+                    f"qvr-{self.target}",
+                    ["transform:pow_neg: missing exponent operand"],
+                )
+            operand_id = self._emit_arg(ctx, wrapped.operand)
+            return self._emit_pow_neg(
+                ctx,
+                first_inner,
+                self._arg_edge_kind(wrapped.inner),
+                operand_id,
+                self._arg_edge_kind(wrapped.operand),
+            )
         raise UnsupportedConstruct(
             f"qvr-{self.target}",
             [f"transform:{wrapped.transform}"],
         )
+
+    def _emit_one_minus(self, ctx: _BugsCtx, inner_id: str) -> str:
+        """Emit `1 - <inner>`."""
+        one = self._emit_number(ctx, 1.0)
+        diff = self._fresh(ctx, "be")
+        ctx.sb.vertex(diff, "binary_expression")
+        ctx.sb.constraint(diff, "field:operator", "-")
+        ctx.sb.constraint(diff, "chose-alt-fingerprint", "-")
+        ctx.sb.edge(diff, one, "left")
+        ctx.sb.edge(diff, inner_id, "right")
+        return diff
+
+    def _emit_pow_neg(
+        self,
+        ctx: _BugsCtx,
+        inner_id: str,
+        inner_kind: str,
+        operand_id: str,
+        operand_kind: str,
+    ) -> str:
+        """Emit `pow(<inner>, -<operand>)` as a two-argument
+        `function_call`."""
+        neg = self._fresh(ctx, "ue")
+        ctx.sb.vertex(neg, "unary_expression")
+        ctx.sb.constraint(neg, "field:operator", "-")
+        ctx.sb.constraint(neg, "chose-alt-fingerprint", "-")
+        ctx.sb.constraint(neg, "chose-alt-child-kinds", operand_kind)
+        ctx.sb.edge(neg, operand_id, "operand")
+        call = self._fresh(ctx, "call")
+        ctx.sb.vertex(call, "function_call")
+        fn = self._emit_bare_identifier(ctx, "pow")
+        ctx.sb.edge(call, fn, "name")
+        al = self._fresh(ctx, "al")
+        ctx.sb.vertex(al, "argument_list")
+        ctx.sb.edge(call, al, "arguments")
+        ctx.sb.edge(al, inner_id, inner_kind)
+        ctx.sb.edge(al, neg, "unary_expression")
+        return call
 
     def _emit_inv_square(
         self,

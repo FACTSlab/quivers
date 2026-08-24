@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
@@ -143,8 +144,66 @@ def reshape_point(
     return out
 
 
+def index_input_names(
+    source: str, dtypes: dict[str, str],
+) -> set[str]:
+    """Names the emitted source uses as array subscripts.
+
+    The gallery datasets index every plate with a 0-based integer
+    covariate (``out_idx``, ``cat_idx``, ``word_idx``): the QVR
+    program and the row-major `Point` payload both count from 0. A
+    backend whose native array indexing counts from 1 (Stan, JAGS,
+    BUGS, and the Julia targets Turing / Gen) subscripts the gathered
+    parameter with that covariate directly, so the host must lift
+    every such covariate to 1-based before handing it to the
+    container.
+
+    An index input is any ``int``-dtyped name the source subscripts,
+    i.e. one that appears immediately after a ``[``. Integer values
+    that are never subscripts (count observations such as ``tally`` /
+    ``obs``, Bernoulli 0/1 responses) are left untouched: they are
+    outcomes, not offsets.
+    """
+    names: set[str] = set()
+    for name, dtype in dtypes.items():
+        if dtype != "int":
+            continue
+        if re.search(r"\[\s*" + re.escape(name) + r"(?![0-9A-Za-z_])", source):
+            names.add(name)
+    return names
+
+
+def _offset_leaves(value: NestedNumber, offset: int) -> NestedNumber:
+    """Recursively add ``offset`` to every leaf of a nested list."""
+    if isinstance(value, list):
+        return [_offset_leaves(v, offset) for v in value]
+    return value + offset
+
+
+def shift_index_inputs(
+    point: Point, names: set[str], offset: int = 1,
+) -> Point:
+    """Return ``point`` with every ``names`` entry's leaves shifted.
+
+    Applied by the 1-based backends after :func:`reshape_point` so a
+    0-based covariate becomes a valid 1-based subscript. Names outside
+    ``names`` pass through unchanged, so count observations and
+    response values keep their raw magnitude."""
+    out: Point = {}
+    for section in ("params", "data"):
+        out[section] = {
+            name: (
+                _offset_leaves(value, offset) if name in names else value
+            )
+            for name, value in point.get(section, {}).items()
+        }
+    return out
+
+
 __all__ = [
+    "index_input_names",
     "load_tables",
     "reshape_point",
     "reshape_value",
+    "shift_index_inputs",
 ]

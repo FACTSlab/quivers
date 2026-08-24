@@ -129,6 +129,30 @@ var _qvr_bcast = function(op, a, b) {
   }, n);
 };
 
+// Logistic sigmoid, mapped over scalars and (possibly nested) arrays.
+// The QVR `sigmoid` math primitive has no WebPPL stdlib counterpart;
+// the deterministic `let mu = sigmoid(eta)` binding drives an
+// elementwise transform when `eta` is an array-valued prior gather.
+var sigmoid = function(x) {
+  return Array.isArray(x) ? map(sigmoid, x) : 1 / (1 + Math.exp(-x));
+};
+
+// Elementwise math primitives, mapped over scalars and (possibly
+// nested) arrays. The QVR `exp` / `log` / `sqrt` math primitives have
+// no WebPPL stdlib globals; a deterministic `let scale = exp(eta)`
+// binding against an array-valued gather needs the elementwise form.
+var exp = function(x) {
+  return Array.isArray(x) ? map(exp, x) : Math.exp(x);
+};
+
+var log = function(x) {
+  return Array.isArray(x) ? map(log, x) : Math.log(x);
+};
+
+var sqrt = function(x) {
+  return Array.isArray(x) ? map(sqrt, x) : Math.sqrt(x);
+};
+
 var Logistic = function(params) {
   var loc = params.loc;
   var scale = params.scale;

@@ -93,3 +93,39 @@ function reshape_point(pt, shapes::Dict, dtypes::Dict)
     end
     return out
 end
+
+# The Julia targets (Turing, Gen) index arrays from 1, but the gallery
+# covariates count from 0. `index_input_names` finds every int-dtyped
+# name the source subscripts (`[name`); `shift_index_inputs` lifts
+# those entries to 1-based after reshape. Count observations and
+# response values are never subscripts, so they pass through untouched.
+function index_input_names(source::AbstractString, dtypes::Dict)
+    names = Set{String}()
+    for (name, dt) in dtypes
+        if dt == "int" && occursin(
+            Regex("\\[\\s*" * name * "(?![0-9A-Za-z_])"), source,
+        )
+            push!(names, name)
+        end
+    end
+    return names
+end
+
+function _offset_leaves(value, offset::Int)
+    if value isa AbstractArray
+        return [_offset_leaves(v, offset) for v in value]
+    end
+    return value + offset
+end
+
+function shift_index_inputs(point, names, offset::Int = 1)
+    out = Dict{String,Dict{Symbol,Any}}()
+    for section in ("params", "data")
+        sec = point[section]
+        out[section] = Dict{Symbol,Any}(
+            k => (String(k) in names ? _offset_leaves(v, offset) : v)
+            for (k, v) in sec
+        )
+    end
+    return out
+end

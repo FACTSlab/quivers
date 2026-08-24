@@ -134,6 +134,8 @@ def assert_log_density_match(
     *,
     atol: float = _DEFAULT_ATOL,
     context: str = "",
+    labels: list[str] | None = None,
+    min_points: int = 1,
 ) -> float:
     """Assert two log-density sequences differ by a constant.
 
@@ -153,6 +155,25 @@ def assert_log_density_match(
     context
         Free-form string included in the failure message
         (e.g. ``"stan@beta_bernoulli"``).
+    labels
+        Optional per-point description, same length as the point set
+        (e.g. the
+        [`perturbation_labels`][tests.transpile._gallery_data.perturbation_labels]
+        of a gallery point list). When supplied, the failure message
+        names the perturbation carried by the worst point and the full
+        per-point difference table, so a broken constancy localises to
+        the section that moved -- latents, data, or both -- instead of
+        reporting only that some point disagreed.
+    min_points
+        Smallest point count at which the caller considers this check
+        meaningful. The constant-spread contract is a statement about
+        *variation* of the difference across points, so a single point
+        satisfies it identically: ``max_i |d_i − mean(d)|`` is exactly
+        0 when ``n == 1``, whatever the two evaluators computed. A
+        caller whose contract needs real variation passes
+        ``min_points=2`` (or higher) and gets a loud failure instead of
+        a vacuous pass if its point set ever collapses. Defaults to 1
+        for callers that legitimately compare a fixed single point.
 
     Returns
     -------
@@ -164,8 +185,20 @@ def assert_log_density_match(
     Raises
     ------
     AssertionError
-        If the spread exceeds ``atol`` or if the two sequences have
-        different lengths.
+        If the spread exceeds ``atol``, if the two sequences have
+        different lengths, or if the point count is below
+        ``min_points``.
+
+    Notes
+    -----
+    The tolerance is deliberately *not* scaled by the point count. The
+    quantity bounded is a deviation from a mean, not a sum over points,
+    so it does not grow with ``n``; the per-point round-off that
+    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol]
+    models scales with the *observation* count inside one evaluation,
+    which is unchanged by adding more evaluation points. Widening
+    ``atol`` because a larger point set started failing would convert a
+    detected measure-inequivalence back into a pass.
     """
     if len(qvr_lps) != len(target_lps):
         raise AssertionError(
@@ -178,26 +211,55 @@ def assert_log_density_match(
             f"{context + ': ' if context else ''}"
             "empty point set; equivalence is vacuous"
         )
+    if n < min_points:
+        raise AssertionError(
+            f"{context + ': ' if context else ''}"
+            f"{n} evaluation point(s) but the caller requires at "
+            f"least {min_points}: the constant-spread contract is a "
+            f"statement about how the difference varies across "
+            f"points, so it passes unconditionally on a point set "
+            f"this small"
+        )
+    if labels is not None and len(labels) != n:
+        raise AssertionError(
+            f"{context + ': ' if context else ''}"
+            f"labels length {len(labels)} does not match the "
+            f"{n}-point set"
+        )
     diffs = [t - q for q, t in zip(qvr_lps, target_lps)]
     for i, d in enumerate(diffs):
         if not math.isfinite(d):
             raise AssertionError(
                 f"{context + ': ' if context else ''}"
-                f"non-finite difference at index {i}: "
+                f"non-finite difference at index {i}"
+                f"{_label_suffix(labels, i)}: "
                 f"qvr={qvr_lps[i]!r}, target={target_lps[i]!r}"
             )
     mean = sum(diffs) / n
     spread = max(abs(d - mean) for d in diffs)
     if spread > atol:
         worst = max(range(n), key=lambda i: abs(diffs[i] - mean))
+        table = "; ".join(
+            f"[{i}]{_label_suffix(labels, i)} qvr={qvr_lps[i]:.6f} "
+            f"target={target_lps[i]:.6f} diff={diffs[i]:.6f}"
+            for i in range(n)
+        )
         raise AssertionError(
             f"{context + ': ' if context else ''}"
             f"log-density spread {spread:.6e} exceeds atol {atol:.6e}; "
-            f"constant c = {mean:.6e}; worst point index {worst} "
+            f"constant c = {mean:.6e}; worst point index {worst}"
+            f"{_label_suffix(labels, worst)} "
             f"(qvr={qvr_lps[worst]!r}, target={target_lps[worst]!r}, "
-            f"diff={diffs[worst]!r})"
+            f"diff={diffs[worst]!r}). Per-point table: {table}"
         )
     return mean
+
+
+def _label_suffix(labels: list[str] | None, index: int) -> str:
+    """`" (<label>)"` when the caller supplied labels, else `""`."""
+    if labels is None:
+        return ""
+    return f" ({labels[index]})"
 
 
 def assert_transitive(

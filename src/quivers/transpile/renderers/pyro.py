@@ -52,6 +52,7 @@ from quivers.transpile.renderers._python_helpers import (
     attribute,
     call,
     identifier,
+    name_event_rank_map,
     number_literal,
     python_binary_op as _python_binary_op,
     python_method_call as _python_method_call,
@@ -84,6 +85,13 @@ from quivers.transpile.ir import (
     IRReturn,
     IRSample,
     IRScore,
+    LetExprBinOp,
+    LetExprCall,
+    LetExprIndex,
+    LetExprList,
+    LetExprNode,
+    LetExprUnaryOp,
+    LetExprVar,
     Plate,
     StructuredDataArg,
 )
@@ -92,6 +100,7 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    host_integer_input_names,
 )
 
 
@@ -125,7 +134,11 @@ class PyroRenderer(RendererBase):
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
-        pctx = _PyroCtx(sb=sb, cards=dict(ir.cards))
+        pctx = _PyroCtx(
+            sb=sb,
+            cards=dict(ir.cards),
+            name_event_rank=name_event_rank_map(ir),
+        )
 
         # Resolve module-level morphism / let tables for IRArgFamilyRef
         # lookup. The IR carries family names directly for atomic
@@ -175,6 +188,37 @@ class PyroRenderer(RendererBase):
 
         pctx.body = body
         pctx.observed = frozenset(observed_names)
+
+        # torch's advanced indexing requires integer index tensors, so
+        # every host-integer input the program subscripts with is
+        # coerced to `long` at the top of the body. QVR declares these
+        # gather covariates as integers; the coercion makes the model
+        # self-contained regardless of the caller's supplied dtype.
+        for idx_name in sorted(_integer_index_input_names(ir)):
+            coerce = assignment(
+                pctx,
+                lhs_name=idx_name,
+                rhs=_python_method_call(
+                    pctx, identifier(pctx, idx_name), "long", (),
+                ),
+            )
+            pctx.e(pctx.body, coerce, "child_of")
+
+        # Hoist each axis that backs more than one sample / observe site
+        # to a single reused `pyro.plate(...)` object.
+        for dim in _shared_plate_dims(ir.body):
+            axis = str(dim.name)
+            var_name = f"{axis}_plate"
+            pctx.shared_plate_vars[axis] = var_name
+            pctx.e(
+                pctx.body,
+                assignment(
+                    pctx,
+                    lhs_name=var_name,
+                    rhs=self._plate_object_call(pctx, dim),
+                ),
+                "child_of",
+            )
 
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
@@ -479,13 +523,21 @@ class PyroRenderer(RendererBase):
         name: str,
         observed: bool,
     ) -> str:
-        """Build `pyro.plate(<plate_name>, <size>)`.
+        """Build the `with`-expression for one batch dim.
 
-        `<plate_name>` is the dim's `name` for outer iid plates; for
-        the dynamic batch dim that backs an observation, the canonical
-        idiom uses the dim's name with the observed-shape lookup.
+        A shared axis (used by more than one site) resolves to the
+        hoisted `<axis>_plate` variable so every `with` reuses the one
+        plate object; every other axis emits an inline
+        `pyro.plate(<name>, <size>)`.
         """
-        del observed
+        del observed, name
+        shared_var = pctx.shared_plate_vars.get(str(dim.name))
+        if shared_var is not None:
+            return identifier(pctx, shared_var)
+        return self._plate_object_call(pctx, dim)
+
+    def _plate_object_call(self, pctx: _PyroCtx, dim: Dim) -> str:
+        """Build the `pyro.plate(<name>, <size>)` constructor call."""
         plate_callee = attribute(pctx, ("pyro", "plate"))
         if isinstance(dim, DimStatic):
             plate_name = string_literal(pctx, dim.name)
@@ -502,7 +554,6 @@ class PyroRenderer(RendererBase):
                 f"qvr-{_TARGET}",
                 [f"dim-kind:{type(dim).__name__}"],
             )
-        del name
         return call(
             pctx,
             plate_callee,
@@ -571,6 +622,8 @@ class PyroRenderer(RendererBase):
             positional=positional,
             keyword=dist_args.keyword,
         )
+        event_dims = plate.event_dims if plate is not None else ()
+        dist_call = self._wrap_event_dims(pctx, dist_call, family, event_dims)
         # Wrap in pyro.sample(...)
         sample_callee = attribute(pctx, ("pyro", "sample"))
         positional = (string_literal(pctx, name), dist_call)
@@ -582,6 +635,53 @@ class PyroRenderer(RendererBase):
             sample_callee,
             positional=positional,
             keyword=keyword,
+        )
+
+    def _wrap_event_dims(
+        self,
+        pctx: _PyroCtx,
+        dist_call: str,
+        family: str,
+        event_dims: tuple[Dim, ...],
+    ) -> str:
+        """Lift the residual user-declared event dims into the
+        distribution via ``.expand([sizes]).to_event(n)``.
+
+        Reads
+        [`FamilyMeta.event_rank`][quivers.transpile.family_meta.FamilyMeta]
+        (0 scalar, 1 vector, 2 matrix) and lifts only the dims beyond
+        the family's natural rank. A matrix-plate sample of a scalar
+        family (`Normal(0, 1) [over=LatentDim, iid_over=Item]`) lifts
+        the `LatentDim` axis into the distribution; a vector family
+        whose `[over=Axis]` matches its natural event dim gets no lift.
+        """
+        if not event_dims:
+            return dist_call
+        meta = FAMILY_META.get(family)
+        natural = meta.event_rank if meta is not None else 0
+        residual = (
+            event_dims[: len(event_dims) - natural] if natural else event_dims
+        )
+        if not residual:
+            return dist_call
+        list_vid = pctx.v(pctx.fresh("list"), "list")
+        for dim in residual:
+            pctx.e(list_vid, self._dim_size_vid(pctx, dim), "child_of")
+        expand_vid = _python_method_call(pctx, dist_call, "expand", (list_vid,))
+        return _python_method_call(
+            pctx, expand_vid, "to_event",
+            (number_literal(pctx, len(residual)),),
+        )
+
+    def _dim_size_vid(self, pctx: _PyroCtx, dim: Dim) -> str:
+        """Render `dim.size` as a Pyro source-token vid."""
+        if isinstance(dim, DimStatic):
+            return number_literal(pctx, dim.size)
+        if isinstance(dim, DimDynamic):
+            return identifier(pctx, dim.size_name)
+        raise UnsupportedConstruct(
+            f"qvr-{_TARGET}",
+            [f"plate:dim-kind:{type(dim).__name__}"],
         )
 
     # ----- marginalize: explicit-latent rewrite -----
@@ -922,11 +1022,21 @@ class _PyroCtx(PyCtx):
         self,
         sb: panproto.SchemaBuilder,
         cards: dict[str, int] | None = None,
+        name_event_rank: dict[str, int] | None = None,
     ) -> None:
-        super().__init__(sb, cards=cards, target="pyro")
+        super().__init__(
+            sb, cards=cards, target="pyro", name_event_rank=name_event_rank
+        )
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
         self.morphisms: dict = {}
+        # Plate-axis name -> the local variable holding a single reused
+        # `pyro.plate(...)` object. Pyro registers each `pyro.plate`
+        # context as a site named after the axis, so two inline plates
+        # of the same name collide ("Multiple sample sites named ...").
+        # Axes that back more than one sample / observe site are hoisted
+        # to one shared object and every `with` reuses it.
+        self.shared_plate_vars: dict[str, str] = {}
 
 
 class _DistArgs:
@@ -955,6 +1065,95 @@ def _observed_names(body: tuple[IRNode, ...]) -> set[str]:
         elif isinstance(node, IRMarginalize):
             out.update(_observed_names(node.scope))
     return out
+
+
+def _shared_plate_dims(body: tuple[IRNode, ...]) -> tuple[Dim, ...]:
+    """Batch-plate dims whose axis name backs more than one sample /
+    observe site, in first-appearance order.
+
+    Pyro registers each `pyro.plate(<name>, ...)` context as a site
+    named after the axis, so two inline plates of the same name raise
+    "Multiple sample sites named ...". The renderer hoists each such
+    axis to one reused plate object. A dim marginalize-renamed for a
+    discrete latent carries its own unique axis name, so this only
+    coalesces genuinely shared axes.
+    """
+    counts: dict[str, int] = {}
+    first: dict[str, Dim] = {}
+    _count_plate_dims(body, counts, first)
+    return tuple(dim for axis, dim in first.items() if counts[axis] > 1)
+
+
+def _count_plate_dims(
+    body: tuple[IRNode, ...],
+    counts: dict[str, int],
+    first: dict[str, Dim],
+) -> None:
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)):
+            for dim in node.plate.batch_dims:
+                axis = str(dim.name)
+                counts[axis] = counts.get(axis, 0) + 1
+                first.setdefault(axis, dim)
+        elif isinstance(node, IRMarginalize):
+            _count_plate_dims(node.scope, counts, first)
+
+
+def _integer_index_input_names(ir: IRProgram) -> set[str]:
+    """Host-integer inputs the program uses as a subscript index.
+
+    torch's advanced indexing rejects a float index tensor, so every
+    such name is coerced to `long` at the top of the emitted model.
+    Walks each [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
+    let-expression for `LetExprIndex` operands that are bare
+    [`LetExprVar`][quivers.transpile.ir.LetExprVar] naming a
+    host-integer input; a QVR `LetExprVar` in subscript position is
+    always a runtime gather covariate.
+    """
+    host_ints = host_integer_input_names(ir)
+    found: set[str] = set()
+    _collect_integer_index_names(ir.body, host_ints, found)
+    return found
+
+
+def _collect_integer_index_names(
+    body: tuple[IRNode, ...],
+    host_ints: frozenset[str],
+    found: set[str],
+) -> None:
+    for node in body:
+        if isinstance(node, IRDeterministic):
+            _walk_let_expr_for_indices(node.expr, host_ints, found)
+        elif isinstance(node, IRMarginalize):
+            _collect_integer_index_names(node.scope, host_ints, found)
+
+
+def _walk_let_expr_for_indices(
+    expr: LetExprNode,
+    host_ints: frozenset[str],
+    found: set[str],
+) -> None:
+    if isinstance(expr, LetExprIndex):
+        for idx in expr.indices:
+            if isinstance(idx, LetExprVar) and idx.name in host_ints:
+                found.add(idx.name)
+            _walk_let_expr_for_indices(idx, host_ints, found)
+        _walk_let_expr_for_indices(expr.array, host_ints, found)
+        return
+    if isinstance(expr, LetExprBinOp):
+        _walk_let_expr_for_indices(expr.left, host_ints, found)
+        _walk_let_expr_for_indices(expr.right, host_ints, found)
+        return
+    if isinstance(expr, LetExprUnaryOp):
+        _walk_let_expr_for_indices(expr.operand, host_ints, found)
+        return
+    if isinstance(expr, LetExprCall):
+        for a in expr.args:
+            _walk_let_expr_for_indices(a, host_ints, found)
+        return
+    if isinstance(expr, LetExprList):
+        for item in expr.items:
+            _walk_let_expr_for_indices(item, host_ints, found)
 
 
 def _arg_ref_vid(pctx: _PyroCtx, arg: IRArgRef) -> str:
