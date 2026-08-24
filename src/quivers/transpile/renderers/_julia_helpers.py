@@ -325,11 +325,41 @@ def _emit_unary(ctx: _JlLetCtx, expr: LetExprUnaryOp) -> tuple[str, str]:
     return vid, "unary_expression"
 
 
+def _sigmoid_expansion(arg: LetExprNode) -> LetExprNode:
+    """Rewrite ``sigmoid(x)`` to the arithmetic body ``1 / (1 + exp(-x))``.
+
+    Julia's `Base` carries no `sigmoid`; `StatsFuns.logistic` needs a
+    package import the probe container does not bring into `Main`. The
+    logit-link identity `1 / (1 + exp(-x))` is a closed-form Julia
+    expression that broadcasts elementwise under `@.`, so the renderer
+    expands the call into that body and lets the normal binop / unary
+    path parenthesise it.
+    """
+    return LetExprBinOp(
+        op="/",
+        left=LetExprLiteral(value=1.0),
+        right=LetExprBinOp(
+            op="+",
+            left=LetExprLiteral(value=1.0),
+            right=LetExprCall(
+                func="exp", args=(LetExprUnaryOp(operand=arg),)
+            ),
+        ),
+    )
+
+
 def _emit_call(
     ctx: _JlLetCtx, func: str, args: tuple[LetExprNode, ...]
 ) -> tuple[str, str]:
     """Emit ``<func>(<arg_0>, <arg_1>, ...)`` as a `call_expression`
-    whose children are ``identifier argument_list``."""
+    whose children are ``identifier argument_list``.
+
+    QVR math primitives without a `Base` Julia counterpart are rewritten
+    to a closed-form body before emission: `sigmoid(x)` becomes
+    `1 / (1 + exp(-x))`.
+    """
+    if func == "sigmoid" and len(args) == 1:
+        return _render(ctx, _sigmoid_expansion(args[0]))
     rendered = tuple(_render(ctx, a) for a in args)
     callee_vid, _callee_kind = _emit_identifier(ctx, func)
     al_vid = _emit_argument_list(ctx, rendered)
