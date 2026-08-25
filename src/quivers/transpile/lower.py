@@ -23,9 +23,10 @@ The forward pass:
    a sentinel parameter set, reads `arg_constraints` and `support`,
    matches the user's args against the constraints, and constructs
    the appropriate IR node.
-5. Discovers exogenous identifiers (free names in let / score
-   bodies and bracket-indexed args; `via=` fibrations; scalar
-   program parameters) and emits
+5. Discovers exogenous identifiers (the `Real N` factors of the
+   program's declared domain; free names in let / score bodies and
+   bracket-indexed args; `via=` fibrations; scalar program
+   parameters) and emits
    [`IRDataInput`][quivers.transpile.ir.IRDataInput] entries.
 
 Sentinel construction and property-form `arg_constraints` resolution
@@ -191,6 +192,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         morphisms = build_morphism_table(expanded)
         lets = build_let_table(expanded)
         cards = object_cardinalities(expanded)
+        real_widths = continuous_object_widths(expanded)
         program = self._pick_program(expanded)
         family_set = frozenset(FAMILY_META)
 
@@ -205,6 +207,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             family_set=family_set,
             sentinel_cache=sentinel_cache,
             program=program,
+            real_widths=real_widths,
         )
 
         body = self._lower_steps(program.draws, ctx)
@@ -225,6 +228,15 @@ class Lower(dx.Mapping[Module, IRProgram]):
         When the module declares multiple programs, prefer one
         referenced by an `export` declaration; otherwise pick the
         last declared program.
+
+        An `export` naming a `define` binding rather than a program
+        is not a lowering target: a `define` is a morphism-level
+        composition (`scan(cell) >> decoder`), and the transpile
+        boundary is the probabilistic program. A `define` a step
+        references is unfolded by
+        [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+        at the call site instead, so the recurrence a `scan` denotes
+        reaches the IR through the program that samples it.
         """
         programs: list[ProgramDecl] = []
         exported_names: set[str] = set()
@@ -741,7 +753,11 @@ class Lower(dx.Mapping[Module, IRProgram]):
            codomain factor count matches the family's event rank.
 
         Batch axes come from the step's `[iid_over=...]` clause when
-        present; otherwise from `step.index` for scalar families.
+        present; otherwise, for a scalar family, from `step.index`
+        and from the width of the morphism's `Real N` codomain, in
+        that order. A step over a `Real N` codomain draws one value
+        per coordinate, so the width replicates the family whether or
+        not the step also names a sequence axis.
         """
         axes = step.axes
         if axes is not None:
@@ -789,11 +805,30 @@ class Lower(dx.Mapping[Module, IRProgram]):
                     return Plate(
                         event_dims=sentinel_dims, batch_dims=(),
                     )
+        # Scalar family reached through a morphism whose codomain is a
+        # `Real N` object: the step draws one value per coordinate of
+        # that object, so the codomain width is a replication axis.
+        # `sample s_new <- transition_cell` on `transition_cell :
+        # Driver * State -> State` with `object State : Real 4` is
+        # four iid scalar draws, not one. When the step also carries a
+        # `: Axis` index the two stack: the index replicates the whole
+        # codomain vector, so it is the outer batch dim.
+        codomain_width = (
+            self._codomain_width(step.morphism, ctx)
+            if event_dim == 0
+            else None
+        )
         if step.index is None:
-            return Plate(event_dims=(), batch_dims=())
+            if codomain_width is None:
+                return Plate(event_dims=(), batch_dims=())
+            return Plate(event_dims=(), batch_dims=(codomain_width,))
         dim = self._object_expr_dim(step.index, ctx)
         if event_dim == 0:
-            return Plate(event_dims=(), batch_dims=(dim,))
+            if codomain_width is None:
+                return Plate(event_dims=(), batch_dims=(dim,))
+            return Plate(
+                event_dims=(), batch_dims=(dim, codomain_width),
+            )
         return Plate(event_dims=(dim,), batch_dims=())
 
     def _build_marginalize_plate(
@@ -841,6 +876,20 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 batch_dims = (*batch_dims, index_dim)
         return Plate(event_dims=event_dims, batch_dims=batch_dims)
 
+    def _codomain_width(
+        self, morphism_name: str, ctx: _LowerCtx
+    ) -> Dim | None:
+        """Return the `Real N` width of `morphism_name`'s codomain as
+        a `DimStatic`, or `None` when the step names no declared
+        morphism or the codomain is not a single `Real N` object."""
+        decl = ctx.morphisms.get(morphism_name)
+        if decl is None or not isinstance(decl.codomain, TypeName):
+            return None
+        width = ctx.real_widths.get(decl.codomain.name)
+        if width is None:
+            return None
+        return DimStatic(size=width, name=decl.codomain.name)
+
     def _axis_dim(self, axis_name: str, ctx: _LowerCtx) -> Dim:
         """Convert an axis name into a `DimStatic` from the cardinality
         table or a `DimDynamic` when the axis is unknown."""
@@ -872,6 +921,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
         entries.
 
         Sources of exogenous identifiers:
+        * The `Real N` factors of `ProgramDecl.domain` (the value the
+          Kleisli program is applied to).
         * Scalar `ProgramDecl.type_params` (e.g. `alpha : Real`).
         * Free names in let / score expressions.
         * Free names referenced in bracket-indexed arg expressions
@@ -881,6 +932,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
         """
         bound = self._bound_names(body)
         used = self._used_names(body)
+        domain_inputs = self._domain_inputs(program, bound, ctx)
+        seen_domain = {inp.name for inp in domain_inputs}
         # Scalar program parameters: typed `Real` / `Nat` from
         # `type_params`, plus the bare-name shorthand `params`.
         param_inputs: list[IRDataInput] = []
@@ -974,7 +1027,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # GP kernel-input names ride on `IRArgKernel.x_name` and need
         # a vector plate sized by the grid axis so renderers declare
         # them as `vector[N]` / `array[N] real`.
-        seen_param_names = seen_param | seen_via | seen_obs
+        seen_param_names = seen_domain | seen_param | seen_via | seen_obs
         integer_names = self._integer_typed_free_names(body)
         kernel_input_plates = self._kernel_input_plates(body)
         structured_input_specs = self._structured_input_specs(body)
@@ -1015,7 +1068,77 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 )
             )
 
-        return tuple(param_inputs + via_inputs + obs_inputs + free_inputs)
+        return tuple(
+            domain_inputs
+            + param_inputs
+            + via_inputs
+            + obs_inputs
+            + free_inputs
+        )
+
+    def _domain_inputs(
+        self,
+        program: ProgramDecl,
+        bound: set[str],
+        ctx: _LowerCtx,
+    ) -> list[IRDataInput]:
+        """Emit one `IRDataInput` per `Real N` factor of the
+        program's domain.
+
+        A Kleisli program `p : Driver * State -> State` is applied to
+        a value of its domain, and the morphisms its body names read
+        that value; without a wire name for it the emitted program has
+        nothing to thread the per-call input through. Only the
+        `Real N` factors carry a value: a `FinSet N` factor names the
+        index axis the program is replicated over, which the steps
+        read through their own `: Axis` annotations rather than as a
+        datum.
+
+        The factor's object name, lowercased, is the wire name, and
+        the object's width is the input's event dim. A name a step
+        already binds, or that a second factor already claimed, has no
+        unambiguous wire form and raises.
+        """
+        out: list[IRDataInput] = []
+        seen: set[str] = set()
+        for factor in object_factors(program.domain):
+            if not isinstance(factor, TypeName):
+                continue
+            width = ctx.real_widths.get(factor.name)
+            if width is None:
+                continue
+            name = factor.name.lower()
+            if name in seen or name in bound:
+                clash = (
+                    "an earlier factor of the same domain claimed it"
+                    if name in seen
+                    else "a step in the body already binds it"
+                )
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"program-domain:name-collision:{name}: the "
+                        f"domain factor {factor.name!r} of program "
+                        f"{program.name!r} lowers to a data input "
+                        f"named {name!r}, and {clash}; rename the "
+                        f"object or the binding so the program input "
+                        f"has an unambiguous wire name"
+                    ],
+                )
+            seen.add(name)
+            out.append(
+                IRDataInput(
+                    name=name,
+                    constraint=CSReal(),
+                    plate=Plate(
+                        event_dims=(
+                            DimStatic(size=width, name=factor.name),
+                        ),
+                        batch_dims=(),
+                    ),
+                )
+            )
+        return out
 
     def _structured_input_specs(
         self, body: tuple[IRNode, ...],
@@ -1221,6 +1344,7 @@ class _LowerCtx(dx.Model):
         dx.field(opaque=True)
     )
     program: ProgramDecl = dx.field(opaque=True)
+    real_widths: dict[str, int] = dx.field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1243,6 +1367,53 @@ def _observe_var(step: ObserveStep) -> str:
             ],
         )
     return step.vars[0]
+
+
+def continuous_object_widths(module: Module) -> dict[str, int]:
+    """Return name -> width for every ``Real N`` object declaration.
+
+    ``object State : Real 4`` names a value in R^4: a program with
+    that object in its domain is applied to a 4-wide vector, and a
+    morphism with it as codomain writes one. ``object Step : FinSet
+    64`` names an index axis instead, so it is absent here even
+    though
+    [`object_cardinalities`][quivers.transpile.lower.object_cardinalities]
+    records its 64. The other continuous constructors (``Simplex``,
+    ``Sphere``, ``Covariance``, ...) carry a support a plain real
+    vector does not describe, so they are absent as well and a caller
+    that needs them has to read the constructor itself.
+    """
+    out: dict[str, int] = {}
+    for stmt in module.statements:
+        if not isinstance(stmt, ObjectDecl):
+            continue
+        init = stmt.init
+        if not isinstance(init, TypeFromExpr):
+            continue
+        expr = init.expr
+        if not isinstance(expr, ContinuousConstructor):
+            continue
+        if expr.constructor != "Real" or len(expr.args) != 1:
+            continue
+        try:
+            width = int(expr.args[0])
+        except ValueError:
+            continue
+        for name in stmt.names:
+            out[name] = width
+    return out
+
+
+def object_factors(expr: ObjectExpr) -> tuple[ObjectExpr, ...]:
+    """Flatten a product object expression into its factors, in
+    source order. A non-product expression is its own single
+    factor."""
+    if isinstance(expr, ObjectProduct):
+        out: list[ObjectExpr] = []
+        for comp in expr.components:
+            out.extend(object_factors(comp))
+        return tuple(out)
+    return (expr,)
 
 
 def object_cardinalities(module: Module) -> dict[str, int]:
