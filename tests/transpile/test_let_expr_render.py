@@ -19,6 +19,8 @@ round-trip):
 
 from __future__ import annotations
 
+import re
+
 import quivers.transpile as _transpile
 from quivers.dsl.compiler.programs import _LET_EXPR_BUILTINS
 from quivers.dsl.ast_nodes.declarations import (
@@ -103,6 +105,28 @@ def _m_line(target: str, module: Module) -> str:
     raise AssertionError(msg)
 
 
+# The Julia backends materialise a scalar `let` across its plate with
+# `fill(<expr>, <width>)`, because the observation that reads `m` is
+# indexed over a 100-element object and Julia's `Normal` needs a
+# conforming vector mean. Those parentheses belong to a call, not to a
+# grouping, so the operand-grouping assertions strip the wrapper before
+# reading the expression.
+_BROADCAST_WRAPPER = re.compile(r"^fill\((?P<expr>.+),\s*\d+\)$")
+
+
+def _m_expr(target: str, module: Module) -> str:
+    """The right-hand side of the ``m`` binding, wrapper stripped.
+
+    Normalises the four assignment spellings (Stan / Python `=`,
+    BUGS / JAGS `<-`, WebPPL's trailing `;`) down to the expression the
+    renderer built for the `let` value.
+    """
+    line = _m_line(target, module)
+    rhs = line.replace("<-", "=", 1).partition("=")[2].strip().rstrip(";").strip()
+    wrapped = _BROADCAST_WRAPPER.match(rhs)
+    return wrapped.group("expr").strip() if wrapped else rhs
+
+
 # -- #52: nested arithmetic keeps its parentheses ----------------------
 
 
@@ -126,10 +150,14 @@ def test_unary_operand_binop_keeps_parens(target: str) -> None:
 
 @pytest.mark.parametrize("target", _ALL_TARGETS)
 def test_flat_operands_are_not_parenthesized(target: str) -> None:
-    """A non-nested operand is left bare: ``a + b`` gains no grouping."""
+    """A non-nested operand is left bare: ``a + b`` gains no grouping.
+
+    Neither operand is itself a compound expression, so the rendered
+    value must carry no parentheses at all.
+    """
     a, b = LetExprVar(name="a"), LetExprVar(name="b")
-    line = _m_line(target, _module(LetExprBinOp(op="+", left=a, right=b)))
-    assert "(a" not in line.replace("(a + b)", "").replace("(a+b)", ""), line
+    expr = _m_expr(target, _module(LetExprBinOp(op="+", left=a, right=b)))
+    assert "(" not in expr and ")" not in expr, expr
 
 
 # -- #53: builtin calls lower to the target's symbol -------------------

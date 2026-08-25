@@ -51,26 +51,87 @@ def _transpile_to_schema(target: str, source: str) -> panproto.Schema:
 # ---------------------------------------------------------------------------
 
 
+# Stan scores every QVR draw with an explicit `target += <family>_lpdf
+# / _lpmf(...)` increment rather than a `~` sampling statement. The two
+# spellings are not interchangeable: `~` silently drops every term Stan
+# judges constant with respect to the parameters, which discards
+# data-dependent normalisers (the binomial coefficient, the Weibull and
+# gamma log-normalising constants, the neg-binomial-2 term in
+# `total_count`). Those terms are exactly what the QVR measure counts,
+# so only the target-increment form reproduces the declared joint. The
+# structural assertions below therefore key off `target_statement` and
+# the `distr_expression` it wraps, and the distribution names carry the
+# `_lpdf` / `_lpmf` suffix that selects the density function.
+_STAN_DENSITY_NAMES = ["bernoulli_lpmf", "beta_lpdf"]
+
+
+def _stan_density_names(schema: panproto.Schema) -> list[str]:
+    """Sorted `<family>_lpdf` / `_lpmf` names of every density call.
+
+    The `name` field edge sits on the `distr_expression`, which the
+    enclosing `target_statement` carries as its only child.
+    """
+    return sorted(
+        _structural.literal_value(
+            schema, _structural.field_target(schema, d, "name")
+        ) or ""
+        for d in _structural.vertex_ids_of_kind(schema, "distr_expression")
+    )
+
+
 def test_stan_beta_bernoulli_block_layout() -> None:
     """Stan output has program > data + parameters + model with the
     expected child-statement counts."""
     schema = _transpile_to_schema("stan", _BETA_BERNOULLI)
-    _structural.assert_stan_beta_bernoulli(schema)
+    program = _structural.assert_unique_kind(schema, "program", 1)[0]
+    blocks = _structural.children_of(schema, program)
+    block_kinds = [_structural.vertex_kind(schema, b) for b in blocks]
+    for required in ("data", "parameters", "model"):
+        assert required in block_kinds, (
+            f"missing `{required}` block; got {block_kinds}"
+        )
+
+    [model_id] = [
+        b for b in blocks if _structural.vertex_kind(schema, b) == "model"
+    ]
+    stmts = [
+        c for c in _structural.children_of(schema, model_id)
+        if _structural.vertex_kind(schema, c) == "target_statement"
+    ]
+    assert len(stmts) == 2, (
+        f"expected one `target +=` increment per draw; got {len(stmts)}"
+    )
+    # No draw may be scored with `~`: that spelling drops the
+    # data-dependent normalisers the QVR measure counts.
+    assert not _structural.vertex_ids_of_kind(schema, "sampling_statement"), (
+        "Stan must score every draw with `target += ..._lpdf/_lpmf`, "
+        "never with a `~` sampling statement"
+    )
+
+    densities: list[str] = []
+    for stmt in stmts:
+        [distr] = [
+            d for d in _structural.children_of(schema, stmt)
+            if _structural.vertex_kind(schema, d) == "distr_expression"
+        ]
+        densities.append(
+            _structural.literal_value(
+                schema, _structural.field_target(schema, distr, "name")
+            ) or ""
+        )
+    densities.sort()
+    assert densities == _STAN_DENSITY_NAMES, (
+        f"expected density names {_STAN_DENSITY_NAMES}; got {densities}"
+    )
 
 
 def test_stan_distribution_names_correct() -> None:
-    """Each sampling_statement's `name` field targets an identifier
-    whose `literal-value` matches the Stan distribution name (no
-    typos, no case errors)."""
+    """Each `distr_expression`'s `name` field targets an identifier
+    whose `literal-value` matches the Stan density function (no typos,
+    no case errors, and the `_lpdf` / `_lpmf` suffix that the target
+    increment needs to select a density rather than a sampler)."""
     schema = _transpile_to_schema("stan", _BETA_BERNOULLI)
-    stmts = _structural.vertex_ids_of_kind(schema, "sampling_statement")
-    dist_names = sorted(
-        _structural.literal_value(
-            schema, _structural.field_target(schema, s, "name")
-        ) or ""
-        for s in stmts
-    )
-    assert dist_names == ["bernoulli", "beta"]
+    assert _stan_density_names(schema) == _STAN_DENSITY_NAMES
 
 
 # ---------------------------------------------------------------------------

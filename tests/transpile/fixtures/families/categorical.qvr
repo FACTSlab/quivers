@@ -1,9 +1,20 @@
 # Hand-written Categorical fixture (vector family).
+#
+# The observed `cls` site is what carries the family-support claim.
+# The `marginalize` block below draws on Categorical too, but a
+# marginalized latent is integrated out rather than declared, so on
+# every backend that lowers the integral to a weighted logsumexp the
+# emitted source names the weights (`log(probs)`) and never the family.
+# Naming the family there would take the *draw* lowering, which
+# denotes a measure on a strictly larger space than the QVR reference
+# integrates. The observed site keeps the matrix cell honest without
+# reaching for it.
 object Item : FinSet 8
 object Comp : FinSet 4
 program categorical_fixture : Item -> Item
     sample probs <- Dirichlet(concentration) [over=Comp]
-    marginalize cls : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]
+    observe cls : Item <- Categorical(probs)
+    marginalize z : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]
         observe r : Item <- Normal(0.0, 1.0) [via=idx]
     return probs
 export categorical_fixture

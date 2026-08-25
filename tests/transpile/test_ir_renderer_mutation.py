@@ -39,7 +39,6 @@ from quivers.transpile._pipeline import EmitPretty
 from quivers.transpile.ir import (
     IRArgNumber,
     IRDataInput,
-    IRDeterministic,
     IRObserve,
     IRProgram,
     IRSample,
