@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+import didactic.api as dx
+
 from quivers.dsl.ast_nodes import (
     LetExprBinOp,
     LetExprCall,
@@ -35,7 +37,11 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder
 from quivers.dsl.ast_nodes.objects import TypeName
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
+    DimStatic,
+    IRArg,
+    IRArgRef,
     IRDeterministic,
     IRMarginalize,
     IRNode,
@@ -43,6 +49,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRSample,
     IRScore,
+    Plate,
 )
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
@@ -70,6 +77,8 @@ class PyCtx:
         target: str = "python",
         name_event_rank: dict[str, int] | None = None,
         gather_symbol: tuple[str, ...] | None = None,
+        factor_towers: frozenset[str] | None = None,
+        name_plates: dict[str, Plate] | None = None,
     ) -> None:
         self._sb = sb
         self._n = 0
@@ -95,6 +104,17 @@ class PyCtx:
         # the backend's per-axis aggregator with an ``axis=-1`` (or
         # ``dim=-1``) keyword instead of the scalar Python builtin.
         self.name_event_rank: dict[str, int] = dict(name_event_rank or {})
+        # Names bound to a `LetExprFactor` tower. The tower is
+        # materialised as a nested Python list, one level per binder,
+        # so a subscript into it chains one index per level
+        # (``t[i][j]``) where a subscript into a numeric array would
+        # spell the same access as a single multi-index (``t[i, j]``).
+        self.factor_towers: frozenset[str] = factor_towers or frozenset()
+        # Per-name `Plate` read from the IR. The marginalize
+        # enumeration reads the batch dims to decide whether a weight
+        # tensor needs the observe's `via` gather, and the trailing
+        # event extent to size a `class_index` atom set.
+        self.name_plates: dict[str, Plate] = dict(name_plates or {})
         # Imports a lowered ``LetExprCall`` symbol requires, as
         # ``(dotted-chain, alias)`` pairs. Only NumPyro emits an import
         # block, so only it drains this; the other backends assume their
@@ -149,6 +169,23 @@ def number_literal(ctx: PyCtx, value: float) -> str:
     else:
         vid = ctx.v(ctx.fresh("flt"), "float")
         ctx.literal(vid, repr(float(value)))
+    return vid
+
+
+def float_literal(ctx: PyCtx, value: float) -> str:
+    """Emit a ``float`` vertex, keeping the decimal point on a whole
+    number.
+
+    [`number_literal`][quivers.transpile.renderers._python_helpers.number_literal]
+    prints a whole-valued float as an integer, which is the right
+    spelling almost everywhere. It is the wrong spelling for the value
+    that fills a real-valued tensor: `tf.fill` and `np.full` read the
+    fill value's own type, so `Dirichlet(1.0)` broadcast to a
+    concentration vector would build an integer tensor and TFP rejects
+    an integer concentration outright.
+    """
+    vid = ctx.v(ctx.fresh("flt"), "float")
+    ctx.literal(vid, repr(float(value)))
     return vid
 
 
@@ -552,7 +589,9 @@ def _resolve_python_call(ctx: PyCtx, func: str) -> str:
     return identifier(ctx, func)
 
 
-def _render_python_operand(ctx: PyCtx, expr: LetExprNode) -> str:
+def _render_python_operand(
+    ctx: PyCtx, expr: LetExprNode, *, index_slot: bool = False
+) -> str:
     """Render `expr` as an operand of a binary or unary operator.
 
     A nested [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] or
@@ -564,18 +603,58 @@ def _render_python_operand(ctx: PyCtx, expr: LetExprNode) -> str:
     as ``a + b * c`` and reassociate under Python's precedence. Wrapping
     every nested operator preserves the source grouping, matching the
     Stan and Julia renderers.
+
+    `index_slot` rides along so arithmetic inside a subscript
+    (``t[i + 1]``) keeps its integer spelling.
     """
-    vid = render_let_expr_python(ctx, expr)
+    vid = render_let_expr_python(ctx, expr, index_slot=index_slot)
     if isinstance(expr, (LetExprBinOp, LetExprUnaryOp)):
         return python_paren(ctx, vid)
     return vid
 
 
-def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
+def _is_factor_tower(ctx: PyCtx, expr: LetExprNode) -> bool:
+    """True iff `expr` denotes a `LetExprFactor` tower, so a subscript
+    into it chains one index per nesting level.
+
+    Either the expression is the factor itself, or it names a
+    deterministic bound to one (`PyCtx.factor_towers`, populated from
+    the IR by
+    [`factor_tower_names`][quivers.transpile.renderers._python_helpers.factor_tower_names]).
+    """
+    if isinstance(expr, LetExprFactor):
+        return True
+    return isinstance(expr, LetExprVar) and expr.name in ctx.factor_towers
+
+
+def render_let_expr_python(
+    ctx: PyCtx, expr: LetExprNode, *, index_slot: bool = False
+) -> str:
     """Recursively build a Python expression schema for `expr` in
     `ctx` (a [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx]).
-    Returns the root vertex id."""
+    Returns the root vertex id.
+
+    `index_slot` marks the subscript position. A
+    [`LetExprLiteral`][quivers.dsl.ast_nodes.LetExprLiteral] carries a
+    `float` payload, so a source-level index (`cell_score[0, 0]`) and
+    every index a factor unroll synthesises arrive as ``0.0``; Python
+    subscripts reject a float, so an index-slot literal emits as an
+    integer. A genuinely fractional index has no integer spelling and
+    raises instead.
+    """
     if isinstance(expr, LetExprLiteral):
+        if index_slot:
+            if not float(expr.value).is_integer():
+                raise UnsupportedConstruct(
+                    "qvr-python-helper",
+                    [
+                        f"let-expr:LetExprIndex: non-integral literal "
+                        f"index {expr.value!r}"
+                    ],
+                )
+            v = ctx.v(ctx.fresh("lit"), "integer")
+            ctx.literal(v, str(int(expr.value)))
+            return v
         v = ctx.v(ctx.fresh("lit"), "float" if "." in repr(expr.value) else "integer")
         ctx.literal(v, str(expr.value))
         return v
@@ -598,14 +677,26 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
         b = ctx.v(ctx.fresh("bop"), "binary_operator")
         ctx.constraint(b, "field:operator", expr.op)
         ctx.constraint(b, "chose-alt-fingerprint", expr.op)
-        ctx.e(b, _render_python_operand(ctx, expr.left), "left")
-        ctx.e(b, _render_python_operand(ctx, expr.right), "right")
+        ctx.e(
+            b,
+            _render_python_operand(ctx, expr.left, index_slot=index_slot),
+            "left",
+        )
+        ctx.e(
+            b,
+            _render_python_operand(ctx, expr.right, index_slot=index_slot),
+            "right",
+        )
         return b
     if isinstance(expr, LetExprUnaryOp):
         u = ctx.v(ctx.fresh("uop"), "unary_operator")
         ctx.constraint(u, "field:operator", "-")
         ctx.constraint(u, "chose-alt-fingerprint", "-")
-        ctx.e(u, _render_python_operand(ctx, expr.operand), "argument")
+        ctx.e(
+            u,
+            _render_python_operand(ctx, expr.operand, index_slot=index_slot),
+            "argument",
+        )
         return u
     if isinstance(expr, LetExprCall):
         fn = _resolve_python_call(ctx, expr.func)
@@ -651,10 +742,31 @@ def render_let_expr_python(ctx: PyCtx, expr: LetExprNode) -> str:
                     render_let_expr_python(ctx, expr.indices[0]),
                 ),
             )
+        array_vid = render_let_expr_python(ctx, expr.array)
+        if _is_factor_tower(ctx, expr.array):
+            # The tower is a nested Python list, one nesting level per
+            # binder, so each index consumes one level: `t[i][j]`. A
+            # flat multi-index would be a tuple subscript, which a list
+            # rejects.
+            current = array_vid
+            for idx in expr.indices:
+                s = ctx.v(ctx.fresh("subs"), "subscript")
+                ctx.e(s, current, "value")
+                ctx.e(
+                    s,
+                    render_let_expr_python(ctx, idx, index_slot=True),
+                    "subscript",
+                )
+                current = s
+            return current
         s = ctx.v(ctx.fresh("subs"), "subscript")
-        ctx.e(s, render_let_expr_python(ctx, expr.array), "value")
+        ctx.e(s, array_vid, "value")
         for idx in expr.indices:
-            ctx.e(s, render_let_expr_python(ctx, idx), "subscript")
+            ctx.e(
+                s,
+                render_let_expr_python(ctx, idx, index_slot=True),
+                "subscript",
+            )
         return s
     if isinstance(expr, LetExprList):
         lst = ctx.v(ctx.fresh("list"), "list")
@@ -784,6 +896,58 @@ def _walk_for_name_ranks(
             out[node.name] = 0
 
 
+def name_plate_map(ir: IRProgram) -> dict[str, Plate]:
+    """Map every IR-bound name to the [`Plate`][quivers.transpile.ir.Plate]
+    its binding site declares.
+
+    The marginalize lowering reads both halves: the batch dims decide
+    whether a weight tensor is fibred over the marginalize grouping
+    axis (and so needs the observe's `via` index to reach the
+    observation axis), and the trailing event extent supplies the
+    class count of a `class_index` atom set.
+    """
+    out: dict[str, Plate] = {}
+    for inp in ir.inputs:
+        out[inp.name] = inp.plate
+    _walk_for_name_plates(ir.body, out)
+    return out
+
+
+def _walk_for_name_plates(
+    body: tuple[IRNode, ...], out: dict[str, Plate]
+) -> None:
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+            out[node.name] = node.plate
+        elif isinstance(node, IRMarginalize):
+            out[node.latent] = node.plate
+            _walk_for_name_plates(node.scope, out)
+
+
+def factor_tower_names(ir: IRProgram) -> frozenset[str]:
+    """Names bound to a [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
+    tower anywhere in `ir`.
+
+    The Python renderers materialise a tower as a nested list literal,
+    so a subscript into one of these names chains a single index per
+    nesting level rather than spelling a flat multi-index.
+    """
+    out: set[str] = set()
+    _walk_for_factor_towers(ir.body, out)
+    return frozenset(out)
+
+
+def _walk_for_factor_towers(
+    body: tuple[IRNode, ...], out: set[str]
+) -> None:
+    for node in body:
+        if isinstance(node, IRDeterministic):
+            if isinstance(node.expr, LetExprFactor):
+                out.add(node.name)
+        elif isinstance(node, IRMarginalize):
+            _walk_for_factor_towers(node.scope, out)
+
+
 def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:
     """Unroll a `LetExprFactor` into a Python list literal.
 
@@ -888,6 +1052,271 @@ def _build_nested_python(
     return _emit_python_list(ctx, items)
 
 
+# ---------------------------------------------------------------------------
+# Marginalize: the IR-level analysis every Python backend's
+# enumeration reads before it emits.
+# ---------------------------------------------------------------------------
+
+
+class MarginalizeBody(dx.Model):
+    """The scope shape a Python-family `marginalize` lowering accepts.
+
+    Every Python backend integrates the latent by scoring the scope
+    once per atom of its finite support and reducing the per-atom
+    log-densities with `logsumexp`. That reduction has a closed form
+    only when the scope carries exactly one density-bearing site, so
+    the accepted shape is a run of deterministic bindings followed by
+    a single [`IRObserve`][quivers.transpile.ir.IRObserve]. The
+    deterministics are re-emitted once per atom, each time under the
+    same names, so the observe that follows reads that atom's values.
+    """
+
+    deterministics: tuple[IRDeterministic, ...]
+    observe: IRObserve
+
+
+def marginalize_body(
+    scope: tuple[IRNode, ...], *, latent: str, target: str
+) -> MarginalizeBody:
+    """Split a marginalize scope into its deterministic prefix and its
+    single observe.
+
+    Called both on the raw
+    [`IRMarginalize.scope`][quivers.transpile.ir.IRMarginalize] and on
+    each atom's substituted copy, which share their node order.
+
+    Raises `UnsupportedConstruct` with a `marginalize:` kind when the
+    scope carries a nested latent, more than one observe, or a
+    deterministic after the observe. Emitting a live draw in place of
+    the integral would denote a measure on a strictly larger space
+    than the QVR reference integrates, so there is no correct code to
+    emit for a scope this lowering cannot reduce.
+    """
+    deterministics: list[IRDeterministic] = []
+    observe: IRObserve | None = None
+    for child in scope:
+        if isinstance(child, IRDeterministic):
+            if observe is not None:
+                raise UnsupportedConstruct(
+                    f"qvr-{target}",
+                    [
+                        f"marginalize:scope-order:{latent}: a "
+                        f"deterministic binding follows the observed "
+                        f"site, so the atoms cannot be scored in one "
+                        f"pass"
+                    ],
+                )
+            deterministics.append(child)
+            continue
+        if isinstance(child, IRObserve):
+            if observe is not None:
+                raise UnsupportedConstruct(
+                    f"qvr-{target}",
+                    [
+                        f"marginalize:multi-observe:{latent}: the "
+                        f"scope carries more than one observed site"
+                    ],
+                )
+            observe = child
+            continue
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:scope:{type(child).__name__}: only "
+                f"deterministic bindings and one observed site reduce "
+                f"to a finite mixture"
+            ],
+        )
+    if observe is None:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:no-observe:{latent}: the scope "
+                f"carries no observed site to weight the atoms against"
+            ],
+        )
+    return MarginalizeBody(
+        deterministics=tuple(deterministics), observe=observe
+    )
+
+
+def marginal_support_size(
+    node: IRMarginalize, *, name_plates: dict[str, Plate]
+) -> int | None:
+    """Class count of a `class_index` atom set, or `None` when the
+    call site does not pin it.
+
+    The count is the trailing event extent of the family's probability
+    argument: `Categorical(theta)` over a `theta` declared
+    ``[over=Topic]`` enumerates ``|Topic|`` atoms. A `binary` atom set
+    carries its own size and ignores this.
+    """
+    meta = FAMILY_META.get(node.family)
+    if meta is None:
+        return None
+    support = marginalize_support(meta)
+    if support is None or support.size is not None:
+        return None
+    probs = _named_arg(node.args, node.arg_names, support.weight_arg)
+    if not isinstance(probs, IRArgRef):
+        return None
+    plate = name_plates.get(probs.name)
+    if plate is None:
+        return None
+    residual = plate.event_dims[len(probs.indices) :]
+    if not residual:
+        return None
+    trailing = residual[-1]
+    return trailing.size if isinstance(trailing, DimStatic) else None
+
+
+def marginal_weight_probs(
+    node: IRMarginalize,
+    observe: IRObserve,
+    weight_args: tuple[IRArg, ...],
+    weight_arg_names: tuple[str, ...],
+    *,
+    name_plates: dict[str, Plate],
+    target: str,
+) -> IRArg:
+    """The probability tensor weighting the atoms, aligned to the axis
+    the observed site is fibred over.
+
+    A weight tensor allocated per grouping row (LDA's per-document
+    `theta`) has to be gathered through the observe's `via` fibration
+    before it can be added to a per-observation log-density; a weight
+    tensor shared across the whole grouping plate (a single simplex
+    over the latent's classes) broadcasts as it stands and must not be
+    gathered, since its only axis is the class axis.
+    """
+    meta = FAMILY_META.get(node.family)
+    if meta is None:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [f"family:unknown:{node.family}"],
+        )
+    support = marginalize_support(meta)
+    if support is None:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [f"marginalize:non-finite-support:{node.family}"],
+        )
+    probs = _named_arg(weight_args, weight_arg_names, support.weight_arg)
+    if observe.via is None:
+        return probs
+    if not node.plate.batch_dims:
+        return probs
+    if observe.plate.batch_dims == node.plate.batch_dims:
+        return probs
+    if not isinstance(probs, IRArgRef):
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:via-weight:{node.latent}: the atom "
+                f"weights are a computed expression, so the "
+                f"{observe.via!r} fibration has no index position to "
+                f"gather them through"
+            ],
+        )
+    weight_plate = name_plates.get(probs.name)
+    if (
+        weight_plate is None
+        or weight_plate.batch_dims != node.plate.batch_dims
+    ):
+        return probs
+    return IRArgRef(
+        name=probs.name,
+        indices=(IRArgRef(name=observe.via), *probs.indices),
+    )
+
+
+def marginal_atom_axis(
+    family: str, arg_names: tuple[str, ...], *, target: str
+) -> int:
+    """Negative axis along which one atom's distribution arguments
+    stack into the batched component distribution.
+
+    The atom axis is the innermost *batch* axis, so it sits just
+    inside whatever trailing axes the family's arguments carry as
+    their own event shape: a `Poisson` rate is scalar-per-row and
+    stacks at ``-1``, a `Categorical` probability vector carries the
+    class axis and stacks at ``-2``. The trailing rank comes from the
+    torch `arg_constraints` entry of each argument the call site
+    names.
+    """
+    meta = FAMILY_META.get(family)
+    if meta is None:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [f"family:unknown:{family}"],
+        )
+    constraints = meta.distribution_class.arg_constraints
+    if not isinstance(constraints, dict):
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:atom-axis:{family}: the family declares "
+                f"`arg_constraints` as a property rather than a "
+                f"class-level table, so an argument's trailing rank is "
+                f"not known before the call is built"
+            ],
+        )
+    ranks: set[int] = set()
+    for name in arg_names:
+        constraint = constraints.get(name)
+        if constraint is None:
+            raise UnsupportedConstruct(
+                f"qvr-{target}",
+                [
+                    f"marginalize:atom-axis:{family}: argument "
+                    f"{name!r} is not declared in the family's "
+                    f"`arg_constraints`"
+                ],
+            )
+        ranks.add(int(constraint.event_dim))
+    if len(ranks) > 1:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:atom-axis:{family}: the call site's "
+                f"arguments carry different trailing ranks "
+                f"{sorted(ranks)!r}, so no single axis stacks them"
+            ],
+        )
+    return -(1 + (ranks.pop() if ranks else 0))
+
+
+def _named_arg(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...], wanted: str
+) -> IRArg:
+    """The argument bound to `wanted`, positionally paired with
+    `arg_names`."""
+    for name, arg in zip(arg_names, args, strict=True):
+        if name == wanted:
+            return arg
+    raise UnsupportedConstruct(
+        "qvr-python-helper",
+        [
+            f"marginalize:missing-probability-argument:{wanted}: the "
+            f"call site names no {wanted!r} argument"
+        ],
+    )
+
+
+def python_list(ctx: PyCtx, items: tuple[str, ...]) -> str:
+    """Emit a Python list literal ``[e0, e1, ...]``."""
+    return _emit_python_list(ctx, items)
+
+
+def subscript(ctx: PyCtx, value: str, indices: tuple[str, ...]) -> str:
+    """Build ``<value>[<i0>, <i1>, ...]``."""
+    s = ctx.v(ctx.fresh("subs"), "subscript")
+    ctx.e(s, value, "value")
+    for idx in indices:
+        ctx.e(s, idx, "subscript")
+    return s
+
+
 def shape_tuple(ctx: PyCtx, shape: tuple[int, ...]) -> str:
     """Build a Python ``tuple`` node from an integer shape.
 
@@ -930,20 +1359,31 @@ def shape_tuple(ctx: PyCtx, shape: tuple[int, ...]) -> str:
 
 
 __all__ = [
+    "MarginalizeBody",
     "PyCtx",
     "arg_expr",
     "assignment",
     "attribute",
     "call",
+    "factor_tower_names",
+    "float_literal",
     "function_def",
     "identifier",
+    "marginal_atom_axis",
+    "marginal_support_size",
+    "marginal_weight_probs",
+    "marginalize_body",
+    "name_event_rank_map",
+    "name_plate_map",
     "number_literal",
     "python_binary_op",
+    "python_list",
     "python_method_call",
     "python_paren",
     "python_unary_minus",
     "render_let_expr_python",
     "shape_tuple",
     "string_literal",
+    "subscript",
     "with_statement",
 ]

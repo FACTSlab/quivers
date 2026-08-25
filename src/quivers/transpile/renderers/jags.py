@@ -83,10 +83,13 @@ from quivers.transpile.ir import (
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
     build_decl_plates,
+    factor_axis_sizes,
+    factor_cells,
     half_support_truncation,
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
+    split_event_dims,
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
@@ -408,7 +411,9 @@ class JAGSRenderer(RendererBase):
             ),
         )
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        return render_let_expr_bugs(let_ctx, rep_expr)
+        return render_let_expr_bugs(
+            let_ctx, rep_expr, decl_plates=ctx.decl_plates,
+        )
 
     def _broadcast_scalar_args(
         self,
@@ -553,6 +558,9 @@ class JAGSRenderer(RendererBase):
             )
             return
         if isinstance(node, IRDeterministic):
+            if isinstance(node.expr, LetExprFactor):
+                self._emit_factor_deterministic(ctx, node)
+                return
             self._emit_deterministic(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -676,7 +684,9 @@ class JAGSRenderer(RendererBase):
         )
         ctx.sb.edge(kij, lhs_kij, "variable")
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        kij_rhs = render_let_expr_bugs(let_ctx, rbf_entry_expr)
+        kij_rhs = render_let_expr_bugs(
+            let_ctx, rbf_entry_expr, decl_plates=ctx.decl_plates,
+        )
         ctx.sb.edge(kij, kij_rhs, "value")
         # for (j in 1:N) { K[i, j] <- ... }
         inner_dim = DimStatic(size=n, name="j")
@@ -692,6 +702,7 @@ class JAGSRenderer(RendererBase):
         ctx.sb.edge(zi, lhs_zi, "variable")
         zi_rhs = render_let_expr_bugs(
             let_ctx, LetExprLiteral(value=0.0),
+            decl_plates=ctx.decl_plates,
         )
         ctx.sb.edge(zi, zi_rhs, "value")
         # Build the outer i-block: { zeros[i] <- 0; <inner_loop> }
@@ -730,6 +741,7 @@ class JAGSRenderer(RendererBase):
                 func="inverse",
                 args=(LetExprVar(name=kmat_name),),
             ),
+            decl_plates=ctx.decl_plates,
         )
         ctx.sb.edge(tau_dr, tau_rhs, "value")
         if ctx.current_block is not None:
@@ -905,15 +917,39 @@ class JAGSRenderer(RendererBase):
         if family in _APPEND_DF_ONE:
             renamed_pairs.append(("df", IRArgNumber(value=1.0)))
 
+        # Split the site's event dims into the family's own event
+        # shape and the residual axes that merely replicate it. A
+        # scalar family carrying an `over=` axis is all residual, and
+        # JAGS has no vector form for a scalar family, so each
+        # residual axis becomes an extra innermost loop rather than a
+        # slice on the left-hand side.
+        native_event, residual_event = split_event_dims(
+            plate.event_dims, meta.event_rank
+        )
+
         # Compute loop var names. The observation-plate convention is to
         # use the canonical `n` when `via` is set and the plate has a
         # single dynamic dim.
-        if via is not None and len(plate.batch_dims) == 1:
-            loop_var_names: tuple[str, ...] = ("n",)
+        if (
+            via is not None
+            and len(plate.batch_dims) == 1
+            and not residual_event
+        ):
+            batch_loop_names: tuple[str, ...] = ("n",)
         else:
-            loop_var_names = tuple(
+            batch_loop_names = tuple(
                 f"m_{_dim_name(dim)}" for dim in plate.batch_dims
             )
+        residual_loop_names = _fresh_loop_names(
+            batch_loop_names, residual_event
+        )
+        loop_var_names: tuple[str, ...] = (
+            *batch_loop_names, *residual_loop_names
+        )
+        loop_dims: tuple[Dim, ...] = (*plate.batch_dims, *residual_event)
+        lhs_plate = Plate(
+            event_dims=native_event, batch_dims=loop_dims
+        )
 
         # Build the axis-to-loop-var map for this sample's surrounding
         # plate. `_rewrite_arg` uses this to choose the right loop var
@@ -922,7 +958,7 @@ class JAGSRenderer(RendererBase):
         # original axis so a sample on the renamed plate can index
         # latents bound on the original.
         axis_to_lv: dict[str, str] = {}
-        for dim, lv in zip(plate.batch_dims, loop_var_names, strict=False):
+        for dim, lv in zip(loop_dims, loop_var_names, strict=True):
             renamed = _dim_name(dim)
             axis_to_lv[renamed] = lv
             original = ctx.axis_aliases.get(renamed)
@@ -934,7 +970,7 @@ class JAGSRenderer(RendererBase):
         # latent. The rewrite is idempotent on its output by construction
         # (the appended event-range sentinels are not themselves latents).
         rewritten_args = tuple(
-            (n, _rewrite_arg(ctx, a, loop_var_names, axis_to_lv, via))
+            (n, _rewrite_arg(ctx, a, batch_loop_names, axis_to_lv, via))
             for n, a in renamed_pairs
         )
 
@@ -943,12 +979,12 @@ class JAGSRenderer(RendererBase):
             lhs_name=name,
             target_dist=target_name,
             renamed_pairs=rewritten_args,
-            plate=plate,
+            plate=lhs_plate,
             loop_vars=loop_var_names,
             truncation_bounds=truncation_bounds,
             axis_to_lv=axis_to_lv,
             via=via,
-            loop_var_names=loop_var_names,
+            loop_var_names=batch_loop_names,
         )
 
         for dim in plate.batch_dims:
@@ -968,11 +1004,13 @@ class JAGSRenderer(RendererBase):
 
         override_var = (
             "n"
-            if via is not None and len(plate.batch_dims) == 1
+            if via is not None
+            and len(plate.batch_dims) == 1
+            and not residual_event
             else None
         )
         wrapped = self._wrap_in_for_loops(
-            ctx, sr, plate.batch_dims, override_var=override_var
+            ctx, sr, loop_dims, override_var=override_var
         )
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, wrapped, "child_of")
@@ -1627,6 +1665,134 @@ class JAGSRenderer(RendererBase):
     # Deterministic / score emission
     # ------------------------------------------------------------------
 
+    def _emit_factor_deterministic(
+        self, ctx: _JAGSCtx, node: IRDeterministic
+    ) -> None:
+        """Emit a `factor` binding as one relation per cell.
+
+        A rank-`n` factor denotes a rank-`n` tensor of scalar cells.
+        JAGS has no array literal beyond the flat `c(...)` combine and
+        no reshape to give one a rank, so the tensor is written out
+        cell by cell: `<name>[i_1, ..., i_n] <- <body>` with every
+        binder substituted by its coordinate. The cells are already
+        enumerated, so no surrounding loop is emitted.
+        """
+        expr = node.expr
+        if not isinstance(expr, LetExprFactor):
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [f"let-expr:factor:expected-factor:{node.name}"],
+            )
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        sizes = factor_axis_sizes(let_ctx, expr)
+        self._check_factor_plate(node, sizes)
+        for indices, body in factor_cells(let_ctx, expr):
+            dr = _fresh(ctx, "dr", "deterministic_relation")
+            ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
+            ctx.sb.constraint(dr, "ptrace-0", "Cindexed_variable")
+            ctx.sb.constraint(dr, "ptrace-1", "T<-")
+            lhs = self._literal_indexed_variable(ctx, node.name, indices)
+            ctx.sb.edge(dr, lhs, "variable")
+            ctx.sb.edge(
+                dr,
+                render_let_expr_bugs(
+                    let_ctx, body, decl_plates=ctx.decl_plates,
+                ),
+                "value",
+            )
+            if ctx.current_block is not None:
+                ctx.sb.edge(ctx.current_block, dr, "child_of")
+                ctx.block_children.setdefault(
+                    ctx.current_block, []
+                ).append(_block_child_kind(ctx, dr))
+        self._register_deterministic_plate(ctx, node)
+
+    def _check_factor_plate(
+        self, node: IRDeterministic, sizes: tuple[int, ...]
+    ) -> None:
+        """Assert the factor's binder axes are exactly the binding's
+        plate, so the per-cell subscripts address the whole node."""
+        if node.plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"let-expr:LetExprFactor:{node.name}: a factor "
+                    f"binds a tensor of scalar cells, so its plate "
+                    f"carries no event axis, but this one declares "
+                    f"{len(node.plate.event_dims)}"
+                ],
+            )
+        declared = tuple(
+            dim.size if isinstance(dim, DimStatic) else None
+            for dim in node.plate.batch_dims
+        )
+        if declared != sizes:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"let-expr:LetExprFactor:{node.name}: binder axes "
+                    f"{sizes} do not match the binding's declared "
+                    f"plate {declared}"
+                ],
+            )
+
+    def _literal_indexed_variable(
+        self, ctx: _JAGSCtx, name: str, indices: tuple[int, ...]
+    ) -> str:
+        """``name[i_0 + 1, i_1 + 1, ...]`` from zero-based coordinates."""
+        iv = _fresh(ctx, "iv", "indexed_variable")
+        ctx.sb.constraint(iv, "chose-alt-fingerprint", "[ ]")
+        ctx.sb.constraint(
+            iv, "chose-alt-child-kinds", "identifier index_list"
+        )
+        ctx.sb.constraint(iv, "ptrace-0", "Cidentifier")
+        ctx.sb.constraint(iv, "ptrace-1", "T[")
+        ctx.sb.constraint(iv, "ptrace-2", "Cindex_list")
+        ctx.sb.constraint(iv, "ptrace-3", "T]")
+        ctx.sb.edge(iv, _identifier(ctx, name), "name")
+        idx_list = _fresh(ctx, "il", "index_list")
+        ptrace_idx = 0
+        fingerprint_parts: list[str] = []
+        children: list[str] = []
+        for position, value in enumerate(indices):
+            children.append(_number(ctx, float(value + 1)))
+            ctx.sb.constraint(idx_list, f"ptrace-{ptrace_idx}", "Cnumber")
+            ptrace_idx += 1
+            if position < len(indices) - 1:
+                ctx.sb.constraint(idx_list, f"ptrace-{ptrace_idx}", "T,")
+                ptrace_idx += 1
+                fingerprint_parts.append(",")
+        ctx.sb.constraint(
+            idx_list,
+            "chose-alt-fingerprint",
+            " ".join(fingerprint_parts) if fingerprint_parts else "",
+        )
+        ctx.sb.constraint(
+            idx_list,
+            "chose-alt-child-kinds",
+            " ".join("number" for _ in indices),
+        )
+        for child in children:
+            ctx.sb.edge(idx_list, child, "child_of")
+        ctx.sb.edge(iv, idx_list, "indices")
+        return iv
+
+    def _register_deterministic_plate(
+        self, ctx: _JAGSCtx, node: IRDeterministic
+    ) -> None:
+        """Record a deterministic binding's plate so downstream
+        `IRArgRef` references thread the right loop variable."""
+        if not node.plate.batch_dims:
+            return
+        axes = tuple(_dim_name(d) for d in node.plate.batch_dims)
+        ctx.latent_plate_info[node.name] = (
+            f"m_{axes[-1]}",
+            node.plate.event_dims,
+            axes,
+        )
+        for dim in node.plate.batch_dims:
+            ctx.emitted_plate_names.add(_dim_name(dim))
+
     def _emit_deterministic(
         self, ctx: _JAGSCtx, node: IRDeterministic
     ) -> None:
@@ -1653,10 +1819,10 @@ class JAGSRenderer(RendererBase):
         dr = _fresh(ctx, "dr", "deterministic_relation")
         ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
         ctx.sb.constraint(dr, "ptrace-1", "T<-")
-        if loop_var_names:
+        if loop_var_names or node.plate.event_dims:
             ctx.sb.constraint(dr, "ptrace-0", "Cindexed_variable")
             lhs = self._indexed_variable(
-                ctx, node.name, loop_var_names, ()
+                ctx, node.name, loop_var_names, node.plate.event_dims
             )
         else:
             ctx.sb.constraint(dr, "ptrace-0", "Cidentifier")
@@ -1666,7 +1832,9 @@ class JAGSRenderer(RendererBase):
             node.expr, ctx.decl_plates, node.plate, loop_var_names
         )
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        val = render_let_expr_bugs(let_ctx, rewritten)
+        val = render_let_expr_bugs(
+            let_ctx, rewritten, decl_plates=ctx.decl_plates,
+        )
         ctx.sb.edge(dr, val, "value")
         wrapped = self._wrap_in_for_loops(
             ctx, dr, node.plate.batch_dims, override_var=None
@@ -1740,7 +1908,9 @@ class JAGSRenderer(RendererBase):
         # score expression itself contains a `+` / `-` operator.
         offset_id = _number(ctx, _ZEROS_TRICK_OFFSET)
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        inner_expr_id = render_let_expr_bugs(let_ctx, node.expr)
+        inner_expr_id = render_let_expr_bugs(
+            let_ctx, node.expr, decl_plates=ctx.decl_plates,
+        )
         # JAGS `_parenthesized` requires the child's grammar kind; the
         # score expression's outer kind is the BUGS-helper's emit, which
         # is `binary_expression` for a binop RHS and `identifier` for a
@@ -2098,6 +2268,28 @@ class _JagsLetCtx:
     def constraint(self, vid: str, sort: str, value: str) -> None:
         self._ctx.sb.constraint(vid, sort, value)
 
+    def range_1_to(self, upper: str) -> str:
+        """Build the `1:<upper>` range vertex the JAGS grammar wants."""
+        rng = _fresh(self._ctx, "rng", "range")
+        self._ctx.sb.constraint(rng, "chose-alt-fingerprint", ":")
+        is_static = upper.lstrip("-").isdigit()
+        upper_kind = "number" if is_static else "identifier"
+        self._ctx.sb.constraint(
+            rng, "chose-alt-child-kinds", f"number {upper_kind}"
+        )
+        self._ctx.sb.constraint(rng, "ptrace-0", "Cnumber")
+        self._ctx.sb.constraint(rng, "ptrace-1", "T:")
+        self._ctx.sb.constraint(rng, "ptrace-2", f"C{upper_kind}")
+        lo = _number(self._ctx, 1)
+        hi = (
+            _number(self._ctx, float(upper))
+            if is_static
+            else _identifier(self._ctx, upper)
+        )
+        self._ctx.sb.edge(rng, lo, "lower")
+        self._ctx.sb.edge(rng, hi, "upper")
+        return rng
+
 
 def _jags_let_ctx(ctx: _JAGSCtx, cards: dict[str, int]) -> _JagsLetCtx:
     """Construct a `_JagsLetCtx` bound to `ctx` and `cards`."""
@@ -2167,6 +2359,30 @@ def _event_range_ir(dim: object) -> IRArg:
     raise UnsupportedConstruct(
         f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"]
     )
+
+
+def _fresh_loop_names(
+    taken: tuple[str, ...], dims: tuple[Dim, ...]
+) -> tuple[str, ...]:
+    """Name one loop variable per dim, avoiding every name in `taken`.
+
+    A residual event axis can repeat an axis already iterated by the
+    site's batch plate (a square row-stochastic matrix names the same
+    object on both sides), and two `for` loops over the same variable
+    name would silently alias, so a repeat gets a numeric suffix.
+    """
+    used = set(taken)
+    out: list[str] = []
+    for dim in dims:
+        base = f"m_{_dim_name(dim)}"
+        candidate = base
+        suffix = 1
+        while candidate in used:
+            suffix += 1
+            candidate = f"{base}_{suffix}"
+        used.add(candidate)
+        out.append(candidate)
+    return tuple(out)
 
 
 def _dim_name(dim: object) -> str:

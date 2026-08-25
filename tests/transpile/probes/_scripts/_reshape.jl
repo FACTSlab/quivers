@@ -94,6 +94,63 @@ function reshape_point(pt, shapes::Dict, dtypes::Dict)
     return out
 end
 
+# `reshape_value` returns a nested `Vector` of `Vector`s for a rank >= 2
+# name, which is the shape a JSON payload naturally rebuilds into but
+# not one Distributions.jl or Gen accepts. `native_array` projects that
+# nesting onto a dense `Array{T,N}` with the same axis order. Julia is
+# column-major and the wire payload is row-major, so the leaves reshape
+# against the reversed dimension list and then permute back.
+function nested_shape(value)
+    dims = Int[]
+    cur = value
+    while cur isa AbstractArray
+        push!(dims, length(cur))
+        isempty(cur) && break
+        cur = first(cur)
+    end
+    return dims
+end
+
+function _collect_leaves!(out, value)
+    if value isa AbstractArray
+        for x in value
+            _collect_leaves!(out, x)
+        end
+    else
+        push!(out, value)
+    end
+    return out
+end
+
+function nested_leaves(value)
+    return _collect_leaves!(Any[], value)
+end
+
+function native_array(value)
+    if !(value isa AbstractArray)
+        if value isa Integer
+            return Int(value)
+        elseif value isa Real
+            return Float64(value)
+        end
+        return value
+    end
+    if ndims(value) > 1
+        # Already a dense multi-dimensional array; only the element
+        # type needs projecting.
+        elt = all(x -> x isa Integer, value) ? Int : Float64
+        return Array{elt}(value)
+    end
+    dims = nested_shape(value)
+    leaves = nested_leaves(value)
+    elt = all(x -> x isa Integer, leaves) ? Int : Float64
+    typed = elt[elt(x) for x in leaves]
+    length(dims) <= 1 && return typed
+    return permutedims(
+        reshape(typed, reverse(dims)...), collect(length(dims):-1:1),
+    )
+end
+
 # The Julia targets (Turing, Gen) index arrays from 1, but the gallery
 # covariates count from 0. `index_input_names` finds every int-dtyped
 # name the source subscripts (`[name`); `shift_index_inputs` lifts

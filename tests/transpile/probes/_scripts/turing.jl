@@ -17,36 +17,15 @@ using Turing, Distributions, LinearAlgebra, JSON3
 
 include("/io/_reshape.jl")
 
-# Coerce a reshaped value (already at the declared multi-dim shape
-# and dtype per `/io/shapes.json`) into the native Julia container
-# Distributions.jl / Turing.logjoint expect: `Vector{Float64}` for
-# 1D, `Matrix{Float64}` for 2D, etc. The reshape helper returns
-# `Array{Any}` for ndims > 1; project to the concrete Float64 array.
-function _coerce_value(v)
-    if v isa AbstractArray
-        if ndims(v) == 1
-            if all(x -> x isa Integer, v)
-                return [Int(x) for x in v]
-            end
-            return [Float64(x) for x in v]
-        end
-        if all(row -> all(x -> x isa Integer, row), v)
-            return Array{Int}(reduce(hcat, [[Int(x) for x in row]
-                                            for row in v])')
-        end
-        return Array{Float64}(reduce(hcat, [[Float64(x) for x in row]
-                                            for row in v])')
-    elseif v isa Integer
-        return v
-    elseif v isa Real
-        return Float64(v)
-    else
-        return v
-    end
-end
-
+# `native_array` (from `_reshape.jl`) coerces a reshaped value into
+# the native Julia container Distributions.jl / Turing.logjoint expect:
+# `Vector{Float64}` for rank 1, `Matrix{Float64}` for rank 2, and an
+# `Array{Float64,N}` for anything deeper. `reshape_value` hands back a
+# nested vector rather than a multi-dimensional array, whose `ndims` is
+# 1 whatever its true rank, so the projection reads the leaves rather
+# than dispatching on `ndims`.
 function _coerce_nt(d)
-    pairs = Tuple((Symbol(k), _coerce_value(v)) for (k, v) in d)
+    pairs = Tuple((Symbol(k), native_array(v)) for (k, v) in d)
     return NamedTuple{Tuple(p[1] for p in pairs)}(Tuple(p[2] for p in pairs))
 end
 
@@ -72,7 +51,7 @@ function main()
         # Pass observed values as positional args (sorted by name to
         # match the python harness's convention).
         sorted_keys = sort(collect(keys(data)))
-        args = Tuple(_coerce_value(data[k]) for k in sorted_keys)
+        args = Tuple(native_array(data[k]) for k in sorted_keys)
         model_instance = Base.invokelatest(Main.model, args...)
         theta = _coerce_nt(params)
         lp = Base.invokelatest(Turing.logjoint, model_instance, theta)

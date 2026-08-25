@@ -67,6 +67,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
     LetExprCall,
+    LetExprFactor,
     LetExprIndex,
     LetExprLiteral,
     LetExprUnaryOp,
@@ -110,10 +111,13 @@ from quivers.transpile.renderers._base import (
 )
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
+    factor_axis_sizes,
+    factor_cells,
     half_support_truncation,
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
+    split_event_dims,
 )
 
 
@@ -152,6 +156,23 @@ class _BugsLetCtx:
 
     def constraint(self, vid: str, sort: str, value: str) -> None:
         self._sb.constraint(vid, sort, value)
+
+    def range_1_to(self, upper: str) -> str:
+        """Build the `1:<upper>` range vertex the BUGS grammar wants."""
+        rng_id = self._fresh_fn("rng")
+        self._sb.vertex(rng_id, "range")
+        lo_id = self._fresh_fn("num")
+        self._sb.vertex(lo_id, "number")
+        self._sb.constraint(lo_id, "literal-value", "1")
+        self._sb.edge(rng_id, lo_id, "lower")
+        hi_id = self._fresh_fn("num")
+        self._sb.vertex(
+            hi_id,
+            "number" if upper.lstrip("-").isdigit() else "identifier",
+        )
+        self._sb.constraint(hi_id, "literal-value", upper)
+        self._sb.edge(rng_id, hi_id, "upper")
+        return rng_id
 
 
 #: Per-renderer alias-transform table. Keys are the *renamed* arg
@@ -327,6 +348,9 @@ class BUGSRenderer(RendererBase):
             self._emit_observe_node(ctx, node)
             return
         if isinstance(node, IRDeterministic):
+            if isinstance(node.expr, LetExprFactor):
+                self._emit_factor_deterministic_node(ctx, node)
+                return
             self._emit_deterministic_node(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -821,6 +845,81 @@ class BUGSRenderer(RendererBase):
         )
         self._emit_sample_node(ctx, mvn_sample, loop_suffix="")
 
+    def _emit_factor_deterministic_node(
+        self, ctx: _BugsCtx, node: IRDeterministic
+    ) -> None:
+        """Emit a `factor` binding as one relation per cell.
+
+        A rank-`n` factor denotes a rank-`n` tensor of scalar cells.
+        BUGS has no array literal beyond the flat `c(...)` combine and
+        no reshape to give one a rank, so the tensor is written out
+        cell by cell: `<name>[i_1, ..., i_n] <- <body>` with every
+        binder substituted by its coordinate. The cells are already
+        enumerated, so no surrounding loop is emitted.
+        """
+        expr = node.expr
+        if not isinstance(expr, LetExprFactor):
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [f"let-expr:factor:expected-factor:{node.name}"],
+            )
+        let_ctx = _BugsLetCtx(
+            ctx.sb,
+            lambda p: self._fresh(ctx, p),
+            self._cards,
+            self.target,
+        )
+        self._check_factor_plate(node, factor_axis_sizes(let_ctx, expr))
+        for indices, body in factor_cells(let_ctx, expr):
+            dr_id = self._fresh(ctx, "dr")
+            ctx.sb.vertex(dr_id, "deterministic_relation")
+            ctx.sb.edge(ctx.block_id, dr_id, "deterministic_relation")
+            lhs_id = self._emit_indexed_from_pieces(
+                ctx,
+                node.name,
+                tuple(
+                    _IndexPiece.number(str(value + 1)) for value in indices
+                ),
+                (),
+            )
+            ctx.sb.edge(dr_id, lhs_id, "variable")
+            ctx.sb.edge(
+                dr_id,
+                render_let_expr_bugs(
+                    let_ctx, body, decl_plates=ctx.decl_plates,
+                ),
+                "value",
+            )
+
+    def _check_factor_plate(
+        self, node: IRDeterministic, sizes: tuple[int, ...]
+    ) -> None:
+        """Assert the factor's binder axes are exactly the binding's
+        plate, so the per-cell subscripts address the whole node."""
+        if node.plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"let-expr:LetExprFactor:{node.name}: a factor "
+                    f"binds a tensor of scalar cells, so its plate "
+                    f"carries no event axis, but this one declares "
+                    f"{len(node.plate.event_dims)}"
+                ],
+            )
+        declared = tuple(
+            dim.size if isinstance(dim, DimStatic) else None
+            for dim in node.plate.batch_dims
+        )
+        if declared != sizes:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"let-expr:LetExprFactor:{node.name}: binder axes "
+                    f"{sizes} do not match the binding's declared "
+                    f"plate {declared}"
+                ],
+            )
+
     def _emit_deterministic_node(self, ctx: _BugsCtx, node: IRDeterministic) -> None:
         """Emit a BUGS deterministic relation ``<name> <- <expr>``.
 
@@ -862,7 +961,9 @@ class BUGSRenderer(RendererBase):
                 self._cards,
                 self.target,
             )
-            rhs_id = render_let_expr_bugs(let_ctx, expr)
+            rhs_id = render_let_expr_bugs(
+                let_ctx, expr, decl_plates=ctx.decl_plates,
+            )
             ctx.sb.edge(dr_id, rhs_id, "value")
         finally:
             ctx.enclosing_plate = prev_plate
@@ -925,7 +1026,9 @@ class BUGSRenderer(RendererBase):
             self._cards,
             self.target,
         )
-        inner_expr_id = render_let_expr_bugs(let_ctx, node.expr)
+        inner_expr_id = render_let_expr_bugs(
+            let_ctx, node.expr, decl_plates=ctx.decl_plates,
+        )
         paren_id = self._fresh(ctx, "par")
         ctx.sb.vertex(paren_id, "parenthesized_expression")
         ctx.sb.edge(paren_id, inner_expr_id, "parenthesized_expression")
@@ -1010,8 +1113,21 @@ class BUGSRenderer(RendererBase):
             truncation = half_support_truncation(family, observed=observed)
         meta = self._lookup_family(family)
         args, arg_names = self._inject_bugs_specific_args(family, args, arg_names)
-        loop_names = self._loop_names(plate, loop_suffix)
-        body_id = self._open_loops(ctx, ctx.block_id, plate, loop_names)
+        # Split the site's event dims into the family's own event
+        # shape and the residual axes that merely replicate it. BUGS
+        # has no vector form for a scalar family, so each residual
+        # axis becomes an extra innermost loop rather than a slice on
+        # the left-hand side.
+        native_event, residual_event = split_event_dims(
+            plate.event_dims, meta.event_rank
+        )
+        loop_plate = Plate(
+            event_dims=native_event,
+            batch_dims=(*plate.batch_dims, *residual_event),
+        )
+        loop_names = self._loop_names(loop_plate, loop_suffix)
+        body_id = self._open_loops(ctx, ctx.block_id, loop_plate, loop_names)
+        plate = loop_plate
         # Stash enclosing-plate + via for arg emission.
         prev_via = ctx.via
         prev_plate = ctx.enclosing_plate
@@ -1058,8 +1174,26 @@ class BUGSRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def _loop_names(self, plate: Plate, suffix: str) -> tuple[str, ...]:
-        """Return the loop-variable name for each `plate.batch_dim`."""
-        return tuple(f"m_{dim.name}{suffix}" for dim in plate.batch_dims)
+        """Return the loop-variable name for each `plate.batch_dim`.
+
+        A residual event axis lifted into the batch list can repeat an
+        axis the site already iterates (a square row-stochastic matrix
+        names the same object on both sides), and two `for` loops over
+        the same variable name would silently alias, so a repeat gets
+        a numeric suffix.
+        """
+        used: set[str] = set()
+        out: list[str] = []
+        for dim in plate.batch_dims:
+            base = f"m_{dim.name}{suffix}"
+            candidate = base
+            index = 1
+            while candidate in used:
+                index += 1
+                candidate = f"{base}_{index}"
+            used.add(candidate)
+            out.append(candidate)
+        return tuple(out)
 
     def _open_loops(
         self,

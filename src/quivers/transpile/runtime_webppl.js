@@ -129,6 +129,111 @@ var _qvr_bcast = function(op, a, b) {
   }, n);
 };
 
+var _qvr_reduce_last = function(fold, x) {
+  // Reduce the innermost axis of a (possibly nested) array, leaving
+  // every outer axis intact. WebPPL's own `sum` flattens a nested
+  // array to a single scalar, which is a different quantity from the
+  // per-row reduction a QVR `let mu = sum(z_row * w_row)` denotes:
+  // the binding's own plate carries the outer axis and only the
+  // operands' event axis is collapsed. Recursion walks by index
+  // through `mapN` rather than passing this function to `map`, which
+  // WebPPL's CPS transform mishandles for a self-referential
+  // callback.
+  if (!Array.isArray(x)) { return x; }
+  if (x.length > 0 && Array.isArray(x[0])) {
+    return mapN(function(i) {
+      return _qvr_reduce_last(fold, x[i]);
+    }, x.length);
+  }
+  return fold(x);
+};
+var _qvr_sum_last = function(x) {
+  return _qvr_reduce_last(function(row) { return sum(row); }, x);
+};
+var _qvr_mean_last = function(x) {
+  return _qvr_reduce_last(function(row) {
+    return sum(row) / row.length;
+  }, x);
+};
+var _qvr_prod_last = function(x) {
+  return _qvr_reduce_last(function(row) {
+    return reduce(function(v, acc) { return acc * v; }, 1, row);
+  }, x);
+};
+var _qvr_max_last = function(x) {
+  return _qvr_reduce_last(function(row) {
+    return reduce(function(v, acc) { return v > acc ? v : acc; },
+                  -Infinity, row);
+  }, x);
+};
+var _qvr_min_last = function(x) {
+  return _qvr_reduce_last(function(row) {
+    return reduce(function(v, acc) { return v < acc ? v : acc; },
+                  Infinity, row);
+  }, x);
+};
+var _qvr_total = function(x) {
+  // Sum every leaf of a (possibly nested) array. The marginalize
+  // lowering reduces its atoms elementwise over whatever rows the
+  // scope's plates carry, then folds the whole thing into a single
+  // `factor` increment.
+  if (!Array.isArray(x)) { return x; }
+  return sum(mapN(function(i) { return _qvr_total(x[i]); }, x.length));
+};
+var _qvr_take_last = function(x, k) {
+  // Slice index `k` off the innermost axis of a (possibly nested)
+  // array, leaving every outer axis intact. A `Categorical` atom set
+  // reads its log-weights off the class axis, which is the innermost
+  // axis of the probability tensor however many grouping axes sit
+  // above it.
+  if (!Array.isArray(x)) { return x; }
+  if (x.length > 0 && Array.isArray(x[0])) {
+    return mapN(function(i) { return _qvr_take_last(x[i], k); }, x.length);
+  }
+  return x[k];
+};
+var _qvr_logsumexp = function(terms) {
+  // Elementwise `logsumexp` across a list of same-shaped terms, one
+  // per atom of a marginalized latent's finite support. Shifting by
+  // the running maximum keeps the exponentials in range; an all
+  // `-Infinity` row stays `-Infinity` rather than becoming `NaN`.
+  if (terms.length === 0) { return -Infinity; }
+  if (Array.isArray(terms[0])) {
+    return mapN(function(i) {
+      return _qvr_logsumexp(mapN(function(k) {
+        return terms[k][i];
+      }, terms.length));
+    }, terms[0].length);
+  }
+  var m = reduce(function(v, acc) { return v > acc ? v : acc; },
+                 -Infinity, terms);
+  if (m === -Infinity) { return -Infinity; }
+  return m + Math.log(sum(map(function(t) {
+    return Math.exp(t - m);
+  }, terms)));
+};
+var _qvr_poisson_score = function(params, value) {
+  // log Poisson pmf, defined at the boundary rate 0. WebPPL's
+  // built-in `Poisson` rejects `mu = 0` outright, but a marginalize
+  // atom that pins a zero-inflation indicator to 0 gates the rate to
+  // exactly that boundary, where the distribution is the point mass
+  // at 0 and the QVR reference scores it as such.
+  var mu = params.mu;
+  if (mu === 0) { return value === 0 ? 0 : -Infinity; }
+  return value * Math.log(mu) - mu - _lgamma(value + 1);
+};
+var _qvr_score = function(dist, value) {
+  // Score a value under a distribution declared in this prelude.
+  // WebPPL compiles `dist.score(value)` as a direct JavaScript member
+  // call, outside its CPS transform, so a `score` body that reaches
+  // for a WebPPL combinator (`sum`, `map`, `mapN`) returns a
+  // trampoline thunk instead of a number. Calling through a top-level
+  // helper keeps the body inside the transform. Built-in WebPPL
+  // distributions read `this` in their own `score` and must keep the
+  // member-call form instead.
+  var scoreFn = dist.score;
+  return scoreFn(value);
+};
 // Logistic sigmoid, mapped over scalars and (possibly nested) arrays.
 // The QVR `sigmoid` math primitive has no WebPPL stdlib counterpart;
 // the deterministic `let mu = sigmoid(eta)` binding drives an

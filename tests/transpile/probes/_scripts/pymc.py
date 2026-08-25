@@ -76,6 +76,16 @@ def _joint_logp_constrained(
     their constrained values via
     [`graph_replace`][pytensor.graph.replace.graph_replace] so the
     resulting graph has no free symbolic inputs.
+
+    A free RV whose prior log-density is a constant (``Beta(1, 1)``,
+    ``Uniform(0, 1)``) and whose value no observed site reads leaves
+    no node in the summed graph at all, because PyTensor constant-folds
+    the term away. Its substitution is then unused, which
+    ``graph_replace`` reports as an error under its default strict
+    mode. That is a property of the model, not a harness fault, so the
+    replacement runs non-strict. The hard error for a free RV *missing*
+    from ``params`` above is what keeps an unclamped latent from
+    slipping through.
     """
     substitutions: dict[object, object] = {}
     logp_terms: list[object] = []
@@ -100,7 +110,9 @@ def _joint_logp_constrained(
         total = total + term
 
     if substitutions:
-        total = pytensor.graph.replace.graph_replace(total, substitutions)
+        total = pytensor.graph.replace.graph_replace(
+            total, substitutions, strict=False,
+        )
 
     return float(total.eval())
 
