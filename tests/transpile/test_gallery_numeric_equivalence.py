@@ -247,128 +247,224 @@ _QVR_REFERENCE_JOINT: dict[str, float] = {
     "zip_regression": -651.6888,
 }
 
-# (backend, example) cells whose in-container probe script does not
-# register the per-example data shapes the gallery example needs.
-# The backend-side probe scripts in
-# `tests/transpile/probes/_scripts/` were written for the dedicated
-# composition fixtures; arbitrary gallery datasets need per-example
-# shape registration to reshape the flat `Point` lists back into
-# the tensors the model expects. Generalising the probe scripts is
-# the closure path.
+# Gallery examples that genuinely carry no perturbable observation, so
+# their point set moves the latents alone. Each entry states why the
+# example's observed data cannot move, and
+# `test_gallery_multipoint_set_is_in_support_and_varies` asserts the
+# claim: an example listed here must have a frozen data section, and an
+# example not listed here must have a data section that moves.
+#
+# Populate an entry only for a model whose every observation is an
+# index-valued covariate or a degenerate single-valued response, never
+# to quiet a data section the harness merely fails to perturb. A frozen
+# data section makes the constant-spread check blind to a backend that
+# drops a data-dependent term, which is the single failure mode the
+# multi-point set exists to catch.
+_NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
+
+# (backend, example) cells whose measured log-density cannot yet be
+# compared against the QVR reference, each grouped under the single
+# defect that blocks it. Every entry has been run against its
+# container and carries the error the run actually produced, so the
+# comment names a live blocker rather than a historical one.
+#
+# Closure path: fix the named defect in its owning file, re-measure
+# the cell with the six-point set, drop it from this registry. A cell
+# whose spread is constant to within `adaptive_atol` belongs outside
+# the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    ('bugs', 'continuous_hmm'),
-    ('bugs', 'factor_analysis'),
+    # Sequence-model examples carried by `_SKIP_QVR_INCOMPATIBLE`,
+    # which the test consults first: the in-process oracle redraws
+    # the `SampledComposition` intermediates on every call, so there
+    # is no deterministic reference to compare a container against.
+    # The entries stay so that closing the oracle gap surfaces the
+    # backend-side state of each cell rather than 30 fresh failures.
     ('bugs', 'gru_lm'),
-    ('bugs', 'linear_gaussian_ssm'),
     ('bugs', 'lstm_lm'),
-    ('bugs', 'ppca'),
-    ('bugs', 'tree_categorical'),
     ('bugs', 'vanilla_rnn_lm'),
-    ('edward2', 'beta_regression'),
-    ('edward2', 'changepoint'),
-    ('edward2', 'continuous_hmm'),
-    ('edward2', 'gamma_regression'),
     ('edward2', 'gru_lm'),
-    ('edward2', 'hmm'),
-    ('edward2', 'horseshoe_regression'),
-    ('edward2', 'lda'),
-    ('edward2', 'linear_gaussian_ssm'),
     ('edward2', 'lstm_lm'),
-    ('edward2', 'negbin_regression'),
-    ('edward2', 'tree_categorical'),
     ('edward2', 'vanilla_rnn_lm'),
-    ('edward2', 'zip_regression'),
-    ('gen', 'continuous_hmm'),
-    ('gen', 'factor_analysis'),
     ('gen', 'gru_lm'),
-    ('gen', 'hmm'),
-    ('gen', 'lda'),
-    ('gen', 'linear_gaussian_ssm'),
     ('gen', 'lstm_lm'),
-    ('gen', 'ppca'),
-    ('gen', 'tree_categorical'),
     ('gen', 'vanilla_rnn_lm'),
-    ('gen', 'zip_regression'),
-    ('jags', 'continuous_hmm'),
-    ('jags', 'factor_analysis'),
     ('jags', 'gru_lm'),
-    ('jags', 'hmm'),
-    ('jags', 'lda'),
-    ('jags', 'linear_gaussian_ssm'),
     ('jags', 'lstm_lm'),
-    ('jags', 'ppca'),
-    ('jags', 'tree_categorical'),
     ('jags', 'vanilla_rnn_lm'),
-    ('numpyro', 'continuous_hmm'),
     ('numpyro', 'gru_lm'),
-    ('numpyro', 'hmm'),
-    ('numpyro', 'lda'),
-    ('numpyro', 'linear_gaussian_ssm'),
     ('numpyro', 'lstm_lm'),
-    ('numpyro', 'tree_categorical'),
     ('numpyro', 'vanilla_rnn_lm'),
-    ('numpyro', 'zip_regression'),
-    ('pymc', 'continuous_hmm'),
     ('pymc', 'gru_lm'),
-    ('pymc', 'hmm'),
-    ('pymc', 'lda'),
-    ('pymc', 'linear_gaussian_ssm'),
     ('pymc', 'lstm_lm'),
-    ('pymc', 'tree_categorical'),
     ('pymc', 'vanilla_rnn_lm'),
-    ('pymc', 'zip_regression'),
-    ('pyro', 'beta_regression'),
-    ('pyro', 'continuous_hmm'),
-    ('pyro', 'gamma_regression'),
     ('pyro', 'gru_lm'),
-    ('pyro', 'hmm'),
-    ('pyro', 'horseshoe_regression'),
-    ('pyro', 'lda'),
-    ('pyro', 'linear_gaussian_ssm'),
     ('pyro', 'lstm_lm'),
-    ('pyro', 'negbin_regression'),
-    ('pyro', 'stochastic_volatility'),
-    ('pyro', 'tree_categorical'),
     ('pyro', 'vanilla_rnn_lm'),
-    ('pyro', 'zip_regression'),
-    ('stan', 'continuous_hmm'),
     ('stan', 'gru_lm'),
-    ('stan', 'hmm'),
-    ('stan', 'lda'),
-    ('stan', 'linear_gaussian_ssm'),
     ('stan', 'lstm_lm'),
-    ('stan', 'tree_categorical'),
     ('stan', 'vanilla_rnn_lm'),
-    ('stan', 'zip_regression'),
-    ('turing', 'continuous_hmm'),
-    ('turing', 'factor_analysis'),
     ('turing', 'gru_lm'),
-    ('turing', 'hmm'),
-    ('turing', 'lda'),
-    ('turing', 'linear_gaussian_ssm'),
     ('turing', 'lstm_lm'),
-    ('turing', 'ppca'),
-    ('turing', 'tree_categorical'),
     ('turing', 'vanilla_rnn_lm'),
-    ('turing', 'zip_regression'),
-    ('webppl', 'beta_regression'),
-    ('webppl', 'continuous_hmm'),
-    ('webppl', 'factor_analysis'),
-    ('webppl', 'gamma_regression'),
     ('webppl', 'gru_lm'),
-    ('webppl', 'hmm'),
-    ('webppl', 'horseshoe_regression'),
-    ('webppl', 'irt_2pl'),
-    ('webppl', 'lda'),
-    ('webppl', 'linear_gaussian_ssm'),
     ('webppl', 'lstm_lm'),
-    ('webppl', 'negbin_regression'),
-    ('webppl', 'ppca'),
-    ('webppl', 'stochastic_volatility'),
-    ('webppl', 'survival_weibull'),
-    ('webppl', 'tree_categorical'),
     ('webppl', 'vanilla_rnn_lm'),
+    # continuous_hmm / linear_gaussian_ssm: a Kleisli morphism
+    # declared with a `~ Family` init and no `[param_source=...]`
+    # option takes the default linear source, whose weights are
+    # initialised at compile time, appear in no sample site and in no
+    # line of the `.qvr` text. The emitted program therefore degrades
+    # to the bare family at its defaults and binds a State-width mean
+    # to an Obs-width site, which no point payload can bridge. The
+    # program's domain object (the previous state, and the LGSSM
+    # driver) also has no wire channel: `dataset.x_input` is a single
+    # concatenated matrix that only the in-process `QvrProbe`
+    # consumes, so every container reports the missing argument or
+    # its rank. The raise belongs beside the existing
+    # `param-source:mlp` rejection in
+    # `src/quivers/transpile/_resolve.py`; the wire split belongs in
+    # `tests/transpile/_gallery_data.py`.
+    #   numpyro / pyro: model() missing 'state' (and 'driver')
+    #   stan: dims declared=(16), dims found=() for `state`
+    #   pymc: ShapeError, actual 2 != expected 1
+    #   edward2: cannot convert None to a Tensor
+    #   turing / gen: no method matching model(::Matrix{Float64})
+    #   jags / bugs: dimension mismatch in subset expression of `o`
+    #   webppl: Parameter "mu" should be of type "real"
+    ('bugs', 'continuous_hmm'),
+    ('bugs', 'linear_gaussian_ssm'),
+    ('edward2', 'continuous_hmm'),
+    ('edward2', 'linear_gaussian_ssm'),
+    ('gen', 'continuous_hmm'),
+    ('gen', 'linear_gaussian_ssm'),
+    ('jags', 'continuous_hmm'),
+    ('jags', 'linear_gaussian_ssm'),
+    ('numpyro', 'continuous_hmm'),
+    ('numpyro', 'linear_gaussian_ssm'),
+    ('pymc', 'continuous_hmm'),
+    ('pymc', 'linear_gaussian_ssm'),
+    ('pyro', 'continuous_hmm'),
+    ('pyro', 'linear_gaussian_ssm'),
+    ('stan', 'continuous_hmm'),
+    ('stan', 'linear_gaussian_ssm'),
+    ('turing', 'continuous_hmm'),
+    ('turing', 'linear_gaussian_ssm'),
+    ('webppl', 'continuous_hmm'),
+    ('webppl', 'linear_gaussian_ssm'),
+    # tree_categorical: the synthetic-data snippet in
+    # `docs/examples/tree-categorical.md` emits a single response and
+    # clamps every scalar latent at rank-2 singleton shape, while the
+    # model declares `object Resp : FinSet 200`. Stan reports `y`
+    # declared (200) against data found (1,1), pymc raises
+    # `ShapeError`, JAGS and BUGS report a dimension mismatch, the
+    # Julia backends meet a `Matrix{Float64}` where a scalar belongs,
+    # and the Python backends score a shape-broadcast joint that
+    # drifts by ~178 nats across the point set. Rebuilt against a
+    # corrected 200-response dataset the renderer sides measure a
+    # constant spread (numpyro / pymc 6.83e-05, edward2 2.29e-05,
+    # pyro 1.94e-05, jags / bugs 1.14e-06), so the fix is the data
+    # snippet plus the rank-0 clamp path in
+    # `src/quivers/continuous/inline.py`, with the
+    # `_QVR_REFERENCE_JOINT` entry re-derived in the same change.
+    ('bugs', 'tree_categorical'),
+    ('edward2', 'tree_categorical'),
+    ('gen', 'tree_categorical'),
+    ('jags', 'tree_categorical'),
+    ('numpyro', 'tree_categorical'),
+    ('pymc', 'tree_categorical'),
+    ('pyro', 'tree_categorical'),
+    ('stan', 'tree_categorical'),
+    ('turing', 'tree_categorical'),
+    ('webppl', 'tree_categorical'),
+    # hmm: `sample initial_row : State <- Dirichlet(1.0)
+    # [over=State]` lowers to one `simplex[8]` under an empty plate
+    # while the QVR runtime produces an (8, 8) batch of simplices,
+    # and the gallery data ships `obs` with 8 entries against the
+    # model's `object Obs : FinSet 16`. The axis-role derivation in
+    # `src/quivers/transpile/lower.py::_build_plate` owns the first
+    # half and `tests/transpile/_gallery_data.py` the second. numpyro
+    # and pyro reproduce the reference through untyped broadcasting;
+    # every typed backend reports the clash directly (stan: `obs`
+    # declared (16), found (8); pymc: cannot convert Matrix(8, 8)
+    # into Vector(8,); gen: Vector{Float64}(::Matrix{Float64});
+    # turing: +(::Float64, ::Vector{Float64}); jags: compilation
+    # error on line 2). edward2 leaves the mis-ranked `initial_row`
+    # unconditioned and drifts 0.92 nats; webppl additionally passes
+    # the Dirichlet concentration as a plain JS array, which its
+    # `Dirichlet` rejects as not a vector.
+    ('edward2', 'hmm'),
+    ('gen', 'hmm'),
+    ('jags', 'hmm'),
+    ('pymc', 'hmm'),
+    ('stan', 'hmm'),
+    ('turing', 'hmm'),
+    ('webppl', 'hmm'),
+    # lda: the four backends that integrate the topic latent
+    # correctly are out of this registry; these five each carry a
+    # distinct blocker.
+    #   gen: `Gen.assess` requires every traced address to be
+    #     constrained and the `@gen` DSL has no log-weight primitive,
+    #     so the marginalized `z` surfaces as KeyError (:z, 1).
+    #   jags: `RendererBase.explicit_latent_scope` lowers the
+    #     marginalize to a live `IRSample(z)` and drops the
+    #     reduction, so the emitted measure lives on a strictly
+    #     larger space and the spread runs to 409 nats. The zeros
+    #     trick `jags.py::_emit_score` already uses is the closure.
+    #   stan: the point payload ships `theta` / `phi` rows as float32
+    #     summing to 1.00000006, which `stan::math::simplex_free`
+    #     rejects; the harness must renormalize simplex-typed
+    #     parameters. The renderer's log_sum_exp accumulator is
+    #     fixed and measures 3.18e-04 once that holds.
+    #   turing: the gathered per-word topic weights index a scalar,
+    #     raising BoundsError at index [2].
+    #   webppl: the Dirichlet concentration reaches WebPPL as a plain
+    #     JS array rather than a vector.
+    ('gen', 'lda'),
+    ('jags', 'lda'),
+    ('stan', 'lda'),
+    ('turing', 'lda'),
+    ('webppl', 'lda'),
+    # zip_regression: the backends whose Poisson uses an `xlogy` form
+    # integrate the zero-inflation indicator correctly and are out of
+    # this registry; these four do not.
+    #   numpyro: its `Poisson` computes log(rate) * value directly,
+    #     so the z = 0 atom's rate of exactly 0 yields nan at every
+    #     y == 0 observation. The emitted expression is faithful; the
+    #     deficiency is upstream in numpyro.
+    #   stan: `_is_continuous_support` routes `ContinuousBernoulli`
+    #     to the continuous marginalization, declaring a live
+    #     400-dim `z` parameter the point payload cannot fill
+    #     (dims declared=(400), found=()), where the QVR compiler
+    #     enumerates the hard support {0, 1}.
+    #   gen: same missing log-weight primitive as gen/lda; the
+    #     reduced density has no address to ride on, and
+    #     `Gen.logpdf(Gen.poisson, 0, 0.0)` is NaN where the
+    #     reference scores the point mass exactly.
+    #   webppl: the atom reduction emits `factor(...)`, which the
+    #     probe's rewrite does not turn into `globalStore.lp`
+    #     accumulation, so WebPPL raises `factor allowed only inside
+    #     inference`.
+    ('gen', 'zip_regression'),
+    ('numpyro', 'zip_regression'),
+    ('stan', 'zip_regression'),
     ('webppl', 'zip_regression'),
+    # webppl/ppca and webppl/factor_analysis: the renderer emits the
+    # residual event axis as a nested
+    # `repeat(32, function () { return repeat(2, ...); })`, but the
+    # probe's `_lift_iid_plate` matches only a callback whose body is
+    # a bare `return sample(...)`. The nested plate falls through
+    # unlifted and the probe raises rather than let the site be
+    # redrawn. Measured against a locally patched probe the cells are
+    # constant to 6.75e-06 and 2.10e-05, so the closure is a
+    # recursive branch in
+    # `tests/transpile/probes/_scripts/webppl.py`.
+    ('webppl', 'factor_analysis'),
+    ('webppl', 'ppca'),
+    # webppl/stochastic_volatility: the latent trajectory emits as
+    # `mapIndexed(..., repeat(200, 0))` and WebPPL's `repeat`
+    # requires its second argument to be a function. The probe's
+    # `mapIndexed` lift is otherwise ready for this cell.
+    ('webppl', 'stochastic_volatility'),
 })
 
 
@@ -459,9 +555,9 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
 ) -> None:
     """The multi-point set stays in support and actually moves.
 
-    Two properties make
+    Three properties make
     [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
-    a real test rather than a tautology, and both are asserted here so
+    a real test rather than a tautology, and each is asserted here so
     a regression surfaces without needing a Docker image:
 
     1. Every point scores a **finite** QVR joint. A perturbation that
@@ -477,6 +573,16 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
        gallery shape, including examples that capture no latents (only
        the data moves) and examples whose data is entirely
        integer-valued covariates (only the latents move).
+    3. The **observed data** varies across the set. This is strictly
+       stronger than (2) and it is the property the constant-spread
+       contract actually needs: a latents-only perturbation moves the
+       joint while leaving every observation at ground truth, so (2)
+       passes on a point set whose data section is byte-identical
+       throughout. Against such a set a backend that drops a
+       data-dependent term keeps a perfectly constant offset and the
+       equivalence assertion is vacuous. An example whose data
+       genuinely cannot move states so in `_NO_PERTURBABLE_OBSERVATION`
+       and has the frozen data section asserted rather than assumed.
     """
     if example.stem in _SKIP_DATASET_LOAD_FAILED:
         pytest.skip(
@@ -538,6 +644,32 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
         f"nothing perturbable, or a constraint this example needs is "
         f"missing from `_perturb_by_support`."
     )
+
+    observed = _gallery_data.observed_data_names(dataset)
+    moved = _gallery_data.varying_observation_names(dataset, points)
+    frozen_reason = _NO_PERTURBABLE_OBSERVATION.get(example.stem)
+    if frozen_reason is None:
+        assert moved, (
+            f"{example.stem!r}: the observed data is byte-identical at "
+            f"every point ({sorted(observed)} all frozen), so the "
+            f"constant-spread check for this example is a "
+            f"latents-only test: a backend that drops a "
+            f"data-dependent term would keep a constant offset and "
+            f"pass. Give the data section a support the perturber can "
+            f"step in (an observed count moves inside its attested "
+            f"range, a simplex-valued observation renormalises, a "
+            f"bounded one moves in its own space), or, if this "
+            f"example truly has no perturbable observation, record "
+            f"the reason in `_NO_PERTURBABLE_OBSERVATION`."
+        )
+    else:
+        assert not moved, (
+            f"{example.stem!r}: `_NO_PERTURBABLE_OBSERVATION` claims "
+            f"this example has no perturbable observation "
+            f"({frozen_reason}), but {sorted(moved)} moved across the "
+            f"point set. Drop the entry: the data section is testable "
+            f"and the claim is stale."
+        )
 
 
 @pytest.mark.parametrize(
@@ -684,6 +816,11 @@ def _shapes_from_dataset(
         shapes[k] = list(v.shape)
     for k, v in dataset.params.items():
         shapes[k] = list(v.shape)
+    # A scalar type-parameter reaches the container as a bare float in
+    # the point's data section; the empty shape casts it through the
+    # dtype table without rebuilding a nested container around it.
+    for name in dataset.scalar_params:
+        shapes[name] = []
     return shapes
 
 
@@ -742,4 +879,12 @@ def _dtypes_from_dataset(
                 out[name] = "int"
             else:
                 out[name] = "float"
+    # A scalar type-parameter is declared `Real` in the program header
+    # and rendered as a real input (`real alpha;` in Stan's data block,
+    # `rep_vector(alpha, 3)` as a Dirichlet concentration), so it is
+    # float-tagged whatever its instantiated value looks like: an
+    # integer cast of `alpha = 1.0` would still parse and still be
+    # wrong the moment the snippet instantiates at a fractional value.
+    for name in dataset.scalar_params:
+        out[name] = "float"
     return out
