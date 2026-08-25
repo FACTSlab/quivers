@@ -116,6 +116,28 @@ def main() -> None:
             with ed.tape() as recorded:
                 model(**data_kw)
 
+        # Every random variable on the tape must be pinned, either by
+        # a value override in the second trace or by a direct score
+        # against the user-supplied value. One that is neither would be
+        # scored at whatever it happened to draw, which turns the probe
+        # into a random number generator: the returned log-density then
+        # varies run to run and the constant-spread contract measures
+        # sampling noise rather than the model's measure. Fail instead,
+        # matching the pymc probe's hard error on a free RV with no
+        # supplied value.
+        unclamped = sorted(
+            name for name in recorded
+            if name not in safe_overrides and name not in direct_scores
+        )
+        if unclamped:
+            msg = (
+                "edward2 probe: unclamped random variable(s) "
+                f"{unclamped}; every traced site must be supplied "
+                "through the point's params or data. available params: "
+                f"{sorted(params)}; available data: {sorted(data)}"
+            )
+            raise RuntimeError(msg)
+
         log_terms = []
         for name, rv in recorded.items():
             if name in direct_scores:

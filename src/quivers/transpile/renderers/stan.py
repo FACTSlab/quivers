@@ -145,6 +145,18 @@ from quivers.transpile.renderers._stan_helpers import (
 #: no log-density form, and
 #: [`StanRenderer._log_density_name`][quivers.transpile.renderers.stan.StanRenderer]
 #: raises rather than emit a `~` statement that would drop constants.
+#: QVR families whose Stan log-pmf reads its outcome as a subscript
+#: into the family's alphabet, so the outcome lives on `1:K` rather
+#: than on the sentinel `[0, 1]` interval every integer support in the
+#: IR starts from. Bernoulli is deliberately absent: `bernoulli_lpmf`
+#: reads a genuine bit.
+_CLASS_INDEX_OUTCOME_FAMILIES: frozenset[str] = frozenset({
+    "Categorical",
+    "OrderedLogistic",
+    "OrderedProbit",
+})
+
+
 _STAN_LOG_DENSITY_SUFFIX: dict[str, str] = {
     "bernoulli": "lpmf",
     "beta": "lpdf",
@@ -267,6 +279,9 @@ class StanRenderer(RendererBase):
         self._marginalize_var: str | None = None
         self._marginalize_latent_card: int | None = None
         self._marginalize_group_idx: tuple[str, ...] = ()
+        # True while the active marginalize keys its accumulator by
+        # the observation rather than by the grouping plate.
+        self._marginalize_per_row: bool = False
         # Scope-local let bindings inside the current marginalize
         # block; the per-k observe expands these inline since the
         # let target is never declared as a Stan parameter.
@@ -291,6 +306,7 @@ class StanRenderer(RendererBase):
         # wrap any scalar RHS in `rep_vector(rhs, K)`. See
         # `_compute_vector_promotions`.
         self._vector_promotions_state: dict[str, int] = {}
+        self._class_index_widths_state: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # abstract overrides
@@ -327,6 +343,7 @@ class StanRenderer(RendererBase):
         self._marginalize_var = None
         self._marginalize_latent_card = None
         self._marginalize_group_idx = ()
+        self._marginalize_per_row = False
         self._fresh_n = 0
         self._cards = dict(ir.cards)
         # Reset the per-render lookup caches so repeated render
@@ -336,6 +353,10 @@ class StanRenderer(RendererBase):
         self._vector_promotions_state.clear()
         self._vector_promotions_state.update(
             self._compute_vector_promotions(ir)
+        )
+        self._class_index_widths_state.clear()
+        self._class_index_widths_state.update(
+            self._compute_class_index_widths(ir)
         )
         # Program root.
         ctx.sb.vertex("prog", "program")
@@ -376,6 +397,94 @@ class StanRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_node(ctx, node)
         return ctx.sb.build()
+
+    @property
+    def _class_index_widths(self) -> dict[str, int]:
+        """Per-render map from an observed class-index outcome to the
+        width of its family's alphabet.
+
+        Populated by `_compute_class_index_widths` at the top of
+        `render()` and consulted by
+        [`declare`][quivers.transpile.renderers.stan.StanRenderer.declare]
+        so a Categorical observation is declared
+        `int<lower=1, upper=K>` rather than on the sentinel `[0, 1]`
+        interval the IR carries for every integer support.
+        """
+        return self._class_index_widths_state
+
+    def _compute_class_index_widths(
+        self, ir: IRProgram
+    ) -> dict[str, int]:
+        """Scan the IR for observations under a class-index family and
+        record each outcome's alphabet width.
+
+        The width is the trailing event extent of the family's
+        probability argument: a `Categorical(phi[z])` whose `phi` is
+        declared `array[K] simplex[V]` scores a value on `1:V`.
+        Raises when the family is class-index and the width cannot be
+        resolved statically, because the declaration would otherwise
+        state a support the data does not live in.
+        """
+        plates = self._declared_plates(ir)
+        out: dict[str, int] = {}
+        for node in _iter_ir_nodes(ir.body):
+            if not isinstance(node, IRObserve):
+                continue
+            if node.family not in _CLASS_INDEX_OUTCOME_FAMILIES:
+                continue
+            width = self._class_alphabet_width(node.args, plates)
+            if width is None:
+                raise UnsupportedConstruct(
+                    "qvr-stan",
+                    [
+                        f"declare:class-index-width:{node.name}: the "
+                        f"{node.family} observation's probability "
+                        f"argument has no statically resolvable "
+                        f"alphabet width, so the outcome's Stan "
+                        f"support cannot be declared"
+                    ],
+                )
+            out[node.name] = width
+        return out
+
+    def _declared_plates(self, ir: IRProgram) -> dict[str, Plate]:
+        """Every bound name's declared plate, inputs and body alike."""
+        out: dict[str, Plate] = {
+            inp.name: inp.plate for inp in ir.inputs
+        }
+        for node in _iter_ir_nodes(ir.body):
+            if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+                out[node.name] = node.plate
+            elif isinstance(node, IRMarginalize):
+                out[node.latent] = node.plate
+        return out
+
+    def _class_alphabet_width(
+        self, args: tuple[IRArg, ...], plates: dict[str, Plate]
+    ) -> int | None:
+        """Trailing event extent of a class-index family's probability
+        argument, or `None` when it is not statically resolvable."""
+        if not args:
+            return None
+        arg = args[0]
+        if isinstance(arg, IRArgList):
+            return len(arg.elements)
+        if isinstance(arg, IRArgBroadcast) and arg.target_shape:
+            return int(arg.target_shape[-1])
+        if isinstance(arg, IRArgRef):
+            plate = plates.get(arg.name)
+            if plate is not None and plate.event_dims:
+                last = plate.event_dims[-1]
+                if isinstance(last, DimStatic):
+                    return int(last.size)
+                return None
+            # A scalar-declared producer feeding a vector argument
+            # slot is promoted to `vector[K]` by
+            # `_compute_vector_promotions`; that K is the same
+            # alphabet width, and it is the only place a chain-tail
+            # hidden state's Categorical head records one.
+            return self._vector_promotions.get(arg.name)
+        return None
 
     @property
     def _vector_promotions(self) -> dict[str, int]:
@@ -601,8 +710,16 @@ class StanRenderer(RendererBase):
         tvt = self._fresh(ctx, "tvt")
         ctx.sb.vertex(tvt, "top_var_type")
         promoted_k = self._vector_promotions.get(name)
+        class_width = self._class_index_widths.get(name)
         if promoted_k is not None:
             self._emit_vector_type_of_size(ctx, tvt, promoted_k)
+        elif class_width is not None:
+            # A class-index outcome is a subscript into its family's
+            # alphabet, so Stan reads it on `1:K`. The IR carries the
+            # sentinel-derived `[0, 1]` interval every integer support
+            # starts from, which would declare a 200-word vocabulary
+            # as a bit.
+            self._emit_int_type(ctx, tvt, lower=1, upper=class_width)
         else:
             self._emit_type(ctx, tvt, sup, plate.event_dims)
         ctx.sb.edge(decl, tvt, "child_of")
@@ -1513,35 +1630,53 @@ class StanRenderer(RendererBase):
         outer_block = self._fresh(ctx, "mbs")
         ctx.sb.vertex(outer_block, "block_statement")
         ctx.sb.edge(parent, outer_block, "child_of")
-        # 1. Declare `array[batch_dims] vector[K] lps_<latent>;`.
+        # Choose what the accumulator is keyed by. A per-row prior --
+        # the probability argument is itself indexed by the grouping
+        # plate, so each observation reads its own group's row --
+        # replicates the latent per observation, and the enumeration
+        # runs once per observation. A global prior instead shares one
+        # latent across each group's rows, so the rows' contributions
+        # scatter into the group before the reduction. This is the
+        # same discriminator the QVR compiler applies.
+        per_row = self._prior_is_group_plated(node)
+        if per_row:
+            acc_dims = self._marginalize_row_dims(node)
+            acc_loop_names = self._observe_scope_loop_names(acc_dims)
+        else:
+            acc_dims = node.plate.batch_dims
+            acc_loop_names = self._marginalize_loop_names(acc_dims)
+        # 1. Declare `array[acc_dims] vector[K] lps_<latent>;`.
         lps_name = f"lps_{node.latent}"
         self._declare_lps_array(
-            ctx, outer_block, lps_name, node.plate.batch_dims, latent_card
+            ctx, outer_block, lps_name, acc_dims, latent_card
         )
-        # 2. Initialise per-group lps with the latent log-pmf:
-        #    for each group index, for k in 1:K, lps[..., k] = lpmf(k | args).
-        group_idx_names = self._marginalize_loop_names(node.plate.batch_dims)
+        # 2. Seed each accumulator row with the latent log-pmf:
+        #    for each accumulator index, for k in 1:K,
+        #    lps[..., k] = lpmf(k | args).
         self._emit_lps_init(
             ctx,
             outer_block,
             lps_name,
-            node.plate.batch_dims,
-            group_idx_names,
+            acc_dims,
+            acc_loop_names,
             latent_card,
             stan_name,
             node.args,
             meta,
+            self._prior_index_args(node, acc_loop_names, per_row),
         )
         # 3. Walk the scope body: each scope IRObserve emits an
         #    inner-loop that accumulates per-k contributions into
-        #    `lps[group, k]`.
+        #    `lps[<accumulator index>, k]`.
         prev_marg_var = self._marginalize_var
         prev_marg_card = self._marginalize_latent_card
         prev_group_idx = self._marginalize_group_idx
+        prev_per_row = self._marginalize_per_row
         prev_stack = self._marginalize_stack
         self._marginalize_var = lps_name
         self._marginalize_latent_card = latent_card
-        self._marginalize_group_idx = group_idx_names
+        self._marginalize_group_idx = acc_loop_names
+        self._marginalize_per_row = per_row
         self._marginalize_stack = (*self._marginalize_stack, node.plate)
         try:
             for scope_node in node.scope:
@@ -1552,16 +1687,122 @@ class StanRenderer(RendererBase):
             self._marginalize_var = prev_marg_var
             self._marginalize_latent_card = prev_marg_card
             self._marginalize_group_idx = prev_group_idx
+            self._marginalize_per_row = prev_per_row
             self._marginalize_stack = prev_stack
-        # 4. Accumulate the group log-sums into `target`.
+        # 4. Accumulate the per-row log-sums into `target`.
         self._emit_lps_accumulate(
             ctx,
             outer_block,
             lps_name,
-            node.plate.batch_dims,
-            group_idx_names,
+            acc_dims,
+            acc_loop_names,
         )
         return outer_block
+
+    def _prior_is_group_plated(self, node: IRMarginalize) -> bool:
+        """True when the latent's probability argument carries the
+        marginalize's grouping plate.
+
+        A `Categorical(theta)` whose `theta` is declared
+        `array[|G|] simplex[K]` gives every row of the group its own
+        draw from its group's prior, so the marginal is one
+        `log_sum_exp` per row. A bare `simplex[K]` prior instead
+        denotes one draw shared across the group's rows.
+        """
+        if not node.plate.batch_dims:
+            return False
+        for arg in node.args:
+            if not isinstance(arg, IRArgRef) or arg.indices:
+                continue
+            declared = self._declared_shapes.get(arg.name)
+            if declared is None:
+                continue
+            _, declared_plate = declared
+            if len(declared_plate.batch_dims) >= len(node.plate.batch_dims):
+                return True
+        return False
+
+    def _marginalize_row_dims(
+        self, node: IRMarginalize
+    ) -> tuple[Dim, ...]:
+        """The plate a per-row accumulator is keyed by: the batch dims
+        of the scope's observe steps."""
+        plates = {
+            tuple(inner.plate.batch_dims)
+            for inner in node.scope
+            if isinstance(inner, IRObserve)
+        }
+        if len(plates) != 1:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"marginalize:per-row-prior:{node.latent}: a "
+                    f"per-row prior needs exactly one observation "
+                    f"plate to key the accumulator by, found "
+                    f"{len(plates)}"
+                ],
+            )
+        return next(iter(plates))
+
+    def _prior_index_args(
+        self,
+        node: IRMarginalize,
+        acc_loop_names: tuple[str, ...],
+        per_row: bool,
+    ) -> tuple[IRArg, ...]:
+        """Index expressions that select the latent's prior row for
+        one accumulator entry.
+
+        In the grouped reading the accumulator is already keyed by the
+        grouping plate, so the loop variables index the prior
+        directly. In the per-row reading the accumulator is keyed by
+        the observation, so the prior row is reached through the
+        observe's `via` fibration.
+        """
+        if not per_row:
+            return tuple(
+                IRArgRef(name=name) for name in acc_loop_names
+            )
+        via = self._marginalize_scope_via(node)
+        if via is None:
+            return tuple(
+                IRArgRef(name=name) for name in acc_loop_names
+            )
+        if not acc_loop_names:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"marginalize:per-row-prior:{node.latent}: the "
+                    f"observe carries a `via` fibration but no "
+                    f"observation plate to index it with"
+                ],
+            )
+        row_loop = IRArgRef(name=acc_loop_names[0])
+        return tuple(
+            IRArgRef(name=via, indices=(row_loop,))
+            for _ in node.plate.batch_dims
+        )
+
+    def _marginalize_scope_via(
+        self, node: IRMarginalize
+    ) -> str | None:
+        """The `via` fibration the scope's observe steps share, or
+        `None` when they carry none."""
+        vias = {
+            inner.via
+            for inner in node.scope
+            if isinstance(inner, IRObserve)
+        }
+        if len(vias) != 1:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"marginalize:per-row-prior:{node.latent}: the "
+                    f"scope's observe steps disagree on the `via` "
+                    f"fibration into the grouping plate"
+                ],
+            )
+        return next(iter(vias))
 
     def _marginalize_continuous(
         self,
@@ -1791,6 +2032,10 @@ class StanRenderer(RendererBase):
         group_count = len(self._marginalize_group_idx)
         if group_count == 0:
             return ()
+        if self._marginalize_per_row:
+            # The accumulator is keyed by the observation itself, so
+            # the observe's own loop variables address it directly.
+            return loop_names
         if observe.via is not None and loop_names:
             # `<via>[<observe-loop-0>]` per group dim. For
             # single-group marginalize this is exactly the spec's
@@ -2165,10 +2410,17 @@ class StanRenderer(RendererBase):
         stan_name: str,
         latent_args: tuple[IRArg, ...],
         latent_meta: FamilyMeta,
+        prior_index_args: tuple[IRArg, ...],
     ) -> None:
-        """Emit `for g in batch_dims, for k in 1:K, lps[g, k] +=
-        <family>_lpmf(k | <latent_args>);` to seed the per-group
-        marginal with the latent's own log-pmf."""
+        """Emit `for g in batch_dims, for k in 1:K, lps[g, k] =
+        <family>_lpmf(k | <latent_args>);` to seed each accumulator
+        row with the latent's own log-pmf.
+
+        `prior_index_args` selects the prior row each accumulator
+        entry reads: the accumulator's own loop variables under the
+        grouped reading, the observe's `via` fibration applied to the
+        row loop variable under the per-row reading.
+        """
         current = self._wrap_in_for_loops(
             ctx, scope_block, batch_dims, group_idx_names
         )
@@ -2213,7 +2465,7 @@ class StanRenderer(RendererBase):
         # Subsequent: the latent's args, with refs to per-group
         # parameter arrays indexed by the group loop variable.
         rewritten = self._index_groupplated_refs(
-            latent_args, latent_meta, group_idx_names
+            latent_args, latent_meta, prior_index_args
         )
         for arg in rewritten:
             arg_vid = self._render_arg(ctx, arg)
@@ -2225,19 +2477,19 @@ class StanRenderer(RendererBase):
         self,
         args: tuple[IRArg, ...],
         meta: FamilyMeta,
-        group_idx_names: tuple[str, ...],
+        prior_index_args: tuple[IRArg, ...],
     ) -> tuple[IRArg, ...]:
         """For each arg that's an [`IRArgRef`][quivers.transpile.ir.IRArgRef]
-        to a previously-declared name whose declaration plate matches
-        the surrounding group's batch_dims, prepend the group loop
-        variables as indices.
+        to a previously-declared name whose declaration plate carries
+        the grouping axes, prepend `prior_index_args` as indices.
 
         For LDA's `Categorical(theta)` inside a `marginalize ... [over=Doc]`
         scope where `theta : array[20] simplex[3]`, the ref to `theta`
-        becomes `theta[g_Doc]`.
+        becomes `theta[word_idx[n_Word]]` under the per-row reading
+        and `theta[g_Doc]` under the grouped one.
         """
         del meta
-        if not group_idx_names:
+        if not prior_index_args:
             return args
         out: list[IRArg] = []
         for arg in args:
@@ -2249,15 +2501,12 @@ class StanRenderer(RendererBase):
                 out.append(arg)
                 continue
             _, declared_plate = declared
-            if len(declared_plate.batch_dims) < len(group_idx_names):
+            if len(declared_plate.batch_dims) < len(prior_index_args):
                 out.append(arg)
                 continue
-            # Prepend the group loop variables as IRArgRef indices.
-            new_indices = tuple(
-                IRArgRef(name=lv_name)
-                for lv_name in group_idx_names
+            out.append(
+                IRArgRef(name=arg.name, indices=prior_index_args)
             )
-            out.append(IRArgRef(name=arg.name, indices=new_indices))
         return tuple(out)
 
     def _emit_lps_accumulate(
@@ -3435,6 +3684,16 @@ def _stan_subtree_vertex_ids(
 _RUNTIME_STAN_SUBTREE = _stan_subtree_vertex_ids(
     _RUNTIME_STAN_SCHEMA, _RUNTIME_STAN_TOP_LEVEL
 )
+
+
+def _iter_ir_nodes(body: tuple[IRNode, ...]) -> list[IRNode]:
+    """Flatten `body`, descending into every marginalize scope."""
+    out: list[IRNode] = []
+    for node in body:
+        out.append(node)
+        if isinstance(node, IRMarginalize):
+            out.extend(_iter_ir_nodes(node.scope))
+    return out
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:

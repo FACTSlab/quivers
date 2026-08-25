@@ -51,7 +51,17 @@ from quivers.dsl.ast_nodes.let_expressions import (
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META
-from quivers.transpile.renderers._julia_helpers import render_let_expr_julia
+from quivers.transpile.renderers._julia_helpers import (
+    JuliaShapes,
+    infer_array_rank,
+    let_expr_has_axis_reduction,
+    name_array_rank_map,
+    nested_tower_names,
+    render_let_expr_julia,
+)
+from quivers.transpile.renderers._python_helpers import (
+    name_event_rank_map,
+)
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
@@ -146,6 +156,10 @@ class _GenCtx:
     inferred_det_axes: dict[str, tuple[Dim, ...]] = dataclasses.field(
         default_factory=dict
     )
+    # The array-shape environment the shared Julia let-expression
+    # helper consults: per-name event rank and full array rank, plus
+    # the bindings materialised as a nested tower of vector literals.
+    shapes: JuliaShapes = dataclasses.field(default_factory=JuliaShapes)
 
     def fresh(self, prefix: str) -> str:
         self.n += 1
@@ -359,6 +373,37 @@ def _vector_alloc(
     gx.e(al, size_vid)
     call = gx.v("call_expression", "call")
     gx.e(call, callee)
+    gx.e(call, al)
+    return call
+
+
+def _array_alloc(
+    gx: _GenCtx, *, elem_type: str, size_vids: tuple[str, ...]
+) -> str:
+    """`Array{<elem_type>, <N>}(undef, <s0>, ..., <sN-1>)`.
+
+    The rank-1 case still spells `Vector{T}(undef, s)`, the idiom the
+    single-axis plate loop has always emitted. Higher ranks allocate a
+    genuine dense `Array` rather than a nested `Vector{Vector{T}}`,
+    whose inner slots would be `#undef` when the loop nest first
+    assigns into them.
+    """
+    if len(size_vids) == 1:
+        return _vector_alloc(
+            gx, elem_type=elem_type, size_vid=size_vids[0]
+        )
+    pt = gx.v("parametrized_type_expression", "pt")
+    gx.e(pt, _ident(gx, "Array"))
+    curly = gx.v("curly_expression", "cu")
+    gx.e(curly, _type_expr(gx, elem_type))
+    gx.e(curly, _integer(gx, len(size_vids)))
+    gx.e(pt, curly)
+    al = gx.v("argument_list", "al")
+    gx.e(al, _ident(gx, "undef"))
+    for size_vid in size_vids:
+        gx.e(al, size_vid)
+    call = gx.v("call_expression", "call")
+    gx.e(call, pt)
     gx.e(call, al)
     return call
 
@@ -784,6 +829,26 @@ def _gen_transform_args(
     return arg_vids
 
 
+def _family_event_rank(family: str) -> int:
+    """The rank of the family's own event shape.
+
+    Reads
+    [`FamilyMeta.event_rank`][quivers.transpile.family_meta.FamilyMeta],
+    which is 0 for a scalar family, 1 for a vector family and 2 for a
+    matrix one. `Truncated` is the sole wrapper family without a
+    `FAMILY_META` entry; it wraps a scalar base distribution and so
+    produces a scalar draw.
+    """
+    meta = FAMILY_META.get(family)
+    if meta is not None:
+        return meta.event_rank
+    if family in _WRAPPER_TARGET_NAMES:
+        return 0
+    raise UnsupportedConstruct(
+        "qvr-gen", [f"family:{family}: no Gen.jl event rank"]
+    )
+
+
 def _gen_target_name(family: str) -> str:
     """Look up the Gen.jl distribution constructor for a family.
 
@@ -1012,6 +1077,11 @@ class GenRenderer(RendererBase):
 
         _harvest_cards(ir, gx)
         gx.inferred_det_axes = _infer_deterministic_axes(ir)
+        gx.shapes = JuliaShapes(
+            name_event_rank=name_event_rank_map(ir),
+            name_array_rank=name_array_rank_map(ir),
+            nested_names=nested_tower_names(ir),
+        )
 
         # Sort inputs alphabetically so the emitted `model(...)` signature
         # matches the probe driver's positional-arg convention (the probe
@@ -1137,15 +1207,37 @@ class GenRenderer(RendererBase):
         macro emits as a bare statement.
         """
         gx = self._gx
-        if not node.plate.batch_dims:
+        # Split the site's event dims into the trailing ones the
+        # family produces natively and the leading residual the source
+        # declared with `[over=<Axis>]`. The residual is iid
+        # replication of a scalar draw, so it becomes extra innermost
+        # loop axes rather than part of the distribution call: a
+        # `Normal` site declared `over=LatentDim` fills a 32-by-2
+        # `Array` at addresses `(:Z_mat, m_Item, m_LatentDim)`.
+        own_start = len(node.plate.event_dims) - _family_event_rank(
+            node.family
+        )
+        residual_event = node.plate.event_dims[:own_start]
+        own_event = node.plate.event_dims[own_start:]
+        loop_dims = (*node.plate.batch_dims, *residual_event)
+        if not loop_dims:
             self._emit_scalar_sample(node, observed=observed)
             return
         if not observed:
-            self._emit_storage_alloc(node)
+            self._emit_storage_alloc(node, loop_dims)
         # The declaration is now visible to subsequent steps as a
-        # batched draw on `node.plate.batch_dims`.
+        # batched draw on `node.plate.batch_dims`. The residual event
+        # axes stay out of the table: index threading matches a
+        # reference against the batch loops that surround it, and no
+        # downstream step iterates a residual event axis.
         gx.decl_axes[node.name] = node.plate.batch_dims
-        self._emit_loop_nest(node, observed=observed, via=via)
+        self._emit_loop_nest(
+            node,
+            observed=observed,
+            via=via,
+            loop_dims=loop_dims,
+            own_event=own_event,
+        )
 
     def _emit_gp_block(self, node: IRSample) -> None:
         """Emit a Gaussian-process sample as three Gen.jl statements:
@@ -1234,17 +1326,20 @@ class GenRenderer(RendererBase):
             gx.body_stmts.append(stmt)
             gx.decl_axes[node.name] = ()
 
-    def _emit_storage_alloc(self, node: IRSample) -> None:
-        """Pre-allocate `Vector{T}(undef, B0, B1, ...)` for batched draws."""
+    def _emit_storage_alloc(
+        self, node: IRSample, loop_dims: tuple[Dim, ...]
+    ) -> None:
+        """Pre-allocate the dense array the plate loop fills.
+
+        One axis gives `Vector{T}(undef, B)`; several give
+        `Array{T, N}(undef, B0, ..., BN-1)`, matching the flat
+        multi-index the loop nest assigns through.
+        """
         gx = self._gx
         elem_type = _element_type_for(node.constraint, node.plate)
-        # For >1 batch dim, nest the storage: Vector{Vector{...{T}...}}.
-        for _ in node.plate.batch_dims[1:]:
-            elem_type = f"Vector{{{elem_type}}}"
-        outer = node.plate.batch_dims[0]
-        outer_size = _dim_size_vid(gx, outer)
-        alloc = _vector_alloc(
-            gx, elem_type=elem_type, size_vid=outer_size,
+        size_vids = tuple(_dim_size_vid(gx, dim) for dim in loop_dims)
+        alloc = _array_alloc(
+            gx, elem_type=elem_type, size_vids=size_vids,
         )
         stmt = _assignment(gx, _ident(gx, node.name), alloc)
         gx.body_stmts.append(stmt)
@@ -1255,20 +1350,26 @@ class GenRenderer(RendererBase):
         *,
         observed: bool,
         via: str | None,
+        loop_dims: tuple[Dim, ...],
+        own_event: tuple[Dim, ...],
     ) -> None:
         gx = self._gx
         loop_names = tuple(
-            _loop_var_for(gx, dim.name, node.name)
-            for dim in node.plate.batch_dims
+            _loop_var_for(gx, str(dim.name), node.name)
+            for dim in loop_dims
         )
         # The batch-loop binding for the current step: axis name →
         # loop variable identifier. Each declared ref whose
         # declaration sits on an axis present here picks up the
-        # corresponding loop variable as an index.
+        # corresponding loop variable as an index. Only the batch
+        # half participates: a residual event axis replicates the
+        # draw and indexes nothing the arguments carry.
         batch_loops = {
-            dim.name: lv
+            str(dim.name): lv
             for dim, lv in zip(
-                node.plate.batch_dims, loop_names, strict=True,
+                node.plate.batch_dims,
+                loop_names[: len(node.plate.batch_dims)],
+                strict=True,
             )
         }
         arg_ctx = _ArgCtx(
@@ -1280,7 +1381,7 @@ class GenRenderer(RendererBase):
             family=node.family,
             args=node.args,
             arg_names=node.arg_names,
-            event_dims=node.plate.event_dims,
+            event_dims=own_event,
             arg_ctx=arg_ctx,
         )
         trace = _trace_call(
@@ -1297,7 +1398,7 @@ class GenRenderer(RendererBase):
 
         current_stmts: tuple[str, ...] = (inner_stmt,)
         for dim, loop_var in zip(
-            reversed(node.plate.batch_dims),
+            reversed(loop_dims),
             reversed(loop_names),
             strict=True,
         ):
@@ -1312,8 +1413,8 @@ class GenRenderer(RendererBase):
             )
             current_stmts = (fs,)
         gx.body_stmts.append(current_stmts[0])
-        for dim in node.plate.batch_dims:
-            gx.used_axes.add(dim.name)
+        for dim in loop_dims:
+            gx.used_axes.add(str(dim.name))
 
     def _build_indexed_lhs(
         self, name: str, loop_names: tuple[str, ...]
@@ -1321,10 +1422,11 @@ class GenRenderer(RendererBase):
         gx = self._gx
         if not loop_names:
             return _ident(gx, name)
-        current = _ident(gx, name)
-        for lv in loop_names:
-            current = _index_into(gx, current, (_ident(gx, lv),))
-        return current
+        return _index_into(
+            gx,
+            _ident(gx, name),
+            tuple(_ident(gx, lv) for lv in loop_names),
+        )
 
     def _build_dist_call(
         self,
@@ -1378,8 +1480,28 @@ class GenRenderer(RendererBase):
 
     def _emit_deterministic(self, node: IRDeterministic) -> None:
         gx = self._gx
+        adapter = _JlCtxAdapter(gx, "gen")
+        shapes = gx.shapes.scoped_to(len(node.plate.batch_dims))
+        # A body that reduces an event axis (`mu = sum(z_row * w_row)`)
+        # cannot take the `@.` form below: the macro broadcasts the
+        # reducing call itself, applying `sum` to each scalar element
+        # and leaving the inner product uncomputed. Such a body emits
+        # its own dotted operators instead.
+        reduces_axis = let_expr_has_axis_reduction(shapes, node.expr)
         rhs = render_let_expr_julia(
-            _JlCtxAdapter(gx, "gen"), node.expr
+            adapter, node.expr, shapes=shapes, dotted=reduces_axis
+        )
+        # A binding whose expression produces fewer axes than its
+        # plate is one value the plate replicates: `cell0 =
+        # cell_score[0, 0]` under a `Resp` plate reaches the observe
+        # loop as a per-response vector. Julia has no implicit
+        # replication, so the missing axes are filled explicitly.
+        missing = (
+            len(node.plate.batch_dims)
+            + len(node.plate.event_dims)
+            - infer_array_rank(shapes, node.expr)
+            if node.plate.batch_dims
+            else 0
         )
         # The batch axes of a let-binding come from two sources: the
         # node's own `plate.batch_dims` (a binding indexed along a
@@ -1387,10 +1509,22 @@ class GenRenderer(RendererBase):
         # downstream sample / observe that references it inside a batch
         # loop without explicit indices. References to `node.name`
         # inside a loop pick up the loop index for every such axis.
+        if missing > 0:
+            rhs = _call(
+                gx,
+                _ident(gx, "fill"),
+                (
+                    rhs,
+                    *(
+                        _dim_size_vid(gx, dim)
+                        for dim in node.plate.batch_dims[:missing]
+                    ),
+                ),
+            )
         inferred = gx.inferred_det_axes.get(node.name, ())
         axes = _union_dims(inferred, node.plate.batch_dims)
         gx.decl_axes[node.name] = axes
-        if axes:
+        if axes and not reduces_axis and missing <= 0:
             # The let body evaluates to a Vector / matrix shaped along
             # the batch axes. Julia's scalar `+ * - /` operators reject
             # a scalar mixed with a vector, so wrap the RHS in `@.`
@@ -1407,6 +1541,29 @@ class GenRenderer(RendererBase):
     def _emit_marginalize(
         self, ctx: _RenderCtx, node: IRMarginalize
     ) -> None:
+        """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        to an explicit draw of the latent plus the scope inline.
+
+        This is the *draw*, not the integral, so the emitted program
+        denotes a measure on the product of the latent's support with
+        the scope's rather than the marginal the QVR reference scores.
+        Closing that needs a log-weight carrier Gen's `@gen` DSL does
+        not have: `Gen.assess` requires every traced address to be
+        constrained, so an extra `@trace` cannot carry the reduced
+        density, and folding the reduction into the observed site's
+        own distribution needs a `Gen.Distribution` whose `logpdf`
+        returns a precomputed value. That belongs in
+        [`runtime_gen.jl`][quivers.transpile.runtime_gen] beside the
+        existing grafts.
+
+        `Gen.HomogeneousMixture` is the one built-in that carries a
+        finite mixture, and it does not cover the gallery: its
+        component densities go through the base distribution's own
+        `Gen.logpdf`, and `Gen.logpdf(poisson, 0, 0.0)` is `NaN` where
+        the reference scores the point mass at 0 exactly. A
+        zero-inflation indicator pinned to 0 gates its rate to that
+        boundary on every row.
+        """
         explicit = self.explicit_latent_scope(node)
         for inner in explicit:
             self._emit_node(ctx, inner)
@@ -1419,7 +1576,7 @@ class GenRenderer(RendererBase):
         gx = self._gx
         del ctx
         rhs = render_let_expr_julia(
-            _JlCtxAdapter(gx, "gen"), node.expr
+            _JlCtxAdapter(gx, "gen"), node.expr, shapes=gx.shapes
         )
         bind = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(bind)

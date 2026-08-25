@@ -68,6 +68,12 @@ from quivers.transpile._pipeline import (
     target_protocol,
 )
 from quivers.transpile.renderers._julia_helpers import (
+    JuliaShapes,
+    infer_array_rank,
+    let_expr_has_axis_reduction,
+    name_array_rank_map,
+    nested_tower_names,
+    rebase_index_literals,
     render_let_expr_julia,
 )
 from quivers.transpile._resolve import (
@@ -100,8 +106,16 @@ from quivers.transpile.ir import (
     Plate,
 )
 from quivers.transpile.lower import Lower
+from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
+    name_event_rank_map,
+)
 from quivers.transpile.renderers._base import (
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -326,6 +340,65 @@ def _comprehension(
     return comp
 
 
+def _for_stmt(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    *,
+    var: str,
+    lo: str,
+    hi: str,
+    body_stmts: tuple[str, ...],
+) -> str:
+    """`for <var> in <lo>:<hi> <body> end` (Julia `for_statement`)."""
+    fs = _vertex(sb, counter, "for_statement")
+    fb = _vertex(sb, counter, "for_binding")
+    sb.edge(fb, _identifier(sb, counter, var), "child_of")
+    sb.edge(fb, _range(sb, counter, lo, hi), "child_of")
+    blk = _vertex(sb, counter, "block")
+    for stmt in body_stmts:
+        sb.edge(blk, stmt, "child_of")
+    sb.edge(fs, fb, "child_of")
+    sb.edge(fs, blk, "child_of")
+    return fs
+
+
+def _colon(sb: panproto.SchemaBuilder, counter: list[int]) -> str:
+    """The `:` full-axis subscript, an `operator` vertex in the Julia
+    grammar's `index_expression` bracket list."""
+    return _operator(sb, counter, ":")
+
+
+def _array_alloc(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    *,
+    elem_type: str,
+    sizes: tuple[str, ...],
+) -> str:
+    """`Array{<elem_type>, <N>}(undef, <s0>, ..., <sN-1>)`.
+
+    Pre-allocates the dense container a plated `~` statement fills one
+    slice at a time, in the (batch, event) axis order the QVR site
+    declares.
+    """
+    pt = _vertex(sb, counter, "parametrized_type_expression")
+    sb.edge(pt, _identifier(sb, counter, "Array"), "child_of")
+    curly = _vertex(sb, counter, "curly_expression")
+    sb.edge(curly, _identifier(sb, counter, elem_type), "child_of")
+    sb.edge(curly, _integer(sb, counter, len(sizes)), "child_of")
+    sb.edge(pt, curly, "child_of")
+    call = _vertex(sb, counter, "call_expression")
+    sb.edge(call, pt, "child_of")
+    sb.edge(
+        call,
+        _argument_list(
+            sb, counter, (_identifier(sb, counter, "undef"), *sizes)
+        ),
+        "child_of",
+    )
+    return call
+
+
 def _return(
     sb: panproto.SchemaBuilder, counter: list[int], value: str
 ) -> str:
@@ -450,6 +523,11 @@ class TuringRenderer(RendererBase):
             input_plates={inp.name: inp.plate for inp in ir.inputs},
             sample_plates={},
             batch_shaped_names=set(),
+            shapes=JuliaShapes(
+                name_event_rank=name_event_rank_map(ir),
+                name_array_rank=name_array_rank_map(ir),
+                nested_names=nested_tower_names(ir),
+            ),
         )
         # Pre-populate the sample-plate table by walking the body so
         # observe / marginalize bodies can detect index-dependent args
@@ -676,6 +754,17 @@ class TuringRenderer(RendererBase):
                 "qvr-turing", [f"family:{family}: no Turing.jl mapping"]
             )
 
+        # Split the site's event dims into the trailing ones the
+        # family produces natively (`Normal` none, `Dirichlet` one,
+        # `LKJCholesky` two) and the leading residual the source
+        # declared with `[over=<Axis>]`. The residual is iid
+        # replication, so it joins the batch dims in the `filldist`
+        # wrapper; without it a `Normal` site declared `over=LatentDim`
+        # renders rank-1 where the reference measure is rank-2.
+        own_start = len(plate.event_dims) - meta.event_rank
+        residual_event = plate.event_dims[:own_start]
+        own_event = plate.event_dims[own_start:]
+
         # Detect index-dependent arg shapes against the surrounding
         # observe/sample's batch axes. The presence of `via` is the
         # strongest signal: it always rewrites the indexing to thread
@@ -689,6 +778,46 @@ class TuringRenderer(RendererBase):
                 ctx.batch_shaped_names,
             )
         )
+
+        if own_event and (plate.batch_dims or residual_event):
+            # A batched draw from a family with its own event shape.
+            # `filldist(Dirichlet(...), 8)` would produce a 16-by-8
+            # matrix: every Turing product of a multivariate family
+            # is event-major, where the QVR site is batch-major
+            # (`array[8] simplex[16]` in Stan, `dims=("State","Obs")`
+            # in PyMC). The pre-allocated container plus a per-row `~`
+            # is the Turing idiom that lands the axes in the declared
+            # order, and DynamicPPL resolves each `name[i, :]` varname
+            # against the whole-array entry the caller conditions on.
+            return self._emit_row_plate(
+                ctx,
+                name=name,
+                target_dist=target_dist,
+                args=args,
+                arg_names=arg_names,
+                family=family,
+                meta=meta,
+                plate=plate,
+                own_event=own_event,
+                residual_event=residual_event,
+                index_dep=index_dep,
+            )
+
+        if index_dep and residual_event:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"sample:event-axis-lift:{name}: the site declares "
+                    f"the residual event "
+                    f"{'axis' if len(residual_event) == 1 else 'axes'} "
+                    f"{[d.name for d in residual_event]!r} and its "
+                    f"arguments index the surrounding batch axis. The "
+                    f"broadcast-dot and `arraydist` forms both fix the "
+                    f"drawn value at the family's own rank, so the "
+                    f"residual axis has no Turing.jl spelling on "
+                    f"either path"
+                ],
+            )
 
         lhs = _identifier(sb, counter, name)
 
@@ -749,50 +878,422 @@ class TuringRenderer(RendererBase):
             sb.edge(ctx.body, stmt, "child_of")
             return ""
 
-        # Plain / batch-wrapped form. Apply filldist for each batch dim.
-        # Pre-process args: a scalar IRArgRef against a vector-shaped
-        # arg constraint (e.g. Dirichlet `concentration`) is wrapped in
-        # `fill(<ref>, <event_size>)` so the emitted call matches the
-        # Turing.jl idiom of a fully-shaped vector for the event-dim arg.
+        # Plain / batch-wrapped form. Apply filldist over the batch
+        # dims plus any residual event dims the family does not itself
+        # produce. Pre-process args: a scalar IRArgRef against a
+        # vector-shaped arg constraint (e.g. Dirichlet
+        # `concentration`) is wrapped in `fill(<ref>, <event_size>)` so
+        # the emitted call matches the Turing.jl idiom of a
+        # fully-shaped vector for the event-dim arg.
         promoted = tuple(
             _promote_scalar_ref(a, name, plate, meta)
             for name, a in zip(arg_names, args, strict=False)
         )
         dist = self._family_call(
-            ctx, target_dist, promoted, family, plate.event_dims
+            ctx, target_dist, promoted, family, own_event
         )
-        for dim in plate.batch_dims:
-            size_vid = _dim_to_size(sb, counter, dim)
+        fill_dims = (*plate.batch_dims, *residual_event)
+        if fill_dims:
+            size_vids = tuple(
+                _dim_to_size(sb, counter, dim) for dim in fill_dims
+            )
             dist = _call(
                 sb,
                 counter,
                 _identifier(sb, counter, "filldist"),
-                (dist, size_vid),
+                (dist, *size_vids),
             )
         stmt = _tilde(sb, counter, lhs, dist)
         sb.edge(ctx.body, stmt, "child_of")
         return ""
 
-    # ----- marginalize: lower to explicit sample + scope inline -----
+    def _emit_row_plate(
+        self,
+        ctx: _TuringCtx,
+        *,
+        name: str,
+        target_dist: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        family: str,
+        meta: FamilyMeta,
+        plate: Plate,
+        own_event: tuple[Dim, ...],
+        residual_event: tuple[Dim, ...],
+        index_dep: bool,
+    ) -> SchemaFragment:
+        """Emit a batch-major plated draw from a family with its own
+        event shape:
+
+        ```julia
+        emission_rows = Array{Float64, 2}(undef, 8, 16)
+        for m_State in 1 : 8
+          emission_rows[m_State, :] ~ Dirichlet(fill(1, 16))
+        end
+        ```
+
+        One loop per batch axis and per residual event axis, in the
+        declared order, with one trailing `:` per axis the family
+        produces itself. Arguments that index a batch-shaped name pick
+        up the innermost loop variable, so a per-row concentration
+        reads `alpha[m_State]`.
+        """
+        sb, counter = ctx.sb, ctx.counter
+        loop_dims = (*plate.batch_dims, *residual_event)
+        loop_vars = _distinct_loop_vars(loop_dims)
+        rewritten = args
+        if index_dep:
+            rewritten = tuple(
+                _replace_first_index(a, loop_vars[-1], ctx.batch_shaped_names)
+                for a in args
+            )
+        promoted = tuple(
+            _promote_scalar_ref(a, arg_name, plate, meta)
+            for arg_name, a in zip(arg_names, rewritten, strict=False)
+        )
+        dist = self._family_call(
+            ctx, target_dist, promoted, family, own_event
+        )
+        lhs = _index_expr(
+            sb,
+            counter,
+            _identifier(sb, counter, name),
+            (
+                *(_identifier(sb, counter, v) for v in loop_vars),
+                *(_colon(sb, counter) for _ in own_event),
+            ),
+        )
+        stmts: tuple[str, ...] = (
+            _tilde(sb, counter, lhs, dist),
+        )
+        for dim, loop_var in zip(
+            reversed(loop_dims), reversed(loop_vars), strict=True
+        ):
+            stmts = (
+                _for_stmt(
+                    sb,
+                    counter,
+                    var=loop_var,
+                    lo=_integer(sb, counter, 1),
+                    hi=_dim_to_size(sb, counter, dim),
+                    body_stmts=stmts,
+                ),
+            )
+        alloc = _array_alloc(
+            sb,
+            counter,
+            elem_type="Float64",
+            sizes=tuple(
+                _dim_to_size(sb, counter, dim)
+                for dim in (*loop_dims, *own_event)
+            ),
+        )
+        sb.edge(
+            ctx.body,
+            _assignment(sb, counter, _identifier(sb, counter, name), alloc),
+            "child_of",
+        )
+        sb.edge(ctx.body, stmts[0], "child_of")
+        return ""
+
+    # ----- marginalize: the integrated-density lowering -----
 
     def marginalize(
         self, ctx: _RenderCtx, node: IRMarginalize
     ) -> SchemaFragment:
-        """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to an explicit [`IRSample`][quivers.transpile.ir.IRSample] of
-        the latent followed by the scoped body inline.
+        """Integrate an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        latent out, adding the reduced density to the model's
+        log-joint with `Turing.@addlogprob!`.
 
-        Turing.jl supports discrete latents natively (NUTS dispatches
-        them automatically), so no `log_sum_exp` rewriting is needed;
-        the shared
-        [`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-        helper supplies the rewrite.
+        One scored copy of the scope per atom of the latent's finite
+        support, then an elementwise reduction across atoms:
+
+        ```julia
+        __marg_state_0 = logpdf.(Categorical(eachrow(emission_rows)[1]), obs)
+        ...
+        __marg_state_w = log.(initial_row)
+        __marg_state_t_0 = __marg_state_w[1] .+ __marg_state_0
+        ...
+        __marg_state_m = max.(__marg_state_t_0, ..., __marg_state_t_7)
+        __marg_state = __marg_state_m .+ log.(
+          exp.(__marg_state_t_0 .- __marg_state_m) + ...
+        )
+        @addlogprob! sum(__marg_state)
+        ```
+
+        The max-shifted form is the numerically stable `logsumexp`
+        written in `Base`, so the emitted model needs no import beyond
+        what `using Turing` already brings into scope. No site is
+        declared for the latent: the atoms replace it, and the emitted
+        program denotes the same measure the QVR reference integrates.
         """
         assert isinstance(ctx, _TuringCtx)
-        rewritten = self.explicit_latent_scope(node)
-        for child in rewritten:
-            self._dispatch(ctx, child)
+        sb, counter = ctx.sb, ctx.counter
+        plates = {**ctx.input_plates, **ctx.sample_plates}
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(node, name_plates=plates),
+        )
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                rebase_index_literals(atom.scope),
+                latent=node.latent,
+                target=self.target,
+            )
+            for det in scored.deterministics:
+                self._emit_deterministic(ctx, det)
+            term = f"{prefix}_{position}"
+            self._emit_assignment(
+                ctx, term, self._atom_log_density(ctx, scored.observe)
+            )
+            term_names.append(term)
+        weight_names = self._emit_atom_weights(
+            ctx, node, raw, atoms, prefix, plates
+        )
+        shifted: list[str] = []
+        for position, (weight, term) in enumerate(
+            zip(weight_names, term_names, strict=True)
+        ):
+            name = f"{prefix}_t_{position}"
+            self._emit_assignment(
+                ctx,
+                name,
+                _dotted_binary(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, weight),
+                    "+",
+                    _identifier(sb, counter, term),
+                ),
+            )
+            shifted.append(name)
+        max_name = f"{prefix}_m"
+        self._emit_assignment(
+            ctx,
+            max_name,
+            _broadcast_call(
+                sb,
+                counter,
+                _identifier(sb, counter, "max"),
+                tuple(_identifier(sb, counter, n) for n in shifted),
+            ),
+        )
+        exp_terms = tuple(
+            _broadcast_call(
+                sb,
+                counter,
+                _identifier(sb, counter, "exp"),
+                (
+                    _dotted_binary(
+                        sb,
+                        counter,
+                        _identifier(sb, counter, n),
+                        "-",
+                        _identifier(sb, counter, max_name),
+                    ),
+                ),
+            )
+            for n in shifted
+        )
+        total = exp_terms[0]
+        for extra in exp_terms[1:]:
+            total = _dotted_binary(sb, counter, total, "+", extra)
+        reduced = _dotted_binary(
+            sb,
+            counter,
+            _identifier(sb, counter, max_name),
+            "+",
+            _broadcast_call(
+                sb, counter, _identifier(sb, counter, "log"), (total,)
+            ),
+        )
+        self._emit_assignment(ctx, prefix, reduced)
+        summed = _call(
+            sb,
+            counter,
+            _identifier(sb, counter, "sum"),
+            (_identifier(sb, counter, prefix),),
+        )
+        sb.edge(
+            ctx.body,
+            _macro_call(sb, counter, "addlogprob!", summed),
+            "child_of",
+        )
         return ""
+
+    def _emit_assignment(
+        self, ctx: _TuringCtx, name: str, rhs: str
+    ) -> None:
+        """Append `<name> = <rhs>` to the model body."""
+        sb, counter = ctx.sb, ctx.counter
+        sb.edge(
+            ctx.body,
+            _assignment(sb, counter, _identifier(sb, counter, name), rhs),
+            "child_of",
+        )
+
+    def _atom_log_density(
+        self, ctx: _TuringCtx, observe: IRObserve
+    ) -> str:
+        """`logpdf.(<Dist>, <observed value>)` for one atom's scope.
+
+        The distribution constructor broadcasts when its arguments are
+        per-row vectors (`Poisson.(gated_rate)`) and stays scalar when
+        a single event-shaped argument feeds it
+        (`Categorical(eachrow(emission_rows)[1])`). Distributions.jl
+        indexes a `Categorical` from 1, so an observed class index
+        arrives from the point payload one short and is lifted here.
+        """
+        sb, counter = ctx.sb, ctx.counter
+        meta = _meta_or_raise(observe.family)
+        target_dist = meta.target_names.get("turing")
+        if target_dist is None:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [f"family:{observe.family}: no Turing.jl mapping"],
+            )
+        if len(observe.plate.event_dims) > meta.event_rank:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"marginalize:observe-event-axis:{observe.name}: the "
+                    f"scored site declares a residual event axis the "
+                    f"per-atom `logpdf.` broadcast cannot replicate"
+                ],
+            )
+        elementwise = _args_have_batch_index(
+            observe.args,
+            ctx.sample_plates,
+            observe.plate,
+            ctx.batch_shaped_names,
+        )
+        rhs_args = tuple(
+            _arg_to_julia(ctx, a, via=observe.via, family=observe.family)
+            for a in observe.args
+        )
+        rhs_args = _transform_rhs_args(sb, counter, rhs_args, observe.family)
+        callee = _identifier(sb, counter, target_dist)
+        dist = (
+            _broadcast_call(sb, counter, callee, rhs_args)
+            if elementwise
+            else _call(sb, counter, callee, rhs_args)
+        )
+        value = _identifier(sb, counter, observe.name)
+        if observe.family in _ONE_BASED_SUPPORT_FAMILIES:
+            value = _dotted_binary(
+                sb, counter, value, "+", _integer(sb, counter, 1)
+            )
+        return _broadcast_call(
+            sb,
+            counter,
+            _identifier(sb, counter, "logpdf"),
+            (dist, value),
+        )
+
+    def _emit_atom_weights(
+        self,
+        ctx: _TuringCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        prefix: str,
+        plates: dict[str, Plate],
+    ) -> tuple[str, ...]:
+        """Bind one log-weight name per atom and return the names.
+
+        A `Bernoulli` atom set weights the atoms 0 and 1 by
+        `log1p(-p)` and `log(p)`, both shaped like the probability
+        itself. A `Categorical` atom set reads the class axis of the
+        probability tensor, so the weights are slices of a single
+        `log.(probs)` binding.
+        """
+        sb, counter = ctx.sb, ctx.counter
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
+        family = atoms[0].weight_family
+        if family == "Bernoulli":
+            zero = f"{prefix}_w_0"
+            one = f"{prefix}_w_1"
+            self._emit_assignment(
+                ctx,
+                zero,
+                _broadcast_call(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, "log1p"),
+                    (
+                        _unary_minus(
+                            sb, counter, _arg_to_julia(ctx, probs)
+                        ),
+                    ),
+                ),
+            )
+            self._emit_assignment(
+                ctx,
+                one,
+                _broadcast_call(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, "log"),
+                    (_arg_to_julia(ctx, probs),),
+                ),
+            )
+            return (zero, one)
+        if family != "Categorical":
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"marginalize:weight-family:{family}: no Turing.jl "
+                    f"log-weight form for this atom set"
+                ],
+            )
+        leading = _class_axis_slice(probs, plates, self.target)
+        log_probs = f"{prefix}_w"
+        self._emit_assignment(
+            ctx,
+            log_probs,
+            _broadcast_call(
+                sb,
+                counter,
+                _identifier(sb, counter, "log"),
+                (_arg_to_julia(ctx, probs),),
+            ),
+        )
+        names: list[str] = []
+        for position in range(len(atoms)):
+            name = f"{prefix}_w_{position}"
+            index = _integer(sb, counter, position + 1)
+            if leading is None:
+                slice_vid = _broadcast_call(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, "getindex"),
+                    (_identifier(sb, counter, log_probs), index),
+                )
+            else:
+                slice_vid = _index_expr(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, log_probs),
+                    (
+                        *(_colon(sb, counter) for _ in range(leading)),
+                        index,
+                    ),
+                )
+            self._emit_assignment(ctx, name, slice_vid)
+            names.append(name)
+        return tuple(names)
 
     # ----- broadcast: Julia's fill(<value>, K) / fill(<value>, R, C) -----
 
@@ -995,14 +1496,29 @@ class TuringRenderer(RendererBase):
         broadcasting variant so a `mu = a + b * x_design` against a
         vector `x_design` produces a Vector{Float64} mu rather than
         raising "no method matching +(::Int64, ::Vector)".
+
+        A body that reduces an event axis (`mu = sum(z_row * w_row)`)
+        takes the explicitly dotted form instead. `@.` would broadcast
+        the reducing call itself, applying `sum` to each scalar
+        element and leaving the inner product uncomputed.
         """
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
+        shim = _JlCtxShim(sb, counter, ctx.cards, "turing")
+        shapes = ctx.shapes.scoped_to(len(node.plate.batch_dims))
+        reduces_axis = let_expr_has_axis_reduction(shapes, node.expr)
         rhs = render_let_expr_julia(
-            _JlCtxShim(sb, counter, ctx.cards, "turing"), node.expr
+            shim, node.expr, shapes=shapes, dotted=reduces_axis
         )
-        if node.name in ctx.batch_shaped_names:
+        missing = _plate_axes_missing(shapes, node)
+        if (
+            node.name in ctx.batch_shaped_names
+            and not reduces_axis
+            and not missing
+        ):
             rhs = _macro_call(sb, counter, ".", rhs)
+        if missing:
+            rhs = _fan_out_to_plate(ctx, node, rhs, missing)
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
 
@@ -1013,7 +1529,9 @@ class TuringRenderer(RendererBase):
         sb, counter = ctx.sb, ctx.counter
         lhs = _identifier(sb, counter, node.name)
         rhs = render_let_expr_julia(
-            _JlCtxShim(sb, counter, ctx.cards, "turing"), node.expr
+            _JlCtxShim(sb, counter, ctx.cards, "turing"),
+            node.expr,
+            shapes=ctx.shapes,
         )
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
@@ -1250,6 +1768,7 @@ class _TuringCtx(_RenderCtx):
         input_plates: dict[str, Plate],
         sample_plates: dict[str, Plate],
         batch_shaped_names: set[str],
+        shapes: JuliaShapes,
     ) -> None:
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.counter = counter
@@ -1258,6 +1777,7 @@ class _TuringCtx(_RenderCtx):
         self.input_plates = input_plates
         self.sample_plates = sample_plates
         self.batch_shaped_names = batch_shaped_names
+        self.shapes = shapes
 
 
 # `_JlCtxShim` lets us reuse
@@ -1312,6 +1832,139 @@ class _JlCtxShim:
 # ---------------------------------------------------------------------------
 # Internal helpers: arg conversion, dim sizing, index-dependence detection.
 # ---------------------------------------------------------------------------
+
+
+#: Families whose Distributions.jl counterpart indexes its support
+#: from 1 where the QVR reference counts from 0. `Categorical` is the
+#: only such family the renderer maps; every other discrete family in
+#: `FAMILY_META` shares torch's origin.
+_ONE_BASED_SUPPORT_FAMILIES: frozenset[str] = frozenset({"Categorical"})
+
+
+def _distinct_loop_vars(dims: tuple[Dim, ...]) -> tuple[str, ...]:
+    """One `m_<Axis>` loop variable per dim, disambiguated on repeat.
+
+    A site can carry the same axis twice (`Dirichlet ... [over=State,
+    iid_over=State]`), and two nested loops sharing a variable name
+    would let the inner one shadow the outer, collapsing the plate.
+    """
+    seen: dict[str, int] = {}
+    out: list[str] = []
+    for dim in dims:
+        base = f"m_{dim.name}"
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        out.append(base if count == 0 else f"{base}_{count}")
+    return tuple(out)
+
+
+def _plate_axes_missing(
+    shapes: JuliaShapes, node: IRDeterministic
+) -> int:
+    """How many of a binding's plate axes its expression does not
+    itself produce.
+
+    A `let cell0 = cell_score[0, 0]` bound under a `Resp` plate is one
+    number the plate replicates 200 times, so one axis is missing; a
+    `mu = a + b * x` already spans its plate and none are.
+    """
+    if not node.plate.batch_dims:
+        return 0
+    plate_rank = len(node.plate.batch_dims) + len(node.plate.event_dims)
+    return max(0, plate_rank - infer_array_rank(shapes, node.expr))
+
+
+def _fan_out_to_plate(
+    ctx: _TuringCtx,
+    node: IRDeterministic,
+    rhs: str,
+    missing: int,
+) -> str:
+    """Materialise a binding at its plate's shape with `fill`.
+
+    Julia has no implicit replication, and the site that consumes the
+    binding reads it at the plate's shape, so the leading `missing`
+    batch axes are filled explicitly.
+    """
+    sb, counter = ctx.sb, ctx.counter
+    sizes = tuple(
+        _dim_to_size(sb, counter, dim)
+        for dim in node.plate.batch_dims[:missing]
+    )
+    return _call(
+        sb, counter, _identifier(sb, counter, "fill"), (rhs, *sizes)
+    )
+
+
+def _dotted_binary(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    left: str,
+    op: str,
+    right: str,
+) -> str:
+    """`<left> .<op> <right>`: the broadcasting form of a binary
+    operator, for expressions the renderer builds outside the `@.`
+    macro."""
+    return _binary_expr(sb, counter, left, f".{op}", right)
+
+
+def _unary_minus(
+    sb: panproto.SchemaBuilder, counter: list[int], operand: str
+) -> str:
+    """`- <operand>` as a Julia `unary_expression`."""
+    vid = _vertex(sb, counter, "unary_expression")
+    sb.edge(vid, _operator(sb, counter, "-"), "child_of")
+    sb.edge(vid, operand, "child_of")
+    return vid
+
+
+def _class_axis_slice(
+    probs: IRArg, plates: dict[str, Plate], target: str
+) -> int | None:
+    """How to slice atom ``k`` off a probability tensor's class axis.
+
+    Returns the number of leading `:` axes for a dense array, or
+    `None` when the value is a nested container of per-row simplices
+    and the slice has to map `getindex` over it. A `Categorical` atom
+    set reads its weights off the innermost axis of the probability
+    argument, and which of the two shapes that axis sits in follows
+    from the referenced name's declared plate: `initial_row` is one
+    simplex sliced as `w[k]`; a `theta` declared over a `Doc` batch is
+    a dense `Doc`-by-`Topic` matrix sliced as `w[:, k]`; the same
+    `theta` gathered through a fibration is a vector of simplex rows
+    sliced as `getindex.(w, k)`.
+    """
+    if not isinstance(probs, IRArgRef):
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                "marginalize:weight-expression: the atom weights are a "
+                "computed expression, so the class axis has no static "
+                "position to slice"
+            ],
+        )
+    plate = plates.get(probs.name)
+    if plate is None:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:weight-plate:{probs.name}: the atom "
+                f"weights reference a name with no declared plate"
+            ],
+        )
+    if len(plate.event_dims) != 1:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"marginalize:weight-event-rank:{probs.name}: the class "
+                f"axis is the probability tensor's only event axis, "
+                f"but the name declares {len(plate.event_dims)}"
+            ],
+        )
+    if probs.indices:
+        return None
+    return len(plate.batch_dims)
 
 
 def _meta_or_raise(family: str) -> FamilyMeta:
@@ -1695,9 +2348,13 @@ def _seed_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
     # batch-shaped. (Marginalize scopes recurse.)
     _collect_sample_batch_shaped(ctx, body)
     # Build a name -> IRDeterministic table so closure propagation
-    # below can dereference let bindings in any order.
+    # below can dereference let bindings in any order. Marginalize
+    # scopes contribute their own bindings: the atoms the block
+    # enumerates re-emit them into the enclosing body, so their shapes
+    # are decided by the same broadcast rules.
+    flat = _flatten_body(body)
     dets: dict[str, IRDeterministic] = {
-        n.name: n for n in body if isinstance(n, IRDeterministic)
+        n.name: n for n in flat if isinstance(n, IRDeterministic)
     }
     # Implicit-shape propagation: for every plated IRObserve / IRSample
     # whose args reference a let-bound deterministic or an empty-plate
@@ -1706,7 +2363,7 @@ def _seed_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
     # vector shape of inputs like `x_design` that have no explicit
     # plate annotation but whose use site (a plated observe's `loc`)
     # demands a per-element value.
-    for node in body:
+    for node in flat:
         if isinstance(node, (IRSample, IRObserve)) and node.plate.batch_dims:
             for arg in node.args:
                 _mark_arg_refs_batch_shaped(arg, ctx, dets)
@@ -1717,7 +2374,7 @@ def _seed_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
     changed = True
     while changed:
         changed = False
-        for node in body:
+        for node in flat:
             if isinstance(node, IRDeterministic):
                 if node.name in ctx.batch_shaped_names:
                     continue
@@ -1725,6 +2382,21 @@ def _seed_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
                 if any(r in ctx.batch_shaped_names for r in refs):
                     ctx.batch_shaped_names.add(node.name)
                     changed = True
+
+
+def _flatten_body(body: tuple[IRNode, ...]) -> tuple[IRNode, ...]:
+    """Flatten an IR body, splicing every marginalize scope inline.
+
+    The marginalize lowering re-emits each scope node into the
+    enclosing body once per atom, so the shape analyses that run over
+    the body must see those nodes too.
+    """
+    out: list[IRNode] = []
+    for node in body:
+        out.append(node)
+        if isinstance(node, IRMarginalize):
+            out.extend(_flatten_body(node.scope))
+    return tuple(out)
 
 
 def _mark_arg_refs_batch_shaped(

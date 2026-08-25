@@ -31,15 +31,24 @@ import panproto
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import EmitPretty, target_protocol
 from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
     PyCtx,
     assignment,
     attribute,
     call,
+    factor_tower_names,
+    float_literal,
     function_def,
     identifier,
+    marginal_atom_axis,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
     name_event_rank_map,
+    name_plate_map,
     number_literal,
     python_binary_op as _python_binary_op,
+    python_list,
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
@@ -85,6 +94,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -117,6 +127,18 @@ _PREPEND_LOC_ZERO: frozenset[str] = frozenset({"HalfCauchy"})
 _EDWARD2_ARG_ALIASES: dict[str, dict[str, str]] = {
     "Pareto": {"alpha": "concentration"},
 }
+
+
+#: Families whose TFP constructor takes a shape argument the generic
+#: keyword path does not supply (``MatrixNormal`` needs Cholesky
+#: ``LinearOperator``s, ``LKJCholesky`` a leading matrix dimension,
+#: ``GP`` a kernel). Each has a dedicated builder for the sample /
+#: observe path; none has one for a mixture component, so a
+#: `marginalize` over such a family raises rather than emit a call
+#: missing a required argument.
+_NO_GENERIC_COMPONENT_FAMILIES: frozenset[str] = frozenset(
+    {"MatrixNormal", "LKJCholesky", "GP"}
+)
 
 
 class Edward2Renderer(RendererBase):
@@ -163,10 +185,20 @@ class Edward2Renderer(RendererBase):
             target="edward2",
             name_event_rank=name_event_rank_map(ir),
             gather_symbol=("tf", "gather"),
+            factor_towers=factor_tower_names(ir),
+            name_plates=name_plate_map(ir),
         )
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
 
         sb.vertex("mod", "module")
+        # A marginalize block reduces to a `MixtureSameFamily` whose
+        # two component arguments are bare TFP distributions rather
+        # than Edward2 random variables (an Edward2 constructor would
+        # register a second, unobserved site on the trace). TFP is a
+        # hard dependency of Edward2, so the emitted module imports it
+        # directly when a marginalize is present.
+        if _ir_has_marginalize(ir.body):
+            self._emit_tfp_import(py)
         body_vid = py.v(py.fresh("body"), "block")
         param_names = tuple(inp.name for inp in ir.inputs)
         fn = function_def(
@@ -183,6 +215,32 @@ class Edward2Renderer(RendererBase):
             inp.name: _Binding(constraint=inp.constraint, plate=inp.plate)
             for inp in ir.inputs
         }
+
+        # TensorFlow's ops are dtype-strict: an integer-valued tensor
+        # supplied for a `Real`-declared covariate makes every mixed
+        # expression it reaches (`20.0 * (t - tau)`) raise rather than
+        # promote, the way JAX / PyTorch / PyTensor would. Casting each
+        # real-declared input once at the top of the body makes the
+        # emitted model self-contained whatever dtype the caller
+        # supplies, mirroring the integer-index coercion the PyTorch
+        # renderer emits for the mirror-image case.
+        for name in _real_input_names(ir):
+            py.e(
+                body_vid,
+                assignment(
+                    py,
+                    lhs_name=name,
+                    rhs=call(
+                        py,
+                        attribute(py, ("tf", "cast")),
+                        positional=(
+                            identifier(py, name),
+                            attribute(py, ("tf", "float32")),
+                        ),
+                    ),
+                ),
+                "child_of",
+            )
 
         for node in ir.body:
             self._emit_node(py, ctx, body_vid, node, input_specs, bindings)
@@ -282,16 +340,12 @@ class Edward2Renderer(RendererBase):
             self._emit_score_node(py, body_vid, node)
             return
         if isinstance(node, IRMarginalize):
-            for sub in _thread_via_through_scope(
-                self.explicit_latent_scope(node),
-                latent_name=node.latent,
-            ):
-                self._emit_node(
-                    py, ctx, body_vid, sub, input_specs, bindings
-                )
+            self._emit_marginalize(
+                py, body_vid, node, input_specs, bindings
+            )
             return
         if isinstance(node, IRReturn):
-            self._emit_return(py, body_vid, node.names)
+            self._emit_return_statement(py, body_vid, node.names)
             return
         raise UnsupportedConstruct(
             _BACKEND_KEY, [f"node:{type(node).__name__}"]
@@ -440,9 +494,18 @@ class Edward2Renderer(RendererBase):
         py.e(asn, render_let_expr_python(py, node.expr), "right")
         py.e(body_vid, asn, "child_of")
 
-    def _emit_return(
+    def _emit_return_statement(
         self, py: PyCtx, body_vid: str, names: tuple[str, ...]
     ) -> None:
+        """Emit ``return <name>`` / ``return <a>, <b>`` at the end of
+        the model function body.
+
+        Edward2 dispatches its own IR walk through
+        [`_emit_node`][quivers.transpile.renderers.edward2.Edward2Renderer._emit_node]
+        rather than the base walker, so this carries the schema
+        context the walk threads (`py`, `body_vid`) instead of the
+        `_RenderCtx` signature the base class declares.
+        """
         if not names:
             return
         rs = py.v(py.fresh("ret"), "return_statement")
@@ -516,16 +579,252 @@ class Edward2Renderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Lower the integration scope to explicit sampling.
-
-        Edward2 samples discrete latents natively; the explicit-latent
-        rewrite from
-        [`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-        produces ``IRSample(latent)`` followed by the scope body. The
-        top-level ``render`` IR walk consumes the rewritten sequence.
-        """
+        """No-op at the protocol dispatch point: the renderer drives
+        the enumeration through `_emit_marginalize`, which needs the
+        binding tables the top-level walk threads."""
         del ctx, node
         return ""
+
+    def _emit_marginalize(
+        self,
+        py: PyCtx,
+        body_vid: str,
+        node: IRMarginalize,
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+    ) -> None:
+        """Integrate the latent out into a single
+        ``edward2.MixtureSameFamily`` observed variable.
+
+        Each atom of the latent's support contributes one row of the
+        component distribution's trailing batch axis, so the atoms are
+        materialised argument-by-argument and stacked:
+
+        ```python
+        gated_rate = 0.0 * rate
+        __marg_z_a0_0 = gated_rate
+        gated_rate = 1.0 * rate
+        __marg_z_a0_1 = gated_rate
+        __marg_z_a0 = tf.stack([__marg_z_a0_0, __marg_z_a0_1], axis=-1)
+        y = edward2.MixtureSameFamily(
+            mixture_distribution=tfp.distributions.Categorical(
+                probs=tf.stack([(1 - pi_z), pi_z], axis=-1)
+            ),
+            components_distribution=tfp.distributions.Poisson(
+                rate=__marg_z_a0
+            ),
+            name="y",
+        )
+        ```
+
+        The components and the mixing distribution are bare TFP
+        distributions: an Edward2 constructor would register each as
+        its own random variable on the trace, and the block denotes
+        one observed variable, not three.
+        """
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        observe = raw.observe
+        if observe.family in _NO_GENERIC_COMPONENT_FAMILIES:
+            raise UnsupportedConstruct(
+                _BACKEND_KEY,
+                [
+                    f"marginalize:component-family:{observe.family}: the "
+                    f"family's TFP constructor takes a shape argument "
+                    f"the generic component builder does not supply"
+                ],
+            )
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(
+                node, name_plates=py.name_plates
+            ),
+        )
+        meta = self._lookup_meta(observe.family)
+        expected_event = _event_shape(
+            Plate(event_dims=observe.plate.event_dims, batch_dims=())
+        )
+        prefix = f"__marg_{node.latent}"
+        per_arg: list[list[str]] = [[] for _ in observe.arg_names]
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                asn = py.v(py.fresh("asn"), "assignment")
+                py.e(asn, identifier(py, det.name), "left")
+                py.e(asn, render_let_expr_python(py, det.expr), "right")
+                py.e(body_vid, asn, "child_of")
+                bindings[det.name] = _Binding(
+                    constraint=det.constraint, plate=det.plate
+                )
+            for slot, arg in enumerate(scored.observe.args):
+                held = f"{prefix}_a{slot}_{position}"
+                py.e(
+                    body_vid,
+                    assignment(
+                        py,
+                        lhs_name=held,
+                        rhs=self._render_arg(
+                            py,
+                            arg,
+                            expected_arg_event=expected_event,
+                            arg_position=slot,
+                            meta=meta,
+                            input_specs=input_specs,
+                            bindings=bindings,
+                        ),
+                    ),
+                    "child_of",
+                )
+                per_arg[slot].append(held)
+        axis = marginal_atom_axis(
+            observe.family, observe.arg_names, target=self.target
+        )
+        stacked: list[IRArg] = []
+        for slot, held_names in enumerate(per_arg):
+            stacked_name = f"{prefix}_a{slot}"
+            py.e(
+                body_vid,
+                assignment(
+                    py,
+                    lhs_name=stacked_name,
+                    rhs=_tf_stack(
+                        py,
+                        tuple(identifier(py, n) for n in held_names),
+                        axis,
+                    ),
+                ),
+                "child_of",
+            )
+            stacked.append(IRArgRef(name=stacked_name))
+        components = self._dist_call(
+            py,
+            name=observe.name,
+            family=observe.family,
+            args=tuple(stacked),
+            arg_names=observe.arg_names,
+            plate=Plate(event_dims=(), batch_dims=()),
+            input_specs=input_specs,
+            bindings=bindings,
+            observed_name=None,
+            callee_chain=("tfp", "distributions"),
+        )
+        mixing = call(
+            py,
+            attribute(py, ("tfp", "distributions", "Categorical")),
+            keyword=(
+                ("probs", self._marginal_weights(py, node, raw, atoms)),
+            ),
+        )
+        py.e(
+            body_vid,
+            assignment(
+                py,
+                lhs_name=observe.name,
+                rhs=call(
+                    py,
+                    attribute(py, ("edward2", "MixtureSameFamily")),
+                    keyword=(
+                        ("mixture_distribution", mixing),
+                        ("components_distribution", components),
+                        ("name", string_literal(py, observe.name)),
+                    ),
+                ),
+            ),
+            "child_of",
+        )
+        bindings[observe.name] = _Binding(
+            constraint=observe.constraint, plate=observe.plate
+        )
+
+    def _marginal_weights(
+        self,
+        py: PyCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+    ) -> str:
+        """Mixing-probability tensor whose trailing axis runs over the
+        atoms.
+
+        A `Categorical` atom set weights atom ``k`` by ``p[k]``, so the
+        probability tensor's own trailing axis is already the atom
+        axis. A `Bernoulli` atom set weights the atoms 0 and 1 by
+        ``1 - p`` and ``p``, which stack into a fresh trailing axis.
+        """
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        probs_vid = self._weight_ref_expr(py, probs)
+        family = atoms[0].weight_family
+        if family == "Categorical":
+            return probs_vid
+        if family == "Bernoulli":
+            complement = _python_paren(
+                py,
+                _python_binary_op(
+                    py,
+                    "-",
+                    number_literal(py, 1.0),
+                    self._weight_ref_expr(py, probs),
+                ),
+            )
+            return _tf_stack(py, (complement, probs_vid), -1)
+        raise UnsupportedConstruct(
+            _BACKEND_KEY,
+            [f"marginalize:weight-family:{family}"],
+        )
+
+    def _weight_ref_expr(self, py: PyCtx, probs: IRArg) -> str:
+        """Render the atom-weight probability tensor.
+
+        A weight gathered through an observe's `via` fibration carries
+        a whole plate vector as its index, which TensorFlow's
+        ``__getitem__`` rejects, so the gather routes through
+        ``tf.gather`` the way every other plate-vector lookup does.
+        """
+        if (
+            isinstance(probs, IRArgRef)
+            and len(probs.indices) == 1
+            and isinstance(probs.indices[0], IRArgRef)
+            and not probs.indices[0].indices
+        ):
+            return call(
+                py,
+                attribute(py, ("tf", "gather")),
+                positional=(
+                    identifier(py, probs.name),
+                    identifier(py, probs.indices[0].name),
+                ),
+            )
+        if isinstance(probs, IRArgRef):
+            return self._ref_expr(py, probs)
+        raise UnsupportedConstruct(
+            _BACKEND_KEY,
+            [
+                f"marginalize:weight-arg:{type(probs).__name__}: the "
+                f"atom weights are not a named tensor"
+            ],
+        )
+
+    def _emit_tfp_import(self, py: PyCtx) -> None:
+        """Emit ``import tensorflow_probability as tfp`` at module
+        scope."""
+        stmt = py.v(py.fresh("imp"), "import_statement")
+        aliased = py.v(py.fresh("alias"), "aliased_import")
+        dotted = py.v(py.fresh("dn"), "dotted_name")
+        py.e(dotted, identifier(py, "tensorflow_probability"), "child_of")
+        py.e(aliased, dotted, "name")
+        py.e(aliased, identifier(py, "tfp"), "alias")
+        py.e(stmt, aliased, "name")
+        py.e("mod", stmt, "child_of")
 
     def broadcast(
         self,
@@ -558,6 +857,7 @@ class Edward2Renderer(RendererBase):
         input_specs: dict[str, ConstraintSpec],
         bindings: dict[str, _Binding],
         observed_name: str | None,
+        callee_chain: tuple[str, ...] = ("edward2",),
     ) -> str:
         """Build ``edward2.<Family>(positional|kwargs,
         sample_shape=[..], name="<name>")``.
@@ -566,6 +866,12 @@ class Edward2Renderer(RendererBase):
         ``Dirichlet(concentration)`` and as keyword args for
         multi-positional families to match Edward2's `tfp` conventions.
         ``arg_aliases["edward2"]`` rewrites argument names.
+
+        `callee_chain` names the module the distribution class is read
+        from. It defaults to Edward2, whose constructors register a
+        random variable on the trace; the marginalize enumeration
+        passes ``("tfp", "distributions")`` for the mixture
+        components, which are plain distributions rather than sites.
         """
         del observed_name
         meta = self._lookup_meta(family)
@@ -612,7 +918,7 @@ class Edward2Renderer(RendererBase):
             arg_names = (arg_names[0], "loc", *arg_names[1:])
             meta = self._lookup_meta("StudentT")
 
-        callee = attribute(py, ("edward2", dist_class))
+        callee = attribute(py, (*callee_chain, dist_class))
         aliases = {
             **meta.arg_aliases.get(_TARGET, {}),
             **_EDWARD2_ARG_ALIASES.get(family, {}),
@@ -1011,7 +1317,10 @@ class Edward2Renderer(RendererBase):
         for k in target_shape:
             py.e(shape_list, number_literal(py, float(k)), "child_of")
         if isinstance(value, IRArgNumber):
-            value_vid = number_literal(py, value.value)
+            # The fill value types the tensor: an integer literal here
+            # builds an integer concentration / rate / scale, which the
+            # real-valued family rejects.
+            value_vid = float_literal(py, value.value)
         elif isinstance(value, IRArgRef):
             value_vid = self._ref_expr(py, value)
         else:
@@ -1432,91 +1741,57 @@ def _is_positional_arg(meta: FamilyMeta, target_name: str) -> bool:
     return len(cls_attr) == 1
 
 
-def _thread_via_through_scope(
-    nodes: tuple[IRNode, ...], *, latent_name: str
-) -> tuple[IRNode, ...]:
-    """Rewrite references to `latent_name` inside scope-observe args
-    so they are indexed by each observe's `via=` fibration.
+def _real_input_names(ir: IRProgram) -> tuple[str, ...]:
+    """Exogenous data inputs the program declares on the unbounded
+    reals, in signature order.
 
-    The lifted latent in an `IRMarginalize` rewrite ranges over the
-    marginalize batch dim (e.g. ``Doc``); each scope-observe ranges
-    over its own batch dim (e.g. ``Word_obs``). The `via=`
-    fibration maps observation indices to the marginalize plate, so
-    a reference to the latent inside the observe's args becomes
-    ``z[word_idx]`` -- a single indexed lookup per observation.
-
-    Nodes outside the observe surface (the lifted latent sample
-    itself, deterministic / score nodes) are returned unchanged.
+    These are the continuous covariates (`Real` domains and design
+    columns). Every other constraint either names an integer support
+    (an index covariate, a count observation) or a bounded continuous
+    one whose caller-side dtype is float by construction. Observed
+    names are excluded: each is rebound by its own random variable and
+    reaches the model only through that variable's ``log_prob``, so it
+    carries a ``None`` default that a cast would reject.
     """
-    out: list[IRNode] = []
-    for node in nodes:
-        if isinstance(node, IRObserve) and node.via is not None:
-            out.append(_rewrite_observe_via(node, latent_name))
-        else:
-            out.append(node)
-    return tuple(out)
-
-
-def _rewrite_observe_via(
-    node: IRObserve, latent_name: str
-) -> IRObserve:
-    """Apply via indexing to every `latent_name` reference in the
-    observe's args."""
-    via = node.via
-    if via is None:
-        return node
-    new_args = tuple(
-        _index_latent_ref(a, latent_name, via) for a in node.args
-    )
-    return IRObserve(
-        name=node.name,
-        family=node.family,
-        args=new_args,
-        arg_names=node.arg_names,
-        constraint=node.constraint,
-        plate=node.plate,
-        via=node.via,
+    observed = _observed_names(ir.body)
+    return tuple(
+        inp.name
+        for inp in ir.inputs
+        if isinstance(inp.constraint, CSReal) and inp.name not in observed
     )
 
 
-def _index_latent_ref(arg: IRArg, latent_name: str, via: str) -> IRArg:
-    """Recursively rewrite `IRArgRef(latent_name)` into
-    `IRArgRef(latent_name, indices=(IRArgRef(via),))`.
-    """
-    if isinstance(arg, IRArgRef):
-        if arg.name == latent_name and not arg.indices:
-            return IRArgRef(
-                name=latent_name,
-                indices=(IRArgRef(name=via),),
-            )
-        new_indices = tuple(
-            _index_latent_ref(i, latent_name, via) for i in arg.indices
-        )
-        return IRArgRef(name=arg.name, indices=new_indices)
-    if isinstance(arg, IRArgBroadcast):
-        return IRArgBroadcast(
-            value=_index_latent_ref(arg.value, latent_name, via),
-            target_shape=arg.target_shape,
-        )
-    if isinstance(arg, IRArgList):
-        return IRArgList(
-            elements=tuple(
-                _index_latent_ref(e, latent_name, via) for e in arg.elements
-            )
-        )
-    if isinstance(arg, IRArgMatrix):
-        return IRArgMatrix(
-            rows=tuple(
-                IRArgList(
-                    elements=tuple(
-                        _index_latent_ref(e, latent_name, via)
-                        for e in row.elements
-                    )
-                )
-                for row in arg.rows
-            )
-        )
-    return arg
+def _observed_names(body: tuple[IRNode, ...]) -> frozenset[str]:
+    """Every name bound by an
+    [`IRObserve`][quivers.transpile.ir.IRObserve] in `body`."""
+    out: set[str] = set()
+    for node in body:
+        if isinstance(node, IRObserve):
+            out.add(node.name)
+        elif isinstance(node, IRMarginalize):
+            out |= _observed_names(node.scope)
+    return frozenset(out)
+
+
+def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
+    """True iff `body` carries an
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] anywhere."""
+    return any(isinstance(node, IRMarginalize) for node in body)
+
+
+def _tf_stack(py: PyCtx, items: tuple[str, ...], axis: int) -> str:
+    """Emit ``tf.stack([...], axis=<axis>)``."""
+    axis_vid = (
+        _python_unary_minus(py, number_literal(py, -axis))
+        if axis < 0
+        else number_literal(py, axis)
+    )
+    return call(
+        py,
+        attribute(py, ("tf", "stack")),
+        positional=(python_list(py, items),),
+        keyword=(("axis", axis_vid),),
+    )
 
 
 __all__ = ["Edward2Renderer"]

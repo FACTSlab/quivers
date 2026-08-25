@@ -1,82 +1,91 @@
 # In-container Gen.jl probe.
 #
 # Evals the transpiled `@gen function model(...) ... end` source,
-# extracts the trace's address names by scanning the source for the
-# `@trace ... :NAME` / `@trace ... (:NAME, m_AXIS)` shapes the
-# Gen renderer emits, then builds a `Gen.choicemap` that constrains
-# every `params` value and every `data` value whose key matches a
-# trace-site name (so covariate-only function args are skipped),
-# and asks `Gen.assess` for the log-density at each test point.
+# extracts each trace address (its name and how many indices it
+# carries) by scanning the source for the `@trace ... :NAME` /
+# `@trace ... (:NAME, m_AXIS...)` shapes the Gen renderer emits, then
+# builds a `Gen.choicemap` that constrains every `params` value and
+# every `data` value whose key matches a trace-site name (so
+# covariate-only function args are skipped), and asks `Gen.assess` for
+# the log-density at each test point.
+#
+# Every payload is reshaped to its declared shape first. The address
+# arity decides how far into that shape the constraint walk descends:
+# a rank-2 latent traced at `(:Z_mat, m_Item, m_LatentDim)` gets one
+# scalar per cell, a simplex-valued latent traced at `(:theta, m_Doc)`
+# gets the whole row at one address.
 using Gen, Distributions, JSON3
 
 include("/io/_reshape.jl")
 
-function _coerce(value)
-    # JSON3 hands back lazy arrays / numbers; Gen's distribution calls
-    # and the model body's broadcast expressions all want concrete
-    # Julia scalars or `Vector{Float64}` / `Vector{Int}`. Coerce here
-    # so every downstream consumer sees a fully realised value.
-    if isa(value, AbstractVector)
-        if all(x -> isa(x, Integer), value)
-            return Vector{Int}(collect(value))
-        end
-        return Vector{Float64}(collect(value))
-    end
-    if isa(value, Integer)
-        return Int(value)
-    end
-    if isa(value, Real)
-        return Float64(value)
-    end
-    return value
-end
-
-function _trace_site_names(source::String)
+function _trace_site_arities(source::String)
     # The Gen renderer emits trace sites in two forms (and two
-    # macro-call shapes -- space-separated and parenthesised):
+    # macro-call shapes, space-separated and parenthesised):
     #
     #   space, scalar:    `@trace <dist> :name`
     #   space, batched:   `@trace <dist> (:name, m_<axis>...)`
     #   parens, scalar:   `@trace(<dist>, :name)`
     #   parens, batched:  `@trace(<dist>, (:name, m_<axis>...))`
     #
-    # Scan for all four shapes; the address symbol always appears
-    # after a separator (whitespace or `(`) and is preceded by `:`.
-    sites = Set{Symbol}()
+    # The number of index components in the address is the number of
+    # plate axes the renderer wrapped a `for` loop around, and it is a
+    # contract between the emitted model and the choicemap the probe
+    # builds: a rank-2 latent traced at `(:Z_mat, m_Item, m_LatentDim)`
+    # needs one scalar constraint per cell, while a simplex-valued
+    # latent traced at `(:theta, m_Doc)` needs the whole row at one
+    # address. Record the arity per site so the constraint walk knows
+    # how far to descend into the reshaped value.
+    arities = Dict{Symbol,Int}()
     # Scalar address: `:name` not followed by a trailing word
     # character (handled by Julia's regex word-boundary), and not
     # part of a tuple (so we exclude addresses preceded by `(`).
     scalar_re = r"@trace[\s(][^\n]*?[\s,]:([A-Za-z_][A-Za-z0-9_]*)\b(?!\s*,)"
     for m in eachmatch(scalar_re, source)
-        push!(sites, Symbol(m.captures[1]))
+        arities[Symbol(m.captures[1])] = 0
     end
-    # Batched address: `(:name, ...)` — the `:` is preceded by `(`
-    # (possibly with whitespace).
-    batched_re = r"@trace[\s(][^\n]*?\(\s*:([A-Za-z_][A-Za-z0-9_]*)\s*,"
+    # Batched address: `(:name, i_1, ..., i_k)`, the `:` preceded by
+    # `(` (possibly with whitespace). The index components the renderer
+    # emits are loop variables, so a plain identifier list suffices.
+    batched_re = r"@trace[\s(][^\n]*?\(\s*:([A-Za-z_][A-Za-z0-9_]*)\s*((?:,\s*[A-Za-z_][A-Za-z0-9_]*\s*)+)\)"
     for m in eachmatch(batched_re, source)
-        push!(sites, Symbol(m.captures[1]))
+        arities[Symbol(m.captures[1])] = count(==(','), m.captures[2])
     end
-    return sites
+    return arities
 end
 
-function _set_constraint!(constraints, name::Symbol, value)
-    # Vector-valued bindings live under per-index addresses
-    # `(:name, i)` because the Gen renderer emits one `@trace` per
-    # loop iteration. Scalars use the bare `:name` address.
-    coerced = _coerce(value)
-    if isa(coerced, AbstractVector)
-        for i in 1:length(coerced)
-            Gen.set_value!(constraints, (name, i), coerced[i])
+function _set_constraint_at!(constraints, name::Symbol, prefix, value, depth::Int)
+    # Descend exactly `depth` axes, one per `for` loop the renderer
+    # wrapped around the trace site, accumulating the index prefix.
+    # Whatever remains at the bottom is the value the site draws, be it
+    # a scalar or a simplex row, and it goes in at that one address.
+    if depth > 0
+        if !(value isa AbstractArray)
+            error(
+                "gen probe: `$name` is traced under a $depth-index " *
+                "address but its value runs out of axes at prefix " *
+                "$prefix"
+            )
         end
-    else
-        Gen.set_value!(constraints, name, coerced)
+        for (i, elem) in enumerate(value)
+            _set_constraint_at!(
+                constraints, name, (prefix..., i), elem, depth - 1,
+            )
+        end
+        return constraints
     end
+    address = isempty(prefix) ? name : (name, prefix...)
+    Gen.set_value!(constraints, address, native_array(value))
+    return constraints
+end
+
+function _set_constraint!(constraints, name::Symbol, value, arity::Int)
+    return _set_constraint_at!(constraints, name, (), value, arity)
 end
 
 function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
-    _, dtypes = load_tables("/io")
+    shapes, dtypes = load_tables("/io")
     # Julia arrays are 1-based; lift every 0-based covariate the model
     # subscripts before it reaches the @gen call.
     index_names = index_input_names(source, dtypes)
@@ -89,28 +98,37 @@ function main()
     # only consumes one expression and rejects the rest with
     # "extra token after end of expression".
     Base.include_string(Main, source)
-    sites = _trace_site_names(source)
+    arities = _trace_site_arities(source)
 
     log_densities = Float64[]
     for pt in points
-        data = pt.data
-        params = pt.params
+        # Rebuild each flat row-major payload at its declared shape
+        # before it reaches either the model signature or the
+        # choicemap: a rank-2 latent is traced under one address per
+        # cell, so the constraint builder needs the nesting the flat
+        # list erases.
+        reshaped = shift_index_inputs(
+            reshape_point(pt, shapes, dtypes), index_names,
+        )
+        data = reshaped["data"]
+        params = reshaped["params"]
         # Pass observed values as positional args sorted by name to
-        # match the renderer's alphabetical signature ordering. A
-        # covariate the model subscripts is lifted to 1-based.
+        # match the renderer's alphabetical signature ordering.
         args = Tuple(
-            (String(k) in index_names ? _coerce(data[Symbol(k)]) .+ 1
-                                      : _coerce(data[Symbol(k)]))
-            for k in sort(collect(keys(data)))
+            native_array(data[k]) for k in sort(collect(keys(data)))
         )
         constraints = Gen.choicemap()
         for (k, v) in pairs(params)
             sym = Symbol(k)
-            sym in sites && _set_constraint!(constraints, sym, v)
+            haskey(arities, sym) && _set_constraint!(
+                constraints, sym, v, arities[sym],
+            )
         end
         for (k, v) in pairs(data)
             sym = Symbol(k)
-            sym in sites && _set_constraint!(constraints, sym, v)
+            haskey(arities, sym) && _set_constraint!(
+                constraints, sym, v, arities[sym],
+            )
         end
         # `Base.invokelatest` is required because the `@gen` macro
         # registered the model definition in a newer world age than

@@ -17,11 +17,9 @@ The dispatch points implement the contract documented on
   `inputs` / `IRObserve` nodes during `render`.
 * `sample`: wraps the `pyro.sample(...)` call in nested
   `with pyro.plate(<name>, <size>):` blocks per `plate.batch_dims`.
-* `marginalize`: lowers
-  [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to
-  [`IRSample`][quivers.transpile.ir.IRSample] over the latent plus
-  the scope body inline via the inherited
-  [`explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope].
+* `marginalize`: integrates the latent out, scoring one copy of the
+  scope per atom of its finite support and adding the `logsumexp`
+  reduction to the model's log-density with `pyro.factor`.
 * `broadcast`: emits `torch.full((K,), <value>)` for a 1D target
   shape and `torch.full((R, C), <value>)` for 2D.
 * `render_list`: emits `torch.tensor([e0, e1, ...])`.
@@ -47,14 +45,22 @@ from quivers.dsl.ast_nodes import MorphismInitFamily
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
     PyCtx,
     assignment,
     attribute,
     call,
+    factor_tower_names,
+    float_literal,
     identifier,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
     name_event_rank_map,
+    name_plate_map,
     number_literal,
     python_binary_op as _python_binary_op,
+    python_list,
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
@@ -97,6 +103,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -138,6 +145,8 @@ class PyroRenderer(RendererBase):
             sb=sb,
             cards=dict(ir.cards),
             name_event_rank=name_event_rank_map(ir),
+            factor_towers=factor_tower_names(ir),
+            name_plates=name_plate_map(ir),
         )
 
         # Resolve module-level morphism / let tables for IRArgFamilyRef
@@ -580,6 +589,36 @@ class PyroRenderer(RendererBase):
             # SchemaBuilder. The renderer always drives through
             # `_emit_sample_or_observe` for real emission.
             pctx = _PyroCtx(sb=ctx.sb)
+        dist_call = self._build_distribution_call(
+            pctx,
+            family=family,
+            args=args,
+            arg_names=arg_names,
+            plate=plate,
+        )
+        sample_callee = attribute(pctx, ("pyro", "sample"))
+        positional = (string_literal(pctx, name), dist_call)
+        keyword: tuple[tuple[str, str], ...] = ()
+        if observed:
+            keyword = (("obs", identifier(pctx, name)),)
+        return call(
+            pctx,
+            sample_callee,
+            positional=positional,
+            keyword=keyword,
+        )
+
+    def _build_distribution_call(
+        self,
+        pctx: _PyroCtx,
+        *,
+        family: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate | None = None,
+    ) -> str:
+        """Build the bare `pyro.distributions.<Family>(<args>)` call,
+        with the residual user-declared event dims already lifted."""
         meta = self._family_meta(family)
         dist_class = meta.target_names.get(_TARGET)
         if dist_class is None:
@@ -623,19 +662,7 @@ class PyroRenderer(RendererBase):
             keyword=dist_args.keyword,
         )
         event_dims = plate.event_dims if plate is not None else ()
-        dist_call = self._wrap_event_dims(pctx, dist_call, family, event_dims)
-        # Wrap in pyro.sample(...)
-        sample_callee = attribute(pctx, ("pyro", "sample"))
-        positional = (string_literal(pctx, name), dist_call)
-        keyword: tuple[tuple[str, str], ...] = ()
-        if observed:
-            keyword = (("obs", identifier(pctx, name)),)
-        return call(
-            pctx,
-            sample_callee,
-            positional=positional,
-            keyword=keyword,
-        )
+        return self._wrap_event_dims(pctx, dist_call, family, event_dims)
 
     def _wrap_event_dims(
         self,
@@ -684,7 +711,7 @@ class PyroRenderer(RendererBase):
             [f"plate:dim-kind:{type(dim).__name__}"],
         )
 
-    # ----- marginalize: explicit-latent rewrite -----
+    # ----- marginalize: the integrated-density lowering -----
 
     def marginalize(
         self,
@@ -693,23 +720,175 @@ class PyroRenderer(RendererBase):
         *,
         pctx: _PyroCtx | None = None,
     ) -> SchemaFragment:
-        """Lower the marginalize scope to an `IRSample` over the latent
-        plus the scope body inline (the Pyro idiom natively samples
-        discrete latents)."""
+        """Integrate the latent out and add the reduced density to the
+        model's log-density with ``pyro.factor``.
+
+        One scored copy of the scope is emitted per atom of the
+        latent's finite support, the atom's own deterministic bindings
+        re-emitted under their own names immediately before it, and the
+        per-atom log-densities reduced across a fresh trailing axis:
+
+        ```python
+        __marg_z_w = torch.stack([torch.log1p(-pi_z), torch.log(pi_z)], dim=-1)
+        __marg_z = torch.stack([__marg_z_0, __marg_z_1], dim=-1)
+        pyro.factor("z", torch.sum(torch.logsumexp(__marg_z_w + __marg_z, dim=-1)))
+        ```
+
+        No site is declared for the latent: the atoms replace it, so
+        the emitted program denotes the measure the QVR reference
+        integrates rather than the larger product measure a live draw
+        would denote.
+        """
         if pctx is None:
             # Standalone call: return empty fragment; the renderer
-            # drives marginalize via `_emit_marginalize`.
+            # drives marginalize through `_dispatch_pyro_node`.
             return ""
-        rewritten = self.explicit_latent_scope(node)
-        # The first node is the synthesised IRSample for the latent;
-        # rename its plate name to `"<batch_dim_name>_<latent>"` so it
-        # does not collide with a sibling plate of the same dim name.
-        first = rewritten[0]
-        if isinstance(first, IRSample):
-            first = _rename_plate_for_latent(first)
-        for emit_node in (first, *rewritten[1:]):
-            self._dispatch_pyro_node(pctx, ctx, emit_node)
+        del ctx
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(
+                node, name_plates=pctx.name_plates
+            ),
+        )
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                asn = assignment(
+                    pctx,
+                    lhs_name=det.name,
+                    rhs=render_let_expr_python(pctx, det.expr),
+                )
+                pctx.e(pctx.body, asn, "child_of")
+            dist_call = self._build_distribution_call(
+                pctx,
+                family=scored.observe.family,
+                args=scored.observe.args,
+                arg_names=scored.observe.arg_names,
+                plate=scored.observe.plate,
+            )
+            term = f"{prefix}_{position}"
+            pctx.e(
+                pctx.body,
+                assignment(
+                    pctx,
+                    lhs_name=term,
+                    rhs=_python_method_call(
+                        pctx,
+                        dist_call,
+                        "log_prob",
+                        (identifier(pctx, scored.observe.name),),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        pctx.e(
+            pctx.body,
+            assignment(
+                pctx,
+                lhs_name=f"{prefix}_w",
+                rhs=self._marginal_log_weights(pctx, node, raw, atoms),
+            ),
+            "child_of",
+        )
+        pctx.e(
+            pctx.body,
+            assignment(
+                pctx,
+                lhs_name=prefix,
+                rhs=_stack_last_dim(
+                    pctx,
+                    tuple(identifier(pctx, name) for name in term_names),
+                ),
+            ),
+            "child_of",
+        )
+        reduced = call(
+            pctx,
+            attribute(pctx, ("torch", "logsumexp")),
+            positional=(
+                _python_binary_op(
+                    pctx,
+                    "+",
+                    identifier(pctx, f"{prefix}_w"),
+                    identifier(pctx, prefix),
+                ),
+            ),
+            keyword=(("dim", _minus_one(pctx)),),
+        )
+        total = call(
+            pctx,
+            attribute(pctx, ("torch", "sum")),
+            positional=(reduced,),
+        )
+        factor_call = call(
+            pctx,
+            attribute(pctx, ("pyro", "factor")),
+            positional=(string_literal(pctx, node.latent), total),
+        )
+        es = pctx.v(pctx.fresh("es"), "expression_statement")
+        pctx.e(es, factor_call, "child_of")
+        pctx.e(pctx.body, es, "child_of")
         return ""
+
+    def _marginal_log_weights(
+        self,
+        pctx: _PyroCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+    ) -> str:
+        """Log-weight tensor whose trailing axis runs over the atoms.
+
+        A `Categorical` atom set weights atom ``k`` by ``log p[k]``, so
+        the probability tensor's own trailing axis is already the atom
+        axis. A `Bernoulli` atom set weights the atoms 0 and 1 by
+        ``log1p(-p)`` and ``log(p)``, which stack into a fresh trailing
+        axis.
+        """
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=pctx.name_plates,
+            target=self.target,
+        )
+        probs_vid = self._arg_to_vid(pctx, probs)
+        family = atoms[0].weight_family
+        if family == "Categorical":
+            return call(
+                pctx,
+                attribute(pctx, ("torch", "log")),
+                positional=(probs_vid,),
+            )
+        if family == "Bernoulli":
+            complement = call(
+                pctx,
+                attribute(pctx, ("torch", "log1p")),
+                positional=(
+                    _python_unary_minus(
+                        pctx, self._arg_to_vid(pctx, probs)
+                    ),
+                ),
+            )
+            positive = call(
+                pctx,
+                attribute(pctx, ("torch", "log")),
+                positional=(probs_vid,),
+            )
+            return _stack_last_dim(pctx, (complement, positive))
+        raise UnsupportedConstruct(
+            f"qvr-{_TARGET}",
+            [f"marginalize:weight-family:{family}"],
+        )
 
     # ----- broadcast / list / matrix -----
 
@@ -736,7 +915,14 @@ class PyroRenderer(RendererBase):
                 [f"broadcast:rank-{len(target_shape)}"],
             )
         shape_vid = shape_tuple(pctx, target_shape)
-        value_vid = self._arg_to_vid(pctx, value)
+        # The fill value types the tensor: an integer literal here
+        # builds an integer concentration / rate / scale, which the
+        # real-valued family rejects.
+        value_vid = (
+            float_literal(pctx, value.value)
+            if isinstance(value, IRArgNumber)
+            else self._arg_to_vid(pctx, value)
+        )
         full_callee = attribute(pctx, ("torch", "full"))
         return call(
             pctx,
@@ -1023,9 +1209,16 @@ class _PyroCtx(PyCtx):
         sb: panproto.SchemaBuilder,
         cards: dict[str, int] | None = None,
         name_event_rank: dict[str, int] | None = None,
+        factor_towers: frozenset[str] | None = None,
+        name_plates: dict[str, Plate] | None = None,
     ) -> None:
         super().__init__(
-            sb, cards=cards, target="pyro", name_event_rank=name_event_rank
+            sb,
+            cards=cards,
+            target="pyro",
+            name_event_rank=name_event_rank,
+            factor_towers=factor_towers,
+            name_plates=name_plates,
         )
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
@@ -1037,6 +1230,21 @@ class _PyroCtx(PyCtx):
         # Axes that back more than one sample / observe site are hoisted
         # to one shared object and every `with` reuses it.
         self.shared_plate_vars: dict[str, str] = {}
+
+
+def _minus_one(pctx: _PyroCtx) -> str:
+    """Emit the literal ``-1``."""
+    return _python_unary_minus(pctx, number_literal(pctx, 1))
+
+
+def _stack_last_dim(pctx: _PyroCtx, items: tuple[str, ...]) -> str:
+    """Emit ``torch.stack([...], dim=-1)``."""
+    return call(
+        pctx,
+        attribute(pctx, ("torch", "stack")),
+        positional=(python_list(pctx, items),),
+        keyword=(("dim", _minus_one(pctx)),),
+    )
 
 
 class _DistArgs:
@@ -1074,9 +1282,7 @@ def _shared_plate_dims(body: tuple[IRNode, ...]) -> tuple[Dim, ...]:
     Pyro registers each `pyro.plate(<name>, ...)` context as a site
     named after the axis, so two inline plates of the same name raise
     "Multiple sample sites named ...". The renderer hoists each such
-    axis to one reused plate object. A dim marginalize-renamed for a
-    discrete latent carries its own unique axis name, so this only
-    coalesces genuinely shared axes.
+    axis to one reused plate object.
     """
     counts: dict[str, int] = {}
     first: dict[str, Dim] = {}
@@ -1124,8 +1330,37 @@ def _collect_integer_index_names(
     for node in body:
         if isinstance(node, IRDeterministic):
             _walk_let_expr_for_indices(node.expr, host_ints, found)
+        elif isinstance(node, (IRSample, IRObserve)):
+            _walk_args_for_indices(node.args, host_ints, found)
+            if isinstance(node, IRObserve) and node.via in host_ints:
+                # The fibration gathers the marginalize weights at the
+                # observation's own row, so `via` reaches a subscript.
+                found.add(node.via)
         elif isinstance(node, IRMarginalize):
+            _walk_args_for_indices(node.args, host_ints, found)
             _collect_integer_index_names(node.scope, host_ints, found)
+
+
+def _walk_args_for_indices(
+    args: tuple[IRArg, ...],
+    host_ints: frozenset[str],
+    found: set[str],
+) -> None:
+    """Collect host-integer inputs that appear in an
+    [`IRArgRef`][quivers.transpile.ir.IRArgRef] subscript position."""
+    for arg in args:
+        if isinstance(arg, IRArgRef):
+            for idx in arg.indices:
+                if isinstance(idx, IRArgRef) and idx.name in host_ints:
+                    found.add(idx.name)
+            _walk_args_for_indices(arg.indices, host_ints, found)
+        elif isinstance(arg, IRArgBroadcast):
+            _walk_args_for_indices((arg.value,), host_ints, found)
+        elif isinstance(arg, IRArgList):
+            _walk_args_for_indices(arg.elements, host_ints, found)
+        elif isinstance(arg, IRArgMatrix):
+            for row in arg.rows:
+                _walk_args_for_indices(row.elements, host_ints, found)
 
 
 def _walk_let_expr_for_indices(
@@ -1179,42 +1414,6 @@ def _inner_index_vid(pctx: _PyroCtx, arg: IRArg) -> str:
     raise UnsupportedConstruct(
         f"qvr-{_TARGET}",
         [f"subscript-arg:{type(arg).__name__}"],
-    )
-
-
-def _rename_plate_for_latent(node: IRSample) -> IRSample:
-    """For an explicit-latent rewrite of an
-    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize], rename each
-    `DimStatic`/`DimDynamic` in the latent's plate so the plate name
-    does not collide with the surrounding `over=` plate.
-
-    The canonical convention is `<dim_name>_<latent_name>`.
-    """
-    new_dims: list[Dim] = []
-    for dim in node.plate.batch_dims:
-        if isinstance(dim, DimStatic):
-            new_dims.append(
-                DimStatic(size=dim.size, name=f"{dim.name}_{node.name}")
-            )
-        elif isinstance(dim, DimDynamic):
-            new_dims.append(
-                DimDynamic(
-                    size_name=dim.size_name,
-                    name=f"{dim.name}_{node.name}",
-                )
-            )
-        else:
-            new_dims.append(dim)
-    return IRSample(
-        name=node.name,
-        family=node.family,
-        args=node.args,
-        arg_names=node.arg_names,
-        constraint=node.constraint,
-        plate=Plate(
-            event_dims=node.plate.event_dims,
-            batch_dims=tuple(new_dims),
-        ),
     )
 
 

@@ -55,6 +55,9 @@ from quivers.dsl.ast_nodes.objects import (
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.ir import (
+    Dim,
+    DimDynamic,
+    DimStatic,
     IRArg,
     IRArgBroadcast,
     IRArgList,
@@ -127,7 +130,15 @@ def half_support_truncation(family: str, *, observed: bool) -> tuple[IRArg, ...]
 
 @runtime_checkable
 class _BugsLetCtx(Protocol):
-    """Structural protocol for the helper's ctx parameter."""
+    """Structural protocol for the helper's ctx parameter.
+
+    `range_1_to` builds the `1:<upper>` range vertex each backend's
+    grammar wants; the two grammars disagree on the alternative-
+    selection constraints a `range` carries, so the renderer owns the
+    construction and the helper only asks for one. It is reached only
+    when the caller supplies a declared-plate table, so a caller
+    rendering a standalone expression never needs it.
+    """
 
     target: str
     cards: dict[str, int]
@@ -137,9 +148,53 @@ class _BugsLetCtx(Protocol):
     def e(self, src: str, tgt: str, kind: str) -> None: ...
     def lit(self, vid: str, text: str) -> None: ...
     def constraint(self, vid: str, sort: str, value: str) -> None: ...
+    def range_1_to(self, upper: str) -> str: ...
 
 
-def render_let_expr_bugs(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
+class _LetEnv:
+    """The helper's per-render environment.
+
+    Bundles the backend ctx with the declared-plate table the index
+    and reduction emitters read. The table is a caller-supplied input
+    rather than a property of the ctx, because a caller may render a
+    standalone expression that sits in no program: every name then has
+    no declared shape, and the emitters read every operand as a
+    scalar, which is what such an expression means.
+    """
+
+    def __init__(
+        self, ctx: _BugsLetCtx, decl_plates: dict[str, Plate]
+    ) -> None:
+        self._ctx = ctx
+        self.decl_plates = decl_plates
+        self.target = _target(ctx)
+        self.cards = ctx.cards
+
+    def fresh(self, prefix: str) -> str:
+        return self._ctx.fresh(prefix)
+
+    def v(self, vid: str, kind: str) -> str:
+        return self._ctx.v(vid, kind)
+
+    def e(self, src: str, tgt: str, kind: str = "child_of") -> None:
+        self._ctx.e(src, tgt, kind)
+
+    def lit(self, vid: str, text: str) -> None:
+        self._ctx.lit(vid, text)
+
+    def constraint(self, vid: str, sort: str, value: str) -> None:
+        self._ctx.constraint(vid, sort, value)
+
+    def range_1_to(self, upper: str) -> str:
+        return self._ctx.range_1_to(upper)
+
+
+def render_let_expr_bugs(
+    ctx: _BugsLetCtx,
+    expr: LetExprNode,
+    *,
+    decl_plates: dict[str, Plate] | None = None,
+) -> str:
     """Build a BUGS / JAGS expression schema for ``expr`` in ``ctx``.
 
     Returns the root vertex id. Recurses into nested
@@ -149,7 +204,23 @@ def render_let_expr_bugs(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
     family (``LetExprString``, ``LetExprLambda``, ``LetExprMethodCall``,
     or a [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
     whose binders reference an axis of unknown static cardinality).
+
+    `decl_plates` maps every bound name to its declared
+    [`Plate`][quivers.transpile.ir.Plate], which is what tells the
+    index emitter how many axes a subscript leaves unconsumed: a
+    gather of a matrix row (`Z_mat[item_idx]` against a 32-by-2
+    declaration) needs the trailing full-axis slice spelled out,
+    because BUGS / JAGS read a single subscript on a rank-2 node as a
+    rank error rather than a row. Omitting it renders the expression
+    with no declared shapes in scope, which is the right reading for
+    an expression that sits in no program.
     """
+    return _render(_LetEnv(ctx, decl_plates or {}), expr)
+
+
+def _render(ctx: _LetEnv, expr: LetExprNode) -> str:
+    """Dispatch one [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode]
+    to its per-kind emitter."""
     if isinstance(expr, LetExprLiteral):
         return _emit_number(ctx, expr.value)
     if isinstance(expr, LetExprVar):
@@ -159,12 +230,7 @@ def render_let_expr_bugs(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
     if isinstance(expr, LetExprUnaryOp):
         return _emit_unary(ctx, expr)
     if isinstance(expr, LetExprCall):
-        return _emit_call(
-            ctx,
-            expr.func,
-            tuple(render_let_expr_bugs(ctx, a) for a in expr.args),
-            tuple(_arg_edge_kind(a) for a in expr.args),
-        )
+        return _emit_reduction_or_call(ctx, expr)
     if isinstance(expr, LetExprIndex):
         return _emit_index(ctx, expr)
     if isinstance(expr, LetExprList):
@@ -252,7 +318,7 @@ def _emit_identifier(ctx: _BugsLetCtx, name: str) -> str:
     return v
 
 
-def _render_bugs_operand(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
+def _render_bugs_operand(ctx: _LetEnv, expr: LetExprNode) -> str:
     """Render `expr` as an operand of a binary / unary operator.
 
     A nested [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] or
@@ -262,7 +328,7 @@ def _render_bugs_operand(ctx: _BugsLetCtx, expr: LetExprNode) -> str:
     ``(a + b) * c`` would otherwise print as ``a + b * c`` and
     reassociate under the language's precedence.
     """
-    vid = render_let_expr_bugs(ctx, expr)
+    vid = _render(ctx, expr)
     if isinstance(expr, (LetExprBinOp, LetExprUnaryOp)):
         return _emit_paren(ctx, vid, _arg_edge_kind(expr))
     return vid
@@ -278,13 +344,34 @@ def _emit_paren(ctx: _BugsLetCtx, inner: str, inner_kind: str) -> str:
     return p
 
 
-def _emit_binop(ctx: _BugsLetCtx, expr: LetExprBinOp) -> str:
+def _emit_binop(ctx: _LetEnv, expr: LetExprBinOp) -> str:
     """Emit a `binary_expression` with `left`/`right` field edges.
 
     BUGS / JAGS `binary_expression` discriminates the operator via the
     grammar's CHOICE alternative; the panproto walker picks the alt
     from the `field:operator` + `chose-alt-fingerprint` pair.
+
+    Neither language lifts an infix operator over an axis: `a * b` on
+    two vector nodes is a rank error, not the elementwise product QVR
+    denotes. The one axis-carrying product both languages do express
+    is the contraction `inprod(a, b)`, which
+    [`_emit_reduction_or_call`][quivers.transpile.renderers._bugs_helpers._emit_reduction_or_call]
+    recognises before reaching here; any other axis-carrying operand
+    pair raises.
     """
+    left_rank = axis_rank(ctx.decl_plates, expr.left)
+    right_rank = axis_rank(ctx.decl_plates, expr.right)
+    if left_rank > 0 and right_rank > 0:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:elementwise-axis-operator:{_target(ctx)}: "
+                f"{expr.op!r} between a rank-{left_rank} and a "
+                f"rank-{right_rank} operand has no BUGS / JAGS form; "
+                f"only the contracted product `sum(a * b)` lowers, to "
+                f"`inprod(a, b)`"
+            ],
+        )
     b = ctx.v(ctx.fresh("be"), "binary_expression")
     ctx.constraint(b, "field:operator", expr.op)
     ctx.constraint(b, "chose-alt-fingerprint", expr.op)
@@ -293,7 +380,7 @@ def _emit_binop(ctx: _BugsLetCtx, expr: LetExprBinOp) -> str:
     return b
 
 
-def _emit_unary(ctx: _BugsLetCtx, expr: LetExprUnaryOp) -> str:
+def _emit_unary(ctx: _LetEnv, expr: LetExprUnaryOp) -> str:
     """Emit a unary-minus `unary_expression` whose single child rides
     the `operand` field."""
     u = ctx.v(ctx.fresh("ue"), "unary_expression")
@@ -341,7 +428,88 @@ def _emit_call(
     return c
 
 
-def _emit_index(ctx: _BugsLetCtx, expr: LetExprIndex) -> str:
+#: QVR reduction primitives whose BUGS / JAGS counterpart contracts
+#: every axis of its argument. Applied to a rank-1 operand -- the
+#: shape every axis reduction in the gallery reduces -- the target
+#: builtin computes exactly the QVR reduction; applied to a
+#: higher-rank operand it would collapse axes the source keeps, so
+#: [`_emit_reduction_or_call`][quivers.transpile.renderers._bugs_helpers._emit_reduction_or_call]
+#: raises instead.
+_AXIS_REDUCING_CALLS: frozenset[str] = frozenset({"sum", "mean", "prod"})
+
+
+def _emit_reduction_or_call(ctx: _LetEnv, expr: LetExprCall) -> str:
+    """Emit a call, lowering an axis reduction to its target spelling.
+
+    `sum(a * b)` over two rank-1 operands is the inner product, which
+    BUGS / JAGS spell `inprod(a, b)`; the elementwise product it is
+    written in terms of has no target form on its own. A reduction of
+    a single rank-1 operand passes straight through, because the
+    target builtin already contracts the one axis the operand
+    carries. Every other axis-carrying reduction raises.
+    """
+    if expr.func in _AXIS_REDUCING_CALLS and len(expr.args) == 1:
+        arg = expr.args[0]
+        rank = axis_rank(ctx.decl_plates, arg)
+        if rank > 1:
+            raise UnsupportedConstruct(
+                f"qvr-{_target(ctx)}-helper",
+                [
+                    f"let-expr:axis-reduction:{_target(ctx)}: "
+                    f"{expr.func}(...) over a rank-{rank} operand "
+                    f"reduces only the innermost axis in QVR, and "
+                    f"BUGS / JAGS `{expr.func}` contracts every axis; "
+                    f"there is no target spelling for the partial "
+                    f"reduction"
+                ],
+            )
+        if rank == 1 and isinstance(arg, LetExprBinOp):
+            return _emit_contracted_binop(ctx, expr.func, arg)
+    return _emit_call(
+        ctx,
+        expr.func,
+        tuple(_render(ctx, a) for a in expr.args),
+        tuple(_arg_edge_kind(a) for a in expr.args),
+    )
+
+
+def _emit_contracted_binop(
+    ctx: _LetEnv, func: str, arg: LetExprBinOp
+) -> str:
+    """Lower `sum(<a> * <b>)` over two rank-1 operands to
+    `inprod(<a>, <b>)`, and raise on every other shape."""
+    left_rank = axis_rank(ctx.decl_plates, arg.left)
+    right_rank = axis_rank(ctx.decl_plates, arg.right)
+    if func == "sum" and arg.op == "*" and left_rank == 1 and right_rank == 1:
+        return _emit_call(
+            ctx,
+            "inprod",
+            (
+                _render(ctx, arg.left),
+                _render(ctx, arg.right),
+            ),
+            (_arg_edge_kind(arg.left), _arg_edge_kind(arg.right)),
+        )
+    if left_rank > 0 and right_rank > 0:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:axis-reduction:{_target(ctx)}: "
+                f"{func}(<a> {arg.op} <b>) over two axis-carrying "
+                f"operands has no BUGS / JAGS form; only the "
+                f"contracted product `sum(a * b)` lowers, to "
+                f"`inprod(a, b)`"
+            ],
+        )
+    return _emit_call(
+        ctx,
+        func,
+        (_render(ctx, arg),),
+        (_arg_edge_kind(arg),),
+    )
+
+
+def _emit_index(ctx: _LetEnv, expr: LetExprIndex) -> str:
     """Emit `arr[i0, i1, ...]` as an `indexed_variable` with an
     `index_list` child.
 
@@ -369,12 +537,135 @@ def _emit_index(ctx: _BugsLetCtx, expr: LetExprIndex) -> str:
     il = ctx.v(ctx.fresh("il"), "index_list")
     ctx.e(iv, il, "indices")
     for idx in expr.indices:
-        cid = render_let_expr_bugs(ctx, idx)
+        cid = _emit_index_slot(ctx, idx)
         ctx.e(il, cid, _arg_edge_kind(idx))
+    for dim in residual_event_dims(
+        ctx.decl_plates, expr.array.name, len(expr.indices)
+    ):
+        ctx.e(il, ctx.range_1_to(dim_upper_text(dim)), "range")
     return iv
 
 
-def _emit_list(ctx: _BugsLetCtx, items: tuple[LetExprNode, ...]) -> str:
+def _emit_index_slot(ctx: _LetEnv, idx: LetExprNode) -> str:
+    """Emit one index-list child, rebased to the target's origin.
+
+    QVR subscripts count from zero; BUGS and JAGS count from one. A
+    subscript the source spells as an integer literal (a factor
+    binder already substituted to its integer coordinate, or a
+    literal the model wrote itself) is therefore emitted one higher.
+    A subscript that names a variable is left alone: a loop variable
+    already runs `1:N`, and an index-valued covariate arrives from
+    the host already lifted to one-based.
+
+    An arithmetic subscript mixes the two conventions with no way to
+    tell which operand carries the origin, so it raises rather than
+    emitting an unadjusted expression.
+    """
+    if isinstance(idx, LetExprLiteral):
+        return _emit_number(ctx, float(int(idx.value) + 1))
+    if isinstance(idx, (LetExprBinOp, LetExprUnaryOp)):
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprIndex:{_target(ctx)}: arithmetic "
+                f"subscript {type(idx).__name__} cannot be rebased "
+                f"from the zero-based QVR origin to the one-based "
+                f"{_target(ctx).upper()} origin"
+            ],
+        )
+    return _render(ctx, idx)
+
+
+def split_event_dims(
+    event_dims: tuple[Dim, ...], family_event_rank: int
+) -> tuple[tuple[Dim, ...], tuple[Dim, ...]]:
+    """Split a site's event dims into the family's own event shape and
+    the residual axes the renderer must replicate over.
+
+    A family produces the trailing `family_event_rank` dims natively:
+    a Dirichlet over a Topic axis is one draw on the simplex, so the
+    Topic axis is the family's own. Every leading dim is residual: it
+    replicates the family independently, and a scalar family with an
+    `over=` axis is all residual. BUGS and JAGS have no vector form
+    for a scalar family, so a residual axis becomes a loop rather
+    than a slice.
+
+    Returns `(native, residual)`.
+    """
+    rank = max(0, min(family_event_rank, len(event_dims)))
+    if rank == 0:
+        return (), event_dims
+    return event_dims[len(event_dims) - rank :], event_dims[
+        : len(event_dims) - rank
+    ]
+
+
+def dim_upper_text(dim: Dim) -> str:
+    """Return the upper-bound text of one plate dim."""
+    if isinstance(dim, DimStatic):
+        return str(int(dim.size))
+    if isinstance(dim, DimDynamic):
+        return str(dim.size_name)
+    raise UnsupportedConstruct(
+        "qvr-bugs-helper",
+        [f"dim:{type(dim).__name__}: unknown shape"],
+    )
+
+
+def residual_event_dims(
+    decl_plates: dict[str, Plate], name: str, supplied: int
+) -> tuple[Dim, ...]:
+    """Return the event dims a subscript of `name` leaves unconsumed.
+
+    A gather that supplies exactly one subscript per declared batch
+    dim addresses a whole event block, which BUGS / JAGS spell as an
+    explicit trailing `1:E` slice per event axis. A subscript list
+    that already reaches into the event axes consumes them itself and
+    needs no slice.
+    """
+    plate = decl_plates.get(name)
+    if plate is None or not plate.event_dims:
+        return ()
+    if supplied == len(plate.batch_dims):
+        return plate.event_dims
+    return ()
+
+
+def axis_rank(decl_plates: dict[str, Plate], expr: LetExprNode) -> int:
+    """Return the number of axes the value of `expr` still carries.
+
+    A bare name carries every axis of its declared plate; a subscript
+    consumes one axis per index it supplies. Operators propagate the
+    widest operand. Anything the helper cannot resolve reads as a
+    scalar, which is the conservative answer: the reduction rewrites
+    below only fire on a positively-ranked operand.
+    """
+    if isinstance(expr, LetExprVar):
+        plate = decl_plates.get(expr.name)
+        if plate is None:
+            return 0
+        return len(plate.batch_dims) + len(plate.event_dims)
+    if isinstance(expr, LetExprIndex):
+        if not isinstance(expr.array, LetExprVar):
+            return 0
+        plate = decl_plates.get(expr.array.name)
+        if plate is None:
+            return 0
+        declared = len(plate.batch_dims) + len(plate.event_dims)
+        return max(declared - len(expr.indices), 0)
+    if isinstance(expr, LetExprBinOp):
+        return max(
+            axis_rank(decl_plates, expr.left),
+            axis_rank(decl_plates, expr.right),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return axis_rank(decl_plates, expr.operand)
+    if isinstance(expr, (LetExprList, LetExprFactor)):
+        return 1
+    return 0
+
+
+def _emit_list(ctx: _LetEnv, items: tuple[LetExprNode, ...]) -> str:
     """Render a list literal as the BUGS / JAGS `c(...)` combine call.
 
     Neither language has an inline list-literal surface form; the
@@ -385,20 +676,53 @@ def _emit_list(ctx: _BugsLetCtx, items: tuple[LetExprNode, ...]) -> str:
     return _emit_call(
         ctx,
         "c",
-        tuple(render_let_expr_bugs(ctx, item) for item in items),
+        tuple(_render(ctx, item) for item in items),
         tuple(_arg_edge_kind(item) for item in items),
     )
 
 
-def _emit_factor(ctx: _BugsLetCtx, expr: LetExprFactor) -> str:
-    """Unroll a `factor` expression over static-size binders into a
-    `c(<body[i_1=0, ...]>, <body[i_1=1, ...]>, ...)` combine call.
+def _emit_factor(ctx: _LetEnv, expr: LetExprFactor) -> str:
+    """Unroll a rank-1 `factor` expression into the `c(...)` combine
+    call BUGS / JAGS use for a vector literal.
 
-    The factor binders' product index space is enumerated row-major;
-    for each tuple of integer assignments the body is rendered with
-    the bound variables substituted by their integer values. The
-    single-axis `cases` form labels each case body by integer; the
-    helper enumerates `0, ..., |I|-1` and looks up the matching case.
+    Only the single-binder form has a vector spelling. A multi-binder
+    factor denotes a rank-`n` tensor, and neither language has a
+    reshape that would turn a flat `c(...)` back into one, so the
+    tensor form is emitted as one relation per cell by
+    [`factor_cells`][quivers.transpile.renderers._bugs_helpers.factor_cells]
+    at the statement level rather than as an expression here.
+    """
+    cells = factor_cells(ctx, expr)
+    if len(expr.binders) != 1:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprFactor:{_target(ctx)}: a "
+                f"{len(expr.binders)}-binder factor denotes a rank-"
+                f"{len(expr.binders)} tensor, which has no BUGS / "
+                f"JAGS expression form; only a statement-level "
+                f"binding unrolls it"
+            ],
+        )
+    elements = tuple(_render(ctx, body) for _, body in cells)
+    element_kinds = tuple(_arg_edge_kind(body) for _, body in cells)
+    return _emit_call(ctx, "c", elements, element_kinds)
+
+
+def factor_cells(
+    ctx: _BugsLetCtx, expr: LetExprFactor
+) -> tuple[tuple[tuple[int, ...], LetExprNode], ...]:
+    """Enumerate a `factor` expression's cells.
+
+    Returns one `(indices, body)` pair per point of the binders'
+    product index space, row-major, with every binder substituted by
+    its integer coordinate in the body. `indices` counts from zero,
+    matching the QVR origin; the caller rebases it when it writes the
+    left-hand subscripts.
+
+    The single-axis `cases` form labels each case body by integer;
+    the helper enumerates `0, ..., |I|-1` and looks up the matching
+    case, raising when the label set is incomplete.
     """
     if not expr.binders:
         raise UnsupportedConstruct(
@@ -419,30 +743,38 @@ def _emit_factor(ctx: _BugsLetCtx, expr: LetExprFactor) -> str:
                     f"{len(expr.binders)}"
                 ],
             )
-        return _emit_factor_cases(ctx, expr.binders[0], sizes[0], expr.cases)
+        return _factor_case_cells(
+            ctx, expr.binders[0], sizes[0], expr.cases
+        )
     if expr.body is None:
         raise UnsupportedConstruct(
             f"qvr-{_target(ctx)}-helper",
             [f"let-expr:LetExprFactor:{_target(ctx)}: missing body and no cases"],
         )
-    elements: list[str] = []
-    element_kinds: list[str] = []
-    for indices in _enumerate_indices(sizes):
-        subst = dict(zip((b.var for b in expr.binders), indices, strict=True))
-        substituted = _substitute(expr.body, subst)
-        elements.append(render_let_expr_bugs(ctx, substituted))
-        element_kinds.append(_arg_edge_kind(substituted))
-    return _emit_call(ctx, "c", tuple(elements), tuple(element_kinds))
+    body = expr.body
+    return tuple(
+        (
+            indices,
+            _substitute(
+                body,
+                dict(
+                    zip(
+                        (b.var for b in expr.binders), indices, strict=True
+                    )
+                ),
+            ),
+        )
+        for indices in _enumerate_indices(sizes)
+    )
 
 
-def _emit_factor_cases(
+def _factor_case_cells(
     ctx: _BugsLetCtx,
     binder: LetFactorBinder,
     size: int,
     cases: tuple[LetFactorCase, ...],
-) -> str:
-    """Build `c(<case[0].value>, ..., <case[size-1].value>)` from the
-    label-keyed case list."""
+) -> tuple[tuple[tuple[int, ...], LetExprNode], ...]:
+    """Enumerate the label-keyed case list as `((label,), body)` cells."""
     by_label = {c.label: c.value for c in cases}
     missing = sorted(set(range(size)) - by_label.keys())
     if missing:
@@ -454,13 +786,14 @@ def _emit_factor_cases(
                 f"{binder.var!r} of size {size}"
             ],
         )
-    elements: list[str] = []
-    element_kinds: list[str] = []
-    for label in range(size):
-        body = by_label[label]
-        elements.append(render_let_expr_bugs(ctx, body))
-        element_kinds.append(_arg_edge_kind(body))
-    return _emit_call(ctx, "c", tuple(elements), tuple(element_kinds))
+    return tuple(((label,), by_label[label]) for label in range(size))
+
+
+def factor_axis_sizes(
+    ctx: _BugsLetCtx, expr: LetExprFactor
+) -> tuple[int, ...]:
+    """Return the static extent of each of `expr`'s binder axes."""
+    return tuple(_factor_axis_size(ctx, b) for b in expr.binders)
 
 
 # ---------------------------------------------------------------------------
@@ -636,25 +969,83 @@ def _target(ctx: _BugsLetCtx) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared IR pre-pass: lift empty-plate IRDeterministic nodes into the
-# plate of their first downstream consumer. BUGS and JAGS each lack a
-# scalar-to-vector broadcast operator, so a `let mu = a + b * x_design`
-# top-level emit becomes invalid the moment ``x_design`` is a vector
-# supplied via the data list; this helper rewrites the IR so the
-# deterministic and its free-data-input dependencies acquire the
-# consumer's plate and emit as ``for (i in 1:N) { mu[i] <- ... }``.
+# Shared IR pre-pass: give every empty-plate IRDeterministic whose value
+# is axis-carrying the plate it needs to emit as a loop. BUGS and JAGS
+# each lack a scalar-to-vector broadcast operator and lift no infix
+# operator over an axis, so `let mu = a + b * x_design` and
+# `let beta = tau * lambda_local * z_raw` are both rank errors at the
+# top level; the only spelling either language has for them is
+# ``for (i in 1:N) { mu[i] <- ... }``. Two rules supply the missing
+# plate: the plate of the deterministic's first downstream consumer,
+# and the plate the expression's own operands already carry.
 # ---------------------------------------------------------------------------
 
 
 def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
-    """Lift each empty-plate `IRDeterministic` whose expression
-    references a plate-less free data input into the plate of the
-    first downstream consumer.
+    """Lift every empty-plate `IRDeterministic` that denotes an
+    axis-carrying value into the plate that value ranges over.
 
-    The consumer is the first `IRObserve` / `IRSample` whose args
-    contain an `IRArgRef` to the deterministic's bound name. The
-    referenced free data inputs are retagged with that consumer's
-    plate so subsequent emission rebroadcasts them consistently.
+    Two rules supply the plate, in order:
+
+    1. The *consumer* rule covers a deterministic whose expression
+       references a plate-less free data input: the plate is that of
+       the first `IRObserve` / `IRSample` whose args contain an
+       `IRArgRef` to the deterministic's bound name, and the
+       referenced free data inputs are retagged with it so subsequent
+       emission rebroadcasts them consistently.
+    2. The *operand* rule covers a deterministic whose expression
+       combines bindings that already carry a plate of their own (the
+       horseshoe product ``tau * lambda_local * z_raw`` over a
+       coefficient axis): the plate is the one every bare
+       positively-ranked operand shares.
+
+    A deterministic whose operands disagree on their axes, or whose
+    value the reduction rewrites have already collapsed to a scalar
+    (``sum(z * w)`` lowering to ``inprod``), is left alone so the
+    emitter reports the shape it cannot spell rather than inventing a
+    loop for it.
+    """
+    det_plate, input_plate_overrides = _consumer_plate_lifts(ir)
+    det_plate.update(_operand_plate_lifts(ir, det_plate))
+    if not det_plate:
+        return ir
+    new_inputs = tuple(
+        IRDataInput(
+            name=inp.name,
+            constraint=inp.constraint,
+            plate=input_plate_overrides.get(inp.name, inp.plate),
+        )
+        for inp in ir.inputs
+    )
+    new_body: list[IRNode] = []
+    for node in ir.body:
+        if isinstance(node, IRDeterministic) and node.name in det_plate:
+            new_body.append(
+                IRDeterministic(
+                    name=node.name,
+                    expr=node.expr,
+                    constraint=node.constraint,
+                    plate=det_plate[node.name],
+                )
+            )
+        else:
+            new_body.append(node)
+    return IRProgram(
+        name=ir.name,
+        inputs=new_inputs,
+        body=tuple(new_body),
+        cards=ir.cards,
+    )
+
+
+def _consumer_plate_lifts(
+    ir: IRProgram,
+) -> tuple[dict[str, Plate], dict[str, Plate]]:
+    """The consumer rule of
+    [`push_scalar_dets_into_loops`][quivers.transpile.renderers._bugs_helpers.push_scalar_dets_into_loops].
+
+    Returns the plate each lifted deterministic acquires alongside the
+    plate override each free data input it reads acquires with it.
     """
     free_input_names: set[str] = set()
     for inp in ir.inputs:
@@ -670,7 +1061,7 @@ def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
         if free_refs:
             det_to_free_refs[node.name] = frozenset(free_refs)
     if not det_to_free_refs:
-        return ir
+        return {}, {}
     det_consumer_plate: dict[str, Plate] = {}
     for node in ir.body:
         if isinstance(node, (IRObserve, IRSample)) and (
@@ -680,8 +1071,6 @@ def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
             for det_name in det_to_free_refs:
                 if det_name in referenced and det_name not in det_consumer_plate:
                     det_consumer_plate[det_name] = node.plate
-    if not det_consumer_plate:
-        return ir
     input_plate_overrides: dict[str, Plate] = {}
     for det_name, free_refs in det_to_free_refs.items():
         consumer_plate = det_consumer_plate.get(det_name)
@@ -689,33 +1078,92 @@ def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
             continue
         for free_ref in free_refs:
             input_plate_overrides[free_ref] = consumer_plate
-    new_inputs = tuple(
-        IRDataInput(
-            name=inp.name,
-            constraint=inp.constraint,
-            plate=input_plate_overrides.get(inp.name, inp.plate),
-        )
-        for inp in ir.inputs
-    )
-    new_body: list[IRNode] = []
+    return det_consumer_plate, input_plate_overrides
+
+
+def _operand_plate_lifts(
+    ir: IRProgram, already_lifted: dict[str, Plate]
+) -> dict[str, Plate]:
+    """The operand rule of
+    [`push_scalar_dets_into_loops`][quivers.transpile.renderers._bugs_helpers.push_scalar_dets_into_loops].
+
+    A deterministic qualifies when its value still carries an axis
+    ([`axis_rank`][quivers.transpile.renderers._bugs_helpers.axis_rank]
+    is positive) and every bare operand that carries one agrees on a
+    single batch-only plate. The map is built in body order and folded
+    back into the declared-plate table as it goes, so a chain of
+    deterministics each built from the one before lifts as a whole.
+    """
+    decl = build_decl_plates(ir)
+    decl.update(already_lifted)
+    out: dict[str, Plate] = {}
     for node in ir.body:
-        if isinstance(node, IRDeterministic) and node.name in det_consumer_plate:
-            new_body.append(
-                IRDeterministic(
-                    name=node.name,
-                    expr=node.expr,
-                    constraint=node.constraint,
-                    plate=det_consumer_plate[node.name],
-                )
-            )
-        else:
-            new_body.append(node)
-    return IRProgram(
-        name=ir.name,
-        inputs=new_inputs,
-        body=tuple(new_body),
-        cards=ir.cards,
-    )
+        if not isinstance(node, IRDeterministic):
+            continue
+        if node.plate.batch_dims or node.plate.event_dims:
+            continue
+        if node.name in already_lifted:
+            continue
+        if axis_rank(decl, node.expr) <= 0:
+            continue
+        plate = _shared_operand_plate(node.expr, decl)
+        if plate is None:
+            continue
+        out[node.name] = plate
+        decl[node.name] = plate
+    return out
+
+
+def _shared_operand_plate(
+    expr: LetExprNode, decl_plates: dict[str, Plate]
+) -> Plate | None:
+    """The single batch-only plate every bare axis-carrying operand of
+    `expr` shares, or `None` when they disagree or none carries one.
+
+    Only bare `LetExprVar` operands count. A subscripted reference has
+    already consumed the axes its indices supply, so the loop variable
+    the lift would introduce has no position to occupy in it, and a
+    plate carrying event dims needs a slice rather than a loop index.
+    Both leave the deterministic where it is.
+    """
+    plates: list[Plate] = []
+    _collect_bare_var_plates(expr, decl_plates, plates)
+    if not plates:
+        return None
+    first = plates[0]
+    if first.event_dims:
+        return None
+    for plate in plates[1:]:
+        if plate.batch_dims != first.batch_dims or plate.event_dims:
+            return None
+    return first
+
+
+def _collect_bare_var_plates(
+    expr: LetExprNode, decl_plates: dict[str, Plate], out: list[Plate]
+) -> None:
+    """Append the declared plate of every bare axis-carrying variable
+    reachable from `expr` without passing through a subscript."""
+    if isinstance(expr, LetExprVar):
+        plate = decl_plates.get(expr.name)
+        if plate is not None and plate.batch_dims:
+            out.append(plate)
+        return
+    if isinstance(expr, LetExprBinOp):
+        _collect_bare_var_plates(expr.left, decl_plates, out)
+        _collect_bare_var_plates(expr.right, decl_plates, out)
+        return
+    if isinstance(expr, LetExprUnaryOp):
+        _collect_bare_var_plates(expr.operand, decl_plates, out)
+        return
+    if isinstance(expr, LetExprCall):
+        for arg in expr.args:
+            _collect_bare_var_plates(arg, decl_plates, out)
+        return
+    if isinstance(expr, LetExprIndex):
+        for index in expr.indices:
+            _collect_bare_var_plates(index, decl_plates, out)
+        return
 
 
 def collect_letexpr_vars(expr: LetExprNode) -> frozenset[str]:
@@ -876,10 +1324,16 @@ def _index_letexpr_refs_inner(
 
 
 __all__ = [
-    "render_let_expr_bugs",
-    "push_scalar_dets_into_loops",
+    "axis_rank",
     "build_decl_plates",
-    "index_letexpr_refs",
-    "collect_letexpr_vars",
     "collect_irargref_names",
+    "collect_letexpr_vars",
+    "dim_upper_text",
+    "factor_axis_sizes",
+    "factor_cells",
+    "index_letexpr_refs",
+    "push_scalar_dets_into_loops",
+    "render_let_expr_bugs",
+    "residual_event_dims",
+    "split_event_dims",
 ]

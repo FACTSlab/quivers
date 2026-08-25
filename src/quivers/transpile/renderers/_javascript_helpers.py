@@ -531,7 +531,7 @@ def _bracket_fingerprint(n: int) -> str:
 
 def _target(ctx: _JsLetCtx) -> str:
     """Read the ctx's `target` tag for error messages."""
-    return getattr(ctx, "target", "webppl")
+    return ctx.target
 
 
 __all__ = ["render_let_expr_javascript"]

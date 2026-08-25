@@ -15,11 +15,14 @@ renames declared in
 are applied before emission.
 
 Marginalize lowering: [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-is rewritten via the
-[`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-helper into an [`IRSample`][quivers.transpile.ir.IRSample] for the
-latent followed by the scope body inline (NumPyro samples the discrete
-latent natively rather than enumerating).
+is integrated out rather than drawn. The renderer scores one copy of
+the scope per atom of the latent's finite support (see
+[`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]),
+reduces the per-atom log-densities with `logsumexp`, and adds the
+result to the model's log-density through ``numpyro.factor``. No site
+is declared for the latent, so the emitted program denotes the measure
+the QVR reference integrates rather than the larger product measure a
+live draw would denote.
 
 `declare` is a no-op outside ``"function_body"`` because NumPyro has
 no declaration block: every variable is introduced by its
@@ -48,10 +51,18 @@ from quivers.transpile.renderers._python_helpers import (
     arg_expr,
     attribute,
     call,
+    MarginalizeBody,
+    factor_tower_names,
+    float_literal,
     identifier,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
     name_event_rank_map,
+    name_plate_map,
     number_literal,
     python_binary_op as _python_binary_op,
+    python_list,
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
@@ -90,6 +101,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -99,6 +111,15 @@ from quivers.transpile.renderers._base import (
 #: The backend key used to look up `target_names` / `arg_aliases` in
 #: [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META].
 _BACKEND: str = "numpyro"
+
+
+#: ``import jax.scipy.special as jsp``, which the marginalize
+#: reduction's ``logsumexp`` reads. JAX keeps the stable reduction in
+#: `jax.scipy.special`, not on the `jnp` namespace.
+_MARGINALIZE_IMPORT: tuple[tuple[str, ...], str] = (
+    ("jax", "scipy", "special"),
+    "jsp",
+)
 
 
 #: Inner-family-keyed lookup table for the specialised truncated
@@ -187,6 +208,8 @@ class NumPyroRenderer(RendererBase):
             cards=dict(ir.cards),
             target="numpyro",
             name_event_rank=name_event_rank_map(ir),
+            factor_towers=factor_tower_names(ir),
+            name_plates=name_plate_map(ir),
         )
         scalar_refs, bound_refs = _classify_bindings(ir)
         ctx = _NumPyroCtx(
@@ -273,16 +296,30 @@ class NumPyroRenderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to
-        an explicit [`IRSample`][quivers.transpile.ir.IRSample] for the
-        latent followed by the scope body inline.
+        """Integrate an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        latent out, adding the reduced density to the model's
+        log-density with ``numpyro.factor``.
 
-        NumPyro samples the discrete latent natively rather than
-        enumerating over it; the inherited
-        [`explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-        helper does the rewrite. Plate names that collide with a
-        previously-emitted plate get a ``_<latent>`` suffix; otherwise
-        the source axis name is used unchanged.
+        The block emits one scored copy of the scope per atom of the
+        latent's finite support, then reduces across atoms:
+
+        ```python
+        gated_rate = 0.0 * rate
+        __marg_z_0 = numpyro.distributions.Poisson(gated_rate).log_prob(y)
+        gated_rate = 1.0 * rate
+        __marg_z_1 = numpyro.distributions.Poisson(gated_rate).log_prob(y)
+        __marg_z_w = jnp.stack([jnp.log1p(-pi_z), jnp.log(pi_z)], axis=-1)
+        __marg_z = jnp.stack([__marg_z_0, __marg_z_1], axis=-1)
+        numpyro.factor(
+            "z", jnp.sum(jsp.logsumexp(__marg_z_w + __marg_z, axis=-1))
+        )
+        ```
+
+        Each atom's deterministic bindings are re-emitted under their
+        own names immediately before that atom is scored, so the
+        scoring call reads the values that atom pins. No site is
+        declared for the latent: the atoms replace it, and the emitted
+        program denotes the same measure the QVR reference integrates.
         """
         npctx = _as_numpyro_ctx(ctx)
         body_vid = npctx.current_body
@@ -291,30 +328,173 @@ class NumPyroRenderer(RendererBase):
                 "qvr-numpyro",
                 ["marginalize:no-enclosing-body"],
             )
-        rewritten = self.explicit_latent_scope(node)
-        latent = rewritten[0]
-        if isinstance(latent, IRSample):
-            renamed_plate = self._dedupe_plate(
-                npctx, latent.plate, latent.name
+        py = npctx.py
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(
+                node, name_plates=py.name_plates
+            ),
+        )
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
             )
-            latent_dedup = IRSample(
-                name=latent.name,
-                family=latent.family,
-                args=latent.args,
-                arg_names=latent.arg_names,
-                constraint=latent.constraint,
-                plate=renamed_plate,
+            for det in scored.deterministics:
+                py.e(
+                    body_vid,
+                    self._deterministic_statement(npctx, det),
+                    "child_of",
+                )
+            dist_call = self._distribution_call(
+                npctx,
+                scored.observe.family,
+                scored.observe.args,
+                scored.observe.arg_names,
+                scored.observe.plate,
             )
-            self._dispatch_body(npctx, body_vid, (latent_dedup,))
-        else:  # pragma: no cover -- explicit_latent_scope shape
-            self._dispatch_body(npctx, body_vid, (latent,))
-        previous_latent = npctx.current_latent
-        npctx.current_latent = node.latent
-        try:
-            self._dispatch_body(npctx, body_vid, rewritten[1:])
-        finally:
-            npctx.current_latent = previous_latent
+            dist_call = self._wrap_event_dims(
+                npctx,
+                dist_call,
+                scored.observe.family,
+                scored.observe.plate.event_dims,
+            )
+            term = f"{prefix}_{position}"
+            py.e(
+                body_vid,
+                self._assignment_statement(
+                    py,
+                    term,
+                    _python_method_call(
+                        py,
+                        dist_call,
+                        "log_prob",
+                        (identifier(py, scored.observe.name),),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        weight_vid = self._marginal_log_weights(npctx, node, raw, atoms)
+        py.e(
+            body_vid,
+            self._assignment_statement(
+                py,
+                f"{prefix}_w",
+                weight_vid,
+            ),
+            "child_of",
+        )
+        py.e(
+            body_vid,
+            self._assignment_statement(
+                py,
+                prefix,
+                self._stack_last_axis(
+                    py,
+                    tuple(identifier(py, name) for name in term_names),
+                ),
+            ),
+            "child_of",
+        )
+        py.required_imports.add(_MARGINALIZE_IMPORT)
+        reduced = call(
+            py,
+            attribute(py, ("jsp", "logsumexp")),
+            positional=(
+                _python_binary_op(
+                    py,
+                    "+",
+                    identifier(py, f"{prefix}_w"),
+                    identifier(py, prefix),
+                ),
+            ),
+            keyword=(("axis", self._minus_one(py)),),
+        )
+        total = call(
+            py,
+            attribute(py, ("jnp", "sum")),
+            positional=(reduced,),
+        )
+        py.e(
+            body_vid,
+            self._expression_statement(
+                py,
+                call(
+                    py,
+                    attribute(py, ("numpyro", "factor")),
+                    positional=(string_literal(py, node.latent), total),
+                ),
+            ),
+            "child_of",
+        )
         return ""
+
+    def _marginal_log_weights(
+        self,
+        ctx: _NumPyroCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+    ) -> str:
+        """Log-weight tensor whose trailing axis runs over the atoms.
+
+        A `Categorical` atom set weights atom ``k`` by ``log p[k]``, so
+        the probability tensor's own trailing axis is already the atom
+        axis. A `Bernoulli` atom set weights the atoms 0 and 1 by
+        ``log1p(-p)`` and ``log(p)``, which stack into a fresh trailing
+        axis.
+        """
+        py = ctx.py
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        probs_vid = self._render_arg(ctx, probs)
+        family = atoms[0].weight_family
+        if family == "Categorical":
+            return call(
+                py, attribute(py, ("jnp", "log")), positional=(probs_vid,)
+            )
+        if family == "Bernoulli":
+            complement = call(
+                py,
+                attribute(py, ("jnp", "log1p")),
+                positional=(
+                    _python_unary_minus(py, self._render_arg(ctx, probs)),
+                ),
+            )
+            positive = call(
+                py, attribute(py, ("jnp", "log")), positional=(probs_vid,)
+            )
+            return self._stack_last_axis(py, (complement, positive))
+        raise UnsupportedConstruct(
+            "qvr-numpyro",
+            [f"marginalize:weight-family:{family}"],
+        )
+
+    def _stack_last_axis(
+        self, py: PyCtx, items: tuple[str, ...]
+    ) -> str:
+        """Emit ``jnp.stack([...], axis=-1)``."""
+        return call(
+            py,
+            attribute(py, ("jnp", "stack")),
+            positional=(python_list(py, items),),
+            keyword=(("axis", self._minus_one(py)),),
+        )
+
+    def _minus_one(self, py: PyCtx) -> str:
+        """Emit the literal ``-1``."""
+        return _python_unary_minus(py, number_literal(py, 1))
 
     def broadcast(
         self,
@@ -327,7 +507,14 @@ class NumPyroRenderer(RendererBase):
         npctx = _as_numpyro_ctx(ctx)
         py = npctx.py
         shape_tuple = self._render_shape_tuple(py, target_shape)
-        value_vid = self._render_arg(npctx, value)
+        # The fill value types the tensor: an integer literal here
+        # builds an integer concentration / rate / scale, which the
+        # real-valued family rejects.
+        value_vid = (
+            float_literal(py, value.value)
+            if isinstance(value, IRArgNumber)
+            else self._render_arg(npctx, value)
+        )
         return call(
             py,
             attribute(py, ("jnp", "full")),
@@ -530,20 +717,11 @@ class NumPyroRenderer(RendererBase):
             ctx.py.e(body_vid, stmt, "child_of")
             return
         if isinstance(node, IRObserve):
-            args = node.args
-            latent_name = ctx.current_latent
-            if node.via is not None and latent_name is not None:
-                args = tuple(
-                    _wrap_latent_with_via(
-                        a, latent_name=latent_name, via=node.via,
-                    )
-                    for a in args
-                )
             stmt = self._sample_statement(
                 ctx,
                 name=node.name,
                 family=node.family,
-                args=args,
+                args=node.args,
                 arg_names=node.arg_names,
                 plate=node.plate,
                 observed=True,
@@ -1589,42 +1767,6 @@ class NumPyroRenderer(RendererBase):
             py.e(rs, elist, "child_of")
         py.e(body_vid, rs, "child_of")
 
-    def _dedupe_plate(
-        self,
-        ctx: _NumPyroCtx,
-        plate: Plate,
-        latent_name: str,
-    ) -> Plate:
-        """Return a new Plate whose batch_dims carry a ``_<latent>``
-        suffix only on those plate-names that have already been
-        emitted in this `render` call. Names that have not been used
-        before pass through unchanged.
-
-        The canonical NumPyro LDA emit uses ``"Doc_z"`` for the
-        marginalized-latent plate because ``"Doc"`` was already used
-        by the prior plate; for mixture models without such reuse the
-        latent's plate name is just the source axis name.
-        """
-        seen = ctx.emitted_plate_names
-        new_batch: list = []
-        for dim in plate.batch_dims:
-            dim_name = str(dim.name)
-            renamed: str = (
-                f"{dim_name}_{latent_name}" if dim_name in seen else dim_name
-            )
-            if isinstance(dim, DimStatic):
-                new_batch.append(DimStatic(size=int(dim.size), name=renamed))
-            elif isinstance(dim, DimDynamic):
-                new_batch.append(
-                    DimDynamic(size_name=str(dim.size_name), name=renamed)
-                )
-            else:
-                new_batch.append(dim)
-        return Plate(
-            event_dims=plate.event_dims,
-            batch_dims=tuple(new_batch),
-        )
-
 
 # ---------------------------------------------------------------------------
 # Renderer-local context
@@ -1661,62 +1803,6 @@ class _NumPyroCtx(_RenderCtx):
         self.bound_refs = bound_refs
         self.current_body: str | None = None
         self.emitted_plate_names: set[str] = set()
-        self.current_latent: str | None = None
-
-
-def _wrap_latent_with_via(
-    arg: IRArg, *, latent_name: str, via: str
-) -> IRArg:
-    """Rewrite an IR arg by appending a `[via]` index to every
-    [`IRArgRef`][quivers.transpile.ir.IRArgRef] naming the
-    marginalize-scoped latent.
-
-    An inner `observe ... [via=f]` says the observation's own batch
-    axis fibres over the latent's grouping axis through `f`, so the
-    latent must be gathered at the observation's index before it can
-    index anything else. `phi[z]` with `latent_name='z'` and
-    `via='word_idx'` becomes `phi[z[word_idx]]`, which carries the
-    observation's batch shape rather than the latent's.
-    """
-    if isinstance(arg, IRArgRef):
-        inner = tuple(
-            _wrap_latent_with_via(i, latent_name=latent_name, via=via)
-            for i in arg.indices
-        )
-        if arg.name == latent_name:
-            return IRArgRef(
-                name=arg.name, indices=(*inner, IRArgRef(name=via)),
-            )
-        return IRArgRef(name=arg.name, indices=inner)
-    if isinstance(arg, IRArgBroadcast):
-        return IRArgBroadcast(
-            value=_wrap_latent_with_via(
-                arg.value, latent_name=latent_name, via=via,
-            ),
-            target_shape=arg.target_shape,
-        )
-    if isinstance(arg, IRArgList):
-        return IRArgList(
-            elements=tuple(
-                _wrap_latent_with_via(e, latent_name=latent_name, via=via)
-                for e in arg.elements
-            ),
-        )
-    if isinstance(arg, IRArgMatrix):
-        return IRArgMatrix(
-            rows=tuple(
-                IRArgList(
-                    elements=tuple(
-                        _wrap_latent_with_via(
-                            e, latent_name=latent_name, via=via,
-                        )
-                        for e in row.elements
-                    ),
-                )
-                for row in arg.rows
-            ),
-        )
-    return arg
 
 
 def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:

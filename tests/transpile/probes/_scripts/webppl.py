@@ -3,7 +3,7 @@
 The node container has the `webppl` CLI on PATH. This Python driver
 takes the rendered model source, transforms each `sample(<dist>)` and
 `observe(<dist>, <val>)` call into a plain JavaScript expression that
-accumulates `(<dist>).score(<value>)` into a running `totalLogProb`,
+accumulates a `score(<value>)` term into a running `globalStore.lp`,
 then runs the program with `webppl` and parses the printed
 log-density JSON.
 
@@ -14,15 +14,63 @@ log-density at a clamped (params, data) point we lift the call into
 plain JS that uses each distribution object's `score(value)` method
 directly. The renderer's emission shape is structured enough that a
 balanced-paren scan suffices to find the inner argument lists.
+
+The renderer spells a draw in exactly three shapes, and the probe
+lifts all three:
+
+1. scalar, `var <name> = sample(<dist>);`
+2. iid plate, `var <name> = repeat(<n>, function () { return
+   sample(<dist>); });`
+3. indexed plate, `var <name> = mapIndexed(function (<i>, <j>) {
+   return sample(<dist>); }, <plate>);` where `<dist>` reads `<i>`.
+
+A plated draw the probe failed to lift would stay live: WebPPL would
+redraw it at run time, dropping its prior term and making the
+returned log-density non-deterministic. That is a wrong finite number
+rather than an error, so after rewriting the probe asserts that no
+`sample(` or `observe(` token survives inside the model function.
+
+Scoring a distribution declared by the transpiler's runtime prelude
+needs one extra step. WebPPL's CPS transform compiles a member call
+(`dist.score(v)`) as a plain JavaScript call, which reaches a
+CPS-rewritten function with the wrong arity and yields a trampoline
+thunk instead of a number. Binding the method to an identifier first
+routes the call back through the transform. Built-in distributions
+are the mirror image: their `score` is native JavaScript that rejects
+the CPS argument list. The probe therefore reads the prelude's
+top-level `var <Name> = function (params) {` declarations and picks
+the calling convention per family.
 """
 from __future__ import annotations
 
 import json
 import pathlib
 import re
+import shutil
 import subprocess
+from typing import TYPE_CHECKING
 
 from _reshape import load_tables, reshape_point
+
+# The probe payload is strictly numeric: scalars and arbitrarily
+# nested lists of the same. The aliases mirror `_reshape`'s and live
+# under `TYPE_CHECKING` so the module still imports on the container's
+# Python; `from __future__ import annotations` defers evaluation so the
+# recursive `NestedNumber` reference resolves lazily.
+if TYPE_CHECKING:
+    Number = int | float
+    NestedNumber = Number | list["NestedNumber"]
+    PointSection = dict[str, NestedNumber]
+
+
+_WEBPPL_BIN = shutil.which("webppl")
+
+# WebPPL's CPS transform recurses over the whole program, so a large
+# array literal (a 200-element response vector) overflows Node's
+# default 984KB stack during compilation. The interpreter itself is
+# plain Node, so invoking it through `node --stack-size` lifts the
+# limit without changing any semantics.
+_NODE_STACK_SIZE = "40000"
 
 
 def _find_matching(source: str, open_idx: int) -> int:
@@ -92,7 +140,37 @@ def _split_top_level_comma(text: str) -> tuple[str, str]:
 _SAMPLE_DECL_RE = re.compile(
     r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sample\s*\("
 )
+_REPEAT_DECL_RE = re.compile(
+    r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*repeat\s*\("
+)
+_MAPINDEXED_DECL_RE = re.compile(
+    r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*mapIndexed\s*\("
+)
 _OBSERVE_RE = re.compile(r"\bobserve\s*\(")
+
+# `repeat`'s callback for an iid plate takes no arguments and its whole
+# body is a single `return sample(<dist>)`.
+_IID_CALLBACK_RE = re.compile(
+    r"\Afunction\s*\(\s*\)\s*\{\s*return\s+sample\s*\("
+)
+# `mapIndexed`'s callback binds the plate index and the (unused) plate
+# element; the distribution expression reads the index.
+_INDEXED_CALLBACK_RE = re.compile(
+    r"\Afunction\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,"
+    r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\{\s*return\s+sample\s*\("
+)
+# Everything a lifted callback is allowed to have after its inner
+# `sample(...)` call: the statement terminator and the closing brace.
+_CALLBACK_TAIL_RE = re.compile(r"\A\s*;?\s*\}\s*\Z")
+
+# A distribution the transpiler's runtime prelude declares, rather than
+# one WebPPL ships. Anchored at line start so the model body's nested
+# `var` bindings never match.
+_GRAFTED_DIST_RE = re.compile(
+    r"^var\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+    r"function\s*\(\s*params\s*\)\s*\{",
+    re.MULTILINE,
+)
 
 # Distribution families whose `score(value)` expects a JavaScript
 # boolean rather than the {0, 1} integer the probe receives in the
@@ -102,6 +180,27 @@ _OBSERVE_RE = re.compile(r"\bobserve\s*\(")
 # coerces booleanly-typed obs values to true / false at the call
 # site via `(<value> === 1)`.
 _BOOLEAN_VALUED_DISTS: frozenset[str] = frozenset({"Bernoulli"})
+
+# Distribution families whose `score(value)` expects a WebPPL tensor
+# rather than the plain JavaScript array the flat `Point` payload
+# reshapes into. `Vector` is WebPPL's array-to-tensor constructor, and
+# it is the same marshalling step `_reshape` performs for the array
+# backends: the point's wire form is a list, the runtime's native
+# container is not.
+_VECTOR_VALUED_DISTS: frozenset[str] = frozenset({"Dirichlet"})
+
+# Top-level helper injected into every driver. See the module
+# docstring for why a grafted distribution's `score` cannot be reached
+# through a member call.
+_PROBE_SCORE_HELPER = """\
+var _qvr_probe_score = function (dist, value) {
+  var scoreFn = dist.score;
+  return scoreFn(value);
+};"""
+
+# Fresh names the lifted plate callbacks bind. Prefixed so they cannot
+# collide with a renderer-emitted binding.
+_PLATE_INDEX_VAR = "_qvr_plate_i"
 
 
 def _dist_family(dist_expr: str) -> str | None:
@@ -116,9 +215,21 @@ def _dist_family(dist_expr: str) -> str | None:
     return match.group(1)
 
 
+def _grafted_dist_names(source: str) -> frozenset[str]:
+    """Distribution families the rendered source declares itself.
+
+    The transpiler grafts a runtime prelude ahead of the model for
+    every family WebPPL's `dists` module does not ship. Each graft is a
+    top-level ``var <Name> = function (params) { ... }`` returning an
+    object with `sample` / `score` / `support`.
+    """
+    return frozenset(_GRAFTED_DIST_RE.findall(source))
+
+
 def _coerce_value(dist_expr: str, value_expr: str) -> str:
-    """Wrap ``value_expr`` in a `=== 1` test when the distribution's
-    `score` expects a JavaScript boolean.
+    """Marshal ``value_expr`` into the container the distribution's
+    `score` expects: a JavaScript boolean for a Bernoulli-shaped
+    support, a WebPPL tensor for a simplex-shaped one.
 
     Leaves the expression unchanged for every other distribution; the
     probe's data contract is otherwise a one-to-one match between QVR
@@ -128,17 +239,153 @@ def _coerce_value(dist_expr: str, value_expr: str) -> str:
     family = _dist_family(dist_expr)
     if family is not None and family in _BOOLEAN_VALUED_DISTS:
         return f"(({value_expr}) === 1)"
+    if family is not None and family in _VECTOR_VALUED_DISTS:
+        return f"Vector({value_expr})"
     return value_expr
 
 
-def _rewrite_sample(source: str) -> str:
+def _score_expr(
+    dist_expr: str, value_expr: str, grafted: frozenset[str],
+) -> str:
+    """Build the JavaScript expression scoring ``value_expr`` under
+    ``dist_expr``, picking the calling convention the family needs."""
+    coerced = _coerce_value(dist_expr, value_expr)
+    family = _dist_family(dist_expr)
+    if family is not None and family in grafted:
+        return f"_qvr_probe_score({dist_expr}, {coerced})"
+    return f"({dist_expr}).score({coerced})"
+
+
+def _statement_end(source: str, close_paren: int) -> int:
+    """Index just past the `;` terminating the statement whose final
+    `)` sits at ``close_paren``, so a rewrite leaves no empty
+    statement behind."""
+    tail = close_paren + 1
+    while tail < len(source) and source[tail] in " \t":
+        tail += 1
+    if tail < len(source) and source[tail] == ";":
+        tail += 1
+    return tail
+
+
+def _clamped_bind(name: str, score_term: str) -> str:
+    """The replacement statement pair for one lifted draw: bind the
+    name to its clamped value, then accumulate the score term."""
+    return (
+        f"var {name} = clampedParams.{name};\n"
+        f"  globalStore.lp = globalStore.lp + {score_term};"
+    )
+
+
+def _lift_iid_plate(
+    name: str, args: str, grafted: frozenset[str],
+) -> str | None:
+    """Lift ``repeat(<n>, function () { return sample(<dist>); })``.
+
+    Returns ``None`` when the callback is not a bare draw, which is the
+    deterministic use of `repeat` (a broadcast concentration vector,
+    a dummy plate array) and needs no clamping. Raises when the
+    callback does draw but in a shape this lift does not cover, so an
+    unrecognised plate emission never scores a free latent.
+    """
+    n_expr, callback = _split_top_level_comma(args)
+    head = _IID_CALLBACK_RE.match(callback)
+    if head is None:
+        return None
+    open_paren = head.end() - 1
+    close_paren = _find_matching(callback, open_paren)
+    dist_expr = callback[open_paren + 1:close_paren].strip()
+    tail = callback[close_paren + 1:]
+    if _CALLBACK_TAIL_RE.match(tail) is None:
+        msg = (
+            f"webppl probe: `var {name} = repeat(...)` draws a sample "
+            f"inside a callback whose body does more than return it; "
+            f"the probe cannot clamp it. callback: {callback!r}"
+        )
+        raise ValueError(msg)
+    element = f"{name}[{_PLATE_INDEX_VAR}]"
+    score_term = (
+        f"sum(mapN(function ({_PLATE_INDEX_VAR}) {{\n"
+        f"    return {_score_expr(dist_expr, element, grafted)};\n"
+        f"  }}, {n_expr}))"
+    )
+    return _clamped_bind(name, score_term)
+
+
+def _lift_indexed_plate(
+    name: str, args: str, grafted: frozenset[str],
+) -> str | None:
+    """Lift ``mapIndexed(function (<i>, <j>) { return sample(<dist>);
+    }, <plate>)``.
+
+    The distribution expression reads the plate index, so the lift
+    keeps `mapIndexed` over the original plate array and indexes the
+    clamped value with the same index variable. Returns ``None`` when
+    the callback is a deterministic gather rather than a draw.
+    """
+    callback, plate_expr = _split_top_level_comma(args)
+    head = _INDEXED_CALLBACK_RE.match(callback)
+    if head is None:
+        return None
+    index_var, element_var = head.group(1), head.group(2)
+    open_paren = head.end() - 1
+    close_paren = _find_matching(callback, open_paren)
+    dist_expr = callback[open_paren + 1:close_paren].strip()
+    tail = callback[close_paren + 1:]
+    if _CALLBACK_TAIL_RE.match(tail) is None:
+        msg = (
+            f"webppl probe: `var {name} = mapIndexed(...)` draws a "
+            f"sample inside a callback whose body does more than "
+            f"return it; the probe cannot clamp it. "
+            f"callback: {callback!r}"
+        )
+        raise ValueError(msg)
+    element = f"{name}[{index_var}]"
+    score_term = (
+        f"sum(mapIndexed(function ({index_var},{element_var}) {{\n"
+        f"    return {_score_expr(dist_expr, element, grafted)};\n"
+        f"  }}, {plate_expr}))"
+    )
+    return _clamped_bind(name, score_term)
+
+
+def _rewrite_plated_samples(
+    source: str, grafted: frozenset[str],
+) -> str:
+    """Replace every plated draw with a clamped bind plus a summed
+    score accumulation over the plate."""
+    lifts = (
+        (_REPEAT_DECL_RE, _lift_iid_plate),
+        (_MAPINDEXED_DECL_RE, _lift_indexed_plate),
+    )
+    for decl_re, lift in lifts:
+        out: list[str] = []
+        cursor = 0
+        for match in decl_re.finditer(source):
+            if match.start() < cursor:
+                continue
+            open_paren = match.end() - 1
+            close_paren = _find_matching(source, open_paren)
+            args = source[open_paren + 1:close_paren]
+            replacement = lift(match.group(1), args, grafted)
+            if replacement is None:
+                continue
+            out.append(source[cursor:match.start()])
+            out.append(replacement)
+            cursor = _statement_end(source, close_paren)
+        out.append(source[cursor:])
+        source = "".join(out)
+    return source
+
+
+def _rewrite_sample(source: str, grafted: frozenset[str]) -> str:
     """Replace each ``var <name> = sample(<dist>);`` with a
     clamped-value bind plus a score accumulation.
 
     The emitted form is::
 
         var <name> = clampedParams.<name>;
-        totalLogProb = totalLogProb + (<dist>).score(<name>);
+        globalStore.lp = globalStore.lp + (<dist>).score(<name>);
 
     The original `sample` semantics is irrelevant here: the probe's
     contract is that every latent is supplied through ``clampedParams``.
@@ -151,30 +398,19 @@ def _rewrite_sample(source: str) -> str:
         open_paren = match.end() - 1
         close_paren = _find_matching(source, open_paren)
         dist_expr = source[open_paren + 1:close_paren].strip()
-        # Skip an optional trailing whitespace + `;` so the rewrite
-        # does not leave a stray empty statement.
-        tail = close_paren + 1
-        while tail < len(source) and source[tail] in " \t":
-            tail += 1
-        if tail < len(source) and source[tail] == ";":
-            tail += 1
-        coerced_name = _coerce_value(dist_expr, name)
-        replacement = (
-            f"var {name} = clampedParams.{name};\n"
-            f"  globalStore.lp = globalStore.lp + "
-            f"({dist_expr}).score({coerced_name});"
+        out.append(
+            _clamped_bind(name, _score_expr(dist_expr, name, grafted))
         )
-        out.append(replacement)
-        cursor = tail
+        cursor = _statement_end(source, close_paren)
     out.append(source[cursor:])
     return "".join(out)
 
 
-def _rewrite_observe(source: str) -> str:
+def _rewrite_observe(source: str, grafted: frozenset[str]) -> str:
     """Replace each ``observe(<dist>, <val>);`` with a score
     accumulation::
 
-        totalLogProb = totalLogProb + (<dist>).score(<val>);
+        globalStore.lp = globalStore.lp + (<dist>).score(<val>);
     """
     out: list[str] = []
     cursor = 0
@@ -184,18 +420,11 @@ def _rewrite_observe(source: str) -> str:
         close_paren = _find_matching(source, open_paren)
         inner = source[open_paren + 1:close_paren]
         dist_expr, value_expr = _split_top_level_comma(inner)
-        tail = close_paren + 1
-        while tail < len(source) and source[tail] in " \t":
-            tail += 1
-        if tail < len(source) and source[tail] == ";":
-            tail += 1
-        coerced_value = _coerce_value(dist_expr, value_expr)
-        replacement = (
-            f"globalStore.lp = globalStore.lp + "
-            f"({dist_expr}).score({coerced_value});"
+        out.append(
+            "globalStore.lp = globalStore.lp + "
+            f"{_score_expr(dist_expr, value_expr, grafted)};"
         )
-        out.append(replacement)
-        cursor = tail
+        cursor = _statement_end(source, close_paren)
     out.append(source[cursor:])
     return "".join(out)
 
@@ -203,6 +432,42 @@ def _rewrite_observe(source: str) -> str:
 _MODEL_FN_RE = re.compile(
     r"\bvar\s+model\s*=\s*function\s*\(([^)]*)\)"
 )
+_LIVE_PRIMITIVE_RE = re.compile(r"\b(sample|observe)\s*\(")
+
+
+def _assert_fully_lifted(rewritten: str) -> None:
+    """Fail when a `sample` / `observe` primitive survives the rewrite.
+
+    A surviving `sample(` is the dangerous case: WebPPL draws it fresh
+    on every run, so the site contributes no prior term and the
+    returned log-density is a random number. Checking only from the
+    model declaration onward keeps the runtime prelude's `sample:`
+    method definitions and its prose comments out of scope.
+    """
+    match = _MODEL_FN_RE.search(rewritten)
+    if match is None:
+        raise ValueError("no `var model = function (...)` declaration found")
+    body = rewritten[match.start():]
+    live = _LIVE_PRIMITIVE_RE.search(body)
+    if live is None:
+        return
+    start = max(0, live.start() - 200)
+    msg = (
+        f"webppl probe: `{live.group(1)}(` survived the rewrite, so "
+        f"that site would be redrawn at run time instead of scored at "
+        f"the point's value. context:\n{body[start:live.end() + 200]}"
+    )
+    raise ValueError(msg)
+
+
+def _json_literal(value: NestedNumber | PointSection | None) -> str:
+    """Render a Python-native JSON value as a JavaScript literal.
+
+    Uses :func:`json.dumps` so booleans / numbers / arrays / objects /
+    strings round-trip through the same parser the WebPPL interpreter
+    uses for `JSON.parse`.
+    """
+    return json.dumps(value)
 
 
 def _model_parameter_names(source: str) -> tuple[str, ...]:
@@ -223,35 +488,29 @@ def _model_parameter_names(source: str) -> tuple[str, ...]:
     return tuple(p.strip() for p in raw.split(","))
 
 
-def _json_literal(value: object) -> str:
-    """Render a Python-native JSON value as a JavaScript literal.
-
-    Uses :func:`json.dumps` so booleans / numbers / arrays / objects /
-    strings round-trip through the same parser the WebPPL interpreter
-    uses for `JSON.parse`.
-    """
-    return json.dumps(value)
-
-
 def _build_driver(
     rendered: str,
-    params: dict[str, object],
-    data: dict[str, object],
+    params: PointSection,
+    data: PointSection,
 ) -> str:
     """Build the WebPPL driver source for one (params, data) point.
 
     Composes:
 
-    * the rewritten model source (with `sample` / `observe` lifted to
-      score accumulation),
+    * the rewritten model source (with every `sample` / `observe`
+      lifted to score accumulation),
+    * the grafted-distribution scoring helper,
     * clamped-params object literal,
     * data bindings as top-level `var <name> = <literal>;` decls,
     * a final `model(<args...>);` call so the rewritten sample /
       observe statements run,
-    * a `console.log` of the resulting `totalLogProb`.
+    * a `console.log` of the resulting `globalStore.lp`.
     """
-    rewritten = _rewrite_sample(rendered)
-    rewritten = _rewrite_observe(rewritten)
+    grafted = _grafted_dist_names(rendered)
+    rewritten = _rewrite_plated_samples(rendered, grafted)
+    rewritten = _rewrite_sample(rewritten, grafted)
+    rewritten = _rewrite_observe(rewritten, grafted)
+    _assert_fully_lifted(rewritten)
     param_names = _model_parameter_names(rendered)
     data_decls = "\n".join(
         f"var {name} = {_json_literal(data.get(name))};"
@@ -261,6 +520,7 @@ def _build_driver(
     clamped_literal = _json_literal(params)
     return (
         "globalStore.lp = 0;\n"
+        f"{_PROBE_SCORE_HELPER}\n"
         f"var clampedParams = {clamped_literal};\n"
         f"{data_decls}\n"
         f"{rewritten}\n"
@@ -275,6 +535,12 @@ def main() -> None:
     points = json.loads((io / "points.json").read_text())
     shapes, dtypes = load_tables(io)
 
+    if _WEBPPL_BIN is None:
+        raise RuntimeError(
+            "webppl probe: no `webppl` executable on PATH inside the "
+            "container"
+        )
+
     log_densities: list[float] = []
     for i, pt in enumerate(points):
         reshaped = reshape_point(pt, shapes, dtypes)
@@ -287,13 +553,19 @@ def main() -> None:
         wppl_path.write_text(driver)
 
         completed = subprocess.run(
-            ["webppl", str(wppl_path)],
+            [
+                "node",
+                f"--stack-size={_NODE_STACK_SIZE}",
+                _WEBPPL_BIN,
+                str(wppl_path),
+            ],
             capture_output=True,
-            timeout=60,
+            timeout=120,
         )
         if completed.returncode != 0:
             raise RuntimeError(
                 f"webppl exited {completed.returncode}: "
+                f"stdout={completed.stdout.decode('utf-8', 'replace')}\n"
                 f"stderr={completed.stderr.decode('utf-8', 'replace')}\n"
                 f"driver:\n{driver}"
             )
@@ -303,7 +575,7 @@ def main() -> None:
         # probe's contract is a JSON object on its own line carrying
         # the `log_density` field, so search the stdout for that
         # specific shape rather than blindly taking the last line.
-        payload: dict | None = None
+        payload: dict[str, float] | None = None
         for line in stdout_text.splitlines():
             text = line.strip()
             if not text or not text.startswith("{"):

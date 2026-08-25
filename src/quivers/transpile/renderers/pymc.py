@@ -16,9 +16,9 @@ The dispatch points:
   observed=<obs>)`. Argument names come from `arg_names`; the per-
   backend `arg_aliases` map renames them
   ([`FamilyMeta.arg_aliases`][quivers.transpile.family_meta.FamilyMeta]).
-* `marginalize` lowers to explicit `IRSample(latent)` plus the scope
-  body inline (PyMC supports discrete latents under MCMC and via
-  the marginalisation primitives).
+* `marginalize` integrates the latent out into a `pymc.Mixture` over
+  the atoms of its finite support, one component distribution per
+  atom, observed at the scope's own observation.
 * `broadcast` emits `np.full((K,), x)` for 1D, `np.full((R, C), x)`
   for 2D target shapes.
 
@@ -51,16 +51,24 @@ from quivers.transpile._pipeline import (
     target_protocol,
 )
 from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
     PyCtx,
     arg_expr,
     assignment,
     attribute,
     call,
+    factor_tower_names,
+    float_literal,
     function_def,
     identifier,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
     name_event_rank_map,
+    name_plate_map,
     number_literal,
     python_binary_op as _python_binary_op,
+    python_list,
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
@@ -101,6 +109,7 @@ from quivers.transpile.lower import Lower
 from quivers.transpile.renderers._base import (
     BlockKind,
     IRArgTransform,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -160,6 +169,8 @@ class PyMCRenderer(RendererBase):
             cards=dict(ir.cards),
             target="pymc",
             name_event_rank=name_event_rank_map(ir),
+            factor_towers=factor_tower_names(ir),
+            name_plates=name_plate_map(ir),
         )
         bag = _PyMCCtx(ctx=ctx, py=py, ir=ir)
 
@@ -294,13 +305,7 @@ class PyMCRenderer(RendererBase):
             self._emit_score_step(ctx, node)
             return
         if isinstance(node, IRMarginalize):
-            previous = ctx.current_latent
-            ctx.current_latent = node.latent
-            try:
-                for child in self.explicit_latent_scope(node):
-                    self._dispatch_pymc(ctx, child)
-            finally:
-                ctx.current_latent = previous
+            self._emit_marginalize(ctx, node)
             return
         if isinstance(node, IRReturn):
             # The function-level `return model` is emitted in `render`
@@ -491,13 +496,6 @@ class PyMCRenderer(RendererBase):
 
         complement_args = _PYMC_COMPLEMENT_ARGS.get(node.family, frozenset())
 
-        # Apply via=<idx> rewrite: when an observation declares
-        # `via=<idx>`, wrap every reference to the surrounding-
-        # marginalize latent with `[<idx>]` so `phi[z]` becomes
-        # `phi[z[<idx>]]` at the call site.
-        via = getattr(node, "via", None)
-        latent_name = ctx.current_latent
-
         # arg_constraints for this family (read class-level only;
         # property-form parameterisations land in a future pass).
         cls_constraints = getattr(
@@ -512,13 +510,8 @@ class PyMCRenderer(RendererBase):
         keyword: list[tuple[str, str]] = []
         for arg, arg_name in zip(node.args, node.arg_names, strict=True):
             renamed = aliases.get(arg_name, arg_name)
-            arg_to_emit = arg
-            if via is not None and latent_name is not None:
-                arg_to_emit = _wrap_latent_with_via(
-                    arg, latent_name=latent_name, via=via,
-                )
             arg_to_emit = self._maybe_broadcast_ref(
-                arg_to_emit,
+                arg,
                 arg_name=arg_name,
                 cls_constraints=cls_constraints,
                 plate=node.plate,
@@ -579,18 +572,11 @@ class PyMCRenderer(RendererBase):
         py = ctx.py
         meta = _resolve_meta("Geometric", self.target)
         aliases = _merged_aliases(meta)
-        via = getattr(node, "via", None)
-        latent_name = ctx.current_latent
 
         keyword: list[tuple[str, str]] = []
         for arg, arg_name in zip(node.args, node.arg_names, strict=True):
             renamed = aliases.get(arg_name, arg_name)
-            arg_to_emit = arg
-            if via is not None and latent_name is not None:
-                arg_to_emit = _wrap_latent_with_via(
-                    arg, latent_name=latent_name, via=via,
-                )
-            keyword.append((renamed, self._render_arg(ctx, arg_to_emit)))
+            keyword.append((renamed, self._render_arg(ctx, arg)))
 
         dims_tuple = self._dims_tuple(py, node.plate)
         callee = attribute(py, ("pymc", "Geometric"))
@@ -662,22 +648,15 @@ class PyMCRenderer(RendererBase):
         py = ctx.py
         meta = _resolve_meta("LKJCholesky", self.target)
         aliases = _merged_aliases(meta)
-        via = getattr(node, "via", None)
-        latent_name = ctx.current_latent
 
         keyword: list[tuple[str, str]] = [
             ("n", number_literal(py, self._lkj_dimension(node.plate))),
         ]
         for arg, arg_name in zip(node.args, node.arg_names, strict=True):
-            arg_to_emit = arg
-            if via is not None and latent_name is not None:
-                arg_to_emit = _wrap_latent_with_via(
-                    arg, latent_name=latent_name, via=via,
-                )
             keyword.append(
                 (
                     aliases.get(arg_name, arg_name),
-                    self._render_arg(ctx, arg_to_emit),
+                    self._render_arg(ctx, arg),
                 )
             )
         if observed_name is not None:
@@ -790,22 +769,201 @@ class PyMCRenderer(RendererBase):
             py.constraint(t, "ptrace-3", "T)")
         return t
 
-    # ----- marginalize: lower to explicit IRSample + scope inline -----
+    # ----- marginalize: the integrated-density lowering -----
 
     def marginalize(
         self,
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to `IRSample(latent)` plus the scope body inline.
-
-        PyMC supports discrete latents under MCMC and via the
-        marginalisation primitives, so the explicit-latent rewrite is
-        the canonical lowering. The walk through the rewritten scope
-        happens in `_dispatch_pymc`."""
+        """No-op at the protocol dispatch point: the renderer drives
+        the enumeration through `_emit_marginalize`, which needs the
+        PyMC-specific with-body context."""
         del ctx, node
         return ""
+
+    def _emit_marginalize(
+        self, ctx: _PyMCCtx, node: IRMarginalize
+    ) -> None:
+        """Integrate the latent out into a [`pymc.Mixture`][pymc.Mixture]
+        over the atoms of its finite support.
+
+        One component distribution is built per atom, each preceded by
+        that atom's own deterministic bindings, and the atoms are
+        weighted by the latent's prior probabilities:
+
+        ```python
+        gated_rate = 0.0 * rate
+        __marg_z_0 = pymc.Poisson.dist(mu=gated_rate)
+        gated_rate = 1.0 * rate
+        __marg_z_1 = pymc.Poisson.dist(mu=gated_rate)
+        pymc.Mixture(
+            "y",
+            w=pymc.math.stack([(1 - pi_z), pi_z], axis=-1),
+            comp_dists=[__marg_z_0, __marg_z_1],
+            observed=y,
+        )
+        ```
+
+        A mixture is the target-side spelling of the same integral the
+        QVR reference computes, and unlike a
+        [`pymc.Potential`][pymc.Potential] it is a genuine observed
+        random variable, so it carries the block's whole contribution
+        to the model's log-density.
+        """
+        py = ctx.py
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(
+                node, name_plates=py.name_plates
+            ),
+        )
+        prefix = f"__marg_{node.latent}"
+        component_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                self._emit_deterministic(ctx, det)
+            component = f"{prefix}_{position}"
+            py.e(
+                ctx.with_body,
+                assignment(
+                    py,
+                    lhs_name=component,
+                    rhs=self._component_dist(ctx, scored.observe),
+                ),
+                "child_of",
+            )
+            component_names.append(component)
+        mixture = call(
+            py,
+            attribute(py, ("pymc", "Mixture")),
+            positional=(string_literal(py, raw.observe.name),),
+            keyword=(
+                ("w", self._marginal_weights(ctx, node, raw, atoms)),
+                (
+                    "comp_dists",
+                    python_list(
+                        py,
+                        tuple(
+                            identifier(py, name)
+                            for name in component_names
+                        ),
+                    ),
+                ),
+                ("observed", identifier(py, raw.observe.name)),
+            ),
+        )
+        stmt = py.v(py.fresh("es"), "expression_statement")
+        py.e(stmt, mixture, "child_of")
+        py.e(ctx.with_body, stmt, "child_of")
+
+    def _component_dist(
+        self, ctx: _PyMCCtx, observe: IRObserve
+    ) -> str:
+        """Build the unregistered ``pymc.<Family>.dist(**args)`` an
+        atom contributes to the mixture."""
+        meta = _resolve_meta(observe.family, self.target)
+        dist_class = meta.target_names.get("pymc")
+        if dist_class is None:
+            raise UnsupportedConstruct(
+                self.target, [f"family:{observe.family}"]
+            )
+        helper = _PYMC_RUNTIME_HELPER_FAMILIES.get(observe.family)
+        chain = (helper, "dist") if helper else ("pymc", dist_class, "dist")
+        complement_args = _PYMC_COMPLEMENT_ARGS.get(
+            observe.family, frozenset()
+        )
+        cls_constraints = getattr(
+            meta.distribution_class, "arg_constraints", {},
+        )
+        if not isinstance(cls_constraints, dict):
+            cls_constraints = {}
+        aliases = _merged_aliases(meta)
+        keyword: list[tuple[str, str]] = []
+        for arg, arg_name in zip(
+            observe.args, observe.arg_names, strict=True
+        ):
+            arg_to_emit = self._maybe_broadcast_ref(
+                arg,
+                arg_name=arg_name,
+                cls_constraints=cls_constraints,
+                plate=observe.plate,
+                ir=ctx.ir,
+            )
+            rendered = self._render_arg(ctx, arg_to_emit)
+            if arg_name in complement_args:
+                rendered = _python_paren(
+                    ctx.py,
+                    _python_binary_op(
+                        ctx.py, "-", number_literal(ctx.py, 1.0), rendered,
+                    ),
+                )
+            keyword.append((aliases.get(arg_name, arg_name), rendered))
+        return call(
+            ctx.py,
+            attribute(ctx.py, chain),
+            keyword=tuple(keyword),
+        )
+
+    def _marginal_weights(
+        self,
+        ctx: _PyMCCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+    ) -> str:
+        """Mixture weight tensor whose trailing axis runs over the
+        atoms.
+
+        A `Categorical` atom set weights atom ``k`` by ``p[k]``, so the
+        probability tensor's own trailing axis is already the atom
+        axis. A `Bernoulli` atom set weights the atoms 0 and 1 by
+        ``1 - p`` and ``p``, which stack into a fresh trailing axis.
+        """
+        py = ctx.py
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        probs_vid = self._render_arg(ctx, probs)
+        family = atoms[0].weight_family
+        if family == "Categorical":
+            return probs_vid
+        if family == "Bernoulli":
+            complement = _python_paren(
+                py,
+                _python_binary_op(
+                    py,
+                    "-",
+                    number_literal(py, 1.0),
+                    self._render_arg(ctx, probs),
+                ),
+            )
+            return call(
+                py,
+                attribute(py, ("pymc", "math", "stack")),
+                positional=(python_list(py, (complement, probs_vid)),),
+                keyword=(
+                    (
+                        "axis",
+                        _python_unary_minus(py, number_literal(py, 1)),
+                    ),
+                ),
+            )
+        raise UnsupportedConstruct(
+            self.target,
+            [f"marginalize:weight-family:{family}"],
+        )
 
     # ----- broadcast: np.full((K,), x) for 1D / np.full((R, C), x) for 2D --
 
@@ -849,9 +1007,16 @@ class PyMCRenderer(RendererBase):
             bag.py.constraint(shape_tuple, "ptrace-2", "T,")
             bag.py.constraint(shape_tuple, "ptrace-3", "T)")
         callee = attribute(bag.py, ("np", "full"))
+        # The fill value types the tensor: an integer literal here
+        # builds an integer concentration / rate / scale, which the
+        # real-valued family rejects.
+        fill = (
+            float_literal(bag.py, value.value)
+            if isinstance(value, IRArgNumber)
+            else self._render_arg(bag, value)
+        )
         return call(
-            bag.py, callee,
-            positional=(shape_tuple, self._render_arg(bag, value)),
+            bag.py, callee, positional=(shape_tuple, fill),
         )
 
     # ----- arg rendering: dispatch on IRArg variant -----
@@ -1048,8 +1213,8 @@ class _PyMCCtx:
     """Renderer-internal mutable bag threaded through the dispatch
     points: shared [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx],
     the [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx] adapter,
-    and per-walk state (`with`-body block, current marginalize latent,
-    parent IR for input lookups)."""
+    and per-walk state (`with`-body block, parent IR for input
+    lookups)."""
 
     def __init__(
         self, *, ctx: _RenderCtx, py: PyCtx, ir: IRProgram,
@@ -1058,7 +1223,6 @@ class _PyMCCtx:
         self.py = py
         self.ir = ir
         self.with_body: str = ""
-        self.current_latent: str | None = None
 
 
 def _dim_name(dim: Dim) -> str:
@@ -1109,73 +1273,6 @@ def _merged_aliases(meta: FamilyMeta) -> dict[str, str]:
     map each torch canonical argument name to the keyword PyMC's
     constructor expects."""
     return dict(meta.arg_aliases.get("pymc", {}))
-
-
-def _wrap_latent_with_via(
-    arg: IRArg, *, latent_name: str, via: str
-) -> IRArg:
-    """Rewrite an IR arg by appending a `[via]` index to every
-    [`IRArgRef`][quivers.transpile.ir.IRArgRef] that names the
-    marginalize-scoped latent.
-
-    `phi[z]` with `latent='z'` and `via='word_idx'` becomes
-    `phi[z[word_idx]]`. The renamed `z` reference inside `phi`'s
-    indices gains a trailing `[word_idx]` index so PyMC indexes the
-    latent positionally at the observation's fibration site."""
-    if isinstance(arg, IRArgRef):
-        if arg.name == latent_name:
-            return IRArgRef(
-                name=arg.name,
-                indices=(
-                    *(
-                        _wrap_latent_with_via(
-                            i, latent_name=latent_name, via=via
-                        )
-                        for i in arg.indices
-                    ),
-                    IRArgRef(name=via),
-                ),
-            )
-        return IRArgRef(
-            name=arg.name,
-            indices=tuple(
-                _wrap_latent_with_via(
-                    i, latent_name=latent_name, via=via
-                )
-                for i in arg.indices
-            ),
-        )
-    if isinstance(arg, IRArgBroadcast):
-        return IRArgBroadcast(
-            value=_wrap_latent_with_via(
-                arg.value, latent_name=latent_name, via=via
-            ),
-            target_shape=arg.target_shape,
-        )
-    if isinstance(arg, IRArgList):
-        return IRArgList(
-            elements=tuple(
-                _wrap_latent_with_via(
-                    e, latent_name=latent_name, via=via
-                )
-                for e in arg.elements
-            ),
-        )
-    if isinstance(arg, IRArgMatrix):
-        return IRArgMatrix(
-            rows=tuple(
-                IRArgList(
-                    elements=tuple(
-                        _wrap_latent_with_via(
-                            e, latent_name=latent_name, via=via
-                        )
-                        for e in row.elements
-                    ),
-                )
-                for row in arg.rows
-            ),
-        )
-    return arg
 
 
 def _draw_arg_to_wire(a: object) -> str | float:

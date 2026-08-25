@@ -57,6 +57,7 @@ import panproto
 
 from quivers.dsl.ast_nodes import Expr, DefineDecl, Module, MorphismDecl
 from quivers.dsl.ast_nodes.let_expressions import (
+    LetFactorCase,
     LetExprBinOp,
     LetExprCall,
     LetExprFactor,
@@ -99,6 +100,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -106,6 +108,13 @@ from quivers.transpile.renderers._base import (
 )
 from quivers.transpile.renderers._javascript_helpers import (
     render_let_expr_javascript,
+)
+from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
+    name_event_rank_map,
 )
 
 
@@ -233,6 +242,11 @@ class WebPPLRenderer(RendererBase):
         # dims); drives the vectorised-arithmetic rewrite of
         # deterministic bindings.
         self._array_names: frozenset[str] = frozenset()
+        # Per-name event rank (`len(plate.event_dims)`) read from the
+        # IR. A reducing primitive applied to a positive-rank argument
+        # collapses the innermost axis through a `_qvr_<f>_last`
+        # runtime helper; WebPPL's own `sum` flattens every axis.
+        self._name_event_rank: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Abstract overrides: target_protocol + four dispatch points.
@@ -271,6 +285,10 @@ class WebPPLRenderer(RendererBase):
         # so the per-element computation runs over the right array.
         self._observe_array_fallback = self._first_observe_plate(ir)
         self._array_names = _static_array_names(ir)
+        # Per-name event rank, so a reduction over an event axis
+        # (`sum(z_row * w_row)`) collapses only the innermost axis
+        # instead of flattening the whole nested array to one scalar.
+        self._name_event_rank = name_event_rank_map(ir)
         # Program root: a single var-decl wrapping a function expression.
         ctx.sb.vertex("prog", "program")
         # WebPPL's `dists` module ships `Gaussian`, `Beta`, `Categorical`,
@@ -289,6 +307,8 @@ class WebPPLRenderer(RendererBase):
             )
             or _ir_emits_qvr_bcast(ir, self._array_names)
             or _ir_uses_webppl_math(ir.body)
+            or _ir_reduces_event_axis(ir.body, self._name_event_rank)
+            or _ir_has_marginalize(ir.body)
         ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
@@ -507,6 +527,14 @@ class WebPPLRenderer(RendererBase):
         dist_obj = self._object_literal(ctx, rendered_args)
         dist_call = self._call(ctx, self._ident(ctx, webppl_name), (dist_obj,))
         sample_call = self._call(ctx, self._ident(ctx, "sample"), (dist_call,))
+        # Wrap the residual event axes (the ones the source declared
+        # with `[over=<Axis>]` beyond the family's own event rank)
+        # innermost, then the batch axis outermost. A `Normal` site
+        # declared `over=LatentDim` under `iid_over=Item` therefore
+        # binds a 32-by-2 nested array rather than a flat 32-vector.
+        own_start = len(plate.event_dims) - meta.event_rank
+        for dim in reversed(plate.event_dims[:own_start]):
+            sample_call = self._wrap_in_repeat(ctx, sample_call, dim)
         # Wrap the call per the batching strategy.
         value_vid = self._wrap_for_batch(
             ctx, sample_call, plate, loop_name, index_dependent
@@ -608,32 +636,386 @@ class WebPPLRenderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Lower an
-        [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scope
-        into an explicit
-        [`IRSample`][quivers.transpile.ir.IRSample] for the latent
-        plus the scope body inline.
+        """Integrate an
+        [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] latent
+        out, adding the reduced density to the program's log-density
+        with WebPPL's `factor`.
 
-        WebPPL has no native enumeration; the inherited
-        `explicit_latent_scope` helper produces the rewritten node
-        sequence, which is then dispatched through the ordinary
-        node-walk so each scope node sees the same sample / observe
-        emission path as a top-level node.
+        One scored copy of the scope per atom of the latent's finite
+        support, then a reduction across atoms:
 
-        The marginalize plate's batch axes are pushed onto the
-        renderer's group-plate stack so a scope observe's ref
-        substitution can apply the `via` fibration to refs whose
-        binding plate matches the group plate.
+        ```javascript
+        var __marg_z_atom_0 = function () {
+          var gated_rate = _qvr_bcast("*", 0, rate);
+          return mapIndexed(function (n, y_n) {
+            return (Poisson({mu:gated_rate[n]})).score(y_n);
+          }, y);
+        };
+        var __marg_z_0 = __marg_z_atom_0();
+        ...
+        var __marg_z_t_0 = _qvr_bcast("+", __marg_z_w_0, __marg_z_0);
+        ...
+        var __marg_z = _qvr_logsumexp([__marg_z_t_0, __marg_z_t_1]);
+        factor(_qvr_total(__marg_z));
+        ```
+
+        Each atom's deterministic bindings live inside that atom's own
+        function, which is what gives them a scope: WebPPL's
+        single-assignment subset rejects a second `var gated_rate` in
+        the same block. No site is declared for the latent: the atoms
+        replace it, and the emitted program denotes the same measure
+        the QVR reference integrates.
         """
-        rewritten = self.explicit_latent_scope(node)
+        plates = dict(self._binding_plates)
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(node, name_plates=plates),
+        )
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        prefix = f"__marg_{node.latent}"
         prev_group = self._group_plate_axes
-        self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)
+        self._group_plate_axes = tuple(
+            str(d.name) for d in node.plate.batch_dims
+        )
         try:
-            for inner in rewritten:
-                self._dispatch_node(ctx, inner)
+            term_names = tuple(
+                self._emit_atom_scope(ctx, node, atom, prefix, position)
+                for position, atom in enumerate(atoms)
+            )
+            weight_names = self._emit_atom_weights(
+                ctx, node, raw, atoms, prefix, plates
+            )
         finally:
             self._group_plate_axes = prev_group
+        shifted: list[str] = []
+        for position, (weight, term) in enumerate(
+            zip(weight_names, term_names, strict=True)
+        ):
+            name = f"{prefix}_t_{position}"
+            self._emit_var_decl(
+                ctx,
+                self._body_vid,
+                name,
+                self._call(
+                    ctx,
+                    self._ident(ctx, "_qvr_bcast"),
+                    (
+                        self._string_literal(ctx, "+"),
+                        self._ident(ctx, weight),
+                        self._ident(ctx, term),
+                    ),
+                ),
+            )
+            shifted.append(name)
+        terms_array = self._fresh(ctx, "arr")
+        ctx.sb.vertex(terms_array, "array")
+        for name in shifted:
+            ctx.sb.edge(terms_array, self._ident(ctx, name), "child_of")
+        self._emit_var_decl(
+            ctx,
+            self._body_vid,
+            prefix,
+            self._call(
+                ctx, self._ident(ctx, "_qvr_logsumexp"), (terms_array,)
+            ),
+        )
+        self._emit_expression_statement(
+            ctx,
+            self._body_vid,
+            self._call(
+                ctx,
+                self._ident(ctx, "factor"),
+                (
+                    self._call(
+                        ctx,
+                        self._ident(ctx, "_qvr_total"),
+                        (self._ident(ctx, prefix),),
+                    ),
+                ),
+            ),
+        )
         return ""
+
+    def _emit_atom_scope(
+        self,
+        ctx: _RenderCtx,
+        node: IRMarginalize,
+        atom: IRMarginalAtom,
+        prefix: str,
+        position: int,
+    ) -> str:
+        """Bind one atom's scope log-density and return its name.
+
+        The atom's deterministic bindings and its scored site go into
+        a nullary function so each atom's `var` bindings get their own
+        scope; the call site binds the returned per-row log-density
+        array.
+        """
+        scored = marginalize_body(
+            atom.scope, latent=node.latent, target=self.target
+        )
+        block = self._fresh(ctx, "abody")
+        ctx.sb.vertex(block, "statement_block")
+        outer_body = self._body_vid
+        self._body_vid = block
+        try:
+            for det in scored.deterministics:
+                self._emit_deterministic(ctx, det)
+            score = self._atom_score_expression(ctx, scored.observe)
+        finally:
+            self._body_vid = outer_body
+        self._emit_return_statement(ctx, block, score)
+        fn_name = f"{prefix}_atom_{position}"
+        self._emit_var_decl(
+            ctx,
+            self._body_vid,
+            fn_name,
+            self._function_expression(ctx, (), block),
+        )
+        term = f"{prefix}_{position}"
+        self._emit_var_decl(
+            ctx,
+            self._body_vid,
+            term,
+            self._call(ctx, self._ident(ctx, fn_name), ()),
+        )
+        return term
+
+    def _atom_score_expression(
+        self, ctx: _RenderCtx, observe: IRObserve
+    ) -> str:
+        """The per-row log-density of one atom's scored site.
+
+        Batched sites map over the observed array so the result keeps
+        one entry per row, which is the shape the atom reduction adds
+        the log-weights to; unbatched sites return the bare scalar
+        score.
+        """
+        meta = FAMILY_META.get(observe.family)
+        if meta is None:
+            raise UnsupportedConstruct(
+                "qvr-webppl", [f"family:unknown:{observe.family}"]
+            )
+        webppl_name = meta.target_names.get("webppl")
+        if webppl_name is None:
+            raise UnsupportedConstruct(
+                "qvr-webppl",
+                [f"family:no-webppl-target:{observe.family}"],
+            )
+        args, arg_names = _inject_webppl_specific_args(
+            observe.family, observe.args, observe.arg_names
+        )
+        prev_via = self._observe_via
+        self._observe_via = observe.via
+        try:
+            if not observe.plate.batch_dims:
+                rendered = self._render_arg_tuple(
+                    ctx,
+                    args,
+                    arg_names,
+                    meta,
+                    observe.plate,
+                    loop_name=None,
+                    index_dependent=False,
+                )
+                return self._atom_score_of(
+                    ctx,
+                    observe.family,
+                    webppl_name,
+                    rendered,
+                    self._ident(ctx, observe.name),
+                )
+            loop_var = "n"
+            per_elem_var = f"{observe.name}_n"
+            prev_loop = self._observe_loop_var
+            self._observe_loop_var = loop_var
+            try:
+                rendered = self._render_arg_tuple(
+                    ctx,
+                    args,
+                    arg_names,
+                    meta,
+                    observe.plate,
+                    loop_name=loop_var,
+                    index_dependent=True,
+                )
+            finally:
+                self._observe_loop_var = prev_loop
+            body = self._fresh(ctx, "sbody")
+            ctx.sb.vertex(body, "statement_block")
+            self._emit_return_statement(
+                ctx,
+                body,
+                self._atom_score_of(
+                    ctx,
+                    observe.family,
+                    webppl_name,
+                    rendered,
+                    self._ident(ctx, per_elem_var),
+                ),
+            )
+            return self._call(
+                ctx,
+                self._ident(ctx, "mapIndexed"),
+                (
+                    self._function_expression(
+                        ctx, (loop_var, per_elem_var), body
+                    ),
+                    self._ident(ctx, observe.name),
+                ),
+            )
+        finally:
+            self._observe_via = prev_via
+
+    def _atom_score_of(
+        self,
+        ctx: _RenderCtx,
+        family: str,
+        webppl_name: str,
+        params: tuple[tuple[str, str], ...],
+        value_vid: str,
+    ) -> str:
+        """The log-density of one value under one family, picking the
+        calling convention the family needs.
+
+        Three conventions:
+
+        * a family in
+          [`_WEBPPL_BOUNDARY_SAFE_SCORERS`][quivers.transpile.renderers.webppl._WEBPPL_BOUNDARY_SAFE_SCORERS]
+          scores through a runtime helper that takes the parameter
+          object directly, because WebPPL's constructor rejects a
+          parameter value the reference measure admits;
+        * a family this renderer grafts is a plain object whose
+          `score` body reaches for WebPPL combinators, and WebPPL
+          compiles a member call outside its CPS transform, so it
+          routes through the top-level `_qvr_score` helper;
+        * a built-in distribution reads `this` in its own `score` and
+          keeps the member form.
+        """
+        params_vid = self._object_literal(ctx, params)
+        boundary_safe = _WEBPPL_BOUNDARY_SAFE_SCORERS.get(family)
+        if boundary_safe is not None:
+            return self._call(
+                ctx,
+                self._ident(ctx, boundary_safe),
+                (params_vid, value_vid),
+            )
+        dist_vid = self._call(
+            ctx, self._ident(ctx, webppl_name), (params_vid,)
+        )
+        if family in _WEBPPL_RUNTIME_HELPER_FAMILIES:
+            return self._call(
+                ctx,
+                self._ident(ctx, "_qvr_score"),
+                (dist_vid, value_vid),
+            )
+        member = self._fresh(ctx, "mem")
+        ctx.sb.vertex(member, "member_expression")
+        ctx.sb.edge(
+            member, self._paren(ctx, dist_vid, "call_expression"), "object"
+        )
+        ctx.sb.edge(member, self._prop_ident(ctx, "score"), "property")
+        return self._call(ctx, member, (value_vid,))
+
+    def _emit_atom_weights(
+        self,
+        ctx: _RenderCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        prefix: str,
+        plates: dict[str, Plate],
+    ) -> tuple[str, ...]:
+        """Bind one log-weight name per atom and return the names.
+
+        A `Bernoulli` atom set weights the atoms 0 and 1 by
+        `log(1 - p)` and `log(p)`, both shaped like the probability
+        itself. A `Categorical` atom set reads the class axis of the
+        probability tensor, which `_qvr_take_last` slices however many
+        grouping axes sit above it.
+        """
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
+        family = atoms[0].weight_family
+        if family == "Bernoulli":
+            zero = f"{prefix}_w_0"
+            one = f"{prefix}_w_1"
+            self._emit_var_decl(
+                ctx,
+                self._body_vid,
+                zero,
+                self._call(
+                    ctx,
+                    self._ident(ctx, "log"),
+                    (
+                        self._call(
+                            ctx,
+                            self._ident(ctx, "_qvr_bcast"),
+                            (
+                                self._string_literal(ctx, "-"),
+                                self._number_literal(ctx, 1),
+                                self._render_arg(ctx, probs),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            self._emit_var_decl(
+                ctx,
+                self._body_vid,
+                one,
+                self._call(
+                    ctx,
+                    self._ident(ctx, "log"),
+                    (self._render_arg(ctx, probs),),
+                ),
+            )
+            return (zero, one)
+        if family != "Categorical":
+            raise UnsupportedConstruct(
+                "qvr-webppl",
+                [
+                    f"marginalize:weight-family:{family}: no WebPPL "
+                    f"log-weight form for this atom set"
+                ],
+            )
+        log_probs = f"{prefix}_w"
+        self._emit_var_decl(
+            ctx,
+            self._body_vid,
+            log_probs,
+            self._call(
+                ctx,
+                self._ident(ctx, "log"),
+                (self._render_arg(ctx, probs),),
+            ),
+        )
+        names: list[str] = []
+        for position in range(len(atoms)):
+            name = f"{prefix}_w_{position}"
+            self._emit_var_decl(
+                ctx,
+                self._body_vid,
+                name,
+                self._call(
+                    ctx,
+                    self._ident(ctx, "_qvr_take_last"),
+                    (
+                        self._ident(ctx, log_probs),
+                        self._number_literal(ctx, position),
+                    ),
+                ),
+            )
+            names.append(name)
+        return tuple(names)
 
     # ----- broadcast dispatch -----
 
@@ -811,12 +1193,13 @@ class WebPPLRenderer(RendererBase):
         [`IRArgRef`][quivers.transpile.ir.IRArgRef] references emit
         an index access.
         """
-        array_inputs = self._array_input_refs_in_expr(node.expr)
-        array_bindings = self._array_binding_refs_in_expr(node.expr)
+        expr = _reduce_last_axis(node.expr, self._name_event_rank)
+        array_inputs = self._array_input_refs_in_expr(expr)
+        array_bindings = self._array_binding_refs_in_expr(expr)
         if not array_inputs and not array_bindings:
             rhs = render_let_expr_javascript(
                 _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
-                node.expr,
+                expr,
             )
             self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
             self._binding_plates[node.name] = node.plate
@@ -827,7 +1210,7 @@ class WebPPLRenderer(RendererBase):
             # combines array-valued bindings under scalar operators.
             # Rewrite those operators into elementwise `_qvr_bcast`
             # calls so the arithmetic stays vectorised.
-            vectorized = _vectorize_let_expr(node.expr, self._array_names)
+            vectorized = _vectorize_let_expr(expr, self._array_names)
             rhs = render_let_expr_javascript(
                 _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 vectorized,
@@ -866,7 +1249,7 @@ class WebPPLRenderer(RendererBase):
         else:
             threaded = candidates
         rewritten = self._index_array_refs(
-            node.expr,
+            expr,
             threaded,
             loop_var,
         )
@@ -1025,7 +1408,7 @@ class WebPPLRenderer(RendererBase):
         """
         rhs = render_let_expr_javascript(
             _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
-            node.expr,
+            _reduce_last_axis(node.expr, self._name_event_rank),
         )
         self._emit_var_decl(ctx, self._body_vid, node.name, rhs)
         factor_call = self._call(
@@ -1381,6 +1764,23 @@ class WebPPLRenderer(RendererBase):
         first = plate.batch_dims[0]
         return f"m_{first.name}_{sample_name}"
 
+    def _wrap_in_repeat(
+        self, ctx: _RenderCtx, inner_value: str, dim: Dim
+    ) -> str:
+        """`repeat(<|dim|>, function () { return <inner_value>; })`.
+
+        The iid-replication idiom, shared by the batch-axis wrapper
+        and the residual-event-axis wrapper.
+        """
+        size_vid = self._dim_size_value(ctx, dim)
+        body = self._fresh(ctx, "rbody")
+        ctx.sb.vertex(body, "statement_block")
+        self._emit_return_statement(ctx, body, inner_value)
+        lam = self._function_expression(ctx, (), body)
+        return self._call(
+            ctx, self._ident(ctx, "repeat"), (size_vid, lam)
+        )
+
     def _wrap_for_batch(
         self,
         ctx: _RenderCtx,
@@ -1646,6 +2046,20 @@ class WebPPLRenderer(RendererBase):
         vid = self._fresh(ctx, "pid")
         ctx.sb.vertex(vid, "property_identifier")
         ctx.sb.constraint(vid, "literal-value", text)
+        return vid
+
+    def _string_literal(self, ctx: _RenderCtx, text: str) -> str:
+        """Build a double-quoted JS `string` wrapping a
+        `string_fragment` child."""
+        vid = self._fresh(ctx, "str")
+        ctx.sb.vertex(vid, "string")
+        ctx.sb.constraint(vid, "chose-alt-fingerprint", '" "')
+        ctx.sb.constraint(vid, "chose-alt-child-kinds", "string_fragment")
+        frag = self._fresh(ctx, "sfrag")
+        ctx.sb.vertex(frag, "string_fragment")
+        ctx.sb.constraint(frag, "literal-value", text)
+        ctx.sb.constraint(frag, "chose-alt-fingerprint", text)
+        ctx.sb.edge(vid, frag, "child_of")
         return vid
 
     def _number_literal(self, ctx: _RenderCtx, value: int | float) -> str:
@@ -1940,6 +2354,214 @@ _REDUCTION_FUNCS: frozenset[str] = frozenset(
 )
 
 
+#: QVR reduction primitives paired with the runtime helper that
+#: collapses only the innermost axis. WebPPL's own `sum` flattens a
+#: nested array to a single scalar, which is a different quantity from
+#: the per-row inner product an event-axis reduction denotes.
+_LAST_AXIS_REDUCERS: dict[str, str] = {
+    "sum": "_qvr_sum_last",
+    "mean": "_qvr_mean_last",
+    "prod": "_qvr_prod_last",
+    "max": "_qvr_max_last",
+    "min": "_qvr_min_last",
+}
+
+
+def _js_event_rank(expr: LetExprNode, ranks: dict[str, int]) -> int:
+    """Infer the event rank of a let-expression at emit time.
+
+    Leaf variables read their rank from ``ranks``; compound
+    expressions propagate it structurally, mirroring the walk the
+    Python and Julia helpers perform: operators broadcast to the wider
+    operand, elementwise math preserves the rank, a reducing primitive
+    collapses to 0, and each index a subscript supplies consumes one
+    axis.
+    """
+    if isinstance(expr, (LetExprLiteral, LetExprString)):
+        return 0
+    if isinstance(expr, LetExprVar):
+        return ranks.get(expr.name, 0)
+    if isinstance(expr, LetExprBinOp):
+        return max(
+            _js_event_rank(expr.left, ranks),
+            _js_event_rank(expr.right, ranks),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return _js_event_rank(expr.operand, ranks)
+    if isinstance(expr, LetExprCall):
+        if expr.func in _REDUCTION_FUNCS:
+            return 0
+        return max(
+            (_js_event_rank(a, ranks) for a in expr.args), default=0
+        )
+    if isinstance(expr, LetExprIndex):
+        return max(0, _js_event_rank(expr.array, ranks) - len(expr.indices))
+    if isinstance(expr, LetExprList):
+        return max(
+            (_js_event_rank(i, ranks) for i in expr.items), default=0
+        )
+    return 0
+
+
+def _reduce_last_axis(
+    expr: LetExprNode, ranks: dict[str, int]
+) -> LetExprNode:
+    """Rewrite every reduction over a positive-rank argument into the
+    matching ``_qvr_<f>_last`` runtime-helper call.
+
+    A reduction whose argument is a flat array keeps WebPPL's own
+    builtin: there is only one axis to collapse and the builtin
+    already collapses it. A reduction with no runtime-helper
+    counterpart over a positive-rank argument raises rather than
+    emitting the flattening builtin, which would silently score a
+    scalar where the model asks for one value per row.
+    """
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=_reduce_last_axis(expr.left, ranks),
+            right=_reduce_last_axis(expr.right, ranks),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(
+            operand=_reduce_last_axis(expr.operand, ranks)
+        )
+    if isinstance(expr, LetExprCall):
+        args = tuple(_reduce_last_axis(a, ranks) for a in expr.args)
+        if (
+            expr.func in _REDUCTION_FUNCS
+            and len(expr.args) == 1
+            and _js_event_rank(expr.args[0], ranks) > 0
+        ):
+            helper = _LAST_AXIS_REDUCERS.get(expr.func)
+            if helper is None:
+                raise UnsupportedConstruct(
+                    "qvr-webppl",
+                    [
+                        f"let-expr:axis-reduction:{expr.func}: no "
+                        f"WebPPL runtime helper reduces the innermost "
+                        f"axis for this primitive, and the builtin "
+                        f"flattens every axis instead"
+                    ],
+                )
+            return LetExprCall(func=helper, args=args)
+        return LetExprCall(func=expr.func, args=args)
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=_reduce_last_axis(expr.array, ranks),
+            indices=tuple(
+                _reduce_last_axis(i, ranks) for i in expr.indices
+            ),
+        )
+    if isinstance(expr, LetExprList):
+        return LetExprList(
+            items=tuple(
+                _reduce_last_axis(i, ranks) for i in expr.items
+            )
+        )
+    if isinstance(expr, LetExprMethodCall):
+        return LetExprMethodCall(
+            receiver=_reduce_last_axis(expr.receiver, ranks),
+            method=expr.method,
+            args=tuple(
+                _reduce_last_axis(a, ranks) for a in expr.args
+            ),
+        )
+    if isinstance(expr, LetExprLambda):
+        return LetExprLambda(
+            param=expr.param,
+            body=_reduce_last_axis(expr.body, ranks),
+        )
+    if isinstance(expr, LetExprFactor):
+        return LetExprFactor(
+            binders=expr.binders,
+            body=(
+                _reduce_last_axis(expr.body, ranks)
+                if expr.body is not None
+                else None
+            ),
+            cases=tuple(
+                LetFactorCase(
+                    label=c.label,
+                    value=_reduce_last_axis(c.value, ranks),
+                    line=c.line,
+                    col=c.col,
+                )
+                for c in expr.cases
+            ),
+        )
+    return expr
+
+
+def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
+    """True iff the program integrates a latent anywhere, so the emit
+    references the `_qvr_logsumexp` / `_qvr_total` runtime helpers the
+    atom reduction is written in."""
+    return any(isinstance(node, IRMarginalize) for node in body)
+
+
+def _ir_reduces_event_axis(
+    body: tuple[IRNode, ...], ranks: dict[str, int]
+) -> bool:
+    """True iff any deterministic / score body reduces an event axis,
+    so the emit references a `_qvr_<f>_last` runtime helper."""
+    for node in body:
+        if isinstance(node, (IRDeterministic, IRScore)):
+            if _let_expr_reduces_event_axis(node.expr, ranks):
+                return True
+        elif isinstance(node, IRMarginalize):
+            if _ir_reduces_event_axis(node.scope, ranks):
+                return True
+    return False
+
+
+def _let_expr_reduces_event_axis(
+    expr: LetExprNode, ranks: dict[str, int]
+) -> bool:
+    """True iff ``expr`` contains a reduction over a positive-rank
+    argument anywhere in its tree."""
+    if isinstance(expr, LetExprCall):
+        if (
+            expr.func in _REDUCTION_FUNCS
+            and len(expr.args) == 1
+            and _js_event_rank(expr.args[0], ranks) > 0
+        ):
+            return True
+        return any(
+            _let_expr_reduces_event_axis(a, ranks) for a in expr.args
+        )
+    if isinstance(expr, LetExprBinOp):
+        return _let_expr_reduces_event_axis(
+            expr.left, ranks
+        ) or _let_expr_reduces_event_axis(expr.right, ranks)
+    if isinstance(expr, LetExprUnaryOp):
+        return _let_expr_reduces_event_axis(expr.operand, ranks)
+    if isinstance(expr, LetExprIndex):
+        return _let_expr_reduces_event_axis(expr.array, ranks) or any(
+            _let_expr_reduces_event_axis(i, ranks) for i in expr.indices
+        )
+    if isinstance(expr, LetExprList):
+        return any(
+            _let_expr_reduces_event_axis(i, ranks) for i in expr.items
+        )
+    if isinstance(expr, LetExprLambda):
+        return _let_expr_reduces_event_axis(expr.body, ranks)
+    if isinstance(expr, LetExprMethodCall):
+        return _let_expr_reduces_event_axis(expr.receiver, ranks) or any(
+            _let_expr_reduces_event_axis(a, ranks) for a in expr.args
+        )
+    if isinstance(expr, LetExprFactor):
+        if expr.body is not None and _let_expr_reduces_event_axis(
+            expr.body, ranks
+        ):
+            return True
+        return any(
+            _let_expr_reduces_event_axis(c.value, ranks)
+            for c in expr.cases
+        )
+    return False
+
+
 def _let_expr_is_array_valued(expr: LetExprNode, array_names: frozenset[str]) -> bool:
     """True iff ``expr`` evaluates to a JS array under the WebPPL emit.
 
@@ -2156,6 +2778,12 @@ def _let_expr_calls_any(expr: LetExprNode, names: frozenset[str]) -> bool:
         )
     if isinstance(expr, LetExprLambda):
         return _let_expr_calls_any(expr.body, names)
+    if isinstance(expr, LetExprFactor):
+        if expr.body is not None and _let_expr_calls_any(expr.body, names):
+            return True
+        return any(
+            _let_expr_calls_any(case.value, names) for case in expr.cases
+        )
     return False
 
 
@@ -2334,6 +2962,17 @@ def _inject_webppl_specific_args(
 _RUNTIME_WEBPPL_PATH = (
     pathlib.Path(__file__).resolve().parent.parent / "runtime_webppl.js"
 )
+
+
+#: Families whose WebPPL constructor rejects a parameter value the
+#: reference measure admits, paired with the runtime helper that
+#: scores the parameter object directly. WebPPL's `Poisson` refuses a
+#: rate of exactly 0, which is the boundary a zero-inflation
+#: indicator pinned to 0 gates its rate to; there the distribution is
+#: the point mass at 0 and the reference scores it as such.
+_WEBPPL_BOUNDARY_SAFE_SCORERS: dict[str, str] = {
+    "Poisson": "_qvr_poisson_score",
+}
 
 
 #: Families whose WebPPL emit relies on the
