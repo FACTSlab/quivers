@@ -88,12 +88,16 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
 #    not carry, and parametric_pooling samples the `school_effects`
 #    sub-program (program-as-distribution). Neither resolves to a
 #    target family on any backend.
-# 3. The `sum` builtin, which has no single-call symbol mapping in the
-#    four Python backends (pyro, numpyro, pymc, edward2). Stan renders
-#    it via `dot_product` and Turing / Gen / WebPPL emit it inline, so
-#    only the Python cells of factor_analysis and ppca are gaps.
-# 4. Method-call let-expressions, which Stan cannot render (it has no
+# 3. Method-call let-expressions, which Stan cannot render (it has no
 #    method-dispatch syntax), gapping the montague_nli Stan cell.
+#
+# The `sum` builtin is deliberately absent from this registry. It
+# lowers to each target's own sum-axis reduction (`jnp.sum(...,
+# axis=-1)`, `torch.sum(..., dim=-1)`, `pymc.math.sum(..., axis=-1)`,
+# `tf.reduce_sum(..., axis=-1)`), so the factor_analysis and ppca
+# Python cells transpile rather than raise. Those eight emissions match
+# the QVR joint to within 3e-5 across the gallery point set, so the gap
+# is closed rather than merely silenced.
 #
 # Key: (backend, example-stem). Value: kind-prefix the raised
 # `UnsupportedConstruct.kinds` must match.
@@ -148,20 +152,11 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "parametric_pooling"): "family:school_effects",
     ("turing", "parametric_pooling"): "family:school_effects",
     ("webppl", "parametric_pooling"): "family:school_effects",
-    # 3. `sum` builtin has no single-call mapping in the Python backends.
-    ("edward2", "factor_analysis"): "let-expr:LetExprCall",
-    ("numpyro", "factor_analysis"): "let-expr:LetExprCall",
-    ("pymc", "factor_analysis"): "let-expr:LetExprCall",
-    ("pyro", "factor_analysis"): "let-expr:LetExprCall",
-    ("edward2", "ppca"): "let-expr:LetExprCall",
-    ("numpyro", "ppca"): "let-expr:LetExprCall",
-    ("pymc", "ppca"): "let-expr:LetExprCall",
-    ("pyro", "ppca"): "let-expr:LetExprCall",
-    # 4. Method-call let-expressions have no Stan rendering.
+    # 3. Method-call let-expressions have no Stan rendering.
     ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
 }
 
-# 5. Neural morphisms (`param_source=mlp`) compute their mean with a
+# 4. Neural morphisms (`param_source=mlp`) compute their mean with a
 #    network whose weights are model-internal: they appear in neither
 #    the wire form nor the sample sites, so no backend can reconstruct
 #    the mean. The transpiler raises rather than emit a meanless

@@ -19,6 +19,13 @@ Covered defects:
 * `numpyro-jags-scalar-dirichlet-concentration-not-broadcast`: a free
   scalar data input in a vector-expected argument slot was emitted
   verbatim, which is a rank error at run time.
+
+A `marginalize` over an enumerable support lowers to one branch per
+atom whose weighted `logsumexp` is the integrated density, so the LDA
+emission assertions read the branch / reduction spelling rather than a
+live `sample` site for `z`. The QVR joint for `lda` matches the NumPyro,
+Pyro, and PyMC emissions to within 4e-4 across the gallery point set,
+which is what fixes these expectations.
 """
 
 from __future__ import annotations
@@ -101,44 +108,90 @@ def test_lda_marginalize_batch_axis_is_the_over_axis() -> None:
     assert [d.size for d in batch] == [20]
 
 
-def test_lda_numpyro_plates_latent_over_documents() -> None:
-    """NumPyro emits the LDA topic latent under a 20-document plate."""
-    emitted = _emit("lda", "numpyro")
-    assert _nospace('numpyro.plate("Doc_z",20)') in _nospace(emitted)
-    assert _nospace('numpyro.plate("Topic",3)') in _nospace(emitted)
-    # The `Topic`-sized plate belongs to `phi`, never to `z`.
-    z_line = next(ln for ln in emitted.splitlines() if 'sample("z"' in ln)
-    assert "Categorical" in z_line
+def test_lda_numpyro_integrates_the_topic_over_its_three_atoms() -> None:
+    """NumPyro scores one branch per `Topic` atom and reduces them.
+
+    `marginalize z : Topic` integrates the topic out, so no `sample("z")`
+    site may survive: the emitted program carries a branch per atom, the
+    log mixture weights, and a single `factor` holding the logsumexp.
+    """
+    emitted = _nospace(_emit("lda", "numpyro"))
+    for atom in range(3):
+        assert (
+            f"__marg_z_{atom}=numpyro.distributions."
+            f"Categorical(probs=phi[{atom}]).log_prob(w)" in emitted
+        ), atom
+    assert "__marg_z=jnp.stack([__marg_z_0,__marg_z_1,__marg_z_2],axis=-1)" in emitted
+    assert (
+        'numpyro.factor("z",jnp.sum(jsp.logsumexp(__marg_z_w+__marg_z,axis=-1)))'
+        in emitted
+    )
+    assert 'numpyro.sample("z"' not in emitted
+    # The `Topic`-sized plate belongs to `phi`, never to the integrated `z`.
+    assert 'numpyro.plate("Topic",3)' in emitted
+    assert 'numpyro.plate("Doc",20)' in emitted
 
 
 def test_lda_numpyro_gathers_latent_through_the_via_fibration() -> None:
-    """`observe w ... [via=word_idx]` gathers `z` at the word index.
+    """`observe w ... [via=word_idx]` gathers the mixture weights.
 
-    `z` carries the 20-document batch shape while `w` carries the
-    200-word one, so `phi[z]` alone cannot broadcast under the word
-    plate.
+    `theta` carries the 20-document batch shape while `w` carries the
+    200-word one, so the per-topic weights must be gathered to the word
+    axis before they can be added to the per-branch likelihood.
     """
-    emitted = _emit("lda", "numpyro")
-    assert "phi[z[word_idx]]" in _nospace(emitted)
+    emitted = _nospace(_emit("lda", "numpyro"))
+    assert "__marg_z_w=jnp.log(theta[word_idx])" in emitted
 
 
-def test_lda_pymc_dims_name_the_document_axis() -> None:
-    """PyMC gives the LDA topic latent `dims=("Doc",)`."""
+def test_lda_pymc_mixes_over_topics_with_document_weights() -> None:
+    """PyMC integrates the topic out as a `Mixture` over three atoms.
+
+    The mixture weights are `theta` gathered through the `via=word_idx`
+    fibration, so each word is scored under its own document's topic
+    mixture.
+    """
     emitted = _nospace(_emit("lda", "pymc"))
-    assert 'pymc.Categorical("z",p=theta,dims=("Doc",))' in emitted
+    for atom in range(3):
+        assert (
+            f"__marg_z_{atom}=pymc.Categorical.dist(p=phi[{atom}])" in emitted
+        ), atom
+    assert (
+        'pymc.Mixture("w",w=theta[word_idx],'
+        "comp_dists=[__marg_z_0,__marg_z_1,__marg_z_2],observed=w)" in emitted
+    )
+    assert 'pymc.Categorical("z"' not in emitted
 
 
-def test_lda_pyro_plates_latent_over_documents() -> None:
-    """Pyro plates the LDA topic latent over documents, not topics."""
+def test_lda_pyro_integrates_the_topic_over_its_three_atoms() -> None:
+    """Pyro scores one branch per topic and reduces them with a factor."""
     emitted = _nospace(_emit("lda", "pyro"))
-    assert 'pyro.plate("Doc_z",20)' in emitted
+    for atom in range(3):
+        assert (
+            f"__marg_z_{atom}=pyro.distributions."
+            f"Categorical(phi[{atom}]).log_prob(w)" in emitted
+        ), atom
+    assert "__marg_z_w=torch.log(theta[word_idx])" in emitted
+    assert (
+        'pyro.factor("z",torch.sum(torch.logsumexp(__marg_z_w+__marg_z,dim=-1)))'
+        in emitted
+    )
+    assert 'pyro.sample("z"' not in emitted
+    assert 'pyro.plate("Doc",20)' in emitted
 
 
-def test_lda_stan_enumerates_topics_per_document() -> None:
-    """Stan keeps the accumulator per document and sums over topics."""
+def test_lda_stan_enumerates_topics_per_word() -> None:
+    """Stan keeps a three-topic accumulator per word and logsumexps it.
+
+    The closed-form marginal `p(w_n) = sum_k theta[doc(n), k] *
+    phi[k, w_n]` factorises per word, so the accumulator is sized by the
+    200-word observation axis; `theta` reaches it through the
+    `via=word_idx` gather that carries each word to its document.
+    """
     emitted = _nospace(_emit("lda", "stan"))
-    assert "lps_z=rep_array(rep_vector(0,3),20)" in emitted
-    assert "log_sum_exp(lps_z[g_Doc])" in emitted
+    assert "array[200]vector[3]lps_z=rep_array(rep_vector(0,3),200);" in emitted
+    assert "lps_z[n_Word,k]=categorical_lpmf(k|theta[word_idx[n_Word]]);" in emitted
+    assert "lps_z[n_Word,k]+=categorical_lpmf(w[n_Word]|phi[k]);" in emitted
+    assert "target+=log_sum_exp(lps_z[n_Word]);" in emitted
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +239,15 @@ def test_zip_stan_declares_gated_rate_as_a_response_array() -> None:
 
 
 def test_zip_stan_indexes_the_rate_inside_the_response_loop() -> None:
-    """The Poisson likelihood reads the per-response gated rate."""
+    """The Poisson likelihood reads the per-response gated rate.
+
+    Stan scores the draw with an explicit `target += poisson_lpmf(...)`
+    increment; the `~` spelling drops the `- lgamma(y + 1)` term, which
+    is data-dependent and part of the QVR measure.
+    """
     emitted = _nospace(_emit("zip_regression", "stan"))
-    assert "y[m_Resp]~poisson(gated_rate[m_Resp]);" in emitted
+    assert "target+=poisson_lpmf(y[m_Resp]|gated_rate[m_Resp]);" in emitted
+    assert "y[m_Resp]~poisson(" not in emitted
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +289,12 @@ def test_numpyro_broadcasts_a_scalar_program_parameter() -> None:
 def test_numpyro_leaves_an_already_vector_argument_alone() -> None:
     """A let-bound / sampled vector argument is emitted verbatim.
 
-    `Categorical(probs=theta)` reads a simplex-valued sample, so no
-    broadcast wrapper may be injected around it.
+    Each `Categorical(probs=phi[k])` branch of the integrated topic
+    reads a row of the simplex-valued `phi` sample, so no broadcast
+    wrapper may be injected around it. The only two `jnp.full` calls in
+    the program are the scalar Dirichlet concentrations.
     """
     emitted = _nospace(_emit("lda", "numpyro"))
-    assert "Categorical(probs=theta)" in emitted
+    for atom in range(3):
+        assert f"Categorical(probs=phi[{atom}])" in emitted, atom
+    assert emitted.count("jnp.full(") == 2, emitted

@@ -16,6 +16,16 @@ Covered defects:
   `(total_count * probs / (1 - probs), total_count)`.
 * `logitnormal-nonexistent-stan`: Stan ships no `logit_normal`, so the
   renderer grafts a `logit_normal_lpdf` / `_rng` runtime helper.
+
+Every draw is scored with an explicit `target += <family>_lpdf /
+_lpmf(...)` increment rather than a `~` sampling statement, so the
+assertions below read the density-function spelling. The two forms are
+not interchangeable: `~` drops every term Stan judges constant with
+respect to the parameters, which discards data-dependent normalisers
+(the Weibull log-normalising constant, the neg-binomial-2 term in
+`total_count`, the LogitNormal change-of-variables Jacobian). Those are
+exactly the terms the QVR measure counts, so only the target-increment
+form reproduces the declared joint.
 """
 
 from __future__ import annotations
@@ -46,10 +56,10 @@ export weibull_fixture
 
 def test_weibull_shape_scale_order() -> None:
     """`Weibull(scale=1.5, concentration=2.0)` must emit shape-first as
-    `weibull(2, 1.5)`, not the transposed `weibull(1.5, 2)`."""
+    `weibull_lpdf(x | 2, 1.5)`, not the transposed `(1.5, 2)`."""
     out = _nospace(_stan(_WEIBULL_SRC))
-    assert "weibull(2,1.5)" in out
-    assert "weibull(1.5,2)" not in out
+    assert "target+=weibull_lpdf(x[m_Obs]|2,1.5);" in out
+    assert "weibull_lpdf(x[m_Obs]|1.5,2)" not in out
 
 
 _NEGBIN_SRC = """
@@ -76,16 +86,19 @@ program negbin_regression : Resp -> Resp
 
 def test_negbinomial_neg_binomial_2_conversion() -> None:
     """`NegativeBinomial(total_count, probs)` maps to Stan's mean /
-    dispersion `neg_binomial_2(mu, phi)` with
+    dispersion `neg_binomial_2_lpmf(y | mu, phi)` with
     `mu = total_count * probs / (1 - probs)` and `phi = total_count`,
-    not the identity `neg_binomial_2(total_count, probs)`."""
+    not the identity `neg_binomial_2_lpmf(y | total_count, probs)`."""
     out = _nospace(_stan(_NEGBIN_SRC))
     assert (
-        "neg_binomial_2(disp[m_Resp]*probs[m_Resp]/(1-probs[m_Resp]),"
-        "disp[m_Resp])" in out
+        "target+=neg_binomial_2_lpmf(y[m_Resp]|"
+        "disp[m_Resp]*probs[m_Resp]/(1-probs[m_Resp]),"
+        "disp[m_Resp]);" in out
     )
     # The uncorrected identity mapping must not survive.
-    assert "neg_binomial_2(disp[m_Resp],probs[m_Resp])" not in out
+    assert (
+        "neg_binomial_2_lpmf(y[m_Resp]|disp[m_Resp],probs[m_Resp])" not in out
+    )
 
 
 _LOGITNORMAL_SRC = """
@@ -100,13 +113,14 @@ export logitnormal_fixture
 def test_logitnormal_runtime_helper_grafted() -> None:
     """LogitNormal has no Stan built-in; the renderer grafts a
     `logit_normal_lpdf` helper (with the change-of-variables Jacobian)
-    so `theta ~ logit_normal(0, 1)` resolves through Stan's
-    `<family>_lpdf` lookup."""
+    that the `target += logit_normal_lpdf(theta | 0, 1)` increment then
+    calls directly."""
     out = _stan(_LOGITNORMAL_SRC)
     assert (
         "real logit_normal_lpdf(real y, real mu, real sigma)" in out
     )
     assert "real logit_normal_rng(real mu, real sigma)" in out
-    # The Jacobian term -log(y) - log1m(y) guards the density.
+    # The Jacobian term -log(y) - log1m(y) guards the density. It is
+    # data-dependent, so a `~` statement would drop it.
     assert "- log(y) - log1m(y)" in out
-    assert _nospace("theta ~ logit_normal(0,1)") in _nospace(out)
+    assert _nospace("target += logit_normal_lpdf(theta | 0,1);") in _nospace(out)
