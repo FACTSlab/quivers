@@ -14,9 +14,15 @@ and four private dispatch points (`declare`, `sample`, `marginalize`,
   surrounding plate's `batch_dims` so a renderer's sample / observe
   emission gets `name[m_0, m_1, ...]` form for the LHS and indexed
   args.
-* The explicit-latent rewrite helper, shared by every backend whose
-  `marginalize` lowers `IRMarginalize` to `IRSample(latent)` plus
-  the scope body inline.
+* The marginalize lowering: `marginal_atoms` expands an
+  [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] into the
+  per-atom branches whose weighted `logsumexp` *is* the integrated
+  density, and `substitute_latent` pins the latent to one atom
+  throughout a scope. `explicit_latent_scope` is the unintegrated
+  draw rewrite, kept for the backends that still spell `marginalize`
+  as a live sample site.
+* `ir_uses_family`: the runtime-helper graft predicate, covering the
+  latent draw of a marginalize as well as its scope.
 * `assert_no_dangling_refs` / `assert_no_lists`: structural
   invariants every renderer checks before emission.
 
@@ -32,10 +38,27 @@ import abc
 import dataclasses
 from typing import Literal, Protocol, runtime_checkable
 
+import didactic.api as dx
 import panproto
 
 from quivers.dsl.ast_nodes import Expr, MorphismDecl
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprFactor,
+    LetExprIndex,
+    LetExprLambda,
+    LetExprList,
+    LetExprLiteral,
+    LetExprMethodCall,
+    LetExprNode,
+    LetExprString,
+    LetExprUnaryOp,
+    LetExprVar,
+    LetFactorCase,
+)
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
     ConstraintSpec,
     CSIntegerInterval,
@@ -46,9 +69,11 @@ from quivers.transpile.ir import (
     IRArgKernel,
     IRArgList,
     IRArgMatrix,
+    IRArgNumber,
     IRArgRef,
     IRDataInput,
     IRDeterministic,
+    IRExpr,
     IRMarginalize,
     IRNode,
     IRObserve,
@@ -125,6 +150,40 @@ class IRArgTransform(IRArg):
     ]
     operand: IRArg | None = None
     kind: Literal["transform"] = "transform"
+
+
+class IRMarginalAtom(dx.Model):
+    """One atom of a marginalized latent's finite support.
+
+    [`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
+    returns one of these per support point of an
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]. Together
+    they carry the whole integrated density: writing `L_a` for the
+    log-density the target accumulates while emitting `scope`, and
+    `w_a` for the log-density of `weight_family(weight_args)` at
+    `value`, the block contributes
+
+        logsumexp_a (w_a + L_a)
+
+    to the program's log-density, elementwise over whatever rows the
+    scope's own plates carry. No latent variable is declared: the
+    atoms replace it.
+
+    `weight_family` is not always the latent's own family. The
+    Bernoulli relaxations are integrated over the atoms 0 and 1 with
+    *discrete* Bernoulli weights, matching what the QVR compiler
+    enumerates, so `weight_family` reads `"Bernoulli"` and
+    `weight_args` carries only the probability argument.
+
+    `IRMarginalAtom` is a renderer-internal IR extension. `Lower`
+    never constructs it.
+    """
+
+    value: IRArgNumber
+    weight_family: str
+    weight_args: tuple[IRArg, ...]
+    weight_arg_names: tuple[str, ...]
+    scope: tuple[IRNode, ...]
 
 
 @runtime_checkable
@@ -378,18 +437,113 @@ class RendererBase(abc.ABC):
             return IRArgRef(name=arg.name, indices=new_indices)
         return arg
 
+    # ----- marginalize: the integrated-density lowering -----
+
+    def marginal_atoms(
+        self,
+        node: IRMarginalize,
+        *,
+        support_size: int | None = None,
+    ) -> tuple[IRMarginalAtom, ...]:
+        """Expand an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        into the atoms whose weighted reduction is the integrated
+        density.
+
+        Every returned [`IRMarginalAtom`][quivers.transpile.renderers._base.IRMarginalAtom]
+        carries a copy of `node.scope` with the latent pinned to that
+        atom, so the scope contains no reference to the latent name
+        and declares no latent site. The renderer accumulates each
+        atom's scope log-density alongside the atom's own weight, then
+        reduces across atoms with `node.reduction` and adds the result
+        to the target's log-density.
+
+        `support_size` supplies the class count for a `"class_index"`
+        atom set, whose width is the trailing extent of the
+        probability argument and therefore a fact about the call site
+        rather than the family. Pass it whenever the renderer can
+        resolve the declared shape of that argument; a `"binary"` atom
+        set ignores it.
+
+        Raises `UnsupportedConstruct` with a `marginalize:` kind when
+        the family carries no agreed marginal or the class count
+        cannot be resolved. Emitting a live draw in either case would
+        denote a measure on a strictly larger space than the QVR
+        reference integrates, so there is no correct code to fall
+        back to.
+        """
+        meta = FAMILY_META.get(node.family)
+        if meta is None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [f"family:unknown:{node.family}"],
+            )
+        support = marginalize_support(meta)
+        if support is None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [f"marginalize:non-finite-support:{node.family}"],
+            )
+        size = support.size if support.size is not None else support_size
+        if size is None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [f"marginalize:unknown-cardinality:{node.family}"],
+            )
+        if support.atoms == "binary":
+            weight_args: tuple[IRArg, ...] = (
+                self._marginal_weight_arg(node, support.weight_arg),
+            )
+            weight_arg_names: tuple[str, ...] = (support.weight_arg,)
+        else:
+            weight_args = node.args
+            weight_arg_names = node.arg_names
+        return tuple(
+            IRMarginalAtom(
+                value=IRArgNumber(value=float(k)),
+                weight_family=support.weight_family,
+                weight_args=weight_args,
+                weight_arg_names=weight_arg_names,
+                scope=substitute_latent(
+                    node.scope, node.latent, IRArgNumber(value=float(k))
+                ),
+            )
+            for k in range(size)
+        )
+
+    def _marginal_weight_arg(
+        self, node: IRMarginalize, arg_name: str
+    ) -> IRArg:
+        """Return the probability argument the atom weights read."""
+        for name, arg in zip(node.arg_names, node.args, strict=True):
+            if name == arg_name:
+                return arg
+        raise UnsupportedConstruct(
+            f"qvr-{self.target}",
+            [
+                f"marginalize:missing-probability-argument:"
+                f"{node.family}: the call site names no {arg_name!r} "
+                f"argument to weight the atoms with"
+            ],
+        )
+
     # ----- explicit-latent rewrite for marginalize -----
 
     def explicit_latent_scope(
         self, node: IRMarginalize
     ) -> tuple[IRNode, ...]:
-        """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        scope to `IRSample(latent)` plus the scope body inline.
+        """Rewrite an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        to `IRSample(latent)` plus the scope body inline.
 
-        Used by every backend whose `marginalize` lowers the
-        construct to explicit sampling. The Stan renderer (which
-        emits `log_sum_exp` enumeration natively) does not call
-        this helper.
+        This is the *draw* rewrite, not the marginal: it denotes a
+        measure on the product of the latent's support with the
+        scope's, where
+        [`marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
+        denotes the integral of that product over the latent. The
+        emitted program therefore declares a latent site the QVR
+        reference has integrated away, and scoring it at any single
+        coordinate differs from the marginal by an amount that moves
+        with the data. Backends measured against the QVR reference
+        want `marginal_atoms`.
         """
         latent_sample = IRSample(
             name=node.latent,
@@ -420,6 +574,268 @@ class RendererBase(abc.ABC):
         generated-quantities aliasing / similar.
         """
         del ctx, names
+
+
+# ---------------------------------------------------------------------------
+# Latent substitution: pin a marginalized latent to one atom of its
+# support throughout a scope.
+# ---------------------------------------------------------------------------
+
+
+def substitute_latent(
+    body: tuple[IRNode, ...], latent: str, value: IRArgNumber
+) -> tuple[IRNode, ...]:
+    """Rewrite `body` with every reference to `latent` replaced by the
+    constant `value`.
+
+    This is the enumeration step of the marginalize lowering: one
+    rewritten copy of the scope per atom of the latent's support. Both
+    reference languages are covered, distribution arguments
+    (`phi[z]` becomes `phi[k]`) and let-expressions (`z * rate`
+    becomes `k * rate`), so the rewritten scope names the latent
+    nowhere and needs no latent declaration.
+
+    A nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+    that rebinds the same name shadows the outer one, and its scope is
+    left alone.
+    """
+    return tuple(_substitute_latent_node(node, latent, value) for node in body)
+
+
+def _substitute_latent_node(
+    node: IRNode, latent: str, value: IRArgNumber
+) -> IRNode:
+    if isinstance(node, IRSample):
+        return IRSample(
+            name=node.name,
+            family=node.family,
+            args=_substitute_latent_args(node.args, latent, value),
+            arg_names=node.arg_names,
+            constraint=node.constraint,
+            plate=node.plate,
+        )
+    if isinstance(node, IRObserve):
+        return IRObserve(
+            name=node.name,
+            family=node.family,
+            args=_substitute_latent_args(node.args, latent, value),
+            arg_names=node.arg_names,
+            constraint=node.constraint,
+            plate=node.plate,
+            via=node.via,
+        )
+    if isinstance(node, IRDeterministic):
+        return IRDeterministic(
+            name=node.name,
+            expr=_substitute_latent_expr(node.expr, latent, value),
+            constraint=node.constraint,
+            plate=node.plate,
+        )
+    if isinstance(node, IRScore):
+        return IRScore(
+            name=node.name,
+            expr=_substitute_latent_expr(node.expr, latent, value),
+        )
+    if isinstance(node, IRMarginalize):
+        inner_scope = (
+            node.scope
+            if node.latent == latent
+            else substitute_latent(node.scope, latent, value)
+        )
+        return IRMarginalize(
+            latent=node.latent,
+            family=node.family,
+            args=_substitute_latent_args(node.args, latent, value),
+            arg_names=node.arg_names,
+            constraint=node.constraint,
+            plate=node.plate,
+            reduction=node.reduction,
+            scope=inner_scope,
+        )
+    if isinstance(node, (IRDataInput, IRReturn)):
+        # Neither binds nor reads a latent: an input is exogenous and
+        # a return names only program-level results.
+        return node
+    raise UnsupportedConstruct(
+        "qvr-renderer",
+        [f"marginalize:scope:{type(node).__name__}"],
+    )
+
+
+def _substitute_latent_args(
+    args: tuple[IRArg, ...], latent: str, value: IRArgNumber
+) -> tuple[IRArg, ...]:
+    return tuple(_substitute_latent_arg(arg, latent, value) for arg in args)
+
+
+def _substitute_latent_arg(
+    arg: IRArg, latent: str, value: IRArgNumber
+) -> IRArg:
+    if isinstance(arg, IRArgRef):
+        if arg.name == latent:
+            if arg.indices:
+                raise UnsupportedConstruct(
+                    "qvr-renderer",
+                    [
+                        f"marginalize:indexed-latent:{latent}: the "
+                        f"latent is subscripted, so no single atom of "
+                        f"its support stands for the reference"
+                    ],
+                )
+            return value
+        return IRArgRef(
+            name=arg.name,
+            indices=_substitute_latent_args(arg.indices, latent, value),
+        )
+    if isinstance(arg, IRArgBroadcast):
+        return IRArgBroadcast(
+            value=_substitute_latent_arg(arg.value, latent, value),
+            target_shape=arg.target_shape,
+        )
+    if isinstance(arg, IRArgList):
+        return IRArgList(
+            elements=_substitute_latent_args(arg.elements, latent, value)
+        )
+    if isinstance(arg, IRArgMatrix):
+        return IRArgMatrix(
+            rows=tuple(
+                IRArgList(
+                    elements=_substitute_latent_args(
+                        row.elements, latent, value
+                    )
+                )
+                for row in arg.rows
+            )
+        )
+    if isinstance(arg, IRArgTransform):
+        return IRArgTransform(
+            inner=_substitute_latent_arg(arg.inner, latent, value),
+            transform=arg.transform,
+            operand=(
+                None
+                if arg.operand is None
+                else _substitute_latent_arg(arg.operand, latent, value)
+            ),
+        )
+    if isinstance(arg, (IRArgNumber, IRArgFamilyRef, IRArgKernel)):
+        # A literal binds no name; a family ref names a morphism and a
+        # kernel arg an exogenous input, neither of which a
+        # marginalized latent can shadow.
+        return arg
+    raise UnsupportedConstruct(
+        "qvr-renderer",
+        [f"marginalize:arg:{type(arg).__name__}"],
+    )
+
+
+def _substitute_latent_expr(
+    expr: IRExpr, latent: str, value: IRArgNumber
+) -> IRExpr:
+    if isinstance(expr, LetExprVar):
+        if expr.name == latent:
+            return LetExprLiteral(value=value.value)
+        return expr
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=_substitute_latent_expr(expr.left, latent, value),
+            right=_substitute_latent_expr(expr.right, latent, value),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(
+            operand=_substitute_latent_expr(expr.operand, latent, value)
+        )
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=_substitute_latent_exprs(expr.args, latent, value),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=_substitute_latent_expr(expr.array, latent, value),
+            indices=_substitute_latent_exprs(expr.indices, latent, value),
+        )
+    if isinstance(expr, LetExprList):
+        return LetExprList(
+            items=_substitute_latent_exprs(expr.items, latent, value)
+        )
+    if isinstance(expr, LetExprMethodCall):
+        return LetExprMethodCall(
+            receiver=_substitute_latent_expr(expr.receiver, latent, value),
+            method=expr.method,
+            args=_substitute_latent_exprs(expr.args, latent, value),
+        )
+    if isinstance(expr, LetExprLambda):
+        if expr.param == latent:
+            return expr
+        return LetExprLambda(
+            param=expr.param,
+            body=_substitute_latent_expr(expr.body, latent, value),
+        )
+    if isinstance(expr, LetExprFactor):
+        if any(binder.var == latent for binder in expr.binders):
+            return expr
+        return LetExprFactor(
+            binders=expr.binders,
+            body=(
+                None
+                if expr.body is None
+                else _substitute_latent_expr(expr.body, latent, value)
+            ),
+            cases=tuple(
+                LetFactorCase(
+                    label=case.label,
+                    value=_substitute_latent_expr(case.value, latent, value),
+                    line=case.line,
+                    col=case.col,
+                )
+                for case in expr.cases
+            ),
+        )
+    if isinstance(expr, (LetExprLiteral, LetExprString)):
+        # Leaf constants: no name to rewrite.
+        return expr
+    raise UnsupportedConstruct(
+        "qvr-renderer",
+        [f"marginalize:expr:{type(expr).__name__}"],
+    )
+
+
+def _substitute_latent_exprs(
+    exprs: tuple[LetExprNode, ...], latent: str, value: IRArgNumber
+) -> tuple[LetExprNode, ...]:
+    return tuple(
+        _substitute_latent_expr(expr, latent, value) for expr in exprs
+    )
+
+
+# ---------------------------------------------------------------------------
+# Runtime-helper graft predicate.
+# ---------------------------------------------------------------------------
+
+
+def ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
+    """True iff any draw in `body` reads `family`.
+
+    Covers [`IRSample`][quivers.transpile.ir.IRSample],
+    [`IRObserve`][quivers.transpile.ir.IRObserve], and the latent draw
+    of an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] itself
+    before descending into that block's scope.
+
+    Renderers graft a runtime helper for a family only when this
+    predicate fires, so a marginalize whose *latent* needs the helper
+    (`marginalize z <- ContinuousBernoulli(pi)` on a target that ships
+    no continuous Bernoulli) must be visible here; testing the scope
+    alone leaves the emitted program calling a name it never defines.
+    """
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
+            return True
+        if isinstance(node, IRMarginalize) and (
+            node.family == family or ir_uses_family(node.scope, family)
+        ):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -603,9 +1019,12 @@ def assert_no_lists(ir: IRProgram) -> None:
 __all__ = [
     "BlockKind",
     "IRArgTransform",
+    "IRMarginalAtom",
     "Renderer",
     "RendererBase",
     "SchemaFragment",
     "assert_no_dangling_refs",
     "assert_no_lists",
+    "ir_uses_family",
+    "substitute_latent",
 ]

@@ -34,14 +34,33 @@ plus the wrappers `Truncated`, `Mixture`, `Independent`,
 in this module, carrying the right `arg_constraints` and `support`
 so the lower pipeline can introspect them.
 
-`finite_enumerable_at_call_site` is a per-call predicate (not a
-per-family flag); it dispatches on the family name and the IR-form
-of the user's args. Bernoulli, Categorical, OrderedLogistic, and
-OrderedProbit are always finite-enumerable; Binomial is only when
-its `total_count` is a literal `IRArgNumber`.
+Two related but distinct questions about a `marginalize` latent are
+answered here, and conflating them produces a measure mismatch:
+
+* `finite_enumerable_at_call_site` is the *plate* question: does the
+  latent's declared index axis name the family's own support, so the
+  reduction sums over it, or is it a replication axis that allocates
+  one latent per index? It is a per-call predicate (not a per-family
+  flag), dispatching on the family name and the IR-form of the args.
+  Bernoulli, Categorical, OrderedLogistic, and OrderedProbit name
+  their support with the index; Binomial does only when its
+  `total_count` is a literal `IRArgNumber`.
+* `marginalize_support` is the *integration* question: which atom set
+  does the reduction actually integrate the latent over, and what
+  weights each atom. This table is the transpile-side mirror of the
+  atom sets [`Compiler`][quivers.dsl.compiler.Compiler] enumerates,
+  so both sides of the equivalence compute the same measure.
+
+The two answers differ for the Bernoulli relaxations. A
+`marginalize z : Resp <- ContinuousBernoulli(pi)` allocates one `z`
+per response (the index replicates, so `finite_enumerable_at_call_site`
+is False) and integrates each of those over the two atoms 0 and 1
+(`marginalize_support` is a binary atom set).
 """
 
 from __future__ import annotations
+
+from typing import Literal
 
 import didactic.api as dx
 import torch
@@ -1565,9 +1584,10 @@ FAMILY_META: dict[str, FamilyMeta] = {
 }
 
 
-# Families whose call sites are always finite-enumerable over the
-# latent regardless of arg shape. Marginalize-eligibility for any
-# other family folds in arg-form inspection (see Binomial below).
+# Families whose declared index axis names their own support, so the
+# marginalize reduction sums over that axis instead of replicating the
+# latent along it. Any other family folds in arg-form inspection (see
+# Binomial below).
 _ALWAYS_ENUMERABLE: frozenset[str] = frozenset(
     {"Bernoulli", "Categorical", "OrderedLogistic", "OrderedProbit"}
 )
@@ -1577,13 +1597,25 @@ def finite_enumerable_at_call_site(
     family_meta: FamilyMeta,
     args: tuple[IRArg, ...],
 ) -> bool:
-    """True iff the call site has finite enumerable support over the latent.
+    """True iff the latent's declared index axis names the family's support.
+
+    This is the plate question, not the integration question: a True
+    answer means the marginalize index sizes the family's own support
+    (so the reduction sums the axis away and the latent carries no
+    plate dim for it), and a False answer means the index replicates
+    the latent, one value per index.
 
     Returns True for Bernoulli, Categorical, OrderedLogistic,
     OrderedProbit unconditionally. For Binomial returns True only
     when `args[0]` (`total_count`) is a literal
     [`IRArgNumber`][quivers.transpile.ir.IRArgNumber]; False when it
     is a reference.
+
+    A False answer does not mean the latent cannot be integrated out.
+    The Bernoulli relaxations replicate along their index and are
+    still integrable over the two atoms 0 and 1; ask
+    [`marginalize_support`][quivers.transpile.family_meta.marginalize_support]
+    for that.
     """
     name = family_meta.qvr_name
     if name in _ALWAYS_ENUMERABLE:
@@ -1593,8 +1625,93 @@ def finite_enumerable_at_call_site(
     return False
 
 
+# ---------------------------------------------------------------------------
+# Marginalize support: the atom set the reduction integrates over.
+# ---------------------------------------------------------------------------
+
+
+#: How a marginalized latent's atoms are enumerated.
+type MarginalizeAtomSet = Literal["binary", "class_index"]
+
+
+class MarginalizeSupport(dx.Model):
+    """The finite atom set a `marginalize` block integrates a latent over.
+
+    `atoms` names the enumeration:
+
+    * `"binary"`: the two atoms 0 and 1, `size` 2. The Bernoulli
+      relaxations share this support with `Bernoulli`, and share its
+      weights too: the atoms are weighted by the *discrete* Bernoulli
+      log-pmf ``[log1p(-p), log(p)]``, never by the relaxation's own
+      density at 0 and 1.
+    * `"class_index"`: the atoms ``0, ..., K - 1``. The width ``K`` is
+      the trailing extent of the family's probability argument, a
+      call-site fact rather than a family fact, so `size` is `None`
+      and the caller supplies it.
+
+    `weight_family` names the family whose log-density at an atom is
+    that atom's log-prior weight, and `weight_arg` the argument
+    position carrying the probability tensor that family reads.
+    """
+
+    atoms: MarginalizeAtomSet
+    weight_family: str
+    weight_arg: str
+    size: int | None = None
+
+
+# The prior families a `marginalize` block integrates, mirroring the
+# atom sets the QVR compiler enumerates: `Categorical` over its class
+# axis, and the Bernoulli relaxation family over {0, 1} weighted by
+# the discrete Bernoulli pmf. A family absent from this table has no
+# agreed marginal, so a renderer must raise `marginalize:` rather than
+# emit a live draw in its place.
+_MARGINALIZE_SUPPORT: dict[str, MarginalizeSupport] = {
+    "Bernoulli": MarginalizeSupport(
+        atoms="binary",
+        weight_family="Bernoulli",
+        weight_arg="probs",
+        size=2,
+    ),
+    "ContinuousBernoulli": MarginalizeSupport(
+        atoms="binary",
+        weight_family="Bernoulli",
+        weight_arg="probs",
+        size=2,
+    ),
+    "RelaxedBernoulli": MarginalizeSupport(
+        atoms="binary",
+        weight_family="Bernoulli",
+        weight_arg="probs",
+        size=2,
+    ),
+    "Categorical": MarginalizeSupport(
+        atoms="class_index",
+        weight_family="Categorical",
+        weight_arg="probs",
+    ),
+}
+
+
+def marginalize_support(
+    family_meta: FamilyMeta,
+) -> MarginalizeSupport | None:
+    """Return the atom set a `marginalize` integrates `family_meta`
+    over, or `None` when the family carries no agreed marginal.
+
+    `None` is the signal to raise `marginalize:non-finite-support`:
+    the QVR compiler refuses the same families, so a renderer that
+    substituted a live draw would score a different measure than the
+    reference.
+    """
+    return _MARGINALIZE_SUPPORT.get(family_meta.qvr_name)
+
+
 __all__ = [
     "FAMILY_META",
     "FamilyMeta",
+    "MarginalizeAtomSet",
+    "MarginalizeSupport",
     "finite_enumerable_at_call_site",
+    "marginalize_support",
 ]
