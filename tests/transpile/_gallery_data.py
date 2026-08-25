@@ -12,9 +12,16 @@ which:
 1. Locates the matching `.md` for a QVR source file.
 2. Extracts the `### Generating synthetic data` Python block.
 3. Executes it in an isolated namespace (with `torch` pre-imported).
-4. Returns the resulting `observations` mapping plus every captured
-   `true_*` ground-truth parameter (used as a representative latent
-   point for the numeric-equivalence test).
+4. Relabels the rows of every plate that carries a structural
+   subscript, so no subscript coincides with the row counter (see
+   [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order]).
+   A row relabeling leaves the joint exactly invariant, since the
+   density is a product over the plate's rows.
+5. Returns the resulting `observations` mapping, the ground-truth
+   value of every latent sample site (a representative point in
+   latent space for the numeric-equivalence test), and the scalar
+   type-parameters the snippet instantiated a parametric program
+   template at.
 
 The extraction is fail-soft: examples whose data-gen block is
 absent or whose snippet raises return None, and the caller skips
@@ -23,7 +30,9 @@ the cell with a clear reason.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import hashlib
 import math
 import re
 from pathlib import Path
@@ -61,9 +70,44 @@ class GalleryDataset:
 
     observations: dict[str, torch.Tensor]
     params: dict[str, torch.Tensor]
-    """Captured `true_*` variables (with the `true_` prefix stripped)
-    representing a single point in latent space at which to evaluate
-    the joint log-density."""
+    """One point in latent space at which to evaluate the joint
+    log-density, keyed by the program's post-inline sample-site names.
+
+    Two channels fill it. The first is the snippet's captured ground
+    truth, bound as `<site>`, `true_<site>`, or `<site>_true`. The
+    second is the observations dict itself: a state-space example ships
+    its latent trajectory there (`sites = {"s_new": ..., "o": ...}`)
+    because that dict is what its inference demos clamp, and the site
+    is a latent all the same. Either way the value reaches a backend
+    through the parameter channel, never through a model input the
+    emitted program does not declare."""
+
+    scalar_params: dict[str, float]
+    """The exported program's scalar type-parameters, at the concrete
+    values the synthetic-data block instantiated the template with.
+
+    A parametric program header (`program lda(alpha : Real, beta :
+    Real) : Word -> Word`) renders as a required *input* of the emitted
+    program on every backend: numpyro emits `def model(alpha, beta,
+    word_idx, w=None)`, Stan declares `real alpha; real beta;` in its
+    `data` block, JAGS reads `alpha` as an unknown variable. These
+    names are neither `observe` binders nor `sample` sites, so they
+    reach the container through neither
+    [`observations`][tests.transpile._gallery_data.GalleryDataset] nor
+    [`params`][tests.transpile._gallery_data.GalleryDataset]; the point
+    builder emits them into `Point.data`, which is the section every
+    probe script hands to the model as an input."""
+
+    observe_names: frozenset[str]
+    """Every `observe <name>` binder the QVR source declares.
+
+    Distinguishes an observation the program scores from a plain
+    covariate the program only reads (a plate subscript such as
+    `word_idx` or `out_idx`). The distinction decides whether an
+    integer-dtyped entry of the observations dict may be perturbed:
+    stepping an observed count to a neighbouring in-support value is a
+    real data perturbation, whereas stepping a subscript would gather a
+    different parameter row rather than move the data."""
 
     x_input: torch.Tensor | None
     """The program-input tensor the synthetic-data block prepared.
@@ -100,6 +144,26 @@ _SAMPLE_NAME_RE = re.compile(
     re.MULTILINE,
 )
 
+_EXPORT_NAME_RE = re.compile(
+    r"^\s*export\s+([A-Za-z_][A-Za-z_0-9]*)\b",
+    re.MULTILINE,
+)
+
+_PROGRAM_HEADER_RE = re.compile(
+    r"^\s*program\s+([A-Za-z_][A-Za-z_0-9]*)\s*\(([^)]*)\)",
+    re.MULTILINE,
+)
+
+_TYPE_PARAM_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z_0-9]*)\s*:\s*([A-Za-z_][A-Za-z_0-9]*)\s*$",
+)
+
+_SCALAR_PARAM_TYPE = "Real"
+"""The only declared type-parameter kind that reaches a backend as a
+numeric input. A `FinSet`-typed parameter names an *object* the
+compiler resolves at instantiation time (`school_effects(spread :
+Real, K : FinSet)`), so it has no runtime value to send."""
+
 
 def _qvr_observe_names(source_qvr: Path) -> list[str]:
     """Extract every `observe <name>` binder from the QVR source.
@@ -128,6 +192,124 @@ def _qvr_sample_names(source_qvr: Path) -> list[str]:
     except OSError:
         return []
     return _SAMPLE_NAME_RE.findall(text)
+
+
+def _exported_type_parameters(
+    source_qvr: Path,
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Declared type-parameters of every program the source exports.
+
+    Keyed by program name, each value is the header's parameter list in
+    declaration order as `(name, type)` pairs. Only a header whose
+    parameters are *typed* contributes: `program gru_cell(x_t, h_prev)`
+    binds per-step values rather than type-parameters, and its
+    untyped entries are dropped.
+
+    Restricting to exported programs is what keeps an inner parametric
+    program out of the table. `parametric_pooling` declares
+    `program school_effects(spread : Real, K : FinSet)` and samples it
+    from within `pooled_tight`; only `pooled_tight` is exported, so the
+    emitted program takes no scalar input and none is sent.
+    """
+    try:
+        text = source_qvr.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    exported = frozenset(_EXPORT_NAME_RE.findall(text))
+    out: dict[str, tuple[tuple[str, str], ...]] = {}
+    for name, raw_params in _PROGRAM_HEADER_RE.findall(text):
+        if name not in exported:
+            continue
+        declared: list[tuple[str, str]] = []
+        for chunk in raw_params.split(","):
+            typed = _TYPE_PARAM_RE.match(chunk)
+            if typed is not None:
+                declared.append((typed.group(1), typed.group(2)))
+        if declared:
+            out[name] = tuple(declared)
+    return out
+
+
+def _literal_argument(
+    node: ast.expr, program: str, param: str, md: Path,
+) -> float:
+    """Value of one literal argument of a template invocation.
+
+    The synthetic-data block instantiates a parametric program at
+    constants (`prog.lda(alpha=1.0, beta=0.5)`), and those constants
+    are the values every emitted program expects as inputs. A
+    non-literal argument would make the harness guess at a value the
+    backend must be driven with, so it raises instead.
+    """
+    try:
+        value = ast.literal_eval(node)
+    except (ValueError, SyntaxError) as exc:
+        raise RuntimeError(
+            f"{md.name}: the synthetic-data block invokes "
+            f"{program!r} with a non-literal value for the scalar "
+            f"type-parameter {param!r}, so the harness cannot send "
+            f"the emitted program the input it declares. Bind the "
+            f"argument to a numeric literal in the snippet."
+        ) from exc
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(
+            f"{md.name}: scalar type-parameter {param!r} of "
+            f"{program!r} was given {value!r}, which is not a real "
+            f"number; the emitted program declares it as a real "
+            f"input."
+        )
+    return float(value)
+
+
+def _scalar_program_arguments(
+    snippet: str, md: Path, declared: dict[str, tuple[tuple[str, str], ...]],
+) -> dict[str, float]:
+    """Concrete values the snippet instantiated the exported
+    parametric program at, keyed by type-parameter name.
+
+    Reads the snippet's own syntax rather than the compiled program:
+    template instantiation bakes the arguments into the resulting
+    [`MonadicProgram`][quivers.continuous.programs.MonadicProgram]'s
+    families and leaves no record of them (`model._params` is None for
+    an instantiated template), so the invocation site is the only place
+    the values still exist under their declared names.
+    """
+    if not declared:
+        return {}
+    tree = ast.parse(snippet, str(md))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        params = declared.get(func.attr)
+        if params is None:
+            continue
+        scalar = {
+            name for name, kind in params if kind == _SCALAR_PARAM_TYPE
+        }
+        bound: dict[str, float] = {}
+        for (name, _kind), positional in zip(params, node.args):
+            if name in scalar:
+                bound[name] = _literal_argument(
+                    positional, func.attr, name, md,
+                )
+        for keyword in node.keywords:
+            if keyword.arg in scalar:
+                bound[keyword.arg] = _literal_argument(
+                    keyword.value, func.attr, keyword.arg, md,
+                )
+        missing = sorted(scalar - set(bound))
+        if missing:
+            raise RuntimeError(
+                f"{md.name}: the synthetic-data block invokes "
+                f"{func.attr!r} without a value for the scalar "
+                f"type-parameter(s) {missing!r}, which every emitted "
+                f"program declares as required inputs."
+            )
+        return bound
+    return {}
 
 
 def _sample_site_names(
@@ -169,6 +351,136 @@ def _is_tensor_like(value: object) -> bool:
             isinstance(x, (int, float, list, tuple)) for x in value
         )
     return False
+
+
+_DEALIAS_ATTEMPTS = 8
+"""Row permutations drawn per plate before the de-aliasing pass gives
+up. A uniform permutation of a plate of more than a handful of rows
+leaves the design untouched with vanishing probability, so a draw is
+rejected only in the degenerate case, and eight independent draws
+exhaust that case rather than papering over it."""
+
+
+def _row_permutation(
+    stem: str, length: int, attempt: int,
+) -> torch.Tensor:
+    """A deterministic permutation of `length` row positions.
+
+    Seeded from the example's stem, the plate width, and the attempt
+    index, so the de-aliased design is reproducible run to run and
+    independent of both the global RNG and whatever the example's
+    synthetic-data snippet seeded.
+    """
+    digest = hashlib.sha256(
+        f"{stem}:{length}:{attempt}".encode("utf-8"),
+    ).digest()[:8]
+    generator = torch.Generator()
+    generator.manual_seed(int.from_bytes(digest, "big") % (2 ** 63))
+    return torch.randperm(length, generator=generator)
+
+
+def _structural_subscript_names(
+    observations: dict[str, torch.Tensor],
+    observe_names: frozenset[str],
+) -> frozenset[str]:
+    """Names in `observations` that gather a parameter row rather than
+    carry a coordinate of the support.
+
+    A subscript is an integer-dtyped vector the program only reads:
+    `out_idx`, `word_idx`, `item_idx`. An `observe` binder is data
+    however it is typed, and a floating-point covariate is a real
+    coordinate however integral its values, so both are excluded.
+    """
+    return frozenset(
+        name
+        for name, value in observations.items()
+        if name not in observe_names
+        and value.dim() == 1
+        and not value.dtype.is_floating_point
+    )
+
+
+def _dealias_row_order(
+    observations: dict[str, torch.Tensor],
+    params: dict[str, torch.Tensor],
+    x_input: torch.Tensor | None,
+    observe_names: frozenset[str],
+    stem: str,
+) -> tuple[
+    dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor | None
+]:
+    """Relabel the rows of every plate that carries a structural
+    subscript, so no subscript coincides with the row counter.
+
+    A subscript cannot be perturbed (stepping it gathers a different
+    parameter row rather than moving the data), so it is frozen at
+    every point of the evaluation set. That freezing is safe only if
+    the subscript is not *recoverable from the row position*: a design
+    written as `torch.arange(D).repeat(N)` equals `i % D` at every
+    row, so a renderer that discards the supplied vector and recomputes
+    the subscript from its own loop counter emits an identical density
+    at every point, and the constant-spread check absorbs the defect
+    into its additive constant. The same holds for
+    `repeat_interleave` (`i // K`) and for a bare `arange` (`i`).
+
+    Permuting the rows of the plate closes that hole without moving a
+    single coordinate of the support. The density is a product over
+    the plate's rows, so relabeling the rows leaves the joint exactly
+    invariant, which is why the de-aliased design still reproduces
+    every pinned reference joint. What it destroys is the coincidence:
+    no rule over the row counter reproduces the permuted design, so a
+    renderer that fails to read it pairs each response with the wrong
+    parameter row, and the resulting discrepancy moves with the
+    responses and the latents rather than holding constant.
+
+    Every array of the plate moves together (the subscripts, the
+    covariates, the responses, and the program-input rows), because a
+    row relabeling is only measure-preserving when it is applied to the
+    whole row. Arrays of other widths, and the per-plate latents in
+    `params`, are untouched.
+    """
+    subscripts = _structural_subscript_names(observations, observe_names)
+    if not subscripts:
+        return observations, params, x_input
+    dealiased = dict(observations)
+    moved_params = dict(params)
+    moved_input = x_input
+    for length in sorted(
+        {int(observations[name].shape[0]) for name in subscripts}
+    ):
+        rows = sorted(
+            name
+            for name, value in observations.items()
+            if value.dim() == 1 and int(value.shape[0]) == length
+        )
+        design = sorted(subscripts & frozenset(rows))
+        for attempt in range(_DEALIAS_ATTEMPTS):
+            order = _row_permutation(stem, length, attempt)
+            if all(
+                not torch.equal(dealiased[name], dealiased[name][order])
+                for name in design
+            ):
+                break
+        else:
+            raise RuntimeError(
+                f"{stem!r}: {_DEALIAS_ATTEMPTS} row permutations of the "
+                f"{length}-row plate all left {design!r} unchanged, so "
+                f"the design cannot be separated from the row counter. "
+                f"A plate whose subscript is invariant under every "
+                f"permutation is constant, and a constant subscript "
+                f"gathers one parameter row for the whole plate."
+            )
+        for name in rows:
+            dealiased[name] = dealiased[name][order]
+            if name in moved_params:
+                moved_params[name] = moved_params[name][order]
+        if (
+            moved_input is not None
+            and moved_input.dim() > 0
+            and int(moved_input.shape[0]) == length
+        ):
+            moved_input = moved_input[order]
+    return dealiased, moved_params, moved_input
 
 
 def _observations_from_namespace(
@@ -325,6 +637,34 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
                 params[site] = hit
                 break
 
+    # A sample site the snippet ships inside its observations dict is
+    # still a LATENT of the program: the dict is what the `.md`'s SVI
+    # and MCMC demos clamp, not a declaration that the value is data.
+    # Filing it under `params` is what routes it to the container's
+    # parameter channel (Stan's constrained_params, numpyro's
+    # substitution dict, WebPPL's clampedParams) instead of trying to
+    # hand a latent's value in through a model input the emitted
+    # program never declares. `observations` is left intact, so the
+    # in-process QVR trace keeps clamping the site at full rank.
+    for site in sample_sites:
+        if site in params or site not in obs_tensors:
+            continue
+        params[site] = obs_tensors[site].detach().to(dtype=torch.float64)
+
+    scalar_params = _scalar_program_arguments(
+        snippet, md, _exported_type_parameters(source_qvr),
+    )
+    collisions = sorted(
+        frozenset(scalar_params) & (frozenset(params) | frozenset(obs_tensors))
+    )
+    if collisions:
+        raise RuntimeError(
+            f"{md.name}: scalar type-parameter(s) {collisions!r} share "
+            f"a name with a sample site or an observation, so the "
+            f"point's data section cannot carry both. Rename the "
+            f"program's type-parameter in the `.qvr` source."
+        )
+
     # Program-input tensor: the snippet may bind any of the canonical
     # names below. Try each in order; the first tensor-typed binding
     # wins. State-space examples conventionally use `state_prev`;
@@ -337,9 +677,16 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
             x_input = candidate
             break
 
+    observe_names = frozenset(_qvr_observe_names(source_qvr))
+    obs_tensors, params, x_input = _dealias_row_order(
+        obs_tensors, params, x_input, observe_names, source_qvr.stem,
+    )
+
     return GalleryDataset(
         observations=obs_tensors,
         params=params,
+        scalar_params=scalar_params,
+        observe_names=observe_names,
         x_input=x_input,
         monadic=monadic,
     )
@@ -374,13 +721,21 @@ def point_from_dataset(dataset: GalleryDataset) -> Point:
     so a backend that declares the name as a parameter (Stan's
     `parameters {}` block, a PyMC unobserved RV) does not also receive
     it as a data input. `dataset.observations` itself is left intact,
-    so the in-process QVR trace still clamps every site."""
-    return _point_from_tensors(dataset.params, dataset.observations)
+    so the in-process QVR trace still clamps every site.
+
+    The program's scalar type-parameters ride in the same `data`
+    section: they are inputs of the emitted program on every backend,
+    and `data` is the section each probe script binds to the model's
+    formal arguments."""
+    return _point_from_tensors(
+        dataset.params, dataset.observations, dataset.scalar_params,
+    )
 
 
 def _point_from_tensors(
     params: dict[str, torch.Tensor],
     observations: dict[str, torch.Tensor],
+    scalar_params: dict[str, float],
 ) -> Point:
     """Flatten a (latent, observed) tensor pair into a wire
     [`Point`][tests.transpile.probes._protocol.Point].
@@ -389,7 +744,9 @@ def _point_from_tensors(
     collapses to a bare float so the probe's dict-to-Tensor casting
     picks the scalar shape. A name bound in both sections is emitted
     only under ``params`` (see
-    [`point_from_dataset`][tests.transpile._gallery_data.point_from_dataset]).
+    [`point_from_dataset`][tests.transpile._gallery_data.point_from_dataset]),
+    and each entry of ``scalar_params`` joins the data section as a
+    bare float.
     """
     def _flatten(t: torch.Tensor) -> list[float]:
         return t.detach().to(dtype=torch.float64).flatten().tolist()
@@ -405,6 +762,7 @@ def _point_from_tensors(
     squeezed_data: dict[str, float | int | list[float] | list[int]] = {
         k: (v[0] if len(v) == 1 else v) for k, v in flat_data.items()
     }
+    squeezed_data.update(scalar_params)
     return Point(params=squeezed_params, data=squeezed_data)
 
 
@@ -729,27 +1087,69 @@ def _perturb_by_support(
     return moved.to(dtype=value.dtype)
 
 
-def _covariate_support(
+def _data_section_support(
+    name: str,
     value: torch.Tensor,
+    observe_names: frozenset[str],
 ) -> constraints.Constraint | None:
-    """Constraint inferred from a covariate's own value domain.
+    """Constraint inferred for an observations-dict entry that answers
+    to no compiled stochastic site.
 
-    A name in the observations dict that answers to no stochastic site
-    is a covariate the program reads through a `let`, so no declared
-    family fixes its constraint. A value carrying a fractional part is
-    unconstrained real and moves additively. An integer-valued one is
-    left alone: a plate subscript and a count covariate are
-    indistinguishable at this level, and stepping a subscript outside
-    its plate would index past the gathered parameter rather than
-    produce a different in-support point.
+    Two shapes of entry reach this helper. The first is a covariate the
+    program reads through a `let` or a plate subscript, for which no
+    declared family fixes a constraint. The second is a genuine
+    `observe` binder the compiled program buries inside a closure: a
+    grouped `marginalize` folds its body's observe into a single score
+    callable (`observe w : Word <- Categorical(phi[z]) [via=word_idx]`
+    becomes one `_grouped_ll_z_0` let plus a `_marg_z` score), so
+    [`site_supports`][tests.transpile._gallery_data.site_supports]
+    reports nothing for `w` even though `w` is the model's only
+    observation.
+
+    Resolution splits on which of the two kinds the entry is, and the
+    covariate case then splits on the entry's **dtype**:
+
+    1. A covariate carried in a floating-point tensor is a real
+       coordinate of the data and moves additively, whatever values it
+       happens to hold. A time index, an exposure, a design covariate:
+       each enters the density through arithmetic, so a value with no
+       fractional part is a real coordinate that landed on an integer,
+       not an index. Freezing it would leave the equivalence check
+       blind to every backend error that is a function of that
+       covariate alone, since such an error is constant across a point
+       set that never moves it.
+    2. A covariate carried in an integer tensor is a structural
+       subscript: it names a row of a parameter plate rather than a
+       point of the support, so stepping it would gather different
+       parameters rather than move the data. It stays put, and
+       [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order]
+       is what keeps a frozen subscript from aliasing the row counter.
+    3. An **observe binder** carrying a fractional part is
+       unconstrained real and moves additively.
+    4. An integer-valued **observe binder** takes an integer step
+       inside its own attested range. The attested range is the
+       conservative reading of a declared support the harness cannot
+       see: every value in `[min, max]` is a point the model's own
+       forward simulation reached or bracketed, so the alphabet of a
+       categorical emission and the range of a count observation are
+       both respected without the harness having to reconstruct the
+       family's parameters.
     """
     if value.numel() == 0:
         return None
-    if not value.dtype.is_floating_point:
+    if name not in observe_names:
+        return (
+            constraints.real if value.dtype.is_floating_point else None
+        )
+    if value.dtype.is_floating_point and not torch.equal(
+        value, value.round(),
+    ):
+        return constraints.real
+    lower = int(value.min().item())
+    upper = int(value.max().item())
+    if lower == upper:
         return None
-    if torch.equal(value, value.round()):
-        return None
-    return constraints.real
+    return constraints.integer_interval(lower, upper)
 
 
 def _perturb_section(
@@ -759,13 +1159,14 @@ def _perturb_section(
     scale: float,
     *,
     infer_from_value: bool,
+    observe_names: frozenset[str] = frozenset(),
     exclude: frozenset[str] = frozenset(),
 ) -> dict[str, torch.Tensor]:
     """Perturb every value in `section` whose constraint is known.
 
     A name with a declared site support moves under that constraint. A
     name without one falls back to
-    [`_covariate_support`][tests.transpile._gallery_data._covariate_support]
+    [`_data_section_support`][tests.transpile._gallery_data._data_section_support]
     when `infer_from_value` is set (the observations dict, which mixes
     observe sites with plain covariates), and otherwise stays at ground
     truth. Names in `exclude` are copied through untouched.
@@ -777,7 +1178,7 @@ def _perturb_section(
             continue
         support = supports.get(name)
         if support is None and infer_from_value:
-            support = _covariate_support(value)
+            support = _data_section_support(name, value, observe_names)
         if support is None:
             out[name] = value
             continue
@@ -828,6 +1229,59 @@ def observations_for_point(
     return out
 
 
+def observed_data_names(dataset: GalleryDataset) -> frozenset[str]:
+    """Names a point carries as genuinely *observed* data.
+
+    Three kinds of entry live in a point's `data` section, and only one
+    of them is data the model conditions on:
+
+    1. An `observe` binder or a covariate the program reads. These are
+       the observed data.
+    2. A sample site the `.md` snippet also clamps for its inference
+       demo. The point files it under `params` (the latent spelling is
+       canonical), so it is not observed data and is excluded here.
+    3. A scalar type-parameter of the program. It is an *input* of the
+       emitted program, fixed by the template instantiation, so it
+       never varies and is excluded here too.
+    """
+    return frozenset(dataset.observations) - frozenset(dataset.params)
+
+
+def varying_observation_names(
+    dataset: GalleryDataset, points: list[Point],
+) -> frozenset[str]:
+    """The
+    [`observed_data_names`][tests.transpile._gallery_data.observed_data_names]
+    whose value actually differs somewhere in `points`.
+
+    This is the observable form of "the data really moved", and it is
+    strictly stronger than watching the joint move: a latents-only
+    perturbation moves the joint while leaving every observation at
+    ground truth, which is exactly the blind spot that lets a backend
+    drop a data-dependent term and still hold a constant offset.
+    """
+    moved: set[str] = set()
+    for name in observed_data_names(dataset):
+        seen = {
+            _wire_key(point.data[name])
+            for point in points
+            if name in point.data
+        }
+        if len(seen) > 1:
+            moved.add(name)
+    return frozenset(moved)
+
+
+def _wire_key(
+    value: float | int | list[float] | list[int],
+) -> tuple[float, ...]:
+    """Hashable identity of one point-section entry, for equality
+    comparison across the point set."""
+    if isinstance(value, (int, float)):
+        return (float(value),)
+    return tuple(float(v) for v in value)
+
+
 def _qvr_log_density(
     dataset: GalleryDataset, point: Point, fixture: str,
 ) -> float:
@@ -866,9 +1320,10 @@ def points_from_dataset(
     moves in logit space, a simplex row is renormalised, a Cholesky
     factor keeps its triangular / positive-diagonal shape, and an
     integer count takes an integer step clamped to the attested range.
-    A value whose constraint the harness cannot establish -- an
-    integer-valued covariate, which is indistinguishable from a plate
-    subscript -- stays at ground truth.
+    A structural subscript, the one entry kind that names a parameter
+    row rather than a point of the support, stays at ground truth; its
+    row order is de-aliased at load time instead, by
+    [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order].
 
     Parameters
     ----------
@@ -948,12 +1403,16 @@ def points_from_dataset(
             observations = (
                 _perturb_section(
                     dataset.observations, supports, generator, scale,
-                    infer_from_value=True, exclude=shared_names,
+                    infer_from_value=True,
+                    observe_names=dataset.observe_names,
+                    exclude=shared_names,
                 )
                 if mode in (PERTURB_DATA, PERTURB_BOTH)
                 else dict(dataset.observations)
             )
-            candidate = _point_from_tensors(params, observations)
+            candidate = _point_from_tensors(
+                params, observations, dataset.scalar_params,
+            )
             if not validate:
                 points.append(candidate)
                 break
@@ -982,8 +1441,10 @@ __all__ = [
     "load_gallery_data",
     "md_path_for",
     "observations_for_point",
+    "observed_data_names",
     "perturbation_labels",
     "point_from_dataset",
     "points_from_dataset",
     "site_supports",
+    "varying_observation_names",
 ]
