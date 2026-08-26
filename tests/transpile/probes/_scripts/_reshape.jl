@@ -186,3 +186,69 @@ function shift_index_inputs(point, names, offset::Int = 1)
     end
     return out
 end
+
+# ---------------------------------------------------------------------
+# The export channel.
+#
+# `/io/export_names.json` holds the QVR program's return-variable
+# names, in declaration order. A probe that finds the file reads the
+# exported value out of the emitted program's own return surface (the
+# `@model` return under `condition`, the second element of
+# `Gen.assess`) and reports one entry per name per point.
+# ---------------------------------------------------------------------
+
+function load_export_names(io::AbstractString)
+    path = joinpath(io, "export_names.json")
+    isfile(path) || return String[]
+    return [String(x) for x in JSON3.read(read(path, String))]
+end
+
+# Nest a returned value row-major so JSON3 emits the same layout the
+# host reference produced. Writing a Julia `Matrix` directly would
+# serialise its column-major storage as one flat array, which compares
+# element-for-element against a transposed reference.
+function export_nested(v)
+    if v isa AbstractArray
+        if ndims(v) == 0
+            return export_nested(v[])
+        elseif ndims(v) == 1
+            return [export_nested(x) for x in v]
+        end
+        rest = ntuple(_ -> Colon(), ndims(v) - 1)
+        return [export_nested(v[i, rest...]) for i in axes(v, 1)]
+    elseif v isa Tuple
+        return [export_nested(x) for x in v]
+    elseif v isa Bool
+        return Int(v)
+    elseif v isa Integer
+        return Int(v)
+    end
+    return Float64(v)
+end
+
+function export_payload(names::Vector{String}, returned)
+    isempty(names) && error(
+        "export_payload called with no export names; the caller did " *
+        "not ship /io/export_names.json and the probe must not " *
+        "report an export channel."
+    )
+    returned === nothing && error(
+        "the emitted model returns nothing where the QVR program " *
+        "exports $(names). A transpilation that drops the return " *
+        "clause emits a program denoting the right joint and the " *
+        "wrong kernel."
+    )
+    if length(names) == 1
+        return [export_nested(returned)]
+    end
+    returned isa Tuple || error(
+        "the emitted model returns a single value where the QVR " *
+        "program exports $(length(names)) ($(names)). The renderer " *
+        "dropped part of the program's return clause."
+    )
+    length(returned) == length(names) || error(
+        "the emitted model returns $(length(returned)) value(s) " *
+        "where the QVR program exports $(length(names)) ($(names))."
+    )
+    return [export_nested(x) for x in returned]
+end

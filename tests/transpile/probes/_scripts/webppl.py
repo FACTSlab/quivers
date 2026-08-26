@@ -40,6 +40,13 @@ are the mirror image: their `score` is native JavaScript that rejects
 the CPS argument list. The probe therefore reads the prelude's
 top-level `var <Name> = function (params) {` declarations and picks
 the calling convention per family.
+
+When `/io/export_names.json` is present the probe also reports the
+program's exported value at each point. WebPPL's export surface is
+the `model` function's own `return`, so the driver binds the call's
+result and prints it alongside the log-density. The rewrite has
+already clamped every draw, which makes that value a deterministic
+function of the point.
 """
 from __future__ import annotations
 
@@ -50,7 +57,12 @@ import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
-from _reshape import load_tables, reshape_point
+from _reshape import (
+    export_payload,
+    load_export_names,
+    load_tables,
+    reshape_point,
+)
 
 # The probe payload is strictly numeric: scalars and arbitrarily
 # nested lists of the same. The aliases mirror `_reshape`'s and live
@@ -524,8 +536,9 @@ def _build_driver(
         f"var clampedParams = {clamped_literal};\n"
         f"{data_decls}\n"
         f"{rewritten}\n"
-        f"model({call_args});\n"
-        "console.log(JSON.stringify({log_density: globalStore.lp}));\n"
+        f"var __qvr_exported = model({call_args});\n"
+        "console.log(JSON.stringify({log_density: globalStore.lp, "
+        "exported: __qvr_exported}));\n"
     )
 
 
@@ -541,7 +554,9 @@ def main() -> None:
             "container"
         )
 
+    export_names = load_export_names(io)
     log_densities: list[float] = []
+    exports: list[list[NestedNumber]] = []
     for i, pt in enumerate(points):
         reshaped = reshape_point(pt, shapes, dtypes)
         driver = _build_driver(
@@ -575,7 +590,7 @@ def main() -> None:
         # probe's contract is a JSON object on its own line carrying
         # the `log_density` field, so search the stdout for that
         # specific shape rather than blindly taking the last line.
-        payload: dict[str, float] | None = None
+        payload: dict[str, NestedNumber] | None = None
         for line in stdout_text.splitlines():
             text = line.strip()
             if not text or not text.startswith("{"):
@@ -594,10 +609,23 @@ def main() -> None:
                 f"driver:\n{driver}"
             )
         log_densities.append(float(payload["log_density"]))
+        if export_names:
+            returned = payload.get("exported")
+            # A JS `return` the renderer never emitted leaves the call
+            # `undefined`, which `JSON.stringify` drops from the object
+            # entirely; the missing key is exactly the dropped-export
+            # defect, and `export_payload` names it.
+            if len(export_names) > 1 and isinstance(returned, list):
+                # The WebPPL renderer spells a multi-name return as a
+                # JS array; `export_payload` reads an ordered return
+                # as a tuple.
+                returned = tuple(returned)
+            exports.append(export_payload(export_names, returned))
 
-    (io / "result.json").write_text(
-        json.dumps({"log_densities": log_densities})
-    )
+    result: dict[str, list] = {"log_densities": log_densities}
+    if export_names:
+        result["exports"] = exports
+    (io / "result.json").write_text(json.dumps(result))
 
 
 if __name__ == "__main__":

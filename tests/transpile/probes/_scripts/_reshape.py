@@ -20,6 +20,18 @@ A name absent from either table falls through to its raw
 list value. The float / int cast applies even for scalars so
 backends that distinguish `int` and `real` (Stan, JAGS) get the
 right type.
+
+The export channel rides alongside. `/io/export_names.json` holds
+the QVR program's return-variable names, in declaration order:
+
+    ["phi"]
+
+A probe that finds the file must read the exported value out of the
+emitted program's own return surface (the model function's `return`,
+a Stan generated quantity, a Gen `assess` return value) and report
+one entry per name per point under the result's `exports` key. The
+file's absence means the caller did not ask for the export channel,
+and the probe reports only log-densities.
 """
 from __future__ import annotations
 
@@ -38,10 +50,26 @@ from typing import TYPE_CHECKING, cast
 # lazily for type checkers and never executes at runtime. `Any`
 # and `object` are intentionally avoided.
 if TYPE_CHECKING:
+    from typing import Protocol
+
     Number = int | float
     NestedNumber = Number | list["NestedNumber"]
     PointSection = dict[str, NestedNumber]
     Point = dict[str, PointSection]
+
+    class ArrayLike(Protocol):
+        """Any runtime array exposing numpy's `tolist`.
+
+        Every probe runtime that carries an exported value back to
+        the harness (numpy, jax, torch, tensorflow) satisfies this,
+        so the conversion needs neither a runtime import of those
+        libraries nor a bare `object` annotation.
+        """
+
+        def tolist(self) -> NestedNumber:
+            ...
+
+    ExportValue = NestedNumber | ArrayLike | tuple["ExportValue", ...]
 
 
 def load_tables(io: pathlib.Path) -> tuple[
@@ -200,8 +228,109 @@ def shift_index_inputs(
     return out
 
 
+def load_export_names(io: pathlib.Path) -> list[str]:
+    """Read `/io/export_names.json`.
+
+    Returns the QVR program's return-variable names in declaration
+    order, or an empty list when the caller did not ship the file.
+    An empty list means "do not report the export channel"; it never
+    means "the program exports nothing", because a program with no
+    return clause is never scheduled through this channel in the
+    first place.
+    """
+    path = io / "export_names.json"
+    if not path.exists():
+        return []
+    return [str(name) for name in json.loads(path.read_text())]
+
+
+def as_nested(value: ExportValue) -> NestedNumber:
+    """Convert one runtime array / scalar into JSON-ready numbers.
+
+    Every probe runtime that can carry an exported value back to the
+    harness (numpy, jax, torch, tensorflow) exposes numpy's `tolist`,
+    so the conversion dispatches on that method rather than on the
+    concrete array class. A Python tuple (the shape a multi-name
+    return takes in every Python target) recurses elementwise; a bare
+    scalar widens to `float`.
+
+    A boolean leaf stays an `int`: a Bernoulli-supported export is
+    integer-valued, and JSON's `true` would compare unequal against
+    the reference's `1.0` under a numeric tolerance.
+
+    Three attribute probes cover every runtime the images carry, in
+    order of directness: `tolist` (numpy, jax, torch), `numpy` (a
+    TensorFlow eager tensor, which has no `tolist`), and `value`
+    (an Edward2 `RandomVariable`, which wraps the tensor its export
+    denotes).
+    """
+    to_list = getattr(value, "tolist", None)
+    if to_list is not None:
+        return to_list()
+    to_numpy = getattr(value, "numpy", None)
+    if to_numpy is not None:
+        return as_nested(to_numpy())
+    wrapped = getattr(value, "value", None)
+    if wrapped is not None:
+        return as_nested(wrapped)
+    if isinstance(value, tuple):
+        return [as_nested(item) for item in value]
+    if isinstance(value, list):
+        return [as_nested(item) for item in value]
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    return float(value)
+
+
+def export_payload(
+    names: list[str], returned: ExportValue | None,
+) -> list[NestedNumber]:
+    """Split one model return value into one entry per export name.
+
+    A program returning a single name hands back a bare value; a
+    program returning several hands back a tuple, in the order the
+    `return` clause declares. The arity is checked rather than
+    assumed: a return whose arity disagrees with the requested names
+    is a renderer defect (a dropped or duplicated export), and it has
+    to surface as a probe failure rather than as a silently truncated
+    comparison.
+    """
+    if not names:
+        raise ValueError(
+            "export_payload called with no export names; the caller "
+            "did not ship /io/export_names.json and the probe must "
+            "not report an export channel."
+        )
+    if returned is None:
+        raise ValueError(
+            f"the emitted model returns nothing where the QVR program "
+            f"exports {names}. A transpilation that drops the return "
+            f"clause emits a program denoting the right joint and the "
+            f"wrong kernel."
+        )
+    if len(names) == 1:
+        return [as_nested(returned)]
+    if not isinstance(returned, tuple):
+        raise ValueError(
+            f"the emitted model returns a single value where the QVR "
+            f"program exports {len(names)} ({names}). The renderer "
+            f"dropped part of the program's return clause."
+        )
+    if len(returned) != len(names):
+        raise ValueError(
+            f"the emitted model returns {len(returned)} value(s) "
+            f"where the QVR program exports {len(names)} ({names})."
+        )
+    return [as_nested(item) for item in returned]
+
+
 __all__ = [
+    "as_nested",
+    "export_payload",
     "index_input_names",
+    "load_export_names",
     "load_tables",
     "reshape_point",
     "reshape_value",
