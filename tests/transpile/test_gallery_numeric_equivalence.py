@@ -47,6 +47,23 @@ available (the typical local-dev state), the test still exercises
 the QVR-side trace: every gallery example whose `.md` ships data
 gets a verified `log p_QVR` value, which is the strongest in-process
 correctness signal we can produce without target runtimes.
+
+The constant-spread contract is blind by construction to a
+*point-independent* error in the reference itself: adding the same
+constant to every `log p_QVR` leaves every difference `δ_i` shifted
+by that constant and every spread unchanged. The oracle therefore
+carries a second, independent obligation, and this module holds it:
+[`_QVR_REFERENCE_JOINT`][tests.transpile.test_gallery_numeric_equivalence._QVR_REFERENCE_JOINT]
+pins the reference joint at **every** point of the set, the pin is
+**mandatory** for every example that scores a joint (an example
+without one is an assertion failure, never a silent pass), and the
+pin tolerance is
+[`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol],
+which is never looser than the equivalence tolerance it underwrites.
+The pinned numbers themselves are re-derived from raw
+`torch.distributions` by
+[`test_oracle_reference_strength`][tests.transpile.test_oracle_reference_strength]
+for every example the backend tier cannot reach.
 """
 
 from __future__ import annotations
@@ -217,35 +234,334 @@ _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "vanilla_rnn_lm",
 })
 
-# QVR reference joint log-densities, each verified against an
-# independent raw-torch reconstruction of the model's joint at the
-# ground-truth point. `test_gallery_qvr_logdensity_finite` asserts the
-# QVR trace still reproduces these, turning a finite-only check into a
-# correctness check. Update an entry only after re-deriving the joint
-# independently.
-_QVR_REFERENCE_JOINT: dict[str, float] = {
-    "ar1": -24.0308,
-    "bayesian_regression": -54.5608,
-    "beta_regression": 26.0999,
-    "bnn": -412.0953,
-    "changepoint": -131.0847,
-    "continuous_hmm": -716.6049,
-    "factor_analysis": -132.6166,
-    "gamma_regression": -69.0704,
-    "hmm": 335.3818,
-    "horseshoe_regression": -64.9299,
-    "irt_2pl": -69.2327,
-    "lda": 2550.3076,
-    "linear_gaussian_ssm": -218.7775,
-    "mixture_model": -189.3568,
-    "negbin_regression": -203.6848,
-    "parametric_pooling": -16.0530,
-    "ppca": -67.7343,
-    "stochastic_volatility": -307.8004,
-    "survival_weibull": -28.6730,
-    "tree_categorical": -14.3775,
-    "zip_regression": -651.6888,
+# ----------------------------------------------------------------------
+# The reference pin.
+#
+# Theorem 4.1's quotient by an additive constant is what makes the
+# backend comparison robust to differing base measures, and it is also
+# what makes it blind: an oracle that is wrong by the same amount at
+# every point produces exactly the spread of a correct one. Nothing on
+# the backend side can see such an error, so the reference carries its
+# own pin, and the pin has to hold everywhere the comparison does.
+#
+# Three properties, each asserted rather than assumed:
+#
+# 1. **Total.** Every gallery example that scores a joint has an entry
+#    here or a justified row in `_REFERENCE_PIN_EXEMPT`, and
+#    `test_gallery_reference_pin_registry_is_total` fails when the two
+#    registries stop covering the gallery exactly. A deleted row, or a
+#    new example, is a failure rather than a silently weaker suite.
+# 2. **Per point.** An entry pins the joint at every point of
+#    `points_from_dataset`, in schedule order, not only at the ground
+#    truth. A single-point pin cannot see a *data-dependent* oracle
+#    error, and neither can the constant-spread check when the same
+#    error rides on both sides, so between them that class would be
+#    invisible.
+# 3. **Tight.** The comparison runs at `reference_pin_atol`, which is
+#    never looser than the equivalence tolerance it underwrites.
+#
+# Every value here is reproduced from an independent computation on
+# each run: an example with live backend cells is re-derived by those
+# containers, and every example without one is re-derived from raw
+# `torch.distributions` in `test_oracle_reference_strength.py`.
+# `test_oracle_reference_strength.py::test_every_pinned_example_has_an_independent_witness`
+# asserts that split covers the registry with nothing left over.
+#
+# Update an entry only after re-deriving the joint independently; a
+# drift here is either an oracle regression or a deliberate
+# ground-truth change, and the two are told apart by the raw-torch
+# reconstruction, not by the number's plausibility.
+# ----------------------------------------------------------------------
+_QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
+    "ar1": (
+        -24.030813217163086,
+        -121.17807006835938,
+        -44.41229248046875,
+        -37.35548400878906,
+        -44.10717010498047,
+        -38.02667236328125,
+    ),
+    "bayesian_regression": (
+        -54.560791015625,
+        -67.99243927001953,
+        -81.71551513671875,
+        -117.940673828125,
+        -164.50860595703125,
+        -83.58819580078125,
+    ),
+    "beta_regression": (
+        26.09986114501953,
+        12.179271697998047,
+        21.649688720703125,
+        4.467376708984375,
+        20.713706970214844,
+        16.414939880371094,
+    ),
+    "bnn": (
+        -412.09527587890625,
+        -412.09527587890625,
+        -433.6674499511719,
+        -431.0032653808594,
+        -412.09527587890625,
+        -416.7749938964844,
+    ),
+    "changepoint": (
+        -131.08474731445312,
+        -155.9451446533203,
+        -133.2001953125,
+        -145.42013549804688,
+        -188.2016143798828,
+        -135.9104766845703,
+    ),
+    "continuous_hmm": (
+        -716.6048583984375,
+        -733.0679321289062,
+        -721.8971557617188,
+        -736.2081909179688,
+        -722.6180419921875,
+        -721.2566528320312,
+    ),
+    "factor_analysis": (
+        -132.61660766601562,
+        -214.58114624023438,
+        -162.3575897216797,
+        -226.3590087890625,
+        -187.85678100585938,
+        -168.95579528808594,
+    ),
+    "gamma_regression": (
+        -69.07034301757812,
+        -80.96452331542969,
+        -76.0668716430664,
+        -93.28099822998047,
+        -72.47667694091797,
+        -76.60382080078125,
+    ),
+    "hmm": (
+        335.3818359375,
+        335.1047668457031,
+        336.9115295410156,
+        337.01318359375,
+        334.794677734375,
+        334.94793701171875,
+    ),
+    "horseshoe_regression": (
+        -64.92990112304688,
+        -85.11199951171875,
+        -82.23753356933594,
+        -145.4669647216797,
+        -135.35128784179688,
+        -84.14229583740234,
+    ),
+    "irt_2pl": (
+        -69.23272705078125,
+        -76.04976654052734,
+        -85.58287811279297,
+        -78.32916259765625,
+        -71.45870971679688,
+        -80.12108612060547,
+    ),
+    "lda": (
+        2550.3076171875,
+        2563.206298828125,
+        1729.403564453125,
+        1705.196044921875,
+        2534.7998046875,
+        1779.01318359375,
+    ),
+    "linear_gaussian_ssm": (
+        -218.77745056152344,
+        -224.5797119140625,
+        -219.4437255859375,
+        -218.57310485839844,
+        -223.74766540527344,
+        -219.547607421875,
+    ),
+    "mixture_model": (
+        -189.3568115234375,
+        -197.78488159179688,
+        -197.35861206054688,
+        -214.3572998046875,
+        -197.0948486328125,
+        -196.84445190429688,
+    ),
+    "negbin_regression": (
+        -203.68475341796875,
+        -225.95242309570312,
+        -270.5653381347656,
+        -302.58197021484375,
+        -221.177734375,
+        -268.622314453125,
+    ),
+    "parametric_pooling": (
+        -16.053003311157227,
+        -21.250812530517578,
+        -15.52226448059082,
+        -19.705469131469727,
+        -26.930932998657227,
+        -18.749011993408203,
+    ),
+    "ppca": (
+        -67.73426818847656,
+        -231.67868041992188,
+        -105.8104476928711,
+        -274.6122741699219,
+        -188.58070373535156,
+        -141.64019775390625,
+    ),
+    "stochastic_volatility": (
+        -307.8003845214844,
+        -497.64605712890625,
+        -374.3330078125,
+        -449.9366760253906,
+        -448.69561767578125,
+        -387.8696594238281,
+    ),
+    "survival_weibull": (
+        -28.67302131652832,
+        -39.528465270996094,
+        -37.15167236328125,
+        -47.73482894897461,
+        -234.78810119628906,
+        -36.604496002197266,
+    ),
+    "tree_categorical": (
+        -14.377462387084961,
+        -14.70197868347168,
+        -14.261514663696289,
+        -16.662046432495117,
+        -17.16188621520996,
+        -14.015467643737793,
+    ),
+    "zip_regression": (
+        -651.6888427734375,
+        -664.6071166992188,
+        -755.0150146484375,
+        -759.4091186523438,
+        -665.1041259765625,
+        -747.2142333984375,
+    ),
 }
+
+# Gallery examples that carry synthetic data but score no joint the
+# pin could hold, each with the reason. An entry is an assertion, not
+# an escape hatch: `test_gallery_reference_pin_registry_is_total`
+# requires the reason to name a registry that independently agrees the
+# example has no reference, so an exemption cannot outlive the gap it
+# describes.
+_REFERENCE_PIN_EXEMPT: dict[str, str] = {
+    # No `program` block, no `sample` site, no `observe` site: the
+    # module exports a `define`d composition morphism (`U.dagger >> V`,
+    # `bilinear_score(...)`), which denotes a linear map rather than a
+    # measure. `load_gallery_data` builds no `observations` dict for
+    # either, both sit in `_SKIP_DATASET_LOAD_FAILED`, and there is no
+    # joint log-density to pin.
+    # `test_oracle_reference_strength.py::test_structurally_exempt_examples_declare_no_probabilistic_program`
+    # asserts that structural claim against the `.qvr` text itself.
+    "pmf": "structural: composition morphism, no stochastic site",
+    "tensor_contraction": (
+        "structural: contraction morphism, no stochastic site"
+    ),
+    # Sequence models carrying a `SampledComposition` latent. The
+    # oracle marginalises the composition's internal states by
+    # importance sampling and redraws on every call, so its "joint" is
+    # a sample from an estimator rather than a density and there is no
+    # value a pin could hold. Each sits in `_SKIP_QVR_INCOMPATIBLE`,
+    # whose comment carries the full diagnosis.
+    "bidirectional_rnn_lm": "no deterministic oracle joint to pin",
+    "deep_markov": "no deterministic oracle joint to pin",
+    "gru_lm": "no deterministic oracle joint to pin",
+    "lstm_lm": "no deterministic oracle joint to pin",
+    "seq2seq": "no deterministic oracle joint to pin",
+    "transformer_lm": "no deterministic oracle joint to pin",
+    "vae": "no deterministic oracle joint to pin",
+    "vanilla_rnn_lm": "no deterministic oracle joint to pin",
+}
+
+_REFERENCE_PIN_ULP_BUDGET = 8
+"""Round-off budget for
+[`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol],
+in units of the float32 grid spacing at the pinned magnitude.
+
+The reference joint reaches the harness as
+``float(trace.log_joint.sum().item())``: the exact float64 widening of
+a float32 accumulator. Two evaluations of the *same* density therefore
+agree exactly whenever they accumulate in the same order, and differ
+only in the low bits of that accumulator when they do not (a different
+reduction kernel, SIMD width, or BLAS). The budget is calibrated
+against a direct measurement of that re-association effect rather than
+against a guess: the raw-`torch.distributions` reconstructions in
+`test_oracle_reference_strength.py` sum the same per-site terms in a
+different order and in different groupings, and across all six models
+and all six points their largest disagreement with the trace is
+**one** float32 ULP (`continuous_hmm`, 6.10e-05 at magnitude 736;
+`linear_gaussian_ssm`, 1.53e-05 at magnitude 219). Eight ULPs is three
+bits of headroom above the measured worst case.
+
+This is a headroom figure, not a necessity: the oracle is bit-exact
+run to run and across `torch.set_num_threads`, both measured. A
+failure at this budget is a real change in the density, not noise."""
+
+
+def _float32_ulp(value: float) -> float:
+    """Spacing of the float32 grid at `value`.
+
+    `math.frexp` returns ``(m, e)`` with ``|value| = m * 2**e`` and
+    ``m`` in ``[0.5, 1)``, so the leading significand bit has weight
+    ``2**(e - 1)`` and the trailing bit of a 24-bit significand has
+    weight ``2**(e - 24)``.
+    """
+    magnitude = abs(value)
+    if not math.isfinite(magnitude):
+        raise ValueError(
+            f"_float32_ulp needs a finite value; got {value!r}. A "
+            f"non-finite reference is a broken pin, not a tolerance "
+            f"question."
+        )
+    if magnitude == 0.0:
+        return math.ldexp(1.0, -24)
+    _, exponent = math.frexp(magnitude)
+    return math.ldexp(1.0, exponent - 24)
+
+
+def reference_pin_atol(reference: float) -> float:
+    """Absolute tolerance for the reference pin at `reference`.
+
+    Two bounds, and the tighter one wins.
+
+    The first is
+    [`_REFERENCE_PIN_ULP_BUDGET`][tests.transpile.test_gallery_numeric_equivalence._REFERENCE_PIN_ULP_BUDGET]
+    ULPs of the float32 grid at the pinned magnitude, floored at the
+    same budget taken at magnitude 1. The floor keeps a joint that
+    happens to land near zero from demanding bit equality: such a
+    joint is still a sum of order-one terms, and the grid at 1 is the
+    finest resolution those terms carry.
+
+    The second is the equivalence tolerance from
+    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol] at
+    its floor, which is the tolerance
+    [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
+    holds the backends to. Taking the minimum is the whole point of
+    the function: a constant oracle error is invisible on the backend
+    side, so the pin is the only defence against it, and a defence
+    looser than the check it underwrites defends nothing. It also ties
+    the two together in code, so the pin cannot be left behind if the
+    equivalence floor ever moves.
+
+    Across the 126 pinned values the ULP bound binds for 120 and the
+    equivalence floor caps the remaining six, all of them `lda`
+    (magnitudes 1705 to 2563, where one float32 ULP is already
+    1.22e-04 to 2.44e-04). The loosest pin in the registry is thus
+    5e-04 and the tightest is 3.81e-06 (`beta_regression` at its
+    latents+data point, magnitude 4.47). Measured at the ground-truth
+    point of every registry entry, the band is between 1238 times
+    (`changepoint`) and 5141 times (`lda`) tighter than the
+    `1e-3 * |reference| + 2e-2` relative band it replaces.
+    """
+    ulp_bound = _REFERENCE_PIN_ULP_BUDGET * max(
+        _float32_ulp(reference), _float32_ulp(1.0),
+    )
+    return min(_equivalence.adaptive_atol(n_obs=0), ulp_bound)
 
 # Gallery examples that genuinely carry no perturbable observation, so
 # their point set moves the latents alone. Each entry states why the
@@ -468,6 +784,183 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
 })
 
 
+def test_gallery_reference_pin_registry_is_total() -> None:
+    """Every gallery example is either pinned or justifiably exempt,
+    and neither registry may carry a row the gallery does not.
+
+    This is the test that makes the pin a guarantee rather than an
+    opt-in. The failure mode it exists to prevent is silent: a
+    `dict.get` that returns `None` and a guard that skips the
+    assertion turn a deleted row, or a newly-added example, into a
+    check that passes while asserting nothing about the value it was
+    written to protect. Requiring the two registries to *partition*
+    the gallery makes both directions loud. Deleting a row fails here.
+    Adding an example without deriving its reference fails here.
+    Retiring an example without dropping its row fails here too, so a
+    stale pin cannot sit in the registry looking like coverage.
+
+    The exemption side is checked against the registries that
+    independently agree the example has no reference, not taken on its
+    word: an exempt example must appear in `_SKIP_DATASET_LOAD_FAILED`
+    (no dataset at all) or in `_SKIP_QVR_INCOMPATIBLE` (no
+    deterministic joint). An exemption whose gap has closed therefore
+    fails rather than quietly suppressing a pin the example could now
+    carry.
+    """
+    gallery = {example.stem for example in _gallery_cells()}
+    pinned = set(_QVR_REFERENCE_JOINT)
+    exempt = set(_REFERENCE_PIN_EXEMPT)
+
+    overlap = sorted(pinned & exempt)
+    assert not overlap, (
+        f"{overlap!r} are both pinned and exempt. An example carries a "
+        f"reference or it does not; the two registries must be "
+        f"disjoint so a reader can tell which examples are actually "
+        f"guarded."
+    )
+
+    unpinned = sorted(gallery - pinned - exempt)
+    assert not unpinned, (
+        f"{unpinned!r} ship synthetic data but appear in neither "
+        f"`_QVR_REFERENCE_JOINT` nor `_REFERENCE_PIN_EXEMPT`, so "
+        f"nothing asserts their oracle joint is right. Derive the "
+        f"reference from raw `torch.distributions` and pin every "
+        f"point, or record why the example has no reference."
+    )
+
+    stale = sorted((pinned | exempt) - gallery)
+    assert not stale, (
+        f"{stale!r} are registered but are no longer gallery examples "
+        f"with synthetic data. Drop the rows: a pin on an example that "
+        f"no longer runs reads as coverage and is not."
+    )
+
+    expected_points = len(_gallery_data.perturbation_labels())
+    for stem, values in sorted(_QVR_REFERENCE_JOINT.items()):
+        assert len(values) == expected_points, (
+            f"{stem!r}: pinned at {len(values)} point(s) against a "
+            f"{expected_points}-point set. The pin has to cover every "
+            f"point the equivalence check evaluates, or a "
+            f"data-dependent oracle error hides in the unpinned tail."
+        )
+        for index, value in enumerate(values):
+            assert math.isfinite(value), (
+                f"{stem!r}: pinned value at point {index} is "
+                f"{value!r}. A non-finite pin asserts nothing: every "
+                f"comparison against it is `nan`, which no `<=` "
+                f"rejects."
+            )
+
+    for stem, reason in sorted(_REFERENCE_PIN_EXEMPT.items()):
+        assert reason.strip(), (
+            f"{stem!r}: exempt from the reference pin with an empty "
+            f"reason. An exemption without a stated cause is an "
+            f"unexplained hole in the guarantee."
+        )
+        assert (
+            stem in _SKIP_DATASET_LOAD_FAILED
+            or stem in _SKIP_QVR_INCOMPATIBLE
+        ), (
+            f"{stem!r}: claims exemption from the reference pin "
+            f"({reason}) but is in neither `_SKIP_DATASET_LOAD_FAILED` "
+            f"nor `_SKIP_QVR_INCOMPATIBLE`, so the gallery tier does "
+            f"score a joint for it. Either the gap closed and the row "
+            f"belongs in `_QVR_REFERENCE_JOINT`, or the skip registry "
+            f"is missing the entry that justifies the exemption."
+        )
+
+
+@pytest.mark.parametrize(
+    "example", _gallery_cells(), ids=lambda p: p.stem
+)
+def test_gallery_qvr_reference_pin_holds_at_every_point(
+    example: pathlib.Path,
+) -> None:
+    """The QVR reference reproduces its pinned value at **every**
+    point of the set, not only at the ground truth.
+
+    A ground-truth-only pin and the constant-spread check have
+    complementary blind spots that overlap exactly on the class of
+    error that matters most here. The pin at point 0 sees a constant
+    offset but says nothing about points 1..5. The spread check sees a
+    varying offset but is invariant to a constant one. An oracle error
+    that is *zero at the ground truth and constant across the
+    perturbed points* therefore passes both: the pin holds where it
+    looks, and the spread is unchanged because the same wrong value
+    feeds both sides of every difference. Pinning per point removes
+    that overlap, because a per-point pin is violated by any error
+    that moves at all.
+
+    The concrete shape of that error class in this codebase is a
+    data-dependent term the oracle drops. The dropped term is zero at
+    the ground truth for a fixture whose ground truth sits at the
+    term's zero (a centred residual, a sum-to-zero score, a
+    log-normaliser that cancels at the generating parameters) and
+    non-zero once the data moves.
+    """
+    if example.stem in _SKIP_DATASET_LOAD_FAILED:
+        pytest.skip(
+            f"{example.stem!r}: synthetic-data snippet in the `.md` "
+            f"file fails to load; populate / drop from "
+            f"`_SKIP_DATASET_LOAD_FAILED`."
+        )
+    if example.stem in _SKIP_QVR_INCOMPATIBLE:
+        pytest.skip(
+            f"{example.stem!r}: in-process QVR trace cannot evaluate "
+            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
+        )
+
+    reference = _QVR_REFERENCE_JOINT.get(example.stem)
+    assert reference is not None, (
+        f"{example.stem!r}: reaches the multi-point scoring path with "
+        f"no `_QVR_REFERENCE_JOINT` entry. See "
+        f"`test_gallery_reference_pin_registry_is_total`."
+    )
+
+    dataset = _gallery_data.load_gallery_data(example)
+    assert dataset is not None, (
+        f"{example.stem!r}: `load_gallery_data` returned None even "
+        f"though the example was not in `_SKIP_DATASET_LOAD_FAILED`."
+    )
+
+    points = _gallery_data.points_from_dataset(dataset)
+    labels = _gallery_data.perturbation_labels(len(points))
+    assert len(points) == len(reference), (
+        f"{example.stem!r}: {len(points)} point(s) against "
+        f"{len(reference)} pinned value(s). The point schedule moved "
+        f"under the pin; re-derive every value before re-pinning."
+    )
+
+    probe = QvrProbe()
+    scratch = pathlib.Path("/tmp") / f"qvr_gallery_pin_{example.stem}"
+    scratch.mkdir(exist_ok=True, parents=True)
+    source = example.read_bytes()
+    for index, point in enumerate(points):
+        measured = probe.evaluate(
+            source,
+            example.stem,
+            [point],
+            scratch=scratch,
+            monadic=dataset.monadic,
+            x_input=dataset.x_input,
+            observations=_gallery_data.observations_for_point(
+                dataset, point,
+            ),
+        ).log_densities[0]
+        expected = reference[index]
+        atol = reference_pin_atol(expected)
+        assert abs(measured - expected) <= atol, (
+            f"{example.stem!r} point {index} ({labels[index]}): QVR "
+            f"joint {measured!r} against pinned reference "
+            f"{expected!r}, a gap of {abs(measured - expected):.6g} "
+            f"nats past the {atol:.6g} round-off budget. The oracle's "
+            f"density changed at this point. Re-derive it from raw "
+            f"`torch.distributions` before touching the pin; widening "
+            f"the tolerance would restore exactly the blindness the "
+            f"per-point pin exists to remove."
+        )
+
+
 @pytest.mark.parametrize(
     "example", _gallery_cells(), ids=lambda p: p.stem
 )
@@ -531,20 +1024,33 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     # Finiteness alone is a weak oracle check: a measure bug can return a
     # finite-but-wrong joint (an unclamped latent resampling, a
     # marginalized site double-counted, a plate broadcast inflating the
-    # sum). For every model whose joint was verified against an
-    # independent raw-torch reconstruction, assert the QVR reference
-    # still equals that value. A drift here is either a real oracle
-    # regression or a deliberate ground-truth change that must be
-    # re-verified and the reference updated.
+    # sum). The reference pin is what turns it into a correctness
+    # check, and it is mandatory: an example that reaches this line has
+    # a joint, so a missing entry is a hole in the guarantee and fails
+    # here rather than reverting to the finiteness-only check.
     reference = _QVR_REFERENCE_JOINT.get(example.stem)
-    if reference is not None:
-        assert abs(lp - reference) <= 1e-3 * abs(reference) + 2e-2, (
-            f"{example.stem!r}: QVR joint {lp:.5f} drifted from its "
-            f"independently-verified reference {reference:.5f}. Either the "
-            f"oracle regressed or the ground-truth point changed; "
-            f"re-derive the joint independently before updating the "
-            f"`_QVR_REFERENCE_JOINT` entry."
-        )
+    assert reference is not None, (
+        f"{example.stem!r}: scores a finite QVR joint ({lp!r}) but has "
+        f"no `_QVR_REFERENCE_JOINT` entry, so nothing checks that the "
+        f"value is *right*. Theorem 4.1's constant-spread quotient "
+        f"cannot see a point-independent oracle error, which makes "
+        f"this pin the only thing that can. Re-derive the joint from "
+        f"raw `torch.distributions` (see "
+        f"`test_oracle_reference_strength.py`), pin every point of "
+        f"the set, and add the row. If this example genuinely has no "
+        f"reference, record the reason in `_REFERENCE_PIN_EXEMPT` "
+        f"instead."
+    )
+    atol = reference_pin_atol(reference[0])
+    assert abs(lp - reference[0]) <= atol, (
+        f"{example.stem!r}: QVR joint {lp!r} drifted from its "
+        f"independently-verified reference {reference[0]!r} by "
+        f"{abs(lp - reference[0]):.6g} nats, past the "
+        f"{atol:.6g} round-off budget. Either the oracle regressed or "
+        f"the ground-truth point changed; re-derive the joint "
+        f"independently before updating the `_QVR_REFERENCE_JOINT` "
+        f"entry, and never widen the tolerance to absorb the drift."
+    )
 
 
 @pytest.mark.parametrize(
