@@ -137,8 +137,14 @@ whose sole purpose is to make such an admission loud.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import os
 import pathlib
+import subprocess
+import sys
+import tempfile
 from collections.abc import Sequence
 from typing import Literal
 
@@ -798,13 +804,141 @@ def _offset_atol(dataset: _gallery_data.GalleryDataset) -> float:
     return _equivalence.adaptive_atol(n_obs=n_obs)
 
 
-_QVR_LOG_DENSITY_CACHE: dict[str, list[float]] = {}
-"""Per-example QVR reference values at the gallery point set.
+_PROBE_SCRIPTS_AT_IMPORT = _gallery_data.probe_script_digests()
+"""Identity of the probe sources as this module was imported.
+
+[`run_probe`][tests.transpile._docker.run_probe] copies them into the
+container once per cell, so a mid-session edit to the tree splits the
+run into cells measured under one harness and cells measured under
+another. Each Docker cell re-checks the digests on both sides of its
+container launch, and a move fails the cell as a *session* fault rather
+than reporting the resulting number as a property of the model.
+
+This is not hypothetical. `_reshape.py` is imported by every
+Python-side probe, so a change to how a flat point payload is inflated
+back into the shapes the target declares moves the data all of them
+score. The visible signature is a whole row of one model's cells
+failing together, which is indistinguishable by eye from a genuine
+finding about that model."""
+
+
+_RESHAPE_HELPERS = frozenset({"_reshape.py", "_reshape.jl"})
+"""Helpers [`run_probe`][tests.transpile._docker.run_probe] copies into
+every container alongside the backend's own entrypoint, whatever the
+target language."""
+
+
+def _copied_probe_sources(script_name: str) -> frozenset[str]:
+    """Names of the probe sources one cell's container actually
+    executes: its backend entrypoint plus the reshape helpers.
+
+    Scoping the integrity check to this set keeps the diagnosis exact.
+    A cell is compromised by an edit to a file it copied, and by nothing
+    else; a change to another backend's entrypoint is reported by the
+    cells that copied *that*.
+    """
+    return _RESHAPE_HELPERS | {script_name}
+
+
+_HARNESS_WRITTEN_INPUTS = ("points.json", "shapes.json", "dtypes.json")
+"""Container inputs the harness serialises rather than copies verbatim.
+
+Checked back after the run by
+[`_assert_container_read_our_inputs`][tests.transpile.test_expected_offsets._assert_container_read_our_inputs];
+`probe.py` and the reshape helpers are covered instead by the
+[`PROBE_SCRIPT_DIR`][tests.transpile._gallery_data.PROBE_SCRIPT_DIR]
+digest check, which catches an edit at its source."""
+
+
+def _assert_container_read_our_inputs(
+    scratch: pathlib.Path,
+    emitted: bytes,
+    source_ext: str,
+    payload: list[dict[str, dict[str, float | int | list[float] | list[int]]]],
+    context: str,
+) -> None:
+    """The inputs still in `scratch` are the ones this cell wrote.
+
+    Turns the isolation
+    [`probe_scratch`][tests.transpile._gallery_data.probe_scratch]
+    claims into something measured. A scratch nothing else can name
+    cannot be rewritten under the harness, so the check holds trivially
+    while the path stays private; it earns its place the moment any
+    caller hands `run_probe` a path some other process can guess, which
+    is a one-line change away and otherwise reintroduces the fault in
+    silence.
+
+    The failure it names is precise: the container scored a point set
+    or a program that this cell did not choose, so the log-densities
+    coming back answer a different question than the reference does. The
+    resulting offset is then a difference between two unrelated
+    measures, which is exactly the kind of number the named-constant
+    registry exists to refuse.
+    """
+    source_path = scratch / f"source.{source_ext}"
+    actual_source = source_path.read_bytes()
+    assert actual_source == emitted, (
+        f"{context}: {source_path} holds {len(actual_source)} bytes of "
+        f"program source but this cell emitted {len(emitted)}. Something "
+        f"outside this cell wrote the program the container scored, so "
+        f"the measured offset compares the reference against a program "
+        f"nobody in this test chose."
+    )
+    written = json.loads((scratch / "points.json").read_text())
+    assert written == payload, (
+        f"{context}: {scratch / 'points.json'} no longer holds the point "
+        f"set this cell built. The container therefore scored one set of "
+        f"points while the QVR reference scored another, and the "
+        f"difference between them is not an additive constant of any "
+        f"program. This is the shared-scratch fault: it lands on every "
+        f"backend of the affected model at once and reads as a "
+        f"model-specific finding."
+    )
+    for name in _HARNESS_WRITTEN_INPUTS[1:]:
+        table = scratch / name
+        if not table.exists():
+            continue
+        assert json.loads(table.read_text()), (
+            f"{context}: {table} is present but empty. `run_probe` "
+            f"writes it only when the caller supplies a non-None table, "
+            f"so an empty one is a leftover the probe will read as this "
+            f"cell's shape declaration."
+        )
+
+
+_QVR_LOG_DENSITY_CACHE: dict[str, tuple[str, list[float]]] = {}
+"""Per-example QVR reference values, under the point set they score.
 
 The reference does not depend on the backend, so the ten cells of one
-example share a single in-process evaluation. Keyed by example stem;
-the point set is deterministic, so the cache is a pure memoisation.
-"""
+example share a single in-process evaluation. Each entry therefore
+carries the [`_points_key`][tests.transpile.test_expected_offsets._points_key]
+of the points it was measured at, and a later cell asking for the same
+example under a different point set is refused rather than served.
+
+Without that key the cache is a silent coupling. Every cell rebuilds
+its own points, and only the first one's reach the reference; if point
+generation ever stopped being reproducible within a session, cells two
+through ten would difference this example's reference at one point set
+against a container's log-densities at another. The result is a large
+offset with a large spread, identical across every backend of that
+example, which reads as a finding about the model rather than as a
+harness fault."""
+
+
+def _points_key(points: list[Point]) -> str:
+    """Content digest of a point set, over the wire payload itself.
+
+    Digesting the serialised `params` / `data` rather than object
+    identity is what makes the key mean "the same numbers": two runs
+    that rebuild equal points hit the cache, and any coordinate that
+    moved misses it.
+    """
+    payload = [
+        {"params": point.params, "data": point.data} for point in points
+    ]
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _qvr_log_densities(
@@ -821,10 +955,31 @@ def _qvr_log_densities(
     observations once for the whole set would score the reference at the
     unperturbed data while the container scored the perturbed data, and
     manufacture an offset out of the mismatch.
+
+    A cached value is returned only to a caller asking at the very same
+    points; see
+    [`_QVR_LOG_DENSITY_CACHE`][tests.transpile.test_expected_offsets._QVR_LOG_DENSITY_CACHE]
+    for why serving it to any other caller would be a defect rather than
+    a memoisation.
     """
+    key = _points_key(points)
     cached = _QVR_LOG_DENSITY_CACHE.get(example.stem)
     if cached is not None:
-        return cached
+        cached_key, cached_values = cached
+        if cached_key != key:
+            raise RuntimeError(
+                f"{example.stem!r}: the reference log-densities cached "
+                f"for this example were measured at point set "
+                f"{cached_key[:16]}, but this cell built {key[:16]}. "
+                f"Point generation is not reproducible within this "
+                f"session, so the ten cells of this example are no "
+                f"longer measuring one thing: each container would be "
+                f"scored at its own points and differenced against a "
+                f"reference scored at the first cell's. Fix the source "
+                f"of the divergence; nothing about the backends can be "
+                f"concluded until the point set is stable."
+            )
+        return cached_values
     probe = QvrProbe()
     source = example.read_bytes()
     values: list[float] = []
@@ -842,7 +997,7 @@ def _qvr_log_densities(
                 ),
             ).log_densities
         )
-    _QVR_LOG_DENSITY_CACHE[example.stem] = values
+    _QVR_LOG_DENSITY_CACHE[example.stem] = (key, values)
     return values
 
 
@@ -1053,6 +1208,379 @@ def test_no_unexplained_offsets_are_registered() -> None:
     )
 
 
+def _stage_probe_inputs(
+    scratch: pathlib.Path,
+    payload: list[dict[str, dict[str, float | int | list[float] | list[int]]]],
+) -> None:
+    """Write a point set into `scratch` the way
+    [`run_probe`][tests.transpile._docker.run_probe] does.
+
+    Only the one file the demonstration below turns on. `run_probe`
+    writes it unconditionally with `write_text`, so a second writer
+    aimed at the same directory replaces it rather than colliding with
+    it, and nothing in the layout records who wrote it.
+    """
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "points.json").write_text(json.dumps(payload))
+
+
+def test_a_shared_scratch_swaps_the_point_set_under_its_writer() -> None:
+    """The corruption channel a cell-derived scratch path opens, shown
+    on the file layout itself, and shown closed by
+    [`probe_scratch`][tests.transpile._gallery_data.probe_scratch].
+
+    Two processes measuring the same cell derive the same path from
+    `(model, backend)`, so the second one's `points.json` lands on top
+    of the first one's. The first process then launches its container
+    against the second's point set, reads back log-densities for points
+    it never chose, and differences them against a QVR reference scored
+    at its own. Nothing raises: the offset simply comes out wrong, by
+    whatever the two point sets differ by, on *every* backend of that
+    model at once.
+
+    The private path forbids the same sequence, which is the whole
+    content of the fix: the isolation is structural rather than a
+    convention callers are asked to respect.
+    """
+    ours: list[
+        dict[str, dict[str, float | int | list[float] | list[int]]]
+    ] = [{"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}]
+    theirs: list[
+        dict[str, dict[str, float | int | list[float] | list[int]]]
+    ] = [{"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}]
+
+    shared_root = _gallery_data.probe_scratch("shared-scratch-demo")
+    shared_ours = shared_root / "qvr_offset_changepoint_stan"
+    shared_theirs = shared_root / "qvr_offset_changepoint_stan"
+    _stage_probe_inputs(shared_ours, ours)
+    _stage_probe_inputs(shared_theirs, theirs)
+    assert json.loads((shared_ours / "points.json").read_text()) == theirs, (
+        "the cell-derived path did not actually alias, so this "
+        "demonstration proves nothing. Both writers must resolve to one "
+        "directory for the swap to be the fault it is."
+    )
+
+    private_ours = _gallery_data.probe_scratch("offset-changepoint-stan")
+    private_theirs = _gallery_data.probe_scratch("offset-changepoint-stan")
+    assert private_ours != private_theirs, (
+        f"two runs of one cell were handed the same directory "
+        f"{private_ours}, so the label is doing the work the freshness "
+        f"of the directory is supposed to do. The path must not be a "
+        f"function of the cell."
+    )
+    _stage_probe_inputs(private_ours, ours)
+    _stage_probe_inputs(private_theirs, theirs)
+    assert json.loads((private_ours / "points.json").read_text()) == ours, (
+        "a second writer using the same label reached this cell's "
+        "scratch. `probe_scratch` must return a directory no other call "
+        "names, or the harness is back to trading point sets between "
+        "concurrent runs."
+    )
+
+
+def test_the_input_check_catches_a_rewritten_program_or_point_set() -> None:
+    """
+    [`_assert_container_read_our_inputs`][tests.transpile.test_expected_offsets._assert_container_read_our_inputs]
+    fires on exactly the two rewrites a foreign writer performs.
+
+    The check sits on the path that is expected never to trip, so
+    nothing else in the suite would notice if it stopped asserting. Both
+    rewrites are staged here because they are separately reachable: a
+    concurrent run of the same cell on a different tree replaces the
+    program, and one at a different point of the schedule replaces the
+    point set, and either alone is enough to make the container answer a
+    question the reference never asked.
+    """
+    scratch = _gallery_data.probe_scratch("input-check-demo")
+    emitted = b"// emitted by this cell\n"
+    ours: list[
+        dict[str, dict[str, float | int | list[float] | list[int]]]
+    ] = [{"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}]
+    theirs: list[
+        dict[str, dict[str, float | int | list[float] | list[int]]]
+    ] = [{"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}]
+
+    (scratch / "source.js").write_bytes(emitted)
+    _stage_probe_inputs(scratch, ours)
+    _assert_container_read_our_inputs(
+        scratch, emitted, "js", ours, "demo@demo"
+    )
+
+    _stage_probe_inputs(scratch, theirs)
+    with pytest.raises(AssertionError, match=r"points\.json"):
+        _assert_container_read_our_inputs(
+            scratch, emitted, "js", ours, "demo@demo"
+        )
+
+    _stage_probe_inputs(scratch, ours)
+    (scratch / "source.js").write_bytes(b"// emitted by somebody else\n")
+    with pytest.raises(AssertionError, match=r"program source"):
+        _assert_container_read_our_inputs(
+            scratch, emitted, "js", ours, "demo@demo"
+        )
+
+    (scratch / "source.js").write_bytes(emitted)
+    (scratch / "shapes.json").write_text("{}")
+    with pytest.raises(AssertionError, match=r"present but empty"):
+        _assert_container_read_our_inputs(
+            scratch, emitted, "js", ours, "demo@demo"
+        )
+
+
+def test_the_reference_cache_refuses_a_second_point_set() -> None:
+    """The shared QVR reference is served only to the point set it was
+    measured at.
+
+    Ten cells of one example difference their container against a single
+    in-process reference evaluation, and each of them rebuilds its own
+    points. That coupling is safe exactly as long as those rebuilds
+    agree, and it is silent when they do not: the offsets would come out
+    wrong by whatever the two point sets differ by, on every backend of
+    that example at once. The guard turns the agreement from an
+    assumption into a measured precondition, so a divergence is reported
+    where it happens instead of surfacing as a row of model failures.
+    """
+    stem = "_reference_cache_guard"
+    example = pathlib.Path(stem).with_suffix(".qvr")
+    dataset = _gallery_data.load_gallery_data(_example_path("changepoint"))
+    assert dataset is not None
+    scratch = _gallery_data.probe_scratch("reference-cache-guard")
+
+    mine = [Point(params={"tau": 50.5}, data={"y": [3.0, 4.0]})]
+    theirs = [Point(params={"tau": 50.5}, data={"y": [3.0, 4.5]})]
+    assert _points_key(mine) != _points_key(theirs)
+    assert _points_key(mine) == _points_key(
+        [Point(params={"tau": 50.5}, data={"y": [3.0, 4.0]})]
+    ), (
+        "the point-set key is not a content digest, so it would miss "
+        "for a rebuilt but identical point set and the ten cells would "
+        "each pay for their own reference evaluation."
+    )
+
+    _QVR_LOG_DENSITY_CACHE[stem] = (_points_key(mine), [-131.5])
+    try:
+        assert _qvr_log_densities(example, dataset, mine, scratch) == [
+            -131.5
+        ]
+        with pytest.raises(RuntimeError, match=r"point set"):
+            _qvr_log_densities(example, dataset, theirs, scratch)
+    finally:
+        del _QVR_LOG_DENSITY_CACHE[stem]
+
+
+def test_probe_scratch_is_fresh_and_unshared_for_every_cell() -> None:
+    """Every cell of the matrix, and every repeat of a cell, gets its
+    own empty directory.
+
+    The repeats are the load-bearing half. A path derived from
+    `(model, backend)` also satisfies "pairwise distinct across cells";
+    what it fails is being distinct across *runs* of one cell, which is
+    what lets a stale compiled model or a leftover shape table from the
+    previous run reach this run's container.
+    """
+    labels = [
+        f"offset-{stem}-{backend}"
+        for backend, stem in sorted(_EXPECTED_OFFSET)
+    ]
+    labels.extend(labels[:16])
+    handed_out: list[pathlib.Path] = []
+    for label in labels:
+        scratch = _gallery_data.probe_scratch(label)
+        assert scratch.is_dir(), f"{label}: {scratch} was not created"
+        assert not sorted(scratch.iterdir()), (
+            f"{label}: {scratch} came back holding "
+            f"{sorted(p.name for p in scratch.iterdir())!r}. A probe "
+            f"scratch must be empty, or the container reads an artefact "
+            f"of some earlier run as an input of this one."
+        )
+        handed_out.append(scratch)
+
+    assert len(set(handed_out)) == len(handed_out), (
+        f"{len(handed_out) - len(set(handed_out))} of {len(handed_out)} "
+        f"scratch directories were handed out more than once. Two runs "
+        f"sharing a directory exchange `points.json`, `source.*` and "
+        f"`result.json`."
+    )
+    for scratch in handed_out:
+        nested = [
+            other
+            for other in handed_out
+            if other != scratch and scratch in other.parents
+        ]
+        assert not nested, (
+            f"{scratch} contains {nested!r}. A nested scratch is not "
+            f"empty from its parent's point of view, so the parent's "
+            f"emptiness check would pass on artefacts the child wrote."
+        )
+
+
+def test_the_root_sweep_spares_live_roots_and_reclaims_dead_ones() -> None:
+    """
+    [`sweep_abandoned_probe_roots`][tests.transpile._gallery_data.sweep_abandoned_probe_roots]
+    removes a root whose owner is gone and leaves every other directory
+    alone.
+
+    A per-run directory that is never reclaimed is the cost of the
+    isolation, and a killed run never reaches its exit hook. The sweep
+    pays that cost back, but it runs while other sessions may be
+    measuring, so what it must *not* do carries as much weight as what
+    it must: this process's own root, a root owned by a live pid, and
+    anything whose name it does not recognise all have to survive it.
+    """
+    mine = _gallery_data.probe_scratch("root-sweep-live")
+    my_root = _gallery_data.probe_scratch_root()
+    assert my_root is not None, "no per-process root to protect"
+    assert my_root.parent == _gallery_data.PROBE_SCRATCH_PARENT, (
+        f"the process root {my_root} does not sit under "
+        f"{_gallery_data.PROBE_SCRATCH_PARENT}, which is the directory "
+        f"the default sweep walks and the one a container bind-mount "
+        f"can reach. A root elsewhere is swept by nobody."
+    )
+
+    # The sweep is pointed at a directory of this test's own so that
+    # exercising it cannot reach a root a concurrent session is
+    # measuring under. That is not a convenience: deleting a live root
+    # destroys another run's probe inputs mid-container.
+    parent = pathlib.Path(
+        tempfile.mkdtemp(prefix="root-sweep-", dir=my_root)
+    )
+    dead = parent / "quivers-probe-99999999-deadowner"
+    (dead / "leftover").mkdir(parents=True)
+    live = parent / f"quivers-probe-{os.getpid()}-liveowner"
+    (live / "in_use").mkdir(parents=True)
+    unrelated = parent / "quivers-probe-not-a-pid"
+    unrelated.mkdir(parents=True)
+
+    swept = _gallery_data.sweep_abandoned_probe_roots(parent)
+    assert dead in swept and not dead.exists(), (
+        f"the sweep left {dead}, whose owning pid names no process. "
+        f"Per-run directories that nothing reclaims accumulate for "
+        f"every killed run, and the isolation this buys is what makes "
+        f"per-run directories necessary in the first place."
+    )
+    assert live.exists(), (
+        f"the sweep removed {live}, which a live pid owns. Removing a "
+        f"root in use deletes another session's probe inputs "
+        f"mid-measurement, which is a worse fault than the sharing "
+        f"private roots exist to prevent."
+    )
+    assert unrelated.exists(), (
+        f"the sweep removed {unrelated}, whose name carries no pid. It "
+        f"must claim only directories it can prove are abandoned."
+    )
+    assert my_root.exists() and mine.exists(), (
+        f"the sweep reached outside {parent} and touched this process's "
+        f"own root {my_root}."
+    )
+
+
+def test_probe_scratch_root_differs_between_processes() -> None:
+    """A second interpreter gets a different root.
+
+    This is the dimension a fixed `/tmp/<prefix>_<model>_<backend>`
+    path fails outright, and it is the dimension that matters on a
+    machine where more than one session runs the tier at once. Measured
+    by spawning an interpreter rather than argued from the naming
+    scheme, because the naming scheme is what a regression would
+    change.
+    """
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import tests.transpile._gallery_data as g;"
+            "print(g.probe_scratch('offset-probe-root'))",
+        ],
+        cwd=repo_root,
+        env={**os.environ, "PYTHONPATH": str(repo_root)},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert completed.returncode == 0, (
+        f"the spawned interpreter exited {completed.returncode}\n"
+        f"stdout: {completed.stdout}\nstderr: {completed.stderr}"
+    )
+    other = pathlib.Path(completed.stdout.strip())
+    mine = _gallery_data.probe_scratch("offset-probe-root")
+    root = _gallery_data.probe_scratch_root()
+    assert root is not None, (
+        f"no per-process scratch root exists after handing out {mine}, "
+        f"so the path came from a location every process on the machine "
+        f"can name and reach. That is the whole fault: two sessions "
+        f"running one cell then write the same `points.json` and read "
+        f"the same `result.json`."
+    )
+    assert mine.parent == root, (
+        f"{mine} is not under this process's root {root}, so the root "
+        f"does not in fact contain what the process hands out and "
+        f"proves nothing about isolation."
+    )
+    assert other.parent != root, (
+        f"a separate interpreter placed its scratch {other} under the "
+        f"same root {root} this process uses, so two concurrent runs of "
+        f"one cell would trade probe inputs. The root must be private "
+        f"to the process."
+    )
+    assert other != mine
+
+
+def test_the_probe_script_guard_names_the_helper_that_moved() -> None:
+    """
+    [`assert_probe_scripts_unchanged`][tests.transpile._gallery_data.assert_probe_scripts_unchanged]
+    rejects a rewritten, a removed, and an added probe source, and
+    accepts an unchanged tree.
+
+    The guard is what turns "someone edited the harness mid-run" from an
+    unattributable row of failures into a named session fault, so it has
+    to be shown firing rather than assumed to. All three mutations are
+    exercised because the interesting edit is not only a rewrite: a
+    helper that appears or disappears changes what the container
+    imports just as much.
+    """
+    baseline = _gallery_data.probe_script_digests()
+    assert "_reshape.py" in baseline, (
+        f"the shared reshape helper is missing from "
+        f"{_gallery_data.PROBE_SCRIPT_DIR}; the digest map covers "
+        f"{sorted(baseline)!r}. Every Python-side probe imports it, so "
+        f"its absence is itself the fault this guard exists to name."
+    )
+    _gallery_data.assert_probe_scripts_unchanged(baseline)
+
+    rewritten = dict(baseline)
+    rewritten["_reshape.py"] = "0" * 64
+    with pytest.raises(RuntimeError, match=r"_reshape\.py"):
+        _gallery_data.assert_probe_scripts_unchanged(rewritten)
+
+    removed = dict(baseline)
+    del removed["_reshape.py"]
+    with pytest.raises(RuntimeError, match=r"_reshape\.py"):
+        _gallery_data.assert_probe_scripts_unchanged(removed)
+
+    added = dict(baseline)
+    added["_not_a_probe_source.py"] = "0" * 64
+    with pytest.raises(RuntimeError, match=r"_not_a_probe_source\.py"):
+        _gallery_data.assert_probe_scripts_unchanged(added)
+
+    # Scoping is what keeps the diagnosis on the cells an edit actually
+    # reached. A backend entrypoint no cell copied is out of scope for
+    # that cell; the shared reshape helper never is.
+    scope = _copied_probe_sources("stan.py")
+    assert "_reshape.py" in scope and "_reshape.jl" in scope
+    moved_elsewhere = dict(baseline)
+    moved_elsewhere["webppl.py"] = "0" * 64
+    _gallery_data.assert_probe_scripts_unchanged(moved_elsewhere, scope)
+    with pytest.raises(RuntimeError, match=r"_reshape\.py"):
+        _gallery_data.assert_probe_scripts_unchanged(rewritten, scope)
+    moved_entrypoint = dict(baseline)
+    moved_entrypoint["stan.py"] = "0" * 64
+    with pytest.raises(RuntimeError, match=r"stan\.py"):
+        _gallery_data.assert_probe_scripts_unchanged(moved_entrypoint, scope)
+
+    _gallery_data.assert_probe_scripts_unchanged(baseline)
+
+
 @pytest.mark.requires_docker
 @pytest.mark.parametrize(
     "cell", sorted(_EXPECTED_OFFSET), ids=lambda c: f"{c[0]}-{c[1]}"
@@ -1096,27 +1624,42 @@ def test_backend_offset_matches_registry(cell: tuple[str, str]) -> None:
 
     points = _gallery_data.points_from_dataset(dataset)
     labels = _gallery_data.perturbation_labels(len(points))
-    scratch = pathlib.Path("/tmp") / f"qvr_offset_{stem}_{backend}"
-    scratch.mkdir(exist_ok=True, parents=True)
+    copied = _copied_probe_sources(script_name)
+    _gallery_data.assert_probe_scripts_unchanged(
+        _PROBE_SCRIPTS_AT_IMPORT, copied
+    )
+    scratch = _gallery_data.probe_scratch(f"offset-{stem}-{backend}")
+    assert not sorted(scratch.iterdir()), (
+        f"{backend}@{stem}: the scratch {scratch} already holds "
+        f"{sorted(p.name for p in scratch.iterdir())!r} before the probe "
+        f"has written anything. A probe scratch must be created fresh "
+        f"for the run; an inherited artefact (a compiled model, a "
+        f"`shapes.json` this call does not overwrite) is read by the "
+        f"container as if this cell had produced it."
+    )
 
     qvr_lps = _qvr_log_densities(example, dataset, points, scratch)
     emitted = transpile(parse(example.read_text()), target=backend)
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
+    script_path = _gallery_data.PROBE_SCRIPT_DIR / script_name
+    payload = [
+        {"params": point.params, "data": point.data} for point in points
+    ]
     raw_result = _docker.run_probe(
         image=image,
         script=script_path,
         source=emitted,
         source_ext=source_ext,
-        points=[
-            {"params": point.params, "data": point.data}
-            for point in points
-        ],
+        points=payload,
         scratch=scratch,
         shapes=_shapes_from_dataset(dataset),
         dtypes=_dtypes_from_dataset(dataset),
         timeout=600.0,
+    )
+    _assert_container_read_our_inputs(
+        scratch, emitted, source_ext, payload, f"{backend}@{stem}"
+    )
+    _gallery_data.assert_probe_scripts_unchanged(
+        _PROBE_SCRIPTS_AT_IMPORT, copied
     )
     backend_lps = [float(x) for x in raw_result["log_densities"]]
 

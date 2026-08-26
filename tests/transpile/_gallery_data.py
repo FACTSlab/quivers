@@ -26,15 +26,29 @@ which:
 The extraction is fail-soft: examples whose data-gen block is
 absent or whose snippet raises return None, and the caller skips
 the cell with a clear reason.
+
+Alongside the data it also owns the *isolation* of the out-of-process
+measurements the gallery tiers run against that data:
+[`probe_scratch`][tests.transpile._gallery_data.probe_scratch] hands
+out the bind-mounted directory a container reads its inputs from, and
+[`probe_script_digests`][tests.transpile._gallery_data.probe_script_digests]
+records the identity of the probe sources the harness copies into it.
+Both exist because a measurement that shares either with anything else
+stops being a measurement of the cell under test; see `probe_scratch`
+for what sharing actually costs.
 """
 
 from __future__ import annotations
 
 import ast
+import atexit
 import dataclasses
 import hashlib
 import math
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 import torch
@@ -54,6 +68,278 @@ _GALLERY_DOCS = (
     Path(__file__).resolve().parents[2] / "docs" / "examples"
 )
 _GALLERY_SOURCE = _GALLERY_DOCS / "source"
+
+PROBE_SCRIPT_DIR = Path(__file__).resolve().parent / "probes" / "_scripts"
+"""Directory of the per-backend probe entrypoints and their shared
+reshape helpers.
+
+[`run_probe`][tests.transpile._docker.run_probe] copies the selected
+entrypoint plus `_reshape.py` / `_reshape.jl` out of here and into the
+bind-mounted scratch at launch time, so the container executes whatever
+these files hold *at that instant* rather than whatever they held when
+the session started."""
+
+
+PROBE_SCRATCH_PARENT = Path("/tmp")
+"""Parent of the per-process probe-scratch root.
+
+`/tmp` rather than [`tempfile.gettempdir`][tempfile.gettempdir]:
+`run_probe` bind-mounts the scratch into a container, and `/tmp`
+(`/private/tmp` once resolved) is on the host-sharing list every Docker
+installation the matrix runs against exposes by default, while the
+per-user `$TMPDIR` on macOS is not guaranteed to be."""
+
+
+_PROBE_SCRATCH_ROOT: Path | None = None
+"""Lazily-created root holding every scratch this *process* hands out.
+
+One per interpreter, named after the pid and a
+[`tempfile`][tempfile.mkdtemp] suffix, and removed at interpreter exit.
+Two concurrent pytest processes on one machine therefore never see each
+other's probe inputs."""
+
+
+_PROBE_LABEL_RE = re.compile(r"[^0-9A-Za-z._-]+")
+
+_PROBE_ROOT_RE = re.compile(r"^quivers-probe-(\d+)-[0-9A-Za-z_]+$")
+"""Shape of a probe-scratch root name, capturing the owning pid.
+
+The pid is what makes an abandoned root identifiable. A root is swept
+at interpreter exit, which a killed run never reaches, so the leftovers
+have to be distinguishable from the roots of processes still using
+them, and only the owner's pid does that."""
+
+
+def sweep_abandoned_probe_roots(parent: Path | None = None) -> list[Path]:
+    """Remove probe-scratch roots whose owning interpreter is gone.
+
+    A root belonging to a live pid is in use right now, possibly by
+    another session on this machine, and is never touched. A root whose
+    pid names no process belongs to nobody: the run that owned it was
+    killed before its exit hook could sweep it, and what it holds (a
+    compiled model, a point set, a container's result) is of no use to
+    anyone.
+
+    Parameters
+    ----------
+    parent
+        Directory to sweep, defaulting to
+        [`PROBE_SCRATCH_PARENT`][tests.transpile._gallery_data.PROBE_SCRATCH_PARENT].
+        A test names its own so that exercising the sweep cannot reach
+        the roots of concurrent sessions, which is the one thing this
+        function must never do.
+
+    Returns
+    -------
+    list[Path]
+        The roots removed, in sorted order, so a caller can report what
+        a run reclaimed.
+    """
+    root_parent = PROBE_SCRATCH_PARENT if parent is None else parent
+    swept: list[Path] = []
+    for entry in sorted(root_parent.glob("quivers-probe-*")):
+        if not entry.is_dir():
+            continue
+        match = _PROBE_ROOT_RE.match(entry.name)
+        if match is None:
+            continue
+        pid = int(match.group(1))
+        if pid <= 0:
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            # No such process: the owner is gone and cannot come back
+            # under this pid without the OS having recycled it, which
+            # would make the directory its own anyway.
+            shutil.rmtree(entry, ignore_errors=True)
+            swept.append(entry)
+        except (OverflowError, PermissionError):
+            # Out of pid range, or owned by another user whose live
+            # process this one may not signal. Either way the root is
+            # not established as abandoned, so it stays.
+            continue
+    return swept
+
+
+def probe_scratch(label: str) -> Path:
+    """A freshly-created, empty, process-private directory for one
+    out-of-process probe run.
+
+    Every caller of [`run_probe`][tests.transpile._docker.run_probe]
+    must route its `scratch` through here, and must call it again for
+    each run rather than reusing the path it got back.
+
+    Why a fixed path is not merely untidy
+    -------------------------------------
+
+    `run_probe` writes the container's *inputs* (`source.<ext>`,
+    `points.json`, `shapes.json`, `dtypes.json`, `probe.py`,
+    `_reshape.py`, `_reshape.jl`) into the directory, launches the
+    container against it, and reads the container's `result.json` back
+    out. A path derived from the cell alone, `/tmp/<prefix>_<model>_<backend>`,
+    is therefore a rendezvous point that is shared by
+
+    1. every earlier run of the same cell, whose artefacts the writer
+       does not remove: a compiled Stan binary, a container-written
+       `__pycache__`, a `shapes.json` a later caller may not overwrite
+       because it passed `None`;
+    2. every *concurrent* process running that cell, including one on a
+       different checkout of the tree, which may write a different
+       point set into `points.json` between this process's write and
+       its container's read, or leave a `result.json` this process then
+       reads as its own answer.
+
+    Neither corruption announces itself. The container still runs, the
+    probe still returns finite log-densities, and the harness attributes
+    the resulting mismatch to the *model*. Worse, the corruption is
+    shared: a foreign point set in a scratch is not a property of any
+    one backend, so the same wrong number lands on every backend of that
+    model at once and reads as a genuine, model-specific finding rather
+    than as a harness fault.
+
+    The directory returned here is created fresh by
+    [`tempfile.mkdtemp`][tempfile.mkdtemp], so it is empty, is not the
+    path any other call returned, and cannot be guessed by another
+    process. `label` only makes the path legible while a run is in
+    flight; it carries no uniqueness, and repeating it is fine.
+
+    Parameters
+    ----------
+    label
+        Human-readable tag for the run, conventionally
+        `"<tier>-<model>-<backend>"`. Characters outside
+        `[0-9A-Za-z._-]` are folded to `_`.
+
+    Returns
+    -------
+    Path
+        A directory that exists, is empty, and is returned exactly once.
+
+    Raises
+    ------
+    ValueError
+        When `label` folds to the empty string, which would leave the
+        run untraceable in a directory listing.
+    """
+    global _PROBE_SCRATCH_ROOT
+    if _PROBE_SCRATCH_ROOT is None:
+        sweep_abandoned_probe_roots()
+        root = Path(
+            tempfile.mkdtemp(
+                prefix=f"quivers-probe-{os.getpid()}-",
+                dir=PROBE_SCRATCH_PARENT,
+            )
+        )
+        # A container may leave artefacts the host user cannot unlink
+        # (a `__pycache__` written under a different uid mapping).
+        # Interpreter shutdown is not the place to raise about that, so
+        # the sweep is best-effort; what matters for correctness is that
+        # nothing is ever *read* from a reused directory, which
+        # `mkdtemp` already guarantees.
+        atexit.register(shutil.rmtree, root, True)
+        _PROBE_SCRATCH_ROOT = root
+    safe = _PROBE_LABEL_RE.sub("_", label).strip("_")
+    if not safe:
+        raise ValueError(
+            f"probe_scratch label {label!r} folds to the empty string, "
+            f"so the run would be anonymous in a directory listing. "
+            f"Pass a tag with at least one of [0-9A-Za-z._-]."
+        )
+    return Path(tempfile.mkdtemp(prefix=f"{safe}-", dir=_PROBE_SCRATCH_ROOT))
+
+
+def probe_scratch_root() -> Path | None:
+    """The per-process scratch root, or None before the first
+    [`probe_scratch`][tests.transpile._gallery_data.probe_scratch] call.
+
+    Exposed so a test can assert the root differs between processes,
+    which is the property a fixed `/tmp/<prefix>_<cell>` path violates
+    and the one that keeps two concurrent runs from trading inputs.
+    """
+    return _PROBE_SCRATCH_ROOT
+
+
+def probe_script_digests() -> dict[str, str]:
+    """SHA-256 of every file in
+    [`PROBE_SCRIPT_DIR`][tests.transpile._gallery_data.PROBE_SCRIPT_DIR],
+    keyed by file name.
+
+    `run_probe` copies these into the container at launch, so they are
+    read from the working tree once per cell rather than once per
+    session. An edit that lands mid-session therefore splits the run:
+    cells measured before it used one helper and cells measured after
+    it used another, with no record of which.
+
+    `_reshape.py` makes that split maximally deceptive. It is the one
+    file every Python-side probe imports, so a change to how it inflates
+    a flat point payload back into the shapes the target declares moves
+    the data *every* backend scores, and the resulting failure lands on
+    all of them at once for whichever model was in flight.
+
+    Compare a baseline captured at import against a fresh call to detect
+    it; see
+    [`assert_probe_scripts_unchanged`][tests.transpile._gallery_data.assert_probe_scripts_unchanged].
+    """
+    return {
+        entry.name: hashlib.sha256(entry.read_bytes()).hexdigest()
+        for entry in sorted(PROBE_SCRIPT_DIR.iterdir())
+        if entry.is_file()
+    }
+
+
+def assert_probe_scripts_unchanged(
+    baseline: dict[str, str], names: frozenset[str] | None = None,
+) -> None:
+    """Fail when the probe sources moved since `baseline` was taken.
+
+    Parameters
+    ----------
+    baseline
+        A [`probe_script_digests`][tests.transpile._gallery_data.probe_script_digests]
+        mapping captured earlier, conventionally at module import.
+    names
+        Restrict the comparison to these file names. A cell copies only
+        its own backend entrypoint and the two reshape helpers into its
+        container, so those are the only files whose movement can
+        change what *that* cell measured; an edit to some other
+        backend's entrypoint is a fault of the cells that copied it,
+        and each of those reports it for itself. Passing None compares
+        the whole directory.
+
+    Raises
+    ------
+    RuntimeError
+        When any file in scope was added, removed, or rewritten. The
+        message names the files, because the interesting question is
+        which cells the edit contaminated, and that is answered by
+        which helper moved.
+    """
+    current = probe_script_digests()
+    candidates = set(baseline) | set(current)
+    if names is not None:
+        candidates &= names
+    moved = sorted(
+        name
+        for name in candidates
+        if baseline.get(name) != current.get(name)
+    )
+    if not moved:
+        return
+    raise RuntimeError(
+        f"the probe sources under {PROBE_SCRIPT_DIR} changed while this "
+        f"session was measuring: {moved!r}. `run_probe` copies them into "
+        f"the container at launch, so a cell measured before the edit "
+        f"and a cell measured after it ran against different harnesses, "
+        f"and the numbers this cell reported are of unknown provenance. "
+        f"This is a fault in the session, not in any model: re-run the "
+        f"tier against a tree nothing else is writing to. A change to "
+        f"`_reshape.py` in particular moves the data every Python-side "
+        f"backend scores, so it surfaces as a whole row of one model's "
+        f"cells failing together, which is indistinguishable by eye "
+        f"from a finding about that model."
+    )
+
 
 # The synthetic-data block is delimited by `### Generating synthetic
 # data` on the start and the next `### ` or `## ` heading on the
@@ -1436,6 +1722,9 @@ __all__ = [
     "PERTURB_DATA",
     "PERTURB_GROUND_TRUTH",
     "PERTURB_LATENTS",
+    "PROBE_SCRATCH_PARENT",
+    "PROBE_SCRIPT_DIR",
+    "assert_probe_scripts_unchanged",
     "gallery_examples_with_data",
     "is_discrete_support",
     "load_gallery_data",
@@ -1445,6 +1734,10 @@ __all__ = [
     "perturbation_labels",
     "point_from_dataset",
     "points_from_dataset",
+    "probe_scratch",
+    "probe_scratch_root",
+    "probe_script_digests",
+    "sweep_abandoned_probe_roots",
     "site_supports",
     "varying_observation_names",
 ]
