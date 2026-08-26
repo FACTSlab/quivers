@@ -56,6 +56,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    CSReal,
     ConstraintSpec,
     Dim,
     DimDynamic,
@@ -570,11 +571,53 @@ class JAGSRenderer(RendererBase):
             self.marginalize(ctx, node)
             return
         if isinstance(node, IRReturn):
+            self._emit_export(ctx, node.names)
             return
         raise UnsupportedConstruct(
             f"qvr-{_BACKEND}",
             [f"node:{type(node).__name__}"],
         )
+
+    def _emit_export(
+        self, ctx: _JAGSCtx, names: tuple[str, ...]
+    ) -> None:
+        """Expose each returned name as a deterministic relation.
+
+        The BUGS language has no `return`: a model block declares
+        relations and the inference engine reports whatever the caller
+        monitors. The construct that carries "this quantity is part of
+        what the model reports" is therefore a deterministic relation
+        under a name of its own, `<name>_value <- <name>`, which is
+        the same idiom the Stan renderer uses for its
+        `generated quantities` alias and the PyMC renderer for its
+        `pymc.Deterministic`. A relation adds no term to the joint
+        (a deterministic node contributes nothing to the deviance),
+        so the export rides alongside the density rather than into it.
+
+        The alias reuses the deterministic emitter, which supplies the
+        `for (m_<axis> in 1:N)` nest and the per-iteration indexing on
+        both sides when the exported name is plated.
+        """
+        for name in names:
+            plate = ctx.decl_plates.get(name)
+            if plate is None:
+                raise UnsupportedConstruct(
+                    f"qvr-{_BACKEND}",
+                    [
+                        f"return:unbound:{name}: the program returns a "
+                        f"name no sample, observe, let, or data input "
+                        f"binds, so the emit has no relation to alias"
+                    ],
+                )
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=f"{name}_value",
+                    expr=LetExprVar(name=name),
+                    constraint=CSReal(),
+                    plate=plate,
+                ),
+            )
 
     # ------------------------------------------------------------------
     # Sample / observe emission

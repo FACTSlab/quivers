@@ -19,6 +19,13 @@ substituting each free RV with its constrained-space value from
 ``Point.data``. The constant-spread tolerance in the harness then
 absorbs the per-fixture normalisation offset between QVR's and
 PyMC's internal conventions.
+
+When `/io/export_names.json` is present the probe also reports the
+program's exported value at each point. ``build_model`` hands back
+the model rather than a value, so PyMC's export surface is
+[`pymc.Deterministic`][pymc.Deterministic]: the renderer registers
+each returned name under ``<name>_value`` and the probe evaluates
+that model variable with every free RV pinned to the point.
 """
 import json
 import pathlib
@@ -28,7 +35,12 @@ import pymc
 import pytensor
 import pytensor.tensor as pt
 
-from _reshape import load_tables, reshape_point
+from _reshape import (
+    as_nested,
+    load_export_names,
+    load_tables,
+    reshape_point,
+)
 
 
 def _arr(value):
@@ -117,13 +129,65 @@ def _joint_logp_constrained(
     return float(total.eval())
 
 
+def _exported_values(
+    model: pymc.Model,
+    params: dict,
+    export_names: list,
+) -> list:
+    """Evaluate each `<name>_value` deterministic at the point.
+
+    The PyMC renderer registers one
+    [`pymc.Deterministic`][pymc.Deterministic] per returned name, so a
+    missing entry means the emit dropped the program's return clause
+    and the model denotes the right joint under the wrong kernel. That
+    is a renderer defect, so it raises here rather than reporting a
+    shorter export vector the comparison would silently skip.
+
+    Every free RV is replaced by its constrained-space value from the
+    point before evaluation, exactly as
+    :func:`_joint_logp_constrained` does, so the returned value is a
+    deterministic function of the point rather than of whatever the
+    graph would draw.
+    """
+    substitutions: dict[object, object] = {}
+    for rv in model.free_RVs:
+        if rv.name not in params:
+            msg = (
+                f"pymc probe: missing param for free RV {rv.name!r}; "
+                f"available: {sorted(params)}"
+            )
+            raise RuntimeError(msg)
+        substitutions[rv] = pt.as_tensor(params[rv.name]).astype(rv.dtype)
+
+    values = []
+    for name in export_names:
+        alias = f"{name}_value"
+        variable = model.named_vars.get(alias)
+        if variable is None:
+            msg = (
+                f"pymc probe: the emitted model registers no "
+                f"{alias!r} deterministic, so it exposes nothing for "
+                f"the QVR program's exported {name!r}. Available "
+                f"model variables: {sorted(model.named_vars)}"
+            )
+            raise RuntimeError(msg)
+        if substitutions:
+            variable = pytensor.graph.replace.graph_replace(
+                variable, substitutions, strict=False,
+            )
+        values.append(as_nested(np.asarray(variable.eval())))
+    return values
+
+
 def main() -> None:
     io = pathlib.Path("/io")
     source = (io / "source.py").read_text()
     points = json.loads((io / "points.json").read_text())
     shapes, dtypes = load_tables(io)
+    export_names = load_export_names(io)
 
     log_densities = []
+    exports = []
     for pt_record in points:
         reshaped = reshape_point(pt_record, shapes, dtypes)
         data_kw = {
@@ -134,10 +198,15 @@ def main() -> None:
         }
         model = _build_model(source, data_kw)
         log_densities.append(_joint_logp_constrained(model, params))
+        if export_names:
+            exports.append(
+                _exported_values(model, params, export_names)
+            )
 
-    (io / "result.json").write_text(
-        json.dumps({"log_densities": log_densities})
-    )
+    result = {"log_densities": log_densities}
+    if export_names:
+        result["exports"] = exports
+    (io / "result.json").write_text(json.dumps(result))
 
 
 if __name__ == "__main__":

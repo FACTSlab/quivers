@@ -14,6 +14,13 @@ the RV's ``value.shape`` (the canonical case: a ``Normal(loc=mu)``
 where ``mu`` is itself a vector-shaped deterministic input expression)
 are paired with the distribution and scored directly: the model's
 RV value is not used, so its sample shape is irrelevant.
+
+When `/io/export_names.json` is present the probe also reports the
+program's exported value at each point. Edward2's export surface is
+the model function's own `return`, so the value comes from the
+conditioned second trace: every latent is pinned there, which makes
+the returned quantity a deterministic function of the point rather
+than of whatever the RV happened to draw.
 """
 import json
 import pathlib
@@ -21,7 +28,12 @@ import pathlib
 import tensorflow as tf
 import edward2 as ed
 
-from _reshape import load_tables, reshape_point
+from _reshape import (
+    export_payload,
+    load_export_names,
+    load_tables,
+    reshape_point,
+)
 
 
 def _tensor(value):
@@ -75,12 +87,14 @@ def main() -> None:
     source = (io / "source.py").read_text()
     points = json.loads((io / "points.json").read_text())
     shapes, dtypes = load_tables(io)
+    export_names = load_export_names(io)
 
     ns = {"edward2": ed, "ed": ed, "tf": tf}
     exec(source, ns)  # noqa: S102
     model = ns["model"]
 
     log_densities = []
+    exports = []
     for pt in points:
         reshaped = reshape_point(pt, shapes, dtypes)
         params = reshaped.get("params", {})
@@ -114,7 +128,24 @@ def main() -> None:
 
         with ed.condition(**safe_overrides):
             with ed.tape() as recorded:
-                model(**data_kw)
+                returned = model(**data_kw)
+        if export_names:
+            # An exported name that reached `direct_scores` was not
+            # conditioned in this trace, so the `RandomVariable` the
+            # model returned still carries whatever it drew. Comparing
+            # that against the reference would compare two independent
+            # draws, which passes or fails by chance; refuse instead.
+            drawn = sorted(n for n in export_names if n in direct_scores)
+            if drawn:
+                msg = (
+                    "edward2 probe: exported name(s) "
+                    f"{drawn} could not be conditioned in this trace "
+                    "(their point value's shape disagrees with the "
+                    "random variable's), so the returned value is a "
+                    "fresh draw rather than a function of the point."
+                )
+                raise RuntimeError(msg)
+            exports.append(export_payload(export_names, returned))
 
         # Every random variable on the tape must be pinned, either by
         # a value override in the second trace or by a direct score
@@ -153,9 +184,10 @@ def main() -> None:
         total = tf.add_n(log_terms)
         log_densities.append(float(total.numpy()))
 
-    (io / "result.json").write_text(
-        json.dumps({"log_densities": log_densities})
-    )
+    result = {"log_densities": log_densities}
+    if export_names:
+        result["exports"] = exports
+    (io / "result.json").write_text(json.dumps(result))
 
 
 if __name__ == "__main__":

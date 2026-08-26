@@ -308,13 +308,61 @@ class PyMCRenderer(RendererBase):
             self._emit_marginalize(ctx, node)
             return
         if isinstance(node, IRReturn):
-            # The function-level `return model` is emitted in `render`
-            # after the with-block; per-program return names are not
-            # surfaced separately in PyMC's idiom.
+            self._emit_export(ctx, node.names)
             return
         raise UnsupportedConstruct(
             self.target, [f"node:{type(node).__name__}"]
         )
+
+    def _emit_export(
+        self, ctx: _PyMCCtx, names: tuple[str, ...]
+    ) -> None:
+        """Expose each returned name as `pymc.Deterministic`.
+
+        `build_model` hands back the `pymc.Model` itself, so a PyMC
+        program's exported value cannot ride on the builder's own
+        `return`. The target's surface for "this quantity is part of
+        what the model reports" is
+        [`pymc.Deterministic`][pymc.Deterministic], the same construct
+        the renderer already uses for a shifted observation, and a
+        downstream user reads it off `model.named_vars` (or off the
+        posterior trace, where PyMC records every deterministic
+        alongside the free variables).
+
+        The alias is `<name>_value` rather than `<name>`: a returned
+        name is usually already bound, as a sampled site, an observed
+        site, or a let-binding, and PyMC rejects a second model
+        variable under a name it has. The suffix matches the Stan
+        renderer's generated-quantity spelling, so the two targets
+        expose the export under the same name.
+
+        The value goes through
+        [`pymc.math.as_tensor`][pymc.math.as_tensor] because the three
+        kinds of returnable name reach this point as three different
+        Python objects: a sampled site is a `TensorVariable`, a
+        let-binding is a `TensorVariable` expression, and an observed
+        site is the raw array the builder's keyword argument carries,
+        since the observed constructor call is emitted unassigned.
+        `pymc.Deterministic` accepts only the first two, so the
+        conversion is what lets an observed export be exposed at all,
+        and it is the identity on the other two.
+        """
+        py = ctx.py
+        for name in names:
+            det = call(
+                py, attribute(py, ("pymc", "Deterministic")),
+                positional=(
+                    string_literal(py, f"{name}_value"),
+                    call(
+                        py,
+                        attribute(py, ("pymc", "math", "as_tensor")),
+                        positional=(identifier(py, name),),
+                    ),
+                ),
+            )
+            stmt = py.v(py.fresh("es"), "expression_statement")
+            py.e(stmt, det, "child_of")
+            py.e(ctx.with_body, stmt, "child_of")
 
     # ----- declare: no-op for PyMC (declarations are constructor calls) ----
 

@@ -4,6 +4,13 @@
 # and writes /io/result.json with `Turing.logjoint(model, theta)`
 # at each point.
 #
+# When /io/export_names.json is present the probe also reports the
+# program's exported value at each point. Turing's export surface is
+# the `@model` function's own `return`, which DynamicPPL hands back
+# when the model instance is called; conditioning on the point's
+# latents first makes that value a deterministic function of the
+# point rather than of the sampler's generator.
+#
 # Julia world-age note: `Base.eval` introduces a new method (the
 # `@model`-expanded `model` factory) at a world age newer than the
 # enclosing `main`'s. Calling `model_factory(args...)` directly from
@@ -14,6 +21,8 @@
 # to every cross-eval boundary call (factory construction, JSON
 # coercions on params/data, `Turing.logjoint`).
 using Turing, Distributions, LinearAlgebra, JSON3
+
+const DPPL = Turing.DynamicPPL
 
 include("/io/_reshape.jl")
 
@@ -33,6 +42,7 @@ function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
     shapes, dtypes = load_tables("/io")
+    export_names = load_export_names("/io")
     # Julia arrays are 1-based; lift every 0-based covariate the model
     # subscripts before it reaches the @model call.
     index_names = index_input_names(source, dtypes)
@@ -42,6 +52,7 @@ function main()
     Base.eval(Main, Meta.parse(source))
 
     log_densities = Float64[]
+    exports = []
     for pt in points
         reshaped = shift_index_inputs(
             reshape_point(pt, shapes, dtypes), index_names,
@@ -56,10 +67,23 @@ function main()
         theta = _coerce_nt(params)
         lp = Base.invokelatest(Turing.logjoint, model_instance, theta)
         push!(log_densities, Float64(lp))
+        if !isempty(export_names)
+            conditioned = Base.invokelatest(
+                DPPL.condition, model_instance, theta,
+            )
+            returned = Base.invokelatest(conditioned)
+            push!(exports, export_payload(export_names, returned))
+        end
     end
 
     open("/io/result.json", "w") do io
-        JSON3.write(io, (log_densities = log_densities,))
+        if isempty(export_names)
+            JSON3.write(io, (log_densities = log_densities,))
+        else
+            JSON3.write(
+                io, (log_densities = log_densities, exports = exports),
+            )
+        end
     end
 end
 

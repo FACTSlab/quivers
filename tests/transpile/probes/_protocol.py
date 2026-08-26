@@ -11,6 +11,27 @@ QVR reference probe and each available target probe; the
 [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
 helper then enforces the constant-spread contract.
 
+A probe reports two independent things about a program, because a
+QVR program declared `prog : A -> B` denotes a Markov kernel from `A`
+to `B` and a joint density does not determine one. The first is
+`log p(theta, y)`, the measure over `(latents, observations)`. The
+second is the program's **exported value**: what its `return` clause
+carries into `B`. Two programs can share the first and differ in the
+second, so a renderer validated on log-density alone is validated on
+half its obligation, and
+[`test_export_equivalence`][tests.transpile.test_export_equivalence]
+is the tier that holds the other half.
+
+The export channel is opt-in per call. The harness writes the QVR
+program's return-variable names, in declaration order, to
+`/io/export_names.json` beside the point set; an out-of-process probe
+that finds the file reads the exported value out of its target's own
+return surface (a model function's `return`, a Stan
+`generated quantities` alias, the second element of `Gen.assess`) and
+reports one entry per name per point. A probe that cannot produce one
+raises rather than reporting a shorter vector, because a silently
+missing export is exactly the defect the tier exists to catch.
+
 Probes that need an out-of-process runtime (Stan via cmdstanpy,
 Julia via PyJulia, etc.) launch a Docker container per call when
 the runtime is not importable in-process; the [`Image`][.] and
@@ -49,6 +70,14 @@ class Point:
     variable names."""
 
 
+#: One exported value as it crosses the probe boundary: a scalar, or
+#: an arbitrarily nested tuple of scalars in row-major order. Vector
+#: and matrix exports keep their nesting, so an element the emitted
+#: program placed in the wrong slot stays in the wrong slot here
+#: instead of being flattened into agreement.
+ExportValue = float | int | tuple["ExportValue", ...]
+
+
 @dataclasses.dataclass(frozen=True)
 class ProbeResult:
     """Result of evaluating one fixture across a point set."""
@@ -65,6 +94,18 @@ class ProbeResult:
     metadata: dict[str, str]
     """Free-form additional info (image name, version, runtime version
     string, ...). Surfaced in failure messages."""
+
+    exports: tuple[tuple[ExportValue, ...], ...] = ()
+    """The program's exported value at each point, in the same order
+    as ``log_densities``; one inner entry per name the program's
+    `return` clause declares, in declaration order.
+
+    Empty when the caller did not ask for the export channel. An
+    empty tuple therefore means "not requested", never "the program
+    exports nothing": a program with no `return` clause is not
+    scheduled through this channel at all, and a probe that was asked
+    for an export it cannot produce raises instead of returning
+    nothing."""
 
 
 @runtime_checkable
@@ -126,12 +167,15 @@ class LogDensityProbe(Protocol):
         Returns
         -------
         ProbeResult
-            Log-density values in the same order as ``points``.
+            Log-density values in the same order as ``points``, and
+            the program's exported value per point when the caller
+            asked for the export channel.
         """
         ...
 
 
 __all__ = [
+    "ExportValue",
     "LogDensityProbe",
     "Point",
     "ProbeResult",

@@ -158,6 +158,56 @@ from quivers.transpile.ir import (
 )
 
 
+def pick_program(module: Module) -> ProgramDecl:
+    """Pick the `ProgramDecl` the module's `export` designates.
+
+    When the module declares multiple programs, prefer one
+    referenced by an `export` declaration; otherwise pick the
+    last declared program.
+
+    An `export` naming a `define` binding rather than a program
+    is not a lowering target: a `define` is a morphism-level
+    composition (`scan(cell) >> decoder`), and the transpile
+    boundary is the probabilistic program. A `define` a step
+    references is unfolded by
+    [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+    at the call site instead, so the recurrence a `scan` denotes
+    reaches the IR through the program that samples it.
+    """
+    programs: list[ProgramDecl] = []
+    exported_names: set[str] = set()
+    for stmt in module.statements:
+        if isinstance(stmt, ProgramDecl):
+            programs.append(stmt)
+        elif isinstance(stmt, ExportDecl) and isinstance(
+            stmt.expr, ExprIdent
+        ):
+            exported_names.add(stmt.expr.name)
+    if not programs:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            ["no program_decl: nothing to lower"],
+        )
+    return next(
+        (p for p in programs if p.name in exported_names),
+        programs[-1],
+    )
+
+
+def exported_return_names(module: Module) -> tuple[str, ...]:
+    """The variable names the module's exported program returns.
+
+    A QVR program declared `prog : A -> B` denotes a Markov kernel
+    from `A` to `B`, and its `return` clause names the components of
+    the value in `B` that the kernel carries. Those names are what a
+    faithful emit has to expose through the target's own return
+    surface, so they are the contract the export-equivalence tier
+    checks a backend against. An empty tuple means the program
+    declares no `return` clause and denotes only its joint.
+    """
+    return tuple(pick_program(module).return_vars)
+
+
 def _family_meta_or_raise(family: str) -> FamilyMeta:
     """Return ``FAMILY_META[family]`` or raise
     [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
@@ -223,39 +273,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _pick_program(self, module: Module) -> ProgramDecl:
-        """Pick the `ProgramDecl` to lower.
-
-        When the module declares multiple programs, prefer one
-        referenced by an `export` declaration; otherwise pick the
-        last declared program.
-
-        An `export` naming a `define` binding rather than a program
-        is not a lowering target: a `define` is a morphism-level
-        composition (`scan(cell) >> decoder`), and the transpile
-        boundary is the probabilistic program. A `define` a step
-        references is unfolded by
-        [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
-        at the call site instead, so the recurrence a `scan` denotes
-        reaches the IR through the program that samples it.
-        """
-        programs: list[ProgramDecl] = []
-        exported_names: set[str] = set()
-        for stmt in module.statements:
-            if isinstance(stmt, ProgramDecl):
-                programs.append(stmt)
-            elif isinstance(stmt, ExportDecl) and isinstance(
-                stmt.expr, ExprIdent
-            ):
-                exported_names.add(stmt.expr.name)
-        if not programs:
-            raise UnsupportedConstruct(
-                "qvr-lower",
-                ["no program_decl: nothing to lower"],
-            )
-        return next(
-            (p for p in programs if p.name in exported_names),
-            programs[-1],
-        )
+        """Pick the `ProgramDecl` to lower; see
+        [`pick_program`][quivers.transpile.lower.pick_program]."""
+        return pick_program(module)
 
     def _lower_steps(
         self,
@@ -2941,9 +2961,11 @@ __all__ = [
     "axis_shape",
     "build_shape_table",
     "exogenous_data_inputs",
+    "exported_return_names",
     "free_names_in_arg",
     "free_vars_in_let",
     "inline_list_lets",
     "lower_factors",
     "object_cardinalities",
+    "pick_program",
 ]

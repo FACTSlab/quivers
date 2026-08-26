@@ -86,6 +86,7 @@ function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
     shapes, dtypes = load_tables("/io")
+    export_names = load_export_names("/io")
     # Julia arrays are 1-based; lift every 0-based covariate the model
     # subscripts before it reaches the @gen call.
     index_names = index_input_names(source, dtypes)
@@ -101,6 +102,7 @@ function main()
     arities = _trace_site_arities(source)
 
     log_densities = Float64[]
+    exports = []
     for pt in points
         # Rebuild each flat row-major payload at its declared shape
         # before it reaches either the model signature or the
@@ -134,14 +136,23 @@ function main()
         # registered the model definition in a newer world age than
         # the one this main() began executing in; without it Julia
         # rejects the call with a "method too new" MethodError.
-        weight, _ = Base.invokelatest(
+        weight, returned = Base.invokelatest(
             Gen.assess, Main.model, args, constraints,
         )
         push!(log_densities, Float64(weight))
+        if !isempty(export_names)
+            push!(exports, export_payload(export_names, returned))
+        end
     end
 
     open("/io/result.json", "w") do io
-        JSON3.write(io, (log_densities = log_densities,))
+        if isempty(export_names)
+            JSON3.write(io, (log_densities = log_densities,))
+        else
+            JSON3.write(
+                io, (log_densities = log_densities, exports = exports),
+            )
+        end
     end
 end
 
