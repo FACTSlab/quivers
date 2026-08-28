@@ -122,7 +122,8 @@ b0 = torch.stack([d["beta_0"] for d in draws]).reshape(-1)   # (500,)
 b1 = torch.stack([d["beta_1"] for d in draws]).reshape(-1)   # (500,)
 p_hat = torch.sigmoid(b0[:, None] + b1[:, None] * x_data).mean(dim=0)  # (200,)
 
-# Bin and check empirical frequency with a 95% Wilson-style band.
+# Bin and compare the empirical frequency with a central binomial interval
+# evaluated at each bin midpoint. This is not a Wilson interval.
 bins = torch.linspace(0, 1, 11)
 for lo, hi in zip(bins[:-1], bins[1:]):
     mask = (p_hat >= lo) & (p_hat < hi)

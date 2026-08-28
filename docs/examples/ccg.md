@@ -1,6 +1,6 @@
 # Weighted Combinatory Categorial Grammar
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Weighted Combinatory Categorial Grammar
@@ -27,6 +27,26 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program ccg_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export ccg_prior
+
 deduction CCG : Term -> Term [semiring=LogProb, start=S, depth=6]
     atoms NP, S, N, VP, PP, Fwd, Bwd, span, the, cat, sleeps, barks
     rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
@@ -48,7 +68,7 @@ Combinatory Categorial Grammar (CCG) is expressed as an agenda-based weighted de
 
 ## Walkthrough
 
-`object Term : FinSet 16` declares a finite carrier for chart items; the concrete cardinality is irrelevant because the deduction reasons symbolically over constructor-tagged tuples, not over enumerated elements of `Term`.
+`object Term : FinSet 16` declares a finite carrier for chart items; the concrete cardinality is irrelevant because the deduction reasons symbolically over constructor-tagged tuples, not over enumerated elements of `Term`. `object Rule : FinSet 16` plays a different part: it indexes the rule-weight vector, and the `ccg_prior` program draws one `Normal(0.0, 1.0)` coordinate per slot of that index. A `FinSet N` always names an index of `N` elements, never the values a site takes; those come from the family, here `Normal`. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
 
 `atoms NAME, NAME, ...` lists every identifier the rules may match literally, category atoms (`NP`, `S`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and the chart-item constructor (`span`). Identifiers not listed here that appear in a rule pattern are bound as wildcards; the convention is single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`).
 
@@ -56,7 +76,7 @@ Each `rule` is a sequent: premises on the left of `|-`, conclusion on the right.
 
 The header's option block sets the remaining knobs: the `semiring=LogProb` option selects log-space inside scores, the `start=S` option declares the goal category for a successful parse, and the `depth=6` option bounds derivation depth to keep the agenda finite.
 
-## DSL Features
+## DSL features
 
 - **`deduction Name : Dom -> Cod [options]` header plus indented body**: declares the agenda-based weighted deduction in a single construct. The header's option block sets the semiring, the start symbol, and the depth bound; the body supplies the item algebra (via `atoms`), the rule set, and the lexicon that serves as the axiom source.
 - **`atoms NAME, NAME, ...`**: closes the constructor universe. Identifiers listed here match literally in rule patterns; any identifier not listed is bound as a wildcard, with single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`) as the convention.
@@ -78,6 +98,31 @@ regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
 corpus of sentences. The
 [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
 two standard surfaces.
+
+### Generating synthetic data
+
+The `ccg_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/ccg.qvr")
+model = prog.morphism
+
+N_RULES = 16
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
 
 ### MAP fit (Adam on rule & lexicon weights)
 
@@ -152,10 +197,10 @@ posterior $p(\mathbf{w} \mid s_1, \ldots, s_N) \propto p(\mathbf{w})
 [`bayesian_regression`](bayesian-regression.md) fits, with the chart
 total in place of the Gaussian likelihood.
 
-## Categorical Perspective
+## Categorical perspective
 
-CCG is the internal language of a closed monoidal category. The forward slash `X/Y` and backward slash `X\Y` are internal hom-objects (exponentials); the application rule is the counit of the hom-tensor adjunction, `[Y, X] ⊗ Y → X`. Composition corresponds to chaining adjunctions: given `X/Y` and `Y/Z`, transitivity yields `X/Z`. Crossed composition relies on a braiding isomorphism to swap argument order. The type of an expression completely determines what it can combine with, because the closed structure forces all combination to go through the adjunction.
+The slash categories support an internal-hom reading for the application and harmonic-composition rules. Crossed composition is an additional CCG combinator; describing it as a braiding requires a specified categorical model that this deduction does not provide. Operationally, the page defines the six sequent rules shown in the source and lets the chart combine matching adjacent spans.
 
-## Semiring Selection
+## Semiring selection
 
 The choice of semiring affects the parser's behavior: `LogProb` accumulates inside log-probabilities (numerically stable, differentiable); `Viterbi` returns the highest-weight derivation; `Counting` counts distinct derivations; `Boolean` checks membership without weights. The same deduction block serves all four objectives via the `semiring` option.

@@ -56,7 +56,7 @@ from quivers.inference import (
 )
 ```
 
-## Building a Model
+## Building a model
 
 Create a simple generative model: latent variable z drives observation y.
 
@@ -77,7 +77,7 @@ model = MonadicProgram(
 )
 ```
 
-## Simulating Observed Data
+## Simulating observed data
 
 Generate synthetic observations from the model (as if from an experiment):
 
@@ -98,7 +98,7 @@ print(y_observed.mean(), y_observed.std())
 
 In practice, these observations come from real data. Here we simulate for illustration.
 
-## Tracing the Model
+## Tracing the model
 
 A trace records the values and log-densities at each site (random variable):
 
@@ -123,7 +123,7 @@ Each site has:
 - `is_observed`: Whether this site is conditioned (fixed)
 - `is_deterministic`: Whether it is a let binding
 
-## Conditioning on Observations
+## Conditioning on observations
 
 Wrap the model to fix observed variables:
 
@@ -142,7 +142,7 @@ print(tr_cond.sites["z"].is_observed)  # False (still latent)
 
 The conditioned model still allows the latent variable z to vary.
 
-## Creating a Guide
+## Creating a guide
 
 A guide is a variational approximation to the posterior. It has the same interface as the model but is typically simpler (e.g., a mean-field normal distribution).
 
@@ -175,7 +175,7 @@ log_q = guide.log_prob(x, posterior_samples)
 print(log_q.shape)  # [4]
 ```
 
-## Passing Observations at Runtime
+## Passing observations at runtime
 
 Programs that use indexed observes (`observe r : N <- F(args)`) read their response tensors from a runtime `observations: dict[str, torch.Tensor]` keyed by the observed-variable name. The dict is forwarded to `MonadicProgram.rsample` (kwarg) and to `ELBO.forward` / `SVI.step` (positional, after the program input):
 
@@ -187,7 +187,7 @@ observations = {"y": y_observed}            # shape matches the program's N
 
 There is no `.qvr`-level data block; observation tensors live in Python at the call site.
 
-## Setting Up Inference
+## Setting up inference
 
 Define the ELBO loss and optimizer:
 
@@ -206,7 +206,7 @@ The [`SVI`](../../api/inference/svi.md) object pairs:
 - `optim`: optimizer over the model and guide parameters.
 - `objective`: an [`Objective`](../../api/inference/elbo.md) such as [`ELBO`](../../api/inference/elbo.md).
 
-## Training Loop
+## Training loop
 
 Run inference to optimize the guide's parameters:
 
@@ -250,12 +250,13 @@ The ELBO loss combines:
 2. **KL divergence**: How close the guide is to the prior (regularization)
 
 $$
-\text{ELBO} = \mathbb{E}_q[\log p(\text{obs}, z)] - \text{KL}(q \| p)
+\operatorname{ELBO}(q)
+= \mathbb{E}_{q(z)}\!\left[\log p(\text{obs}, z)-\log q(z)\right].
 $$
 
-Minimizing ELBO maximizes the evidence log-likelihood and keeps the guide regularized.
+When the joint factors as $p(\text{obs}\mid z)p(z)$, this is equivalently the expected log likelihood minus $\operatorname{KL}(q(z)\|p(z))$. `SVI.step` minimizes the negative ELBO.
 
-## Posterior Inference
+## Posterior inference
 
 After training, use the guide to make predictions on new data:
 
@@ -286,25 +287,25 @@ z_quantile_upper = z_posterior.quantile(0.975, dim=0)
 print(f"95% CI: [{z_quantile_lower.item():.3f}, {z_quantile_upper.item():.3f}]")
 ```
 
-## Evaluating the Guide
+## Inspecting guide and model draws
 
-Compare the learned guide to the true posterior. Sample from both:
+A trace of a conditioned model is not a draw from the posterior over `z`: forward execution still draws `z` from its model distribution and then scores the fixed observation. It can nevertheless provide a useful model draw to compare with a guide draw:
 
 ```python
-# True posterior: z conditioned on observed y
+# Model draw from a trace that scores the observed y
 tr_true = conditioned_model.trace(x_new)
-z_true = tr_true.sites["z"].value
+z_model = tr_true.sites["z"].value
 
 # Posterior from guide
 z_guide = guide.rsample(x_new)["z"]
 
-print(f"True z: {z_true.item():.3f}")
+print(f"Model draw: {z_model.item():.3f}")
 print(f"Guide z: {z_guide.item():.3f}")
 ```
 
-Visualize: plot the true posterior density vs. the guide's density (if tractable).
+To validate a guide against a reference posterior, use an analytic posterior where available or compare with a sufficiently diagnosed MCMC fit.
 
-## More Complex Models
+## More complex models
 
 The same pattern extends to complex models. For instance, with the PDS model from Tutorial 4:
 
@@ -357,7 +358,7 @@ You have:
 - Created an AutoNormalGuide as a posterior approximation
 - Set up and ran a variational inference training loop
 - Used Predictive for posterior sampling
-- Evaluated the inferred posterior
+- Distinguished conditioned forward draws from posterior draws
 
 This workflow applies to any quivers probabilistic program, from simple Gaussian models to complex linguistic models like PDS.
 
@@ -365,7 +366,7 @@ This workflow applies to any quivers probabilistic program, from simple Gaussian
 
 [Tutorial 6](06-first-class-trans.md) covers first-class transformations: `MorphismTransformation` and `AlgebraHomomorphism` as values, the `>>>` composition operator, and change-of-base pipelines.
 
-## Further Reading
+## Further reading
 
 - **[Inference Guide](../../guides/inference-foundations.md):** Detailed documentation of trace, conditioning, guides, ELBO, and SVI
 - **[Continuous Morphisms](../../guides/continuous-spaces.md):** More on distributions and spaces

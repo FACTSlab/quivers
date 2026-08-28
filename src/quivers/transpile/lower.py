@@ -38,6 +38,7 @@ torch tensors; renderers never do.
 from __future__ import annotations
 
 import inspect
+import math
 import re
 from collections.abc import Callable
 
@@ -76,6 +77,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.declarations import (
     ExportDecl,
     ScalarParam,
+    TypeEnumSet,
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
@@ -115,19 +117,22 @@ from quivers.transpile._resolve import (
 from quivers.transpile.family_meta import (
     FAMILY_META,
     FamilyMeta,
+    class_index_outcome,
     finite_enumerable_at_call_site,
 )
 from quivers.transpile.ir import (
     CSIntegerInterval,
+    CSInterval,
     CSNonnegativeInteger,
+    CSPositive,
     CSPositiveDefinite,
     CSReal,
     CSRealMatrix,
     CSRealVector,
+    CSUnitInterval,
     Constraint,
     ConstraintSpec,
     Dim,
-    DimDynamic,
     DimStatic,
     DomainGridAxis,
     IRArg,
@@ -241,8 +246,22 @@ class Lower(dx.Mapping[Module, IRProgram]):
         expanded = expand_composite_lets(module, target="stan")
         morphisms = build_morphism_table(expanded)
         lets = build_let_table(expanded)
-        cards = object_cardinalities(expanded)
-        real_widths = continuous_object_widths(expanded)
+        shapes = object_shapes(expanded)
+        cards = {
+            name: shape.extent
+            for name, shape in shapes.items()
+            if shape.extent is not None
+        }
+        real_widths = {
+            name: shape.real_width
+            for name, shape in shapes.items()
+            if shape.real_width is not None
+        }
+        bounds = {
+            name: shape.bounds
+            for name, shape in shapes.items()
+            if shape.bounds.is_bounded
+        }
         program = self._pick_program(expanded)
         family_set = frozenset(FAMILY_META)
 
@@ -258,6 +277,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
             sentinel_cache=sentinel_cache,
             program=program,
             real_widths=real_widths,
+            bounds=bounds,
+            shapes=shapes,
         )
 
         body = self._lower_steps(program.draws, ctx)
@@ -265,6 +286,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
             body = (*body, IRReturn(names=tuple(program.return_vars)))
         inputs = self._build_inputs(program, body, ctx)
         inputs, body = _propagate_let_plates(inputs, body)
+        inputs, body = _propagate_alphabet_event_dims(
+            inputs, body, ctx.alphabet_event_dims,
+        )
         return IRProgram(
             name=program.name,
             inputs=inputs,
@@ -282,10 +306,18 @@ class Lower(dx.Mapping[Module, IRProgram]):
         steps: tuple[ProgramStep, ...],
         ctx: _LowerCtx,
     ) -> tuple[IRNode, ...]:
-        """Lower a tuple of program steps into IR nodes."""
+        """Lower a tuple of program steps into IR nodes.
+
+        Each lowered node's plate is recorded on the context before
+        the next step lowers, so a step whose argument references an
+        earlier binding can read whether that binding already carries
+        an event shape.
+        """
         out: list[IRNode] = []
         for step in steps:
-            out.append(self._lower_step(step, ctx))
+            node = self._lower_step(step, ctx)
+            _record_bound_plate(node, ctx)
+            out.append(node)
         return tuple(out)
 
     def _lower_step(self, step: ProgramStep, ctx: _LowerCtx) -> IRNode:
@@ -326,7 +358,21 @@ class Lower(dx.Mapping[Module, IRProgram]):
             structural_args=step.args,
         )
         plate = self._build_plate(step, ctx, meta, ir_args)
-        constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
+        constraint = _apply_declared_bounds(
+            from_constraint(_resolve_support(meta, ir_args, ctx)),
+            plate,
+            ctx,
+            step.vars[0] if step.vars else step.morphism,
+        )
+        ir_args, constraint = self._apply_class_index_codomain(
+            step.morphism,
+            meta,
+            ir_args,
+            arg_names,
+            constraint,
+            ctx,
+            step.vars[0] if step.vars else step.morphism,
+        )
         if len(step.vars) != 1:
             raise UnsupportedConstruct(
                 "qvr-lower",
@@ -412,7 +458,21 @@ class Lower(dx.Mapping[Module, IRProgram]):
             structural_args=step.args,
         )
         plate = self._build_plate(step, ctx, meta, ir_args)
-        constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
+        constraint = _apply_declared_bounds(
+            from_constraint(_resolve_support(meta, ir_args, ctx)),
+            plate,
+            ctx,
+            _observe_var(step),
+        )
+        ir_args, constraint = self._apply_class_index_codomain(
+            step.morphism,
+            meta,
+            ir_args,
+            arg_names,
+            constraint,
+            ctx,
+            _observe_var(step),
+        )
         return IRObserve(
             name=_observe_var(step),
             family=resolved.family,
@@ -442,7 +502,21 @@ class Lower(dx.Mapping[Module, IRProgram]):
             structural_args=step.args,
         )
         plate = self._build_marginalize_plate(step, ctx, meta, ir_args)
-        constraint = from_constraint(_resolve_support(meta, ir_args, ctx))
+        constraint = _apply_declared_bounds(
+            from_constraint(_resolve_support(meta, ir_args, ctx)),
+            plate,
+            ctx,
+            step.var,
+        )
+        ir_args, constraint = self._apply_class_index_codomain(
+            step.morphism,
+            meta,
+            ir_args,
+            arg_names,
+            constraint,
+            ctx,
+            step.var,
+        )
         if step.reduction not in (None, "logsumexp"):
             raise UnsupportedConstruct(
                 "qvr-lower",
@@ -896,6 +970,92 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 batch_dims = (*batch_dims, index_dim)
         return Plate(event_dims=event_dims, batch_dims=batch_dims)
 
+    def _codomain_alphabet(
+        self, morphism_name: str, ctx: _LowerCtx
+    ) -> DimStatic | None:
+        """The alphabet the declared morphism's codomain names, as a
+        [`DimStatic`][quivers.transpile.ir.DimStatic] carrying the
+        class count and the codomain's own name, or `None` when the
+        step names no declared morphism or the codomain is not a
+        finite object.
+
+        ``morphism lm_head : Hidden -> Token ~ Categorical`` says the
+        per-row value of every draw through `lm_head` is a `Token`,
+        so the draw's alphabet is `|Token|`. The plate the draw is
+        replicated over (`observe next_token : Resp <- lm_head(h)`)
+        says how many rows there are and nothing about how wide each
+        row's alphabet is, so it is not consulted here.
+        """
+        decl = ctx.morphisms.get(morphism_name)
+        if decl is None:
+            return None
+        shape = _object_expr_shape(
+            decl.codomain, ctx.shapes, (morphism_name,)
+        )
+        if shape is None or not shape.finite or shape.extent is None:
+            return None
+        return DimStatic(
+            size=shape.extent, name=_axis_expr_name(decl.codomain),
+        )
+
+    def _apply_class_index_codomain(
+        self,
+        morphism_name: str,
+        meta: FamilyMeta,
+        ir_args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        constraint: ConstraintSpec,
+        ctx: _LowerCtx,
+        name: str,
+    ) -> tuple[tuple[IRArg, ...], ConstraintSpec]:
+        """Restate a class-index draw's support and alphabet width
+        from the declared morphism's codomain.
+
+        A family whose value is a subscript into its own alphabet
+        (see
+        [`class_index_outcome`][quivers.transpile.family_meta.class_index_outcome])
+        carries no width of its own: the sentinel used to read its
+        support is built from placeholder probabilities, so the IR
+        would otherwise state the placeholder's two classes. The
+        width is a positional fact, `|B|` for a morphism `f : A -> B`,
+        and this is where the IR picks it up.
+
+        The alphabet argument is restated along with the support when
+        it names a binding with no width of its own, because every
+        backend has to widen it before the family will accept it. An
+        argument that already states a width keeps it, and a width
+        that disagrees with the codomain raises: the two describe
+        different alphabets, and scoring the value against either one
+        would contradict the other.
+        """
+        outcome = class_index_outcome(meta)
+        if outcome is None:
+            return ir_args, constraint
+        alphabet = self._codomain_alphabet(morphism_name, ctx)
+        if alphabet is None:
+            return ir_args, constraint
+        width = alphabet.size
+        if width < 2:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"class-index:{name}:codomain-width:{width}: a "
+                    f"{meta.qvr_name} draw through {morphism_name!r} "
+                    f"needs a codomain naming at least two classes"
+                ],
+            )
+        arg_dim = DimStatic(
+            size=width - outcome.extent_offset, name=alphabet.name,
+        )
+        out = list(ir_args)
+        for i, arg_name in enumerate(arg_names):
+            if arg_name not in outcome.alphabet_args:
+                continue
+            out[i] = _retarget_alphabet_arg(
+                out[i], arg_dim, name, ctx,
+            )
+        return tuple(out), CSIntegerInterval(lower=0, upper=width - 1)
+
     def _codomain_width(
         self, morphism_name: str, ctx: _LowerCtx
     ) -> Dim | None:
@@ -911,21 +1071,54 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return DimStatic(size=width, name=decl.codomain.name)
 
     def _axis_dim(self, axis_name: str, ctx: _LowerCtx) -> Dim:
-        """Convert an axis name into a `DimStatic` from the cardinality
-        table or a `DimDynamic` when the axis is unknown."""
-        size = ctx.cards.get(axis_name)
-        if size is None:
-            return DimDynamic(size_name=f"N_{axis_name}", name=axis_name)
-        return DimStatic(size=size, name=axis_name)
+        """Convert an axis name into a `DimStatic` read off the
+        cardinality table.
+
+        See [`_axis_dim_at`][quivers.transpile.lower._axis_dim_at] for
+        why a name the table does not record raises.
+        """
+        return _axis_dim_at(axis_name, ctx)
 
     def _object_expr_dim(
         self, expr: ObjectExpr, ctx: _LowerCtx
     ) -> Dim:
-        """Convert an `ObjectExpr` into a `Dim`."""
+        """Convert an `ObjectExpr` into a `Dim`.
+
+        A product axis (`observe y : A * B`) flattens to the product
+        of its factors' cardinalities, which is what the runtime's
+        `ProductSet` does with the same expression: `|A| = 4` and
+        `|B| = 6` give one 24-row plate. The flattened axis is named
+        by joining the factor names so the emitted loop variable
+        still reads back to the source expression.
+        """
         if isinstance(expr, TypeName):
             return self._axis_dim(expr.name, ctx)
         if isinstance(expr, DiscreteConstructor) and expr.args:
-            return DimStatic(size=int(expr.args[0]), name="anon")
+            size = axis_shape(expr, ctx.cards)
+            if size is None:
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"object-expr:discrete_constructor:"
+                        f"{expr.args[0]}: a FinSet axis size must be "
+                        f"an integer literal or the name of an object "
+                        f"with a known cardinality"
+                    ],
+                )
+            return DimStatic(size=size, name="anon")
+        if isinstance(expr, ObjectProduct):
+            size = axis_shape(expr, ctx.cards)
+            if size is None:
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"object-expr:object_product:"
+                        f"{_axis_expr_name(expr)}: every factor of a "
+                        f"product axis needs a statically known "
+                        f"cardinality to flatten"
+                    ],
+                )
+            return DimStatic(size=size, name=_axis_expr_name(expr))
         raise UnsupportedConstruct(
             "qvr-lower",
             [f"object-expr:{expr.kind}"],
@@ -1146,16 +1339,17 @@ class Lower(dx.Mapping[Module, IRProgram]):
                     ],
                 )
             seen.add(name)
+            plate = Plate(
+                event_dims=(DimStatic(size=width, name=factor.name),),
+                batch_dims=(),
+            )
             out.append(
                 IRDataInput(
                     name=name,
-                    constraint=CSReal(),
-                    plate=Plate(
-                        event_dims=(
-                            DimStatic(size=width, name=factor.name),
-                        ),
-                        batch_dims=(),
+                    constraint=_apply_declared_bounds(
+                        CSReal(), plate, ctx, name,
                     ),
+                    plate=plate,
                 )
             )
         return out
@@ -1352,6 +1546,53 @@ class Lower(dx.Mapping[Module, IRProgram]):
 # ---------------------------------------------------------------------------
 
 
+class RealBounds(dx.Model):
+    """The ``{low=..., high=...}`` bounds a continuous object declares.
+
+    ``object Rate : Real 3 {low=0.0, high=1.0}`` names the box
+    ``[0, 1]^3`` rather than ``R^3``, so a variable whose event axis
+    or per-row value space is `Rate` lives in that box. Renderers
+    turn the pair into the target's own bounded declaration
+    (Stan's ``<lower=0, upper=1>``, JAGS' ``T(0, 1)``, ...); a
+    variant with neither bound set is the unbounded default.
+    """
+
+    low: float | None = None
+    high: float | None = None
+
+    @property
+    def is_bounded(self) -> bool:
+        """True when the declaration constrains at least one side."""
+        return self.low is not None or self.high is not None
+
+
+class ObjectShape(dx.Model):
+    """The transpile-visible shape of one ``object`` declaration.
+
+    Three independent readings, one per position an object name can
+    occupy (see the module docstring):
+
+    * `extent` is the size the object contributes as an *axis*: the
+      cardinality of a finite object (`FinSet N`, an enum set, a
+      product of finite factors) and the total coordinate count of a
+      continuous one (`Real 28 28` is 784 coordinates wide).
+    * `real_width` is set only for `Real`, the one constructor whose
+      value is a plain real vector, and is what a program-domain
+      factor or a morphism codomain reads to size its wire.
+    * `bounds` carries the constructor's ``{low=..., high=...}``.
+
+    `finite` separates the two readings of `extent`: a finite object
+    has `|A|` elements, so its extent is an alphabet a class index
+    can range over, while a continuous one has `extent` coordinates
+    and names no alphabet at all.
+    """
+
+    extent: int | None = None
+    real_width: int | None = None
+    finite: bool = False
+    bounds: RealBounds = dx.field(default_factory=RealBounds)
+
+
 class _LowerCtx(dx.Model):
     """Internal carrier for the resolver / cardinality tables and the
     sentinel cache. Threaded through the lowering recursion."""
@@ -1365,6 +1606,17 @@ class _LowerCtx(dx.Model):
     )
     program: ProgramDecl = dx.field(opaque=True)
     real_widths: dict[str, int] = dx.field(default_factory=dict)
+    bounds: dict[str, RealBounds] = dx.field(default_factory=dict)
+    shapes: dict[str, ObjectShape] = dx.field(default_factory=dict)
+    bound_plates: dict[str, Plate] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    bound_kinds: dict[str, str] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    alphabet_event_dims: dict[str, DimStatic] = dx.field(
+        default_factory=dict, opaque=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1389,12 +1641,152 @@ def _observe_var(step: ObserveStep) -> str:
     return step.vars[0]
 
 
+def _size_arg_value(
+    arg: str,
+    table: dict[str, ObjectShape],
+    names: tuple[str, ...],
+    constructor: str,
+) -> int:
+    """Resolve one constructor size argument to an integer.
+
+    An integer literal is itself; a bare name is the extent of a
+    previously-declared object, matching the runtime's
+    ``_eval_size_arg``. Anything else raises rather than silently
+    dropping the declaration, because an object whose size the
+    transpile cannot read would otherwise reach a renderer as a
+    free ``N_<name>`` the target never declares.
+    """
+    if arg.isdigit():
+        return int(arg)
+    prior = table.get(arg)
+    if prior is not None and prior.extent is not None:
+        return prior.extent
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"object:{'/'.join(names)}:{constructor}-size:{arg}: a "
+            f"size argument must be an integer literal or the name "
+            f"of an object declared earlier in the module with a "
+            f"known extent"
+        ],
+    )
+
+
+def _continuous_bounds(expr: ContinuousConstructor) -> RealBounds:
+    """Read ``{low=..., high=...}`` off a continuous constructor."""
+    low = expr.kwargs.get("low")
+    high = expr.kwargs.get("high")
+    if isinstance(low, str) or isinstance(high, str):
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"object:{expr.constructor}-bound:{low!r}/{high!r}: "
+                f"`low=` and `high=` must be numeric literals"
+            ],
+        )
+    return RealBounds(
+        low=None if low is None else float(low),
+        high=None if high is None else float(high),
+    )
+
+
+def _object_expr_shape(
+    expr: ObjectExpr,
+    table: dict[str, ObjectShape],
+    names: tuple[str, ...],
+) -> ObjectShape | None:
+    """Return the [`ObjectShape`][quivers.transpile.lower.ObjectShape]
+    a type expression denotes, or `None` when the expression names no
+    statically-sized object (a `FreeResiduated` universe, a slash, an
+    effect-apply)."""
+    if isinstance(expr, TypeName):
+        if expr.name.isdigit():
+            return ObjectShape(extent=int(expr.name), finite=True)
+        return table.get(expr.name)
+    if isinstance(expr, DiscreteConstructor):
+        if not expr.args:
+            return None
+        return ObjectShape(
+            extent=_size_arg_value(
+                expr.args[0], table, names, expr.constructor
+            ),
+            finite=True,
+        )
+    if isinstance(expr, ContinuousConstructor):
+        if not expr.args:
+            return None
+        sizes = [
+            _size_arg_value(a, table, names, expr.constructor)
+            for a in expr.args
+        ]
+        bounds = _continuous_bounds(expr)
+        if expr.constructor == "Real":
+            width = math.prod(sizes)
+            return ObjectShape(
+                extent=width, real_width=width, bounds=bounds,
+            )
+        # Every other continuous constructor takes its leading
+        # argument as the space's dimension; the flattened width of
+        # a matrix-valued one (`Covariance n` is n * n reals) is not
+        # a plain real vector, so no `real_width` is recorded.
+        return ObjectShape(extent=sizes[0], bounds=bounds)
+    if isinstance(expr, ObjectProduct):
+        factors = [
+            _object_expr_shape(f, table, names)
+            for f in object_factors(expr)
+        ]
+        if any(f is None or f.extent is None for f in factors):
+            return None
+        total = 1
+        finite = True
+        for f in factors:
+            assert f is not None and f.extent is not None
+            total *= f.extent
+            finite = finite and f.finite
+        return ObjectShape(extent=total, finite=finite)
+    return None
+
+
+def object_shapes(module: Module) -> dict[str, ObjectShape]:
+    """Return name -> [`ObjectShape`][quivers.transpile.lower.ObjectShape]
+    for every `object` declaration in `module`, in source order.
+
+    Declarations are read in order so a later one can size itself
+    from an earlier name (``object M : FinSet N5``,
+    ``object Grid : Real Rows Cols``) exactly as the runtime's
+    resolver does. A declaration whose value has no static size (a
+    `FreeResiduated` universe, a free monoid, a residuated slash)
+    contributes no entry, and every downstream caller treats an
+    absent name the way it always has.
+    """
+    out: dict[str, ObjectShape] = {}
+    for stmt in module.statements:
+        if not isinstance(stmt, ObjectDecl):
+            continue
+        init = stmt.init
+        shape: ObjectShape | None = None
+        if isinstance(init, TypeEnumSet):
+            shape = ObjectShape(
+                extent=len(init.elements), finite=True,
+            )
+        elif isinstance(init, TypeFromExpr):
+            shape = _object_expr_shape(init.expr, out, stmt.names)
+        if shape is None:
+            continue
+        for name in stmt.names:
+            out[name] = shape
+    return out
+
+
 def continuous_object_widths(module: Module) -> dict[str, int]:
-    """Return name -> width for every ``Real N`` object declaration.
+    """Return name -> width for every ``Real ...`` object declaration.
 
     ``object State : Real 4`` names a value in R^4: a program with
     that object in its domain is applied to a 4-wide vector, and a
-    morphism with it as codomain writes one. ``object Step : FinSet
+    morphism with it as codomain writes one. ``object Img : Real 28
+    28`` names a value in R^784, the runtime's own reading of a
+    multi-argument `Real`, so the width is the product of the
+    arguments rather than the first of them. ``object Step : FinSet
     64`` names an index axis instead, so it is absent here even
     though
     [`object_cardinalities`][quivers.transpile.lower.object_cardinalities]
@@ -1403,25 +1795,22 @@ def continuous_object_widths(module: Module) -> dict[str, int]:
     vector does not describe, so they are absent as well and a caller
     that needs them has to read the constructor itself.
     """
-    out: dict[str, int] = {}
-    for stmt in module.statements:
-        if not isinstance(stmt, ObjectDecl):
-            continue
-        init = stmt.init
-        if not isinstance(init, TypeFromExpr):
-            continue
-        expr = init.expr
-        if not isinstance(expr, ContinuousConstructor):
-            continue
-        if expr.constructor != "Real" or len(expr.args) != 1:
-            continue
-        try:
-            width = int(expr.args[0])
-        except ValueError:
-            continue
-        for name in stmt.names:
-            out[name] = width
-    return out
+    return {
+        name: shape.real_width
+        for name, shape in object_shapes(module).items()
+        if shape.real_width is not None
+    }
+
+
+def object_bounds(module: Module) -> dict[str, RealBounds]:
+    """Return name -> [`RealBounds`][quivers.transpile.lower.RealBounds]
+    for every continuous object that declares ``{low=...}`` or
+    ``{high=...}``. Objects with neither bound are absent."""
+    return {
+        name: shape.bounds
+        for name, shape in object_shapes(module).items()
+        if shape.bounds.is_bounded
+    }
 
 
 def object_factors(expr: ObjectExpr) -> tuple[ObjectExpr, ...]:
@@ -1436,41 +1825,315 @@ def object_factors(expr: ObjectExpr) -> tuple[ObjectExpr, ...]:
     return (expr,)
 
 
-def object_cardinalities(module: Module) -> dict[str, int]:
-    """Return name -> cardinality for every `FinSet N` object decl."""
-    out: dict[str, int] = {}
-    for stmt in module.statements:
-        if not isinstance(stmt, ObjectDecl):
+def _spec_real_range(
+    spec: ConstraintSpec,
+) -> tuple[float, float] | None:
+    """The closed real range a `ConstraintSpec` denotes, or `None`
+    when the spec is not a real-valued support at all (an integer
+    outcome, a simplex, a Cholesky factor, ...)."""
+    if isinstance(spec, (CSReal, CSRealVector, CSRealMatrix)):
+        return (float("-inf"), float("inf"))
+    if isinstance(spec, CSPositive):
+        return (0.0, float("inf"))
+    if isinstance(spec, CSUnitInterval):
+        return (0.0, 1.0)
+    if isinstance(spec, CSInterval):
+        return (spec.lower, spec.upper)
+    return None
+
+
+def _range_spec(
+    low: float, high: float, name: str, source: str,
+) -> ConstraintSpec:
+    """The `ConstraintSpec` for a closed real range.
+
+    A one-sided bound other than ``> 0`` has no IR form, so it
+    raises rather than reaching a renderer as an unbounded real: the
+    declared support would then be wider in the target than in the
+    source program.
+    """
+    lo_open = low == float("-inf")
+    hi_open = high == float("inf")
+    if lo_open and hi_open:
+        return CSReal()
+    if hi_open and low == 0.0:
+        return CSPositive(strict=True)
+    if lo_open or hi_open:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"object-bounds:one-sided:{source}:{name}: the IR "
+                f"carries a real support that is unbounded, "
+                f"positive, or a closed interval; declare both "
+                f"`low=` and `high=` so the bound reaches the target"
+            ],
+        )
+    if low == 0.0 and high == 1.0:
+        return CSUnitInterval()
+    return CSInterval(lower=low, upper=high)
+
+
+def _bounds_of_axes(
+    axis_names: tuple[str, ...],
+    ctx: _LowerCtx,
+    name: str,
+) -> RealBounds | None:
+    """The declared bounds the axes of one binding agree on.
+
+    An unbounded axis contributes nothing. Two axes declaring
+    different boxes describe no single support, so they raise rather
+    than one silently winning.
+    """
+    found: list[tuple[str, RealBounds]] = []
+    for axis in axis_names:
+        bounds = ctx.bounds.get(axis)
+        if bounds is None:
             continue
-        init = stmt.init
-        if isinstance(init, TypeFromExpr):
-            expr = init.expr
-            card: int | None = None
-            if isinstance(expr, DiscreteConstructor) and expr.args:
-                card = int(expr.args[0])
-            elif isinstance(expr, ContinuousConstructor) and expr.args:
-                # `Real D` etc.: take the first arg as the size.
-                try:
-                    card = int(expr.args[0])
-                except ValueError:
-                    card = None
-            if card is not None:
-                for name in stmt.names:
-                    out[name] = card
-    return out
+        if any(prior == bounds for _, prior in found):
+            continue
+        found.append((axis, bounds))
+    if not found:
+        return None
+    if len(found) > 1:
+        clashing = ", ".join(axis for axis, _ in found)
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"object-bounds:conflicting-axes:{name}:{clashing}: "
+                f"the axes of one binding declare different "
+                f"`{{low=..., high=...}}` boxes, so the binding has "
+                f"no single support"
+            ],
+        )
+    return found[0][1]
+
+
+def _apply_declared_bounds(
+    spec: ConstraintSpec,
+    plate: Plate,
+    ctx: _LowerCtx,
+    name: str,
+) -> ConstraintSpec:
+    """Narrow a family's support by the ``{low=..., high=...}`` box
+    the binding's own axis objects declare.
+
+    ``sample z : Batch <- Normal(0, 1) [over=Rate]`` with
+    ``object Rate : Real 3 {low=0.0, high=1.0}`` draws a value of
+    `Rate`, so the value lives in ``[0, 1]^3``: the family's real
+    support intersected with the declared box. A box on a support
+    that is not real-valued at all contradicts the family rather
+    than narrowing it, and an empty intersection describes no value,
+    so both raise.
+    """
+    axis_names = tuple(
+        dim.name
+        for dim in (*plate.event_dims, *plate.batch_dims)
+    )
+    bounds = _bounds_of_axes(axis_names, ctx, name)
+    if bounds is None:
+        return spec
+    current = _spec_real_range(spec)
+    if current is None:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"object-bounds:non-real-support:{name}:{spec.kind}: "
+                f"a `{{low=..., high=...}}` box narrows a real "
+                f"support, and this binding's support is not real"
+            ],
+        )
+    low = max(
+        current[0],
+        bounds.low if bounds.low is not None else float("-inf"),
+    )
+    high = min(
+        current[1],
+        bounds.high if bounds.high is not None else float("inf"),
+    )
+    if low >= high:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"object-bounds:empty-support:{name}:[{low}, {high}]: "
+                f"the declared box and the family's own support do "
+                f"not overlap"
+            ],
+        )
+    return _range_spec(low, high, name, "axis")
+
+
+def _assert_alphabet_width(
+    stated: int, dim: DimStatic, name: str, source: str,
+) -> None:
+    """Reject an alphabet argument whose own width contradicts the
+    width the declared codomain names.
+
+    The two would score the draw against different alphabets, and no
+    target can hold both, so the disagreement is reported at its
+    source rather than resolved in favour of either side.
+    """
+    if stated == dim.size:
+        return
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"class-index:{name}:alphabet-width:{source}: the "
+            f"argument states {stated} classes and the declared "
+            f"codomain {dim.name!r} names {dim.size}; the draw has "
+            f"one alphabet, so make the two agree"
+        ],
+    )
+
+
+def _retarget_alphabet_arg(
+    arg: IRArg, dim: DimStatic, name: str, ctx: _LowerCtx,
+) -> IRArg:
+    """Widen a class-index family's alphabet argument to `dim`.
+
+    Anything that carries its own event shape (an indexed reference,
+    a literal vector, a matrix row, a reference to a binding that
+    already has event dims) states its width itself and passes
+    through. A broadcast already built from the step's axes is
+    re-targeted, its earlier shape having been read off the plate
+    rather than the codomain.
+
+    A bare reference splits by what binds it. A `sample` states its
+    own shape in the source (`<- Family(...) [over=...]`), so a
+    scalar one is broadcast to the alphabet width at the call site
+    and a plated one raises: a per-row scalar draw is not a per-row
+    probability vector, and widening it would silently restate the
+    step. A `let` or a free data input carries no declared shape at
+    all, so its width is recorded for
+    [`_propagate_alphabet_event_dims`][quivers.transpile.lower._propagate_alphabet_event_dims]
+    to push through the shape-inference pass.
+    """
+    if isinstance(arg, IRArgBroadcast):
+        if arg.target_shape == (dim.size,):
+            return arg
+        return IRArgBroadcast(
+            value=arg.value, target_shape=(dim.size,)
+        )
+    if isinstance(arg, IRArgList):
+        _assert_alphabet_width(len(arg.elements), dim, name, "list")
+        return arg
+    if isinstance(arg, IRArgMatrix):
+        row = arg.rows[0] if arg.rows else None
+        if row is not None:
+            _assert_alphabet_width(
+                len(row.elements), dim, name, "matrix-row",
+            )
+        return arg
+    if not isinstance(arg, IRArgRef) or arg.indices:
+        return arg
+    bound = ctx.bound_plates.get(arg.name)
+    if bound is not None and bound.event_dims:
+        trailing = bound.event_dims[-1]
+        if isinstance(trailing, DimStatic):
+            _assert_alphabet_width(
+                trailing.size, dim, name, f"binding:{arg.name}",
+            )
+        return arg
+    if ctx.bound_kinds.get(arg.name) in ("sample", "marginalize"):
+        if bound is not None and bound.batch_dims:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"class-index:{name}:alphabet-arg:{arg.name}: the "
+                    f"alphabet argument is a plated scalar draw, so "
+                    f"it carries one number per row where the family "
+                    f"needs one probability per class; draw it "
+                    f"`[over=...]` the codomain instead"
+                ],
+            )
+        return IRArgBroadcast(value=arg, target_shape=(dim.size,))
+    prior = ctx.alphabet_event_dims.get(arg.name)
+    if prior is not None and prior.size != dim.size:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"class-index:{name}:alphabet-width:binding:"
+                f"{arg.name}: the same binding feeds alphabets of "
+                f"{prior.size} and {dim.size} classes; one binding "
+                f"carries one width, so split it in two"
+            ],
+        )
+    ctx.alphabet_event_dims[arg.name] = dim
+    return arg
+
+
+def _record_bound_plate(node: IRNode, ctx: _LowerCtx) -> None:
+    """Record the plate a lowered node binds its name to, and what
+    kind of step bound it, so a later step can ask whether that name
+    already carries an event shape and whether its shape is declared
+    in the source or inferred."""
+    if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+        ctx.bound_plates[node.name] = node.plate
+        ctx.bound_kinds[node.name] = node.kind
+    elif isinstance(node, IRMarginalize):
+        ctx.bound_plates[node.latent] = node.plate
+        ctx.bound_kinds[node.latent] = node.kind
+
+
+def _axis_expr_name(expr: ObjectExpr) -> str:
+    """A wire-safe identifier for an axis object expression.
+
+    Names the plate a renderer emits a loop variable for, so it has
+    to survive into every target's identifier syntax: a named object
+    keeps its name, a product joins its factors with an underscore,
+    and an anonymous `FinSet N` is `anon`.
+    """
+    if isinstance(expr, TypeName):
+        return expr.name
+    if isinstance(expr, ObjectProduct):
+        return "_".join(
+            _axis_expr_name(f) for f in object_factors(expr)
+        )
+    return "anon"
+
+
+def object_cardinalities(module: Module) -> dict[str, int]:
+    """Return name -> axis extent for every statically-sized object
+    declaration.
+
+    The extent is what the object contributes in an *axis* position:
+    the cardinality of a finite object (`FinSet N`, an enum set, a
+    product of finite factors) and the coordinate count of a
+    continuous one (`Real 28 28` is 784 wide). An object whose value
+    has no static size contributes no entry.
+    """
+    return {
+        name: shape.extent
+        for name, shape in object_shapes(module).items()
+        if shape.extent is not None
+    }
 
 
 def axis_shape(
     expr: ObjectExpr, cards: dict[str, int]
 ) -> int | None:
-    """Return the cardinality of an axis object expression."""
+    """Return the cardinality of an axis object expression.
+
+    A product axis (`A * B`) is the flattened cardinality of its
+    factors, matching the runtime's `ProductSet`; a factor whose
+    size `cards` does not record makes the whole product unsized.
+    """
     if isinstance(expr, TypeName):
+        if expr.name.isdigit():
+            return int(expr.name)
         return cards.get(expr.name)
     if isinstance(expr, DiscreteConstructor) and expr.args:
         try:
             return int(expr.args[0])
         except ValueError:
-            return None
+            return cards.get(expr.args[0])
+    if isinstance(expr, ObjectProduct):
+        total = 1
+        for factor in object_factors(expr):
+            size = axis_shape(factor, cards)
+            if size is None:
+                return None
+            total *= size
+        return total
     return None
 
 
@@ -1913,14 +2576,29 @@ def _gp_kernel_options(
 
 
 def _axis_dim_at(axis_name: str, ctx: _LowerCtx) -> Dim:
-    """Module-level version of
-    [`Lower._axis_dim`][quivers.transpile.lower.Lower._axis_dim] so
-    free-function helpers can convert an axis name into a
-    [`Dim`][quivers.transpile.ir.Dim] without instantiating
-    [`Lower`][quivers.transpile.lower.Lower]."""
+    """Convert an axis name into a
+    [`DimStatic`][quivers.transpile.ir.DimStatic] read off the
+    cardinality table, without instantiating
+    [`Lower`][quivers.transpile.lower.Lower].
+
+    A name the table does not record names no statically-sized
+    object, which the QVR compiler already refuses (``undefined
+    object or space``). Sizing the axis by an invented ``N_<name>``
+    instead would put a free identifier in every target's loop bound
+    and array extent that no emitted block declares, so it raises.
+    """
     size = ctx.cards.get(axis_name)
     if size is None:
-        return DimDynamic(size_name=f"N_{axis_name}", name=axis_name)
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"axis:unknown-cardinality:{axis_name}: an axis must "
+                f"name an object declared with a statically known "
+                f"cardinality; declare `object {axis_name} : FinSet "
+                f"<n>` (or an enum set) so the emitted plate has a "
+                f"size the target can read"
+            ],
+        )
     return DimStatic(size=size, name=axis_name)
 
 
@@ -2870,6 +3548,81 @@ def _propagate_let_plates(
                 if _promote_let(arg.name, node.plate.batch_dims):
                     changed = True
 
+    return tuple(inputs_list), _rebuild_with_lets(body, lets_by_name)
+
+
+def _propagate_alphabet_event_dims(
+    inputs: tuple[IRDataInput, ...],
+    body: tuple[IRNode, ...],
+    widths: dict[str, DimStatic],
+) -> tuple[tuple[IRDataInput, ...], tuple[IRNode, ...]]:
+    """Widen every shape-inferred name that feeds a class-index
+    family's alphabet slot to the alphabet's own width.
+
+    ``morphism lm_head : Hidden -> Token ~ Categorical`` used as
+    ``observe next_token : Resp <- lm_head(h)`` says each of the 32
+    `Resp` rows is scored against a `Token`-wide probability vector,
+    so `h` is one 256-wide row per response, not one number per
+    response. `widths` names the bindings that carry the alphabet,
+    keyed by name; each is widened to a single event dim, and the
+    pass then recurses into the free names a widened `let` reads so
+    the arithmetic that computes the row is vector-valued end to
+    end.
+
+    A binding that already carries event dims states its own width
+    and is left alone, as is a `sample`, whose shape the source
+    declares. A free name reaches here as an
+    [`IRDataInput`][quivers.transpile.ir.IRDataInput] and is widened
+    in place.
+    """
+    if not widths:
+        return inputs, body
+    lets_by_name: dict[str, IRDeterministic] = {
+        node.name: node
+        for node in _walk_nodes(body)
+        if isinstance(node, IRDeterministic)
+    }
+    input_map: dict[str, int] = {
+        inp.name: i for i, inp in enumerate(inputs)
+    }
+    inputs_list = list(inputs)
+
+    def widen(name: str, dim: DimStatic, seen: set[str]) -> None:
+        if name in seen:
+            return
+        seen.add(name)
+        idx = input_map.get(name)
+        if idx is not None:
+            cur = inputs_list[idx]
+            if cur.plate.event_dims:
+                return
+            inputs_list[idx] = IRDataInput(
+                name=cur.name,
+                constraint=cur.constraint,
+                plate=Plate(
+                    event_dims=(dim,),
+                    batch_dims=cur.plate.batch_dims,
+                ),
+            )
+            return
+        let = lets_by_name.get(name)
+        if let is None or let.plate.event_dims:
+            return
+        lets_by_name[name] = IRDeterministic(
+            name=let.name,
+            expr=let.expr,
+            constraint=let.constraint,
+            plate=Plate(
+                event_dims=(dim,), batch_dims=let.plate.batch_dims,
+            ),
+        )
+        leaves: set[str] = set()
+        _collect_let_expr_var_names(let.expr, leaves)
+        for leaf in leaves:
+            widen(leaf, dim, seen)
+
+    for name, dim in widths.items():
+        widen(name, dim, set())
     return tuple(inputs_list), _rebuild_with_lets(body, lets_by_name)
 
 

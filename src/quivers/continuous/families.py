@@ -55,6 +55,8 @@ from quivers.continuous.spaces import (
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
+    _event_size,
+    dimension_probe,
 )
 from quivers.continuous.param_source import ParamSource, _make_source
 from quivers.core._util import EPS
@@ -404,6 +406,20 @@ class ConditionalNormal(ContinuousMorphism):
         )
 
         return mu + sigma * eps
+
+    def base_dimension(self, x: torch.Tensor) -> int:
+        """One standard-normal coordinate per independent output axis."""
+        mu, _ = self._get_params(dimension_probe(x))
+        return _event_size(mu.shape)
+
+    def push_base(self, x: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
+        """The location-scale map ``mu(x) + sigma(x) * base``.
+
+        The same map `rsample` applies, with the caller's coordinates
+        in place of a fresh draw.
+        """
+        mu, sigma = self._get_params(x)
+        return mu + sigma * base.reshape(mu.shape)
 
 
 class ConditionalLogitNormal(ContinuousMorphism):

@@ -79,7 +79,7 @@ $$
 the family $\bigl(\llbracket r \rrbracket_{X, Y}\bigr)_{X, Y}$ is a
 natural transformation of bifunctors (an applicative-style lifted
 application). The naturality square is the applicative
-*composition law*; it holds by construction when $T$ inhabits
+*composition law*; it follows from the implementation when $T$ inhabits
 $\mathbf{Applicative}$.
 
 For Monad-typed schemas the denotation is the *Kleisli composition*:
@@ -204,7 +204,7 @@ natural transformation through $\mathrm{Th}\mathfrak{C}_1, \dots,
   laws (identity, homomorphism, interchange, composition) imply
   that successive applicative lifts compose to the same denotation
   irrespective of bracketing; the chart's left-associative scheduling
-  is therefore one valid realization among many equivalent choices.
+  is thus one valid realization among many equivalent choices.
 - For $\mathfrak{C} = \mathbf{Monad}$, the bind-lift is the Kleisli
   composition of the base schema; the monad laws imply
   $\mathrm{join} \circ \mathrm{fmap}(\mathrm{join}) = \mathrm{join} \circ \mathrm{join}$,
@@ -275,7 +275,7 @@ the joint type-and-effect dispatch of [§4](#4-joint-type-and-effect-dispatch)
 collapses to the classical residuated-grammar dispatch of
 [Weighted Deduction Fragment §6](grammar.md#6-chart-denotation), and
 the inside score is the standard Lambek / CCG / multimodal-TLG
-chart-parser denotation. The effects framework is therefore a strict
+chart-parser denotation. The effects framework is thus a strict
 extension over the bare grammar fragment.
 
 ## References

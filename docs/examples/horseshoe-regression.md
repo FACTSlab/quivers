@@ -4,14 +4,39 @@
 
 A multiple regression with the horseshoe prior ([Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017)). The horseshoe is a [global-local scale mixture of Normals](https://en.wikipedia.org/wiki/Sparsity-inducing_prior): a single global scale `tau` and per-coordinate local scales `lambda_p` jointly define the coefficient prior, inducing a spike-near-zero / heavy-tail mixture that adaptively shrinks small effects toward zero while leaving large effects nearly unbiased.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Item : FinSet 200
-object Coef : FinSet 4
-object Resp : FinSet 800
+# Multi-Coefficient Horseshoe Regression
+#
+# A multiple regression with the horseshoe prior: a global-local
+# scale mixture of Normals in which a single global scale tau
+# and per-coordinate local scales jointly define the coefficient
+# prior. The per-coefficient Coef plate is sized at compile
+# time.
+#
+# Generative structure:
+#
+#   tau        ~ HalfCauchy(1)                    global scale
+#   lambda_p   ~ HalfCauchy(1)                    per-coordinate scale
+#   z_p        ~ Normal(0, 1)                     standard-Normal raw
+#   alpha      ~ Normal(0, 5)                     intercept
+#   sigma      ~ HalfCauchy(2)                    noise scale
+#   y_n        ~ Normal(alpha + (tau * lambda * z) * x_n, sigma)
+#
+# The horseshoe has no closed-form marginal density: the right
+# idiom is the explicit tau * lambda * z decomposition built
+# from existing primitives, with plate-draws on Coef gathered
+# through coef_idx so the body scales to any P unchanged.
+#
+# Reference: [Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017).
 
-program horseshoe_regression : Resp -> Resp
+object Item : FinSet 16
+object Coef : FinSet 4
+object Resp : FinSet 64
+object Val : Real 1
+
+program horseshoe_regression : Resp -> Val
     sample tau <- HalfCauchy(1.0)
     sample lambda_local : Coef <- HalfCauchy(1.0)
     sample z_raw : Coef <- Normal(0.0, 1.0)
@@ -35,9 +60,11 @@ The horseshoe has no closed-form marginal density: the right idiom in quivers is
 
 The per-coefficient plate-draws scale automatically to any P without rewriting the body. Each observation cell carries a `coef_idx` indicating which coefficient it loads on; the per-cell mean is `alpha + beta[coef_idx] * x`.
 
+The program returns `tau`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Resp` names the plate extent of the response and appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -123,7 +150,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model factors as the Kleisli composite of a global-local hyperprior kernel, a deterministic Hadamard product `tau * lambda * z` lifted into the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category as a Dirac kernel, and the per-row Normal likelihood. The plate-draws `lambda_local` and `z_raw` are Kleisli sections of the `Coef`-indexed plate, and `lambda_local[coef_idx]` is the [Kleisli pullback](https://ncatlab.org/nlab/show/Kleisli+category) along the fibration `Resp -> Coef` carried by the runtime index.
 

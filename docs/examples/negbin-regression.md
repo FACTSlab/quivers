@@ -4,14 +4,36 @@
 
 A multi-output [negative-binomial](https://en.wikipedia.org/wiki/Negative_binomial_distribution) regression for overdispersed count data, using the mean / dispersion parameterization that follows the log link convention shared with [Poisson regression](https://en.wikipedia.org/wiki/Poisson_regression). Each output dimension carries its own coefficients and dispersion; the response is the standard [NB2](https://en.wikipedia.org/wiki/Negative_binomial_distribution#Alternative_formulations) form with per-cell variance `mu + mu^2 / dispersion`, recovering Poisson in the limit of infinite dispersion.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Item : FinSet 200
-object Out : FinSet 3
-object Resp : FinSet 600
+# Multi-Output Negative Binomial Regression
+#
+# A multi-output negative-binomial regression for overdispersed
+# count data, using the mean / dispersion parameterisation that
+# follows the log link convention shared with Poisson regression.
+# Each output dimension carries its own coefficients and
+# dispersion; the response is the standard NB2 form, with
+# per-cell variance mu + mu^2 / dispersion, recovering Poisson
+# in the limit of infinite dispersion.
+#
+# Generative structure:
+#
+#   beta_0_d      ~ Normal(0, 5)                  per-output intercept
+#   beta_1_d      ~ Normal(0, 5)                  per-output slope
+#   dispersion_d  ~ Gamma(2, 0.5)                 per-output dispersion
+#   y_{n,d}       ~ NegativeBinomial(dispersion, dispersion / (dispersion + mu))
+#
+# The Gamma prior on the dispersion encodes a soft preference
+# for finite overdispersion; per-output coefficients permit
+# heterogeneous count regimes across the response axis.
 
-program negbin_regression : Resp -> Resp
+object Item : FinSet 21
+object Out : FinSet 3
+object Resp : FinSet 63
+object Val : Real 1
+
+program negbin_regression : Resp -> Val
     sample beta_0 : Out <- Normal(0.0, 5.0)
     sample beta_1 : Out <- Normal(0.0, 5.0)
     sample dispersion : Out <- Gamma(2.0, 0.5)
@@ -33,9 +55,11 @@ export negbin_regression
 
 Per-output coefficient and dispersion plates broadcast through `out_idx` gathers. The per-cell linear predictor `eta = b0 + b1 * x` is mapped through the log link `exp` to give the conditional mean `mu`. The NB2 parameterization uses `probs = dispersion / (dispersion + mu)` so the resulting `NegativeBinomial(dispersion, probs)` has mean `mu` and variance `mu * (1 + mu / dispersion)`. The Gamma prior on dispersion encodes a soft preference for finite overdispersion; per-output dispersion permits heterogeneous count regimes across the response axis.
 
+The program returns `beta_1`, an `Out`-indexed plate of real scalars, so the declared codomain is `Val : Real 1`: the per-row value space of the returned coefficients. `Resp` names the plate extent of the response and appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -114,6 +138,6 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The negative binomial is the Gamma-Poisson [mixture](https://en.wikipedia.org/wiki/Compound_probability_distribution): a `Poisson(rate)` kernel with `rate ~ Gamma(dispersion, dispersion / mu)` marginalizes to `NegativeBinomial(dispersion, mu / (mu + dispersion))`. The model factors through this mixture by sampling per-cell from the closed-form negative binomial; categorically the family is the pushforward of the Gamma-Poisson joint kernel along the rate-projection.
+The negative binomial is the Gamma-Poisson [mixture](https://en.wikipedia.org/wiki/Compound_probability_distribution): a `Poisson(rate)` kernel with `rate ~ Gamma(dispersion, dispersion / mu)` marginalizes, under PyTorch's parameter convention, to `NegativeBinomial(dispersion, dispersion / (dispersion + mu))`. The model uses this closed-form marginal per cell.

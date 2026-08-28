@@ -27,9 +27,10 @@ optimizer = torch.optim.Adam(prog.parameters())
 `load("model.qvr")` reads the same surface from a file path.
 
 The program-block surface looks familiar if you've used Pyro,
-NumPyro, Stan, or PyMC: `<-` is the sample sigil, `observe` scores
-data, `marginalize` integrates out a discrete latent, `let` is a
-deterministic binding, `return` names the program's output.
+NumPyro, Stan, or PyMC: `sample x <- F(...)` draws a value,
+`observe` scores data, `marginalize` integrates out a discrete latent,
+`let` is a deterministic binding, and `return` names the program's
+output.
 
 A few features distinguish the QVR surface from those alternatives:
 
@@ -89,7 +90,7 @@ in source order, dispatching each to a per-form handler
 (`_compile_statement`). A single sweep threads three concerns:
 
 1. **Resolve declarations**: as each `object`, `space`, `morphism`,
-   `contraction`, `schema`, `let`, or program declaration is
+   `contraction`, `schema`, `define`, or program declaration is
    visited, its type expressions are resolved through the mixin in
    [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md).
    `_resolve_any_space` walks an `ObjectExpr` and returns either a
@@ -195,7 +196,7 @@ object_value   := enum_set_literal
    attaches a distribution family; without it the morphism is bare
    structural data. *)
 morphism_decl  := 'morphism' IDENT ':' object_expr '->' object_expr
-                  option_block
+                  [option_block]
                   ['~' morphism_init]
 morphism_init  := morphism_init_family | expr
 morphism_init_family
@@ -216,7 +217,7 @@ contraction_decl
                := 'contraction' IDENT
                   '(' contraction_input (',' contraction_input)* ')'
                   ':' object_expr '->' object_expr
-                  option_block
+                  [option_block]
 contraction_input
                := IDENT ':' object_expr '->' object_expr
 

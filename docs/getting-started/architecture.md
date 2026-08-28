@@ -1,12 +1,13 @@
 # Architecture
 
-The quivers library is organized into seventeen subpackages plus two
+The quivers library is organized into nineteen subpackages plus two
 top-level modules. The categorical core (`core/`, `categorical/`,
 `monadic/`, `arrows/`, `enriched/`, `stochastic/`, `continuous/`) is
 surrounded by a DSL layer (`dsl/`), an inference layer (`inference/`),
 a data layer (`data/`, `diagnostics/`, `formulas/`), structural and
-analysis utilities (`structural/`, `analysis/`), and the interactive
-surfaces (`cli/`, `kernel/`, `lsp/`). This document describes the
+analysis utilities (`structural/`, `analysis/`), effect handlers
+(`effects/`), transpilers (`transpile/`), and the interactive surfaces
+(`cli/`, `kernel/`, `lsp/`). This document describes the
 package hierarchy, dependencies, and key abstractions in each module.
 
 ## Package Structure
@@ -42,7 +43,8 @@ quivers/
 │                      # variational guides (mean-field, full-rank,
 │                      # low-rank, IAF, neural-spline, mixture,
 │                      # Laplace, delta), gradient estimators,
-│                      # objectives (ELBO / IWAE / Rényi / VR-IWAE),
+│                      # objectives (ELBO / IWAE / Rényi / VR-IWAE /
+│                      # ChiVI / RWS / DReGs),
 │                      # SVI, predictive, MCMC (HMC, NUTS), DAIS,
 │                      # warmup, Bayesian lifts
 ├── analysis/          # static analysis of programs: scope, chain
@@ -55,6 +57,8 @@ quivers/
 │                      # compilation (formulae integration)
 ├── structural/        # encoder/decoder shape inference, structural
 │                      # signatures, losses
+├── effects/           # algebraic effect handlers and reparameterizers
+├── transpile/         # target-independent IR and eleven PPL renderers
 ├── cli/               # the `qvr` command, REPL, language-server
 │                      # entry-point, migration driver
 ├── kernel/            # Jupyter kernel install + runtime
@@ -191,9 +195,9 @@ Inference primitives for monadic probabilistic programs: tracing, observation co
 - **`trace.py`:** Execution tracing: `SampleSite`, `Trace`, `trace()`.
 - **`conditioning.py`:** Observation marking: `Conditioned`, `condition()`.
 - **`registry.py`:** `LatentRegistry` and `LatentSite`, the per-site introspection helper every guide and MCMC kernel consumes.
-- **`guides/`:** A package of variational guide families. Public classes: `Guide` (base), `AutoNormalGuide`, `AutoMultivariateNormalGuide`, `AutoLowRankMultivariateNormalGuide`, `AutoDeltaGuide`, `AutoLaplaceApproximation`, `AutoNormalizingFlow`, `AutoIAFGuide`, `AutoNeuralSplineGuide`, `AutoMixtureGuide`.
+- **`guides/`:** A package of variational guide families. Public classes: `Guide` (base), `AutoNormalGuide`, `AutoMultivariateNormalGuide`, `AutoLowRankMultivariateNormalGuide`, `AutoDeltaGuide`, `AutoLaplaceApproximation`, `AutoNormalizingFlow`, `AutoIAFGuide`, `AutoNeuralSplineGuide`, `AutoMixtureGuide`, `AutoGuideList`, and `AutoStructured`.
 - **`estimators.py`:** Gradient estimators: `GradientEstimator`, `Reparameterized`, `StickingTheLanding`, `DoublyReparameterized`, `ScoreFunction`.
-- **`objectives.py`:** Variational objectives: `Objective`, `ELBO`, `IWAEBound`, `RenyiBound`, `VRIWAEBound`.
+- **`objectives.py`:** Variational objectives: `Objective`, `ELBO`, `IWAEBound`, `RenyiBound`, `VRIWAEBound`, `ChiVI`, `RWS`, and `DReGsBound`.
 - **`svi.py`:** Stochastic variational inference driver: `SVI`.
 - **`predictive.py`:** Posterior-predictive sampling: `Predictive`.
 - **`mcmc/`:** Markov-chain Monte Carlo: `MCMCKernel` (base), `HMCKernel`, `NUTSKernel`, plus the `MCMC` driver and `MCMCResult`.
@@ -227,6 +231,20 @@ Structural compression: a uniform algebraic interface for encoding arbitrary str
 - **`decoder.py`:** `Decoder` (`nn.Module`), the inverse direction.
 - **`losses.py`:** `LossEntry`, `LossRegistry` for plug-in reconstruction objectives.
 - **`shapes/`:** shape backends (`seq.py`, `tree.py`, `graph.py`), one per supported shape category.
+
+### `effects/`
+
+Algebraic handlers for tracing, clamping observations, interventions,
+masking, scaling, blocking, replay, lifting, collapsing, and
+reparameterization. `interpreter.py` executes a program under the
+active handler stack; `reparam/` contains the loc-scale, transform,
+NeuTra, and conjugate strategies.
+
+### `transpile/`
+
+Cross-language emission for compiled QVR modules. `lower.py` produces a
+target-independent IR, and `renderers/` emits Stan, NumPyro, Pyro,
+PyMC, Edward2, Turing, Gen, Church, WebPPL, BUGS, or JAGS source.
 
 ### `cli/`
 
@@ -265,11 +283,14 @@ analysis-then-dsl ordering bends at that one call site.
 9. **`data/`:** builds on `dsl/`. **`diagnostics/`:** builds on `inference/`.
 10. **`formulas/`:** builds on `continuous/`, `dsl/`, and `inference/`.
 11. **`structural/`:** standalone PyTorch-only shape inference; no in-package dependencies.
-12. **`cli/`:** consumes `analysis/`, `dsl/`, `kernel/`, `lsp/`. **`kernel/`:** uses `cli/` to start the in-process REPL session. **`lsp/`:** uses `cli/` and `dsl/`.
-13. **`program.py`:** depends on `core/` and `continuous/`.
-14. **`giry.py`:** thin backwards-compat re-export of `stochastic/`.
+12. **`effects/`:** builds on `continuous/` and provides the handler-aware interpreter used by inference.
+13. **`transpile/`:** builds on `dsl/` and lowers compiled modules to target-specific schemas and source.
+14. **`cli/`:** consumes `analysis/`, `dsl/`, `kernel/`, `lsp/`, and `transpile/`. **`kernel/`:** uses `cli/` to start the in-process REPL session. **`lsp/`:** uses `cli/` and `dsl/`.
+15. **`program.py`:** depends on `core/` and `continuous/`.
+16. **`giry.py`:** thin backwards-compat re-export of `stochastic/`.
 
-This layering ensures that users can work at the level of abstraction appropriate to their task: core algebra only, categorical structures, probabilistic computations, or the full DSL.
+Users can enter at the layer their task requires: core algebra,
+categorical structures, probabilistic computations, or the full DSL.
 
 ## Design Principles
 

@@ -12,6 +12,8 @@ from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
 from typing import cast
 import torch
+from torch.distributions import constraints as _constraints
+from quivers.continuous.family_spec import FAMILY_REGISTRY, FamilySpec
 from quivers.continuous.morphisms import (
     AnySpace,
     ContinuousMorphism,
@@ -23,8 +25,11 @@ from quivers.core.morphisms import Morphism
 from quivers.continuous.plate import marginalize_grouped
 from quivers.continuous.programs import MonadicProgram, _lookup_arg
 from quivers.continuous.spaces import (
+    CholeskyFactor,
     ContinuousSpace,
+    Covariance,
     Euclidean,
+    LowerTriangular,
     PositiveReals,
     ProductSpace,
     Simplex,
@@ -462,7 +467,12 @@ class _ProgramsMixin:
         self,
     ) -> dict[
         int,
-        tuple[str, str, tuple[DrawArgName | DrawArgIndex | str, ...], tuple[ProgramStep, ...]],
+        tuple[
+            str,
+            str,
+            tuple[DrawArgName | DrawArgIndex | str, ...],
+            tuple[ProgramStep, ...],
+        ],
     ]:
         """Per-marker record of an ungrouped ``marginalize`` block's body.
 
@@ -796,9 +806,11 @@ class _ProgramsMixin:
                     # the main IR and scored as ordinary latents.
                     marg_body: list[ProgramStep] = []
                     for scoped in ungrouped_scope:
-                        if isinstance(scoped, LetStep) or (
-                            isinstance(scoped, DrawStep) and scoped.is_observed
-                        ) or isinstance(scoped, VectorisedObserveStep):
+                        if (
+                            isinstance(scoped, LetStep)
+                            or (isinstance(scoped, DrawStep) and scoped.is_observed)
+                            or isinstance(scoped, VectorisedObserveStep)
+                        ):
                             marg_body.append(scoped)
                         else:
                             out.append(scoped)
@@ -2100,7 +2112,12 @@ class _ProgramsMixin:
                 from quivers.continuous.plate import PlateDraw as _PlateDraw
                 from quivers.continuous.spaces import Euclidean as _Euc
 
-                idx_space = self._resolve_any_space(step.index)
+                idx_space = self._resolve_plate_index(
+                    step.index,
+                    f"indexed sample {step.name!r}",
+                    step.line,
+                    step.col,
+                )
                 # The per-row codomain `B` is either a declared object /
                 # space or an integer literal interpreted as
                 # `Euclidean(N)` — the standard convention for
@@ -2123,6 +2140,27 @@ class _ProgramsMixin:
                 axes_cod = self._axes_codomain(getattr(step, "axes", None))
                 if axes_cod is not None:
                     cod_space = axes_cod
+                # A matrix-valued family draws one `K x K` variate, not
+                # a plate of them: the index annotation supplies the
+                # matrix dimension `K` (there is no other width in
+                # scope) and the step compiles to a single draw rather
+                # than a plate.
+                matrix_spec = self._matrix_family_spec(step.morphism)
+                is_matrix_draw = matrix_spec is not None
+                if is_matrix_draw:
+                    if axes_cod is not None:
+                        raise CompileError(
+                            f"matrix-valued family {step.morphism!r} takes a "
+                            f"single width, and {step.name!r} names two: the "
+                            f"index annotation and the ``[over=...]`` axis. "
+                            f"Write one of them: the index annotation for "
+                            f"``{step.name} : Dim <- {step.morphism}(...)``, "
+                            f"or the axis for ``{step.name} <- "
+                            f"{step.morphism}(...) [over=Dim]``",
+                            step.line,
+                            step.col,
+                        )
+                    cod_space = idx_space
                 # Synthesize a DrawStep so we can reuse the inline /
                 # family-registry resolution logic. The synthetic step
                 # carries the plate's per-row codomain so the family
@@ -2139,13 +2177,17 @@ class _ProgramsMixin:
                 family, step_args = self._resolve_draw_morphism(
                     _synth, bound_vars, cod_space
                 )
-                plate = _PlateDraw(idx_space.size, family, domain=family.domain)
                 if step.name in bound_vars:
                     raise CompileError(
                         f"variable {step.name!r} already bound in program",
                         step.line,
                         step.col,
                     )
+                if is_matrix_draw:
+                    bound_vars[step.name] = family.codomain
+                    steps.append(((step.name,), family, step_args, False))
+                    continue
+                plate = _PlateDraw(idx_space.size, family, domain=family.domain)
                 bound_vars[step.name] = plate.codomain
                 steps.append(((step.name,), plate, step_args, False))
                 continue
@@ -2179,7 +2221,12 @@ class _ProgramsMixin:
                 # GroupedMarginalizeStep collects each slot, pairs it with
                 # the observe's fibration, and scatter-sums each
                 # contribution into the shared (|G|, K) accumulator.
-                idx_space = self._resolve_any_space(step.index_set)
+                idx_space = self._resolve_plate_index(
+                    step.index_set,
+                    f"grouped observe {step.response_var!r}",
+                    step.line,
+                    step.col,
+                )
                 _synth = DrawStep(
                     vars=(step.index_var,),
                     morphism=step.morphism,
@@ -2315,7 +2362,12 @@ class _ProgramsMixin:
                     VectorisedObserve as _VectorisedObserve,
                 )
 
-                idx_space = self._resolve_any_space(step.index_set)
+                idx_space = self._resolve_plate_index(
+                    step.index_set,
+                    f"indexed observe {step.response_var!r}",
+                    step.line,
+                    step.col,
+                )
                 _synth = DrawStep(
                     vars=(step.index_var,),
                     morphism=step.morphism,
@@ -2628,13 +2680,14 @@ class _ProgramsMixin:
                         step.line,
                         step.col,
                     )
-                if isinstance(step.value, LetExprVar):
-                    if step.value.name not in bound_vars:
-                        raise CompileError(
-                            f"undefined variable {step.value.name!r} in let binding",
-                            step.line,
-                            step.col,
-                        )
+                if isinstance(step.value, LetExprVar) and step.value.name in bound_vars:
+                    # Alias of a variable bound earlier in the body:
+                    # the binding copies the slot and inherits its
+                    # type. A name that is *not* bound in the body is
+                    # a host-data reference, and takes the compiled
+                    # path below so that it resolves against the
+                    # conditioning data exactly like the same name
+                    # inside a compound expression.
                     bound_vars[step.name] = bound_vars[step.value.name]
                     steps.append(((step.name,), None, step.value.name))
                 elif isinstance(step.value, LetExprLiteral):
@@ -2650,9 +2703,15 @@ class _ProgramsMixin:
                     self._validate_let_expr_vars(step.value, bound_vars, step)
                     deductions_globals = dict(getattr(self, "_deductions", {}))
                     deductions_globals["__index_size__"] = self._resolve_index_size
-                    compiled_fn = self._compile_let_expr(
-                        step.value,
-                        globals_=deductions_globals,
+                    compiled_fn = self._locate_let_failure(
+                        self._compile_let_expr(
+                            step.value,
+                            globals_=deductions_globals,
+                        ),
+                        "let",
+                        step.name,
+                        step.line,
+                        step.col,
                     )
                     bound_vars[step.name] = None
                     steps.append(((step.name,), None, compiled_fn))
@@ -2675,9 +2734,15 @@ class _ProgramsMixin:
                 self._validate_let_expr_vars(step.value, bound_vars, step)
                 deductions_globals = dict(getattr(self, "_deductions", {}))
                 deductions_globals["__index_size__"] = self._resolve_index_size
-                compiled_fn = self._compile_let_expr(
-                    step.value,
-                    globals_=deductions_globals,
+                compiled_fn = self._locate_let_failure(
+                    self._compile_let_expr(
+                        step.value,
+                        globals_=deductions_globals,
+                    ),
+                    "score",
+                    step.name,
+                    step.line,
+                    step.col,
                 )
                 bound_vars[step.name] = None
                 steps.append(((step.name,), None, compiled_fn, True))
@@ -2770,7 +2835,10 @@ class _ProgramsMixin:
         self,
         step: GroupedMarginalizeStep,
         pending: tuple[
-            str, str, tuple[DrawArgName | DrawArgIndex | str, ...], tuple[ProgramStep, ...]
+            str,
+            str,
+            tuple[DrawArgName | DrawArgIndex | str, ...],
+            tuple[ProgramStep, ...],
         ],
         steps: list[tuple],
         bound_vars: dict[str, AnySpace | None],
@@ -2949,9 +3017,7 @@ class _ProgramsMixin:
                     torch.zeros((), dtype=probs.dtype, device=probs.device),
                     torch.ones((), dtype=probs.dtype, device=probs.device),
                 ]
-                log_prior = torch.stack(
-                    [torch.log1p(-p), torch.log(p)], dim=-1
-                )
+                log_prior = torch.stack([torch.log1p(-p), torch.log(p)], dim=-1)
             if _obs_family is None or _response is None:
                 # No observed likelihood gates the latent: the block
                 # contributes only the reduced log-prior over the
@@ -2974,9 +3040,7 @@ class _ProgramsMixin:
                             if _shared_vector and theta.dim() == 1:
                                 theta = theta.unsqueeze(0)
                         else:
-                            common = torch.broadcast_shapes(
-                                *(t.shape for t in parts)
-                            )
+                            common = torch.broadcast_shapes(*(t.shape for t in parts))
                             theta = torch.stack(
                                 [t.expand(common) for t in parts], dim=-1
                             )
@@ -3105,13 +3169,36 @@ class _ProgramsMixin:
                 draw.vars,
                 program_codomain if axes_override is None else axes_override,
                 event_axis=axes_override,
+                line=draw.line,
+                col=draw.col,
             )
-            morph, var_args = make_inline_distribution(
-                draw.morphism,
-                draw.args,
-                inline_codomain,
-                variable_types={k: v for k, v in bound_vars.items() if v is not None},
-            )
+            try:
+                morph, var_args = make_inline_distribution(
+                    draw.morphism,
+                    draw.args,
+                    inline_codomain,
+                    variable_types={
+                        k: v for k, v in bound_vars.items() if v is not None
+                    },
+                )
+            except TypeError as exc:
+                # A family constructor rejecting the call site's
+                # argument list (too few / too many parameters) is a
+                # user error in the QVR source, so it is reported
+                # against the draw step rather than escaping as a raw
+                # ``TypeError`` from the builder's own signature. The
+                # declared parameter list is appended only when the
+                # call site's arity disagrees with it, since several
+                # families (Dirichlet's flattened concentration
+                # vector) legitimately take a different count.
+                detail = f"call to {draw.morphism!r} failed: {exc}"
+                if len(draw.args) != len(param_names):
+                    detail += (
+                        f"; {draw.morphism} takes {len(param_names)} "
+                        f"argument(s) ({', '.join(param_names)}), and "
+                        f"{len(draw.args)} were given"
+                    )
+                raise CompileError(detail, draw.line, draw.col) from exc
             return (morph, var_args)
         registry = _get_family_registry()
         if draw.morphism in registry:
@@ -3166,6 +3253,103 @@ class _ProgramsMixin:
             return float(arg.value)
         return None
 
+    def _resolve_plate_index(
+        self,
+        texpr: ObjectExpr,
+        surface: str,
+        line: int,
+        col: int,
+    ) -> SetObject:
+        """Resolve an index annotation that has to name a plate extent.
+
+        A plate ranges over the elements of a finite set, so the
+        annotation in ``v : A <- F(...)`` (and in the indexed-observe
+        and grouped-observe forms) must denote a `SetObject`.
+        A continuous space has no elements to enumerate, so it is
+        rejected here with the offending annotation named, rather than
+        reaching the plate constructor and failing on a missing
+        ``size`` field.
+        """
+        space = self._resolve_any_space(texpr)
+        if isinstance(space, SetObject):
+            return space
+        raise CompileError(
+            f"{surface}: the plate index {self._object_expr_text(texpr)!r} "
+            f"resolves to the continuous space {space}, but a plate index "
+            f"must be discrete; annotate the draw with a finite-set object "
+            f"(``object N : FinSet k``) and give the per-row value space "
+            f"through the family or an ``[over=...]`` axis",
+            line,
+            col,
+        )
+
+    @staticmethod
+    def _object_expr_text(texpr: ObjectExpr) -> str:
+        """Render an object expression back to its surface spelling for
+        diagnostics. Named types print as their name, products as
+        ``A * B``; anything else falls back to its node repr.
+        """
+        if isinstance(texpr, TypeName):
+            return texpr.name
+        if isinstance(texpr, ObjectProduct):
+            return " * ".join(
+                _ProgramsMixin._object_expr_text(c) for c in texpr.components
+            )
+        return str(texpr)
+
+    @staticmethod
+    def _matrix_family_spec(family: str) -> FamilySpec | None:
+        """The `FamilySpec` of ``family`` when it draws a
+        matrix-valued variate, else None.
+
+        A matrix-valued family (LKJCholesky, Wishart) reads its matrix
+        dimension ``K`` at construction time and produces a ``(K, K)``
+        variate per draw, so its codomain cannot be inferred from the
+        argument list the way a scalar family's can.
+        """
+        spec = FAMILY_REGISTRY.get(family)
+        if spec is None or spec.output_kind != "matrix":
+            return None
+        return spec
+
+    @staticmethod
+    def _matrix_codomain(
+        spec: FamilySpec,
+        dim: int,
+        var_name: str,
+        line: int,
+        col: int,
+    ) -> CholeskyFactor | Covariance | LowerTriangular:
+        """The codomain manifold a matrix-valued family draws on.
+
+        The family's ``support`` constraint, not its name, fixes the
+        manifold: a correlation Cholesky factor lands on
+        `CholeskyFactor`, a positive-definite
+        variate on `Covariance`, a general
+        lower-triangular one on `LowerTriangular`.
+        A matrix family advertising some other support has no space to
+        map onto, so it raises rather than defaulting to a Euclidean
+        codomain whose ``dim`` would silently misconfigure the
+        distribution.
+        """
+        support = spec.support
+        if support is _constraints.corr_cholesky:
+            return CholeskyFactor(name=f"_{var_name}", dim=dim)
+        if support in (
+            _constraints.positive_definite,
+            _constraints.positive_semidefinite,
+        ):
+            return Covariance(name=f"_{var_name}", dim=dim)
+        if support is _constraints.lower_cholesky:
+            return LowerTriangular(name=f"_{var_name}", dim=dim)
+        raise CompileError(
+            f"matrix-valued family {spec.name!r} advertises support "
+            f"{support!r}, which no continuous space represents; the "
+            f"compiler cannot give {var_name!r} a codomain",
+            line,
+            col,
+        )
+
     @staticmethod
     def _axis_event_size(space: object) -> int | None:
         """Cardinality of an explicit ``over=`` event axis, or None.
@@ -3174,11 +3358,15 @@ class _ProgramsMixin:
         axis its ``dim``, and a product axis the product of its
         components' sizes. Anything else yields None (no resolvable
         event width).
+
+        The product test comes first because `ProductSet` is a
+        `SetObject` variant and `ProductSpace` a
+        `ContinuousSpace` variant: an axis
+        ``[over=[A, B]]`` matches the single-factor branches too, and
+        answering there would read a ``cardinality`` field a product
+        set does not carry, or sum the component dims where the event
+        width of a product axis is their product.
         """
-        if isinstance(space, SetObject):
-            return int(space.cardinality)
-        if isinstance(space, ContinuousSpace):
-            return int(space.dim)
         if isinstance(space, (ProductSet, ProductSpace)):
             total = 1
             for comp in space.components:
@@ -3187,6 +3375,10 @@ class _ProgramsMixin:
                     return None
                 total *= sub
             return total
+        if isinstance(space, SetObject):
+            return int(space.size)
+        if isinstance(space, ContinuousSpace):
+            return int(space.dim)
         return None
 
     def _infer_inline_codomain(
@@ -3196,6 +3388,8 @@ class _ProgramsMixin:
         var_names: tuple[str, ...],
         program_codomain: object,
         event_axis: object | None = None,
+        line: int = 0,
+        col: int = 0,
     ):
         """Infer the codomain for an inline distribution.
 
@@ -3217,6 +3411,10 @@ class _ProgramsMixin:
             becomes ``K``-dimensional rather than scalar. Families
             whose event dimension already flows from
             ``program_codomain`` (Dirichlet's simplex) ignore this.
+        line : int
+            Source line of the draw step, for diagnostics.
+        col : int
+            Source column of the draw step, for diagnostics.
 
         Returns
         -------
@@ -3226,6 +3424,32 @@ class _ProgramsMixin:
         event_size = (
             self._axis_event_size(event_axis) if event_axis is not None else None
         )
+        matrix_spec = self._matrix_family_spec(family)
+        if matrix_spec is not None:
+            # A matrix-valued family takes its ``K x K`` shape from the
+            # width in scope: the ``[over=...]`` axis when one is
+            # written, otherwise the object the draw is annotated with.
+            # Neither is optional, since the underlying distribution
+            # needs ``K`` at construction and a scalar codomain would
+            # build it at ``K = 1``.
+            matrix_dim = (
+                event_size
+                if event_size is not None
+                else self._axis_event_size(program_codomain)
+            )
+            if matrix_dim is None or matrix_dim < 2:
+                raise CompileError(
+                    f"matrix-valued family {family!r} needs a matrix "
+                    f"dimension of at least 2 to draw {var_names[0]!r}; "
+                    f"annotate the draw with the dimension object "
+                    f"(``{var_names[0]} : Dim <- {family}(...)``) or name "
+                    f"it with ``[over=Dim]``",
+                    line,
+                    col,
+                )
+            return self._matrix_codomain(
+                matrix_spec, matrix_dim, var_names[0], line, col
+            )
         if event_size is not None and event_size > 1:
             if family in ("Normal", "LogitNormal", "Uniform", "TruncatedNormal"):
                 return Euclidean(name=f"_{var_names[0]}", dim=event_size)
@@ -3307,6 +3531,36 @@ class _ProgramsMixin:
             return Simplex(name=f"_{var_names[0]}", dim=sim_dim)
         else:
             return Euclidean(name=f"_{var_names[0]}", dim=1)
+
+    @staticmethod
+    def _locate_let_failure(
+        fn: Callable[[dict[str, "LetValue"]], "LetValue"],
+        kind: str,
+        name: str,
+        line: int,
+        col: int,
+    ) -> Callable[[dict[str, "LetValue"]], "LetValue"]:
+        """Give a let / score body's evaluation failures a source location.
+
+        The body is compiled to a closure that runs against the trace
+        environment, so a name it cannot resolve is only discovered
+        when the program runs, long after the parse position is out of
+        reach. Wrapping the closure re-raises any unlocated
+        `CompileError` against the binding that
+        produced it, which is what makes the diagnostic for a free
+        name in ``let w = z + 1.0`` say the same thing, in the same
+        place, as the one for ``let w = z``.
+        """
+
+        def _run(env: dict[str, "LetValue"]) -> "LetValue":
+            try:
+                return fn(env)
+            except CompileError as exc:
+                if exc.line:
+                    raise
+                raise CompileError(f"{kind} {name!r}: {exc}", line, col) from exc
+
+        return _run
 
     def _validate_let_expr_vars(
         self, node: LetExprNode, bound_vars: dict[str, AnySpace | None], step: LetStep
@@ -3433,7 +3687,11 @@ class _ProgramsMixin:
                     return (name,)
                 if name in globs and name != "__constructors__":
                     return globs[name]
-                raise CompileError(f"undefined variable {name!r} in let expression")
+                raise CompileError(
+                    f"undefined variable {name!r}: it is neither bound "
+                    f"earlier in the program body nor supplied under that "
+                    f"name in the conditioning data"
+                )
 
             return _var
         if isinstance(node, LetExprList):

@@ -21,8 +21,9 @@
 # Reference: [Carlin, Gelfand, and Smith 1992](https://doi.org/10.2307/2347570).
 
 object Step : FinSet 64
+object Val : Real 1
 
-program changepoint : Step -> Step
+program changepoint : Step -> Val
     sample tau <- Uniform(0.0, 100.0)
     sample rate_before <- Gamma(2.0, 1.0)
     sample rate_after <- Gamma(2.0, 1.0)

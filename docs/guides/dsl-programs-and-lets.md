@@ -66,22 +66,22 @@ basis of the effect surface.
 
 ### Kleisli bind syntax
 
-The `<-` operator is the unique sampling-step sigil in a `program`
-body:
+The `sample` keyword introduces a draw, and `<-` separates its
+binding pattern from the distribution call:
 
 <!-- compile: false -->
 ```qvr
-x <- Normal(0.0, 1.0)
+sample x <- Normal(0.0, 1.0)
 ```
 
-It introduces `x` as a random variable distributed according to the
-given family. The same sigil carries every sampling-step variant:
-scalar draws, indexed plates, scored observes, and scoped
-marginalizations, distinguished by the surrounding shape.
+This step introduces `x` as a random variable distributed according
+to the given family. Indexed samples, scored observations, and scoped
+marginalizations use the same `<-` separator with their respective
+keywords.
 
 ### Indexed bind (plate)
 
-`v : A <- Family(args)` declares `v` as an $A$-indexed family of
+`sample v : A <- Family(args)` declares `v` as an $A$-indexed family of
 independent $F$-distributed draws. Categorically `v : A \to
 \mathcal{G}(K)` where `K` is the per-fiber codomain taken from the
 family; equivalently a single arrow $\mathbf{1} \to
@@ -145,7 +145,7 @@ $N \to B$.
 
 <!-- compile: false -->
 ```qvr
-by_verb : Verb <- Normal(0.0, sigma)
+sample by_verb : Verb <- Normal(0.0, sigma)
 let intercept_for_item = by_verb[verb_of_item]
 ```
 
@@ -173,7 +173,7 @@ them at each call site:
 
 <!-- compile: false -->
 ```qvr
-v <- template(arg1, arg2, ...)
+sample v <- template(arg1, arg2, ...)
 ```
 
 At each call site the template's body is substituted (formal
@@ -436,26 +436,26 @@ different combination of upstream scalar latents.
 ## Inline distributions
 
 Bind and observe steps support inline distribution construction
-with any mix of literal and variable arguments. The 30+ registered
-families accept literal-or-variable arguments at any position:
+with any mix of literal and variable arguments. More than forty
+registered families accept literal-or-variable arguments at any position:
 
 <!-- compile: false -->
 ```qvr
 # all-literal (fixed): Unit -> codomain
-x <- Normal(0.0, 1.0)
-p <- Beta(2.0, 5.0)
+sample x <- Normal(0.0, 1.0)
+sample p <- Beta(2.0, 5.0)
 
 # all-variable (direct): variables -> codomain
-y <- Normal(mu, sigma)
-b <- Bernoulli(theta)
+sample y <- Normal(mu, sigma)
+sample b <- Bernoulli(theta)
 
 # mixed literal / variable: any combination works
-h_cand <- Normal(reset_hidden, 0.5)
-z <- Normal(0.0, learned_scale)
-r <- TruncatedNormal(mu, sigma, 0.0, 1.0)
+sample h_cand <- Normal(reset_hidden, 0.5)
+sample z <- Normal(0.0, learned_scale)
+sample r <- TruncatedNormal(mu, sigma, 0.0, 1.0)
 
 # negative literals
-z <- Normal(-1.5, 0.3)
+sample z <- Normal(-1.5, 0.3)
 ```
 
 A representative subset of the inline-distribution registry (the

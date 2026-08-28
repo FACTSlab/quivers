@@ -1,5 +1,6 @@
 # Continuous Spaces
 
-Continuous topological spaces and their properties.
+Typed carriers for continuous values, including Euclidean, simplex,
+positive, matrix, sphere, ball, and product spaces.
 
 ::: quivers.continuous.spaces

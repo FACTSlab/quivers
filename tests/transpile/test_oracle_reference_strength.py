@@ -61,16 +61,25 @@ the floor before it trips the tolerance.
 Ten gallery examples ship synthetic data and carry no pin at all,
 and this module holds their exemptions to the same standard rather
 than to their own prose. The two structural ones must parse to a
-module that declares no probabilistic program. The eight sequence
-models must be *demonstrably* non-deterministic: each is traced twice
-under different global RNG states and required to disagree, so an
-example whose composition marginalisation later becomes
-deterministic loses its exemption instead of keeping an unpinned
-joint forever.
+module that declares no probabilistic program *and* leave
+`load_gallery_data` with nothing to build, since an example whose
+`.md` snippet assembles a program in Python scores a joint whatever
+its `.qvr` text declares. The eight sequence
+models each bind a latent to a `SampledComposition`, and must be
+shown to report a joint that no pin could hold: either the value
+moves when the composition's quadrature node count changes, so what
+the oracle returns is the rule's approximation rather than the
+model's density, or the composite site scores exactly zero at every
+value it is given, so the joint is missing the prior on the only
+latent the program declares. Which of the two holds is declared per
+example and re-measured on every run. An example that stops
+exhibiting either has a density worth pinning and loses its
+exemption instead of keeping an unpinned joint forever.
 """
 
 from __future__ import annotations
 
+import functools
 import math
 import pathlib
 from collections.abc import Callable
@@ -80,8 +89,10 @@ import torch
 from torch import Tensor
 from torch import distributions as td
 
+from quivers.continuous.morphisms import SampledComposition
 from quivers.dsl.ast_nodes.declarations import ProgramDecl
 from quivers.dsl.parser import parse
+from quivers.effects.trace_types import Trace
 from tests.transpile import _equivalence, _gallery_data
 from tests.transpile import test_gallery_numeric_equivalence as _gallery_tier
 from tests.transpile.probes._protocol import Point
@@ -500,11 +511,9 @@ def _reconstruct_tree_categorical(
     [`test_zero_scoring_sites_are_zero_by_identity`][tests.transpile.test_oracle_reference_strength.test_zero_scoring_sites_are_zero_by_identity]
     asserts is an identity rather than a coincidence.
 
-    `y` carries a single observation against `object Resp : FinSet
-    200`; the reconstruction scores the tensor the snippet actually
-    produced rather than the declared cardinality, matching the
-    oracle. The mismatch is the `tree_categorical` blocker recorded in
-    `_SKIP_PROBE_INCOMPATIBLE`.
+    `y` carries one response per element of `object Resp : FinSet
+    200`, every one of them scored against the same `cell0` location,
+    so the likelihood is a 200-term sum over a plate of width 200.
     """
     del dataset, weights
     p_root, p_left, p_right = (
@@ -517,7 +526,9 @@ def _reconstruct_tree_categorical(
 
     if variant == "delta_unit_scale":
         delta_scale = torch.ones_like(sigma_v)
-    elif variant in ("", "wrong_leaf_branch", "drop_leaf_offset"):
+    elif variant in (
+        "", "wrong_leaf_branch", "drop_leaf_offset", "plate_mean",
+    ):
         delta_scale = sigma_v
     else:
         raise _unknown_variant("tree_categorical", variant)
@@ -530,12 +541,16 @@ def _reconstruct_tree_categorical(
     if variant != "drop_leaf_offset":
         cell_zero = cell_zero + leaf_zero
 
-    # `y` is summed, never averaged. The fixture happens to ship a
-    # single response, so a mean / sum confusion would be invisible
-    # here; the plate-averaging defect is covered on the examples whose
-    # plate actually has width (`bnn`, `linear_gaussian_ssm`,
-    # `mixture_model`, `parametric_pooling`).
-    y_term = td.Normal(cell_zero, 0.5).log_prob(y).sum()
+    # `y` is summed, never averaged: the joint is a product over the
+    # 200-element `Resp` plate. Every response is scored against the
+    # same `cell0`, so an averaged plate returns the per-response
+    # density itself and the defect is worth two orders of magnitude.
+    per_response = td.Normal(cell_zero, 0.5).log_prob(y)
+    y_term = (
+        per_response.mean()
+        if variant == "plate_mean"
+        else per_response.sum()
+    )
 
     return {
         "p_root": unit.log_prob(p_root).sum(),
@@ -766,7 +781,7 @@ _MUTANTS: tuple[_Mutant, ...] = (
         "leaf 0 of the case table reads the `p_root` / `p_left` arm "
         "instead of its complement, the classic tree-traversal "
         "polarity error.",
-        0.4,
+        40.0,
     ),
     _Mutant(
         "tree_categorical", "delta_unit_scale",
@@ -778,7 +793,12 @@ _MUTANTS: tuple[_Mutant, ...] = (
         "tree_categorical", "drop_leaf_offset",
         "the tree-structured leaf log-probability is dropped from the "
         "score cell, leaving `delta[0] + mu[0]`.",
-        4.0,
+        400.0,
+    ),
+    _Mutant(
+        "tree_categorical", "plate_mean",
+        "the 200-response `Resp` plate is averaged instead of summed.",
+        100.0,
     ),
 )
 
@@ -1601,6 +1621,14 @@ def test_structurally_exempt_examples_declare_no_probabilistic_program(
     checked against the parsed module rather than against the prose:
     a `ProgramDecl` appearing in either file means the example gained
     a program and lost its exemption.
+
+    The source is not the only place a program can come from. A `.md`
+    synthetic-data snippet is free to assemble a `MonadicProgram` in
+    Python around the compiled composition, and one that does gives
+    the oracle a joint to score at every point of the set, whatever
+    the `.qvr` text declares. The exemption therefore has to survive
+    the second reading too: `load_gallery_data` must find nothing to
+    build.
     """
     source = (_SOURCE_DIR / f"{example}.qvr").read_text(encoding="utf-8")
     module = parse(source)
@@ -1625,64 +1653,426 @@ def test_structurally_exempt_examples_declare_no_probabilistic_program(
     )
 
 
+# ---------------------------------------------------------------------
+# The composition exemptions.
+#
+# The eight sequence models each bind a latent to a
+# `SampledComposition`. That kernel integrates the chain's
+# intermediates, which no trace site records, and the two ways it can
+# do so are the two ways an oracle joint can fail to be a value worth
+# pinning:
+#
+# 1. A **rule-dependent** joint. Where the intermediate is stochastic
+#    and reparameterised, the integral is a deterministic quadrature
+#    over a finite node set, so its value is an approximation whose
+#    error is a property of the rule. Pinning it would enshrine that
+#    error as the reference, which is the one thing a reference pin
+#    exists to catch, since Theorem 4.1's quotient cannot see a
+#    point-independent oracle error.
+# 2. A **flat** latent. Where the chain returns no density at all, the
+#    site scores exactly zero whatever its value, so the joint is
+#    missing the prior on the only latent the program declares. There
+#    is nothing to pin because there is no density.
+#
+# Which of the two holds for which example is measured below, per
+# point, and declared here rather than inferred, so an example that
+# changes ground fails instead of sliding quietly from one to the
+# other.
+# ---------------------------------------------------------------------
+
+
+_QUADRATURE_PROBE_NODES = 37
+"""Node count the rule-dependence probe re-scores the joint at.
+
+Any value other than
+[`SampledComposition`][quivers.continuous.morphisms.SampledComposition]'s
+default would do; a prime well below it, and coprime to it, makes the
+two rules resolve the integrand at genuinely different nodes, so a
+joint that agrees across them agrees because the quadrature has
+converged rather than because the two node sets overlapped."""
+
+_QUADRATURE_DEPENDENT_JOINT: dict[str, float] = {
+    "bidirectional_rnn_lm": 4.0e8,
+    "deep_markov": 800.0,
+    "seq2seq": 1500.0,
+    "transformer_lm": 7.0e6,
+    "vae": 15000.0,
+}
+"""Exempt examples whose joint is a property of the quadrature rule,
+each with a floor on how far the joint moves when the node count
+changes, in multiples of the reference pin tolerance at the moving
+point.
+
+Measured, largest shift across the six points over the tolerance
+there: `bidirectional_rnn_lm` 5.2e08, `transformer_lm` 9.5e06, `vae`
+21742, `seq2seq` 2216, `deep_markov` 1093. Each floor sits below its
+measurement so that a quadrature converging toward the pin tolerance,
+which is the event that would make the example pinnable, surfaces as a
+shrinking margin here rather than as a silent change of grounds."""
+
+_FLAT_COMPOSITE_LATENT: dict[str, str] = {
+    "gru_lm": "h",
+    "lstm_lm": "h",
+    "vanilla_rnn_lm": "h",
+}
+"""Exempt examples whose composition-bound latent carries no density,
+and the site it is bound at.
+
+All three bind the hidden state to `tok_embed >> scan(...)`, whose
+composite `log_prob` is identically zero. Each declares a `~ Normal`
+recurrent update, so `h` is meant to carry a transition density at
+every step; the joint the oracle reports carries none of it, and the
+number it returns is the emission likelihood alone."""
+
+_FLATNESS_PROBE_SHIFT = 5.0
+"""Offset added to a flat latent to show that its value is read.
+
+Large enough that the downstream likelihood cannot absorb it, so a
+site scoring zero before and after the shift is scoring zero because
+its family is flat and not because the shift never reached it."""
+
+_FLATNESS_DOWNSTREAM_FLOOR = 100.0
+"""Floor on how far the shifted latent moves the rest of the joint, in
+nats.
+
+Measured under a shift of 5.0: `gru_lm` 1149.5, `lstm_lm` 1197.2,
+`vanilla_rnn_lm` 206.5. A shift that stopped moving the downstream
+sites would mean the latent had dropped out of the computation, at
+which point its flat density would be unremarkable rather than a
+defect, and the exemption would need re-deriving."""
+
+
+@functools.cache
+def _exempt_trace(example: str, index: int) -> Trace:
+    """One trace of an exempt example at one point, memoised.
+
+    [`_fixture`][tests.transpile.test_oracle_reference_strength._fixture]
+    keeps only the numbers it needs; the checks below need the
+    `SampleSite` records themselves, to see which morphism each site
+    was drawn from.
+    """
+    return _exempt_traces(example, _fixture(example).points[index])[0]
+
+
+def _exempt_traces(example: str, point: Point) -> list[Trace]:
+    """Trace an exempt example at an arbitrary point, unmemoised."""
+    fixture = _fixture(example)
+    monadic = fixture.dataset.monadic
+    if monadic is None:
+        raise AssertionError(
+            f"{example!r}: the synthetic-data block bound no compiled "
+            f"`MonadicProgram`, so there is nothing to trace."
+        )
+    return reference_traces(
+        monadic,
+        point,
+        x_input=fixture.dataset.x_input,
+        observations=_gallery_data.observations_for_point(
+            fixture.dataset, point,
+        ),
+    )
+
+
+def _compositions(example: str) -> list[SampledComposition]:
+    """Every `SampledComposition` inside one example's compiled module."""
+    fixture = _fixture(example)
+    monadic = fixture.dataset.monadic
+    if monadic is None:
+        raise AssertionError(
+            f"{example!r}: the synthetic-data block bound no compiled "
+            f"`MonadicProgram`."
+        )
+    found = [
+        module
+        for module in monadic.modules()
+        if isinstance(module, SampledComposition)
+    ]
+    if not found:
+        raise AssertionError(
+            f"{example!r} is exempt from the reference pin on the "
+            f"grounds that it integrates a composition's intermediates, "
+            f"but its compiled module contains no "
+            f"`SampledComposition` at all. The exemption names the "
+            f"wrong example, or the program lost the composition and "
+            f"can now be pinned."
+        )
+    return found
+
+
+def _composite_sites(example: str, index: int) -> list[str]:
+    """Sites of one example drawn from a `SampledComposition`."""
+    return sorted(
+        name
+        for name, site in _exempt_trace(example, index).sites.items()
+        if isinstance(site.morphism, SampledComposition)
+    )
+
+
+def _joint_at_nodes(example: str, index: int, nodes: int) -> float:
+    """The joint at one point, with every composition re-ruled to `nodes`.
+
+    The node count is restored before returning, so the memoised
+    fixture the rest of the module reads keeps scoring against the
+    default rule.
+    """
+    compositions = _compositions(example)
+    original = [composition.n_intermediate for composition in compositions]
+    try:
+        for composition in compositions:
+            composition.n_intermediate = nodes
+        traced = _exempt_traces(example, _fixture(example).points[index])[0]
+        joint = traced.log_joint
+        if joint is None:
+            raise AssertionError(
+                f"{example!r} point {index}: the trace returned no "
+                f"`log_joint` under a {nodes}-node rule."
+            )
+        return float(joint.sum().item())
+    finally:
+        for composition, count in zip(compositions, original):
+            composition.n_intermediate = count
+
+
+def _shifted_point(point: Point, name: str, offset: float) -> Point:
+    """`point` with the `name` latent moved by `offset`."""
+    value = point.params[name]
+    moved: float | list[float] = (
+        float(value) + offset
+        if isinstance(value, (int, float))
+        else [float(entry) + offset for entry in value]
+    )
+    return Point(
+        params={**point.params, name: moved}, data=dict(point.data),
+    )
+
+
+def test_composition_exemption_grounds_partition_the_registry() -> None:
+    """Every composition exemption has exactly one measured ground.
+
+    The two checks below are the evidence for the two grounds, and
+    they are only evidence for the *registry* if between them they
+    cover it exactly once. An example in neither would keep an
+    unpinned joint with nothing establishing why; an example in both
+    would mean one of the two measurements is not measuring what it
+    claims, since a joint that moves with the node count is not a
+    joint whose composite site scores zero.
+    """
+    declared = set(_exempt_by(_gallery_tier._SKIP_QVR_INCOMPATIBLE))
+    rule_dependent = set(_QUADRATURE_DEPENDENT_JOINT)
+    flat = set(_FLAT_COMPOSITE_LATENT)
+
+    unchecked = sorted(declared - rule_dependent - flat)
+    assert not unchecked, (
+        f"{unchecked!r} are exempt from the reference pin because "
+        f"their oracle integrates a composition's intermediates, but "
+        f"neither check below establishes what goes wrong with the "
+        f"resulting value. Measure the example: if its joint moves "
+        f"with the quadrature node count, add it to "
+        f"`_QUADRATURE_DEPENDENT_JOINT` with its measured floor; if "
+        f"its composite site scores exactly zero, add it to "
+        f"`_FLAT_COMPOSITE_LATENT`; if neither holds, the joint is a "
+        f"value and the example wants a `_QVR_REFERENCE_JOINT` row "
+        f"rather than an exemption."
+    )
+    stale = sorted((rule_dependent | flat) - declared)
+    assert not stale, (
+        f"{stale!r} carry a ground for exemption but are not exempt: "
+        f"either they left `_SKIP_QVR_INCOMPATIBLE` or the ground "
+        f"names the wrong example."
+    )
+    both = sorted(rule_dependent & flat)
+    assert not both, (
+        f"{both!r} claim both grounds at once. A joint that moves when "
+        f"the quadrature changes is not a joint whose composite site "
+        f"contributes nothing, so one of the two measurements is "
+        f"wrong."
+    )
+    assert rule_dependent and flat, (
+        f"one of the two grounds is empty (rule-dependent="
+        f"{sorted(rule_dependent)!r}, flat={sorted(flat)!r}), so one of "
+        f"the checks below parametrizes over nothing and passes "
+        f"vacuously."
+    )
+
+
 @pytest.mark.parametrize(
-    "example",
-    _exempt_by(_gallery_tier._SKIP_QVR_INCOMPATIBLE),
-    ids=lambda name: name,
+    "example", sorted(_QUADRATURE_DEPENDENT_JOINT), ids=lambda name: name,
 )
-def test_nondeterministically_exempt_examples_really_redraw(
+def test_quadrature_exempt_examples_have_a_rule_dependent_joint(
     example: str,
 ) -> None:
-    """An example exempt because its oracle is non-deterministic really
-    is non-deterministic.
+    """An example exempt on quadrature grounds really reports a value
+    the rule chose.
 
-    These carry a `SampledComposition` latent whose internal states
-    the oracle marginalises by importance sampling, redrawing on every
-    call, so the "joint" is a draw from an estimator and no value
-    exists for a pin to hold. That is a strong claim, and left as
-    prose it would outlive the gap it describes: an example whose
-    marginalisation later became deterministic would keep an exemption
-    it no longer needs, and its joint would go unpinned forever.
+    The composite marginal over a stochastic intermediate is a finite
+    sum over quadrature nodes, so what the oracle returns is an
+    approximation of the model's density carrying an error nothing
+    bounds. Re-scoring the same point under a different node count
+    measures that error directly: the two rules integrate the same
+    kernel against the same data, so a model-level density would give
+    the same number and a rule-level artefact does not.
 
-    Tracing the ground-truth point twice under different global RNG
-    states settles it. A deterministic joint is invariant to that
-    state by definition, so a disagreement is proof of the redraw and
-    agreement is proof the exemption is stale.
+    The shift is required to exceed
+    [`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol]
+    at the moving point, which is precisely the threshold that makes
+    the exemption necessary rather than merely defensible: a
+    quadrature converged to within the pin tolerance would be pinnable,
+    and the pin would then be holding the model rather than the rule.
+
+    At *some* point rather than at every point, for the same reason
+    the mutant catalogue asks for that: a quadrature error can vanish
+    at one configuration of the latents and reappear at the next, and
+    demanding visibility everywhere would force out the examples where
+    it is real but intermittent.
     """
-    dataset = _gallery_data.load_gallery_data(
-        _SOURCE_DIR / f"{example}.qvr",
-    )
-    assert dataset is not None, (
-        f"{example!r}: exempt on non-determinism grounds but its "
-        f"synthetic-data block does not load, which is the *other* "
-        f"exemption. Move the row."
-    )
-    monadic = dataset.monadic
-    assert monadic is not None, (
-        f"{example!r}: the synthetic-data block bound no compiled "
-        f"program, so nothing can be traced."
-    )
-
-    traces = reference_traces(
-        monadic,
-        _gallery_data.point_from_dataset(dataset),
-        x_input=dataset.x_input,
-        observations=dataset.observations,
-    )
-    joints: list[float] = []
-    for tr in traces:
-        joint = tr.log_joint
-        assert joint is not None, (
-            f"{example!r}: the trace returned no `log_joint`."
+    fixture = _fixture(example)
+    labels = _gallery_data.perturbation_labels(len(fixture.points))
+    shifts = [
+        abs(
+            _joint_at_nodes(example, index, _QUADRATURE_PROBE_NODES)
+            - fixture.joints[index]
         )
-        joints.append(float(joint.sum().item()))
+        for index in range(len(fixture.points))
+    ]
 
-    assert len(set(joints)) > 1, (
-        f"{example!r} is exempt from the reference pin because its "
-        f"oracle joint is redrawn on every call, but tracing it under "
-        f"two distinct RNG states produced the same value "
-        f"{joints[0]!r} twice. The composition marginalisation has "
-        f"become deterministic, so the exemption is stale: derive the "
+    best = max(shifts)
+    best_index = shifts.index(best)
+    atol = _gallery_tier.reference_pin_atol(fixture.joints[best_index])
+    assert best > atol, (
+        f"{example!r}: re-scoring under a {_QUADRATURE_PROBE_NODES}-node "
+        f"rule moves the joint by at most {best:.6g} nats across the "
+        f"point set, inside the {atol:.6g} pin tolerance. The "
+        f"quadrature has converged to within the tolerance a pin would "
+        f"hold it to, so the oracle now reports the model's density "
+        f"rather than the rule's approximation of it: derive the "
         f"joint, pin it at every point, and move the row out of "
         f"`_REFERENCE_PIN_EXEMPT`."
     )
+    ratio = best / atol
+    floor = _QUADRATURE_DEPENDENT_JOINT[example]
+    assert ratio >= floor, (
+        f"{example!r}: the node count now moves the joint by "
+        f"{ratio:.0f} pin tolerances at point {best_index} "
+        f"({labels[best_index]}), below the declared floor "
+        f"{floor:.0f}. The quadrature is converging, which is the "
+        f"event that ends this exemption; re-measure the example and "
+        f"either pin it or restate the ground. Do not lower the floor "
+        f"to restore green."
+    )
+
+
+@pytest.mark.parametrize(
+    "example", sorted(_FLAT_COMPOSITE_LATENT), ids=lambda name: name,
+)
+def test_flat_latent_exempt_examples_carry_no_density_for_it(
+    example: str,
+) -> None:
+    """An example exempt on flat-latent grounds really scores its
+    composition-bound latent at zero, for every value it is given.
+
+    Zero at the fixture's own values would prove nothing: a density
+    can pass through zero. The check therefore reads the site across
+    the whole point set, whose entries move the latent, and then moves
+    it again by
+    [`_FLATNESS_PROBE_SHIFT`][tests.transpile.test_oracle_reference_strength._FLATNESS_PROBE_SHIFT]
+    and reads it once more, requiring the same exact zero while the
+    rest of the joint moves by nats. The downstream movement is what
+    makes the zero a statement about the family rather than about
+    reachability: the shifted value demonstrably enters the
+    computation, and the kernel that is supposed to score it returns
+    nothing.
+
+    That is the whole exemption. The program declares one latent, the
+    oracle's joint contains no factor for it, and a pin over such a
+    number would certify a likelihood while claiming to certify a
+    joint density.
+    """
+    name = _FLAT_COMPOSITE_LATENT[example]
+    fixture = _fixture(example)
+    labels = _gallery_data.perturbation_labels(len(fixture.points))
+
+    values: list[tuple[float, ...]] = []
+    for index in range(len(fixture.points)):
+        traced = _exempt_trace(example, index)
+        assert name in _composite_sites(example, index), (
+            f"{example!r} point {index} ({labels[index]}): site "
+            f"{name!r} is not drawn from a `SampledComposition` "
+            f"(composite sites: {_composite_sites(example, index)!r}), "
+            f"so whatever it scores says nothing about a composition's "
+            f"marginalisation."
+        )
+        log_prob = traced.sites[name].log_prob
+        assert torch.equal(log_prob, torch.zeros_like(log_prob)), (
+            f"{example!r} point {index} ({labels[index]}): site "
+            f"{name!r} contributes "
+            f"{float(log_prob.sum().item())!r} nats, so the "
+            f"composition does return a density for it and the "
+            f"flat-latent ground no longer holds. Re-derive the "
+            f"exemption, or pin the joint."
+        )
+        entry = fixture.points[index].params[name]
+        values.append(
+            (float(entry),)
+            if isinstance(entry, (int, float))
+            else tuple(float(v) for v in entry)
+        )
+
+    assert len(set(values)) > 1, (
+        f"{example!r}: the point set clamps {name!r} to the same value "
+        f"at all {len(values)} points, so scoring zero everywhere is a "
+        f"statement about one value rather than about the family. The "
+        f"perturbation schedule must move this latent."
+    )
+
+    base_point = fixture.points[0]
+    shifted = _shifted_point(base_point, name, _FLATNESS_PROBE_SHIFT)
+    traced = _exempt_traces(example, shifted)[0]
+    shifted_log_prob = traced.sites[name].log_prob
+    assert torch.equal(
+        shifted_log_prob, torch.zeros_like(shifted_log_prob),
+    ), (
+        f"{example!r}: moving {name!r} by {_FLATNESS_PROBE_SHIFT} gives "
+        f"it a log-density of "
+        f"{float(shifted_log_prob.sum().item())!r}, so the composition "
+        f"scores it after all and the ground for this exemption is "
+        f"gone."
+    )
+
+    baseline = fixture.sites[0]
+    downstream = 0.0
+    for other, site in traced.sites.items():
+        if other == name:
+            continue
+        if other not in baseline:
+            raise AssertionError(
+                f"{example!r}: shifting {name!r} produced a trace "
+                f"recording site {other!r}, which the unshifted trace "
+                f"does not, so the two are densities of different "
+                f"models and the comparison below is meaningless."
+            )
+        downstream += abs(
+            float(site.log_prob.sum().item()) - baseline[other]
+        )
+    assert downstream >= _FLATNESS_DOWNSTREAM_FLOOR, (
+        f"{example!r}: moving {name!r} by {_FLATNESS_PROBE_SHIFT} "
+        f"changed the rest of the joint by only {downstream:.6g} nats, "
+        f"below the {_FLATNESS_DOWNSTREAM_FLOOR:.6g} floor. The latent "
+        f"is barely reaching the computation, so its flat density is "
+        f"no longer evidence that a real prior factor is missing. "
+        f"Re-derive the exemption rather than lowering the floor."
+    )
+
+    for index in range(len(fixture.points)):
+        shift = abs(
+            _joint_at_nodes(example, index, _QUADRATURE_PROBE_NODES)
+            - fixture.joints[index]
+        )
+        assert shift == 0.0, (
+            f"{example!r} point {index} ({labels[index]}): the joint "
+            f"moves by {shift:.6g} nats under a "
+            f"{_QUADRATURE_PROBE_NODES}-node rule, so this example is "
+            f"rule-dependent as well and the two grounds are not the "
+            f"partition "
+            f"`test_composition_exemption_grounds_partition_the_registry` "
+            f"asserts."
+        )

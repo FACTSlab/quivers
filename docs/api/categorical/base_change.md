@@ -1,5 +1,6 @@
 # Base Change
 
-Change of enriching category for V-enriched categories.
+The `BaseChange` interface and the `BoolToFuzzy` and `FuzzyToBool`
+changes of enrichment.
 
 ::: quivers.categorical.base_change

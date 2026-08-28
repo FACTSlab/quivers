@@ -107,7 +107,9 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
     host_integer_input_names,
+    mixture_normal_components,
 )
 
 
@@ -138,6 +140,7 @@ class PyroRenderer(RendererBase):
         front; the inherited dispatch then routes each node into
         the body.
         """
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
@@ -626,7 +629,14 @@ class PyroRenderer(RendererBase):
                 f"qvr-{_TARGET}",
                 [f"family:{family}"],
             )
-        aliases = meta.arg_aliases.get(_TARGET, {})
+        if family == "MixtureNormal":
+            return self._mixture_same_family_call(
+                pctx, dist_class, args, arg_names
+            )
+        aliases = {
+            **meta.arg_aliases.get(_TARGET, {}),
+            **_PYRO_KEYWORD_BINDINGS.get(family, {}),
+        }
         # Build the distribution call. Pyro lacks several QVR families
         # as built-ins (`TruncatedNormal`, `LogitNormal`,
         # `HalfStudentT`, `MatrixNormal`, `InverseWishart`); the
@@ -655,6 +665,16 @@ class PyroRenderer(RendererBase):
                 self._leading_dim_arg(pctx, family, plate),
                 *positional,
             )
+        # A family whose target class fixes a leading parameter the QVR
+        # call site never writes (`Horseshoe(scale)` -> `Normal(0,
+        # scale)`) gets that value prepended under the target's own
+        # parameter name.
+        fixed_leading = _PYRO_FIXED_LEADING_ARGS.get(family)
+        if fixed_leading is not None:
+            positional = (
+                number_literal(pctx, fixed_leading),
+                *positional,
+            )
         dist_call = call(
             pctx,
             dist_callee,
@@ -663,6 +683,52 @@ class PyroRenderer(RendererBase):
         )
         event_dims = plate.event_dims if plate is not None else ()
         return self._wrap_event_dims(pctx, dist_call, family, event_dims)
+
+    def _mixture_same_family_call(
+        self,
+        pctx: _PyroCtx,
+        dist_class: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> str:
+        """Emit `MixtureSameFamily(Categorical(probs), Normal(loc, scale))`.
+
+        Pyro ships no single-name Gaussian-mixture family, but it ships
+        the mixture *construction*: a categorical mixing distribution
+        over a batch of components whose batch axis is the component
+        axis. `MixtureNormal(w, mu, sigma)` maps onto it exactly, so the
+        emitted distribution's `log_prob` is the same log-sum-exp the
+        QVR likelihood scores rather than an approximation of it.
+
+        The component axis is the mixture's own, never a plate axis, so
+        the call takes no `.expand(...).to_event(...)` lift.
+        """
+        weights, loc, scale = mixture_normal_components(
+            _TARGET, args, arg_names
+        )
+        meta = FAMILY_META["MixtureNormal"]
+        mixing = call(
+            pctx,
+            attribute(pctx, ("pyro", "distributions", "Categorical")),
+            positional=(
+                self._lower_arg(
+                    pctx, weights, meta=meta, arg_name="weights"
+                ),
+            ),
+        )
+        component = call(
+            pctx,
+            attribute(pctx, ("pyro", "distributions", "Normal")),
+            positional=(
+                self._lower_arg(pctx, loc, meta=meta, arg_name="loc"),
+                self._lower_arg(pctx, scale, meta=meta, arg_name="scale"),
+            ),
+        )
+        return call(
+            pctx,
+            attribute(pctx, ("pyro", "distributions", dist_class)),
+            positional=(mixing, component),
+        )
 
     def _wrap_event_dims(
         self,
@@ -1542,6 +1608,40 @@ _PYRO_LEADING_DIM_FAMILIES = frozenset({
     "LKJCholesky",
     "LKJCorrelationFactor",
 })
+
+
+#: Families whose Pyro constructor binds the QVR positional slots in a
+#: different order than the QVR call site writes them. A QVR argument
+#: list is positional against
+#: [`FamilyMeta.distribution_class`][quivers.transpile.family_meta.FamilyMeta]'s
+#: own constructor, so `BetaBinomial(n, a, b)` in QVR names
+#: `(total_count, concentration1, concentration0)` while
+#: `pyro.distributions.BetaBinomial` is constructed
+#: `(concentration1, concentration0, total_count)`. Emitting those
+#: three positionally transposes the trial count with a concentration
+#: and silently scores a different density, so every slot of such a
+#: family is emitted as a keyword argument, which is order-free. The
+#: map is `qvr arg name -> pyro keyword`; identity entries are kept
+#: explicit so a reader can check the whole signature in one place.
+_PYRO_KEYWORD_BINDINGS: dict[str, dict[str, str]] = {
+    "BetaBinomial": {
+        "total_count": "total_count",
+        "concentration1": "concentration1",
+        "concentration0": "concentration0",
+    },
+}
+
+
+#: Families whose Pyro target class carries a leading parameter that
+#: the QVR call site never writes because the family fixes it, mapped
+#: to the value that fills it. The horseshoe prior is
+#: `Normal(0, scale)` and QVR spells it `Horseshoe(scale)`; emitting
+#: that one argument positionally against `pyro.distributions.Normal`
+#: binds it to `loc` and scores a unit scale at a shifted location, so
+#: the renderer prepends the fixed location instead.
+_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {
+    "Horseshoe": 0.0,
+}
 
 
 _RUNTIME_PYRO_PATH = (

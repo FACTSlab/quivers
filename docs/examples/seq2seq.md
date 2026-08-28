@@ -2,12 +2,41 @@
 
 ## Overview
 
-A single transformer-style encoder-decoder ([Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215); [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762)) combining both halves in one example. The encoder is a stacked self-attention + feed-forward backbone on the source vocabulary; the decoder is a parallel stacked backbone on the target vocabulary; a `cross` Bayesian morphism merges the two latent streams into a single `Combined` representation, and a Categorical `lm_head` scores the next target token. Composing the encoder and decoder via [`@`](../guides/dsl-overview.md) and following with `cross >> lm_head` gives a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$.
+This example combines source and target branches in an encoder-decoder-shaped model ([Sutskever, Vinyals, and Le, 2014](https://doi.org/10.48550/arXiv.1409.3215)). Each branch contains parallel MLP-Normal kernels and feed-forward stages. A `cross` morphism merges paired source and target representations before a Categorical head. The source contains no self-attention, cross-attention, or causal mask.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Bayesian Sequence-to-Sequence Model
+#
+# A transformer-style encoder-decoder model with separate
+# source-side and target-side vocabularies. Both halves are
+# stacked self-attention plus feed-forward backbones; a cross
+# morphism merges the two Latent streams; the Categorical
+# lm_head scores the next target token.
+#
+# Generative structure:
+#
+#   h_enc    ~ encoder(source)                    non-autoregressive enc
+#   h_dec    ~ decoder(target)                    autoregressive dec
+#   h        ~ cross(h_enc, h_dec)                merged representation
+#   next_t   ~ Categorical(lm_head(h))            next-token target
+#
+# Composing the two backbones via the tensor product @ and
+# following with cross >> lm_head gives a Kleisli morphism
+# Source * Target -> Target in the Giry monad's Kleisli
+# category.
+#
+# Resp is the plate: it indexes the 32 scored rows, one
+# next-token target per (source, target) position pair. Target is
+# the target-side vocabulary, so it is the value space of what
+# lm_head draws and of what the program returns.
+#
+# Reference: [Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215).
+# Reference: [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
+
 object Source, Target : FinSet 32
+object Resp : FinSet 32
 object Latent : Real 16
 object HeadOut : Real 4
 object FFHidden, Combined : Real 32
@@ -38,7 +67,7 @@ define backbone = (encoder @ decoder) >> cross
 program seq2seq : Source * Target -> Target
     sample h <- backbone
 
-    observe next_token : Target <- lm_head(h)
+    observe next_token : Resp <- lm_head(h)
     return next_token
 
 export seq2seq
@@ -48,19 +77,21 @@ export seq2seq
 
 ### Encoder
 
-`src_embed >> stack(enc_block, 2)` is the non-autoregressive encoder: source tokens are embedded into the sixteen-dimensional `Latent` space and run through two independent stacked self-attention plus feed-forward blocks. Each block uses four-head fan via `fan(enc_head)` (`replicate=4` on the per-head morphism), an `enc_attn_proj` recombination, two small residual Bayesian morphisms, and a two-stage feed-forward sub-block. [`stack`](../guides/dsl-declarations.md#stack-independent-multi-layer) gives each layer its own parameters.
+`src_embed >> stack(enc_block, 2)` embeds source tokens and applies two independently parameterized blocks. Each block fans the input across four stochastic branches, recombines them, and applies further MLP-Normal kernels. These are parallel branches, not attention heads.
 
 ### Decoder
 
-`tgt_embed >> stack(dec_block, 2)` mirrors the encoder structure on the target side with its own independent parameters. In a strict causal decoder the runtime supplies a causal mask to the per-step self-attention; in this categorical surface the mask is a runtime concern, not a structural one.
+`tgt_embed >> stack(dec_block, 2)` mirrors the source branch with independent parameters. The current runtime call does not supply or apply a causal mask.
 
 ### Cross-composition
 
-`(encoder @ decoder) >> cross` runs the encoder and decoder in parallel via the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` of Kleisli morphisms and then merges the two `Latent` streams into the `Combined` representation through the `cross` Bayesian morphism. `cross` plays the role of [cross-attention](https://doi.org/10.48550/arXiv.1706.03762) between source and target.
+`(encoder @ decoder) >> cross` runs the branches in parallel and merges their paired outputs through a learned Normal kernel. Because `cross` receives only the paired vector and computes no query-key weighting over source positions, it is a merge rather than cross-attention.
 
 ### Language-model head
 
 The closing `morphism lm_head : Combined -> Target ~ Categorical` maps the combined representation onto a Categorical distribution over the target vocabulary; the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
+
+`Resp : FinSet 32` and `Target : FinSet 32` are the same size and mean different things, and their positions are what fix them. `Resp` fills the observe step's index slot, so it is the plate: 32 scored rows, one per flattened `(source, target)` position pair. `Target` fills `lm_head`'s codomain and the program's own codomain, so it is the value space: the 32 target-vocabulary outcomes a draw ranges over, and the space the returned `next_token` lives in.
 
 ```mermaid
 flowchart LR
@@ -76,35 +107,38 @@ flowchart LR
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 The program's domain is the product object `Source * Target`, so the runtime input is a `(batch, 2)` tensor whose two columns are the source and target token indices. The encoder reads the source column, the decoder reads the target column, and the model returns one predicted next-target-token per batch element. A pair of length-`L` source / target sequences becomes a `(L, 2)` batch by flattening the position axis into the batch dimension; a corpus of `B` such pairs becomes `(B * L, 2)`.
 
 ### Generating synthetic data
 
-Pick a small source / target token batch by drawing each column from a uniform Categorical over the vocabulary, then forward-sample the combined latent `h` and the next-token observations from the prior. The encoder reads the source column, the decoder reads the target column, and `lm_head` scores one Categorical draw per row.
+Draw a source and a target token batch column by column from a uniform Categorical over the two vocabularies, flatten the `(B, L)` grid into rows, and run one forward [`trace`](../api/inference/trace.md) so the merged latent `h` and the next-token targets generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The `B * L = 32` rows are the elements of the `Resp` plate: the encoder reads the source column, the decoder reads the target column, and `lm_head` scores one Categorical draw per row.
 
 ```python
 import torch
 from quivers.dsl import load
-from quivers.inference.trace import trace as run_trace
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/seq2seq.qvr")
 model = prog.morphism
 
-B, L = 2, 8
-src = torch.randint(0, 32, (B, L))
-tgt = torch.randint(0, 32, (B, L))
-x = torch.stack([src.reshape(-1), tgt.reshape(-1)], dim=-1)
+B, L, vocab = 4, 8, 32
+src = torch.randint(0, vocab, (B, L))
+tgt = torch.randint(0, vocab, (B, L))
+x_in = torch.stack([src.reshape(-1), tgt.reshape(-1)], dim=-1)
 
-tr = run_trace(model, x)
-h_obs = tr.sites["h"].value.detach()
-next_token = tr.sites["next_token"].value.detach()
-y_obs = next_token
-observations = {"next_token": next_token}
-print("x:", tuple(x.shape), "h:", tuple(h_obs.shape), "y:", tuple(y_obs.shape))
+with torch.no_grad():
+    forward = trace(model, x_in)
+true_h = forward.sites["h"].value.detach()
+next_token = forward.sites["next_token"].value.detach()
+
+observations = {"next_token": next_token, "h": true_h}
+print("x_in:", tuple(x_in.shape))
+print("true_h:", tuple(true_h.shape))
+print("next_token:", tuple(next_token.shape))
 ```
 
 ### SVI fit
@@ -121,7 +155,7 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/seq2seq.qvr")
 model = prog.morphism
 
-B, L = 2, 8
+B, L = 4, 8
 src = torch.randint(0, 32, (B, L))
 tgt = torch.randint(0, 32, (B, L))
 x = torch.stack([src.reshape(-1), tgt.reshape(-1)], dim=-1)
@@ -157,7 +191,7 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/seq2seq.qvr")
 model = prog.morphism
 
-B, L = 2, 8
+B, L = 4, 8
 src = torch.randint(0, 32, (B, L))
 tgt = torch.randint(0, 32, (B, L))
 x = torch.stack([src.reshape(-1), tgt.reshape(-1)], dim=-1)
@@ -181,7 +215,7 @@ print("divergences:", int(result.divergence_counts.sum()))
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The seq2seq model denotes a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The encoder and decoder are independent Kleisli morphisms over distinct objects; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` is their strong-monoidal product, and `cross` is the merge that closes the bilinear pairing into a single combined latent. The Categorical head puts a finite-set codomain on the composite, and `observe` is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) closing the LM likelihood.
 

@@ -1,13 +1,41 @@
-# Transformer Language Model
+# Transformer-shaped language model
 
 ## Overview
 
-A multi-layer Bayesian transformer used as a causal language model. The architecture follows the canonical encoder block of the [Transformer](https://doi.org/10.48550/arXiv.1706.03762): a stack of independent layers, each with multi-head self-attention via [`fan`](../guides/dsl-declarations.md#fan-out-diagonal-morphism), an attention output projection, a two-stage feed-forward sub-block, and two small residual Bayesian morphisms. The final `lm_head` is a `Categorical` morphism over the `Token` vocabulary, so the program's `observe` step scores the next-token target under a [Categorical likelihood](https://en.wikipedia.org/wiki/Categorical_distribution).
+This model borrows the parallel-head and stacked-block shape of a [Transformer](https://doi.org/10.48550/arXiv.1706.03762), then scores a token with a Categorical head. The `head` morphisms are independent MLP-parameterized Normal kernels. The source contains no query-key dot products, softmax over positions, causal mask, layer normalization, or additive residual connection. It is thus a wiring demonstration rather than a Transformer implementation or causal language model.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Multi-Layer Bayesian Transformer Language Model
+#
+# A multi-layer Bayesian transformer used as a causal language
+# model. Token indices are embedded into a Latent
+# representation, passed through two independent attention plus
+# feed-forward layers via stack(layer, 2), and projected back
+# onto the Token vocabulary via a Categorical lm_head.
+#
+# Generative structure:
+#
+#   h_attn   ~ fan(head)(h) >> attn_proj           four-head attention
+#   h_res    ~ residual_attn(h_attn)               attention residual
+#   h_ff     ~ ff_up(h_res) >> ff_down             feed-forward block
+#   h        ~ residual_ff(h_ff)                   feed-forward residual
+#   next_t   ~ Categorical(lm_head(h))             next-token target
+#
+# stack(layer, 2) composes two independent copies of the
+# attention plus feed-forward block, each carrying its own
+# Normal-prior weights drawn from the morphism declarations.
+#
+# Resp is the plate: it indexes the 32 scored rows, one
+# next-token target per context. Token is the vocabulary, so it
+# is the value space of what lm_head draws and of what the
+# program returns.
+#
+# Reference: [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
+
 object Token : FinSet 32
+object Resp : FinSet 32
 object Latent : Real 16
 object HeadOut : Real 4
 object FFHidden : Real 32
@@ -26,7 +54,7 @@ define backbone = tok_embed >> stack(layer, 2)
 program transformer_lm : Token -> Token
     sample h <- backbone
 
-    observe next_token : Token <- lm_head(h)
+    observe next_token : Resp <- lm_head(h)
     return next_token
 
 export transformer_lm
@@ -34,9 +62,9 @@ export transformer_lm
 
 ## Walkthrough
 
-### Multi-head attention
+### Parallel heads
 
-`morphism head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal` declares four independent attention heads via the [replicate](../guides/dsl-declarations.md#replicated-declarations) attribute on a single morphism. Each head is a Bayesian Kleisli morphism `Latent -> HeadOut`; `HeadOut` is four-dimensional, so the four heads together cover the sixteen-dimensional `Latent`. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs the four heads in parallel on the same input and concatenates the outputs, the standard multi-head wiring.
+`morphism head : Latent -> HeadOut [replicate=4, param_source=mlp] ~ Normal` declares four independent kernels. [`fan(head)`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) runs them in parallel on the same input and concatenates their four-dimensional outputs. This matches the dimensional wiring of four heads but does not compute attention.
 
 ### Layer block
 
@@ -45,7 +73,7 @@ export transformer_lm
 define layer = fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >> residual_ff
 ```
 
-After the multi-head attention, `attn_proj` mixes the head outputs back into `Latent`, `residual_attn` is a small-scale Bayesian shortcut that plays the role of the standard residual `+` (the prior centered near identity), and the `ff_up >> ff_down` pair is the standard two-layer position-wise feed-forward block.
+`attn_proj` mixes the parallel outputs back into `Latent`. `residual_attn` and `residual_ff` are sequential stochastic morphisms, not additions of a saved input, despite their names. `ff_up >> ff_down` is a two-stage MLP-shaped kernel composition.
 
 ### Deep stack
 
@@ -55,18 +83,21 @@ After the multi-head attention, `attn_proj` mixes the head outputs back into `La
 
 The closing `morphism lm_head : Latent -> Token ~ Categorical` is a Kleisli morphism `Latent -> Token`; per position it produces a Categorical distribution over the thirty-two-symbol vocabulary, and the program's `observe next_token` step accumulates the per-position categorical log-likelihood against the supplied target tensor.
 
+The two `FinSet` objects sit in different positions and mean different things. `Resp : FinSet 32` fills the observe step's index slot, so it is the plate: 32 scored rows. `Token : FinSet 32` fills `lm_head`'s codomain and the program's own codomain, so it is the value space: the 32 outcomes a draw ranges over, and the space the returned `next_token` lives in. That the two happen to have the same cardinality here is a coincidence of this example's sizing, not a shared role.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Initialise the transformer's stochastic-weight parameters under a fixed seed (these stand in for the ground-truth generative weights), then forward-sample a corpus of single-token contexts and read off the next-token target through [`rsample`](../api/continuous/programs.md). The transformer's stacked attention block expects sequence-axis-1 inputs, so the corpus is a `(batch, 1)` int64 context tensor paired with a `(batch, 1)` next-token target.
+Fix the model's parameters to a chosen draw, then run one forward [`trace`](../api/inference/trace.md) so the latent representation `h` and the next-token targets generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The corpus is 32 single-token contexts, one per element of the `Resp` plate, paired with 32 next-token targets. A one-position context does not test cross-position attention or causal masking: `fan(head)` inside `stack` folds a multi-position axis into the feature axis, so the composite as written scores one position per row.
 
 ```python
 import torch
 from quivers.dsl import load
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/transformer_lm.qvr")
@@ -75,11 +106,17 @@ model = prog.morphism
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
 
-batch, seq_len, vocab = 2, 1, 32
-contexts = torch.randint(0, vocab, (batch, seq_len))
-targets = model.rsample(contexts)
-print("contexts:", contexts.shape, contexts.dtype)
-print("targets: ", targets.shape, targets.dtype)
+rows, vocab = 32, 32
+x_in = torch.randint(0, vocab, (rows,))
+with torch.no_grad():
+    forward = trace(model, x_in)
+true_h = forward.sites["h"].value.detach()
+next_token = forward.sites["next_token"].value.detach()
+
+observations = {"next_token": next_token, "h": true_h}
+print("x_in:", tuple(x_in.shape))
+print("true_h:", tuple(true_h.shape))
+print("next_token:", tuple(next_token.shape))
 ```
 
 ### SVI fit
@@ -97,8 +134,8 @@ model = prog.morphism
 
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
-batch, seq_len, vocab = 2, 1, 32
-contexts = torch.randint(0, vocab, (batch, seq_len))
+rows, vocab = 32, 32
+contexts = torch.randint(0, vocab, (rows,))
 targets = model.rsample(contexts)
 observations = {"next_token": targets}
 
@@ -134,8 +171,8 @@ prog = load("docs/examples/source/transformer_lm.qvr")
 model = prog.morphism
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
-batch, seq_len, vocab = 2, 1, 32
-contexts = torch.randint(0, vocab, (batch, seq_len))
+rows, vocab = 32, 32
+contexts = torch.randint(0, vocab, (rows,))
 targets = model.rsample(contexts)
 observations = {"next_token": targets}
 
@@ -158,9 +195,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, assembled by composition of replicated heads, an output projection, residual mixers, and a two-stage feed-forward block. [`stack`](../guides/dsl-declarations.md#stack-independent-multi-layer) is independent multi-layer deep composition; [`fan`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) is the diagonal followed by parallel composition, the categorical realization of multi-head attention. The Categorical head accumulates per-position log-likelihood as a sub-probability kernel.
+The model composes replicated stochastic branches, a projection, and two-stage feed-forward kernels. [`stack`](../guides/dsl-declarations.md#stack-independent-multi-layer) makes independently parameterized layers, while [`fan`](../guides/dsl-declarations.md#fan-out-diagonal-morphism) copies the input across parallel branches. Neither combinator by itself implements self-attention.
 
 
 ## References

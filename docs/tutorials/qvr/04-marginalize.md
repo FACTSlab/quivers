@@ -1,6 +1,6 @@
 # 4. Mixtures and discrete latents
 
-When a model has a discrete latent variable, you have two options. Sample it (every gradient step pays a Monte Carlo penalty and you lose the score-function variance), or marginalize it out (sum over its support, get a deterministic log-likelihood, gradients flow cleanly). The right choice depends on the support size: if the discrete latent has only a handful of values per observation, marginalizing is the obvious win.
+When a model has a discrete latent variable, you can sample it, which incurs score-function variance when pathwise gradients are unavailable, or marginalize it over its finite support. Marginalization produces a deterministic contribution from that latent and often improves gradients, but its cost grows with the support and the body of the block.
 
 QVR makes marginalization a first-class block. The body of the block runs *once per value* the discrete latent can take; the runtime collects per-value log-likelihoods and combines them under the prior with a `logsumexp`. Mathematically this is an exact integration over the discrete latent; computationally it's the categorical-prior version of the Rao-Blackwellised gradient ([Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81)). The same syntax handles flat mixtures, hierarchical mixtures with grouping, and HMM-shaped models with a per-row latent.
 
@@ -65,7 +65,7 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
 
 The `marginalize z : K <- Categorical(probs)` block, with its body of observe steps indented underneath, is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `effects=[Marginal]` entry in the option block makes the marginalization visible at the program signature.
 
-#! Fitting the mixture
+## Fitting the mixture
 
 (See [`docs/examples/source/mixture_model.qvr`](../../examples/source/mixture_model.qvr) for the full end-to-end version with grouped marginalisation and the `factor` patterns needed to drive the body. The snippet below shows the shape of the fit; for a running version copy from the example.)
 
@@ -148,16 +148,15 @@ to the log-density, which is the right Kan extension along the fibration `Item -
 The decision is a straight cost-benefit:
 
 - `marginalize` costs roughly `K × (body cost)` per evaluation. The reward is exact gradients with respect to the discrete-prior parameters and zero Monte Carlo variance on the discrete latent.
-- Sampling the discrete latent with `ScoreFunction` (REINFORCE) costs `(body cost)` per evaluation but pays Monte Carlo variance that scales with $K$ and with the variance of the per-component log-likelihood. In practice, REINFORCE gradients are noisy enough that you usually need 10x to 100x more SVI steps to match a marginalized run, swamping the per-step savings.
+- Sampling the discrete latent with `ScoreFunction` (REINFORCE) evaluates one sampled branch but introduces Monte Carlo variance. The variance depends on the prior, the component likelihoods, and any control variate.
 
-The crossover is around `K ≈ 32`: below that, `marginalize` wins on wall-clock to convergence; above that, the K× factor on the body becomes painful and a relaxed continuous proxy (Gumbel-softmax, [Maddison, Mnih & Teh, 2017](https://doi.org/10.48550/arXiv.1611.00712)) tends to be the better tradeoff.
+There is no repository-wide support-size threshold at which one method wins. Profile the full model. For larger supports, possible alternatives include score-function estimators with baselines or a relaxed proxy such as the Concrete distribution ([Maddison, Mnih & Teh, 2017](https://doi.org/10.48550/arXiv.1611.00712)); each changes the computational or statistical tradeoff.
 
 | Discrete support per row | Recommendation |
 |---|---|
-| `K` ≤ 8 | `marginalize`, always. |
-| 8 < `K` ≤ 32 | `marginalize` unless the body itself is expensive. |
-| 32 < `K` ≤ 100 | Profile both; relaxed continuous if the body is heavy. |
-| `K` > 100 or unbounded | Gumbel-softmax or score-function with a learned baseline. |
+| Small finite `K` and cheap body | Start with `marginalize`. |
+| Larger finite `K` or expensive body | Profile marginalization against a sampled estimator. |
+| Very large or unbounded support | Use a sampled estimator or a model-specific approximation. |
 | Continuous-discrete mixture | `marginalize` the discrete part, reparameterize the continuous part. |
 
 ```mermaid

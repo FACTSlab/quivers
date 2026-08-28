@@ -1,19 +1,52 @@
-# Tree-Structured Categorical Prior
+# Tree-structured score tensor
 
 ## Overview
 
-A finite-class model in which the $K$-way class-probability vector is *not* drawn from a flat [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) but assembled from a binary decision tree. Each leaf class is a structurally different product of internal-node [Bernoulli](https://en.wikipedia.org/wiki/Bernoulli_distribution) probabilities, and the per-verb / per-class score table is the rank-2 tensor produced by evaluating a joint-additive body once per cell of the Cartesian product `Verb × Class`.
+This program assembles log weights for four leaves of a binary tree and a per-verb/per-class score tensor. Its observation is `Normal(cell_score[0, 0], 0.5)`: it does not use a Categorical likelihood or select a class from the tree probabilities.
 
-This example is the canonical demonstration of the [`factor`](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors) expression, the [left adjoint](https://ncatlab.org/nlab/show/adjoint+functor) of indexing. Both surface forms appear in the same program: the pattern-match form builds the tree-shaped leaf-log-probability vector with a `{ ... }` case table, and the multi-binder uniform form builds the rank-2 score tensor by evaluating its body once per cell.
+This example demonstrates both forms of the [`factor`](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors) expression. The pattern-match form builds the leaf-log-weight vector with a case table, and the multi-binder form builds a rank-2 score tensor by evaluating its body once per cell.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Tree-Structured Categorical Prior
+#
+# A finite-class model whose K-way class-probability vector is
+# assembled from a binary decision tree rather than drawn from a
+# flat Dirichlet. Each leaf class is a structurally different
+# product of internal-node Bernoulli probabilities, and the
+# per-verb / per-class score table is a rank-2 tensor built by a
+# multi-binder factor body over the Cartesian product Verb x
+# Class.
+#
+# Generative structure:
+#
+#   p_root         ~ Beta(1, 1)                    root split
+#   p_left         ~ Beta(1, 1)                    left subtree split
+#   p_right        ~ Beta(1, 1)                    right subtree split
+#   sigma_v        ~ HalfNormal(1)                 per-verb scale
+#   delta_v        ~ Normal(0, sigma_v)            per-verb effect
+#   mu_k           ~ Normal(0, 1)                  per-class effect
+#   y              ~ Normal(cell_score[0, 0], 0.5)
+#
+# Two forms of the factor expression appear: a pattern-match
+# factor builds the tree-shaped leaf log-probability vector with
+# a case table over Class (compiler-enforced label coverage of
+# {0, ..., K-1}), and a multi-binder uniform factor builds the
+# rank-2 score tensor by evaluating its body once per (Verb,
+# Class) cell.
+
 object Verb : FinSet 12
 object Class : FinSet 4
 object Resp : FinSet 200
+object Val : Real 1
 
-program tree_categorical : Resp -> Resp
+# Resp is the response plate: 200 rows of a single real response.
+# Val is the program's codomain, the value space of what the
+# program returns. It returns the per-verb effect vector delta,
+# whose rows are single real numbers, so the codomain is Real 1
+# and not the Resp index the observations are plated over.
+program tree_categorical : Resp -> Val
     sample p_root <- Beta(1.0, 1.0)
     sample p_left <- Beta(1.0, 1.0)
     sample p_right <- Beta(1.0, 1.0)
@@ -34,6 +67,10 @@ export tree_categorical
 ```
 
 ## Walkthrough
+
+### What the four objects name
+
+An [object](../guides/dsl-declarations.md#object) name in QVR has no fixed reading; the position it occupies is what gives it one. `Verb : FinSet 12` and `Class : FinSet 4` appear as `factor` binder domains and as plate indices, so they are index sets: twelve verbs, four classes. `Resp : FinSet 200` appears in the index slot of `observe y : Resp <- Normal(cell0, 0.5)`, so it fixes the *plate extent*, the 200 scored rows, which is why an object in that slot must be discrete. None of the three says what a row holds. That comes from the family, and `Normal` is what makes each response real. `Val : Real 1` occupies the remaining position, the codomain of the program signature, which names the *value space* of what the program returns. `return delta` hands back the per-verb effect vector, whose rows are single real numbers, so that space is `Real 1`. Reading the codomain as an index instead is the misstep to avoid: a signature `Resp -> Resp` would claim the program returns an element of the response index set, which is a category error the compiler cannot catch, since its only condition on `return` is that the name be bound and it never compares the returned value against the declared codomain.
 
 ### Pattern-match factor: tree-shaped leaf probabilities
 
@@ -59,7 +96,7 @@ let cell_score = factor v : Verb, cls : Class in
     delta[v] + mu[cls] + leaf_log[cls]
 ```
 
-The multi-binder form `factor v_1 : I_1, ..., v_n : I_n in <body>` is the [left adjoint of multi-axis indexing](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors). Its denotation is the tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` whose `(i_1, ..., i_n)`-th cell is the body evaluated with each binder `v_k := i_k`.
+The multi-binder form `factor v_1 : I_1, ..., v_n : I_n in <body>` constructs a tensor of shape `(|I_1|, ..., |I_n|, *body_shape)` whose `(i_1, ..., i_n)`-th cell is the body evaluated with each binder `v_k := i_k`.
 
 Here the body indexes into three previously-bound objects: the `Verb`-plate `delta`, the `Class`-plate `mu`, and the pattern-match factor `leaf_log` produced two steps earlier. Each `(v, cls)` cell evaluates to a different scalar; the resulting tensor lives on `Verb × Class` and carries the joint per-verb / per-class log-score.
 
@@ -73,42 +110,45 @@ This is why no other example in the gallery uses `factor`: existing models all u
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Pick true values for the depth-3 tree splits and the per-verb / per-class effects, clamp them via the `true_latents` dict, and read the resulting `y` draw out of an execution [`trace`](../api/inference/trace.md). The input `x` carries one row per tree in the synthetic corpus; the cell-score Normal observation is shared across the corpus.
+Pick true values for the three tree splits and for the per-verb and
+per-class effects, assemble the observed cell score `cell_score[0, 0]`
+from those same values by hand, and draw one response per row of the
+`Resp` plate. Generating the data from the latents the program
+samples is what makes the synthetic point self-consistent: a fit has
+a ground truth to recover, and the reference oracle scores the joint
+at a point the model itself could have produced.
 
 ```python
+import math
+
 import torch
 from quivers.dsl import load
-from quivers.inference.trace import trace as run_trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/tree_categorical.qvr")
 model = prog.morphism
 
-N_TREES = 10
-true_p_root  = torch.tensor([[0.7]])
-true_p_left  = torch.tensor([[0.3]])
-true_p_right = torch.tensor([[0.6]])
-true_sigma_v = torch.tensor([[0.5]])
-true_delta   = 0.5 * torch.randn(12)
-true_mu      = torch.tensor([0.0, 0.5, -0.5, 1.0])
-true_latents = {
-    "p_root":  true_p_root,
-    "p_left":  true_p_left,
-    "p_right": true_p_right,
-    "sigma_v": true_sigma_v,
-    "delta":   true_delta,
-    "mu":      true_mu,
-}
-x = torch.zeros(N_TREES, 1, dtype=torch.long)
-tr = run_trace(model, x, true_latents)
-y_obs = tr.sites["y"].value.detach().reshape(1, -1)
-observations = {"y": y_obs}
-print("y batch shape:", tuple(y_obs.shape))
+N_RESP, N_VERB = 200, 12
+
+true_p_root = 0.7
+true_p_left = 0.3
+true_p_right = 0.6
+true_sigma_v = 0.5
+true_delta = true_sigma_v * torch.randn(N_VERB)
+true_mu = torch.tensor([0.0, 0.5, -0.5, 1.0])
+
+leaf_log_0 = math.log(1.0 - true_p_root) + math.log(1.0 - true_p_left)
+cell0 = true_delta[0] + true_mu[0] + leaf_log_0
+y = torch.distributions.Normal(cell0, 0.5).sample((N_RESP,))
+
+observations = {"y": y}
+x_in = torch.zeros(N_RESP, 1)
+print("y batch shape:", tuple(y.shape))
 ```
 
 ### SVI fit
@@ -116,27 +156,21 @@ print("y batch shape:", tuple(y_obs.shape))
 Re-initialise from the prior, then maximise the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the synthetic responses with an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) on the latent sites and [`SVI`](../api/inference/svi.md#svi) over [`Adam`](https://pytorch.org/docs/stable/generated/torch.optim.Adam.html). Print the initial and final loss to confirm the guide is moving toward the posterior.
 
 ```python
+import math
+
 import torch
 from quivers.dsl import load
 from quivers.inference import AutoNormalGuide, ELBO, SVI
-from quivers.inference.trace import trace as run_trace
 
 torch.manual_seed(0)
-prog = load("docs/examples/source/tree_categorical.qvr")
-model = prog.morphism
-
-N_TREES = 10
-true_latents = {
-    "p_root":  torch.tensor([[0.7]]),
-    "p_left":  torch.tensor([[0.3]]),
-    "p_right": torch.tensor([[0.6]]),
-    "sigma_v": torch.tensor([[0.5]]),
-    "delta":   0.5 * torch.randn(12),
-    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
-}
-x = torch.zeros(N_TREES, 1, dtype=torch.long)
-y_obs = run_trace(model, x, true_latents).sites["y"].value.detach().reshape(1, -1)
-obs = {"y": y_obs}
+N_RESP, N_VERB = 200, 12
+true_p_root, true_p_left = 0.7, 0.3
+true_sigma_v = 0.5
+true_delta = true_sigma_v * torch.randn(N_VERB)
+true_mu = torch.tensor([0.0, 0.5, -0.5, 1.0])
+leaf_log_0 = math.log(1.0 - true_p_root) + math.log(1.0 - true_p_left)
+cell0 = true_delta[0] + true_mu[0] + leaf_log_0
+obs = {"y": torch.distributions.Normal(cell0, 0.5).sample((N_RESP,))}
 
 torch.manual_seed(1)
 prog = load("docs/examples/source/tree_categorical.qvr")
@@ -146,7 +180,7 @@ optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=2e-2,
 )
 svi = SVI(model, guide, optim, ELBO())
-svi_x = torch.zeros(1, 1, dtype=torch.long)
+svi_x = torch.zeros(1, 1)
 loss0 = svi.step(svi_x, obs)
 for _ in range(100):
     loss = svi.step(svi_x, obs)
@@ -158,45 +192,40 @@ print(f"ELBO loss: {loss0:.2f} -> {loss:.2f}")
 The tree-categorical program declares explicit `sample` priors for every latent (the three Beta splits, `sigma_v`, the per-verb `delta`, the per-class `mu`), so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) targets them directly without a parameter lift. For parameter-only models, the analogous step would route through [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters).
 
 ```python
+import math
+
 import torch
 from quivers.dsl import load
 from quivers.inference import MCMC, NUTSKernel
-from quivers.inference.trace import trace as run_trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/tree_categorical.qvr")
 model = prog.morphism
 
-N_TREES = 10
-true_latents = {
-    "p_root":  torch.tensor([[0.7]]),
-    "p_left":  torch.tensor([[0.3]]),
-    "p_right": torch.tensor([[0.6]]),
-    "sigma_v": torch.tensor([[0.5]]),
-    "delta":   0.5 * torch.randn(12),
-    "mu":      torch.tensor([0.0, 0.5, -0.5, 1.0]),
-}
-x = torch.zeros(N_TREES, 1, dtype=torch.long)
-y_obs = run_trace(model, x, true_latents).sites["y"].value.detach().reshape(1, -1)
-obs = {"y": y_obs}
+N_RESP, N_VERB = 200, 12
+true_p_root, true_p_left = 0.7, 0.3
+true_sigma_v = 0.5
+true_delta = true_sigma_v * torch.randn(N_VERB)
+true_mu = torch.tensor([0.0, 0.5, -0.5, 1.0])
+leaf_log_0 = math.log(1.0 - true_p_root) + math.log(1.0 - true_p_left)
+cell0 = true_delta[0] + true_mu[0] + leaf_log_0
+obs = {"y": torch.distributions.Normal(cell0, 0.5).sample((N_RESP,))}
 
 torch.manual_seed(2)
 kernel = NUTSKernel(step_size=0.05, max_tree_depth=3, target_accept=0.8)
 mc     = MCMC(kernel, num_warmup=10, num_samples=10, num_chains=1)
-result = mc.run(model, torch.zeros(1, 1, dtype=torch.long), obs)
+result = mc.run(model, torch.zeros(1, 1), obs)
 
 print("acceptance:", float(result.acceptance_rates.mean()))
 print("divergences:", int(result.divergence_counts.sum()))
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-A `factor` expression is the [left Kan extension](https://ncatlab.org/nlab/show/left+Kan+extension) of its body along the finite-set indexing functor. Where the indexing surface `arr[i]` is the elimination rule for the dependent function space `I → A` (the right adjoint, projection of a constant kernel), `factor v : I in <body>` is the introduction rule: it freely generates the indexed family from a binder-parameterized body. Composing the two recovers the identity, mirroring the unit and counit of the adjunction.
+Operationally, `factor` constructs a tensor by finite index binding, while `arr[i]` eliminates an index by lookup. The compiler implements these two operations directly, and nothing on this page turns on a stronger adjunction or Kan-extension reading of them.
 
-In the multi-binder case, the indexing functor is `I_1 × ... × I_n → A` and `factor` is the corresponding multi-axis introduction. Inside `\mathbf{Kern}` the construction is functorial in each `I_k`: morphisms of finite-set index objects lift to natural transformations between the factor tensors over the corresponding products.
-
-## See Also
+## See also
 
 - [DSL Guide: Factor expressions](../guides/dsl-programs-and-lets.md#factor-expressions-assembling-indexed-tensors)
 - [Mixture Model](mixture-model.md), the exchangeable counterpart: a flat Dirichlet over `Component` rather than a tree-shaped construction.

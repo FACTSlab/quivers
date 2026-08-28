@@ -1,6 +1,6 @@
-# Type-Logical Grammar (Lambek Calculus)
+# Lambek-inspired weighted deduction
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Weighted Type-Logical Grammar
@@ -26,6 +26,26 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program type_logical_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export type_logical_prior
+
 deduction Lambek : Term -> Term [semiring=LogProb, start=S, depth=6]
     atoms S, NP, N, VP, PP, Fwd, Bwd, Tns, span, every, dog, barks
     rule right_app : span(I, K, Fwd(A, B)), span(K, J, B) |- span(I, J, A) #[learnable]
@@ -41,9 +61,11 @@ deduction Lambek : Term -> Term [semiring=LogProb, start=S, depth=6]
 
 ## Overview
 
-Type-logical grammar, grounded in the non-commutative Lambek calculus, is a resource-conscious approach to syntax: every hypothesis is used exactly once and argument order is preserved. The deduction above lists slash (`Fwd`, `Bwd`) and tensor (`Tns`) constructors over chart-spans `span(I, J, X)`, and licenses right / left application, product introduction, and product elimination as sequent rules.
+This deduction is inspired by the non-commutative Lambek calculus and preserves span order. It also includes `tensor_left` and `tensor_right`, which discard one component of a tensor item. Those projection rules amount to weakening and are not product elimination rules of the strict resource-sensitive Lambek calculus.
 
 ## Walkthrough
+
+`object Term : FinSet 16` indexes the deduction's domain and codomain; the chart reasons symbolically over constructor-tagged tuples, so the cardinality is incidental. `object Rule : FinSet 16` indexes the rule-weight vector, which the `type_logical_prior` program draws from an independent `Normal(0.0, 1.0)` per coordinate. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
 
 `atoms NAME, NAME, ...` declares the constructor vocabulary. Category atoms are `S`, `NP`, `N`, `VP`, `PP`; structural constructors are `Fwd(A, B) ≡ A/B`, `Bwd(A, B) ≡ A\B`, `Tns(A, B) ≡ A⊗B`. The chart-item constructor `span(I, J, X)` packages a derivation covering tokens `[I, J)` carrying category `X`. Single-uppercase identifiers (`A`, `B`, `I`, `J`, `K`) appearing in rule patterns bind as wildcards.
 
@@ -52,14 +74,14 @@ The rules realize the four logical core operations of the Lambek calculus:
 - **`right_app`**: modus ponens for forward slash: `A/B, B ⊢ A`.
 - **`left_app`**: modus ponens for backward slash: `B, A\B ⊢ A`.
 - **`tensor_intro`**: product introduction: adjacent derivations of `A` and `B` combine into a derivation of `A⊗B`.
-- **`tensor_left` / `tensor_right`**: product elimination: a derivation of `A⊗B` projects to derivations of either component over the same span.
+- **`tensor_left` / `tensor_right`**: extra projection rules that retain one component and discard the other. They are useful operationally but relax Lambek resource sensitivity.
 
-Together these rules yield the equational theory of the residuated monoid. The agenda runs to depth 6 by default; the `LogProb` semiring accumulates inside log-probabilities that flow back as gradients to learnable axiom weights.
+Together these rules define the weighted fragment implemented on this page. The agenda runs to depth 6; the `LogProb` semiring accumulates inside scores that remain differentiable with respect to learnable weights.
 
-## DSL Features
+## DSL features
 
 - **Sequent rules with arbitrary arity**: rule bodies declare premises on the left of `|-` and a single conclusion on the right; the compiler routes unary patterns to unary chart cells and binary patterns to binary chart cells.
-- **Resource sensitivity is structural**: there is no contraction or weakening rule, so every premise in a sequent must match a distinct chart cell.
+- **Ordered span composition**: binary premises occupy adjacent chart cells. The projection rules nevertheless introduce weakening at the category level.
 - **Order preservation**: pattern variables appear in textual order; the parser enforces left-to-right span composition.
 - **Tensor and slash as user atoms**: there is no special syntax, `Tns`, `Fwd`, `Bwd` are atoms declared in the `atoms NAME, NAME, ...` block and may be replaced or extended by the user.
 
@@ -78,6 +100,31 @@ regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
 corpus of sentences. The
 [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
 two standard surfaces.
+
+### Generating synthetic data
+
+The `type_logical_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/type_logical.qvr")
+model = prog.morphism
+
+N_RULES = 16
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
 
 ### MAP fit (Adam on rule & lexicon weights)
 
@@ -150,7 +197,7 @@ posterior $p(\mathbf{w} \mid s_1, \ldots, s_N) \propto p(\mathbf{w})
 [`bayesian_regression`](bayesian-regression.md) fits, with the chart
 total in place of the Gaussian likelihood.
 
-## Categorical Perspective
+## Categorical perspective
 
 The Lambek calculus is the internal language of a residuated monoidal category (biclosed monoidal category). The tensor `⊗` is the monoidal product; the two slashes are its left and right adjoints. The residuation laws
 
@@ -158,8 +205,8 @@ The Lambek calculus is the internal language of a residuated monoidal category (
 A ⊗ B  ⊢  C   iff   A  ⊢  C/B   iff   B  ⊢  A\C
 ```
 
-are the statement of that adjunction. Because there is no contraction (copying) or weakening (discarding), every derivation consumes its input span exactly once; the agenda's span indexing enforces this by attaching each item to a single token range.
+These are the usual residuation laws. The application and tensor-introduction rules are compatible with that reading. The two projection rules are additional and prevent this particular deduction from being a faithful presentation of the strict calculus.
 
 ## Connections to Other Formalisms
 
-The Lambek calculus is strictly more expressive than context-free grammar (handling extraction, gapping) but remains decidable and efficiently parseable. Compared to CCG it is more restricted: CCG implicitly permits structural rules (weakening, contraction) that the Lambek calculus does not. The multimodal extensions (see [multimodal-tlg](multimodal-tlg.md)) introduce controlled structural operators that license specific deviations from strict linearity.
+Lambek grammars and their extensions can encode useful word-order and resource constraints. Their precise weak generative capacity depends on the chosen calculus and structural rules, so extraction or gapping does not follow from these five rules alone.

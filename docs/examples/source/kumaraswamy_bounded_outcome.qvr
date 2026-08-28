@@ -4,24 +4,39 @@
 # distribution is a close cousin of the Beta with a closed-form
 # CDF and quantile function, which makes it preferable for models
 # that need cheap inverse-CDF sampling or quantile-based
-# inference. Both shape parameters get HalfNormal priors that
-# concentrate on near-uniform shapes.
+# inference. The first shape parameter carries the linear
+# predictor through a log link, so a covariate moves the response
+# without ever leaving the unit interval; the second shape
+# parameter is global and carries a HalfNormal prior that
+# concentrates on near-uniform shapes.
 #
 # Generative structure:
 #
-#   alpha   ~ HalfNormal(2)                      first shape parameter
-#   beta    ~ HalfNormal(2)                      second shape parameter
-#   y_n     ~ Kumaraswamy(alpha, beta)
+#   b       ~ HalfNormal(2)                      global second shape
+#   gamma_0 ~ Normal(0, 1)                       intercept
+#   gamma_1 ~ Normal(0, 1)                       slope
+#   a_n     = exp(gamma_0 + gamma_1 * x_n)       per-row first shape
+#   y_n     ~ Kumaraswamy(a_n, b)
+#
+# The predictor x is exogenous data supplied at fit time through
+# the observations dict. Resp is the plate the responses are
+# observed over and Val is the value space of the returned
+# per-row shape.
 #
 # Reference: [Kumaraswamy 1980](https://doi.org/10.1016/0022-1694(80)90036-0).
 
-object Resp : FinSet 1
+object Resp : FinSet 64
+object Val : Real 1
 
-program kumaraswamy_regression : Resp -> Resp
-    sample alpha <- HalfNormal(2.0)
-    sample beta <- HalfNormal(2.0)
+program kumaraswamy_regression : Resp -> Val
+    sample b <- HalfNormal(2.0)
+    sample gamma_0 <- Normal(0.0, 1.0)
+    sample gamma_1 <- Normal(0.0, 1.0)
 
-    observe y : Resp <- Kumaraswamy(alpha, beta)
-    return alpha
+    let eta = gamma_0 + gamma_1 * x
+    let a = exp(eta)
+
+    observe y : Resp <- Kumaraswamy(a, b)
+    return a
 
 export kumaraswamy_regression

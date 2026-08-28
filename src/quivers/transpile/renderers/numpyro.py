@@ -71,7 +71,7 @@ from quivers.transpile.renderers._python_helpers import (
     with_statement,
 )
 from quivers.transpile._pipeline import parser_registry, target_protocol
-from quivers.transpile.family_meta import FAMILY_META
+from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
@@ -105,6 +105,8 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
+    mixture_normal_components,
 )
 
 
@@ -201,6 +203,7 @@ class NumPyroRenderer(RendererBase):
         [`IRDataInput`][quivers.transpile.ir.IRDataInput] in the
         signature (observed values get a ``=None`` default).
         """
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         py = PyCtx(
@@ -1175,6 +1178,8 @@ class NumPyroRenderer(RendererBase):
             )
         if family in _NUMPYRO_RUNTIME_HELPER_FAMILIES:
             return self._runtime_helper_call(ctx, meta, args, arg_names)
+        if family == "MixtureNormal":
+            return self._mixture_same_family_call(ctx, meta, args, arg_names)
 
         target_name = meta.target_names[_BACKEND]
         callee = attribute(
@@ -1477,6 +1482,50 @@ class NumPyroRenderer(RendererBase):
         for arg, name in zip(args, arg_names, strict=False):
             keyword.append((name, self._render_arg(ctx, arg)))
         return call(py, callee, keyword=tuple(keyword))
+
+    def _mixture_same_family_call(
+        self,
+        ctx: _NumPyroCtx,
+        meta: FamilyMeta,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> str:
+        """Emit `MixtureSameFamily(Categorical(probs), Normal(loc, scale))`.
+
+        NumPyro ships no single-name Gaussian-mixture family, but it
+        ships the mixture *construction*: a categorical mixing
+        distribution over a batch of components whose batch axis is the
+        component axis. `MixtureNormal(w, mu, sigma)` maps onto it
+        exactly, with `Categorical(probs=w)` supplying the weights and
+        `Normal(loc=mu, scale=sigma)` the K components, so the emitted
+        distribution's `log_prob` is the same log-sum-exp the QVR
+        likelihood scores rather than an approximation of it.
+        """
+        py = ctx.py
+        weights, loc, scale = mixture_normal_components(
+            _BACKEND, args, arg_names
+        )
+        mixing = call(
+            py,
+            attribute(py, ("numpyro", "distributions", "Categorical")),
+            keyword=(("probs", self._render_arg(ctx, weights)),),
+        )
+        component = call(
+            py,
+            attribute(py, ("numpyro", "distributions", "Normal")),
+            keyword=(
+                ("loc", self._render_arg(ctx, loc)),
+                ("scale", self._render_arg(ctx, scale)),
+            ),
+        )
+        return call(
+            py,
+            attribute(
+                py,
+                ("numpyro", "distributions", meta.target_names[_BACKEND]),
+            ),
+            positional=(mixing, component),
+        )
 
     def _maybe_wrapper_call(
         self,

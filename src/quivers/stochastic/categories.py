@@ -202,6 +202,47 @@ _BUILTIN_CONSTRUCTORS: dict[str, Callable[[list[Category]], list[Category]]] = {
     "box": _modal_constructor("□"),
 }
 
+#: Every constructor name `CategorySystem.from_generators` accepts.
+#: Callers that build a residuated universe (the DSL's
+#: ``FreeResiduated`` declaration, for instance) validate against
+#: this set before the universe is enumerated.
+BUILTIN_CONSTRUCTOR_NAMES: frozenset[str] = frozenset(_BUILTIN_CONSTRUCTORS)
+
+# Rejected names an author is likely to reach for, each paired with
+# the reason the closure does not offer it. ``slash`` is the whole
+# residuated pair: `_slash_constructor` emits A/B and A\B together,
+# because closing under one residual alone would not give a
+# biclosed category.
+_CONSTRUCTOR_HINTS: dict[str, str] = {
+    "backslash": (
+        "the 'slash' constructor closes under both residuals at once "
+        "(A/B and A\\B), so there is no separate 'backslash'"
+    ),
+    "forwardslash": (
+        "the 'slash' constructor closes under both residuals at once "
+        "(A/B and A\\B), so there is no separate 'forwardslash'"
+    ),
+    "tensor": "the tensor connective is spelled 'product'",
+    "times": "the tensor connective is spelled 'product'",
+    "modality": "the modal connectives are spelled 'diamond' and 'box'",
+    "modal": "the modal connectives are spelled 'diamond' and 'box'",
+}
+
+
+def constructor_name_error(name: str) -> str:
+    """Return the diagnostic for a residuated constructor name.
+
+    The message is shared by every validation site so a name is
+    rejected in the same words whether it is caught when the
+    universe is declared or when it is enumerated.
+    """
+    hint = _CONSTRUCTOR_HINTS.get(name)
+    detail = f"; {hint}" if hint else ""
+    return (
+        f"unknown constructor {name!r}; available: "
+        f"{sorted(BUILTIN_CONSTRUCTOR_NAMES)}{detail}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # CategorySystem
@@ -280,10 +321,7 @@ class CategorySystem:
         fns = []
         for name in constructors:
             if name not in _BUILTIN_CONSTRUCTORS:
-                raise ValueError(
-                    f"unknown constructor {name!r}; available: "
-                    f"{sorted(_BUILTIN_CONSTRUCTORS.keys())}"
-                )
+                raise ValueError(constructor_name_error(name))
             fns.append(_BUILTIN_CONSTRUCTORS[name])
 
         system = cls.from_atoms(atoms)

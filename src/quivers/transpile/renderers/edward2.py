@@ -99,6 +99,9 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    assert_no_dropped_param_map,
+    ir_uses_family,
+    mixture_normal_components,
 )
 
 
@@ -177,6 +180,7 @@ class Edward2Renderer(RendererBase):
 
     def render(self, ir: IRProgram) -> panproto.Schema:
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         py = PyCtx(
@@ -197,7 +201,9 @@ class Edward2Renderer(RendererBase):
         # register a second, unobserved site on the trace). TFP is a
         # hard dependency of Edward2, so the emitted module imports it
         # directly when a marginalize is present.
-        if _ir_has_marginalize(ir.body):
+        if _ir_has_marginalize(ir.body) or ir_uses_family(
+            ir.body, "MixtureNormal"
+        ):
             self._emit_tfp_import(py)
         body_vid = py.v(py.fresh("body"), "block")
         param_names = tuple(inp.name for inp in ir.inputs)
@@ -904,6 +910,19 @@ class Edward2Renderer(RendererBase):
                 input_specs=input_specs,
                 bindings=bindings,
             )
+        if family == "MixtureNormal":
+            return self._mixture_normal_call(
+                py,
+                name=name,
+                dist_class=dist_class,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+                meta=meta,
+                input_specs=input_specs,
+                bindings=bindings,
+                callee_chain=callee_chain,
+            )
 
         # ``HalfStudentT`` has no TFP class. A half-Student-t with
         # ``(df, scale)`` is the fold of ``StudentT(df, 0, scale)`` onto
@@ -983,6 +1002,85 @@ class Edward2Renderer(RendererBase):
             py,
             callee,
             positional=tuple(positional),
+            keyword=tuple(keyword),
+        )
+
+    def _mixture_normal_call(
+        self,
+        py: PyCtx,
+        *,
+        name: str,
+        dist_class: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+        meta: FamilyMeta,
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+        callee_chain: tuple[str, ...],
+    ) -> str:
+        """Build ``MixtureSameFamily(Categorical(probs), Normal(loc,
+        scale))`` for a `MixtureNormal(w, mu, sigma)` site.
+
+        TFP ships no single-name Gaussian-mixture class, but it ships
+        the mixture *construction*, and the two agree exactly: a
+        categorical mixing distribution over a batch of `K` components
+        scores `logsumexp_k [log w_k + log N(y; mu_k, sigma_k)]`, which
+        is the QVR likelihood's own closed form rather than an
+        approximation of it. The mixing and component distributions are
+        bare TFP distributions; an Edward2 constructor would register
+        each as its own random variable and the site denotes one
+        observed variable, not three.
+
+        The component axis belongs to the mixture, not to the plate:
+        all three parameters carry it and the resulting mixture has an
+        empty batch shape, so the whole plate goes into
+        ``sample_shape`` rather than being split against a carried
+        argument axis.
+        """
+        weights, loc, scale = mixture_normal_components(
+            _BACKEND_KEY, args, arg_names
+        )
+        expected_event = _event_shape(plate)
+
+        def rendered(arg: IRArg, position: int) -> str:
+            return self._render_arg(
+                py,
+                arg,
+                expected_arg_event=expected_event,
+                arg_position=position,
+                meta=meta,
+                input_specs=input_specs,
+                bindings=bindings,
+            )
+
+        mixing = call(
+            py,
+            attribute(py, ("tfp", "distributions", "Categorical")),
+            keyword=(("probs", rendered(weights, 0)),),
+        )
+        components = call(
+            py,
+            attribute(py, ("tfp", "distributions", "Normal")),
+            keyword=(
+                ("loc", rendered(loc, 1)),
+                ("scale", rendered(scale, 2)),
+            ),
+        )
+        keyword: list[tuple[str, str]] = [
+            ("mixture_distribution", mixing),
+            ("components_distribution", components),
+        ]
+        dims = (*plate.batch_dims, *plate.event_dims)
+        if dims:
+            shape_list = py.v(py.fresh("list"), "list")
+            for dim in dims:
+                py.e(shape_list, _dim_expr(py, dim), "child_of")
+            keyword.append(("sample_shape", shape_list))
+        keyword.append(("name", string_literal(py, name)))
+        return call(
+            py,
+            attribute(py, (*callee_chain, dist_class)),
             keyword=tuple(keyword),
         )
 

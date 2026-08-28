@@ -23,10 +23,10 @@ flowchart TB
     D --> G
 ```
 
-Each subpackage is gated behind an optional dependency extra so a
-user who only wants the DSL + inference doesn't pull pandas /
-polars / arviz / formulae. Install everything together via
-`pip install "quivers[analysis]"`.
+Each subpackage is gated behind an optional dependency extra, so a
+user who only wants the DSL and inference does not pull dataframe,
+ArviZ, or formula dependencies. Install the full stack with
+`pip install "quivers[formulas]"`.
 
 ## Dataframes: `quivers.data`
 
@@ -65,7 +65,7 @@ obs = schema.observations_dict()      # {"verb_idx": tensor, "subj_idx": tensor,
 Two artifacts come out:
 
 - [`declarations()`](../api/data/schema.md#quivers.data.schema.DatasetSchema.declarations)
-  emits a `.qvr` prelude with one `object X : N` line per declared
+  emits a `.qvr` prelude with one `object X : FinSet N` line per declared
   object axis. The cardinality is inferred from
   `df[col].n_unique()`; canonical category ordering is the column's
   sorted unique non-null values so plate indices are reproducible
@@ -74,7 +74,7 @@ Two artifacts come out:
   packs the per-row tensors that inference consumes (response,
   plate indices, numeric covariates), ready to pass into
   [`SVI.step`](../api/inference/svi.md) or
-  [`MCMC.run`](../api/inference/predictive.md).
+  [`MCMC.run`](../api/inference/mcmc.md).
 
 The companion
 [`compose(qvr_body, schema)`](../api/data/schema.md#quivers.data.schema.compose)
@@ -121,7 +121,7 @@ emitted source re-parses through
 compiles to the same program: the round-trip is exercised on every
 formula in the test suite.
 
-### R / brms behaviour, exactly
+### R / brms conventions
 
 - **Orthogonal polynomials by default.** `poly(x, k)` produces $k$
   orthonormal centred columns, matching R's
@@ -176,7 +176,7 @@ and register your own observe kernel and link.
 A column enters the linear predictor as `beta * column`, so a prior on
 the coefficient alone is really a statement about the coefficient's
 contribution, and the same nominal prior means something different for
-every column. The default fixed-effect prior is therefore autoscaled:
+every column. The default fixed-effect prior is thus autoscaled:
 its scale is divided by the column's root-mean-square, which states it
 in contribution space so that `Normal(0.0, 5.0)` means the same thing
 on a raw predictor and on an orthonormal `poly` column. The

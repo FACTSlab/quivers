@@ -1,17 +1,46 @@
-# Multi-Output Zero-Inflated Poisson Regression
+# Multi-output continuous-gate Poisson regression
 
 ## Overview
 
-The zero-inflated Poisson regression ([Lambert 1992](https://doi.org/10.2307/1269547)) is a two-component mixture of a point mass at zero and a [Poisson](https://en.wikipedia.org/wiki/Poisson_distribution) rate. The model fits count data with an excess of structural zeros relative to a plain Poisson likelihood. Each output dimension carries its own zero-inflation logits and rate coefficients, and the per-cell zero-inflation indicator is integrated out by a scoped `marginalize` block.
+This program is a continuous relaxation inspired by zero-inflated Poisson regression ([Lambert, 1992](https://doi.org/10.2307/1269547)). Each output dimension carries logits for a Poisson-active gate and coefficients for the Poisson rate. Unlike an exact zero-inflated Poisson mixture, the latent `z` is `ContinuousBernoulli` on `(0, 1)`, so the likelihood contains intermediate rates `z * rate` rather than only a point mass at zero and a full-rate Poisson component.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Multi-Output Zero-Inflated Poisson Regression
+#
+# A multi-output zero-inflated Poisson regression. ZIP models
+# count data with an excess of structural zeros relative to a
+# plain Poisson likelihood: each cell is a two-component
+# mixture of a point mass at zero and Poisson(rate). Each
+# output dimension carries its own zero-inflation logits and
+# rate coefficients.
+#
+# Generative structure:
+#
+#   alpha_zero_d, beta_zero_d ~ Normal(0, 5)
+#   alpha_rate_d, beta_rate_d ~ Normal(0, 5)
+#   pi_{n, d}                  = sigmoid(alpha_zero_d + beta_zero_d * x_n)
+#   rate_{n, d}                = exp(alpha_rate_d + beta_rate_d * x_n)
+#   z_{n, d}                   ~ ContinuousBernoulli(pi_{n, d})
+#   y_{n, d}                   ~ Poisson(z_{n, d} * rate_{n, d})
+#
+# The zero-inflation indicator z multiplicatively gates the
+# Poisson rate. z near 0 yields Poisson(0) (the zero point
+# mass); z near 1 recovers Poisson(rate). The enclosing
+# `marginalize z` block integrates z out under the
+# ContinuousBernoulli relaxation; the canonical hard form is a
+# discrete Bernoulli with logsumexp reduction, recovered as the
+# relaxation temperature tightens.
+#
+# Reference: [Lambert 1992](https://doi.org/10.2307/1269547).
+
 object Item : FinSet 200
 object Out : FinSet 2
 object Resp : FinSet 400
+object Val : Real 1
 
-program zip_regression : Resp -> Resp
+program zip_regression : Resp -> Val
     sample alpha_zero : Out <- Normal(0.0, 5.0)
     sample beta_zero : Out <- Normal(0.0, 5.0)
     sample alpha_rate : Out <- Normal(0.0, 5.0)
@@ -35,11 +64,13 @@ export zip_regression
 
 ## Walkthrough
 
-Per-output coefficient plates `alpha_zero`, `beta_zero` carry the [logit](https://en.wikipedia.org/wiki/Logit)-link zero-inflation probability `pi_{n, d}`, and `alpha_rate`, `beta_rate` carry the log-link Poisson rate `rate_{n, d}`. The zero-inflation indicator `z` is sampled per cell from a [`ContinuousBernoulli`](https://en.wikipedia.org/wiki/Continuous_Bernoulli_distribution) relaxation of the underlying Bernoulli, then integrated out by the enclosing `marginalize z` block: the coordinate is pushed forward through the projection on the trace's `z` axis, integrating out the indicator via reparameterised sampling. The continuous-Bernoulli relaxation gives a closed-form tractable density on `(0, 1)` and lets SVI integrate the coordinate via reparameterised sampling; the canonical logsumexp marginalization over the two integer states is the limiting case as the relaxation temperature tightens.
+Per-output coefficient plates `alpha_zero`, `beta_zero` carry the [logit](https://en.wikipedia.org/wiki/Logit)-link Poisson-active probability `pi_{n,d}`, while `alpha_rate`, `beta_rate` carry the log-link rate. The `ContinuousBernoulli` family has no temperature parameter here, so this source does not approach an exact two-state mixture by "tightening" a temperature. The exact ZIP oracle in the runnable block is thus a comparison distribution, not the likelihood implemented by the QVR program.
+
+The program returns `beta_rate`, an `Out`-indexed plate of real scalars, so the declared codomain is `Val : Real 1`: the per-row value space of the returned coefficients. `Resp` names the flattened `(Item, Out)` plate extent and appears in the signature only as the domain.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -110,9 +141,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The model factors as a Kleisli composite of two kernels: a per-cell `ContinuousBernoulli(pi)` kernel on the unit interval and a `Poisson(rate)` kernel on the non-negative integers. The scoped `marginalize` step pushes forward the joint measure on the trace's `z` axis through projection, integrating out the indicator and leaving the marginal Poisson likelihood reweighted by the per-cell mixing weight. Categorically the construction is a coproduct fibration over the binary indicator axis, followed by [logsumexp](https://en.wikipedia.org/wiki/LogSumExp) on the accumulated log-likelihood in the discrete-limit case and reparameterised integration in the relaxed case.
+The model combines a per-cell `ContinuousBernoulli(pi)` kernel on the unit interval with a `Poisson(z * rate)` kernel on the non-negative integers. Because the latent support is continuous rather than binary, it should not be described as a coproduct over two indicator states or as the exact ZIP marginal.
 
 
 ## References

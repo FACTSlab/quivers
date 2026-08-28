@@ -26,9 +26,9 @@ The renderer follows the structural protocol of
   supports discrete latents natively, so explicit sampling is the
   right idiom.
 * [`broadcast`][quivers.transpile.renderers.bugs.BUGSRenderer.broadcast]
-  raises [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
-  with kind `"arg:broadcast"`: BUGS has no native scalar-to-vector
-  broadcast op; the caller must pre-bind a vector data input.
+  fills a helper array: BUGS has no repetition builtin and no
+  implicit scalar-to-vector coercion, but `for (i in 1:K) { v[i] <- s }`
+  is core BUGS and `v[1:K]` is an ordinary vector parent.
 
 `FAMILY_META[family].target_names["bugs"]` supplies the BUGS
 distribution name (`"dnorm"`, `"ddirch"`, ...). Per-family argument
@@ -107,6 +107,7 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    assert_no_dropped_param_map,
     reorder_negbin_args,
     reorder_weibull_args,
 )
@@ -247,6 +248,9 @@ class _BugsCtx(_RenderCtx):
     enclosing_plate: Plate | None = None
     enclosing_loop_names: tuple[str, ...] = ()
     block_id: str = ""
+    broadcast_helpers: dict[tuple[str, int], str] = dataclasses.field(
+        default_factory=dict
+    )
 
 
 class BUGSRenderer(RendererBase):
@@ -280,6 +284,7 @@ class BUGSRenderer(RendererBase):
         the optional `model` keyword.
         """
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         self._reject_list_args(ir)
         # BUGS / JAGS have no scalar-to-vector broadcast: an
         # IRDeterministic with empty plate whose expression references
@@ -488,13 +493,135 @@ class BUGSRenderer(RendererBase):
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
-        """Raise: BUGS cannot broadcast a literal scalar to a vector
-        position; the caller must pre-bind a vector data input."""
-        del ctx, value, target_shape
+        """Render a scalar-to-vector broadcast as a filled helper array.
+
+        BUGS has no `rep`-style repetition builtin and no implicit
+        scalar-to-vector coercion, but a `for (i in 1:K) { v[i] <- s }`
+        relation is core BUGS, and the resulting `v[1:K]` is an
+        ordinary vector parent. A scalar concentration over a `K`-atom
+        Dirichlet event axis therefore emits one such fill loop plus
+        the slice `<helper>[1:K]`, which denotes exactly the symmetric
+        measure the QVR `[over=K]` clause names.
+
+        The helper is emitted once per distinct `(scalar, K)` pair and
+        reused, so a program that repeats the same literal at several
+        slots carries one array rather than one per slot. BUGS
+        relations are declarative, so the fill loop may follow its
+        consumer in source order.
+
+        Only a plate-free scalar can be hoisted into a loop this way:
+        the fill relation lives outside every enclosing plate loop, so
+        a value whose emission depends on a surrounding loop variable
+        would silently lose that dependence. Such a value, and any
+        target rank other than one, raises rather than emitting a
+        relation whose measure differs from the source's.
+        """
+        bctx = _as_bugs_ctx(ctx)
+        if len(target_shape) != 1:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"arg:broadcast:rank-{len(target_shape)}: a BUGS "
+                    "fill loop builds a 1-D vector only"
+                ],
+            )
+        size = int(target_shape[0])
+        key = self._broadcast_key(bctx, value, size)
+        name = bctx.broadcast_helpers.get(key)
+        if name is None:
+            name = self._fresh_broadcast_name(bctx)
+            bctx.broadcast_helpers[key] = name
+            self._emit_broadcast_fill(bctx, name, value, size)
+        return self._emit_indexed_name(bctx, name, (), (str(size),))
+
+    def _broadcast_key(
+        self, ctx: _BugsCtx, value: IRArg, size: int
+    ) -> tuple[str, int]:
+        """Return the dedup key for a broadcast of `value` to `size`.
+
+        Raises when `value` is not a plate-free scalar: an indexed or
+        plated reference cannot be hoisted out of the consumer's loops
+        without dropping the index it carries.
+        """
+        if isinstance(value, IRArgNumber):
+            return (f"num:{value.value!r}", size)
+        if isinstance(value, IRArgRef) and not value.indices:
+            decl = ctx.decl_plates.get(value.name)
+            if decl is not None and (decl.batch_dims or decl.event_dims):
+                raise UnsupportedConstruct(
+                    f"qvr-{self.target}",
+                    [
+                        f"arg:broadcast:plated-ref:{value.name}: only a "
+                        "plate-free scalar can fill a helper vector"
+                    ],
+                )
+            return (f"ref:{value.name}", size)
         raise UnsupportedConstruct(
             f"qvr-{self.target}",
-            ["arg:broadcast"],
+            [
+                f"arg:broadcast:value:{type(value).__name__}: only a "
+                "plate-free scalar reference or numeric literal can "
+                "fill a helper vector"
+            ],
         )
+
+    def _fresh_broadcast_name(self, ctx: _BugsCtx) -> str:
+        """Return an unused BUGS identifier for a broadcast helper."""
+        index = len(ctx.broadcast_helpers)
+        taken = set(ctx.decl_plates) | set(ctx.broadcast_helpers.values())
+        while True:
+            index += 1
+            candidate = f"bcast_{index}"
+            if candidate not in taken:
+                return candidate
+
+    def _emit_broadcast_fill(
+        self, ctx: _BugsCtx, name: str, value: IRArg, size: int
+    ) -> None:
+        """Emit `for (i_<name> in 1:size) { <name>[i_<name>] <- value }`.
+
+        The relation hangs off the model block rather than the caller's
+        innermost loop body, and the enclosing-plate state is cleared
+        for the duration so the scalar renders without picking up an
+        index from a loop it does not live in.
+        """
+        loop_var = f"i_{name}"
+        for_id = self._fresh(ctx, "for")
+        ctx.sb.vertex(for_id, "for_loop")
+        ctx.sb.edge(ctx.block_id, for_id, "for_loop")
+        var_id = self._emit_bare_identifier(ctx, loop_var)
+        ctx.sb.edge(for_id, var_id, "variable")
+        rng_id = self._fresh(ctx, "rng")
+        ctx.sb.vertex(rng_id, "range")
+        ctx.sb.edge(for_id, rng_id, "range")
+        lo_id = self._fresh(ctx, "num")
+        ctx.sb.vertex(lo_id, "number")
+        ctx.sb.constraint(lo_id, "literal-value", "1")
+        ctx.sb.edge(rng_id, lo_id, "lower")
+        hi_id = self._fresh(ctx, "num")
+        self._emit_upper_literal(ctx, hi_id, str(size))
+        ctx.sb.edge(rng_id, hi_id, "upper")
+        body_id = self._fresh(ctx, "blk")
+        ctx.sb.vertex(body_id, "block")
+        ctx.sb.edge(for_id, body_id, "body")
+        dr_id = self._fresh(ctx, "dr")
+        ctx.sb.vertex(dr_id, "deterministic_relation")
+        ctx.sb.edge(body_id, dr_id, "deterministic_relation")
+        lhs_id = self._emit_indexed_name(ctx, name, (_LoopRef(loop_var),), ())
+        ctx.sb.edge(dr_id, lhs_id, "variable")
+        prev_plate = ctx.enclosing_plate
+        prev_loops = ctx.enclosing_loop_names
+        prev_via = ctx.via
+        ctx.enclosing_plate = None
+        ctx.enclosing_loop_names = ()
+        ctx.via = None
+        try:
+            rhs_id = self._emit_arg(ctx, value)
+        finally:
+            ctx.enclosing_plate = prev_plate
+            ctx.enclosing_loop_names = prev_loops
+            ctx.via = prev_via
+        ctx.sb.edge(dr_id, rhs_id, "value")
 
     # ------------------------------------------------------------------
     # List / matrix literal args: BUGS has no inline literal form.
@@ -1400,6 +1527,8 @@ class BUGSRenderer(RendererBase):
     def _arg_edge_kind(self, arg: IRArg) -> str:
         if isinstance(arg, IRArgNumber):
             return "number"
+        if isinstance(arg, IRArgBroadcast):
+            return "indexed_variable"
         if isinstance(arg, IRArgTransform):
             if arg.transform in ("log", "exp", "pow_neg"):
                 return "function_call"
@@ -1958,6 +2087,15 @@ class BUGSRenderer(RendererBase):
 # ----------------------------------------------------------------------
 # Helpers outside the class.
 # ----------------------------------------------------------------------
+
+
+def _as_bugs_ctx(ctx: _RenderCtx) -> _BugsCtx:
+    """Narrow a base `_RenderCtx` to the BUGS extension."""
+    if not isinstance(ctx, _BugsCtx):
+        raise UnsupportedConstruct(
+            "qvr-bugs", ["ctx:type-mismatch"]
+        )
+    return ctx
 
 
 @dataclasses.dataclass(frozen=True)

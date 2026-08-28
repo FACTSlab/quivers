@@ -4,14 +4,34 @@
 
 The 2PL [item response theory](https://en.wikipedia.org/wiki/Item_response_theory) model (Birnbaum 1968, *Some latent trait models and their use in inferring an examinee's ability*, in Lord & Novick eds., *Statistical Theories of Mental Test Scores*, Addison-Wesley, pp. 397–479) for binary item responses `y_{ij}` of respondent i to item j. Each respondent carries a unidimensional ability `theta_i`, each item carries a difficulty `b_j` and a discrimination `a_j` (positive by construction via a [LogNormal](https://en.wikipedia.org/wiki/Log-normal_distribution) prior), and the probability of a correct response is `sigmoid(a_j * (theta_i - b_j))`.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Person : FinSet 500
-object Item : FinSet 30
-object Resp : FinSet 15000
+# Two-Parameter Logistic Item Response Theory
+#
+# The two-parameter logistic IRT model for binary responses
+# y_{ij} of respondent i to item j. Each item carries its own
+# discrimination and difficulty; respondents carry an
+# unidimensional ability.
+#
+# Generative structure:
+#
+#   ability_i     ~ Normal(0, 1)                  standardised ability
+#   difficulty_j  ~ Normal(0, 1)                  per-item difficulty
+#   discrim_j     ~ LogNormal(0, 1)               positive discrimination
+#   y_{ij}        ~ Bernoulli(sigmoid(discrim_j * (ability_i - difficulty_j)))
+#
+# The runtime observes the full response matrix indexed by
+# Resp; the per-row item and respondent indices are supplied at
+# fit time via the standard plate-gather idiom
+# (difficulty[item_idx], ability[person_idx]).
 
-program irt_2pl : Resp -> Resp
+object Person : FinSet 8
+object Item : FinSet 8
+object Resp : FinSet 64
+object Val : Real 1
+
+program irt_2pl : Resp -> Val
     sample ability : Person <- Normal(0.0, 1.0)
     sample difficulty : Item <- Normal(0.0, 1.0)
     sample discrim : Item <- LogNormal(0.0, 1.0)
@@ -30,11 +50,13 @@ export irt_2pl
 
 ## Walkthrough
 
+An [object](../guides/dsl-declarations.md#object) name in QVR has no fixed reading; what it means is decided by the position it occupies. `object Resp : FinSet 64` sits in the index slot of `observe y : Resp <- Bernoulli(p)`, so it fixes the *plate extent*: 64 scored rows, one per respondent-item pair, which is why the object in that slot has to be discrete. It says nothing about what a row holds. That comes from the family, and `Bernoulli` is what makes each response a binary outcome. `object Val : Real 1` sits in a different position and does a different job: the codomain of the program signature names the *value space* of what the program returns. `return p` hands back the per-row success probability, a real scalar, so that space is `Real 1`. Reading the codomain as an index instead is the misstep to avoid: a signature `Resp -> Resp` would claim the program returns an element of the response index set, which is a category error the compiler cannot catch, since its only condition on `return` is that the name be bound and it never compares the returned value against the declared codomain.
+
 `ability`, `difficulty`, and `discrim` are plate-bound on `Person` and `Item`; `discrim` carries a LogNormal prior so it's positive by construction. The runtime supplies `person_idx` and `item_idx` at fit time, and the gather idiom `ability[person_idx]` / `difficulty[item_idx]` / `discrim[item_idx]` realizes the standard cross-classified design. The Bernoulli link `sigmoid(a * (theta - b))` is the canonical [logistic](https://en.wikipedia.org/wiki/Logistic_function) form of the 2PL response function.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -114,7 +136,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The 2PL is a Kleisli morphism over the Person + Item plate structure in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The plate-gather operations are pullbacks of indexed kernels along the response-row index maps `person_idx : Resp -> Person` and `item_idx : Resp -> Item`.
 

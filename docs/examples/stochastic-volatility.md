@@ -4,12 +4,32 @@
 
 The canonical log-volatility return model of [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050). The latent log-volatility follows an [AR(1)](https://en.wikipedia.org/wiki/Autoregressive_model) chain centered on a mean `mu` with autoregressive coefficient `phi`, and the observed return is mean-zero Normal with time-varying scale `exp(h_t / 2)`. The exponential link makes the volatility positive by construction.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Step : FinSet 200
+# Stochastic Volatility Model
+#
+# The canonical log-volatility model: returns are mean-zero
+# Normal with a time-varying scale set by a latent log-volatility
+# that itself follows an AR(1) chain. The runtime conditions on
+# the observed return series indexed by Step and recovers a
+# posterior over (mu, phi, sigma_h) along with the latent
+# volatility plate.
+#
+# Generative structure:
+#
+#   mu       ~ Normal(0, 10)                      log-vol mean
+#   phi      ~ Uniform(-1, 1)                     AR(1) coefficient
+#   sigma_h  ~ HalfCauchy(2.5)                    log-vol noise
+#   h_t      ~ Normal(mu + phi * (h_{t-1} - mu), sigma_h)
+#   r_t      ~ Normal(0, exp(h_t / 2))            observed return
+#
+# Reference: [Kim, Shephard, and Chib 1998](https://doi.org/10.1111/1467-937X.00050).
 
-program stochastic_volatility : Step -> Step
+object Step : FinSet 200
+object Val : Real 1
+
+program stochastic_volatility : Step -> Val
     sample mu <- Normal(0.0, 10.0)
     sample phi <- Uniform(-1.0, 1.0)
     sample sigma_h <- HalfCauchy(2.5)
@@ -30,9 +50,11 @@ export stochastic_volatility
 
 `mu`, `phi`, and `sigma_h` are the AR(1) hyperparameters of the log-volatility chain; `phi` is constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)`. The identifier `h_prev` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the lagged latent log-volatility. The current-step `h` is a latent draw with mean `mu + phi * (h_prev - mu)` realising the AR(1) recursion, and `exp(0.5 * h)` is the standard SV link to the per-step return scale. The observed returns are mean-zero Normal scaled by the time-varying volatility.
 
+The program returns `phi`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Step` names the plate extent of both the latent volatility chain and the observed returns, and appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -109,7 +131,7 @@ print(f"sigma_h posterior mean: {result.samples['sigma_h'].mean().item():.3f}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model is a Kleisli morphism over the latent log-volatility plate, composed with a per-step Normal observation kernel whose scale depends on the latent. In the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, the chain `h_prev -> h -> r` is associative Kleisli composition; the SVI guide approximates the joint posterior $p(\mu, \phi, \sigma_h, h \mid r)$.
 

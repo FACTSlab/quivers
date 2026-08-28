@@ -32,7 +32,7 @@ Y = FinSet(name="Y", cardinality=3)   # latent: 3 fuzzy features
 Z = FinSet(name="Z", cardinality=8)   # codomain: 8 elements
 ```
 
-## Observed Relation
+## Observed relation
 
 Create a synthetic fuzzy relation $R: X \to Z$ with values in $[0, 1]$ using [`observed`](../../api/core/morphisms.md). We build it from two ground-truth factors to ensure it has a low-rank fuzzy structure:
 
@@ -52,7 +52,7 @@ R = observed(X, Z, R_data)
 
 The tensor `R_data` has shape $(6, 8)$ with entries in $[0, 1]$, representing the fuzzy membership of each $(x, z)$ pair.
 
-## Learnable Factorization
+## Learnable factorization
 
 Define two **latent morphisms** with [`morphism`](../../api/core/morphisms.md), learnable $\mathcal{V}$-enriched relations whose parameters are optimized during training:
 
@@ -131,7 +131,7 @@ The noisy-OR interpretation is natural for modeling scenarios where each latent 
 - **Recommendation**: a user likes an item if any latent preference dimension matches
 - **Feature detection**: a sample belongs to a category if any diagnostic feature is present
 
-## Alternative Algebras
+## Alternative algebras
 
 Quivers ships several other [algebras](../../api/core/algebras.md) that change the meaning of composition:
 

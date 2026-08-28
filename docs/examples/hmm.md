@@ -1,16 +1,37 @@
-# Hidden Markov Model (Discrete)
+# Finite-state path composition
 
 ## Overview
 
-A discrete-state, discrete-emission [hidden Markov model](https://en.wikipedia.org/wiki/Hidden_Markov_model) expressed as a V-enriched categorical network over finite sets. The initial-state, transition, and emission morphisms are row-stochastic matrices in the [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) of the [Giry monad](https://doi.org/10.1007/BFb0092872); the row-wise [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior is set via the morphism-prior surface, and the runtime-variable `repeat` combinator threads `n_steps` transition applications before the final emission. Composition with the chosen [algebra](../api/core/algebras.md) determines whether the same morphism computes the forward marginal (product algebra) or the Viterbi path (tropical algebra).
+The exported `hmm` is a finite-state path-composition example inspired by a discrete [hidden Markov model](https://en.wikipedia.org/wiki/Hidden_Markov_model). Its top-level morphisms live under `product_fuzzy`, have sigmoid-constrained entries, and have no `Dirichlet` declarations. They are thus not row-stochastic HMM kernels. The same source also contains `hmm_program`, which draws Dirichlet rows but currently leaves `transition_rows` unused in its marginalized observation body.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Discrete Hidden Markov Model
+#
+# A classic K-state HMM as a V-enriched categorical network over
+# finite sets. The composed pipeline runs an initial-state
+# distribution into a runtime-variable number of transition
+# steps and a final emission row, so the same model computes
+# n-step marginals for any horizon.
+#
+# Structural form:
+#
+#   initial    : State -> State          initial-state row
+#   transition : State -> State          row-stochastic kernel
+#   emission   : State -> Obs            row-stochastic emission
+#   hmm        = initial >> repeat(transition) >> emission
+#
+# Each row of every row-stochastic matrix carries a Dirichlet
+# prior via the axis-role surface (over cod iid over dom), the
+# standard conjugate prior for a discrete Markov chain.
+
 composition product_fuzzy [level=algebra]
 
 object State : FinSet 8
 object Obs : FinSet 16
+object Step : FinSet 12
+object StateDist : Real 8
 
 morphism initial, transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
@@ -18,56 +39,84 @@ morphism emission : State -> Obs [role=latent]
 define n_step = repeat(transition) >> emission
 define hmm = initial >> n_step
 
+# Probabilistic surface for transpile: every row of every
+# row-stochastic matrix carries a Dirichlet(1) prior (the
+# uniform conjugate prior the header describes; equivalently the
+# Bayesian-Laplace add-one prior of Manning and Schuetze 1999,
+# section 6.2). The initial-state vector is one Dirichlet draw
+# on the State simplex, so it carries no plate annotation; the
+# transition kernel allocates one Dirichlet row per source state
+# (iid over the State axis); the emission kernel allocates one
+# Dirichlet row per latent state over the Obs simplex.
+#
+# Step is the plate the emitted sequence is observed over and
+# Obs is the alphabet each emission takes its value in, so the
+# two are separate objects. StateDist is the value space of the
+# returned initial-state vector, a point of the State simplex
+# embedded in R^8.
+program hmm_program : Step -> StateDist
+    sample initial_row <- Dirichlet(1.0) [over=State]
+    sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
+    sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
+
+    marginalize state <- Categorical(initial_row) [reduction=logsumexp]
+        observe obs : Step <- Categorical(emission_rows[state])
+
+    return initial_row
+
 export hmm
+export hmm_program
 ```
 
 ## Walkthrough
 
-`composition product_fuzzy [level=algebra]` selects the standard multiplicative composition of probabilities along paths; switching to the [tropical (max-plus) algebra](https://en.wikipedia.org/wiki/Tropical_semiring) reinterprets the same composed morphism as the Viterbi recurrence.
+`composition product_fuzzy [level=algebra]` selects product and noisy-OR aggregation for fuzzy relations. It is not the sum-product semiring used by the HMM forward algorithm. A Viterbi implementation would also require log weights and max aggregation; changing this declaration alone is not a validated conversion of the current parameters.
 
-`object State : FinSet 8` and `object Obs : FinSet 16` are finite discrete spaces. The three `morphism` declarations `initial : State -> State`, `transition : State -> State`, and `emission : State -> Obs` introduce row-stochastic matrices as `[role=latent]` arrows. The natural row-wise prior is a [symmetric Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution#Symmetric_case) on each row, attached via the axis-role surface `~ Dirichlet(1.0) [over=cod, iid_over=dom]`: the event axis sits on the codomain (each row is one simplex), and the domain axis is asserted as iid (independent rows). The axis count must match the family's event rank; [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) has event rank one, so a single `over` axis is required.
+`object State : FinSet 8` and `object Obs : FinSet 16` are finite discrete spaces: the latent state set and the emission alphabet. `object Step : FinSet 12` is the separate plate the emitted sequence is observed over, and `object StateDist : Real 8` is the value space of the returned initial-state vector, a point of the State simplex embedded in $\mathbb{R}^8$. The three `[role=latent]` declarations introduce learned relation tensors. To build a normalized categorical kernel, add a row-wise [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution#Symmetric_case) family or change base through a row-normalizing transformation.
 
-`let n_step = repeat(transition) >> emission` is the runtime-variable Kleisli composition `T^n >> E`; `repeat` builds an n-step matrix by repeated squaring for $O(\log n)$ matrix multiplications, with $n$ supplied via `prog(n_steps=N)`. `let hmm = initial >> n_step` prepends the initial-state distribution so the exported pipeline is `1 -> Obs`, mapping no input to an n-step marginal over the observation alphabet.
+`repeat` builds the algebraic power of `transition` by repeated squaring, with $n$ supplied via `prog(n_steps=N)`. Under the current algebra, the result is a product-fuzzy relation. Also note that `initial : State -> State`, so the exported domain is `State`, not a singleton initial-distribution object.
+
+`hmm_program` is the separate probabilistic surface exported from the same source. Its three `sample` steps draw the initial-state vector, the transition kernel, and the emission kernel from symmetric `Dirichlet(1.0)` priors: `[over=State]` names the simplex axis of the initial row, which carries no plate annotation because it is a single draw, and `iid_over=State` allocates one independent Dirichlet row per source state for `transition_rows` and per latent state for `emission_rows`. The `marginalize` block integrates the latent `state` out of the observation by log-sum-exp over the eight `State` atoms, so the observation body scores `obs` under `Categorical(emission_rows[state])` alone and `transition_rows` never enters the likelihood.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Run one forward trace under the program's own (random-initialised) row-stochastic logits so the captured observation index is jointly consistent with the sampled Dirichlet priors. The marginalize-then-index body integrates the discrete state out by `logsumexp` enumeration; the surrounding QvrProbe scores `log p(theta_true, y)` against the same marginal, so the captured tensor is finite by construction.
+Draw the three row-stochastic parameter blocks from their own Dirichlet priors, draw one latent state from the initial row, and emit a `Step`-long sequence from that state's emission row. `transition_rows` never enters the likelihood under this body, so it is drawn from the prior and clamped alongside the other two; the emitted sequence is a single-state categorical mixture rather than a full transition sequence.
 
 ```python
 import torch
 from quivers.dsl import load
-from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/hmm.qvr")
 model = prog.hmm_program
 
-x_in = torch.zeros(1, 1)
-with torch.no_grad():
-    forward = trace(model, x_in)
+n_state, n_emit, n_step = 8, 16, 12
 
-true_initial_row = forward.sites["initial_row"].value.detach()
-true_transition_rows = forward.sites["transition_rows"].value.detach()
-true_emission_rows = forward.sites["emission_rows"].value.detach()
-obs = forward.sites["obs"].value.detach()
+true_initial_row = torch.distributions.Dirichlet(torch.ones(n_state)).sample()
+true_transition_rows = torch.distributions.Dirichlet(
+    torch.ones(n_state),
+).sample((n_state,))
+true_emission_rows = torch.distributions.Dirichlet(
+    torch.ones(n_emit),
+).sample((n_state,))
 
-observations = {
-    "obs": obs,
-    "initial_row": true_initial_row,
-    "transition_rows": true_transition_rows,
-    "emission_rows": true_emission_rows,
-}
-print("obs shape:", obs.shape)
+state = torch.distributions.Categorical(true_initial_row).sample()
+obs = torch.distributions.Categorical(true_emission_rows[state]).sample(
+    (n_step,),
+)
+
+observations = {"obs": obs}
+x_in = torch.zeros(n_step, 1)
 ```
 
 ### SVI fit
 
-Re-initialise the row-stochastic logits and recover the n-step joint that produced the synthetic histogram by minimising the cross-entropy between the normalised `prog(n_steps=n_steps)` and the observed counts. The optimiser walks the algebra's row-stochastic submodule directly.
+Re-initialise the raw relation logits and recover the n-step joint that produced the synthetic histogram by minimising the cross-entropy between the normalised `prog(n_steps=n_steps)` and the observed counts. The optimiser walks the sigmoid-constrained entries of the product-fuzzy algebra directly.
 
 ```python
 import torch
@@ -107,7 +156,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### NUTS posterior
 
-The HMM has no explicit `sample` priors; its `initial`, `transition` and `emission` latents are row-stochastic-algebra parameters. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each `nn.Parameter` into a Normal-prior sample site so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the observed histogram against the normalised n-step joint emitted by `prog(n_steps=K)`.
+The exported `hmm` composition has no `sample` priors of its own; its `initial`, `transition`, and `emission` latents are plain algebra parameters with sigmoid-constrained entries. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each `nn.Parameter` into a Normal-prior sample site so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the observed histogram against the normalised n-step joint emitted by `prog(n_steps=K)`.
 
 ```python
 import torch
@@ -148,11 +197,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The forward algorithm and the Viterbi algorithm are the same composed morphism evaluated in different [algebras](https://ncatlab.org/nlab/show/algebra): under product, composition multiplies probabilities and summation marginalizes; under tropical, composition adds log-probabilities and summation maximizes. Quivers makes this explicit: switching `algebra` changes the V-enriched composition rule without touching the program text.
-
-The row-wise Dirichlet prior is the standard conjugate prior for a categorical kernel; declaring it via `over cod iid over dom` resolves the axis-role ambiguity that distinguishes a flat Dirichlet on $|State|\cdot|State|$ entries (wrong: not row-stochastic) from $|State|$ independent simplex draws (right). The categorical reading: each row of $T$ is a fiber of the dependent kernel $\prod_{c \,:\, \mathrm{State}} \mathcal{G}(\mathrm{State})$, so the prior factors as a product of independent simplex priors.
+HMM forward and Viterbi recurrences can be expressed as matrix products over sum-product and max-plus semirings. The current example instead demonstrates runtime-variable powering under Quivers' product-fuzzy rule. A normalized HMM needs different parameter constraints and aggregation.
 
 
 ## References

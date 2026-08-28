@@ -33,7 +33,7 @@ A QVR program denotes a morphism in a [$\mathcal{V}$-enriched category](https://
 
 ## Algebras: the enrichment algebra
 
-A [algebra](https://ncatlab.org/nlab/show/algebra) is a complete lattice equipped with a monoidal product distributing over arbitrary joins. The shipped algebras:
+Quivers' [`Algebra`](../../api/core/algebras.md) interface supplies tensor, reduction, unit, zero, meet, and negation operations. Some instances admit additional lattice or quantale interpretations, but the implementation does not establish those laws for every entry below.
 
 | Name | $\otimes$ | $\bigvee$ | Identity | Reading |
 |---|---|---|---|---|
@@ -60,7 +60,7 @@ CompositionRule
             └── Algebra  (associative ⊗ with identity, plus meet/negate)
 ```
 
-Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, `f.trace(A)` need the identity element and the compact-closed structure: they live on `Algebra`. If your module declares `composition material_impl [level=semigroupoid]` (Reichenbach-style implication composition, which is associative but lacks an identity), the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Chapter 4 of the Python API track has the full story.
+Operations like `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, and `f.trace(A)` live on `Algebra`. If your module declares `composition material_impl [level=semigroupoid]`, the compiler rejects `identity(A)` with a typed error pointing at the rule's level. Note that the shipped Reichenbach operation is not associative; its constructor skips the usual semigroupoid associativity check, so its composites must not be reassociated.
 
 ## Composition carries the enrichment
 
@@ -68,14 +68,14 @@ The two composition operators both defer to the operands' own algebra, fixed by 
 
 | Operator | Meaning |
 |---|---|
-| `>>` | [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) in the operands' shared algebra |
+| `>>` | Enriched relation composition in the operands' shared algebra |
 | `<<` | The same composite written right to left: `g << f` is `f >> g` |
 
 So `f >> g` composes in whatever enrichment both operands carry, and errors on a mismatch. There is no operator that silently pins a different enrichment; to cross enrichments, you [`change_base`](../../api/core/morphisms.md) one operand into the other's algebra before composing.
 
 ## Change of base
 
-A *algebra homomorphism* $\varphi : \mathcal{V} \to \mathcal{W}$ is a lax monoidal lattice functor: it preserves the order, is lax with respect to $\otimes$ and $\bigvee$, and takes $\mathcal{V}$'s unit to $\mathcal{W}$'s. Functorially it extends to a base-change functor $\mathcal{V}\text{-}\mathbf{Rel} \to \mathcal{W}\text{-}\mathbf{Rel}$ that takes an $\mathcal{V}$-valued morphism to a $\mathcal{W}$-valued morphism by applying $\varphi$ entrywise. `f.change_base(phi)` is the surface for this.
+An `AlgebraHomomorphism` records a source algebra, a target algebra, and an entrywise map. `f.change_base(phi)` applies that map and updates the morphism's algebra tag. Particular instances may support a stronger categorical reading, but the runtime contract is the typed transformation just described.
 
 The DSL exposes a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each of these is a first-class transformation value: you can let-bind them, compose them with `>>>`, pass them through `change_base`. The Python API track chapter 6 walks through the full surface; here's the short version:
 

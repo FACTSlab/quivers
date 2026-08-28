@@ -1,10 +1,10 @@
 # Continuous Distribution Families
 
-quivers ships 30+ built-in conditional distribution families. Each
+quivers ships more than forty built-in conditional distribution families. Each
 takes an input (the domain) and produces learnable parameters via a
 parameter network. This page groups the registry by output shape
 and details the families whose event structure interacts with the
-[axis-role surface](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over).
+[axis-role surface](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over).
 The spaces and base
 [`ContinuousMorphism`](../api/continuous/morphisms.md#quivers.continuous.morphisms.ContinuousMorphism)
 interface live in [continuous spaces](continuous-spaces.md).
@@ -130,7 +130,7 @@ from quivers.continuous.families import (
 ## Event rank and the axis-role surface
 
 `event_rank` per family controls the
-[axis-role surface in the DSL](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over):
+[axis-role surface in the DSL](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over):
 
 | Family | Event rank | Categorical reading |
 |---|---|---|
@@ -283,11 +283,9 @@ $$
 $$
 
 The marginal density of $\beta_d$ after integrating the local scale
-$\lambda_d$ has no closed form; the
-[Carvalho, Polson, Scott (2010)](https://doi.org/10.1093/biomet/asq017)
-bound is improper.
+$\lambda_d$ has no elementary closed form.
 [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe)
-returns the exact marginal via 16-point
+approximates the marginal with 16-point
 [Gauss-Legendre quadrature](https://en.wikipedia.org/wiki/Gauss%E2%80%93Legendre_quadrature)
 after the change of variables $\lambda = \tan(\pi t / 2)$ which
 maps $(0, \infty)$ to $(0, 1)$ with Jacobian
@@ -318,7 +316,7 @@ one named axis carries the per-coordinate marginal product.
 |---|---|---|
 | Generic multivariate posterior with dense covariance | `ConditionalMultivariateNormal` | Standard; learnable Cholesky factor. |
 | Weight matrix with separable row / column correlations | `ConditionalMatrixNormal` | Kronecker structure $V \otimes U$ has $r^2 + c^2$ params instead of $(rc)^2$. |
-| Conjugate covariance for a downstream MVN | `ConditionalInverseWishart` | Pairs with `ConditionalMultivariateNormal` for closed-form posterior updates. |
+| Covariance prior for a downstream MVN | `ConditionalInverseWishart` | Places a distribution on positive-definite covariance matrices. |
 | Correlation matrix in a hierarchical model | `ConditionalLKJCholesky` | Prior on correlations alone, leaving scales free. |
 | Non-parametric regression with smoothness control | `ConditionalGaussianProcess` | Prior over functions; bandwidth from kernel length-scale. |
 | Sparse signal selection (e.g. variable selection in regression) | `ConditionalHorseshoe` | Strong shrinkage toward zero with heavy tails for large signals. |
@@ -327,7 +325,7 @@ one named axis carries the per-coordinate marginal product.
 
 - [Continuous Spaces and Morphisms](continuous-spaces.md): the
   surrounding space hierarchy and composition surface.
-- [DSL Programs and Let-Expressions](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over):
+- [DSL Programs and Let-Expressions](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over):
   the `over` / `iid over` axis-role clause that depends on
   `event_rank`.
 - [Examples Gallery: Horseshoe Regression](../examples/horseshoe-regression.md):

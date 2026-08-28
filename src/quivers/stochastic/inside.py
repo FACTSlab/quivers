@@ -179,12 +179,12 @@ class InsideAlgorithm(nn.Module):
                         + left.unsqueeze(1).unsqueeze(3)
                         + right.unsqueeze(1).unsqueeze(2)
                     )
-                    split_score = torch.logsumexp(
+                    split_score = _masked_logsumexp(
                         combined.reshape(batch, N, -1), dim=-1
                     )
                     parts.append(split_score)
                 stacked = torch.stack(parts, dim=0)
-                cell = torch.logsumexp(stacked, dim=0)
+                cell = _masked_logsumexp(stacked, dim=0)
                 if log_unary is not None:
                     cell = _apply_unary_closure(cell, log_unary)
                 cells[i][j] = cell
@@ -257,6 +257,45 @@ class InsideAlgorithm(nn.Module):
         return f"InsideAlgorithm(N={self._n_nonterm}, T={self._n_term}, start={self._start})"
 
 
+def _masked_logsumexp(scores: torch.Tensor, dim: int) -> torch.Tensor:
+    """``logsumexp`` whose empty rows carry no gradient.
+
+    A chart entry that no derivation reaches scores :math:`-\\infty`.
+    Reducing a row of such entries with `torch.logsumexp` gives the
+    right value, :math:`-\\infty`, but a gradient of
+    :math:`\\exp(-\\infty - (-\\infty))`, which evaluates to ``nan``.
+    That ``nan`` reaches every rule weight the row was built from, and
+    multiplying it by an upstream gradient of zero does not clear it,
+    so a single unreachable category at a single span poisons the
+    whole parameter vector on the first optimizer step.
+
+    The reduction runs instead over a copy whose :math:`-\\infty`
+    entries are replaced by the dtype's most negative finite value,
+    which leaves the value and the gradient of every reachable entry
+    bit-identical (the replaced entries still underflow to a weight
+    of exactly zero) while keeping the backward pass finite. The
+    all-unreachable rows are then restored to :math:`-\\infty` through
+    a `torch.where`, whose backward routes zero, not ``nan``, to the
+    branch it did not select.
+
+    ``nan`` inputs are left alone: they mark a genuine upstream
+    breakage and masking them would hide it.
+
+    Parameters
+    ----------
+    scores : torch.Tensor
+        Log-space scores to reduce.
+    dim : int
+        Axis to reduce.
+    """
+    empty = torch.isneginf(scores)
+    floor = torch.finfo(scores.dtype).min
+    bounded = torch.where(empty, torch.full_like(scores, floor), scores)
+    reduced = torch.logsumexp(bounded, dim=dim)
+    all_empty = empty.all(dim=dim)
+    return torch.where(all_empty, torch.full_like(reduced, float("-inf")), reduced)
+
+
 def _apply_unary_closure(
     log_cell: torch.Tensor, log_unary: torch.Tensor, max_iters: int = 8
 ) -> torch.Tensor:
@@ -280,10 +319,14 @@ def _apply_unary_closure(
     cell = log_cell
     for _ in range(max_iters):
         # cell_unary[batch, A] = logsumexp_B(cell[batch, B] + log_unary[B, A])
-        cell_unary = torch.logsumexp(cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1)
+        cell_unary = _masked_logsumexp(
+            cell.unsqueeze(2) + log_unary.unsqueeze(0), dim=1
+        )
         # Algebra-join (noisy-OR in log-space) of cell and cell_unary
-        # ≈ logaddexp.
-        new_cell = torch.logaddexp(cell, cell_unary)
+        # ≈ logaddexp, taken as a masked reduction so a category
+        # unreachable on both sides stays unreachable without a
+        # ``nan`` gradient.
+        new_cell = _masked_logsumexp(torch.stack((cell, cell_unary), dim=-1), dim=-1)
         if torch.allclose(new_cell, cell, atol=1e-6, rtol=1e-6):
             return new_cell
         cell = new_cell

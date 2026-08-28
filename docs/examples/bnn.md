@@ -2,7 +2,7 @@
 
 ## Overview
 
-A [Bayesian neural network](https://en.wikipedia.org/wiki/Bayesian_neural_network) ([MacKay 1992](https://doi.org/10.1162/neco.1992.4.3.448)) puts a prior over every weight and recovers a posterior over weights, giving calibrated predictive uncertainty far from the training data. This example fits a [multi-layer perceptron](https://en.wikipedia.org/wiki/Multilayer_perceptron) to a nonlinear regression target: the response is [Normal](https://en.wikipedia.org/wiki/Normal_distribution) about a learned function of the input,
+A [Bayesian neural network](https://en.wikipedia.org/wiki/Bayesian_neural_network) ([MacKay, 1992](https://doi.org/10.1162/neco.1992.4.3.448)) places priors over network weights. The QVR source below declares a conditional MLP kernel without those priors; the later `lift_from_log_prob` block adds them. The response is [Normal](https://en.wikipedia.org/wiki/Normal_distribution) about a learned function of the input,
 
 $$
 \mu(x),\, \sigma(x) \;=\; \mathrm{MLP}(x), \qquad y_n \;\sim\; \mathcal{N}\!\bigl(\mu(x_n),\, \sigma(x_n)\bigr).
@@ -12,16 +12,41 @@ The network emits both the mean and the log-scale, so the model is [heteroscedas
 
 The nonlinearity lives in the morphism's parameter network. A morphism declared `~ Normal` over continuous spaces is a [Kleisli arrow](https://en.wikipedia.org/wiki/Kleisli_category) whose distribution parameters are produced from its input by a [`ParamSource`](../api/continuous/param_source.md#quivers.continuous.param_source.ParamSource), and `[param_source=mlp, hidden_dim=64]` selects an [`MLPSource`](../api/continuous/param_source.md#quivers.continuous.param_source.MLPSource): two hidden layers of width 64 with tanh activations between them. That is where the model departs from a linear map, and it is the reason this example can fit a curve that no linear model can.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Bayesian Neural Network for Nonlinear Regression
+#
+# A Bayesian multi-layer perceptron. The response is Normal about a
+# nonlinear function of the input, and that function is a
+# two-hidden-layer tanh MLP carried inside the morphism's parameter
+# network. The network emits both the mean and the log-scale, so the
+# model is heteroscedastic: the predictive spread varies with the
+# input.
+#
+# Generative structure:
+#
+#   mu(x), sigma(x) = MLP(x)                   two hidden layers, tanh
+#   y_n             ~ Normal(mu(x_n), sigma(x_n))
+#
+# The per-row input x is a free variable, supplied as host data
+# through the observations dict; the Resp plate indexes the rows.
+#
+# What makes the fit Bayesian is a prior over the network's weights.
+# The weights are ordinary learnable parameters here, so the prior is
+# supplied at the inference layer by lift_from_log_prob rather than
+# declared in the source: a Normal prior on every weight turns a
+# maximum-likelihood fit into a posterior over networks.
+#
+# Reference: [MacKay (1992)](https://doi.org/10.1162/neco.1992.4.3.448).
+
 object Feature : Real 1
 object Target : Real 1
 object Resp : FinSet 200
 
 morphism net : Feature -> Target [param_source=mlp, hidden_dim=64] ~ Normal
 
-program bnn : Resp -> Resp
+program bnn : Resp -> Target
     observe y : Resp <- net(x)
     return y
 
@@ -30,7 +55,7 @@ export bnn
 
 ## Walkthrough
 
-`object Feature : Real 1` and `object Target : Real 1` declare the input and response as one-dimensional continuous spaces; `object Resp : FinSet 200` is the discrete plate indexing the rows. The plate is what the `observe` step reduces over, so it is the program's domain.
+`object Feature : Real 1` and `object Target : Real 1` declare the input and response as one-dimensional continuous spaces; `object Resp : FinSet 200` is the discrete plate indexing the rows. The plate is what the `observe` step reduces over, so it is the program's domain, and `Target` is the value space of the returned response, so it is the codomain.
 
 `morphism net : Feature -> Target [param_source=mlp, hidden_dim=64] ~ Normal` declares the network. The `~ Normal` clause makes `net` a conditional-Normal kernel rather than a tensor: applied to an input it returns a distribution over `Target`, parameterised by a mean and a log-scale. Those two numbers are what the parameter network emits, so the concrete module behind `net` is
 
@@ -40,11 +65,11 @@ Linear(1, 64) -> Tanh -> Linear(64, 64) -> Tanh -> Linear(64, 2)
 
 Its 4418 weights are the network's parameters. `hidden_dim` sets the width and `param_source` the architecture; `linear` is the default, and `identity` and `attention` are the other choices. Without `param_source=mlp` this kernel would map its input to the Normal's parameters through a single matrix, and the model would be a linear regression with a learned noise scale.
 
-`program bnn : Resp -> Resp` then does the only thing left. `observe y : Resp <- net(x)` applies the kernel to the per-row input and scores the observed response under the resulting Normal, accumulating over the `Resp` plate. `x` is a free variable: it never appears in a `sample` or `let`, so it is supplied as host data through the observations dict alongside `y`, exactly as a covariate would be in a regression.
+`program bnn : Resp -> Target` then does the only thing left. `observe y : Resp <- net(x)` applies the kernel to the per-row input and scores the observed response under the resulting Normal, accumulating over the `Resp` plate. `x` is a free variable: it never appears in a `sample` or `let`, so it is supplied as host data through the observations dict alongside `y`, exactly as a covariate would be in a regression.
 
 ## Try it
 
-> The step counts and NUTS budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need more steps, longer warmup, and multiple chains to converge.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 ### Generating synthetic data
 
@@ -64,7 +89,7 @@ x_in = torch.zeros(N, 1)
 observations = {"y": y, "x": x}
 ```
 
-The target is a sine wave in noise, which is the point: it is a function no linear model can represent. `y` carries the `Target` event axis, so it is shaped `(N, 1)` rather than `(N,)`. The dummy `x_in` satisfies the program's `Resp -> Resp` signature; the real covariate enters through `observations["x"]`.
+The target is a sine wave in noise, which is the point: it is a function no linear model can represent. `y` carries the `Target` event axis, so it is shaped `(N, 1)` rather than `(N,)`. The dummy `x_in` supplies the program's batch axis; the real covariate enters through `observations["x"]`.
 
 ### Fitting the network
 
@@ -97,7 +122,7 @@ print(f"linear negative log-likelihood: {float(linear_nll):.1f}")
 print(f"residual sd of the best line:   {float(resid.std()):.3f}")
 ```
 
-The line's residual spread lands near 0.7 against a true observation noise of 0.1, which is the quantitative form of the obvious: a straight line through a full period of a sine explains almost nothing, and the noise it infers is really the signal it cannot represent. The MLP's likelihood is several hundred nats better, and the gap is entirely attributable to the tanh layers, since the two models see identical data and differ only in the map from `x` to the Normal's parameters.
+The line's residual spread is larger than the data-generating noise because a straight line cannot represent the sine target. Compare the printed likelihoods from the current run; their difference reflects both the nonlinear mean and the input-dependent scale available to the MLP.
 
 ### NUTS posterior over the weights
 
@@ -127,7 +152,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 `log_prob_fn` runs inside the lifted program's score step, after the sampled weights are substituted into the network's parameter slots, so it reads the current draw rather than the values the fit above left behind. Sampling 4418 weights is a genuine posterior over networks and the budget here is far too small to converge; it demonstrates the surface, not a usable posterior.
 
-## Categorical Perspective
+## Categorical perspective
 
 `net : Feature -> Target` is a Kleisli arrow $\mathbb{R} \to \mathcal{G}(\mathbb{R})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872), sending an input to a Gaussian measure over the response. The MLP is not part of that arrow's type: it is the map from the domain into the family's parameter space, and composing it with the Gaussian's parameterisation is what makes the kernel's mean and scale depend nonlinearly on the input.
 
@@ -135,7 +160,7 @@ This is the difference between a nonlinearity in the parameter network and a non
 
 Putting a prior on the weights is then a second, independent move. It lifts the deterministic parameter $\theta$ into a sample site, so the model becomes a mixture of networks $\int p(y \mid x, \theta)\, p(\theta)\, d\theta$ rather than a single one.
 
-## See Also
+## See also
 
 - [Deep Markov Model](deep-markov.md) for the same conditional-Normal kernels threaded through `scan` as a nonlinear state-space model.
 - [Bayesian Regression](bayesian-regression.md) for the linear counterpart, where the coefficients carry declared priors in the source.

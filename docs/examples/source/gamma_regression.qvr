@@ -24,8 +24,9 @@
 object Item : FinSet 21
 object Cat : FinSet 3
 object Resp : FinSet 63
+object Val : Real 1
 
-program gamma_regression : Resp -> Resp
+program gamma_regression : Resp -> Val
     sample beta_0 : Cat <- Normal(0.0, 2.0)
     sample beta_1 : Cat <- Normal(0.0, 2.0)
 

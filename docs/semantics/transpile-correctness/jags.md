@@ -14,8 +14,8 @@ the [`pyjags`](https://github.com/michaelnowotny/pyjags) Python
 binding; the log-density probe is JAGS's Gibbs sampler log-joint
 accumulator.
 
-JAGS shares roughly 80% of BUGS's surface; the parameterization
-substitutions and zero-trick for score are identical.
+The renderer targets the BUGS-like subset accepted by JAGS; its
+parameter substitutions and score zero trick follow the BUGS route.
 
 ## Unconstrained-space change of variables
 
@@ -48,7 +48,7 @@ available to user-provided extensions.
 
 Same as BUGS. The renderer differs from `BUGSRenderer` only in
 the `FAMILY_META.target_names["jags"]` lookup (returning
-`ddirich` instead of `ddirch` for Dirichlet, for example) and in
+`ddirich` instead of `ddirch` for Dirichlet, for instance) and in
 applying `FAMILY_META.arg_aliases["jags"]` separately from
 `arg_aliases["bugs"]` (the entries are identical in current
 practice but the registry pattern admits divergence).
@@ -59,12 +59,11 @@ shape as BUGS; the only difference is the distribution name.
 ## Acceptance
 
 * **Tier 1 structural.** Same shape as BUGS.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `jags --check-model <file>`
-  accepts every emit when JAGS is installed.
-* **Tier 4 numeric equivalence.** `pyjags`-based log-density
-  probe; same wide-tolerance posterior-summary comparison as
-  BUGS.
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** The test writes a JAGS command file,
+  asks JAGS to load the model, and rejects compiler error output.
+* **Tier 3 numeric equivalence.** The `pyjags` probe evaluates
+  selected emitted densities under the constant-spread criterion.
 
 ### References
 

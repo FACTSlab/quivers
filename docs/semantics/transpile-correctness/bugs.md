@@ -10,9 +10,9 @@ semantics of Lunn, Spiegelhalter, Thomas, and Best
 ([2009](https://doi.org/10.1002/sim.3680)). A `model { ... }`
 block declares a set of stochastic nodes (`~`) and deterministic
 nodes (`<-`) over which the joint distribution factors. The
-runtime is WinBUGS or MultiBUGS;
-the log-density probe is the Gibbs sampler's per-iteration log-
-joint accumulator.
+shared repository probe compiles and evaluates BUGS-syntax output
+through JAGS and `pyjags`. This checks the supported common subset;
+it does not establish compatibility with every BUGS dialect.
 
 ## Unconstrained-space change of variables
 
@@ -24,7 +24,7 @@ automatic reparametrization. $\Psi_{\mathsf{BUGS}} = \mathrm{id}$.
 BUGS uses precision-parameterized normal-family distributions:
 `dnorm(μ, τ)` where $\tau = 1/\sigma^2$. This is the canonical
 **parameterization substitution** worked through in
-[head §5.1.1](index.md#51-per-family-density-preservation): the
+[the parameterization contract](index.md#4-distribution-parameterization): the
 algebraic equivalence
 
 $$
@@ -38,7 +38,7 @@ under $\tau = 1/\sigma^2$ certifies $c_{\mathrm{Normal},
 normal), `dt` (Student-t), and `dmnorm` (multivariate normal with
 precision matrix $\Omega = \Sigma^{-1}$). The renderer applies
 the substitution via the
-[`FAMILY_META`](../../api/transpile/family_meta.md) arg_aliases
+`FAMILY_META` argument aliases
 table (`{"scale": "tau"}`) plus a per-alias arithmetic transform
 that wraps the scale arg in `1/(<scale>*<scale>)`. Cf.
 [Architecture §10.4](../transpile-architecture.md).
@@ -83,34 +83,23 @@ factors. Each row's args may index into other plate-shaped nodes
 **Marginalize.** Explicit-latent rewrite. BUGS Gibbs sampling
 natively handles discrete latents.
 
-**Score / let / return.** BUGS has no native `factor` primitive;
-the renderer uses the
-[zero-trick of Plummer 2003](https://www.r-project.org/conferences/DSC-2003/Proceedings/Plummer.pdf):
-`_zero_<name> <- 0; _zero_<name> ~ dpois(-(<name>))` adds
-$-\log(- \cdot) - (- \cdot) = -\log(-\mathrm{expr}) + \mathrm{expr}$
-to the joint (since `dpois(0 | λ) = e^{-λ}`); the convention is
-adjusted at emit time so the contribution is the documented
-`<name>` value. Deterministic let-bindings emit as `<name> <-
-<expr>`. Return is a model-level concept: BUGS returns the joint
-sample of all stochastic nodes; the renderer does not emit a
-target-language return statement.
-
-**Limitations.** The BUGS renderer's `IRDeterministic` and
-`IRScore` handlers raise `UnsupportedConstruct(["node:IRDeterministic"])`
-/ `node:IRScore` for non-trivial expression bodies; the
-implementation is staged for a follow-up.
+**Score / let / return.** BUGS has no native `factor` primitive.
+The renderer uses the
+[zero trick of Plummer 2003](https://www.r-project.org/conferences/DSC-2003/Proceedings/Plummer.pdf):
+with host-supplied `zero_name = 0`, the relation
+`zero_name ~ dpois(C - expr)` contributes `expr - C` because
+`log P(0 | λ) = -λ`. The positive carrier constant $C$ is
+parameter-independent. Deterministic bindings emit with `<-`;
+return is a QVR-level selection rather than a BUGS statement.
 
 ## Acceptance
 
 * **Tier 1 structural.** Every emit has `model { ... }` with `~`
   and `<-` statements wrapped in `for` loops per plate axis.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `multibugs --check <file>` accepts
-  every emit (when MultiBUGS is installed); structural-only
-  acceptance otherwise.
-* **Tier 4 numeric equivalence.** BUGS does not expose a
-  parameterized log-density probe; the Tier-4 check uses
-  posterior-summary comparison instead, with a wider tolerance.
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** JAGS compiles the emitted common-subset syntax.
+* **Tier 3 numeric equivalence.** The JAGS/`pyjags` probe evaluates
+  emitted BUGS-syntax densities on the selected fixture grids.
 
 ### References
 

@@ -56,7 +56,7 @@ def test_type_scoped_observe_inside_marginalize(lda):
     r = lda.type_of("lda::z::w")
     assert r.ok
     assert r.body.startswith("w ::")
-    assert "Word" in r.body
+    assert "Token" in r.body
 
 
 def test_type_scoped_param(lda):
@@ -93,7 +93,7 @@ def test_type_bare_name_still_works(lda):
     # parameters denote a dependent family ``∏ p_i:P_i. Kern(dom, cod)``;
     # they are NOT curried with the kernel arrow. The renderer surfaces
     # them as a Haskell-style constraint context.
-    assert r.body == "lda :: (Real, Real) => Word -> Word"
+    assert r.body == "lda :: (Real, Real) => Token -> Mix"
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ def test_doc_unknown_path_error(lda):
 def test_browse_scoped_lists_program_children(lda):
     r = lda.browse("lda")
     assert r.ok
-    assert "program lda(alpha : Real, beta : Real) : Word -> Word" in r.body
+    assert "program lda(alpha : Real, beta : Real) : Token -> Mix" in r.body
     for needle in (
         "param alpha",
         "param beta",

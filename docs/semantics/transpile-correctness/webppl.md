@@ -11,9 +11,10 @@ trace semantics of Goodman and Stuhlmüller
 WebPPL function whose `sample` and `observe` calls are reified by
 the WebPPL compiler into CPS-transformed continuations; the trace
 is the sequence of `(address, distribution, value)` triples
-visited. The runtime computes the joint log-density per
-[`webppl --output`](https://webppl.readthedocs.io/en/master/inference.html#log-density)
-when used with `factor`-based importance sampling.
+visited. The repository's numeric probe rewrites rendered `sample`
+and `observe` sites into calls to each distribution object's
+`score(value)` method at clamped parameter and data values. It does
+not estimate the density through importance sampling.
 
 ## Unconstrained-space change of variables
 
@@ -50,7 +51,7 @@ Per Goodman & Stuhlmüller 2014, `repeat` denotes the documented
 $B$-fold product measure.
 
 **Marginalize.** Explicit-latent rewrite (head
-[§5.3.2](index.md#532-explicit-latent-rewrite-under-mcmc)).
+[the marginalization discussion](index.md#5-plates-marginalization-and-via)).
 WebPPL natively samples discrete latents via the trace mechanism.
 
 **Score / let / return.** [`factor(expr)`](https://webppl.readthedocs.io/en/master/inference.html#factor)
@@ -61,11 +62,9 @@ for score; `var <name> = <expr>;` for let; native `return`.
 * **Tier 1 structural.** Every emit has `var model = function(...)
   { ... };` whose body uses `sample`, `observe`, `factor`,
   `repeat`, and `mapIndexed`.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** [`node --check /dev/stdin`](https://nodejs.org/api/cli.html#--check)
-  accepts every emit (WebPPL syntax is a subset of JavaScript +
-  the WebPPL primitive functions).
-* **Tier 4 numeric equivalence.** WebPPL importance-sampling
-  estimates of the log-marginal agree with the QVR reference
-  within sampling error (a wider tolerance than the analytic
-  Tier-4 bound for the other backends).
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** [`node --check /dev/stdin`](https://nodejs.org/api/cli.html#--check)
+  accepts the JavaScript syntax. This does not validate WebPPL
+  primitive names or runtime semantics.
+* **Tier 3 numeric equivalence.** The rewritten `.score(value)`
+  probe is compared with the QVR reference on selected fixture grids.

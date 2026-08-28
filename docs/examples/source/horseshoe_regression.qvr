@@ -25,8 +25,9 @@
 object Item : FinSet 16
 object Coef : FinSet 4
 object Resp : FinSet 64
+object Val : Real 1
 
-program horseshoe_regression : Resp -> Resp
+program horseshoe_regression : Resp -> Val
     sample tau <- HalfCauchy(1.0)
     sample lambda_local : Coef <- HalfCauchy(1.0)
     sample z_raw : Coef <- Normal(0.0, 1.0)

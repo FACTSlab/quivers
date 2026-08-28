@@ -18,8 +18,9 @@
 # expressions from undeclared keys in the observations dict.
 
 object Resp : FinSet 64
+object Val : Real 1
 
-program bayesian_regression : Resp -> Resp
+program bayesian_regression : Resp -> Val
     sample sigma <- HalfCauchy(2.0)
     sample beta_0 <- Normal(0.0, 5.0)
     sample beta_1 <- Normal(0.0, 2.0)

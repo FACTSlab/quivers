@@ -110,6 +110,150 @@ TRUNCATION_FINGERPRINT: dict[str, str] = {
 }
 
 
+#: The BUGS / JAGS log-gamma and log-factorial builtins the
+#: beta-binomial log-pmf is written in terms of. Both live in the
+#: ``bugs`` module, which every JAGS engine loads by default and which
+#: the OpenBUGS / WinBUGS function library also ships, so the closed
+#: form below needs no optional module.
+_LOG_GAMMA: str = "loggam"
+_LOG_FACTORIAL: str = "logfact"
+
+
+def _let_add(left: LetExprNode, right: LetExprNode) -> LetExprNode:
+    return LetExprBinOp(op="+", left=left, right=right)
+
+
+def _let_sub(left: LetExprNode, right: LetExprNode) -> LetExprNode:
+    return LetExprBinOp(op="-", left=left, right=right)
+
+
+def _let_signed_sum(
+    head: LetExprNode, *tail: tuple[str, LetExprNode]
+) -> LetExprNode:
+    """Left-fold a signed term list into one ``+`` / ``-`` chain.
+
+    Each entry of `tail` pairs the operator that joins it to the
+    running total with the term itself, so the result associates
+    exactly as the source reads it.
+    """
+    total = head
+    for op, term in tail:
+        total = LetExprBinOp(op=op, left=total, right=term)
+    return total
+
+
+def _scalar_arg_expr(
+    backend: str, family: str, slot: str, arg: IRArg
+) -> LetExprNode:
+    """Read one distribution argument back as a let-expression.
+
+    The closed-form densities this module writes out consume their
+    arguments as ordinary arithmetic operands rather than as
+    distribution-call children, so each one has to come back as a
+    `LetExprNode`. A bare reference and a numeric literal both do; an
+    index expression, a list, a matrix, or a broadcast wrapper carries
+    structure the scalar closed form cannot place, so it raises.
+    """
+    if isinstance(arg, IRArgNumber):
+        return LetExprLiteral(value=arg.value)
+    if isinstance(arg, IRArgRef) and not arg.indices:
+        return LetExprVar(name=arg.name)
+    raise UnsupportedConstruct(
+        f"qvr-{backend}",
+        [
+            f"family:{family}:non-scalar-arg:{slot}: the closed-form "
+            f"density reads each argument as a scalar operand, and "
+            f"this slot carries a {type(arg).__name__}"
+        ],
+    )
+
+
+def beta_binomial_log_pmf(
+    backend: str,
+    *,
+    variate: str,
+    args: tuple[IRArg, ...],
+    arg_names: tuple[str, ...],
+) -> LetExprNode:
+    """Build ``log BetaBinomial(<variate>; n, a, b)`` in closed form.
+
+    Neither the BUGS function library nor the JAGS modules a stock
+    engine loads (``basemod``, ``bugs``, ``dic``) ships a
+    beta-binomial distribution: JAGS carries one only in the optional
+    ``mix`` module, and OpenBUGS / WinBUGS carry none at all. The
+    density is nonetheless an ordinary expression in ``loggam`` and
+    ``logfact``, both of which the ``bugs`` module supplies, so the
+    renderer writes it out rather than naming a distribution the
+    engine may not have.
+
+    Writing ``B`` for the beta function, the pmf is
+
+        p(y; n, a, b) = C(n, y) * B(a + y, b + n - y) / B(a, b),
+
+    and expanding both the binomial coefficient and each beta function
+    into log-gammas gives
+
+        logfact(n) - logfact(y) - logfact(n - y)
+        + loggam(a + y) + loggam(b + n - y) - loggam(a + b + n)
+        - loggam(a) - loggam(b) + loggam(a + b),
+
+    which is exactly the term this returns. It is the family's own
+    log-density, not a surrogate for it: the latent conversion rate is
+    integrated out analytically, so no auxiliary node enters the model
+    and the joint the engine scores is the marginal QVR names.
+    """
+    by_name = dict(zip(arg_names, args, strict=False))
+    missing = [
+        slot
+        for slot in ("total_count", "concentration1", "concentration0")
+        if slot not in by_name
+    ]
+    if missing:
+        raise UnsupportedConstruct(
+            f"qvr-{backend}",
+            [
+                f"family:BetaBinomial:missing-arg:{','.join(missing)}: "
+                f"the closed-form density needs the trial count and "
+                f"both concentrations; the site supplies "
+                f"{list(arg_names)}"
+            ],
+        )
+    n = _scalar_arg_expr(
+        backend, "BetaBinomial", "total_count", by_name["total_count"]
+    )
+    a = _scalar_arg_expr(
+        backend,
+        "BetaBinomial",
+        "concentration1",
+        by_name["concentration1"],
+    )
+    b = _scalar_arg_expr(
+        backend,
+        "BetaBinomial",
+        "concentration0",
+        by_name["concentration0"],
+    )
+    y = LetExprVar(name=variate)
+
+    def loggam(inner: LetExprNode) -> LetExprNode:
+        return LetExprCall(func=_LOG_GAMMA, args=(inner,))
+
+    def logfact(inner: LetExprNode) -> LetExprNode:
+        return LetExprCall(func=_LOG_FACTORIAL, args=(inner,))
+
+    return _let_signed_sum(
+        logfact(n),
+        ("-", logfact(y)),
+        ("-", logfact(_let_sub(n, y))),
+        ("+", loggam(_let_add(a, y))),
+        ("+", loggam(_let_sub(_let_add(b, n), y))),
+        ("-", loggam(_let_add(_let_add(a, b), n))),
+        ("-", loggam(a)),
+        ("-", loggam(b)),
+        ("+", loggam(_let_add(a, b))),
+    )
+
+
 def half_support_truncation(family: str, *, observed: bool) -> tuple[IRArg, ...] | None:
     """Return the one-sided truncation bounds a latent draw from
     ``family`` needs, or `None` when no truncation applies.

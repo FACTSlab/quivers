@@ -172,7 +172,7 @@ $$
 
 with $\mathsf{fresh}$ drawn from a per-deduction fresh-symbol
 pool. Two lexicon entries that both write `Lam(x, body)` in
-source therefore produce chart items with *distinct* canonical
+source thus produce chart items with *distinct* canonical
 bound names, so the chart's structural identity on item tuples
 coincides with alpha-equivalence on the source terms.
 
@@ -184,7 +184,7 @@ References to a bound name inside a binder body resolve through
 the alpha-renamed canonical symbol.
 
 The compiler exposes capture-avoiding substitution as a
-[`let`-expression builtin](#103-let-expression-builtins) `subst(t,
+[`let`-expression builtin](#93-let-expression-builtins) `subst(t,
 v, w)`: because every binder has been alpha-renamed to a unique
 canonical symbol at compile time, naive structural substitution
 is already capture-avoiding.
@@ -376,7 +376,7 @@ The result's semiring, agenda, and goal are inherited from
 $D_2$; the parameters of *both* factors appear in the composed
 system's `.parameters()` via cross-attachment of the
 `_axiom_module` / `_rule_module` side-tables. A composed
-deduction is therefore directly usable inside `parse(..., …)`
+deduction is thus directly usable inside `parse(..., …)`
 calls without any further wrapper.
 
 The composition is associative up to chart equality of the

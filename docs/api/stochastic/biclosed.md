@@ -4,7 +4,10 @@ The abstract framework for weighted deductive parsing, organized into three laye
 
 ## Deductive Systems
 
-Five abstract primitives for weighted deductive parsing (Shieber, Schabes & Pereira 1995; Goodman 1999). All parsing algorithms are instances of this framework.
+Five abstract primitives for weighted deductive parsing
+([Shieber, Schabes & Pereira 1995](https://doi.org/10.1016/0743-1066(95)00035-I);
+[Goodman 1999](https://aclanthology.org/J99-4004/)). The parsers in this
+package are instances of this framework.
 
 - **`Axiom`:** Creates and populates the initial chart from input.
 - **`Deduction`:** A weighted inference step (chart → chart).

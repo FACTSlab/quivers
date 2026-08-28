@@ -106,7 +106,7 @@ statement in `model` contributing $\log f_{F, \mathsf{Stan}}(y \mid
 observation is declared as `array[N_<axis>] <type>`. Per Stan
 Reference Manual §6.4, the for-loop's contribution to `target` is
 the additive sum of per-iteration `~` contributions. Soundness
-follows from [head §5.2](index.md#52-plate-indexed-bind-translation-soundness).
+follows from [the plate discussion](index.md#5-plates-marginalization-and-via).
 
 **`MarginalizeStep`.** Stan emits the canonical `log_sum_exp`
 enumeration. For a grouped marginalize with latent $z : K$ on
@@ -129,13 +129,13 @@ group axis $G$ and scope observe via fibration $g : R \to G$:
 Soundness: the inner accumulation is exact arithmetic in
 log-space; the outer `log_sum_exp` is the documented
 `log_sum_exp` primitive that computes $\log \sum_k \exp(\cdot)$
-accurately. By [head §5.3.1](index.md#531-stan-style-enumeration-over-finite-support-latents),
+accurately. Under [the finite-enumeration strategy](index.md#5-plates-marginalization-and-via),
 the emitted log-density equals the marginalized joint up to the
 per-family constants of Lemma 5.1.1.
 
 The Stan renderer raises
-[`UnsupportedConstruct(["marginalize:non-finite-support:<family>"])`](../../api/transpile.md)
-when [`finite_enumerable_at_call_site`](../../api/transpile/family_meta.md#finite_enumerable_at_call_site)
+`UnsupportedConstruct(["marginalize:non-finite-support:<family>"])`
+when `finite_enumerable_at_call_site`
 returns False; cf.
 [ZIP regression](../../examples/zip-regression.md) for the
 continuous-support workaround.
@@ -153,20 +153,13 @@ re-declaration). Denotationally inert.
 
 ## Acceptance
 
-* **Tier 1 structural.** Every emit has the expected `program`
-  vertex with `data`, `parameters`, `transformed_parameters`,
-  `model`, `generated_quantities` children; per-construct
-  subgraph shape per [head §5.1](index.md#51-per-family-density-preservation)
-  /
-  [head §5.5](index.md#55-score--let-translation-soundness).
-* **Tier 2 lens-laws.** `Lower >> StanRenderer >> EmitPretty(stan)`
-  composition law holds; the re-emit fixed point holds on the
-  by-construction schema (the panproto `emit_pretty` invariant).
-* **Tier 3 external syntax.** `stanc --info -` accepts every
-  emit in the test matrix.
-* **Tier 4 numeric equivalence.** `cmdstanpy.log_prob` evaluated
-  at 256 deterministic grid points + hand-picked corners agrees
-  with the QVR reference up to $C_{\mathsf{Stan}}(M) +
-  \log|\det J_{\Psi_{\mathsf{Stan}}}(\theta)|$ within $10^{-6}$;
-  pairwise transitivity with the other Tier-4-passing backends
-  holds.
+* **Tier 1 pipeline composition.** Structural checks cover the
+  expected Stan blocks and the `Lower >> StanRenderer >>
+  EmitPretty(stan)` pipeline.
+* **Tier 2 external syntax.** `stanc` accepts the generated
+  programs in the external-validation matrix.
+* **Tier 3 numeric equivalence.** For selected fixtures,
+  `cmdstanpy.log_prob` is compared with the QVR reference on the
+  shared finite grid and tolerance described in
+  [the test contract](index.md#6-evidence-tiers), after
+  applying any documented backend-specific correction.

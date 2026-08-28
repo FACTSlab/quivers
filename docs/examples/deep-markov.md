@@ -13,9 +13,34 @@ $$
 
 The transition and emission means are MLPs; per-step Normal noise gives a tractable density. The companion recognition network `q_\phi(o_t, s_{t-1}) -> s_t` carries the variational posterior and is threaded across the sequence by `scan` to amortize the posterior over the latent trajectory. The combinator surface mirrors the [linear-Gaussian SSM](linear-gaussian-ssm.md): only the per-step cells change.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Deep Markov Model
+#
+# A state-space model with nonlinear, neural-network-parameterised
+# transition and emission kernels. The combinator surface mirrors the
+# linear-Gaussian SSM and replaces its linear maps with kernels whose
+# parameters come from an MLP.
+#
+# Generative structure:
+#
+#   s_t  ~ trans_mlp(s_{t-1}, driver)             nonlinear transition
+#   o_t  ~ emit_mlp(s_t)                          nonlinear emission
+#   s_t  ~ infer_cell(o_t, s_{t-1})               variational recognition
+#
+# The nonlinearity is the ``param_source=mlp`` option, which routes a
+# kernel's input to its Normal parameters through a tanh MLP. Without
+# it a kernel's parameters are linear in its input, and composing two
+# of them stays linear: the depth would buy nothing but a rank bound.
+#
+# The inference cell q_phi(o_t, s_{t-1}) -> s_t carries the
+# variational recognition network; scan threads it across the
+# observation sequence to recover an amortised posterior over
+# the latent state trajectory.
+#
+# Reference: [Krishnan, Shalit, and Sontag 2017](https://doi.org/10.1609/aaai.v31i1.10779).
+
 object Driver : Real 4
 object Hidden : Real 32
 object State : Real 8
@@ -32,6 +57,13 @@ define emission = emit_mlp_1 >> emit_mlp_2
 define generate = scan(transition_cell) >> emission
 define recognize = scan(infer_cell)
 
+# Probabilistic surface: the per-step generative kernel pushes
+# the previous (driver, state) pair through the two-layer
+# transition MLP and scores the new state, then pushes the new
+# state through the two-layer emission MLP and scores the
+# observation. scan threads this per-step program across the
+# input sequence so trace clamps the full (s_new, o) trajectory
+# once per call.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 
@@ -43,18 +75,18 @@ export generative_step
 
 ## Walkthrough
 
-The transition stack `trans_mlp_1 >> trans_mlp_2` is a two-layer MLP that maps `(u_t, s_{t-1})` through a hidden width of 32 down to the 8-d state; the emission stack `emit_mlp_1 >> emit_mlp_2` is the symmetric decoder back to the 4-d observation. Both stacks are Kleisli compositions of Gaussian kernels, so the joint per-step kernel is a [normalizing-flow](https://doi.org/10.1145/3422622)-like reparameterisable Gaussian whose mean is the network output.
+The transition stack `trans_mlp_1 >> trans_mlp_2` maps `(u_t, s_{t-1})` through a hidden width of 32 to the 8-dimensional state; the emission stack returns to the 4-dimensional observation. Both stacks compose Gaussian kernels through sampled intermediate values. They support reparameterized draws, but the marginal composite is not generally Gaussian and does not provide the invertible density transformation required of a normalizing flow.
 
-`scan(transition_cell) >> emission` is the generative pipeline; `scan(infer_cell)` is the [variational autoencoder](https://doi.org/10.48550/arXiv.1312.6114)-style recognition network that threads the previous belief and the new observation through `infer_cell` to produce the next belief. The choice of `Driver` width controls the exogenous input; a non-driven model uses `Driver = Euclidean 1` and feeds a zero vector.
+`scan(transition_cell) >> emission` is the generative pipeline; `scan(infer_cell)` is the [variational autoencoder](https://doi.org/10.48550/arXiv.1312.6114)-style recognition network that threads the previous belief and the new observation through `infer_cell` to produce the next belief. The choice of `Driver` width controls the exogenous input; a non-driven model declares `object Driver : Real 1` and feeds a zero vector.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Pick concrete ground-truth nonlinear dynamics (tanh recurrence on the latent, tanh decoder to observations) and forward-sample a single trajectory of length `T`. The latent dimension matches `State = Real 8`; the observation dimension matches `Obs = Real 4`. The single-step program `generative_step : Driver * State -> State` reads the previous (driver, state) pair as input; the per-step pair `(s_new, o)` is supplied as the observation dict.
+Pick concrete ground-truth nonlinear dynamics (tanh recurrence on the latent, tanh decoder to observations) and forward-sample a single trajectory of length `T`. The latent dimension matches `State = Real 8`; the observation dimension matches `Obs = Real 4`. The single-step program `generative_step : Driver * State -> State` reads the previous (driver, state) pair as input and returns the new state, so its codomain is `State`; the per-step pair `(s_new, o)` is supplied as the observation dict, with `true_s_new` naming the ground-truth trajectory the latent site is clamped to.
 
 ```python
 import torch
@@ -76,7 +108,8 @@ for t in range(T):
     o[t] = torch.tanh(s[t + 1] @ W_o.T) + 0.1 * torch.randn(obs_dim)
 
 state_prev = torch.cat([u, s[:T]], dim=-1)
-sites = {"s_new": s[1:T + 1], "o": o}
+true_s_new = s[1:T + 1]
+sites = {"s_new": true_s_new, "o": o}
 x_in = state_prev
 observations = sites
 ```
@@ -132,11 +165,11 @@ print("divergences:", int(result.divergence_counts.sum()))
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The transition stack is the Kleisli composition of two Gaussian kernels; the second kernel's mean depends on the sample from the first, so the joint per-step kernel is no longer Gaussian, only a reparameterisable density. `scan` realizes the iterated Kleisli composition over the time index, so the full trajectory kernel is the right Kan extension of the per-step cell along the time projection.
 
-The recognizer is a directed inverse of the generative kernel: where the prior is a forward chain `s_0 -> s_1 -> ... -> s_T -> o_{1:T}`, the recognizer is the [encoder side](seq2seq.md) of an amortized variational posterior. The two share the latent space `State` but live in opposite Kleisli morphisms; SVI tunes them jointly against an ELBO.
+The separately declared recognizer has the shape of an amortized inference network. The exported `generative_step` and the `AutoNormalGuide` fit on this page do not call `recognize`, however. Joint training would require using that network as, or inside, the variational guide.
 
 ```mermaid
 flowchart LR

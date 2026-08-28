@@ -1,12 +1,12 @@
 # A Type Theory for QVR
 
-This chapter develops the **type theory** of the QVR DSL as a formal proof system, paired with the denotational interpretation already given in the surrounding chapters. The denotational semantics (chapters [Setting](setting.md) through [Adequacy](adequacy.md)) tells us *what* a well-typed QVR phrase means: an object of $\mathbf{FinSet}$ or $\mathbf{SBor}$, a morphism in $\mathbf{Stoch}$, a Markov kernel in $\mathbf{Kern}$, a Π-indexed family of Kleisli arrows, and so on. The present chapter gives the **type system** that picks out *which* phrases are well-typed in the first place: judgments, contexts, inference rules, and the soundness theorem that ties the two layers together.
+This chapter presents a declarative type theory for the QVR DSL and relates it to the compiler's checks. The rules are a design specification, not a mechanized metatheory, and some derived categorical rules require stronger algebraic hypotheses than the runtime's `Algebra` interface enforces.
 
 The development is organized so that:
 
-* every judgment form is given with its denotational interpretation, so the proof theory and the model theory stay synchronised;
-* every inference rule is justified by an appeal to the categorical structure already exhibited in the denotational chapters;
-* the soundness theorem (Theorem [§9.1](#91-soundness)) is the precise statement under which the REPL's `:type` and `:kind` commands are guaranteed to report mathematically meaningful answers.
+* each judgment form is paired with its intended denotation;
+* inference rules name their categorical assumptions;
+* the implementation correspondence is checked against compiler behavior and tests where evidence exists.
 
 ## 0. Notation
 
@@ -199,13 +199,13 @@ $$
 \Delta \;::=\; \varepsilon \;\mid\; \Delta,\ p : P
 $$
 
-where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs). The implementation in [`ProgramParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.programparam) records three concrete variants:
+where $p$ is a parameter name and $P$ ranges over the parameter universes listed in [Programs §3a](programs.md#3a-parametric-programs). The implementation's `ProgramParam` union records three concrete variants:
 
 | Variant | Surface | Universe |
 |---|---|---|
-| [`ObjectParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.objectparam) | `G : FinSet` / `G : Space` / `G : Object` | an object of $\mathbf{FinSet}$ / $\mathbf{SBor}$ / either |
-| [`ScalarParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.scalarparam) | `α : Real` / `α : Nat` | the underlying set of the rig $\mathbb{R}$ or $\mathbb{N}$ |
-| [`MorphismParam`](../api/dsl/ast_nodes.md#quivers.dsl.ast_nodes.morphismparam) | `f : Mor[A, B]` | a kernel $A \to \mathcal{G}(B)$ in $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
+| `ObjectParam` | `G : FinSet` / `G : Space` / `G : Object` | an object of $\mathbf{FinSet}$ / $\mathbf{SBor}$ / either |
+| `ScalarParam` | `α : Real` / `α : Nat` | the underlying set of the rig $\mathbb{R}$ or $\mathbb{N}$ |
+| `MorphismParam` | `f : Mor[A, B]` | a kernel $A \to \mathcal{G}(B)$ in $\mathrm{Hom}_{\mathbf{Kern}}(A, B)$ |
 
 A bare-identifier parameter list $(q_1, \ldots, q_k)$ is the special case of a $\Delta$ all of whose entries are *projection binders*: they do not contribute a Π-quantifier (their denotation is identity), they only name the components of the program's domain.
 
@@ -286,7 +286,7 @@ $$
 
 $\sqcup$ is undefined on $\ast_{\mathrm{Sort}}$, $\ast_{\mathrm{Atom}}$, and the parametric kinds $\mathsf{Family}[\Theta, B]$, $\mathsf{Mor}[A, B]$, $\mathsf{Scalar}_R$: products of items at those kinds are not legal QVR objects. $\textsc{TyProd}$'s third premise "$\kappa_1 \sqcup \kappa_2$ defined" is the well-typedness restriction that rules out $\mathsf{FinSet}\,3 \times \mathsf{Sort}_T$ etc. The defined cases implement the discrete-component absorption discussed in [Types and spaces §6](types-and-spaces.md#6-resolution-in-code).
 
-Coproducts are restricted to the discrete sub-language because $\mathbf{SBor}$ has no general finite coproducts that play well with the Giry monad ([Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels)).
+The current compiler restricts coproduct syntax to the discrete sub-language. This is an implementation restriction; standard Borel spaces do have finite disjoint unions.
 
 ### 3.5 Residuated formers
 
@@ -388,15 +388,15 @@ $$
 (per [Expressions §3.3](expressions.md#33-repeat), $\mathsf{repeat}$ is the $n$-fold Kleisli composition of $e$ with itself, requiring $e$ to be an endomorphism so the composition typechecks).
 
 $$
-\frac{\Gamma; \Phi \vdash e : A \rightsquigarrow B \quad n \in \mathbb{N}_{\ge 1}}
-     {\Gamma; \Phi \vdash \mathsf{stack}(e, n) : A^n \rightsquigarrow B^n}\ \textsc{Stack}
+\frac{\Gamma; \Phi \vdash e : A \rightsquigarrow A \quad n \in \mathbb{N}_{\ge 1}}
+     {\Gamma; \Phi \vdash \mathsf{stack}(e, n) : A \rightsquigarrow A}\ \textsc{Stack}
 $$
 
-(per [Expressions §3.2](expressions.md#32-stack), $\mathsf{stack}$ is the $n$-fold tensor product of $e$ with itself; the compiler additionally clones $e$'s parameters per replica via $\mathsf{copy.deepcopy}$ so each layer is independently learnable). $\mathsf{scan}$ has the shape of a categorical trace ([Expressions §3.4](expressions.md#34-scan)):
+(per [Expressions §3.2](expressions.md#32-stack), the compiler composes $n$ deep copies sequentially, so each layer has independent parameters). `scan` is the continuous recurrent-cell form:
 
 $$
-\frac{\Gamma; \Phi \vdash e : A \times S \rightsquigarrow B \times S}
-     {\Gamma; \Phi \vdash \mathsf{scan}(e) : A \rightsquigarrow B}\ \textsc{Scan}
+\frac{\Gamma; \Phi \vdash e : A \times H \rightsquigarrow H}
+     {\Gamma; \Phi \vdash \mathsf{scan}(e) : A \rightsquigarrow H}\ \textsc{Scan}
 $$
 
 ### 5.6 Contraction application
@@ -639,6 +639,8 @@ where $\mathcal{T}$ is determined as in §[8.4](#84-statement-denotation), and w
 
 ## 9. Soundness
 
+This section states the intended metatheory under its listed assumptions. It is not a machine-checked proof that the current compiler implements every rule below.
+
 ### 9.1 Soundness
 
 **Theorem (Soundness).** *Suppose $\Gamma$ is well-formed and the following hold:*
@@ -778,7 +780,7 @@ $\square$
 
 *Proof.* Induction on $e$. Each Expr AST variant has a unique introduction rule, modulo two syntactic discriminators:
 
-* $\textsf{ExprIdent}\,x$ dispatches to $\textsc{TraceVar}$ if $x \in \mathrm{dom}(\Phi)$ and to $\textsc{ModuleVar}$ if $x \in \mathrm{dom}(\Gamma)$. The two domains are *disjoint*: every rule that extends $\Phi$ ($\textsc{Bind}$, $\textsc{BindTuple}$, $\textsc{Let}$, ...) carries a freshness side-condition "$v$ fresh in $\Phi$" *and* the implicit invariant that program-body-scope names never collide with module-level names ($\Gamma$ entries are declared once at module level before any program body is typed). The two cases therefore cannot simultaneously apply.
+* $\textsf{ExprIdent}\,x$ dispatches to $\textsc{TraceVar}$ if $x \in \mathrm{dom}(\Phi)$ and to $\textsc{ModuleVar}$ if $x \in \mathrm{dom}(\Gamma)$. The two domains are *disjoint*: every rule that extends $\Phi$ ($\textsc{Bind}$, $\textsc{BindTuple}$, $\textsc{Let}$, ...) carries a freshness side-condition "$v$ fresh in $\Phi$" *and* the implicit invariant that program-body-scope names never collide with module-level names ($\Gamma$ entries are declared once at module level before any program body is typed). The two cases thus cannot simultaneously apply.
 * $\textsf{ExprCompose}$ selects $\textsc{Compose}_\alpha$ with $\alpha$ the module's declared algebra; the `op` field (`>>` or `<<`) fixes only operand order, not the algebra.
 
 Modulo these dispatchers, each rule determines the conclusion's $A$ and $B$ as functions of the premises' types: e.g. $\textsc{Compose}_\alpha$ fixes the conclusion's $A$ to be the first premise's $A$ and the conclusion's $B$ to be the second premise's $C$. The premises themselves have unique types by induction. Base cases: $\textsc{ModuleVar}$ reads $A \rightsquigarrow B$ uniquely from $\Gamma$ by the disjointness of context entries; $\textsc{TraceVar}$ reads $\tau$ uniquely from $\Phi$ by the same disjointness on $\Phi$. $\square$
@@ -794,11 +796,13 @@ Modulo these dispatchers, each rule determines the conclusion's $A$ and $B$ as f
 * Statement rules: the AST variant of $s$ (one of $\textsf{DrawStep}$, $\textsf{ObserveStep}$, $\textsf{MarginalizeStep}$, $\textsf{LetStep}$, $\textsf{ScoreStep}$) partitions them. $\textsf{DrawStep}$ is further split on whether the family slot resolves to a $\textsf{FamilySpec}$ (giving $\textsc{Bind}$ / $\textsc{BindTuple}$) or to a $\textsf{ProgramDecl}$ (giving $\textsc{Inline}$).
 * Program rules: the $\textsf{ProgramParam}$ tagged-union discriminator on the parameter list selects $\textsc{Prog}$ (any typed parameter) or $\textsc{ProgProj}$ (all bare-identifier).
 
-Once the rule is determined, its premises are exactly the conditions under which the derivation could have ended in that rule; they must therefore be derivable. $\square$
+Once the rule is determined, its premises are exactly the conditions under which the derivation could have ended in that rule; they must thus be derivable. $\square$
 
 The four lemmas together underwrite every "by induction" step in §[9.1](#91-soundness) and §[9.2](#92-subject-reduction-parametric-instantiation): Weakening discharges the cases where a premise's context differs from the conclusion's; Substitution underwrites the $\textsc{Prog}$ case's claim that each fibre is well-defined; Type Uniqueness ensures the algorithm of §[10](#10-algorithmic-typechecking) is well-defined (each synthesis returns *the* type, not a non-empty family); Inversion is the syntactic-direction property the bidirectional algorithm of §[10](#10-algorithmic-typechecking) exploits to drive its check / synth dispatch.
 
 ### 9.4 Completeness
+
+The completeness result below concerns the partial raw denotation defined in this section. It should not be read as evidence that every mathematically meaningful kernel has QVR surface syntax.
 
 Soundness (§[9.1](#91-soundness)) says every well-typed phrase has a denotation. The converse — that no semantically-meaningful phrase is rejected by the type system — requires a denotation function that is defined independently of any typing derivation.
 
@@ -859,6 +863,8 @@ The relevant entry points in the implementation are:
 * [`_compile_program`](../api/dsl/compiler.md) — program judgment, including the per-statement $\Phi$ chain tracked by `ChainShape`.
 
 ### 10.1 Decidability
+
+The proposition below describes the declarative fragment. The compiler's concrete termination behavior is also constrained by template expansion, registries, and implementation checks.
 
 **Proposition.** *The fragment of the type system excluding the residuated formers and effect-typed expressions ($\mathsf{TySlashR}, \mathsf{TySlashL}, \mathsf{TyEff}$) is decidable: there is an algorithm that, given $\Gamma$ and a phrase $\phi$, returns either a derivation of $\Gamma \vdash \phi : \cdot$ or a proof that no such derivation exists.*
 

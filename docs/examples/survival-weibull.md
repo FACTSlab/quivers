@@ -4,12 +4,36 @@
 
 A parametric [survival regression](https://en.wikipedia.org/wiki/Survival_analysis) with a [Weibull](https://en.wikipedia.org/wiki/Weibull_distribution) baseline ([Klein and Moeschberger 2003](https://doi.org/10.1007/b97377)). Each item carries a covariate `x_i` whose linear contribution scales the Weibull rate; the shape parameter `k` governs whether the hazard is decreasing (k < 1), constant (k = 1, exponential), or increasing (k > 1).
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Item : FinSet 200
+# Weibull Parametric Survival Regression
+#
+# A parametric accelerated-failure-time / proportional-hazards
+# survival model with a Weibull baseline. Each item carries a
+# covariate whose linear contribution scales the Weibull rate;
+# the shape parameter k governs whether the hazard is
+# decreasing (k < 1), constant (k = 1, exponential), or
+# increasing (k > 1).
+#
+# Generative structure:
+#
+#   alpha   ~ Normal(0, 5)                        intercept
+#   beta    ~ Normal(0, 5)                        slope
+#   k       ~ Gamma(2, 1)                         Weibull shape
+#   t_i     ~ Weibull(exp(-(alpha + beta * x_i) / k), k)
+#
+# The scale reparameterisation exp(-eta / k) is the Weibull
+# proportional-hazards convention so that increasing eta
+# increases the hazard. The model produces uncensored event
+# times; right-censoring is handled at the inference layer by
+# substituting the Weibull survival function for the density on
+# censored rows.
 
-program survival_weibull : Item -> Item
+object Item : FinSet 64
+object Val : Real 1
+
+program survival_weibull : Item -> Val
     sample alpha <- Normal(0.0, 5.0)
     sample beta <- Normal(0.0, 5.0)
     sample k <- Gamma(2.0, 1.0)
@@ -25,11 +49,13 @@ export survival_weibull
 
 ## Walkthrough
 
-The identifier `x` is the exogenous covariate: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the per-item predictor. The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in the linear predictor `eta = alpha + beta * x` increase the hazard and shorten survival times, matching the canonical direction. The shape `k` has a Gamma prior centered at 2. The observed event times `t` are uncensored Weibull draws; right-censoring is handled at the inference layer by substituting the [Weibull survival function](https://en.wikipedia.org/wiki/Weibull_distribution#Survival_function) for the density on censored rows.
+The identifier `x` is the exogenous covariate: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time. The reparameterisation `scale = exp(-eta / k)` is the Weibull [proportional-hazards](https://en.wikipedia.org/wiki/Proportional_hazards_model) convention: positive shifts in `eta = alpha + beta * x` increase the hazard and shorten survival times. The observed event times `t` are uncensored Weibull draws. The current program does not handle right censoring automatically; a censored model must add the log survival function as an explicit score for censored rows.
+
+The program returns `beta`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Item` names the plate extent of the event times and appears in the signature only as the domain.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -102,9 +128,9 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The model denotes a Kleisli morphism into the positive reals in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The Weibull is the [exponential](https://en.wikipedia.org/wiki/Exponential_distribution) family generalization with shape; the proportional-hazards link makes the model canonical in the [exponential family](https://en.wikipedia.org/wiki/Exponential_family) representation.
+The model denotes a conditional kernel into the positive reals. At `k = 1`, the Weibull likelihood reduces to an exponential likelihood; other shape values allow increasing or decreasing hazards.
 
 
 ## References

@@ -11,11 +11,17 @@
 #   h_t      ~ Normal(cell(x_t, h_{t-1}), 0.1)    recurrent update
 #   next_t   ~ Categorical(lm_head(h_t))          next-token target
 #
+# Resp is the plate: it indexes the 32 scored rows of the corpus,
+# one next-token target per context. Token is the vocabulary, so it
+# is the value space of what lm_head draws and of what the program
+# returns.
+#
 # This is the simplest sequence model in the gallery and the
 # baseline against which gru_lm.qvr and lstm_lm.qvr add gating
 # structure.
 
 object Token : FinSet 256
+object Resp : FinSet 32
 object Embedded : Real 64
 object Hidden : Real 128
 
@@ -28,7 +34,7 @@ define backbone = tok_embed >> scan(cell)
 program vanilla_rnn_lm : Token -> Token
     sample h <- backbone
 
-    observe next_token : Token <- lm_head(h)
+    observe next_token : Resp <- lm_head(h)
     return next_token
 
 export vanilla_rnn_lm

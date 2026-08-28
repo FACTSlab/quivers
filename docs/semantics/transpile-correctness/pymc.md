@@ -49,7 +49,7 @@ mapping requires non-trivial aliases:
 | `df` (StudentT) | `nu` |
 
 These live in
-[`FAMILY_META`](../../api/transpile/family_meta.md)`[F].arg_aliases["pymc"]`
+`FAMILY_META[F].arg_aliases["pymc"]`
 per the SSoT rule. The renamings are syntactic; the density
 $f_{\mathsf{PyMC}}(v \mid \text{renamed args})$ equals
 $f_{\mathrm{QVR}}(v \mid \text{original args})$ term-by-term, so
@@ -65,10 +65,9 @@ carries the batch-axis names; PyMC's `coords` (in the
 `pymc.Model(coords=...)` constructor) declares each axis with its
 size.
 
-**Plate.** PyMC handles plates via `dims=` declarations on the
-random-variable constructor. The semantics of `dims=("doc",)` on
-a length-20 axis is the product measure of 20 independent draws
-(PyMC v5 documentation, "Coordinates and dimensions").
+**Plate.** `dims=` names axes and `coords` supplies their labels or
+sizes. Independence comes from the distribution's batch shape and
+parameter broadcasting, not from the dimension label by itself.
 
 **Marginalize.** Explicit-latent rewrite. PyMC's
 [`pm.Mixture`](https://www.pymc.io/projects/docs/en/stable/api/distributions/generated/pymc.Mixture.html)
@@ -89,8 +88,7 @@ deterministic assignment for let; the function returns the
   with a `with pymc.Model(coords=...) as model:` body containing
   one `pymc.<Family>(...)` call per IR sample / observe step plus
   `return model`.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `python -m ast` accepts every emit.
-* **Tier 4 numeric equivalence.**
-  `pymc.Model.compile_logp()(point_dict)` evaluated at 256 grid
-  points + corners agrees with the QVR reference within $10^{-6}$.
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** Python's AST parser accepts the emitted source.
+* **Tier 3 numeric equivalence.** `pymc.Model.compile_logp()` is
+  compared with the QVR reference on the selected fixture grids.

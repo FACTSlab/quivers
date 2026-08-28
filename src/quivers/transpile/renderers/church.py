@@ -89,6 +89,7 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
 )
 
 
@@ -173,6 +174,7 @@ class ChurchRenderer(RendererBase):
         return target_protocol("scheme")
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        assert_no_dropped_param_map(ir, self.target)
         # Snapshot `IRProgram.cards` for the renderer-local cards map
         # threaded through every `_LetExprCtx`; the Scheme let-expr
         # helper consults `ctx.cards` when a factor binder's index

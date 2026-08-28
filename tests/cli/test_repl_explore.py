@@ -31,8 +31,15 @@ def test_plate_default_table_view(lda):
     assert "plate graph of lda" in r.body
     for needle in ("theta", "phi", "z", "w", "Dirichlet", "Categorical"):
         assert needle in r.body
+    # The header carries the program signature: the domain is the
+    # token plate and the codomain the value space of the returned
+    # topic mixture.
+    assert "(Token -> Mix)" in r.body
     # The three plates are listed in the footer.
-    assert "Doc" in r.body and "Topic" in r.body and "Word" in r.body
+    assert "Doc" in r.body and "Topic" in r.body and "Token" in r.body
+    # Vocab is the value space the tokens range over, not a plate,
+    # so it is absent from the footer.
+    assert "Vocab" not in r.body
 
 
 def test_plate_mermaid(lda):

@@ -30,8 +30,8 @@ program random_intercepts (G : FinSet, scale : Real) : G -> 1
 program crossed : Resp -> Resp
     sample intercept <- Normal(0.0, 1.0)
 
-    by_subject <- random_intercepts(Subject, 1.0)
-    by_verb    <- random_intercepts(Verb,    1.0)
+    sample by_subject <- random_intercepts(Subject, 1.0)
+    sample by_verb    <- random_intercepts(Verb,    1.0)
 
     observe response : Resp <- Bernoulli(intercept)
     return intercept

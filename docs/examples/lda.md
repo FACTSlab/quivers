@@ -10,21 +10,55 @@ $$
 
 computed via [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ topic atoms.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Latent Dirichlet Allocation
+#
+# The Blei, Ng & Jordan (2003) topic model. Each document draws
+# a topic mixture from a Dirichlet prior; each topic draws a
+# word distribution from a Dirichlet prior; each word in a
+# document draws a topic from its document's mixture, then a
+# word from the chosen topic's distribution.
+#
+# Generative structure:
+#
+#   theta_d  ~ Dirichlet(alpha)            per-document topic mixture
+#   phi_k    ~ Dirichlet(beta)             per-topic word distribution
+#   z_{d,n}  ~ Categorical(theta_d)        per-word topic assignment
+#   w_{d,n}  ~ Categorical(phi_{z_{d,n}})  per-word observed token
+#
+# The per-word topic z_{d,n} is integrated out of the per-word
+# likelihood. The closed-form marginal is
+#
+#   p(w_{d,n} | theta_d, phi) = sum_k theta_d[k] * phi[k, w_{d,n}],
+#
+# which the `marginalize` block computes via logsumexp over the
+# K topic atoms.
+#
+# Token is the corpus-wide plate of word positions and Vocab is
+# the vocabulary the tokens take values in; the two are distinct
+# sets, so they carry distinct objects even though a corpus can
+# happen to hold as many positions as types. Mix is the value
+# space of the returned per-document topic mixture, a point of
+# the Topic simplex embedded in R^K.
+#
+# Reference: [Blei, Ng & Jordan 2003](https://www.jmlr.org/papers/v3/blei03a.html).
+
 composition log_prob [level=algebra]
 
 object Doc : FinSet 20
 object Topic : FinSet 3
-object Word : FinSet 200
+object Vocab : FinSet 50
+object Token : FinSet 200
+object Mix : Real 3
 
-program lda(alpha : Real, beta : Real) : Word -> Word [effects=[Score]]
+program lda(alpha : Real, beta : Real) : Token -> Mix
     sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
-    sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
+    sample phi : Topic <- Dirichlet(beta) [over=Vocab, iid_over=Topic]
 
     marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-        observe w : Word <- Categorical(phi[z]) [via=word_idx]
+        observe w : Token <- Categorical(phi[z]) [via=word_idx]
 
     return theta
 
@@ -33,19 +67,19 @@ export lda
 
 ## Walkthrough
 
-`object Doc : FinSet 20`, `object Topic : FinSet 3`, `object Word : FinSet 200` declare the three discrete plates: $D = 20$ documents, $K = 3$ topics, $V = 200$ vocabulary items. `composition log_prob [level=algebra]` selects the log-probability semiring so the `Score` effect on the program accumulates log-densities additively.
+`object Doc : FinSet 20`, `object Topic : FinSet 3`, `object Vocab : FinSet 50`, and `object Token : FinSet 200` declare the four discrete sets: $D = 20$ documents, $K = 3$ topics, $V = 50$ vocabulary items, and $N = 200$ corpus-wide word positions. `Token` is the plate the corpus is observed over and `Vocab` is the set each token takes its value in, so the two stay distinct even when a corpus happens to hold as many positions as types. `object Mix : Real 3` is the value space of the returned per-document topic mixture, a point of the topic simplex embedded in $\mathbb{R}^K$. `composition log_prob [level=algebra]` selects the log-probability semiring, so the log-densities scored by `observe` accumulate additively.
 
 The two `sample` steps draw the document-topic and topic-vocabulary simplex matrices under symmetric Dirichlet priors:
 
 - `sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]` draws a $D \times K$ matrix in which each row is an independent symmetric-$\alpha$ Dirichlet over the topic simplex. The `over=Topic` clause names the family's event axis (Dirichlet event-rank 1), and `iid_over=Doc` asserts each row is independent.
-- `sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]` is the symmetric construction: a $K \times V$ matrix whose every row is an independent Dirichlet over the vocabulary simplex.
+- `sample phi : Topic <- Dirichlet(beta) [over=Vocab, iid_over=Topic]` is the symmetric construction: a $K \times V$ matrix whose every row is an independent Dirichlet over the vocabulary simplex.
 
 The scoped marginalize block
 
 <!-- compile: false -->
 ```qvr
 marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-    observe w : Word <- Categorical(phi[z]) [via=word_idx]
+    observe w : Token <- Categorical(phi[z]) [via=word_idx]
 ```
 
 introduces the per-word topic latent $z$ under a Categorical prior parameterised by the document-shaped `theta`. The body's `Categorical(phi[z])` looks up the chosen topic's vocabulary row and scores the observed token `w`. The `[over=Doc]` grouping plate accumulates each observation into its document; `[via=word_idx]` names the runtime fibration from each word position into its document. The agenda evaluates the `[reduction=logsumexp]` reduction over the $K$ topics, integrating $z$ out by pushforward along the projection $\Phi \times \mathsf{Topic} \to \Phi$ and recovering the closed-form per-word mixture marginal $\sum_k \theta_d[k]\,\phi_k[w]$.
@@ -54,7 +88,7 @@ Finally `return theta` projects the program's joint kernel onto the document-top
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -69,7 +103,7 @@ prog = load("docs/examples/source/lda.qvr")
 fit  = prog.lda(alpha=1.0, beta=0.5)
 model = fit.morphism
 
-D, T, V, Npd = 20, 3, 200, 10
+D, T, V, Npd = 20, 3, 50, 10
 
 # Sharp topic-word and topic-mixture matrices give a recoverable corpus.
 phi_true   = F.softmax(torch.randn(T, V) * 2.0, dim=-1)
@@ -124,11 +158,11 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) along the projection $\Phi \times \mathsf{Topic} \to \Phi$. The grouped marginalize block scatter-sums per-topic per-row log-likelihoods into the `Doc`-indexed accumulator before the log-sum-exp reduction, so the per-document topic mixture is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the per-word document fibration $\mathsf{Word} \to \mathsf{Doc}$ in $\mathbf{Kern}$.
+The discrete per-word topic $z : \mathsf{Topic}$ is integrated out by the [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) along the projection $\Phi \times \mathsf{Topic} \to \Phi$. The grouped marginalize block scatter-sums per-topic per-row log-likelihoods into the `Doc`-indexed accumulator before the log-sum-exp reduction, so the per-document topic mixture is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the per-word document fibration $\mathsf{Token} \to \mathsf{Doc}$ in $\mathbf{Kern}$.
 
-## See Also
+## See also
 
 - [Bayesian Gaussian Mixture Model](mixture-model.md) for a per-row mixture whose component assignment is integrated out in closed form by the likelihood, carrying no discrete latent and no `marginalize` block.
 

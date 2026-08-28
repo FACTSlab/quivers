@@ -112,7 +112,7 @@ morphism f : X -> Y [role=latent]
 morphism g : Y -> Z [role=latent, scale=0.3]
 
 # Observed (fixed)
-morphism h : X -> X = identity(X) [role=observed]
+morphism h : X -> X [role=observed] ~ identity(X)
 ```
 
 ### Latent morphism prior
@@ -138,7 +138,7 @@ morphism W : Real D -> Real K [role=latent, over=[dom, cod]]
     ~ MatrixNormal(0.0, 1.0, 1.0)
 ```
 
-The [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over)
+The [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over)
 is fully detailed alongside the program-step bind and observe forms.
 
 ### Init recipes (`[init=auto]`)
@@ -162,9 +162,7 @@ The per-algebra recipes ensure that a fresh model with `[init=auto]`
 on every latent starts with intermediate activations close to the
 algebra's neutral element, avoiding saturated sigmoids on
 truth-valued algebras and exploding products on multiplicative
-algebras. See
-[`recommend_init`](../api/diagnostics/index.md) and
-[`saturation_warnings`](../api/diagnostics/index.md) in the
+algebras. See `recommend_init` and `saturation_warnings` in the
 [fitting and diagnostics guide](analysis-fitting-and-diagnostics.md#algebra-guided-training-tooling)
 for the dynamic counterpart that audits a trained module.
 
@@ -222,7 +220,7 @@ Two shapes:
 - **With a `~ Family [options] [axis_role_clause]` clause**: a
   parametric kernel `A -> G(B)` whose family parameters come from
   the input by a parameter network at sample time. The optional
-  [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid-over)
+  [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over)
   configures the family's event / batch decomposition over codomain
   factors.
 
@@ -237,7 +235,7 @@ morphism f : X -> R3 ~ Normal
 # Family options control the parameter network.
 morphism g : R3 -> R3 ~ Normal
 morphism k : X -> S3 ~ Dirichlet
-# 30+ families are registered; see the families guide.
+# More than forty families are registered; see the families guide.
 # `Flow` is a special-case constructor (not in the family registry)
 # that compiles to a conditional normalizing flow.
 morphism flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
@@ -501,8 +499,8 @@ define tied = repeat(transition, 3)  # 3 iterations, shared params
 
 Unlike `repeat`, which composes a morphism with itself using the
 same parameters, `stack(f, N)` creates N fresh deep copies of f,
-each with independent learnable parameters. This is essential for
-deep neural networks where each layer has distinct parameters.
+each with independent learnable parameters. Use `stack` when the
+layers should not share weights.
 
 ### Scan (temporal recurrence)
 
@@ -631,22 +629,18 @@ For arithmetic and family-argument `let` expressions inside a
 
 ### `where` clauses
 
-Attach local let-bindings to a top-level let declaration using
-`where`:
+Attach local `define` bindings to a top-level `define` declaration
+using `where`:
 
 <!-- compile: false -->
 ```qvr
-define model = embed >> layers >> output_proj
-
-where
-
-    let layers = stack(transition, 3)
-    let embed = tok_embed
+define model = embed >> layers >> output_proj where
+    define layers = stack(transition, 3)
+    define embed = tok_embed
 ```
 
 The `where` keyword introduces a block of local definitions scoped
-to the parent let binding. This improves readability for complex
-nested compositions.
+to the parent `define` binding.
 
 ## Structural compression: `signature`, `encoder`, `decoder`, `loss`
 

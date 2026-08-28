@@ -4,17 +4,50 @@
 
 A one-way random-effects model ([Rubin 1981](https://doi.org/10.3102/10769986006004377)) whose group-level effects come from a [parametric program template](../guides/dsl-programs-and-lets.md#parametric-programs). The template `school_effects` declares the [non-centered parametrization](https://doi.org/10.1214/088342307000000014) of a set of partially pooled effects once, typed over a scalar `spread : Real` and a plate `K : FinSet`; the two host programs instantiate it at a tight (`0.6`) and a loose (`2.5`) between-group spread. A `score` step adds a soft sum-to-zero factor on the effects ([Morris et al. 2019](https://doi.org/10.1016/j.sste.2019.100301)), and a labeled return tuple names the program's outputs.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object School : FinSet 8
+# Parametric Partial Pooling
+#
+# A one-way random-effects model whose group-level effects come
+# from a parametric program template. The template fixes the
+# non-centered pooling structure once; each host program
+# instantiates it at a concrete between-group spread, so a single
+# source expresses tight and loose partial pooling side by side.
+#
+# Generative structure:
+#
+#   z_j      ~ Normal(0, 1)              standardized group effect
+#   theta_j  = spread * z_j              non-centered scaling
+#   sigma    ~ LogNormal(0, 0.5)         observation noise scale
+#   y_j      ~ Normal(theta_j, sigma)    per-group observed summary
+#
+# The score step multiplies the joint density by a soft
+# sum-to-zero factor on the group effects, the standard
+# identification device for random effects, and the labeled
+# return tuple names the program's outputs. The export selects
+# which host program the compiled module runs.
+#
+# School is the plate the group summaries are observed over.
+# Effect and Scale are the value spaces of the two returned
+# quantities, both real scalars, so each host program's codomain
+# is the product Effect * Scale that its labeled return tuple
+# inhabits.
+#
+# References: [Rubin 1981](https://doi.org/10.3102/10769986006004377),
+# [Papaspiliopoulos et al. 2007](https://doi.org/10.1214/088342307000000014),
+# [Morris et al. 2019](https://doi.org/10.1016/j.sste.2019.100301).
 
-program school_effects(spread : Real, K : FinSet) : K -> K
+object School : FinSet 8
+object Effect : Real 1
+object Scale : Real 1
+
+program school_effects(spread : Real, K : FinSet) : K -> Effect
     sample z : K <- Normal(0.0, 1.0)
     let effect = spread * z
     return effect
 
-program pooled_tight : School -> School
+program pooled_tight : School -> Effect * Scale
     sample theta <- school_effects(0.6, School)
     sample sigma <- LogNormal(0.0, 0.5)
     let total_effect = sum(theta)
@@ -22,7 +55,7 @@ program pooled_tight : School -> School
     observe y : School <- Normal(theta, sigma)
     return (effects: theta, scale: sigma)
 
-program pooled_loose : School -> School
+program pooled_loose : School -> Effect * Scale
     sample theta <- school_effects(2.5, School)
     sample sigma <- LogNormal(0.0, 0.5)
     let total_effect = sum(theta)
@@ -39,9 +72,11 @@ export pooled_tight
 
 The non-centered form routes `spread` through the `let` arithmetic (`effect = spread * z`) rather than through a plate-draw scale, so the bound value shapes both forward simulation and the joint density. `score centering = -50.0 * total_effect * total_effect` adds $-\tfrac{1}{2}(\sum_j \theta_j / 0.1)^2$ to the program's log-joint: a soft sum-to-zero constraint that pins the effects' grand mean near zero without a hard reparametrization.
 
+`object School : FinSet 8` is the plate the group summaries are observed over, while `object Effect : Real 1` and `object Scale : Real 1` are the value spaces of the two returned quantities. Each host program is thus declared `School -> Effect * Scale`: its domain is the group plate and its codomain is the product space its labeled return tuple inhabits. The template's own signature `K -> Effect` follows the same reading, with the plate left as the type-parameter `K` the call site fixes.
+
 `return (effects: theta, scale: sigma)` labels the output tuple. The compiled program's [`rsample`](../api/continuous/programs.md) returns a dict keyed by the labels (`effects`, `scale`) rather than by the internal variable names, and [`log_joint`](../api/continuous/programs.md) accepts intermediates keyed either way. `export pooled_tight` selects which of the two host programs the compiled module wraps; swapping the export line for `export pooled_loose` selects the weakly pooled variant with no other change.
 
-## DSL Features
+## DSL features
 
 - **Typed program parameters**: `(spread : Real, K : FinSet)` declares a parametric template; admissible parameter kinds are `Real`, `Nat`, `FinSet`, `Space`, `Object`, and `Mor[A, B]`.
 - **Template instantiation**: `sample v <- template(args)` inlines the substituted, alpha-renamed body at the call site.
@@ -51,7 +86,7 @@ The non-centered form routes `spread` through the `let` arithmetic (`effect = sp
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -119,7 +154,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 A parametric program denotes a dependent kernel $\Pi (p_1 : P_1) \ldots \Pi (p_n : P_n).\ \mathbf{Kern}(\mathrm{dom}(p), \mathrm{cod}(p))$ in the indexed family of [Kleisli](https://ncatlab.org/nlab/show/Kleisli+category) arrows of the [Giry monad](https://doi.org/10.1007/BFb0092872) over the parameter category; each call site realizes a section of the family at the supplied arguments. The `score` step is multiplication by a density factor in the subprobability monad $\mathcal{G}_{\le 1}$, and the labeled return tuple names the projections out of the program's product codomain.
 

@@ -207,11 +207,18 @@ def test_marginalize_latent_indexes_group_plate() -> None:
 
 def test_via_fibration_threads_through_group_plate() -> None:
     """The observed word indexes the per-topic word distribution through
-    the ``via`` fibration: `phi[z[word_idx[m_Word]]]`."""
+    the ``via`` fibration: `phi[z[word_idx[m_Token]]]`.
+
+    The observation plate is `Token`, the corpus-wide set of 200 word
+    positions declared by `object Token : FinSet 200`, so the loop
+    variable is `m_Token`. `word_idx` carries a token position to its
+    document, `z` reads the document's topic, and `phi` reads that
+    topic's distribution over `Vocab`.
+    """
     model = _nospace(_model(_church_file(_GALLERY / "lda.qvr")))
     assert (
-        "(observe(categorical(list-refphi(list-refz(list-refword_idxm_Word))))"
-        "(list-refwm_Word))"
+        "(observe(categorical(list-refphi(list-refz(list-refword_idxm_Token))))"
+        "(list-refwm_Token))"
     ) in model
 
 

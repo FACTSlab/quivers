@@ -118,18 +118,10 @@ def _gallery_cells() -> list[pathlib.Path]:
 # regression (different kind) surfaces as a mismatch. Each group
 # carries a one-line reason for the boundary.
 _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
-    # mixture_model names the `MixtureNormal` likelihood, absent from
-    # every backend's lower family registry.
+    # mixture_model names the `MixtureNormal` likelihood, which the
+    # BUGS lower family registry has no target name for. Every other
+    # backend resolves it and its cell is live.
     ("bugs", "mixture_model"): "family:MixtureNormal",
-    ("edward2", "mixture_model"): "family:MixtureNormal",
-    ("gen", "mixture_model"): "family:MixtureNormal",
-    ("jags", "mixture_model"): "family:MixtureNormal",
-    ("numpyro", "mixture_model"): "family:MixtureNormal",
-    ("pymc", "mixture_model"): "family:MixtureNormal",
-    ("pyro", "mixture_model"): "family:MixtureNormal",
-    ("stan", "mixture_model"): "family:MixtureNormal",
-    ("turing", "mixture_model"): "family:MixtureNormal",
-    ("webppl", "mixture_model"): "family:MixtureNormal",
     # parametric_pooling samples the `school_effects` sub-program
     # (program-as-distribution); no backend resolves it to a target
     # family.
@@ -165,14 +157,15 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # hmm / lda broadcast a literal scalar concentration to a vector.
-    # JAGS spells this with `rep(v, K)`, so the JAGS cells transpile;
-    # the BUGS renderer does not emit the broadcast and raises.
-    ("bugs", "hmm"): "arg:broadcast",
-    ("bugs", "lda"): "arg:broadcast",
-    # zip_regression names `ContinuousBernoulli`, which has no JAGS /
-    # BUGS target name.
+    # zip_regression names `ContinuousBernoulli` and
+    # kumaraswamy_bounded_outcome names `Kumaraswamy`; neither has a
+    # JAGS or BUGS target name. The two renderers spell the rejection
+    # differently, so each cell pins the kind its own path produces.
+    ("bugs", "kumaraswamy_bounded_outcome"): "family:Kumaraswamy",
     ("bugs", "zip_regression"): "family:",
+    ("jags", "kumaraswamy_bounded_outcome"): (
+        "family:no-target-name:Kumaraswamy"
+    ),
     ("jags", "zip_regression"): "family:",
 }
 
@@ -196,16 +189,18 @@ for _neural_model in (
 # Gallery examples whose `.md` synthetic-data snippet fails to
 # `exec` (raises at runtime, or never sets the `observations`
 # dict). Numeric evaluation has no point set, so the cell skips.
-_SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset({
-    # Structural algebra examples: `pmf` carries a `composition` and
-    # `tensor_contraction` a `composition` + `contraction`, with no
-    # `sample` / `observe` sites. Each exports a composition morphism
-    # rather than a probabilistic program, so `load_gallery_data`
-    # builds no `observations` dict and there is no joint density to
-    # trace.
-    "pmf",
-    "tensor_contraction",
-})
+#
+# The registry is empty: every gallery example's snippet executes and
+# leaves an `observations` dict behind, including the two structural
+# algebra examples (`pmf`, `tensor_contraction`), whose snippets wrap
+# the compiled composition in a `MonadicProgram` with entrywise
+# `Normal(0, 1)` priors over each declared arrow and a
+# `Normal(score, 0.5)` likelihood over the contraction. Their joints
+# are pinned like every other example's. Keeping the registry (rather
+# than deleting it) keeps the skip path a named, testable branch, so a
+# snippet that stops executing is recorded here rather than turning
+# into a bare load failure.
+_SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset()
 
 # Gallery examples the in-process [`QvrProbe`][tests.transpile.probes.qvr.QvrProbe]
 # cannot score to a deterministic, correct joint.
@@ -213,16 +208,32 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset({
 # Each of these carries a `sample h <- backbone` latent whose backbone
 # is a `SampledComposition` over continuous intermediate objects
 # (RNN/LSTM/GRU scan cells, attention and feed-forward Kleisli chains).
-# Its `log_prob` marginalizes those intermediates by Monte-Carlo
-# importance sampling, redrawing on every call with no fixed seed, so
-# the joint is non-deterministic even with `h` clamped. Worse, the
-# per-timestep gates and per-layer composition latents are internal to
-# the `SampledComposition` and are never surfaced as trace sites, so no
-# point entry can pin them and the endpoint `h` carries zero density.
-# The oracle for these models needs the composition marginalization made
-# deterministic and its inner latents exposed as sites before the
-# joint can be validated; until then a deterministic reference does not
-# exist to compare a backend against.
+# The per-timestep gates and per-layer composition latents are internal
+# to that composition and are never surfaced as trace sites, so no
+# point entry can clamp them and `assert_all_latents_clamped` has
+# nothing to look at. What the oracle reports for such a program is
+# therefore decided entirely by how the composition performs the
+# integral, and on that question the eight split two ways. Both grounds
+# are measured rather than asserted, and
+# `test_oracle_reference_strength.py::test_composition_exemption_grounds_partition_the_registry`
+# requires them to cover this registry exactly once:
+#
+# 1. For `bidirectional_rnn_lm`, `deep_markov`, `seq2seq`,
+#    `transformer_lm`, and `vae` the joint is a property of the
+#    quadrature rule, moving by many multiples of the pin tolerance
+#    when the node count changes. It is the output of an estimator
+#    rather than a density, so there is no value a pin could hold.
+# 2. For `gru_lm`, `lstm_lm`, and `vanilla_rnn_lm` the composite site
+#    scores identically zero, so the reported number is the emission
+#    likelihood alone and omits the `~ Normal` recurrent transition
+#    density the source declares at every step.
+#
+# The joints themselves are bitwise stable across global RNG seeds,
+# which `test_oracle_determinism.py::test_composition_marginalised_models_are_bitwise_deterministic`
+# measures at every point of the set; stability is what makes the
+# quadrature probe meaningful, and is not on its own enough to pin
+# against. Pinning these needs the composition's integral made a rule
+# whose value has converged, and its inner latents exposed as sites.
 _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "bidirectional_rnn_lm",
     "deep_markov",
@@ -289,6 +300,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -164.50860595703125,
         -83.58819580078125,
     ),
+    "beta_binomial_ab_test": (
+        -70.50210571289062,
+        -82.40196228027344,
+        -70.82966613769531,
+        -76.28248596191406,
+        -71.93524932861328,
+        -75.79243469238281,
+    ),
     "beta_regression": (
         26.09986114501953,
         12.179271697998047,
@@ -304,6 +323,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -431.0032653808594,
         -412.09527587890625,
         -416.7749938964844,
+    ),
+    "ccg": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
     ),
     "changepoint": (
         -131.08474731445312,
@@ -321,6 +348,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -722.6180419921875,
         -721.2566528320312,
     ),
+    "custom_rules": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
+    ),
     "factor_analysis": (
         -132.61660766601562,
         -214.58114624023438,
@@ -337,13 +372,21 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -72.47667694091797,
         -76.60382080078125,
     ),
+    "half_student_t_hierarchical": (
+        -35.37989044189453,
+        -75.25849914550781,
+        -62.39704132080078,
+        -98.7879409790039,
+        -56.45060729980469,
+        -83.33959197998047,
+    ),
     "hmm": (
-        335.3818359375,
-        335.1047668457031,
-        336.9115295410156,
-        337.01318359375,
-        334.794677734375,
-        334.94793701171875,
+        266.3363342285156,
+        266.090087890625,
+        266.0382080078125,
+        266.6028137207031,
+        266.080810546875,
+        266.5773620605469,
     ),
     "horseshoe_regression": (
         -64.92990112304688,
@@ -361,13 +404,21 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -71.45870971679688,
         -80.12108612060547,
     ),
+    "kumaraswamy_bounded_outcome": (
+        20.225561141967773,
+        1.1973302364349365,
+        21.390592575073242,
+        15.331405639648438,
+        6.32975959777832,
+        15.959518432617188,
+    ),
     "lda": (
-        2550.3076171875,
-        2563.206298828125,
-        1729.403564453125,
-        1705.196044921875,
-        2534.7998046875,
-        1779.01318359375,
+        -18.173583984375,
+        -18.84844970703125,
+        -444.3291015625,
+        -437.18743896484375,
+        -20.41473388671875,
+        -442.911376953125,
     ),
     "linear_gaussian_ssm": (
         -218.77745056152344,
@@ -377,6 +428,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -223.74766540527344,
         -219.547607421875,
     ),
+    "logistic_noise_regression": (
+        -80.29877471923828,
+        -94.24589538574219,
+        -92.63084411621094,
+        -86.77716827392578,
+        -107.02436065673828,
+        -84.29177856445312,
+    ),
     "mixture_model": (
         -189.3568115234375,
         -197.78488159179688,
@@ -384,6 +443,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -214.3572998046875,
         -197.0948486328125,
         -196.84445190429688,
+    ),
+    "multimodal_tlg": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
     ),
     "negbin_regression": (
         -203.68475341796875,
@@ -401,6 +468,30 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -26.930932998657227,
         -18.749011993408203,
     ),
+    "pcfg": (
+        -23.014850616455078,
+        -26.371784210205078,
+        -25.505828857421875,
+        -23.08839225769043,
+        -22.200294494628906,
+        -27.879863739013672,
+    ),
+    "pmcfg": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
+    ),
+    "pmf": (
+        -96.90896606445312,
+        -128.39248657226562,
+        -98.03665161132812,
+        -123.15997314453125,
+        -137.48460388183594,
+        -100.93830871582031,
+    ),
     "ppca": (
         -67.73426818847656,
         -231.67868041992188,
@@ -408,6 +499,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -274.6122741699219,
         -188.58070373535156,
         -141.64019775390625,
+    ),
+    "quantifier_scope": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
     ),
     "stochastic_volatility": (
         -307.8003845214844,
@@ -425,13 +524,29 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -234.78810119628906,
         -36.604496002197266,
     ),
+    "tensor_contraction": (
+        -52.925621032714844,
+        -64.15614318847656,
+        -52.4114875793457,
+        -61.599327087402344,
+        -67.39108276367188,
+        -52.22042465209961,
+    ),
     "tree_categorical": (
-        -14.377462387084961,
-        -14.70197868347168,
-        -14.261514663696289,
-        -16.662046432495117,
-        -17.16188621520996,
-        -14.015467643737793,
+        -155.84384155273438,
+        -278.3675842285156,
+        -167.4322967529297,
+        -167.1120147705078,
+        -157.07876586914062,
+        -171.585205078125,
+    ),
+    "type_logical": (
+        -38.62127685546875,
+        -38.8963623046875,
+        -38.4906005859375,
+        -43.69182586669922,
+        -41.17519760131836,
+        -40.177955627441406,
     ),
     "zip_regression": (
         -651.6888427734375,
@@ -450,18 +565,6 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
 # example has no reference, so an exemption cannot outlive the gap it
 # describes.
 _REFERENCE_PIN_EXEMPT: dict[str, str] = {
-    # No `program` block, no `sample` site, no `observe` site: the
-    # module exports a `define`d composition morphism (`U.dagger >> V`,
-    # `bilinear_score(...)`), which denotes a linear map rather than a
-    # measure. `load_gallery_data` builds no `observations` dict for
-    # either, both sit in `_SKIP_DATASET_LOAD_FAILED`, and there is no
-    # joint log-density to pin.
-    # `test_oracle_reference_strength.py::test_structurally_exempt_examples_declare_no_probabilistic_program`
-    # asserts that structural claim against the `.qvr` text itself.
-    "pmf": "structural: composition morphism, no stochastic site",
-    "tensor_contraction": (
-        "structural: contraction morphism, no stochastic site"
-    ),
     # Sequence models carrying a `SampledComposition` latent. The
     # oracle marginalises the composition's internal states by
     # importance sampling and redraws on every call, so its "joint" is
@@ -548,14 +651,16 @@ def reference_pin_atol(reference: float) -> float:
     the two together in code, so the pin cannot be left behind if the
     equivalence floor ever moves.
 
-    Across the 126 pinned values the ULP bound binds for 120 and the
-    equivalence floor caps the remaining six, all of them `lda`
-    (magnitudes 1705 to 2563, where one float32 ULP is already
-    1.22e-04 to 2.44e-04). The loosest pin in the registry is thus
-    5e-04 and the tightest is 3.81e-06 (`beta_regression` at its
-    latents+data point, magnitude 4.47). Measured at the ground-truth
-    point of every registry entry, the band is between 1238 times
-    (`changepoint`) and 5141 times (`lda`) tighter than the
+    Across the 192 pinned values the ULP bound binds for every one.
+    The largest pinned magnitudes are `continuous_hmm`'s 717 to 736,
+    where eight float32 ULPs are 4.88e-04, still inside the 5e-04
+    equivalence floor, so the loosest pin in the registry is
+    4.88e-04. The tightest is 9.54e-07, the magnitude-1 floor, which
+    binds wherever a joint lands below 2
+    (`kumaraswamy_bounded_outcome` at its first latents point,
+    magnitude 1.20). Measured at the ground-truth point of every
+    registry entry, the band is between 1173 times (`hmm`) and 3190
+    times (`survival_weibull`) tighter than the
     `1e-3 * |reference| + 2e-2` relative band it replaces.
     """
     ulp_bound = _REFERENCE_PIN_ULP_BUDGET * max(
@@ -590,11 +695,12 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # Sequence-model examples carried by `_SKIP_QVR_INCOMPATIBLE`,
-    # which the test consults first: the in-process oracle redraws
-    # the `SampledComposition` intermediates on every call, so there
-    # is no deterministic reference to compare a container against.
-    # The entries stay so that closing the oracle gap surfaces the
-    # backend-side state of each cell rather than 30 fresh failures.
+    # which the test consults first: the composite site binding each
+    # example's hidden state scores identically zero, so the oracle
+    # reports the emission likelihood alone and there is no reference
+    # a container can be compared against. The entries stay so that
+    # closing the oracle gap surfaces the backend-side state of each
+    # cell rather than 30 fresh failures.
     ('bugs', 'gru_lm'),
     ('bugs', 'lstm_lm'),
     ('bugs', 'vanilla_rnn_lm'),

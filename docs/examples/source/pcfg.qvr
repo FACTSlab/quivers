@@ -12,12 +12,20 @@
 object Term : FinSet 16
 object Rule : FinSet 9
 
+object Weight : Real 1
+
 # Probabilistic surface for transpile: each learnable rule weight
-# carries an independent Normal(0, 1) prior. A downstream chart
-# parser would consume these as the per-rule log-probabilities;
-# the program itself is the prior over the rule-weight vector.
-program pcfg_prior : Rule -> Rule
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program pcfg_prior : Rule -> Weight
     sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
     return rule_weights
 
 export pcfg_prior

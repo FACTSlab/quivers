@@ -184,14 +184,18 @@ def test_lda_stan_enumerates_topics_per_word() -> None:
 
     The closed-form marginal `p(w_n) = sum_k theta[doc(n), k] *
     phi[k, w_n]` factorises per word, so the accumulator is sized by the
-    200-word observation axis; `theta` reaches it through the
-    `via=word_idx` gather that carries each word to its document.
+    200-position observation axis `object Token : FinSet 200`, whose
+    loop variable is `n_Token`; `theta` reaches it through the
+    `via=word_idx` gather that carries each token position to its
+    document.
     """
     emitted = _nospace(_emit("lda", "stan"))
     assert "array[200]vector[3]lps_z=rep_array(rep_vector(0,3),200);" in emitted
-    assert "lps_z[n_Word,k]=categorical_lpmf(k|theta[word_idx[n_Word]]);" in emitted
-    assert "lps_z[n_Word,k]+=categorical_lpmf(w[n_Word]|phi[k]);" in emitted
-    assert "target+=log_sum_exp(lps_z[n_Word]);" in emitted
+    assert (
+        "lps_z[n_Token,k]=categorical_lpmf(k|theta[word_idx[n_Token]]);"
+    ) in emitted
+    assert "lps_z[n_Token,k]+=categorical_lpmf(w[n_Token]|phi[k]);" in emitted
+    assert "target+=log_sum_exp(lps_z[n_Token]);" in emitted
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +284,19 @@ def test_numpyro_broadcasts_a_free_scalar_dirichlet_concentration() -> None:
 
 
 def test_numpyro_broadcasts_a_scalar_program_parameter() -> None:
-    """The same broadcast fires for a declared `Real` program parameter."""
+    """The same broadcast fires for a declared `Real` program parameter.
+
+    Each concentration is broadcast to the event axis its `[over=...]`
+    clause names, so the two lengths are read off the two objects:
+    `theta ~ Dirichlet(alpha) [over=Topic]` with `Topic : FinSet 3`
+    gives `(3,)`, and `phi ~ Dirichlet(beta) [over=Vocab]` with
+    `Vocab : FinSet 50` gives `(50,)`. `phi` is a distribution over the
+    vocabulary, not over the 200 token positions those types are drawn
+    at.
+    """
     emitted = _nospace(_emit("lda", "numpyro"))
     assert "Dirichlet(concentration=jnp.full((3,),alpha))" in emitted
-    assert "Dirichlet(concentration=jnp.full((200,),beta))" in emitted
+    assert "Dirichlet(concentration=jnp.full((50,),beta))" in emitted
 
 
 def test_numpyro_leaves_an_already_vector_argument_alone() -> None:

@@ -18,8 +18,9 @@
 # Reference: [Kim, Shephard, and Chib 1998](https://doi.org/10.1111/1467-937X.00050).
 
 object Step : FinSet 200
+object Val : Real 1
 
-program stochastic_volatility : Step -> Step
+program stochastic_volatility : Step -> Val
     sample mu <- Normal(0.0, 10.0)
     sample phi <- Uniform(-1.0, 1.0)
     sample sigma_h <- HalfCauchy(2.5)

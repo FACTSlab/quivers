@@ -22,8 +22,9 @@
 # censored rows.
 
 object Item : FinSet 64
+object Val : Real 1
 
-program survival_weibull : Item -> Item
+program survival_weibull : Item -> Val
     sample alpha <- Normal(0.0, 5.0)
     sample beta <- Normal(0.0, 5.0)
     sample k <- Gamma(2.0, 1.0)

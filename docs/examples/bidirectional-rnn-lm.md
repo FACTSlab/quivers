@@ -1,13 +1,43 @@
-# Bidirectional RNN Masked Language Model
+# Dual-RNN masked-token model
 
 ## Overview
 
-A bidirectional RNN used as a masked language model in the spirit of [BERT](https://doi.org/10.18653/v1/N19-1423). Two independently-parameterized recurrent cells each scan the token sequence; the `fan` combinator copies the shared input to the two [Kleisli morphisms](https://ncatlab.org/nlab/show/Kleisli+category) and pairs their outputs, and a `combine` morphism merges the paired streams into a single 128-dimensional `Combined` representation. The Categorical `lm_head` scores the masked-token target from the bidirectional context.
+Two independently parameterized recurrent cells scan the same token sequence, and a `combine` morphism merges their outputs before a Categorical masked-token score. Both `scan` calls run left to right on the supplied input. The source does not reverse the second sequence, so it does not provide right-context conditioning unless the caller constructs a reversed branch separately.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Bayesian Bidirectional RNN Masked Language Model
+#
+# A bidirectional RNN used as a masked language model. Two
+# independently-parameterised cells each scan the token
+# sequence left to right; a combine morphism merges the two
+# streams, and a Categorical lm_head over Token scores the
+# masked-token target.
+#
+# Generative structure:
+#
+#   h_fwd    ~ scan(fwd_cell)(tok_embed(x))    forward hidden states
+#   h_bwd    ~ scan(bwd_cell)(tok_embed(x))    backward hidden states
+#   h        ~ combine(h_fwd, h_bwd)           merged representation
+#   masked_t ~ Categorical(lm_head(h))         observed masked token
+#
+# Resp is the plate: it indexes the 32 scored rows of the corpus,
+# one masked-token target per context window. Token is the
+# vocabulary, so it is the value space of what lm_head draws and of
+# what the program returns.
+#
+# The fan-out fan(forward_path, backward_path) runs the two
+# paths in parallel over the same token sequence in the
+# Kleisli category; the backbone is
+# fan(forward_path, backward_path) >> combine. Because each
+# masked position is conditioned on both left and right context,
+# this is a bidirectional encoder rather than a causal LM.
+#
+# Reference: [Devlin et al. 2019](https://doi.org/10.18653/v1/N19-1423).
+
 object Token : FinSet 256
+object Resp : FinSet 32
 object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
@@ -24,7 +54,7 @@ define backbone = fan(forward_path, backward_path) >> combine
 program bidirectional_rnn_lm : Token -> Token
     sample h <- backbone
 
-    observe masked_token : Token <- lm_head(h)
+    observe masked_token : Resp <- lm_head(h)
     return masked_token
 
 export bidirectional_rnn_lm
@@ -42,7 +72,9 @@ export bidirectional_rnn_lm
 
 ### Masked LM head
 
-The Categorical `lm_head : Combined -> Token` scores a masked-token target conditional on bidirectional context: at any position the prediction is conditioned on both the left and the right context, so this is an encoder rather than a causal LM.
+The Categorical `lm_head : Combined -> Token` scores a masked-token target from the two learned summaries. In the current source, both summaries use the same input order; the name `backward_path` does not itself reverse data.
+
+The two `FinSet` objects play different roles. `Resp : FinSet 32` sits in the observe step's index slot, so it is the plate: 32 scored rows, one masked-token target per context window. `Token : FinSet 256` sits in `lm_head`'s codomain and in the program's own codomain, so it is the value space the draw ranges over.
 
 ```mermaid
 flowchart LR
@@ -57,29 +89,40 @@ flowchart LR
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Initialise the model's stochastic-weight parameters under a fixed seed (these stand in for the ground-truth generative weights), then forward-sample a corpus of token sequences by drawing random masked-context windows and reading off the masked-token target through [`rsample`](../api/continuous/programs.md). The corpus is a `(batch, seq_len)` int64 context tensor paired with a `(batch,)` masked-token target.
+Fix the model's stochastic-weight parameters under a chosen seed (they stand in for the ground-truth generative weights), then run one forward [`trace`](../api/inference/trace.md) so the latent hidden state `h` and the masked-token target generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The corpus is a `(rows, seq_len)` int64 context tensor paired with a `(rows,)` masked-token target, one row per element of the `Resp` plate.
 
 ```python
 import torch
 from quivers.dsl import load
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/bidirectional_rnn_lm.qvr")
 model = prog.morphism
 
+# Fix the model's stochastic weights to a chosen draw, then run one
+# forward trace so the captured hidden state and the masked-token target it
+# generated are jointly consistent under the same weights.
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
 
-batch, seq_len, vocab = 4, 8, 256
-contexts = torch.randint(0, vocab, (batch, seq_len))
-targets = model.rsample(contexts)
+rows, seq_len, vocab = 32, 8, 256
+contexts = torch.randint(0, vocab, (rows, seq_len))
+with torch.no_grad():
+    forward = trace(model, contexts)
+true_h = forward.sites["h"].value.detach()
+masked_token = forward.sites["masked_token"].value.detach()
+
+x_in = contexts
+observations = {"masked_token": masked_token, "h": true_h}
 print("contexts:", contexts.shape, contexts.dtype)
-print("targets: ", targets.shape, targets.dtype)
+print("true_h:", true_h.shape)
+print("masked_token:", masked_token.shape, masked_token.dtype)
 ```
 
 ### SVI fit
@@ -97,8 +140,8 @@ model = prog.morphism
 
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
-batch, seq_len, vocab = 4, 8, 256
-contexts = torch.randint(0, vocab, (batch, seq_len))
+rows, seq_len, vocab = 32, 8, 256
+contexts = torch.randint(0, vocab, (rows, seq_len))
 targets = model.rsample(contexts)
 observations = {"masked_token": targets}
 
@@ -134,8 +177,8 @@ prog = load("docs/examples/source/bidirectional_rnn_lm.qvr")
 model = prog.morphism
 for _, p in model.named_parameters():
     p.data.copy_(torch.randn_like(p) * 0.3)
-batch, seq_len, vocab = 4, 8, 256
-contexts = torch.randint(0, vocab, (batch, seq_len))
+rows, seq_len, vocab = 32, 8, 256
+contexts = torch.randint(0, vocab, (rows, seq_len))
 targets = model.rsample(contexts)
 observations = {"masked_token": targets}
 
@@ -154,7 +197,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ assembled by `fan`-composing two independent scan-folds and following with a merge. The `fan` combinator is the diagonal-pair construction $(f \times g) \circ \Delta$ in the Kleisli category that delivers a common input to both branches, landing in $\mathrm{FwdHidden} \times \mathrm{BwdHidden}$. Because that product carries the same 128 dimensions as $\mathrm{Combined}$, the Normal-kernel morphism `combine` $: \mathrm{Combined} \to \mathcal{G}(\mathrm{Combined})$ consumes the paired streams directly and mixes them into a single object. The Categorical head closes with the masked-token likelihood as a sub-probability kernel.
 

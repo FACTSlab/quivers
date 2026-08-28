@@ -10,17 +10,39 @@ $$
 
 The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$, where $\lambda_k$ are the data covariance eigenvalues. PPCA differs from [factor analysis](factor-analysis.md) only in the observation noise: PPCA uses a single isotropic scalar $\sigma$, factor analysis a free diagonal $\psi$.
 
-In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carrying a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior, and the per-item latent code is itself a learnable morphism $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W$, evaluated under `composition real [level=algebra]` as the canonical PPCA matmul.
+In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ and the per-item code is $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W`. The exported program below supplies explicit Normal priors through `Z_mat` and `W_mat`; the top-level morphisms themselves have no family declaration.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Probabilistic Principal Component Analysis
+#
+# Probabilistic PCA factors a data matrix through a low-rank
+# loading matrix and a per-item latent code, so the model mean
+# is a morphism composition under the real algebra.
+#
+# Structural form:
+#
+#   Z     : Item      -> LatentDim       per-item latent code
+#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   ppca  = Z >> W                       low-rank linear mean
+#
+# The loading matrix carries a matrix-normal prior whose
+# Kronecker covariance V (x) U expresses independent row and
+# column correlation. The model is identifiable up to a K x K
+# orthogonal rotation of W; the maximum-likelihood W recovers
+# the leading-K principal components scaled by sqrt(lambda_k -
+# sigma^2).
+#
+# Reference: [Tipping and Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
+
 composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
 object Item : FinSet 32
 object Resp : FinSet 160
+object Val : Real 1
 
 morphism Z : Item -> LatentDim [role=latent]
 
@@ -28,7 +50,15 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 define ppca = Z >> W
 
-program ppca_program : Resp -> Resp
+# Probabilistic surface: every entry of the loading matrix and
+# per-item latent code carries an independent Normal(0, 1) prior
+# (the matrix-normal special case with V = U = I), the isotropic
+# noise scale sigma carries a HalfCauchy(2.5) prior, and the
+# observed response is scored under Normal(mu, sigma) where mu is
+# the per-row inner product Z[i] . W[d]. The loading matrix is
+# sampled transposed (ObsDim -> LatentDim) so the per-Resp inner
+# product is two compatible Resp-by-LatentDim gathers.
+program ppca_program : Resp -> Val
     sample sigma <- HalfCauchy(2.5)
     sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
     sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]
@@ -45,22 +75,24 @@ export ppca_program
 
 ## Walkthrough
 
+An [object](../guides/dsl-declarations.md#object) name in QVR has no fixed reading; each position it can occupy gives it a different one, and this file uses four. In `morphism Z : Item -> LatentDim` the codomain is the arrow's own value space, which is what makes `Z` an `Item x LatentDim` real matrix. In `[over=LatentDim]` the object fixes the *event width* instead, the two coordinates a latent code or a loading row spans. In `observe y : Resp <- Normal(mu, sigma)` it fixes the *plate extent*, the 160 response rows, one per `(Item, ObsDim)` cell, which is why an object in that slot must be discrete; what a row holds is not `Resp`'s business but the family's, and `Normal` is what makes each response real. And in the program signature `Resp -> Val` the codomain names the *value space* of what the program returns: `return y` gives back one real response per row, so that space is `Real 1`, declared as `object Val : Real 1`. Reading that codomain as an index instead is the misstep to avoid: a signature `Resp -> Resp` would claim the program returns an element of the response index set, which is a category error the compiler cannot catch, since its only condition on `return` is that the name be bound and it never compares the returned value against the declared codomain.
+
 The two latent declarations introduce the per-item code and the loading matrix as first-class arrows. The composition `Z >> W` is real-algebra matmul: under `composition real [level=algebra]` the `(i, d)` entry of the resulting `Item x ObsDim` tensor is exactly $\sum_k Z_{i,k} W_{k,d}$, the PPCA model mean.
 
-The matrix-normal prior
+The following matrix-normal declaration is an optional alternative, not part of the source above:
 
 <!-- compile: false -->
 ```qvr
 morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
-places a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix with the dom and cod axes bound positionally to the row and column covariance arguments. The [Kronecker structure](https://en.wikipedia.org/wiki/Kronecker_product) $V \otimes U$ expresses independent row and column correlation in the loadings.
+It would place a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The runnable `ppca_program` uses indexed Normal draws instead.
 
 The PPCA / factor analysis distinction lives in the choice of downstream observation kernel applied to the matmul mean: a single shared scalar `sigma` for PPCA, a free diagonal `psi_d` for factor analysis. The morphism surface itself (the `Z >> W` matmul) is shared.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -126,13 +158,13 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 PPCA is a pair of arrows in a real-algebra category: the per-item code $Z : \mathsf{Item} \to \mathsf{LatentDim}$ and the loading $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$. Their composition $Z \mathbin{>>} W$ is the [`LatentMorphism`](../api/core/morphisms.md) $\mathsf{Item} \to \mathsf{ObsDim}$ whose tensor is the model mean. Marginalising the latent factor under an isotropic noise kernel recovers the closed-form covariance $W^\top W + \sigma^2 I$ on the observation side.
 
 The morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on $W$ is a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$, treating the loading as a first-class arrow rather than a flat vector of entries.
 
-## See Also
+## See also
 
 - [Factor Analysis](factor-analysis.md), the free-diagonal generalisation.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface.

@@ -1,6 +1,6 @@
 # Schemas, Rules, Categories, and Bundles
 
-This page gives the denotation of the *grammar-supporting* declarations: `category`, `rule`, `schema`, `bundle`, `alias`, and `type` (the space-level alias). These declarations populate the residuated-category universe that the chart parsers of [Expressions §4](expressions.md#4-parser-combinators) and the deduction systems of [Weighted Deduction Fragment](grammar.md) consume.
+This page covers the grammar-supporting declarations `category`, `rule`, `schema`, and `bundle`, together with `object` bindings used by the deduction surface. The current grammar has no separate top-level `alias` or `type` declaration.
 
 ## 1. Category atoms
 
@@ -32,9 +32,9 @@ $$
 
 The behavior depends on whether $\tau$ resolves as a `SetObject`:
 
-- *Finite-set binding.* When $\tau$ has no residuated slashes or effect applications and resolves cleanly to a finite-set object (for example `FinSet 16`, `A * B`, `A + B`, or a previously-bound finite-set name), $N$ is bound in $\rho_{\mathrm{obj}}$ to the resulting object. It may appear as the domain or codomain of any later morphism.
+- *Finite-set binding.* When $\tau$ has no residuated slashes or effect applications and resolves cleanly to a finite-set object (for instance `FinSet 16`, `A * B`, `A + B`, or a previously-bound finite-set name), $N$ is bound in $\rho_{\mathrm{obj}}$ to the resulting object. It may appear as the domain or codomain of any later morphism.
 
-- *Continuous-space binding.* When $\tau$ is a continuous constructor (`Real D`, `Simplex K`, `PositiveReals`, `UnitInterval`, `Covariance D`, ...), $N$ is bound in $\rho_{\mathrm{spc}}$ to the corresponding continuous space.
+- *Continuous-space binding.* When $\tau$ is a supported continuous constructor such as `Real D`, `Simplex K`, or `Covariance D`, $N$ is bound in $\rho_{\mathrm{spc}}$ to the corresponding continuous space.
 
 - *Syntactic binding.* When $\tau$ contains a residuated slash, an effect application, or otherwise fails `SetObject` and `ContinuousSpace` resolution, the binding is recorded as a textual substitution rule $\rho_{\mathrm{alias}}[N \mapsto \tau]$ that the schema-pattern matcher inlines at every use site. Syntactic bindings are not first-class objects: they cannot appear as morphism domains or codomains, only inside `schema` / `rule` patterns.
 
@@ -115,7 +115,7 @@ Standard CCG / Lambek combinators are direct instances under QVR's biclosed slas
 A `schema` declaration
 
 ```
-schema R[X_{1,1}, …, X_{1,k_1} : τ_1, …, X_{g,1}, …, X_{g,k_g} : τ_g] : Dom -> Cod
+schema R(X_{1,1}, …, X_{1,k_1} : τ_1, …, X_{g,1}, …, X_{g,k_g} : τ_g) : Dom -> Cod
 ```
 
 is the type-polymorphic morphism analogue of a `rule`. Where a rule is a *generic* hyperedge (no further structure), a schema is a *family of morphisms* parameterized by typed meta-variables. Each parameter group $X_{i,1}, \dots, X_{i,k_i} : \tau_i$ declares $k_i$ meta-variables ranging over $\llbracket \tau_i \rrbracket$ (typically $\tau_i = \mathrm{Cat}$).
@@ -149,7 +149,7 @@ $$
 \llbracket B \rrbracket \;=\; \{\,\llbracket r_1 \rrbracket,\, \dots,\, \llbracket r_n \rrbracket\,\},
 $$
 
-an unordered collection of schema / rule references. Bundles are accepted by `parser(rules = B, …)` and `chart_fold(binary = B, …)` ([Expressions §4.1](expressions.md#41-chart-fold)); the semantics of `parser(rules = B)` is *splice*: the bundle's members are inlined into the rule system at the call site as if they had been listed verbatim.
+an ordered collection of schema / rule references. Bundles are accepted at parser and chart-fold rule positions; expansion splices the members at the call site.
 
 The denotation is invariant under bundling: a schema set $\{r_1, \dots, r_n\}$ may be passed as a literal list `[r_1, …, r_n]` or via a bundle name with the same parse result.
 
@@ -158,10 +158,13 @@ The denotation is invariant under bundling: a schema set $\{r_1, \dots, r_n\}$ m
 A `signature` block may, alongside its `sorts` / `constructors` / `binders`, declare typed vertex and edge kinds for graph-shaped algebras:
 
 ```
-signature Mol {
-    vertex_kinds { Atom : data dim 32, Bond : data dim 32 }
-    edge_kinds   { bonded : Atom -- Atom, in_bond : Atom -> Bond }
-}
+signature Mol
+    vertex_kinds
+        Atom : data [dim=32]
+        Bond : data [dim=32]
+    edge_kinds
+        bonded : Atom -- Atom
+        in_bond : Atom -> Bond
 ```
 
 These declarations are part of the signature's *theory*, not the QVR protocol $\mathsf{QVR}$. A `vertex_kind_decl` $K : k\,[\mathrm{dim}\,d]$ extends the signature's kind set with a typed vertex kind whose sort role is $k$ and whose declared embedding dimension is $d$; an `edge_kind_decl` $\varepsilon : K_s\,\mathrm{arrow}\,K_t$ extends the signature's edge set with a typed binary relation between vertex kinds, directed iff `arrow == '->'`. The denotation of a graph signature equipped with these declarations is the category $\mathbf{Graph}_\Sigma$ of finite typed graphs of the prescribed shape; see [Structural Compression §1.3](structural.md#13-graph-signatures) for the formal treatment and §2.4 of the same page for the message-passing encoder that consumes them.

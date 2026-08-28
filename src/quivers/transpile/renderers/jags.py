@@ -36,6 +36,7 @@ The renderer:
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 import panproto
@@ -83,6 +84,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
+    beta_binomial_log_pmf,
     build_decl_plates,
     factor_axis_sizes,
     factor_cells,
@@ -98,6 +100,10 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
+    ir_uses_family,
+    mixture_component_count,
+    mixture_normal_components,
     reorder_negbin_args,
     reorder_weibull_args,
 )
@@ -209,6 +215,24 @@ _RANGE_SENTINEL_PREFIX: str = "__jags_range__:"
 #: ``1.0e6`` is the conventional safe default for typical fixtures.
 _ZEROS_TRICK_OFFSET: float = 1.0e6
 
+#: The families JAGS has no distribution for and whose density the
+#: renderer therefore writes out in closed form, adding it to the
+#: joint through the zeros trick. Each needs the ``data { ... }``
+#: block that binds the trick's constant-zero carrier, and each is
+#: emittable only at an observed site: the trick contributes a density
+#: term without declaring a node the engine can sample, so a latent
+#: draw from one of these families has no JAGS form.
+_ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset({
+    "MixtureNormal",
+    "BetaBinomial",
+})
+
+#: `sqrt(2 * pi)`, the Gaussian density's normalising constant. The
+#: mixture emit writes the component densities out in closed form, and
+#: JAGS evaluates the constant once per compile whether it is spelled
+#: as an expression or a literal.
+_SQRT_TWO_PI: float = math.sqrt(2.0 * math.pi)
+
 
 class JAGSRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] as a
@@ -239,6 +263,7 @@ class JAGSRenderer(RendererBase):
         wrapper is a single ``model_block`` vertex whose children are
         the statements emitted by `_dispatch_jags_node`.
         """
+        assert_no_dropped_param_map(ir, self.target)
         # JAGS has no scalar-to-vector broadcast; lift empty-plate
         # IRDeterministic nodes whose expressions reference plate-less
         # free data inputs into the plate of the first downstream
@@ -254,8 +279,27 @@ class JAGSRenderer(RendererBase):
         jctx.decl_plates = build_decl_plates(ir)
 
         _vertex(jctx, "src", "source_file")
-        jctx.sb.constraint("src", "ptrace-0", "Cmodel_block")
-        jctx.sb.constraint("src", "chose-alt-child-kinds", "model_block")
+        # A `MixtureNormal` or `BetaBinomial` site scores through the
+        # zeros trick, whose constant-zero carrier is a node JAGS has
+        # to see as data. The language's `data { ... }` transformation
+        # block binds exactly such nodes from inside the model source,
+        # so the emit declares one when, and only when, a site needs
+        # it.
+        if any(
+            ir_uses_family(ir.body, family)
+            for family in _ZEROS_TRICK_FAMILIES
+        ):
+            jctx.sb.constraint("src", "ptrace-0", "Cdata_block")
+            jctx.sb.constraint("src", "ptrace-1", "Cmodel_block")
+            jctx.sb.constraint(
+                "src", "chose-alt-child-kinds", "data_block model_block"
+            )
+            db = _fresh(jctx, "db", "data_block")
+            jctx.sb.edge("src", db, "child_of")
+            jctx.data_block = db
+        else:
+            jctx.sb.constraint("src", "ptrace-0", "Cmodel_block")
+            jctx.sb.constraint("src", "chose-alt-child-kinds", "model_block")
 
         mb = _fresh(jctx, "mb", "model_block")
         jctx.sb.edge("src", mb, "child_of")
@@ -266,6 +310,7 @@ class JAGSRenderer(RendererBase):
             self._dispatch_jags_node(jctx, node)
 
         self._finalise_model_block(jctx)
+        self._finalise_data_block(jctx)
         return sb.build()
 
     def declare(
@@ -537,6 +582,18 @@ class JAGSRenderer(RendererBase):
             if node.family == "GP":
                 self._emit_gp_block(ctx, node)
                 return
+            if node.family in _ZEROS_TRICK_FAMILIES:
+                raise UnsupportedConstruct(
+                    f"qvr-{_BACKEND}",
+                    [
+                        f"family:{node.family}:latent-site:{node.name}: "
+                        f"the family has no JAGS distribution and "
+                        f"scores through the zeros trick, which adds a "
+                        f"density term without declaring a node the "
+                        f"engine can sample; only an observed site can "
+                        f"carry it"
+                    ],
+                )
             self._emit_sample(
                 ctx,
                 name=node.name,
@@ -547,6 +604,24 @@ class JAGSRenderer(RendererBase):
             )
             return
         if isinstance(node, IRObserve):
+            if node.family == "MixtureNormal":
+                self._emit_mixture_normal(
+                    ctx,
+                    name=node.name,
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    plate=node.plate,
+                )
+                return
+            if node.family == "BetaBinomial":
+                self._emit_beta_binomial(
+                    ctx,
+                    name=node.name,
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    plate=node.plate,
+                )
+                return
             self._emit_sample(
                 ctx,
                 name=node.name,
@@ -1905,6 +1980,318 @@ class JAGSRenderer(RendererBase):
             for dim in node.plate.batch_dims:
                 ctx.emitted_plate_names.add(_dim_name(dim))
 
+    def _emit_mixture_normal(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> None:
+        """Emit a `MixtureNormal` observation through the zeros trick.
+
+        JAGS ships no mixture distribution and no `target +=`
+        increment, but it ships every piece a finite mixture needs. The
+        per-row density
+
+            p(y_n) = sum_k w_k * N(y_n; mu_k, sigma_k)
+
+        is an ordinary JAGS arithmetic expression once the component
+        count is known, and the canonical way to add its logarithm to
+        the joint is the zeros trick: with `zeros_<name>[n]` observed
+        at 0, `zeros_<name>[n] ~ dpois(phi_<name>[n])` contributes
+        `-phi_<name>[n]`, so setting
+
+            phi_<name>[n] <- C - log(p(y_n))
+
+        adds `log p(y_n) - C` per row. The `C` per row is an additive
+        constant on the joint, which Theorem 4.1's quotient absorbs.
+
+        The trick needs `zeros_<name>` to be *data*, and JAGS binds
+        data from inside the model source through its `data { ... }`
+        transformation block, so the emit declares the carrier there
+        rather than asking the host for a vector the QVR wire format
+        does not carry.
+
+        A residual event axis on the site would ask each row to carry a
+        vector-valued mixture, which the scalar closed form cannot
+        express, so it raises rather than emitting a
+        differently-shaped density.
+        """
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MixtureNormal:event-axis:{name}: the "
+                    f"scalar closed form carries no event shape, but "
+                    f"the site declares "
+                    f"{[_dim_name(d) for d in plate.event_dims]!r}"
+                ],
+            )
+        weights, loc, scale = mixture_normal_components(
+            _BACKEND, args, arg_names
+        )
+        components = mixture_component_count(
+            _BACKEND,
+            weights,
+            ctx.decl_plates.get(
+                weights.name if isinstance(weights, IRArgRef) else ""
+            ),
+        )
+        row_plate = Plate(event_dims=(), batch_dims=plate.batch_dims)
+        zeros_name = f"zeros_{name}"
+        phi_name = f"phi_{name}"
+        ctx.decl_plates[zeros_name] = row_plate
+        ctx.decl_plates[phi_name] = row_plate
+        self._emit_zeros_carrier(ctx, zeros_name, row_plate)
+        self._emit_deterministic(
+            ctx,
+            IRDeterministic(
+                name=phi_name,
+                expr=LetExprBinOp(
+                    op="-",
+                    left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
+                    right=LetExprCall(
+                        func="log",
+                        args=(
+                            self._mixture_density_expr(
+                                name, weights, loc, scale, components
+                            ),
+                        ),
+                    ),
+                ),
+                constraint=CSReal(),
+                plate=row_plate,
+            ),
+        )
+        self._emit_sample(
+            ctx,
+            name=zeros_name,
+            family="Poisson",
+            args=(IRArgRef(name=phi_name),),
+            arg_names=("rate",),
+            plate=row_plate,
+            observed=True,
+        )
+
+    def _emit_beta_binomial(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> None:
+        """Emit a `BetaBinomial` observation through the zeros trick.
+
+        A stock JAGS engine loads `basemod`, `bugs`, and `dic`, and
+        none of the three registers a beta-binomial: JAGS carries one
+        only in the optional `mix` module, so naming a distribution
+        here would compile on some installations and fail with
+        ``Unknown distribution`` on others. The density itself needs
+        nothing optional. `loggam` and `logfact` both live in the
+        `bugs` module, so
+        [`beta_binomial_log_pmf`][quivers.transpile.renderers._bugs_helpers.beta_binomial_log_pmf]
+        writes the marginal out in closed form and the zeros trick adds
+        it to the joint: with `zeros_<name>[n]` bound to 0 in the
+        `data { ... }` block, `zeros_<name>[n] ~ dpois(phi_<name>[n])`
+        contributes `-phi_<name>[n]`, so
+
+            phi_<name>[n] <- C - log p(y_n)
+
+        adds `log p(y_n) - C` per row. The per-row `C` is an additive
+        constant on the joint, which Theorem 4.1's quotient absorbs.
+
+        The emitted term is the beta-binomial's own marginal, with the
+        latent rate integrated out analytically, rather than the
+        `p ~ dbeta(a, b); y ~ dbin(p, n)` compound: the compound adds a
+        latent node per row and so scores a different joint over a
+        larger space.
+
+        A residual event axis on the site would ask each row to carry a
+        vector of counts, which the scalar closed form cannot express,
+        so it raises rather than emitting a differently-shaped density.
+        """
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:BetaBinomial:event-axis:{name}: the "
+                    f"scalar closed form carries no event shape, but "
+                    f"the site declares "
+                    f"{[_dim_name(d) for d in plate.event_dims]!r}"
+                ],
+            )
+        row_plate = Plate(event_dims=(), batch_dims=plate.batch_dims)
+        zeros_name = f"zeros_{name}"
+        phi_name = f"phi_{name}"
+        ctx.decl_plates[zeros_name] = row_plate
+        ctx.decl_plates[phi_name] = row_plate
+        self._emit_zeros_carrier(ctx, zeros_name, row_plate)
+        self._emit_deterministic(
+            ctx,
+            IRDeterministic(
+                name=phi_name,
+                expr=LetExprBinOp(
+                    op="-",
+                    left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
+                    right=beta_binomial_log_pmf(
+                        _BACKEND,
+                        variate=name,
+                        args=args,
+                        arg_names=arg_names,
+                    ),
+                ),
+                constraint=CSReal(),
+                plate=row_plate,
+            ),
+        )
+        self._emit_sample(
+            ctx,
+            name=zeros_name,
+            family="Poisson",
+            args=(IRArgRef(name=phi_name),),
+            arg_names=("rate",),
+            plate=row_plate,
+            observed=True,
+        )
+
+    def _mixture_density_expr(
+        self,
+        variate: str,
+        weights: IRArg,
+        loc: IRArg,
+        scale: IRArg,
+        components: int,
+    ) -> LetExprNode:
+        """Build `sum_k w[k] * N(y; mu[k], sigma[k])` in closed form.
+
+        The component axis is unrolled because JAGS has no reduction
+        over a parameterised family; each term spells the Gaussian
+        density directly, so the sum is the mixture's own density
+        rather than a surrogate for it.
+        """
+        total: LetExprNode | None = None
+        for position in range(components):
+            term = self._mixture_component_density(
+                variate, weights, loc, scale, position
+            )
+            total = (
+                term
+                if total is None
+                else LetExprBinOp(op="+", left=total, right=term)
+            )
+        if total is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    "family:MixtureNormal:empty-support: a mixture "
+                    "with no components has no density"
+                ],
+            )
+        return total
+
+    def _mixture_component_density(
+        self,
+        variate: str,
+        weights: IRArg,
+        loc: IRArg,
+        scale: IRArg,
+        position: int,
+    ) -> LetExprNode:
+        """One weighted Gaussian component,
+        `w[k] * exp(-0.5 * z * z) / (sigma[k] * sqrt(2 pi))` with
+        `z = (y - mu[k]) / sigma[k]`."""
+        # `LetExprIndex` subscripts count from zero: the BUGS / JAGS
+        # helper rebases a literal to the one-based target origin as it
+        # emits, so the component position goes in unshifted.
+        index = LetExprLiteral(value=float(position))
+        weight_k = self._mixture_component_ref(weights, index)
+        loc_k = self._mixture_component_ref(loc, index)
+        scale_k = self._mixture_component_ref(scale, index)
+        standardised = LetExprBinOp(
+            op="/",
+            left=LetExprBinOp(
+                op="-", left=LetExprVar(name=variate), right=loc_k
+            ),
+            right=scale_k,
+        )
+        kernel = LetExprCall(
+            func="exp",
+            args=(
+                LetExprBinOp(
+                    op="*",
+                    left=LetExprLiteral(value=-0.5),
+                    right=LetExprBinOp(
+                        op="*", left=standardised, right=standardised
+                    ),
+                ),
+            ),
+        )
+        return LetExprBinOp(
+            op="/",
+            left=LetExprBinOp(op="*", left=weight_k, right=kernel),
+            right=LetExprBinOp(
+                op="*",
+                left=scale_k,
+                right=LetExprLiteral(value=_SQRT_TWO_PI),
+            ),
+        )
+
+    def _mixture_component_ref(
+        self, arg: IRArg, index: LetExprLiteral
+    ) -> LetExprNode:
+        """Render `<arg>[k]` for one of the three per-component
+        vectors a `MixtureNormal` call supplies."""
+        if not isinstance(arg, IRArgRef) or arg.indices:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MixtureNormal:component-arg:"
+                    f"{type(arg).__name__}: each of the weight, "
+                    f"location and scale arguments must be a bare "
+                    f"reference to a per-component vector"
+                ],
+            )
+        return LetExprIndex(
+            array=LetExprVar(name=arg.name), indices=(index,)
+        )
+
+    def _emit_zeros_carrier(
+        self, ctx: _JAGSCtx, zeros_name: str, row_plate: Plate
+    ) -> None:
+        """Bind `zeros_<name>[n] <- 0` inside the `data { ... }` block.
+
+        JAGS evaluates the data block once before compiling the model
+        and treats every node it binds as observed, which is exactly
+        what the zeros trick's carrier has to be.
+        """
+        if ctx.data_block is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MixtureNormal:no-data-block:{zeros_name}: "
+                    f"the emit reached a mixture site the render "
+                    f"pre-pass did not see"
+                ],
+            )
+        previous = ctx.current_block
+        ctx.current_block = ctx.data_block
+        try:
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=zeros_name,
+                    expr=LetExprLiteral(value=0.0),
+                    constraint=CSReal(),
+                    plate=row_plate,
+                ),
+            )
+        finally:
+            ctx.current_block = previous
+
     def _emit_score(self, ctx: _JAGSCtx, node: IRScore) -> None:
         """Emit ``score <name> = <expr>`` via the JAGS zeros trick.
 
@@ -1919,9 +2306,7 @@ class JAGSRenderer(RendererBase):
         ```
 
         The host supplies ``zero_<name> = 0`` through the JAGS
-        ``.data`` file; this renderer emits no in-model carrier for
-        the constant because JAGS has no data-block syntax in the
-        model source. The stochastic relation contributes
+        ``.data`` file. The stochastic relation contributes
         ``-(1.0e6 - <expr>) = <expr> - 1.0e6`` to the log-density;
         the additive constant absorbs into the normalising constant.
 
@@ -1979,7 +2364,7 @@ class JAGSRenderer(RendererBase):
         ctx.decl_plates[zero_name] = empty_plate
         # Emit the stochastic relation `zero_<name> ~ dpois(C_<name>)`.
         # The host supplies `zero_<name> = 0` through the JAGS `.data`
-        # file; the model source carries no in-line `zero_<name> <- 0`.
+        # file.
         self._emit_sample(
             ctx,
             name=zero_name,
@@ -2062,6 +2447,29 @@ class JAGSRenderer(RendererBase):
         ctx.sb.constraint(
             mb, f"ptrace-{2 + len(children)}", "T}"
         )
+
+    def _finalise_data_block(self, ctx: _JAGSCtx) -> None:
+        """Pin the ``data { ... }`` alternative and its child list.
+
+        Mirrors
+        [`_finalise_model_block`][quivers.transpile.renderers.jags.JAGSRenderer._finalise_model_block]:
+        the auto-derived theory supplies the inter-child layout, and
+        the emit only has to name which alternative and which children
+        the block carries.
+        """
+        db = ctx.data_block
+        if db is None:
+            return
+        children = ctx.block_children.get(db, [])
+        ctx.sb.constraint(db, "chose-alt-fingerprint", "data { }")
+        ctx.sb.constraint(
+            db, "chose-alt-child-kinds", " ".join(children) if children else ""
+        )
+        ctx.sb.constraint(db, "ptrace-0", "Tdata")
+        ctx.sb.constraint(db, "ptrace-1", "T{")
+        for i, kind in enumerate(children):
+            ctx.sb.constraint(db, f"ptrace-{2 + i}", f"C{kind}")
+        ctx.sb.constraint(db, f"ptrace-{2 + len(children)}", "T}")
 
 
 # ---------------------------------------------------------------------------
@@ -2219,6 +2627,10 @@ class _JAGSCtx(_RenderCtx):
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.current_block: str | None = None
         self.model_block: str = ""
+        #: The `data { ... }` transformation block, created only when
+        #: the program needs one. JAGS evaluates it once before the
+        #: model, and every node it binds becomes observed data.
+        self.data_block: str | None = None
         #: Names of scalar-shaped bindings, broadcast candidates for a
         #: vector / matrix distribution slot. Populated in `render` from
         #: the lowered IR.

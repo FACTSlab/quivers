@@ -54,12 +54,12 @@ deterministic assignment for let; native `return`.
 
 ## Acceptance
 
-* **Tier 1 structural.** `def model(...) ... return ...` with
-  `with pyro.plate(...)` contexts wrapping `pyro.sample` and
-  `pyro.factor` calls.
-* **Tier 2 lens-laws.** Composition law holds for `Lower >>
-  PyroRenderer >> EmitPretty(python)`.
-* **Tier 3 external syntax.** `python -m ast` accepts every emit.
-* **Tier 4 numeric equivalence.** `trace.log_prob_sum()` agrees
-  with the QVR reference within $10^{-6}$; pairwise transitivity
-  with NumPyro / Edward2 holds.
+* **Tier 1 pipeline composition.** Structural checks cover the
+  emitted `model` function and the `Lower >> PyroRenderer >>
+  EmitPretty(python)` pipeline.
+* **Tier 2 external syntax.** Python's AST parser accepts the
+  generated modules in the external-validation matrix.
+* **Tier 3 numeric equivalence.** For selected fixtures,
+  `trace.log_prob_sum()` is compared with the QVR reference on
+  the shared finite grid and tolerance described in
+  [the test contract](index.md#6-evidence-tiers).

@@ -11,8 +11,8 @@ Lew, and Mansinghka
 ([2019](https://doi.org/10.1145/3314221.3314642)). A `@gen
 function` is a generative function whose `@trace` invocations
 record per-address choices in a `ChoiceMap`. The log-density
-probe is [`Gen.assess(generator, args, choicemap)[1]`](https://www.gen.dev/docs/stable/ref/inference/#Gen.assess);
-the second return value is the trace log-probability.
+probe is [`Gen.assess(generator, args, choicemap)[1]`](https://www.gen.dev/docs/stable/ref/inference/#Gen.assess),
+where Julia's `[1]` selects the returned log weight.
 
 ## Unconstrained-space change of variables
 
@@ -43,7 +43,7 @@ map.
 **Plate.** The for-loop over `1:B` ranges produces $B$
 independent `@trace` sites, each with the same conditional
 distribution. The product measure denotation matches the head
-[§5.2](index.md#52-plate-indexed-bind-translation-soundness)
+[the plate discussion](index.md#5-plates-marginalization-and-via)
 lemma.
 
 **Marginalize.** Explicit-latent rewrite. Gen's MCMC
@@ -57,9 +57,8 @@ for score; native `<name> = <expr>` for let; native `return`.
 
 * **Tier 1 structural.** Every emit has `@gen function model(...)
   ... end` with `@trace` calls and per-batch `for` loops.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `julia --eval "Meta.parse(read(stdin, String); raise=true)"`
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** `julia --eval "Meta.parse(read(stdin, String); raise=true)"`
   accepts every emit.
-* **Tier 4 numeric equivalence.** `Gen.assess(...)[1]` evaluated
-  at 256 grid points + corners agrees with the QVR reference
-  within $10^{-6}$.
+* **Tier 3 numeric equivalence.** `Gen.assess(...)[1]` is compared
+  with the QVR reference on the selected fixture grids.

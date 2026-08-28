@@ -1,6 +1,6 @@
 # 6. Choosing an inference algorithm
 
-Quivers ships nine variational [guides](../../api/inference/guide.md) ([Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html) for the SVI substrate), four [objectives](../../api/inference/elbo.md), two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid samplers, and four gradient [estimators](../../api/inference/estimators.md). Some combinations are obviously sensible; some are obvious mistakes; most fall between, and the right call depends on the shape of your posterior. This chapter is a field guide.
+Quivers exports eleven concrete [guide](../../api/inference/guide.md) classes, seven [objectives](../../api/inference/elbo.md), two MCMC kernels (HMC, [Neal, 2011](https://doi.org/10.1201/b10905-6); NUTS, [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)), two hybrid approaches, and four gradient [estimators](../../api/inference/estimators.md). The appropriate combination depends on posterior geometry, computational budget, and the quantities the analysis needs.
 
 The mental model: you pick (a) a *family* (variational, MCMC, hybrid), then (b) a *configuration* within that family, then (c) gradient-estimator and tightness knobs. The choices roughly factor; we'll walk down the tree.
 
@@ -15,7 +15,7 @@ The mental model: you pick (a) a *family* (variational, MCMC, hybrid), then (b) 
 | Mixed discrete-continuous with small discrete support | VI with a `marginalize` block (chapter 4); HMC over the continuous remainder. |
 | You don't know yet | Start with `AutoNormalGuide` + ELBO. It's cheap; the failure modes are diagnostic. |
 
-VI is fast and scales; MCMC is unbiased and respects curvature. Hybrids try to get both. The cost is real: NUTS on a 600-latent hierarchical model takes minutes per chain; `AutoNormalGuide` on the same model takes seconds. If the VI fit is good enough for your downstream task, ship it.
+VI is optimization-based and can scale to large latent spaces. HMC and NUTS are asymptotically exact under their regularity conditions, but finite runs still have Monte Carlo error and require convergence diagnostics. Runtime differences are model- and hardware-dependent, so benchmark the alternatives on the model at hand.
 
 ## Step 2: Which variational guide?
 
@@ -47,6 +47,8 @@ The shipped guides:
 | `AutoIAFGuide` | Inverse autoregressive flow | Flagship NF default; good general-purpose non-Gaussian guide. |
 | `AutoNeuralSplineGuide` | Rational-quadratic spline coupling | Sharper than IAF on bounded support. |
 | `AutoMixtureGuide` | K-component mixture of guides | Multimodal posteriors; specify `num_components`. |
+| `AutoGuideList` | Composition of guides | Assign different guide families to different latent subsets. |
+| `AutoStructured` | Structured Gaussian approximation | Preserve selected posterior dependencies. |
 
 The benchmark grid in `tests/benchmarks/` walks these against synthetic posteriors with known answers; the report at `docs/developer/inference-benchmarks.md` is the empirical truth-table for which guide passes which kind of problem.
 
@@ -55,10 +57,13 @@ The benchmark grid in `tests/benchmarks/` walks these against synthetic posterio
 | Objective | Bound | When |
 |---|---|---|
 | `ELBO(num_particles=1)` | Reparameterized ELBO | Default. |
-| `ELBO(num_particles=K)` | K-sample ELBO | Slightly tighter; rarely worth the cost. |
+| `ELBO(num_particles=K)` | Monte Carlo ELBO | More particles can reduce estimator variance; the bound itself is unchanged. |
 | `IWAEBound(K)` | Importance-weighted bound | Tighter than ELBO for `K > 1`. |
 | `RenyiBound(alpha, K)` | Rényi divergence bound | Interpolates ELBO (α=1) and IWAE (α=0). |
 | `VRIWAEBound(alpha, K)` | Variational Rényi-IWAE | Mass-covering vs mode-seeking knob via α; tight via K. |
+| `ChiVI(num_particles=K)` | $\chi$-divergence objective | Alternative mass-covering variational objective. |
+| `RWS(num_particles=K)` | Reweighted wake-sleep | Separate model and guide updates from importance weights. |
+| `DReGsBound(num_particles=K)` | Doubly reparameterized bound | Importance-weighted objective with DReG guide gradients. |
 
 For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters when the posterior is multimodal and the guide is flow-shaped (the importance weighting tightens the bound; coupling layers exploit it). `RenyiBound` is useful when you specifically want a mass-covering posterior (e.g. for Bayesian-optimization acquisition functions).
 
@@ -71,7 +76,7 @@ For most workflows, the default `ELBO()` is the right call. `IWAEBound` matters 
 | `DoublyReparameterized` | DReG for IWAE | With `IWAEBound(K)` at large K. |
 | `ScoreFunction` | REINFORCE | Discrete (non-reparameterizable) latents you can't `marginalize`. |
 
-Pair `IWAEBound(num_particles=16, estimator=DoublyReparameterized())` for the flagship "tight bound, low-variance gradients" combination. `K` (the `num_particles`) trades wall-clock for tightness: $K = 1$ recovers the ELBO; the bound is monotonically tighter in $K$ but with diminishing returns past $K = 32$. Memory scales linearly in $K$ so for large models you'll want $K \in [4, 16]$.
+`IWAEBound(num_particles=16, estimator=DoublyReparameterized())` combines importance weighting with DReG guide gradients. `K` trades computation and memory for a tighter importance-weighted bound; choose it by profiling rather than relying on a fixed threshold.
 
 ## Calling SVI
 
@@ -94,7 +99,7 @@ for step in range(5000):
 
 ## Calling NUTS
 
-For the times you want unbiased posterior samples:
+For sampling-based posterior inference:
 
 <!-- python: skip -->
 ```python
@@ -121,7 +126,7 @@ print("divergences:", result.total_divergences)
 Diagnostics to check before trusting the run:
 
 - Rhat < 1.01 for every site (otherwise: chains haven't mixed; run longer warmup).
-- ESS > 100 per chain for every site (otherwise: samples are too correlated; tighten step size).
+- ESS large enough for the precision your estimand needs. Low ESS calls for longer runs, better parameterization, or sampler tuning.
 - Divergences near zero (otherwise: posterior has curvature the integrator missed; bump `target_accept` to 0.95 or reparameterize).
 
 ## Hybrid samplers
@@ -129,7 +134,7 @@ Diagnostics to check before trusting the run:
 Two configurations sit between VI and pure MCMC:
 
 - `WarmupThenHMC(guide, kernel, svi_steps, mcmc_warmup, mcmc_samples)` runs `svi_steps` of variational warm-up and then launches MCMC chains initialized from the trained guide. Useful when HMC's warmup wastes a lot of compute exploring tails the guide already knows are empty.
-- `AutoDAIS(base, model, observations, num_steps=..., init_step_size=...)` wraps a base guide with `num_steps` annealed HMC trajectories. It closes the parity gap with the Pyro / NumPyro AutoDAIS on multimodal posteriors where pure VI collapses.
+- `AutoDAIS(base, model, observations, num_steps=..., init_step_size=...)` wraps a base guide with `num_steps` annealed HMC trajectories. It can represent posteriors that a simple mean-field guide misses, at additional cost.
 
 <!-- python: skip -->
 ```python
@@ -167,7 +172,7 @@ Whenever you're unsure which guide handles a model shape, look at
 ## Try this
 
 - Take the eight-schools model from chapter 3 and run every guide on it, comparing posterior `tau` recovery against the NUTS reference.
-- Take the GMM from chapter 4 and run `AutoMixtureGuide(num_components=4)` against `AutoNormalGuide`. The mode-recovery difference is dramatic.
+- Take the GMM from chapter 4 and compare `AutoMixtureGuide(num_components=4)` with `AutoNormalGuide`, accounting for label switching when you assess mode recovery.
 - Run `AutoDAIS` on the donut posterior (a non-simply-connected support); compare to `AutoIAFGuide`.
 
 ## Next

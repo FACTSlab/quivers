@@ -1262,11 +1262,40 @@ class _BetaBinomial(D.Distribution):
         super().__init__(validate_args=validate_args)
 
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        """``log p(value; n, a, b)`` via the closed-form Beta-Binomial pmf."""
-        n = self.total_count.to(value.dtype)
-        a = self.concentration1.to(value.dtype)
-        b = self.concentration0.to(value.dtype)
-        k = value.to(value.dtype)
+        """``log p(value; n, a, b)`` via the closed-form Beta-Binomial pmf.
+
+        Two numeric decisions carry this method.
+
+        The result dtype promotes over *every* input, floored at the
+        default floating dtype. The support is the non-negative
+        integers, so ``value`` and ``total_count`` routinely arrive
+        integer-typed while the concentrations are real, and demoting
+        either side to the other's dtype loses the argument it was
+        given: carrying ``a``, ``b`` down to an integer count
+        rescores the density at ``floor(a), floor(b)``, and a
+        concentration in :math:`(0, 1)` floors to zero, whose
+        ``lgamma`` is infinite, so the row scores :math:`-\\infty`.
+
+        The terms themselves accumulate in ``float64`` regardless.
+        The pmf is a difference of ``lgamma`` values that grow with
+        the trial count while their sum stays :math:`O(1)`: at
+        ``n = 200`` the summands are near :math:`10^{3}` and the
+        result near :math:`-2`, so ``float32`` cancellation eats
+        roughly four decimal digits of the density. Every backend is
+        validated against this number, and an error of that size sits
+        at the scale of the equivalence tolerance itself.
+        """
+        dtype = torch.promote_types(
+            torch.promote_types(
+                torch.promote_types(self.total_count.dtype, self.concentration1.dtype),
+                self.concentration0.dtype,
+            ),
+            torch.promote_types(value.dtype, torch.get_default_dtype()),
+        )
+        n = self.total_count.double()
+        a = self.concentration1.double()
+        b = self.concentration0.double()
+        k = value.double()
         log_comb = (
             torch.lgamma(n + 1.0) - torch.lgamma(k + 1.0) - torch.lgamma(n - k + 1.0)
         )
@@ -1274,7 +1303,7 @@ class _BetaBinomial(D.Distribution):
             torch.lgamma(a + k) + torch.lgamma(b + n - k) - torch.lgamma(a + b + n)
         )
         log_beta_prior = torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
-        return log_comb + log_beta_post - log_beta_prior
+        return (log_comb + log_beta_post - log_beta_prior).to(dtype)
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         """Two-stage draw: ``p ~ Beta(a, b)``; ``k ~ Binomial(n, p)``."""
@@ -1752,6 +1781,42 @@ def _make_operator_distribution(
     return (morph, None)
 
 
+def _param_row_width(vtype: AnySpace, event_rank: int) -> int:
+    """Width one row of ``vtype`` occupies in the stacked parameters.
+
+    An inline distribution reads its parameters row by row: the
+    leading axis of every parameter is the batch axis the family
+    broadcasts over, and the recorded width is what a single row
+    contributes to the stacked parameter tensor.
+
+    A plate variable is where that width parts company with the
+    space's flat dimension, and the family's declared event rank for
+    the position settles which reading applies.
+
+    At rank 0 the position is a per-row scalar and the plate axis is
+    the batch axis, so the width is the plate's per-row width.
+    ``sample mu : Arm <- Normal(0, 1)`` declares ``|Arm|``
+    independent rows of width one flattened into a single
+    :math:`\\mathbb{R}^{|Arm|}` codomain; consumed as the location of
+    ``observe y : Arm <- Normal(mu, 1)`` it supplies one scalar per
+    row, not an ``|Arm|``-wide event vector. Recording the flat width
+    there slices ``|Arm|`` columns out of a one-column-per-row block,
+    which either scores the outer product of the plate against itself
+    (a silently inflated density) or leaves a later parameter empty.
+
+    At rank 1 or higher the position is an event vector and the plate
+    supplies its coordinates, one per row: the per-component locations
+    of a ``MixtureNormal`` are exactly a plate over the components. The
+    width there is the flat dimension.
+
+    A discrete space carries no parameter width of its own; an index
+    variable enters through a gather and contributes one column.
+    """
+    if event_rank == 0 and isinstance(vtype, Euclidean):
+        return vtype.row_width
+    return int(getattr(vtype, "dim", 1))
+
+
 def make_inline_distribution(
     family: str,
     args: tuple,
@@ -1826,6 +1891,10 @@ def make_inline_distribution(
         raise ValueError(
             f"inline {family} expects {len(param_names)} args ({', '.join(param_names)}), got {len(args)}"
         )
+    fam_event_ranks = _PARAM_EVENT_RANKS.get(
+        family,
+        tuple(0 for _ in param_names),
+    )
     param_spec: list[tuple[str, int | float]] = []
     var_name_order: list[str] = []
     total_var_dim = 0
@@ -1840,8 +1909,9 @@ def make_inline_distribution(
             # type lookup uses that name.
             lookup_name = arg.name if getattr(arg, "kind", None) == "index" else arg
             if variable_types and lookup_name in variable_types:
-                vtype = variable_types[lookup_name]
-                var_dim = getattr(vtype, "dim", 1)
+                var_dim = _param_row_width(
+                    variable_types[lookup_name], fam_event_ranks[i]
+                )
             param_spec.append(("var", var_dim))
             var_name_order.append(arg)
             total_var_dim += var_dim
@@ -1872,10 +1942,6 @@ def make_inline_distribution(
             fam_support = _constraints.interval(lit_args[0], lit_args[1])
         elif family == "TruncatedNormal" and len(lit_args) >= 2:
             fam_support = _constraints.interval(lit_args[-2], lit_args[-1])
-    fam_event_ranks = _PARAM_EVENT_RANKS.get(
-        family,
-        tuple(0 for _ in param_names),
-    )
     # Dimension-dependent families need the codomain's matrix / vector
     # size baked into the builder closure. The registered
     # `_FAMILY_BUILDERS` entry carries a dim-agnostic builder; here we

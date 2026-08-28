@@ -60,7 +60,7 @@ where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to \mathcal{G}(\P
 A bind statement
 
 ```
-v <- F(args)
+sample v <- F(args)
 ```
 
 denotes the Kleisli arrow extending the context with a fresh random variable distributed according to family $F$:
@@ -84,7 +84,7 @@ where $\theta_F$ is the family's parameter map (which may depend on previously-b
 The bind statement admits a *tuple pattern* on the left-hand side:
 
 ```
-(v_1, …, v_m) <- F(args)
+sample (v_1, …, v_m) <- F(args)
 ```
 
 with denotation identical to the scalar bind above except that the codomain $\llbracket \mathsf{cod}(F) \rrbracket = K_1 \times \cdots \times K_m$ must be an $m$-fold product and the trace is extended with $m$ named coordinates rather than a single one. Subsequent statements may reference each $v_i$ as if it had been bound separately by $v_i \leftarrow \pi_i \circ F(\bar a)$. The two forms have the same denotation when the family's codomain is a product type; the destructuring form gives the components names.
@@ -212,7 +212,7 @@ $$
 \mathbf{Kern}(\mathbf{1}, K^A) \;\cong\; \mathbf{Kern}(A, K)
 $$
 
-identifies a single $\mathcal{G}(K^A)$-valued draw with an $A$-indexed family of $\mathcal{G}(K)$-valued draws. The statement therefore denotes the context-extending Kleisli arrow
+identifies a single $\mathcal{G}(K^A)$-valued draw with an $A$-indexed family of $\mathcal{G}(K)$-valued draws. The statement thus denotes the context-extending Kleisli arrow
 
 $$
 \mathcal{S}\llbracket v : A \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}\bigl(\Phi \times K^A\bigr),
@@ -313,7 +313,7 @@ Each statement form contributes an effect:
 
 The compiler computes the *actual* effect set $\mathcal{E}(P)$ of the body and verifies $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$. The signature $\{\mathsf{Pure}\}$ in particular rejects any sample / score / marginal statement, restricting the body to `let` (and a `marginalize` whose own scope is itself pure).
 
-Categorically, effects index the codomain monad of the program's denotation: $\mathsf{Pure}$ programs denote ordinary measurable maps $\tau_1 \to \tau_2$; $\mathsf{Sample}$ programs denote Kleisli arrows in $\mathcal{G}$; $\mathsf{Score}$ programs land in $\mathcal{G}_{\le 1}$; $\mathsf{Marginal}$ programs commute with right Kan extensions along discrete fibrations. The effect-set inclusion is therefore a soundness condition on the monad: the actual codomain monad must be a sub-monad of the declared one.
+Categorically, effects index the codomain monad of the program's denotation: $\mathsf{Pure}$ programs denote ordinary measurable maps $\tau_1 \to \tau_2$; $\mathsf{Sample}$ programs denote Kleisli arrows in $\mathcal{G}$; $\mathsf{Score}$ programs land in $\mathcal{G}_{\le 1}$; $\mathsf{Marginal}$ programs commute with right Kan extensions along discrete fibrations. The effect-set inclusion is thus a soundness condition on the monad: the actual codomain monad must be a sub-monad of the declared one.
 
 The `over = <model>` entry in a program's option block marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).
 
@@ -414,7 +414,7 @@ an object of the indexed family of Kleisli arrows over the parameter category. T
 
 A call site `v <- P(a₁, …, aₖ)` inside another program is interpreted by *substitution* on the dependent denotation: the actual arguments $a_i$ are substituted for the formal parameters $p_i$ in the body of $P$, yielding a closed Kleisli arrow which is then inlined as a sequence of statements into the caller's body. Internal latents are α-renamed under a fresh prefix $v\$$, and the return-variable is renamed to $v$ directly; the result is a well-typed sequence of caller-level Kleisli arrows.
 
-This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template therefore contribute *distinct* factors to the caller's joint kernel, fresh latents per use, recovering the standard "plate-of-plates" semantics for hierarchical models.
+This is sound by a standard substitution lemma: because each formal parameter is bound at the top of the body and the body interprets to a Kleisli arrow built compositionally from its statements, substitution commutes with the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$. The α-renaming step is sound because the body's denotation depends only on the multiset of bound-variable types, not on the names. Two call sites of the same template thus contribute *distinct* factors to the caller's joint kernel, fresh latents per use, recovering the standard "plate-of-plates" semantics for hierarchical models.
 
 ## 4. Composition of programs
 
@@ -424,7 +424,7 @@ $$
 \llbracket P \mathbin{>\!\!>} Q \rrbracket(x, C) \;=\; \int_Y \llbracket Q \rrbracket(y, C) \, \llbracket P \rrbracket(x, \mathrm{d}y).
 $$
 
-The DSL exposes this through a top-level `let` binding the composition and an `export` declaration naming the composite:
+The DSL exposes this through a top-level `define` binding and an `export` declaration naming the composite:
 
 <!-- compile: false -->
 ```qvr
@@ -432,13 +432,13 @@ define pq = p >> q
 export pq
 ```
 
-`export` is the public-binding form: any number of `export` declarations per module are allowed, each producing a separate compiled program output. A top-level `let N = e [where N_1 = e_1 ...]` declaration is the corresponding *private* binding: it extends the morphism environment with $N \mapsto \llbracket e \rrbracket_\rho$, but $N$ is not part of the module's compiled output unless additionally `export`ed. The optional `where` clause is processed *before* the outer expression and contributes its bindings ($N_1 \mapsto \llbracket e_1 \rrbracket$, …) to the same module-level environment; despite the surface nesting, the `where` clause is not a local scope; its names persist globally after the let-declaration completes. Formally, for a module $M$ with $\mathrm{export}\ E_1, \dots, \mathrm{export}\ E_k$ declarations,
+`export` is the public-binding form. A top-level `define N = e` declaration is the corresponding private binding: it extends the morphism environment with $N \mapsto \llbracket e \rrbracket_\rho$, but $N$ is not part of the module's compiled output unless additionally exported. A `where` block may contain nested `define` declarations; the compiler processes those bindings before the outer expression. Formally, for a module $M$ with $\mathrm{export}\ E_1, \dots, \mathrm{export}\ E_k$ declarations,
 
 $$
 \llbracket M \rrbracket_{\mathrm{exports}} \;=\; \bigl(\llbracket E_1 \rrbracket,\, \dots,\, \llbracket E_k \rrbracket\bigr),
 $$
 
-a tuple of compiled morphisms / posteriors / deductions. The expression $E_i$ may be any value-level expression: a top-level morphism name, a program name, a deduction name, an encoder / decoder name, or a let-bound composite. The denotation of each export is the denotation of the underlying expression; `export` itself is a marker for the module-output protocol, not a categorical operation.
+a tuple of compiled morphisms / posteriors / deductions. The expression $E_i$ may be any value-level expression: a top-level morphism name, a program name, a deduction name, an encoder / decoder name, or a `define`-bound composite. The denotation of each export is the denotation of the underlying expression; `export` itself is a marker for the module-output protocol, not a categorical operation.
 
 
 ## 5. Soundness of monadic semantics
@@ -678,7 +678,7 @@ $$
 $$
 
 with equality only when $p_{\mathrm{inner}}(y \mid \mathbf{z}, x, \theta)$ is constant in $\mathbf{z}$. The
-wrapper's output is therefore biased downward as an estimator
+wrapper's output is thus biased downward as an estimator
 of the marginal log-likelihood.
 
 *Proof.* Jensen applied pointwise in $(x, y, \theta)$ to the

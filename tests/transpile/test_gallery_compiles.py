@@ -74,7 +74,7 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
 # (`pytest.raises` matches no entry) and a regression surfaces as a
 # different-kind raise.
 #
-# Four boundary classes are represented:
+# Five boundary classes are represented:
 #
 # 1. Structural / categorical declarations (`schema`, `bundle`,
 #    `composition`, `contraction`, `encoder`/`decoder`/`loss`/
@@ -83,11 +83,9 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
 #    schema_chart_parser (schema + bundle), pmf (composition),
 #    tensor_contraction (composition + contraction), and
 #    term_autoencoder (encoder / decoder / loss / signature).
-# 2. Lower-pass family resolution. mixture_model names the
-#    `MixtureNormal` likelihood, which the lower family registry does
-#    not carry, and parametric_pooling samples the `school_effects`
-#    sub-program (program-as-distribution). Neither resolves to a
-#    target family on any backend.
+# 2. Lower-pass family resolution. parametric_pooling samples the
+#    `school_effects` sub-program (program-as-distribution), which
+#    resolves to no target family on any backend.
 # 3. Method-call let-expressions, which Stan cannot render (it has no
 #    method-dispatch syntax), gapping the montague_nli Stan cell.
 #
@@ -136,14 +134,6 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("turing", "term_autoencoder"): "signature_decl",
     ("webppl", "term_autoencoder"): "signature_decl",
     # 2. Lower-pass family resolution (all backends).
-    ("edward2", "mixture_model"): "family:MixtureNormal",
-    ("gen", "mixture_model"): "family:MixtureNormal",
-    ("numpyro", "mixture_model"): "family:MixtureNormal",
-    ("pymc", "mixture_model"): "family:MixtureNormal",
-    ("pyro", "mixture_model"): "family:MixtureNormal",
-    ("stan", "mixture_model"): "family:MixtureNormal",
-    ("turing", "mixture_model"): "family:MixtureNormal",
-    ("webppl", "mixture_model"): "family:MixtureNormal",
     ("edward2", "parametric_pooling"): "family:school_effects",
     ("gen", "parametric_pooling"): "family:school_effects",
     ("numpyro", "parametric_pooling"): "family:school_effects",
@@ -172,6 +162,46 @@ for _neural_example in (
     for _syntax_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (
             "param-source:mlp"
+        )
+
+# 5. Linear parameter maps (`param_source=linear`). A Kleisli
+#    morphism declared between objects of *different* width, as in
+#    continuous_hmm's `emission : State -> Obs` (Real 16 to Real 8)
+#    and linear_gaussian_ssm's `emission : State -> Obs` (Real 4 to
+#    Real 2), carries a map from its domain to the family's parameter
+#    heads on its codomain. The runtime realises it as a
+#    [`LinearSource`][quivers.continuous.param_source.LinearSource]:
+#    continuous_hmm's emission holds a 16-to-16 weight (8 `loc` heads
+#    and 8 `scale` heads over `Obs`), linear_gaussian_ssm's a 4-to-4
+#    weight (2 heads each). Those weights are drawn when the module
+#    compiles, so they appear in neither the QVR text nor any sample
+#    site, and a target has nothing to reconstruct them from.
+#
+#    The declared morphism's parameter map therefore does not reach
+#    the targets, and the transpile raises rather than emitting a
+#    program that computes a different measure. The only emission
+#    available without the map is the one
+#    [`assert_no_dropped_param_map`][quivers.transpile.renderers._base.assert_no_dropped_param_map]
+#    exists to reject: for continuous_hmm it binds the 16-wide `s_new`
+#    straight into the 8-wide `Obs` site (`normal_lpdf(o[m_Obs] |
+#    s_new, 1)` in Stan, `Normal(loc=s_new, scale=1)` under
+#    `plate("Obs", 8)` in NumPyro), dropping the emission map
+#    entirely, substituting a unit scale for the learned one, and
+#    scoring a measure on a space of the wrong dimension.
+#
+#    This is a real gap, not an inherent limit of the targets. Closing
+#    it means threading the ParamSource through the renderers, so that
+#    a declared morphism's weights and bias are emitted as data (or as
+#    explicit sampled weights plus a deterministic forward pass) and
+#    the site scores against the map's output. Until they are, both
+#    examples raise on every syntax-check backend.
+for _linear_param_map_example in (
+    "continuous_hmm",
+    "linear_gaussian_ssm",
+):
+    for _syntax_backend in _SYNTAX_CHECKS:
+        _EXPECTED_UNSUPPORTED[(_syntax_backend, _linear_param_map_example)] = (
+            "param-source:linear"
         )
 
 

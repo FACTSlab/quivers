@@ -20,8 +20,9 @@
 object Person : FinSet 8
 object Item : FinSet 8
 object Resp : FinSet 64
+object Val : Real 1
 
-program irt_2pl : Resp -> Resp
+program irt_2pl : Resp -> Val
     sample ability : Person <- Normal(0.0, 1.0)
     sample difficulty : Item <- Normal(0.0, 1.0)
     sample discrim : Item <- LogNormal(0.0, 1.0)

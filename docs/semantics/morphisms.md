@@ -42,7 +42,7 @@ $$
 \qquad \llbracket f \rrbracket \in V^{|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|}.
 $$
 
-For `morphism f : τ₁ -> τ₂ [role = latent]`, the entries are *free parameters* drawn from $V$; the realization in PyTorch is a tensor of `requires_grad = True` parameters passed through a constraint map $\sigma : \mathbb{R} \to V$ (the sigmoid for $\mathcal{V}_{\mathrm{pf}}$, the identity for $\mathcal{V}_{\mathrm{T}}$, etc.).
+For `morphism f : τ₁ -> τ₂ [role=latent]`, the entries are free parameters. `LatentMorphism.tensor` currently applies `sigmoid` to the raw parameter for every algebra, so the realized entries lie in $(0,1)$. The runtime does not select an algebra-specific constraint map.
 
 For `morphism g : τ₁ -> τ₂ [role = observed] ~ data`, the entries are *fixed*: $\llbracket g \rrbracket(x, y) = \mathrm{data}[x, y]$.
 
@@ -58,7 +58,7 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 | `f @ g` | $\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket$ | $(f \boxtimes g)((x_1, x_2), (y_1, y_2)) = f(x_1, y_1) \otimes g(x_2, y_2)$ |
 | `identity(X)` | $1_{\llbracket X \rrbracket}$ | $1_X(x, x') = \mathbf{1}$ if $x = x'$, $\bot$ otherwise |
 
-**Proposition (Categorical structure).** *Assume $\mathcal{V}$ is a strict quantale ([Setting §1](setting.md#1-algebras-as-enrichment-bases)): $\otimes$ distributes over arbitrary joins $\bigoplus$ on both sides. Then $\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category, with $;$ as composition, $1_X$ as identities, $\boxtimes$ as monoidal product, $\mathbf{1}$ (the singleton) as monoidal unit, and the braid $\sigma_{X, Y}(x, y) = \mathbf{1}$ iff coordinates swap. Under the same hypothesis $\mathcal{V}\text{-}\mathbf{Rel}$ is moreover compact closed with every object self-dual. For the lax $\mathcal{V}_{\mathrm{pf}}$ / $\mathcal{V}_{\mathrm{L}}$ algebras (where distributivity is sub-equational, [Algebras §2.1](algebras.md#21-a-note-on-the-product-fuzzy-and-ukasiewicz-pairs)) the same diagrams commute laxly rather than strictly; the chart parser and SVI use the lax denotation but the equational claims of this chapter require the strict hypothesis.*
+**Proposition (Categorical structure).** *Assume $\mathcal{V}$ is a strict quantale ([Setting §1](setting.md#1-algebras-as-enrichment-bases)): $\otimes$ distributes over arbitrary joins $\bigoplus$ on both sides. Then $\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category, with $;$ as composition, $1_X$ as identities, $\boxtimes$ as monoidal product, $\mathbf{1}$ (the singleton) as monoidal unit, and the braid $\sigma_{X, Y}(x, y) = \mathbf{1}$ iff coordinates swap. Under the same hypothesis $\mathcal{V}\text{-}\mathbf{Rel}$ is also compact closed with every object self-dual. For the lax $\mathcal{V}_{\mathrm{pf}}$ / $\mathcal{V}_{\mathrm{L}}$ algebras (where distributivity is sub-equational, [Algebras §2.1](algebras.md#21-a-note-on-the-product-fuzzy-and-ukasiewicz-pairs)) the same diagrams commute laxly rather than strictly; the chart parser and SVI use the lax denotation but the equational claims of this chapter require the strict hypothesis.*
 
 *Proof.* Associativity of $;$ unfolds to
 $$
@@ -68,20 +68,20 @@ The strict-quantale distributivity law of [Setting §1](setting.md#1-algebras-as
 
 ### 1.2 Marginalization
 
-For $f : X \otimes Y \to Z$ in $\mathcal{V}\text{-}\mathbf{Rel}$, the expression `f.marginalize(X)` denotes the $\mathcal{V}$-enriched colimit (algebra-join) of $f$ along the $X$-coordinate:
+`Morphism.marginalize(*sets)` removes named factors from the *codomain*. For $f:A\to X\otimes Y$, `f.marginalize(X)` reduces the $X$ axis with the active algebra's `join`:
 
 $$
-\llbracket f.\mathrm{marginalize}(X) \rrbracket(y, z) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket\bigl((x, y), z\bigr),
+\llbracket f.\mathrm{marginalize}(X) \rrbracket(a, y) \;=\; \bigoplus_{x \in \llbracket X \rrbracket} \llbracket f \rrbracket\bigl(a,(x,y)\bigr),
 $$
 
-a morphism $Y \to Z$. Equivalently, it is the postcomposition with the $\mathcal{V}$-relation $\top_X : X \to \mathbf{1}$ that sends every $x$ to $\mathbf{1}$, after the canonical reassociation $X \otimes Y \cong Y \otimes X$.
+a morphism $A\to Y$. Passing a set that is absent from the codomain is an error.
 
 ## 2. Stochastic morphisms
 
-A `kernel` declaration with finite-set codomain and no `~ Family` clause,
+A default-role `morphism` declaration with finite-set codomain and no family initializer,
 
 ```
-kernel kern : τ₁ -> τ₂
+morphism kern : τ₁ -> τ₂
 ```
 
 denotes a morphism of $\mathbf{Stoch}$, i.e.\ a row-stochastic $|{\llbracket \tau_1 \rrbracket}| \times |{\llbracket \tau_2 \rrbracket}|$ matrix (each row $\llbracket \mathrm{kern} \rrbracket(x, \cdot)$ is a probability distribution over $\llbracket \tau_2 \rrbracket$):
@@ -106,7 +106,7 @@ Note that $\mathbf{Stoch}$ is *not* a sub-category of $\mathcal{V}_{\mathrm{pf}}
 Continuous distribution families *parameterized* by a finite set, declared with
 
 ```
-kernel f : τ₁ -> σ ~ Family
+morphism f : τ₁ -> σ ~ Family(...)
 ```
 
 denote morphisms of $\mathbf{Kern}$:
@@ -119,7 +119,7 @@ $$
 
 where $\theta : \llbracket \tau_1 \rrbracket \to \Theta$ is the family's parameter map and $p_{\mathrm{Family}}(\cdot \,;\, \theta)$ is the density of the family at parameter $\theta$. The QVR-supplied family registry catalogs the pairs $(\Theta, p)$ for each name (Normal, Beta, Dirichlet, …).
 
-The kernel therefore factors through $\Theta$, and $\theta$ is what the `param_source` option selects: a single affine map by default, an MLP under `[param_source=mlp]`, a lookup table whenever $\llbracket \tau_1 \rrbracket$ is finite. A finite $\Theta$-factorization is a real restriction on which kernels a declaration can denote, since $\llbracket f \rrbracket$ ranges only over the image of
+The kernel thus factors through $\Theta$, and $\theta$ is what the `param_source` option selects: a single affine map by default, an MLP under `[param_source=mlp]`, a lookup table whenever $\llbracket \tau_1 \rrbracket$ is finite. A finite $\Theta$-factorization is a real restriction on which kernels a declaration can denote, since $\llbracket f \rrbracket$ ranges only over the image of
 
 $$
 \mathbf{Meas}\bigl(\llbracket \tau_1 \rrbracket,\, \Theta\bigr) \longrightarrow \mathbf{Kern}\bigl(\llbracket \tau_1 \rrbracket,\, \llbracket \sigma \rrbracket\bigr),
@@ -129,7 +129,7 @@ $$
 
 so `~ Normal` denotes a Gaussian kernel and nothing else. Because $\theta$ carries learnable weights $\varphi$, the declaration denotes not one kernel but the $\varphi$-indexed family $\varphi \mapsto p_{\mathrm{Family}}(\,\cdot\;;\theta_\varphi(-))$; fitting selects the point.
 
-Note that $\theta$ is invisible to the typing judgment: `f : τ₁ -> σ ~ Family` types identically whichever parameter map it carries, so the choice moves $\llbracket f \rrbracket$ inside the hom-set while leaving the arrow fixed. Whether a model is linear in its input is therefore a fact about $\theta$, not about the type, which is why the option states it in the source.
+Note that $\theta$ is invisible to the typing judgment: `f : τ₁ -> σ ~ Family` types identically whichever parameter map it carries, so the choice moves $\llbracket f \rrbracket$ inside the hom-set while leaving the arrow fixed. Whether a model is linear in its input is thus a fact about $\theta$, not about the type, which is why the option states it in the source.
 
 #### The density is a product for most families
 
@@ -149,16 +149,16 @@ $$
 f_i(x) \;=\; p\bigl(\,\cdot\;;\theta_i(x)\bigr).
 $$
 
-So the registry splits $\mathbf{Kern}(\llbracket \tau_1 \rrbracket, \llbracket \sigma \rrbracket)$ into the kernels that factor through $\Delta$ and the kernels that do not. `Normal`, `Beta`, `Gamma` and their siblings denote the former; `MultivariateNormal`, `LowRankMVN`, and `MatrixNormal` denote the latter, and their $\Theta$ carries a [Cholesky factor](https://en.wikipedia.org/wiki/Cholesky_decomposition) so that the covariance is positive-definite by construction rather than by penalty. `~ Normal` on a $d$-dimensional codomain is therefore $d$ independent scalar Gaussians, not a Gaussian with a general covariance: the name selects the factorization, and `~ MultivariateNormal` is how a declaration asks for correlation.
+So the registry splits $\mathbf{Kern}(\llbracket \tau_1 \rrbracket, \llbracket \sigma \rrbracket)$ into the kernels that factor through $\Delta$ and the kernels that do not. `Normal`, `Beta`, `Gamma` and their siblings denote the former; `MultivariateNormal`, `LowRankMVN`, and `MatrixNormal` denote the latter, and their $\Theta$ carries a [Cholesky factor](https://en.wikipedia.org/wiki/Cholesky_decomposition), which enforces positive-definite covariance without a penalty. `~ Normal` on a $d$-dimensional codomain is thus $d$ independent scalar Gaussians, not a Gaussian with a general covariance: the name selects the factorization, and `~ MultivariateNormal` is how a declaration asks for correlation.
 
 Two readings of that default are worth separating. Parameter sharing is not dependence: every $\theta_i$ is a slice of one $\theta$, so the coordinates share all of the map's weights while remaining independent *given* $x$, since the factorization is through $\Delta$ on the domain. And the factorized family is the least committal one on its marginals, being the [maximum-entropy](https://en.wikipedia.org/wiki/Principle_of_maximum_entropy) distribution subject to per-coordinate first and second moments with no constraint on the cross-moments; a correlation is a further claim. What it cannot express is residual correlation, dependence between coordinates that survives conditioning on $x$, which no choice of $\theta$ recovers because $\theta$ acts before the tensor product.
 
 ## 3. Continuous morphisms
 
-A `kernel` declaration whose source is itself a space, e.g.
+A family-initialized `morphism` whose source is itself a space, e.g.
 
 ```
-kernel g : σ₁ -> σ₂ ~ Family
+morphism g : σ₁ -> σ₂ ~ Family(...)
 ```
 
 denotes a Markov kernel between standard Borel spaces:
@@ -208,7 +208,7 @@ extended uniquely (by the standard product-measure construction) to the product 
 
 ### 4a.1 Replication
 
-A `kernel f[n] : A -> B [~ Family ...]` declaration (note the bracketed integer after the kernel name) introduces $n$ *independently-parameterized* kernels sharing one declared signature, registered in the environment under synthesized names $f\_0, f\_1, \dots, f\_{n-1}$ along with a *group binding* $f \mapsto (f\_0, \dots, f\_{n-1})$. Denotationally,
+A declaration with `[replicate=n]` introduces $n$ independently parameterized morphisms with the same signature. The compiler registers synthesized members `f_0`, …, `f_{n-1}` and a group binding under `f`:
 
 $$
 \llbracket f\_i \rrbracket \;:\; \llbracket A \rrbracket \to \llbracket B \rrbracket \quad (i = 0, \dots, n-1),
@@ -216,11 +216,11 @@ $$
 
 each a separate morphism in the appropriate stratum with its own learnable parameters. The bare identifier $f$ is *not* itself a morphism; it is a group reference accepted by expressions that admit splicing (notably $\mathsf{fan}$, [Expressions §3.1](expressions.md#31-fan)), where it expands to the comma-separated list of its members. Outside a splice site, referring to $f$ alone is a compile-time error.
 
-The same form is admitted on `embed` declarations with the same group semantics.
+The same option is admitted for roles that support replication.
 
 ### 4a.2 Option blocks
 
-A morphism / kernel / discretize declaration may carry a bracketed *option block*
+A `morphism` declaration may carry a bracketed *option block*
 
 $$
 \bigl[\,k_1 = v_1,\ \dots,\ k_m = v_m\,\bigr]
@@ -235,7 +235,7 @@ The `discretize` and `embed` declarations witness the canonical functors between
 ### 5.1 Discretization
 
 ```
-discretize d : σ -> n
+morphism d : σ -> n [role=discretize, bins=n]
 ```
 
 denotes the *quotient* kernel induced by a measurable partition of $\llbracket \sigma \rrbracket$ into $n$ Borel cells $B_0, \dots, B_{n-1}$:
@@ -249,7 +249,7 @@ i.e.\ the deterministic kernel sending each $s$ to the (unique) cell containing 
 ### 5.2 Embedding
 
 ```
-embed e : n -> σ
+morphism e : n -> σ [role=embed] ~ Family(...)
 ```
 
 denotes a *section* of a discretization: a kernel $e : \iota(\{0, \dots, n-1\}) \to \llbracket \sigma \rrbracket$ such that the composite $e ; d = \mathrm{id}$. In the implementation this is typically realized by sampling from a per-cell *embedding family* $p_{\mathrm{Family}}(\cdot \,;\, \theta_i)$.
@@ -266,7 +266,7 @@ Each registered family carries a declared *event rank* $r_F \in \mathbb{N}$.
 | 1 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `LogisticNormal`, `RelaxedOneHotCategorical`, `GP`, `Horseshoe` | $\mathbb{R}^{d}$ for a single named axis |
 | 2 | `Wishart`, `LKJCholesky` | $\mathbb{R}^{d_1 \times d_2}$ for two named axes |
 
-Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is therefore equally usable as a conditional morphism (a kernel or `[role=latent]` morphism with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
+Every family in the table is installed in the unified family catalog by [`_register_family`](../api/continuous/families.md) (directly for the bespoke families, via [`_make_family`](../api/continuous/families.md) for the auto-generated wrappers around `torch.distributions`). Each is thus equally usable as a conditional morphism (a kernel or `[role=latent]` morphism with a `~ Family(args)` initializer) and as an inline draw site (`sample x <- Family(args)`). The parameter map, support, and `log_prob` semantics are uniform across the two call paths.
 
 A distribution clause `~ F(args) over <axes> [iid over <axes>]` *configures* the event–batch decomposition of a $F$-valued draw. Concretely, for a morphism $f : A \to B$ whose representing tensor has shape $\prod_{i} d_i$ indexed by the named factors $\{a_1, \dots, a_m\}$ of $A$ and $\{b_1, \dots, b_n\}$ of $B$, the clause names a sub-multiset $E \subseteq \{a_i\} \cup \{b_j\}$ of cardinality $|E| = r_F$ and declares:
 
@@ -306,4 +306,4 @@ where `rsample` is the reparameterized sample of the family at its declared even
 
 ## 8. Equivariance and naturality
 
-The constructions above are functorial in the chosen algebra (for the discrete stratum, [Algebras §4](algebras.md#4-functoriality-of-the-language)) and in the choice of family registry (for the stochastic and continuous strata). In particular, any uniform substitution of one family for another that preserves the parameter-map signature induces a natural transformation of denotations; this is the formal underpinning of the family-registry lookup tables in [`quivers.continuous.families`](../api/continuous/families.md) and [`quivers.stochastic.families`](../api/stochastic/families.md).
+The constructions above dispatch through the chosen algebra or family registry. Replacing an algebra or family may change support, normalization, parameterization, or composition. Such a replacement preserves denotation only when those contracts are checked explicitly; registry membership alone does not establish naturality.

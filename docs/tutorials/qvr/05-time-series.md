@@ -51,7 +51,7 @@ If you've used Haskell's `mapAccumL` or NumPy's `np.cumsum`, this is the same id
 
 ## A discrete hidden Markov model
 
-HMMs ([Rabiner, 1989](https://doi.org/10.1109/5.18626)) factor as an initial distribution, a row-stochastic transition kernel, and a row-stochastic emission kernel. In QVR's enriched setting they compose directly with `>>`. Here's the canonical K-state HMM with categorical emissions, lifted from `docs/examples/source/hmm.qvr`:
+An HMM ([Rabiner, 1989](https://doi.org/10.1109/5.18626)) normally factors as an initial distribution, a row-stochastic transition kernel, and a row-stochastic emission kernel. The following block is the finite-relation demonstration exported by `docs/examples/source/hmm.qvr`:
 
 ```qvr
 composition product_fuzzy [level=algebra]
@@ -66,10 +66,10 @@ define hmm    = initial >> n_step
 export hmm
 ```
 
-Two points to call out:
+Two limitations matter:
 
-- Every kernel is a row-stochastic matrix with a row-wise [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior. The axis-role surface `~ Dirichlet(1.0) over cod iid over dom` says each row of the matrix is an independent simplex draw, indexed by the domain object: the conjugate prior for a discrete Markov chain.
-- `repeat(transition)` is the runtime-variable repetition combinator: at evaluation time it folds the transition kernel against itself for the requested number of steps. The same model produces n-step marginals for any horizon.
+- The three declarations have no `Dirichlet` families, and the module uses `product_fuzzy`, so their learned tensors are sigmoid-constrained fuzzy relations rather than row-stochastic kernels. This exported `hmm` should thus be read as a path-composition example, not as a normalized HMM likelihood.
+- `repeat(transition)` repeats composition of the relation before the emission. Its output is determined by the selected algebra; under `product_fuzzy` it is neither a sum-product forward probability nor a Viterbi score.
 
 ### Axis-role syntax in 60 seconds
 
@@ -90,11 +90,11 @@ Other useful combinations:
 
 If neither `over` nor `iid over` is given, the family is broadcast scalar-wise. The compiler synthesises the appropriate `PlateDraw` internally; you don't need to think about plates.
 
-The Pyro analogue uses `infer={"enumerate": "parallel"}` and walks the chain with axis-shape juggling. NumPyro's `numpyro.contrib.control_flow.scan` does the per-step recursion explicitly. QVR's compositional surface treats the chain as a single morphism: the runtime contracts initial, transition, and emission in the algebra's tensor-and-join structure.
+The separate `hmm_program` in the example source demonstrates row-wise `Dirichlet` draws and categorical observations. Its current marginalized body uses `initial_row` and `emission_rows` but does not use the sampled `transition_rows`, so it is not yet a multi-step HMM likelihood.
 
 ## State-space models
 
-For continuous-state sequences, the per-step transition is a Gaussian kernel and so is the emission. The canonical linear-Gaussian SSM whose forward filter is the Kalman filter ([Kalman, 1960](https://doi.org/10.1115/1.3662552)) appears in `docs/examples/source/linear_gaussian_ssm.qvr`:
+For continuous-state sequences, the per-step transition and emission can be Gaussian kernels. The following state-space demonstration appears in `docs/examples/source/linear_gaussian_ssm.qvr`:
 
 ```text
 object Driver : Real 2
@@ -110,19 +110,19 @@ define filter = scan(filter_cell)
 export filter
 ```
 
-`scan(transition_cell)` folds the per-step Gaussian transition along the sequence dimension; composing with `emission` produces the generative model. The dual `filter` pipeline scans the same shape with the conditioning kernel.
+`scan(transition_cell)` folds the per-step Gaussian transition along the sequence dimension; composing with `emission` produces the generative path. `filter` scans a separately learned Gaussian kernel over observations and states. The source does not implement the closed-form Kalman update ([Kalman, 1960](https://doi.org/10.1115/1.3662552)).
 
 For a fully nonlinear (deep) variant where transition and emission are neural Gaussians, see `docs/examples/source/continuous_hmm.qvr` and `docs/examples/source/deep_markov.qvr`.
 
 ## Try this
 
-- Run NUTS on the discrete HMM and check Rhat for `initial`, `transition`, `emission`.
+- Add `Dirichlet` row priors to a normalized HMM program, then run NUTS and inspect R-hat for its latent parameters.
 - Make the linear-Gaussian SSM hierarchical: each sequence has its own transition cell drawn from a hyperprior. (Chapter 3's plate-draw applies.)
 - Swap the linear `transition_cell` for the deep-Markov nonlinear kernel and compare ELBO convergence.
 
 ## Next
 
-[Chapter 6](06-inference-zoo.md) surveys the inference algorithms: nine variational guides, four objectives, HMC and NUTS, two hybrid samplers. We'll work out which combination fits which kind of model.
+[Chapter 6](06-inference-zoo.md) surveys the inference algorithms: eleven concrete guide classes, seven objectives, HMC and NUTS, and two hybrid approaches.
 
 
 ## References

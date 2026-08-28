@@ -29,7 +29,7 @@ from quivers.stochastic import (
 from quivers.program import Program
 ```
 
-## Creating Stochastic Morphisms
+## Creating stochastic morphisms
 
 The FinStoch category uses the Markov algebra: composition is Markov kernel composition (matrix multiplication), and the join is summation.
 
@@ -106,7 +106,7 @@ output = program()
 print(output.shape)  # [3, 2]
 ```
 
-## Discretized Distributions
+## Discretized distributions
 
 For models mixing discrete and continuous variables, discretize continuous distributions into finite bins.
 
@@ -129,7 +129,7 @@ Similarly, create a [`DiscretizedBeta`](../../api/stochastic/families.md):
 disc_beta = DiscretizedBeta(Unit, Z_bin)
 ```
 
-These discretized morphisms compose with other stochastic morphisms. For example, chain a discretized normal into a learnable kernel from `Z_bin` to a coarser output set:
+These discretized morphisms compose with other stochastic morphisms. For instance, chain a discretized normal into a learnable kernel from `Z_bin` to a coarser output set:
 
 ```python
 Output = FinSet(name="Output", cardinality=3)
@@ -148,7 +148,7 @@ $$
 f|e(a, b) \;\propto\; f(a, b)\, e(b)
 $$
 
-For example, soft evidence over Y:
+For instance, soft evidence over Y:
 
 ```python
 evidence = torch.tensor([0.1, 0.4, 0.3, 0.2])
@@ -192,7 +192,7 @@ values = torch.tensor([10.0, 5.0, 1.0, 0.5])
 print(expectation(kern, values))  # shape [3]: E[v | x]
 ```
 
-## Multiple Stages
+## Multiple stages
 
 Build a longer chain:
 

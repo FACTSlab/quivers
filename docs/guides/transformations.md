@@ -1,6 +1,9 @@
 # Transformations and Composition Rules
 
-This guide covers two related surfaces: *transformations* (the first-class value-level surface for change-of-base) and the *composition-rule hierarchy* (the algebraic surface beneath `>>`). Both are essential vocabulary for working with morphisms that cross enrichment algebras.
+This guide covers two related surfaces: *transformations*, the
+first-class value-level surface for change of base, and the
+*composition-rule hierarchy*, the algebraic surface beneath `>>`.
+Together they specify how morphisms cross enrichment algebras.
 
 ## First-class transformations
 

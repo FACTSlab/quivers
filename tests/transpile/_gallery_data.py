@@ -373,7 +373,7 @@ class GalleryDataset:
     values the synthetic-data block instantiated the template with.
 
     A parametric program header (`program lda(alpha : Real, beta :
-    Real) : Word -> Word`) renders as a required *input* of the emitted
+    Real) : Token -> Mix`) renders as a required *input* of the emitted
     program on every backend: numpyro emits `def model(alpha, beta,
     word_idx, w=None)`, Stan declares `real alpha; real beta;` in its
     `data` block, JAGS reads `alpha` as an unknown variable. These
@@ -1249,16 +1249,31 @@ def _perturb_integer(
     lower: float,
     upper: float,
 ) -> torch.Tensor:
-    """Move an integer-valued vector by a small integer delta.
+    """Move an integer-valued tensor by a small integer delta.
 
-    The result is clamped into the intersection of the declared
-    support bounds and the value's own observed range. Clamping to the
-    observed range is what keeps a count observation in support when
-    the declared constraint is looser than the model's real alphabet:
-    a categorical emission declares `IntegerGreaterThan(0)` while the
-    emission row has finite width, so an unbounded upward step would
-    index past the row and send the joint to `-inf`. A vector whose
-    entries are all equal has an empty range and stays put.
+    The step is clamped into a window, and which window applies turns
+    on whether the value **attests a range of its own**.
+
+    1. A value whose entries span more than one integer attests that
+       range: the fixture's own forward simulation reached every value
+       between its minimum and its maximum, so the window is the
+       intersection of that range with the declared bounds. This is
+       what keeps a count observation in support when the declared
+       constraint is looser than the model's real alphabet: a
+       categorical emission declares `IntegerGreaterThan(0)` while the
+       emission row has finite width, so an unbounded upward step
+       would index past the row and send the joint to `-inf`.
+    2. A value whose entries are all equal, a scalar most of all,
+       attests nothing. Intersecting with its own degenerate range
+       would pin it to the one value it holds and freeze the
+       coordinate at every point of the evaluation set, which is not a
+       conservative reading of an unseen support but an unconditional
+       refusal to exercise the coordinate. The declared bounds
+       therefore govern on their own whenever they are finite, since a
+       finite declared interval is itself an attestation of where the
+       value may go.
+    3. A value that attests no range under bounds that are not both
+       finite has nothing to bound an upward step with, and stays put.
     """
     if work.numel() == 0:
         return work
@@ -1266,8 +1281,15 @@ def _perturb_integer(
         1.0, _INTEGER_STEP_FRACTION * float(work.abs().mean().item()),
     )
     moved = torch.round(work + torch.round(noise * magnitude))
-    low = max(lower, float(work.min().item()))
-    high = min(upper, float(work.max().item()))
+    attested_low = float(work.min().item())
+    attested_high = float(work.max().item())
+    if attested_low < attested_high:
+        low = max(lower, attested_low)
+        high = min(upper, attested_high)
+    elif math.isfinite(lower) and math.isfinite(upper):
+        low, high = lower, upper
+    else:
+        return work
     if low > high:
         return work
     return moved.clamp(min=low, max=high)
@@ -1373,10 +1395,40 @@ def _perturb_by_support(
     return moved.to(dtype=value.dtype)
 
 
+def _observed_count_floor(
+    section: dict[str, torch.Tensor], observe_names: frozenset[str],
+) -> float:
+    """Smallest value a scalar count parameter of `section` may take.
+
+    A scalar integer covariate parameterises a bounded count family:
+    it is the `total_count` of a Binomial or Beta-Binomial, the size
+    of a Multinomial draw, the trial budget of a Negative-Binomial
+    framing. Every one of those families supports the counts in
+    `[0, total]`, so the largest count the fixture actually scores is
+    the point below which the parameter cannot move without dropping
+    an observed response out of the support.
+
+    The floor reads the integer-valued `observe` binders only. A
+    fractional binder is a real observation that no count parameter
+    bounds, and a covariate is not scored at all.
+    """
+    floor = 0.0
+    for name, value in section.items():
+        if name not in observe_names or value.numel() == 0:
+            continue
+        if value.dtype.is_floating_point and not torch.equal(
+            value, value.round(),
+        ):
+            continue
+        floor = max(floor, float(value.max().item()))
+    return floor
+
+
 def _data_section_support(
     name: str,
     value: torch.Tensor,
     observe_names: frozenset[str],
+    count_floor: float,
 ) -> constraints.Constraint | None:
     """Constraint inferred for an observations-dict entry that answers
     to no compiled stochastic site.
@@ -1393,7 +1445,7 @@ def _data_section_support(
     observation.
 
     Resolution splits on which of the two kinds the entry is, and the
-    covariate case then splits on the entry's **dtype**:
+    covariate case then splits on the entry's **dtype** and **rank**:
 
     1. A covariate carried in a floating-point tensor is a real
        coordinate of the data and moves additively, whatever values it
@@ -1404,15 +1456,31 @@ def _data_section_support(
        blind to every backend error that is a function of that
        covariate alone, since such an error is constant across a point
        set that never moves it.
-    2. A covariate carried in an integer tensor is a structural
+    2. A covariate carried in an integer **vector** is a structural
        subscript: it names a row of a parameter plate rather than a
        point of the support, so stepping it would gather different
        parameters rather than move the data. It stays put, and
        [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order]
        is what keeps a frozen subscript from aliasing the row counter.
-    3. An **observe binder** carrying a fractional part is
+    3. A covariate carried in an integer **scalar** cannot be a
+       subscript, because a subscript has to index a plate and so has
+       to have one entry per row. It is a count parameter of an
+       observation family, and its value enters the density through
+       that family's normaliser: the Beta-Binomial's
+       `lgamma(total + 1)` terms move with it exactly as the response
+       does. It is therefore inside the support Theorem 4.1 quantifies
+       over and has to move, within the window
+       `[count_floor, 2 * value - count_floor]`. That window is the
+       widest interval centred on the attested ground truth whose
+       lower end is
+       [`_observed_count_floor`][tests.transpile._gallery_data._observed_count_floor],
+       the largest count the fixture scores; a fixture whose count
+       parameter already sits at that floor has no room to move and
+       the entry stays put, which the point-set strength check then
+       reports as an unexercised coordinate rather than absorbing.
+    4. An **observe binder** carrying a fractional part is
        unconstrained real and moves additively.
-    4. An integer-valued **observe binder** takes an integer step
+    5. An integer-valued **observe binder** takes an integer step
        inside its own attested range. The attested range is the
        conservative reading of a declared support the harness cannot
        see: every value in `[min, max]` is a point the model's own
@@ -1424,8 +1492,16 @@ def _data_section_support(
     if value.numel() == 0:
         return None
     if name not in observe_names:
-        return (
-            constraints.real if value.dtype.is_floating_point else None
+        if value.dtype.is_floating_point:
+            return constraints.real
+        if value.dim() != 0:
+            return None
+        ground_truth = float(value.item())
+        ceiling = 2.0 * ground_truth - count_floor
+        if ceiling <= count_floor:
+            return None
+        return constraints.integer_interval(
+            int(count_floor), int(ceiling),
         )
     if value.dtype.is_floating_point and not torch.equal(
         value, value.round(),
@@ -1458,13 +1534,20 @@ def _perturb_section(
     truth. Names in `exclude` are copied through untouched.
     """
     out: dict[str, torch.Tensor] = {}
+    count_floor = (
+        _observed_count_floor(section, observe_names)
+        if infer_from_value
+        else 0.0
+    )
     for name, value in section.items():
         if name in exclude:
             out[name] = value
             continue
         support = supports.get(name)
         if support is None and infer_from_value:
-            support = _data_section_support(name, value, observe_names)
+            support = _data_section_support(
+                name, value, observe_names, count_floor,
+            )
         if support is None:
             out[name] = value
             continue
@@ -1531,6 +1614,27 @@ def observed_data_names(dataset: GalleryDataset) -> frozenset[str]:
        never varies and is excluded here too.
     """
     return frozenset(dataset.observations) - frozenset(dataset.params)
+
+
+def structural_subscript_names(dataset: GalleryDataset) -> frozenset[str]:
+    """Names of `dataset`'s observations that gather a parameter row
+    rather than carry a coordinate of the support.
+
+    The same classifier the perturber consults, published so a caller
+    that wants to *exempt* a frozen coordinate has to justify the
+    exemption against the harness's own reading of the entry rather
+    than against a written claim. A subscript is an integer-dtyped
+    vector the program only reads: it has one entry per plate row and
+    each entry selects a parameter row, so stepping it gathers
+    different parameters instead of moving the data. An `observe`
+    binder is data however it is typed, a floating-point covariate is
+    a real coordinate however integral its values, and a scalar
+    integer covariate is a count parameter rather than a subscript,
+    so none of the three is reported here.
+    """
+    return _structural_subscript_names(
+        dataset.observations, dataset.observe_names,
+    )
 
 
 def varying_observation_names(
@@ -1605,7 +1709,9 @@ def points_from_dataset(
     support: a positive scale moves multiplicatively, a bounded value
     moves in logit space, a simplex row is renormalised, a Cholesky
     factor keeps its triangular / positive-diagonal shape, and an
-    integer count takes an integer step clamped to the attested range.
+    integer count takes an integer step clamped to the attested range,
+    and a scalar count parameter steps inside the window its family's
+    support leaves it above the largest count the fixture scores.
     A structural subscript, the one entry kind that names a parameter
     row rather than a point of the support, stays at ground truth; its
     row order is de-aliased at load time instead, by
@@ -1737,6 +1843,7 @@ __all__ = [
     "probe_scratch",
     "probe_scratch_root",
     "probe_script_digests",
+    "structural_subscript_names",
     "sweep_abandoned_probe_roots",
     "site_supports",
     "varying_observation_names",

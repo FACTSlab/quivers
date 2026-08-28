@@ -24,7 +24,7 @@ from quivers.core.algebras import PRODUCT_FUZZY
 from quivers.program import Program
 ```
 
-## Creating Objects
+## Creating objects
 
 Create three finite sets: one for positions (X), one for colors (Y), and one for outcomes (Z):
 
@@ -40,9 +40,9 @@ print(Z.size)   # 2
 
 Each object has a shape and size. These define the dimensions of the tensors representing morphisms.
 
-## Creating Morphisms
+## Creating morphisms
 
-### Latent Morphism
+### Latent morphism
 
 A latent morphism has learnable tensor entries. Create one from X to Y using [`morphism`](../../api/core/morphisms.md):
 
@@ -65,7 +65,7 @@ print(len(params))  # 1
 print(params[0].shape)  # torch.Size([3, 4])
 ```
 
-### Observed Morphism
+### Observed morphism
 
 An observed morphism has a fixed, non-learnable tensor. Create one from Y to Z with explicit data using [`observed`](../../api/core/morphisms.md):
 
@@ -132,7 +132,7 @@ $$
 
 In PRODUCT_FUZZY, $\otimes$ is multiplication and $\bigvee$ is $1 - \prod_i (1 - x_i)$.
 
-## Accessing Tensor Values
+## Accessing tensor values
 
 Once composed, access the materialized tensor:
 

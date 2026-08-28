@@ -7,23 +7,16 @@ extension is a thin packaging layer that points Zed at it.
 
 ## Install (dev / local)
 
-From a checkout of this repository:
-
-```bash
-# Tell Zed where this extension lives.
-mkdir -p ~/.config/zed/extensions
-ln -s "$(pwd)/editors/zed-extension-qvr" ~/.config/zed/extensions/qvr
-```
-
-Then in Zed, open the command palette and run **`zed: reload extensions`**.
-`.qvr` files now highlight using the tree-sitter grammar at
-`grammars/qvr/`.
+In Zed's Extensions view, choose **Install Dev Extension** and select
+`editors/zed-extension-qvr` from this checkout. Reinstall the dev
+extension after changing its manifest or packaged queries. `.qvr`
+files then use the tree-sitter grammar declared by the extension.
 
 ## Install (when published)
 
 Once this extension is submitted to the public Zed extension registry,
 it will be installable from Zed's `extensions:` panel by name (`QVR`).
-Until then, the dev / local path above is the supported route.
+Until then, use the dev-extension route above.
 
 ## Layout
 
@@ -38,5 +31,6 @@ editors/zed-extension-qvr/
 
 The `highlights.scm` is a copy of the canonical
 [`grammars/qvr/queries/highlights.scm`](../../grammars/qvr/queries/highlights.scm);
-when the grammar's queries change, this copy needs to be refreshed.
-A repo-level pre-commit hook keeps the two in sync.
+when the grammar's queries change, this copy must be refreshed. The
+repository tests validate the canonical query's node kinds, but no
+pre-commit hook copies it into the extension.

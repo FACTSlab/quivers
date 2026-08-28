@@ -1,8 +1,8 @@
 # Decoders
 
 `Decoder` is a `torch.nn.Module` that realizes a Kleisli
-coalgebra `Vec_D → Kern(T_Σ)`, given an input vector, defines
-a distribution over terms of a signature. Two operations:
+coalgebra `Vec_D → Kern(T_Σ)`. Given an input vector, it defines
+a distribution over terms of a signature through two operations:
 
 - `sample(vec, ctx, sort)` draws a single `Term`.
 - `log_prob(term, vec, ctx, sort)` scores an observed term

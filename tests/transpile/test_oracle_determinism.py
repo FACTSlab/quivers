@@ -15,8 +15,9 @@ carry it. The guard reads
 [`Trace.latent_sites`][quivers.effects.trace_types.Trace], which
 enumerates the entries of `Trace.sites`, and a latent internal to a
 `SampledComposition` is recorded at no site: an RNN scan cell's
-per-step gates, a decoder's attention chain, the intermediates a
-composition marginalises by importance sampling. The guard reports
+per-step gates, a decoder's attention chain, every intermediate a
+composition integrates over without opening a site. Let any of those
+be integrated by drawing rather than by a rule, and the guard reports
 "no free latents" on a joint that is being redrawn on every call.
 That is a structural proxy standing in for a behavioural property,
 and the proxy does not hold.
@@ -36,16 +37,28 @@ Five things are asserted, in the order a reader needs them:
    merely at ground truth. The distinction is load-bearing: a latent
    can be clamped by the ground-truth payload and left free by a
    perturbed one, and the equivalence tier evaluates all six.
-2. **The teeth.** Every example in `_SKIP_QVR_INCOMPATIBLE` is
-   rejected, at every point. These eight are non-deterministic for
-   exactly the reason the structural guard is blind to, so they are
-   the natural positive controls.
-3. **The contrast.** `deep_markov` and `vae` clamp every recorded
-   site, so the structural guard passes them, while their joints move
-   by nats between two seeds. Running both guards over the same pair
-   of traces and showing one silent where the other fires is the
-   evidence that the behavioural check adds a property rather than
-   restating one.
+2. **The blind spot, measured.** Every example in
+   `_SKIP_QVR_INCOMPATIBLE` draws a latent from a
+   `SampledComposition` whose intermediates are recorded at no site,
+   which is precisely the shape `Trace.latent_sites` cannot see.
+   Their joints are nonetheless bit-identical across the sweep at
+   every point, because the composition integrates those
+   intermediates against a deterministic rule rather than by drawing
+   them. This tier asserts that measurement instead of the prose the
+   registry carries: one of the eight starting to redraw fails here.
+3. **The contrast.** The structural guard passing where the
+   behavioural guard rejects is the whole reason the behavioural one
+   is worth its cost, and no gallery example exhibits that gap any
+   more (item 2 is the measurement that says so). The contrast is
+   therefore drawn against a program built for the purpose: a
+   two-step `MonadicProgram` whose likelihood marginalises an
+   internal latent by *drawing* it instead of integrating it against
+   a rule, which is the defect class the guard exists to catch. Both
+   of its recorded sites are clamped, so the structural guard is
+   silent; its joint moves by nats between two seeds, so the
+   behavioural guard fires. Running both over the same pair of
+   traces, produced by the same tracing machinery the gallery uses,
+   is what makes the contrast evidence rather than assertion.
 4. **The strength.** Each way the guard could be weakened back into
    something that reads the same and asserts less is pinned by the
    case it would start admitting: a one-ULP drift (which a tolerance
@@ -70,11 +83,18 @@ merge do not.
 from __future__ import annotations
 
 import functools
+import math
 import pathlib
 
 import pytest
 import torch
+from torch import distributions as td
 
+from quivers.continuous.families import ConditionalNormal
+from quivers.continuous.morphisms import ContinuousMorphism
+from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.spaces import Euclidean
+from quivers.core.objects import FinSet
 from quivers.effects.trace_types import SampleSite, Trace
 from tests.transpile import _gallery_data
 from tests.transpile.probes._protocol import Point
@@ -108,18 +128,118 @@ _SWEEP_SEEDS: tuple[int, ...] = (
     0x7FFFFFFF,
 )
 
-# The two examples that make the structural / behavioural gap visible:
-# every recorded site is clamped (so
-# `assert_all_latents_clamped` is silent) while the joint still moves
-# between seeds, because the redrawn latents live inside a
-# `SampledComposition` and are recorded nowhere. The other six members
-# of `_SKIP_QVR_INCOMPATIBLE` surface a free `h` site as well, so the
-# structural guard already rejects them and they demonstrate nothing
-# about the gap.
-_STRUCTURALLY_CLEAN_BUT_NONDETERMINISTIC: tuple[str, ...] = (
-    "deep_markov",
-    "vae",
-)
+# ---------------------------------------------------------------------
+# The constructed contrast.
+#
+# No gallery example is left whose joint the structural guard passes
+# and the behavioural guard rejects, so the pair of guards is run
+# against a program written to have exactly that shape. Nothing below
+# stands in for a trace: it is a real `MonadicProgram`, walked by the
+# same `trace` the gallery walks, recording real sites. The one thing
+# built for the occasion is the likelihood kernel, which integrates
+# its internal latent by drawing it rather than against a rule.
+# ---------------------------------------------------------------------
+
+_CONSTRUCTED_FIXTURE = "drawn_marginal"
+"""Name the constructed program is reported under.
+
+Deliberately not a gallery stem: a reader who sees it in a failure
+message should not go looking for a `.qvr` file."""
+
+_CONSTRUCTED_SEED = 0xD8A21
+"""Seed the constructed program's prior weights are drawn under.
+
+`ConditionalNormal` initialises an affine head at construction, which
+consumes the global RNG. Seeding around that, and restoring the
+caller's state afterwards, keeps the fixture reproducible run to run
+and stops building it from shifting any draw the surrounding test
+makes, which is the same discipline
+[`test_probe_evaluation_leaves_the_global_rng_state_untouched`][tests.transpile.test_oracle_determinism.test_probe_evaluation_leaves_the_global_rng_state_untouched]
+holds the probe to."""
+
+_DRAWN_MARGINAL_DRAWS = 16
+"""Draws the constructed likelihood marginalises its latent over.
+
+Small on purpose. A Monte-Carlo marginal converges as the draw count
+grows, so a large count would make the disagreement between two
+generator states shrink toward round-off and the contrast would rest
+on a coincidence of magnitudes rather than on the redraw."""
+
+_UNIT = FinSet(name="Unit", cardinality=1)
+_R1 = Euclidean(name="R1", dim=1)
+
+
+class _DrawnMarginal(ContinuousMorphism):
+    """A kernel that integrates its internal latent by drawing it.
+
+    Denotes
+
+        p(y | x) = integral N(u; x, 1) N(y; u, 1) du
+
+    and evaluates it as the Monte-Carlo average over `n_draws` draws
+    of `u`, which is the estimator shape the structural guard cannot
+    see: `u` is internal to the kernel, so it is recorded at no site,
+    appears in no `Trace.latent_sites`, and can be clamped by no
+    point. Every call therefore returns a different number for the
+    same arguments.
+
+    A plain `ContinuousMorphism` subclass rather than a `dx.Model`: it
+    is a `torch.nn.Module` participating in a compiled program, not a
+    structured value.
+    """
+
+    def __init__(self, n_draws: int = _DRAWN_MARGINAL_DRAWS) -> None:
+        super().__init__(_R1, _R1)
+        self.n_draws = n_draws
+
+    def rsample(
+        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        """Ancestral draw: `u ~ N(x, 1)`, then `y ~ N(u, 1)`."""
+        shape = torch.Size((*sample_shape, *x.shape))
+        return x.expand(shape) + torch.randn(shape) + torch.randn(shape)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """`log (1/n) sum_i N(y; u_i, 1)` over `u_i ~ N(x, 1)`."""
+        u = x.unsqueeze(0) + torch.randn((self.n_draws, *x.shape))
+        per_draw = td.Normal(u, 1.0).log_prob(y.unsqueeze(0)).sum(-1)
+        return torch.logsumexp(per_draw, dim=0) - math.log(self.n_draws)
+
+
+def _drawn_marginal_program() -> MonadicProgram:
+    """A two-step program whose likelihood redraws inside `log_prob`.
+
+        sample  z ~ prior()
+        observe y ~ drawn_marginal(z)
+
+    Both sites are recorded and both are clamped by the point, so
+    `Trace.latent_sites` is empty and the structural guard has nothing
+    to report. The quantity that moves lives one level below either
+    site, inside the likelihood's own marginalisation.
+    """
+    saved_rng_state = torch.get_rng_state()
+    try:
+        torch.manual_seed(_CONSTRUCTED_SEED)
+        prior = ConditionalNormal(_UNIT, _R1)
+        likelihood = _DrawnMarginal()
+    finally:
+        torch.set_rng_state(saved_rng_state)
+    return MonadicProgram(
+        _UNIT,
+        _R1,
+        steps=[
+            (("z",), prior, None),
+            (("y",), likelihood, ("z",), True),
+        ],
+        return_vars=("y",),
+    )
+
+
+_CONSTRUCTED_POINT = Point(params={"z": [0.25]}, data={"y": [1.5]})
+"""Ground truth for the constructed program: both sites clamped."""
+
+_CONSTRUCTED_INPUT = torch.zeros(1, 1)
+"""The one-row bracket token a `FinSet 1` domain reads."""
 
 # Model the RNG-neutrality assertions run against. Small, fully
 # clamped, and free of template instantiation, so the assertion is
@@ -137,8 +257,17 @@ def _scored_examples() -> list[pathlib.Path]:
     ]
 
 
-def _nondeterministic_examples() -> list[pathlib.Path]:
-    """Gallery examples pre-declared non-deterministic under the oracle."""
+def _composition_marginalised_examples() -> list[pathlib.Path]:
+    """Gallery examples whose oracle integrates a composition's insides.
+
+    `_SKIP_QVR_INCOMPATIBLE` is the registry of examples that draw a
+    latent from a `SampledComposition`: the four recurrent language
+    models, the transformer, the deep Markov state-space model, the
+    encoder-decoder, and the variational autoencoder. Their
+    intermediates are recorded at no trace site, so they are exactly
+    the programs `Trace.latent_sites` cannot speak about, and the
+    behavioural guard is the only thing that can.
+    """
     return [
         example
         for example in _gallery_data.gallery_examples_with_data()
@@ -299,140 +428,244 @@ def test_gallery_reference_joint_is_bitwise_deterministic(
 
 
 @pytest.mark.parametrize(
-    "example", _nondeterministic_examples(), ids=lambda p: p.stem
+    "example", _composition_marginalised_examples(), ids=lambda p: p.stem
 )
-def test_declared_nondeterministic_models_are_rejected(
+def test_composition_marginalised_models_are_bitwise_deterministic(
     example: pathlib.Path,
 ) -> None:
-    """The sweep rejects every pre-declared non-deterministic example.
+    """A latent drawn from a composition still scores to a fixed number.
 
-    `_SKIP_QVR_INCOMPATIBLE` is the registry of gallery examples whose
-    oracle redraws a `SampledComposition`'s intermediates on every
-    call. They are the positive controls for this tier: a determinism
-    check that passed them would be asserting nothing, and the
-    rejection has to hold at every point rather than at a lucky one.
+    These eight are the hardest cases the guard has: the quantities
+    their joints integrate over are internal to a `SampledComposition`
+    and are recorded at no site, so no point can clamp them and
+    `assert_all_latents_clamped` has nothing to look at. Whether the
+    joint is a number or a draw is decided entirely by how the
+    composition performs that integral, which is exactly the question
+    a structural check cannot reach and this one can.
 
-    The probe is exercised alongside the raw sweep, so the guarantee
-    is shown to hold at the surface a caller actually uses and not
-    only at the helper underneath it.
+    The answer is measured here rather than taken from
+    `_SKIP_QVR_INCOMPATIBLE`'s prose, at every point of the set and
+    across the full seed sweep, per site as well as per joint. An
+    example whose composition starts drawing its intermediates fails
+    here, which is what makes this the tier's live statement about the
+    eight rather than a transcription of the registry.
+
+    The probe is exercised alongside the raw sweep, and its reported
+    float is required to match the swept joint bit for bit. The two
+    run over *different* seed sets, so the agreement says something
+    the sweep alone does not: the value is a property of the program
+    and not of whichever seeds happened to be asked for.
     """
     points = _points(example)
     labels = _gallery_data.perturbation_labels(len(points))
     dataset = _dataset(example)
+    probe = QvrProbe()
+    scratch = pathlib.Path(__file__).parent
 
-    deterministic_points: list[str] = []
     for index, point in enumerate(points):
-        traces = _sweep(example, point)
         context = f"{example.stem!r} at point {index} ({labels[index]})"
+        traces = _sweep(example, point)
         joints = [
             _joint_of(trace_result, context, seed)
             for trace_result, seed in zip(traces, _SWEEP_SEEDS)
         ]
-        if len({_bit_pattern(joint) for joint in joints}) == 1:
-            deterministic_points.append(f"{index} ({labels[index]})")
+        totals = [float(joint.sum().item()) for joint in joints]
+        assert len({_bit_pattern(joint) for joint in joints}) == 1, (
+            f"{context}: the joint moved across global torch RNG seeds "
+            f"{list(_SWEEP_SEEDS)}, producing {totals!r} (hex "
+            f"{[total.hex() for total in totals]!r}). The composition "
+            f"this program draws its latent from is integrating its "
+            f"intermediates by drawing them, so the reference is a "
+            f"draw from an estimator rather than a density, and "
+            f"nothing here or in the equivalence tier can compare a "
+            f"backend against it. No point can clamp the redrawn "
+            f"quantity, because it is recorded at no site, so the "
+            f"integral itself has to be a rule rather than a draw."
+        )
 
-    assert not deterministic_points, (
-        f"{example.stem!r}: `_SKIP_QVR_INCOMPATIBLE` declares this "
-        f"example's oracle non-deterministic, but its joint is "
-        f"bit-identical across seeds {list(_SWEEP_SEEDS)} at point(s) "
-        f"{deterministic_points!r}. Either the composition "
-        f"marginalisation became deterministic, in which case drop the "
-        f"entry from the registry and let the equivalence tier score "
-        f"the model, or the sweep stopped reaching the redrawn "
-        f"quantity, in which case this whole tier is measuring "
-        f"nothing."
-    )
-
-    for index, point in enumerate(points):
-        context = f"{example.stem!r} at point {index} ({labels[index]})"
-        with pytest.raises(RuntimeError) as exc_info:
-            QvrProbe().evaluate(
-                example.read_bytes(),
-                example.stem,
-                [point],
-                scratch=pathlib.Path(__file__).parent,
-                monadic=dataset.monadic,
-                x_input=dataset.x_input,
-                observations=_gallery_data.observations_for_point(
-                    dataset, point,
-                ),
+        names = {frozenset(trace_result.sites) for trace_result in traces}
+        assert len(names) == 1, (
+            f"{context}: the set of recorded trace sites depends on the "
+            f"generator state ({[sorted(entry) for entry in names]!r}), "
+            f"so the program takes a different control-flow path under "
+            f"a different seed."
+        )
+        for name in sorted(traces[0].sites):
+            summands = [
+                trace_result.sites[name].log_prob for trace_result in traces
+            ]
+            site_totals = [
+                float(summand.sum().item()) for summand in summands
+            ]
+            assert len({_bit_pattern(summand) for summand in summands}) == 1, (
+                f"{context}: site {name!r} contributes a different "
+                f"log-density under different generator states "
+                f"({site_totals!r}). The joint agrees here only because "
+                f"two moving summands cancelled, and they need not "
+                f"cancel at the next point."
             )
-        message = str(exc_info.value)
-        assert example.stem in message, (
-            f"{context}: the probe rejected the evaluation without "
-            f"naming the model in its message: {message!r}."
+
+        result = probe.evaluate(
+            example.read_bytes(),
+            example.stem,
+            [point],
+            scratch=scratch,
+            monadic=dataset.monadic,
+            x_input=dataset.x_input,
+            observations=_gallery_data.observations_for_point(
+                dataset, point,
+            ),
+        )
+        assert len(result.log_densities) == 1
+        reported = result.log_densities[0]
+        assert math.isfinite(reported), (
+            f"{context}: the probe reported {reported!r}. A "
+            f"non-finite reference is reproducible and still useless."
+        )
+        assert reported.hex() == totals[0].hex(), (
+            f"{context}: the probe reports {reported!r} (hex "
+            f"{reported.hex()}) where the sweep traced {totals[0]!r} "
+            f"(hex {totals[0].hex()}). The two differ only in which "
+            f"seeds they ran under, so the oracle's value depends on "
+            f"the generator state after all."
         )
 
 
-@pytest.mark.parametrize(
-    "stem", _STRUCTURALLY_CLEAN_BUT_NONDETERMINISTIC
-)
-def test_structural_guard_passes_where_behavioural_guard_rejects(
-    stem: str,
-) -> None:
-    """The two guards disagree on `deep_markov` and `vae`, and that gap
-    is the whole reason the behavioural one exists.
+def _constructed_traces() -> list[Trace]:
+    """Trace the constructed program once per entry of `DETERMINISM_SEEDS`."""
+    return reference_traces(
+        _drawn_marginal_program(),
+        _CONSTRUCTED_POINT,
+        x_input=_CONSTRUCTED_INPUT,
+        seeds=DETERMINISM_SEEDS,
+    )
 
-    Both examples clamp every site the trace records, so
-    `Trace.latent_sites` is empty and
+
+def test_structural_guard_passes_where_behavioural_guard_rejects() -> None:
+    """The two guards disagree on a program built to make them disagree,
+    and that gap is the whole reason the behavioural one exists.
+
+    Every site
+    [`trace`][quivers.inference.trace.trace] records for
+    [`_drawn_marginal_program`][tests.transpile.test_oracle_determinism._drawn_marginal_program]
+    is clamped by the point, so `Trace.latent_sites` is empty and
     [`assert_all_latents_clamped`][tests.transpile.probes.qvr.assert_all_latents_clamped]
-    reports a clean joint. Both redraw the intermediates of a
-    `SampledComposition` that is recorded at no site, so their joints
-    move by nats between two seeds and
+    reports a clean joint. Its likelihood integrates an internal
+    latent by drawing it, and that latent is recorded at no site, so
+    the joint moves by nats between two seeds and
     [`assert_reference_joint_deterministic`][tests.transpile.probes.qvr.assert_reference_joint_deterministic]
-    rejects them. Running both over the *same* pair of traces is what
-    makes the contrast evidence rather than assertion: nothing about
-    the inputs differs between the silent guard and the firing one.
+    rejects it. Running both guards over the *same* pair of traces is
+    what makes the contrast evidence rather than assertion: nothing
+    about the inputs differs between the silent guard and the firing
+    one.
+
+    The program is constructed rather than drawn from the gallery
+    because no gallery example has this shape any longer;
+    [`test_composition_marginalised_models_are_bitwise_deterministic`][tests.transpile.test_oracle_determinism.test_composition_marginalised_models_are_bitwise_deterministic]
+    is the measurement that establishes it, and would fail the moment
+    a gallery example reacquired it. What is constructed is one
+    kernel; the program,
+    the trace, the site records, and both guards are the same
+    machinery the gallery runs through.
+
+    The rejection is required to come from the *joint*, not merely
+    from a moving summand, and the prior site is required to hold
+    still. Together those say the disagreement is localised in the
+    kernel that draws, rather than being a program that is unstable
+    everywhere and would reject under any guard at all.
     """
-    example = next(
-        candidate
-        for candidate in _gallery_data.gallery_examples_with_data()
-        if candidate.stem == stem
+    traces = _constructed_traces()
+    first, second = traces[0], traces[1]
+
+    assert sorted(first.sites) == ["y", "z"], (
+        f"the constructed program recorded {sorted(first.sites)!r}; "
+        f"the contrast needs the clamped prior site and the clamped "
+        f"observation, and nothing else."
     )
-    points = _points(example)
-    labels = _gallery_data.perturbation_labels(len(points))
 
-    for index, point in enumerate(points):
-        context = f"{stem!r} at point {index} ({labels[index]})"
-        traces = _sweep(example, point, DETERMINISM_SEEDS)
+    # The structural guard is silent: every recorded site is clamped,
+    # so it has nothing to report.
+    assert not first.latent_sites, (
+        f"`Trace.latent_sites` is {sorted(first.latent_sites)!r}, so "
+        f"the structural guard already rejects the constructed "
+        f"program and it demonstrates nothing about the gap. The "
+        f"point must clamp every recorded site."
+    )
+    assert_all_latents_clamped(first, _CONSTRUCTED_FIXTURE)
+    assert_all_latents_clamped(second, _CONSTRUCTED_FIXTURE)
 
-        # The structural guard is silent: every recorded site is
-        # clamped, so it has nothing to report.
-        assert not traces[0].latent_sites, (
-            f"{context}: `Trace.latent_sites` is "
-            f"{sorted(traces[0].latent_sites)!r}, so the structural "
-            f"guard already rejects this example and it demonstrates "
-            f"nothing about the gap. Move the stem out of "
-            f"`_STRUCTURALLY_CLEAN_BUT_NONDETERMINISTIC`."
+    # The behavioural guard, over those same two traces, fires.
+    with pytest.raises(RuntimeError) as exc_info:
+        assert_reference_joint_deterministic(
+            traces, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS,
         )
-        assert_all_latents_clamped(traces[0], stem)
 
-        # The behavioural guard, over those same two traces, fires.
-        with pytest.raises(RuntimeError) as exc_info:
-            assert_reference_joint_deterministic(
-                traces, stem, DETERMINISM_SEEDS,
-            )
+    message = str(exc_info.value)
+    left = float(
+        _joint_of(first, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[0])
+        .sum()
+        .item()
+    )
+    right = float(
+        _joint_of(second, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[1])
+        .sum()
+        .item()
+    )
+    assert left != right, (
+        f"the two joints agree ({left!r}), so the raise came from a "
+        f"moving per-site summand rather than from the joint. That is "
+        f"still a rejection, but this test claims the joint itself "
+        f"moves."
+    )
+    assert _CONSTRUCTED_FIXTURE in message, (
+        f"the rejection does not name the program: {message!r}."
+    )
+    assert repr(left) in message and repr(right) in message, (
+        f"the rejection does not show both differing joints "
+        f"({left!r}, {right!r}): {message!r}."
+    )
+    assert "'y'" in message, (
+        f"the rejection does not name the site the drawn "
+        f"marginalisation sits under: {message!r}."
+    )
 
-        message = str(exc_info.value)
-        left = float(
-            _joint_of(traces[0], context, DETERMINISM_SEEDS[0]).sum().item()
-        )
-        right = float(
-            _joint_of(traces[1], context, DETERMINISM_SEEDS[1]).sum().item()
-        )
-        assert left != right, (
-            f"{context}: the two joints agree ({left!r}), so the raise "
-            f"came from a moving per-site summand rather than from the "
-            f"joint. That is still a rejection, but this test claims "
-            f"the joint itself moves."
-        )
-        assert stem in message, (
-            f"{context}: the rejection does not name the model: "
-            f"{message!r}."
-        )
-        assert repr(left) in message and repr(right) in message, (
-            f"{context}: the rejection does not show both differing "
-            f"joints ({left!r}, {right!r}): {message!r}."
+    prior_patterns = {
+        _bit_pattern(trace_result.sites["z"].log_prob)
+        for trace_result in traces
+    }
+    assert len(prior_patterns) == 1, (
+        f"the prior site 'z' also moved between seeds, so the "
+        f"constructed program is non-deterministic everywhere rather "
+        f"than at the one kernel that draws, and the contrast says "
+        f"less than it claims. Prior log-densities: "
+        f"{[float(t.sites['z'].log_prob.sum().item()) for t in traces]!r}."
+    )
+
+
+def test_constructed_contrast_is_a_function_of_the_generator_state() -> None:
+    """The constructed program's disagreement is about the seed alone.
+
+    A program that returned a fresh number on every call for reasons
+    *other* than the generator state (a clock, an address, an
+    uninitialised buffer) would also make the behavioural guard fire,
+    and would make it fire for a reason the guard does not claim to
+    detect. Tracing the same seed pair twice and requiring both runs
+    to reproduce their own joints bit for bit rules that out: the
+    program is a deterministic function of the seed, and the contrast
+    above is a statement about two different seeds.
+    """
+    first_pass = _constructed_traces()
+    second_pass = _constructed_traces()
+
+    for index, seed in enumerate(DETERMINISM_SEEDS):
+        earlier = _joint_of(first_pass[index], _CONSTRUCTED_FIXTURE, seed)
+        later = _joint_of(second_pass[index], _CONSTRUCTED_FIXTURE, seed)
+        assert _bit_pattern(earlier) == _bit_pattern(later), (
+            f"tracing the constructed program twice under seed {seed} "
+            f"produced {float(earlier.sum().item())!r} and then "
+            f"{float(later.sum().item())!r}. Its value depends on "
+            f"something other than the global torch RNG, so it is the "
+            f"wrong witness for a guard that varies the RNG alone."
         )
 
 
