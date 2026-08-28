@@ -1,6 +1,6 @@
 # 3. Hierarchical models
 
-The eight-schools dataset ([Rubin, 1981](https://doi.org/10.3102/10769986006004377)) is the standard stress test for hierarchical-Bayes machinery: eight schools, one observed treatment effect and standard error per school, and the question is how much each school's true effect borrows strength from the global mean. The model is tiny, the posterior geometry is treacherous, and mean-field VI famously collapses on it.
+The eight-schools dataset ([Rubin, 1981](https://doi.org/10.3102/10769986006004377)) is a common stress test for hierarchical Bayesian inference: eight schools, one observed treatment effect and standard error per school, and the question of how much each school's effect borrows strength from the global mean. The model is small, but its centered parameterization can produce funnel-shaped posterior geometry that is difficult for mean-field VI and Hamiltonian Monte Carlo.
 
 This chapter covers:
 
@@ -48,7 +48,7 @@ The `theta : School <- Normal(...)` line is a *plate-draw*: it samples one value
 
 The compiler synthesizes a `PlateDraw` morphism whose codomain is the product space `School ⊗ Real`; you can index into it like `theta[j]` inside subsequent `let` arithmetic.
 
-#! Centered fails mean-field
+## Centered parameterization and mean-field VI
 
 The centered parameterization puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
 
@@ -88,7 +88,7 @@ for _ in range(50):                              # bump to ~3000 for real fits
     svi.step(x_tensor, observations)
 ```
 
-You'll see something like `tau ≈ 0.1 ± 0.05`: the diagnostic-textbook signature of a funnel collapse. The true posterior mean of `tau` is closer to 3.
+This short fit may place too much mass near `tau = 0`, a known failure mode for a diagonal guide on funnel geometry. Compare parameterizations with a longer optimization and a diagnosed MCMC reference rather than treating a particular printed value as expected output.
 
 ## Non-centered fixes it
 
@@ -107,7 +107,7 @@ program eight_schools_noncentred : School -> School [effects=[Sample, Score]]
 export eight_schools_noncentred
 ```
 
-Re-running with the non-centered parameterization, `AutoNormalGuide` recovers a posterior with `tau` mean around 3, competitive with NUTS on this small problem.
+Re-running with the non-centered parameterization can improve the diagonal guide's geometry. Whether it agrees with NUTS depends on optimization and MCMC diagnostics.
 
 ## NUTS
 
@@ -136,16 +136,7 @@ print("ESS tau:", result.ess["tau"].item())
 print("divergences:", result.total_divergences)
 ```
 
-A clean run shows R-hat < 1.01 for every site (rank-normalized split-R-hat, [Vehtari, Gelman, Simpson, Carpenter & Bürkner, 2021](https://doi.org/10.1214/20-BA1221)), ESS in the thousands, and zero divergences. On the centered parameterization you'll see a handful of divergences for `tau` near zero: the diagnostic flag that says "consider non-centered."
-
-Healthy console output looks like:
-
-```text
-posterior mean tau: 3.42
-R-hat tau: 1.003
-ESS tau: 1287.4
-divergences: 0
-```
+A sufficiently long, well-mixed run should have R-hat near 1 for every site (rank-normalized split-R-hat; [Vehtari et al., 2021](https://doi.org/10.1214/20-BA1221)), adequate effective sample sizes, and few or no divergences. The short documentation budget above cannot establish convergence; inspect the values produced by your run.
 
 If R-hat is above 1.01 anywhere, give NUTS more warmup steps (`num_warmup=2000`). If divergences are nonzero, raise `target_accept` to 0.99 or reparameterize to non-centered. If ESS is small (<100 per chain), the chain is mixing slowly: either run longer or reparameterize.
 

@@ -54,9 +54,14 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
     RuleDecl,
     SchemaDecl,
+    Module,
     ObjectDecl,
     TypeEnumSet,
+    TypeName,
+    ObjectCoproduct,
+    ObjectEffectApply,
     ObjectExpr,
+    ObjectSlash,
     TypeFreeMonoid,
     TypeFreeResiduated,
     TypeFromExpr,
@@ -83,6 +88,10 @@ from quivers.dsl.compiler._prelude import (
 )
 from quivers.dsl.compiler.programs import _ProgramsMixin
 from quivers.stochastic import StochasticMorphism
+from quivers.stochastic.categories import (
+    BUILTIN_CONSTRUCTOR_NAMES,
+    constructor_name_error,
+)
 from quivers.stochastic.schema import (
     SCHEMA_REGISTRY,
     PatternBinarySchema,
@@ -93,6 +102,55 @@ from quivers.stochastic.schema import (
 _VALID_ROLES: frozenset[str] = frozenset(
     {"latent", "observed", "kernel", "embed", "discretize", "let"}
 )
+
+
+def _is_residuated_expr(expr: ObjectExpr, alias_names: set[str]) -> bool:
+    """Whether an object expression lives in the residuated stratum.
+
+    The residuated formers (``/``, ``\\``, and effect application)
+    denote in a residuated-monoidal universe rather than in
+    **FinSet** or in the continuous-space stratum, so a declaration
+    whose right-hand side contains one is recorded as a pattern
+    alias instead of being resolved to a concrete object. A bare
+    name that already stands for such a pattern carries the same
+    reading, and a product or coproduct inherits it from any
+    component.
+    """
+    if isinstance(expr, (ObjectSlash, ObjectEffectApply)):
+        return True
+    if isinstance(expr, TypeName):
+        return expr.name in alias_names
+    if isinstance(expr, (ObjectProduct, ObjectCoproduct)):
+        return any(_is_residuated_expr(c, alias_names) for c in expr.components)
+    return False
+
+
+def _type_names(expr: ObjectExpr) -> list[TypeName]:
+    """Collect every bare name an object expression mentions."""
+    if isinstance(expr, TypeName):
+        return [expr]
+    if isinstance(expr, (ObjectProduct, ObjectCoproduct)):
+        return [n for c in expr.components for n in _type_names(c)]
+    if isinstance(expr, ObjectSlash):
+        return _type_names(expr.result) + _type_names(expr.argument)
+    if isinstance(expr, ObjectEffectApply):
+        return [n for a in expr.args for n in _type_names(a)]
+    return []
+
+
+def _bare_message(exc: CompileError) -> str:
+    """Return a `CompileError`'s message without its location prefix.
+
+    The prefix is re-attached by the enclosing `CompileError` that
+    adds the declaration's name, so carrying it through twice would
+    print the position inside the sentence as well as in front of it.
+    """
+    text = str(exc)
+    prefix = f"line {exc.line}, col {exc.col}: "
+    if text.startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
 
 # Closed option-key set for ``morphism`` declarations. Every key the
 # compiler reads off a `MorphismDecl`'s option block appears here:
@@ -244,6 +302,7 @@ class _DeclarationsMixin:
     _spaces: dict[str, ContinuousSpace]
     _morphisms: dict
     _groups: dict[str, list[str]]
+    _module: Module
 
     # ``_resolve_type``, ``_resolve_any_space``, ``_compile_expr``
     # come from `_ResolutionMixin` and
@@ -622,6 +681,29 @@ class _DeclarationsMixin:
                     decl.line,
                     decl.col,
                 )
+            if not init.ops:
+                raise CompileError(
+                    f"FreeResiduated {name!r}: ops=[] closes under no "
+                    f"connective, leaving only the generator atoms; "
+                    f"name at least one of "
+                    f"{sorted(BUILTIN_CONSTRUCTOR_NAMES)}",
+                    decl.line,
+                    decl.col,
+                )
+            for op in init.ops:
+                if op not in BUILTIN_CONSTRUCTOR_NAMES:
+                    raise CompileError(
+                        f"FreeResiduated {name!r}: {constructor_name_error(op)}",
+                        decl.line,
+                        decl.col,
+                    )
+            if init.depth < 0:
+                raise CompileError(
+                    f"FreeResiduated {name!r}: depth must be "
+                    f"non-negative, got {init.depth}",
+                    decl.line,
+                    decl.col,
+                )
             self._objects[name] = FreeResiduated(
                 generators=gen,
                 depth=init.depth,
@@ -630,12 +712,10 @@ class _DeclarationsMixin:
             return
         if isinstance(init, TypeFromExpr):
             expr = init.expr
-            try:
-                resolved = self._resolve_any_space(expr)
-            except CompileError:
-                # Residuated patterns and effect-typed RHS do not
-                # resolve to a concrete object/space; record the
-                # alias for use-site substitution inside schema
+            if _is_residuated_expr(expr, self._alias_names):
+                # Residuated patterns and effect-typed RHS have no
+                # denotation in the bare object/space stratum; record
+                # the alias for use-site substitution inside schema
                 # patterns.
                 if name in self._alias_names:
                     raise CompileError(
@@ -646,6 +726,15 @@ class _DeclarationsMixin:
                 self._alias_names.add(name)
                 self._aliases[name] = expr
                 return
+            try:
+                resolved = self._resolve_any_space(expr)
+            except CompileError as exc:
+                raise CompileError(
+                    f"object {name!r}: {_bare_message(exc)}"
+                    f"{self._forward_reference_hint(expr)}",
+                    exc.line if exc.line else decl.line,
+                    exc.col if exc.line else decl.col,
+                ) from exc
             if isinstance(resolved, ContinuousSpace):
                 self._spaces[name] = resolved
             else:
@@ -656,6 +745,36 @@ class _DeclarationsMixin:
             decl.line,
             decl.col,
         )
+
+    def _forward_reference_hint(self, expr: ObjectExpr) -> str:
+        """Name any object the expression uses ahead of its declaration.
+
+        Declarations are compiled in source order, so a name is in
+        scope only from the line after it is introduced. Without this
+        hint a forward reference reads as a missing declaration, which
+        sends the author looking for a name that is in fact right
+        there, further down the file.
+        """
+        pending: list[str] = []
+        for ref in _type_names(expr):
+            if ref.name.isdigit():
+                continue
+            if (
+                ref.name in self._objects
+                or ref.name in self._spaces
+                or ref.name in self._alias_names
+            ):
+                continue
+            for stmt in self._module.statements:
+                if isinstance(stmt, ObjectDecl) and ref.name in stmt.names:
+                    pending.append(
+                        f"{ref.name!r} is declared later, on line {stmt.line}"
+                    )
+                    break
+        if not pending:
+            return ""
+        joined = "; ".join(pending)
+        return f" ({joined}; declarations come into scope in source order)"
 
     # ------------------------------------------------------------------
     # morphism

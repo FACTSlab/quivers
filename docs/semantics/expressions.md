@@ -71,13 +71,13 @@ the parallel product. This is the symmetric monoidal structure of $\mathcal{V}\t
 
 ### 2.5 Marginalization
 
-For $\llbracket e \rrbracket : X_1 \otimes \cdots \otimes X_k \otimes Y \to Z$,
+For $\llbracket e \rrbracket : A \to X_1 \otimes \cdots \otimes X_k \otimes Y$,
 
 $$
-\llbracket e.\mathsf{marginalize}(X_1, \dots, X_k) \rrbracket(y, z) \;=\; \bigoplus_{x_1, \dots, x_k} \llbracket e \rrbracket\bigl((x_1, \dots, x_k, y), z\bigr),
+\llbracket e.\mathsf{marginalize}(X_1, \dots, X_k) \rrbracket(a, y) \;=\; \bigoplus_{x_1, \dots, x_k} \llbracket e \rrbracket\bigl(a,(x_1, \dots, x_k, y)\bigr),
 $$
 
-a morphism $Y \to Z$ obtained by joining the marginalized coordinates out of the input. In $\mathbf{Stoch}$ and $\mathbf{Kern}$ the join $\bigoplus$ is integration against the corresponding marginal; in $\mathcal{V}\text{-}\mathbf{Rel}$ it is the algebra join. When $k$ equals the full input arity (no remaining $Y$), the result is a morphism $\mathbf{1} \to Z$.
+a morphism $A \to Y$ obtained by reducing named codomain coordinates with the active algebra's `join`. The current postfix is implemented for discrete `Morphism` values; it is not the program-block marginalization operation.
 
 ### 2.6 Change of base
 
@@ -232,13 +232,13 @@ $$
 
 ### 3.2 Stack
 
-For $e : X \to Y$ and $n \in \mathbb{N}_{>0}$,
+For an endomorphism $e:X\to X$ and $n \in \mathbb{N}_{>0}$,
 
 $$
-\llbracket \mathsf{stack}(e, n) \rrbracket \;=\; \llbracket e \rrbracket \otimes \cdots \otimes \llbracket e \rrbracket \quad (\text{$n$ copies}),
+\llbracket \mathsf{stack}(e, n) \rrbracket \;=\; \llbracket e_n \rrbracket \circ \cdots \circ \llbracket e_1 \rrbracket,
 $$
 
-a morphism $X^{\otimes n} \to Y^{\otimes n}$.
+where each $e_i$ is a deep-copied instance of $e$. Thus `stack` builds a sequential chain with independent parameters. It is not an n-fold tensor product.
 
 ### 3.3 Repeat
 
@@ -246,20 +246,17 @@ $$
 \llbracket \mathsf{repeat}(e, n) \rrbracket \;=\; \underbrace{\llbracket e \rrbracket \circ \cdots \circ \llbracket e \rrbracket}_{n \text{ copies}},
 $$
 
-defined when $\mathrm{dom}(\llbracket e \rrbracket) = \mathrm{cod}(\llbracket e \rrbracket)$, i.e.\ when $\llbracket e \rrbracket$ is an endomorphism. With no explicit count, $\mathsf{repeat}(e)$ denotes a single application of $\llbracket e \rrbracket$ wrapped as a `RepeatMorphism` whose count is a learnable parameter; the $n = 1$ default is a structural placeholder for downstream training.
+defined when $\mathrm{dom}(\llbracket e \rrbracket) = \mathrm{cod}(\llbracket e \rrbracket)$. Unlike `stack`, every step shares the same morphism instance and parameters. With no explicit count, `repeat(e)` constructs `RepeatMorphism(e, n=1)`; the count is a fixed runtime integer, not a learnable parameter.
 
 ### 3.4 Scan
 
-For $\llbracket e \rrbracket : X \otimes S \to Y \otimes S$,
+For a continuous recurrent cell $e:A\otimes H\to H$,
 
 $$
-\llbracket \mathsf{scan}(e, \mathit{init}) \rrbracket \;=\; \mathrm{Tr}^{S}\bigl( \llbracket e \rrbracket \bigr) : X \to Y,
+\mathsf{scan}(e, \mathit{init}) : A \to H.
 $$
 
-where $\mathrm{Tr}^{S} : \mathcal{C}(X \otimes S, Y \otimes S) \to \mathcal{C}(X, Y)$ is the trace operator of the appropriate [traced symmetric monoidal category](https://ncatlab.org/nlab/show/traced+monoidal+category) $\mathcal{C}$ ([Joyal, Street & Verity, 1996](https://doi.org/10.1017/S0305004100074338)) eliminating the recurrent state $S$. The trace itself is canonical; the annotation $\mathit{init} \in \{\mathrm{zeros}, \mathrm{learned}\}$ selects the *seed* used by the iterative computation that realizes the trace in code, i.e. the distinguished element $s_0 \in S$ at which the fixed-point iteration begins. Concretely:
-
-- In $\mathcal{V}\text{-}\mathbf{Rel}$, $\mathrm{Tr}^{S}$ is the *iterative* trace, defined by algebra-join over the orbit of $S$;
-- In $\mathbf{Stoch}$ and $\mathbf{Kern}$, $\mathrm{Tr}^{S}$ is implemented as a sequence of Markov-kernel compositions seeded by $s_0$.
+At runtime the input tensor carries an implicit time axis. `ScanMorphism` initializes $h_0$ with zeros or a learned vector, applies $h_t=e(x_t,h_{t-1})$, and returns the final state $h_T$. This is an iterative recurrent combinator, not the categorical trace exposed by `.trace(...)`.
 
 The runtime artefact [`ScanMorphism`](../api/continuous/scan.md) exposes a `log_joint(x, hidden_states)` method whose second argument is the full state trajectory of shape $(\mathrm{batch}, \mathrm{seq\_len}, \dim S)$. The argument accepts either a positional tensor of that shape or a dict $\{k \mapsto \mathrm{tensor}\}$ keyed by `state_key` (default `"h"`); both forms denote the same Kleisli arrow with log-density $\sum_{t} \log p(h_{t} \mid x_{t}, h_{t-1})$. The dict form is a transparent re-keying so that the inference layer's standard `log_joint(x, observations: dict)` contract dispatches without an adapter.
 
@@ -357,7 +354,7 @@ every bound variable is canonicalised to a fresh unique symbol.
 
 ## 5. Coherence and equational laws
 
-Every well-typed expression denotes a morphism in a symmetric monoidal category (closed in the discrete $\mathcal{V}$-enriched stratum; not generally closed for $\mathbf{Stoch}$ or $\mathbf{Kern}$). Consequently the following equations between denotations hold *by construction*:
+Under the algebraic hypotheses stated in [Setting](setting.md), the following are expected equations between denotations:
 
 | Law | Statement |
 |-----|-----------|
@@ -368,9 +365,9 @@ Every well-typed expression denotes a morphism in a symmetric monoidal category 
 | Bifunctoriality | $\llbracket (e_1 \mathbin{>\!\!>} e_2) \mathbin{@} (e_3 \mathbin{>\!\!>} e_4) \rrbracket = \llbracket (e_1 \mathbin{@} e_3) \mathbin{>\!\!>} (e_2 \mathbin{@} e_4) \rrbracket$ |
 | Symmetry | $\llbracket e_1 \mathbin{@} e_2 \rrbracket = \sigma_{Y_1, Y_2} \circ \llbracket e_2 \mathbin{@} e_1 \rrbracket \circ \sigma^{-1}_{X_1, X_2}$ |
 
-These are the equational theory of symmetric monoidal categories; together with the trace axioms ([Joyal, Street & Verity 1996, §3](https://doi.org/10.1017/S0305004100074338)), they constitute the equational semantics of QVR expressions.
+These are standard symmetric-monoidal equations. Trace axioms apply to `.trace(...)` under the compact-closed hypotheses; they do not characterize `scan`.
 
-The compiler does *not* normalize expressions modulo these laws; it computes a literal AST-driven tensor expression. The laws are nevertheless valid statements about denotations, and the [Adequacy](adequacy.md) theorem confirms they are respected by the implementation up to the floating-point precision of the underlying tensor library.
+The compiler does not normalize expressions modulo these laws; it computes a literal AST-driven tensor expression. The test suite covers selected laws and examples, not a proof for every algebra and combinator. See [Correspondence and limitations](adequacy.md).
 
 ## References
 

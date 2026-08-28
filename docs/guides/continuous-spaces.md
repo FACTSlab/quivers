@@ -174,7 +174,7 @@ X = FinSet(name="X", cardinality=4)
 Y = FinSet(name="Y", cardinality=5)
 discrete_f = morphism(X, Y)
 
-# Treat X and Y as uniform distributions
+# Give each element of X a learnable Gaussian embedding in R^5
 Y_continuous = Euclidean(name="Y", dim=5)
 embedded_f = Embed(domain=X, codomain=Y_continuous)
 
@@ -291,7 +291,7 @@ a stack of coupling layers wrapped as a `ContinuousMorphism`.
 
 ## See also
 
-- [Continuous Families](continuous-families.md): the 30+
+- [Continuous Families](continuous-families.md): the more than forty
   parameterized distribution families used to build
   `ContinuousMorphism`s and the event-rank table that drives the
   axis-role surface.

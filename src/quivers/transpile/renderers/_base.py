@@ -25,6 +25,11 @@ and four private dispatch points (`declare`, `sample`, `marginalize`,
   latent draw of a marginalize as well as its scope.
 * `assert_no_dangling_refs` / `assert_no_lists`: structural
   invariants every renderer checks before emission.
+* `assert_no_dropped_param_map`: the width invariant every renderer
+  checks before emission. A site whose scalar family parameter is a
+  reference of a different width than the site is scoring the
+  conditioning value where the declared morphism's parameter map
+  belongs, and the map is not in the IR to emit.
 
 The `_RenderCtx` dataclass is the renderer-internal carrier for
 the panproto `SchemaBuilder`, fresh-id counter, and resolved
@@ -40,6 +45,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 import didactic.api as dx
 import panproto
+from torch.distributions.constraints import Constraint, simplex
 
 from quivers.dsl.ast_nodes import Expr, MorphismDecl
 from quivers.dsl.ast_nodes.let_expressions import (
@@ -63,6 +69,7 @@ from quivers.transpile.ir import (
     ConstraintSpec,
     CSIntegerInterval,
     CSNonnegativeInteger,
+    DimStatic,
     IRArg,
     IRArgBroadcast,
     IRArgFamilyRef,
@@ -101,6 +108,13 @@ type BlockKind = Literal[
 #: One panproto schema fragment: either an opaque vertex id, or the
 #: empty string when the dispatch point emits nothing of its own.
 type SchemaFragment = str
+
+
+#: The class of `torch.distributions.constraints.simplex`. Torch
+#: exports the constraint only as that singleton instance, so its
+#: type is how a family's `arg_constraints` entry is recognised as a
+#: mixing-weight slot.
+_SIMPLEX_CONSTRAINT: type[Constraint] = type(simplex)
 
 
 @dataclasses.dataclass
@@ -327,6 +341,7 @@ class RendererBase(abc.ABC):
         their own block prologue / epilogue.
         """
         assert_no_lists(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
@@ -923,6 +938,69 @@ def reorder_weibull_args(
     )
 
 
+def mixture_normal_components(
+    target: str,
+    args: tuple[IRArg, ...],
+    arg_names: tuple[str, ...],
+) -> tuple[IRArg, IRArg, IRArg]:
+    """Return the `(weights, loc, scale)` args of a `MixtureNormal` call.
+
+    `MixtureNormal(weights, loc, scale)` denotes the K-component
+    Gaussian mixture whose per-row density is
+
+        p(y) = sum_k weights[k] * Normal(y; loc[k], scale[k]),
+
+    with `K = len(weights)` and the component axis last on all three
+    parameters. Every target renderer needs the same three arguments in
+    the same roles, whether it spells the mixture as a native
+    mixture distribution or as an explicit log-sum-exp, so the
+    extraction and its shape contract live here rather than once per
+    renderer.
+
+    Raises when the call does not carry exactly those three names, so a
+    parameterisation drift surfaces as a precise transpile gap rather
+    than as a silently mis-ordered emission.
+    """
+    expected = ("weights", "loc", "scale")
+    by_name = dict(zip(arg_names, args, strict=False))
+    if len(args) != len(expected) or tuple(arg_names) != expected:
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [
+                f"family:MixtureNormal:arity: expected args "
+                f"{expected}, got {tuple(arg_names)}"
+            ],
+        )
+    return (by_name["weights"], by_name["loc"], by_name["scale"])
+
+
+def mixture_component_count(
+    target: str, weights: IRArg, declared: Plate | None
+) -> int:
+    """Return `K`, the number of components a `MixtureNormal` mixes.
+
+    Read off the declared shape of the weight vector, which is the only
+    place the count is available at transpile time. Targets that unroll
+    the mixture into an explicit sum need `K` as a compile-time integer,
+    and a guessed count would score a different number of components
+    than the source names, so a weight argument that is not a bare
+    reference to a single statically-sized axis raises.
+    """
+    if isinstance(weights, IRArgRef) and not weights.indices:
+        if declared is not None:
+            dims = declared.event_dims or declared.batch_dims
+            if len(dims) == 1 and isinstance(dims[0], DimStatic):
+                return dims[0].size
+    raise UnsupportedConstruct(
+        f"qvr-{target}",
+        [
+            "family:MixtureNormal:unknown-component-count: the weight "
+            "argument's declared shape does not name a single static "
+            "component axis"
+        ],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Structural invariants every renderer checks before emission.
 # ---------------------------------------------------------------------------
@@ -1003,6 +1081,248 @@ def _check_arg_refs(
         return
 
 
+def _static_extent(plate: Plate) -> int | None:
+    """Number of elements `plate` declares, or None when any axis is
+    dynamic.
+
+    Event and batch axes multiply together: what the check below
+    compares is how many numbers a binding carries, and a value's
+    element count does not care which axes the family treats as its
+    event and which as replication.
+    """
+    total = 1
+    for dim in (*plate.event_dims, *plate.batch_dims):
+        if not isinstance(dim, DimStatic):
+            return None
+        total *= dim.size
+    return total
+
+
+def _family_arg_constraints(family: str) -> dict[str, Constraint]:
+    """The declared per-argument constraints of `family`.
+
+    Read from the distribution class, never from an instance. Two
+    kinds of family have no class-level dict to read: one absent from
+    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], and
+    one whose `arg_constraints` torch declares as a property because
+    the support depends on the instance (`Uniform`, `Wishart`). Both
+    come back as an empty map, and the callers below read that as
+    "the argument ranks of this family are not statically known" and
+    decline to judge the call's arguments rather than guess a rank.
+    """
+    meta = FAMILY_META.get(family)
+    if meta is None:
+        return {}
+    declared = getattr(meta.distribution_class, "arg_constraints", None)
+    if not isinstance(declared, dict):
+        return {}
+    return {
+        name: constraint
+        for name, constraint in declared.items()
+        if isinstance(name, str) and isinstance(constraint, Constraint)
+    }
+
+
+def _mixes_over_components(
+    family: str, arg_names: tuple[str, ...]
+) -> bool:
+    """True when the call carries a simplex-constrained mixing weight.
+
+    A mixture family (`MixtureNormal(weights, loc, scale)`) indexes
+    every one of its component parameters by the component axis, so a
+    scalar-constrained parameter of such a call is a `K`-wide vector
+    whose width answers to the component count rather than to the
+    site's own width. The extent agreement the check below asserts
+    does not hold for those parameters and is not meant to.
+    """
+    constraints = _family_arg_constraints(family)
+    return any(
+        isinstance(constraints[name], _SIMPLEX_CONSTRAINT)
+        for name in arg_names
+        if name in constraints
+    )
+
+
+def _scalar_valued_arg(family: str, arg_name: str) -> bool:
+    """True when `family` takes one number per element in `arg_name`.
+
+    Read off the family's declared `arg_constraints`: a rank-0
+    constraint (`Normal.loc` is `Real()`) means the argument holds one
+    number per scored element, so its width has to be the site's own
+    width. A rank-1 or rank-2 constraint (`Categorical.probs` is
+    `Simplex()`) describes a whole event and carries its own axis.
+    """
+    constraints = _family_arg_constraints(family)
+    constraint = constraints.get(arg_name)
+    if constraint is None:
+        return False
+    return int(constraint.event_dim) == 0
+
+
+class _BindingExtents(dx.Model):
+    """Static element counts of the names a program body binds.
+
+    `by_name` maps a bound name to its element count (None when the
+    binding's plate carries a dynamic axis). `opaque` names bindings
+    whose declared plate does not describe the value a reference to
+    them carries: the latent of an
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] is pinned to
+    one atom per branch inside its scope and is unbound outside it, so
+    its width is not the width the reference reads.
+
+    Every field read on a `dx.Model` hands back a copy, so the two
+    maps are grown with `bind` / `hide`, which return a fresh
+    `_BindingExtents`. Threading the returned value is what makes a
+    binding visible to the nodes that follow it.
+    """
+
+    by_name: dict[str, int | None] = dx.Field(default_factory=dict)
+    opaque: frozenset[str] = dx.Field(default_factory=frozenset)
+
+    def bind(self, name: str, extent: int | None) -> _BindingExtents:
+        """This map with `name` bound to `extent`."""
+        return _BindingExtents(
+            by_name={**self.by_name, name: extent},
+            opaque=self.opaque,
+        )
+
+    def hide(self, name: str) -> _BindingExtents:
+        """This map with `name` marked opaque: bound, but carrying a
+        value whose width its declared plate does not describe."""
+        return _BindingExtents(
+            by_name=self.by_name,
+            opaque=self.opaque | {name},
+        )
+
+
+def assert_no_dropped_param_map(ir: IRProgram, target: str) -> None:
+    """Raise when a site scores a scalar family parameter against a
+    reference of a different width.
+
+    A Kleisli morphism declared `morphism f : X -> Y ~ Family` between
+    objects of different width carries a parameter map: the runtime
+    gives it a [`LinearSource`][quivers.continuous.param_source.LinearSource]
+    from `X` to the family's parameter heads on `Y`, and every
+    per-element parameter the site scores against is a row of that
+    map's output rather than the conditioning value itself. The map's
+    weights are drawn when the module compiles. They appear in no
+    sample site and in no line of the QVR text, so a target has
+    nothing to reconstruct them from, and a program emitted without
+    them binds an `X`-wide value to a `Y`-wide site: a different
+    measure, on a space of a different dimension.
+
+    The check reads that residue off the IR. For every scalar-valued
+    argument (see `_scalar_valued_arg`) given as a bare reference to a
+    statically-sized binding, the referenced width and the site's
+    width have to agree unless one of them is a single number, which
+    broadcasts. Three positions are outside the invariant and are
+    skipped rather than asserted on:
+
+    - an *indexed* reference (`phi[z]`), whose width is the width of
+      the slice the index selects, not of the array it indexes;
+    - an argument of a mixture call, which the component axis widens
+      (see `_mixes_over_components`);
+    - a reference read through an
+      [`IRObserve.via`][quivers.transpile.ir.IRObserve] fibration,
+      which gathers a group-plate value onto a row plate and so
+      relates the two widths through the fibration rather than by
+      equality.
+
+    A family whose argument ranks are not statically readable (see
+    `_family_arg_constraints`) has no scalar-valued argument as far as
+    this check can tell, so its call is passed over. The check is a
+    guard on emitted output, not a classifier: it declines to judge
+    what it cannot read rather than guessing a rank.
+    """
+    extents = _BindingExtents()
+    for inp in ir.inputs:
+        extents = extents.bind(inp.name, _static_extent(inp.plate))
+    _walk_for_param_maps(ir.body, extents, ir.name, target)
+
+
+def _walk_for_param_maps(
+    body: tuple[IRNode, ...],
+    extents: _BindingExtents,
+    program_name: str,
+    target: str,
+) -> None:
+    """Check every site in `body`, growing `extents` as the walk
+    passes each binder.
+
+    A marginalize scope is walked under its own extended map: the
+    latent it pins is in scope for the branch and out of scope after
+    it, so the scope's bindings do not leak into the nodes that
+    follow the marginalize.
+    """
+    for node in body:
+        if isinstance(node, (IRSample, IRObserve)):
+            _check_node_param_widths(node, extents, program_name, target)
+            extents = extents.bind(node.name, _static_extent(node.plate))
+        elif isinstance(node, IRDeterministic):
+            extents = extents.bind(node.name, _static_extent(node.plate))
+        elif isinstance(node, IRMarginalize):
+            _walk_for_param_maps(
+                node.scope,
+                extents.bind(
+                    node.latent, _static_extent(node.plate)
+                ).hide(node.latent),
+                program_name,
+                target,
+            )
+        elif isinstance(node, IRScore):
+            extents = extents.bind(node.name, 1)
+
+
+def _check_node_param_widths(
+    node: IRSample | IRObserve,
+    extents: _BindingExtents,
+    program_name: str,
+    target: str,
+) -> None:
+    """Assert every scalar-valued argument of one site is as wide as
+    the site, or raise the dropped-parameter-map diagnostic naming the
+    two widths."""
+    if isinstance(node, IRObserve) and node.via is not None:
+        return
+    if _mixes_over_components(node.family, node.arg_names):
+        return
+    site_extent = _static_extent(node.plate)
+    if site_extent is None:
+        return
+    for arg, arg_name in zip(node.args, node.arg_names, strict=True):
+        if not isinstance(arg, IRArgRef) or arg.indices:
+            continue
+        if not _scalar_valued_arg(node.family, arg_name):
+            continue
+        if arg.name in extents.opaque:
+            continue
+        ref_extent = extents.by_name.get(arg.name)
+        if ref_extent is None:
+            continue
+        if ref_extent == 1 or site_extent == 1:
+            continue
+        if ref_extent == site_extent:
+            continue
+        raise UnsupportedConstruct(
+            target,
+            [
+                "param-source:linear",
+                f"program {program_name!r}: site {node.name!r} scores "
+                f"{node.family} with {arg_name}={arg.name!r}, a value of "
+                f"width {ref_extent}, at a site of width {site_extent}. A "
+                f"Kleisli morphism declared between objects of different "
+                f"width carries a linear parameter map from its domain to "
+                f"the family's parameter heads on its codomain; the map's "
+                f"weights are drawn when the module compiles and appear in "
+                f"neither the wire form nor the sample sites, so no backend "
+                f"can reconstruct the parameter this site scores against. "
+                f"Express the map as explicit sampled weights plus a "
+                f"deterministic forward pass, or give the site a parameter "
+                f"of its own width.",
+            ],
+        )
+
+
 def assert_no_lists(ir: IRProgram) -> None:
     """Raise if the IR contains an `IRArgList` /
     [`IRArgMatrix`][quivers.transpile.ir.IRArgMatrix] in a position a
@@ -1024,7 +1344,10 @@ __all__ = [
     "RendererBase",
     "SchemaFragment",
     "assert_no_dangling_refs",
+    "assert_no_dropped_param_map",
     "assert_no_lists",
     "ir_uses_family",
+    "mixture_component_count",
+    "mixture_normal_components",
     "substitute_latent",
 ]

@@ -51,13 +51,15 @@ quivers/
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
 │   ├── categorical/               # Categorical algebra
-│   ├── continuous/                # Continuous distributions (40+ families)
+│   ├── continuous/                # Continuous distributions (more than 40 families)
 │   ├── core/                      # Core types and utilities
 │   ├── dsl/                       # QVR DSL (grammar walker, compiler, emitter)
+│   ├── effects/                   # Algebraic effect handlers
 │   ├── enriched/                  # Enriched categories
 │   ├── inference/                 # Variational inference
 │   ├── monadic/                   # Monadic programs (draw, observe, return)
-│   └── stochastic/                # Stochastic morphisms
+│   ├── stochastic/                # Stochastic morphisms
+│   └── transpile/                 # Cross-language PPL emitters
 ├── tests/                         # Test suite (mirrors src structure)
 ├── pyproject.toml                 # Package metadata
 └── mkdocs.yml                     # Documentation config
@@ -190,64 +192,36 @@ The compiler walks the AST and builds executable programs:
 
 ## Adding a New Distribution Family
 
-To add a new continuous distribution family:
+Most independent families use the single registry in
+`src/quivers/continuous/family_spec.py`. If PyTorch already provides
+the distribution, add an `_make_family(...)` call in
+`src/quivers/continuous/families.py` with the parameter names and
+bijectors that map unconstrained parameters onto their supports.
+That call creates the `Conditional*` class and registers both inline
+DSL paths.
 
-### 1. Define the Distribution Class
-
-Create a new class in `src/quivers/continuous/families.py` or a new module:
-
-Distribution families subclass `torch.distributions.Distribution`
-(often alongside the measure-algebra combinators in
-`quivers.continuous.measure`), so they compose with PyTorch's
-sampling and scoring machinery:
-
+<!-- python: skip -->
 ```python
-import torch
-from torch import Tensor
-from torch.distributions.distribution import Distribution
-
-
-class MyDistribution(Distribution):
-    """My custom probability distribution."""
-
-    def __init__(self, param1: Tensor, param2: Tensor) -> None:
-        self.param1 = param1
-        self.param2 = param2
-        super().__init__(batch_shape=param1.shape)
-
-    def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
-        """Draw samples from this distribution."""
-        ...
-
-    def log_prob(self, value: Tensor) -> Tensor:
-        """Compute the log probability of ``value``."""
-        ...
+ConditionalMyFamily = _make_family(
+    "ConditionalMyFamily",
+    MyTorchDistribution,
+    [("loc", "id"), ("scale", "softplus")],
+    "Conditional MyFamily(loc(x), scale(x)).",
+)
 ```
 
-### 2. Register in the DSL
+Families with vector or matrix events, custom constructors, or
+nonstandard sampling behavior need a hand-written
+`ContinuousMorphism` plus a `FamilySpec` whose override fields point
+to that implementation. An entirely new underlying distribution may
+also require a `torch.distributions.Distribution` implementation.
 
-Add the distribution to the DSL's family registry so it can be used in `.qvr` files.
-
-### 3. Add Tests
-
-Create test cases in `tests/continuous/`:
-
-```python
-def test_mydistribution_sample_shape():
-    dist = MyDistribution(param1=torch.tensor(1.0), param2=torch.tensor(2.0))
-    samples = dist.sample(1000)
-    assert samples.shape == (1000,)
-
-def test_mydistribution_log_prob():
-    dist = MyDistribution(param1=torch.tensor(1.0), param2=torch.tensor(2.0))
-    value = torch.tensor([0.5])
-    log_prob = dist.log_prob(value)
-    assert log_prob.shape == ()
-```
-
-### 4. Update Documentation
-
-Add the distribution to the API reference with usage examples and parameter descriptions.
+Add registry, fixed-inline, mixed-inline, conditional sampling, and
+`log_prob` coverage. `tests/test_family_registry.py` contains the
+shared registry checks; specialized behavior belongs under
+`tests/continuous/`. Document the family in
+`docs/guides/continuous-families.md` and
+`docs/api/continuous/families.md`.
 
 ## Testing Philosophy
 

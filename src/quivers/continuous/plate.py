@@ -154,9 +154,14 @@ class PlateDraw(ContinuousMorphism):
             per_row_dim = (
                 int(torch.tensor(per_row_shape).prod().item()) if per_row_shape else 1
             )
+        # `plate_rows` keeps the row structure of the flattened
+        # codomain recoverable: a consumer that reads the variable as
+        # a *parameter* needs the per-row width, since the plate axis
+        # is a batch axis in that position rather than an event axis.
         flat_codomain = Euclidean(
             name=f"plate({index_size}x{family.codomain!s})",
             dim=index_size * per_row_dim,
+            plate_rows=index_size,
         )
         actual_domain = domain if domain is not None else family.domain
         super().__init__(actual_domain, flat_codomain)

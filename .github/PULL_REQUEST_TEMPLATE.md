@@ -1,13 +1,13 @@
 <!--
 Thanks for contributing to quivers! Please fill in each section below.
-Delete sections that are clearly not applicable to this change.
+Delete sections that do not apply to this change.
 -->
 
 ## Summary
 
 <!--
 One or two sentences describing what this PR does and why. Focus on
-the *why* — the *what* is in the diff.
+the *why*. The diff shows the *what*.
 -->
 
 ## Motivation

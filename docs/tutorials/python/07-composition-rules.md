@@ -1,19 +1,19 @@
 # 7. Composition rules beyond algebras
 
-The default story in the categorical surface is that morphisms compose under a [algebra](https://ncatlab.org/nlab/show/algebra): a complete lattice with a monoidal tensor that distributes over arbitrary joins. The algebra provides every piece the composition `f >> g` needs: a binary product to combine entries, a join to aggregate over the shared dimension, an identity element so `identity(A) >> f == f`, and (for compact-closed structures) a meet and a negation. Algebras are the right setting when the composition is associative, has a unit, and behaves classically.
+The default categorical surface composes morphisms under Quivers' [`Algebra`](../../api/core/algebras.md) interface. It provides the operations that `f >> g` needs: a binary tensor operation, a reduction over the shared dimension, unit and zero elements, meet, and negation. Some built-in instances have additional lattice or quantale structure, but the Python interface itself does not verify all of those laws.
 
 ## Why weaker rules at all?
 
 Most probabilistic models live happily inside one algebra: Markov for probability kernels, LogProb for numerical stability, ProductFuzzy for fuzzy logic. The reason quivers ships weaker rules is that two important construct families don't satisfy the full algebra contract and would otherwise be unrepresentable in the type system:
 
-1. **Fuzzy-logic implication.** Reichenbach's implication, $a \to b = 1 - a + a \cdot b$, is associative under sequential composition but has no element $e$ such that $e \to b = b$ for every $b$. The composition is a [semigroupoid](https://ncatlab.org/nlab/show/semigroupoid). If you model entailment chains under Reichenbach implication and want the type system to flag that `identity(A) >> f` is meaningless, semigroupoids are the right level.
+1. **Fuzzy-logic implication.** Reichenbach's implication, $a \to b = 1 - a + a \cdot b$, has no element $e$ such that $e \to b = b$ for every $b$. Quivers exposes it through the semigroupoid-level interface, but this particular operation is not associative; the constructor thus skips the associativity check. Do not reassociate chains that use it.
 2. **Tensor-network contractions and attention.** A signed dot product `<u, v> = sum_i u_i * v_i` is neither associative as a composition (the product nests but the inner contractions don't commute with rebracketing) nor identity-bearing. Attention scores in transformer-style models behave the same way: softmax-then-multiply is a perfectly good per-row operation but is not an algebra. These live at the [bilinear form](https://en.wikipedia.org/wiki/Bilinear_form) level.
 
 The takeaway: pick the weakest level that your construct satisfies. Library code that needs `identity` or `dagger` reaches for `Algebra`; code that only needs associative composition uses `Semigroupoid`; code that does an arbitrary n-ary tensor contraction uses `CompositionRule`. The compiler rejects calls that require a level above what your rule provides.
 
 Two strictly weaker settings come up regularly enough that the library gives them their own types:
 
-- [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): associative composition, no identity. Reichenbach-style implication composition is the canonical example; the composition is associative but no tensor satisfies `f >> id == f` for every `f`.
+- [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): an interface for composition without algebra-only operations such as `identity`. Custom semigroupoids are normally checked for associativity. The shipped Reichenbach helper is a documented exception because its operation is not associative.
 - [Bilinear forms](https://en.wikipedia.org/wiki/Bilinear_form): a tensor contraction with neither associativity nor identity guarantees. Signed dot product, top-k truncating compositions, and attention-style softmax-then-multiply rules all sit here.
 
 This chapter walks through the [`CompositionRule`](../../api/core/algebras.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/algebras.md) surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
@@ -49,11 +49,11 @@ from quivers.core.algebras import (
 )
 ```
 
-All the shipped algebras are subclasses of `Algebra` (and therefore of `Semigroupoid` and `CompositionRule`).
+All the shipped algebras are subclasses of `Algebra` (and thus of `Semigroupoid` and `CompositionRule`).
 
 ## Building a semigroupoid
 
-`material_implication()` returns a `CustomSemigroupoid` whose `tensor_op` is `a ⊗ b = 1 - a + a * b` (Reichenbach implication) and whose `join` is a product reduction. This composition is associative but has no identity, so the V-Cat operations `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)` are unavailable: they live on `Algebra`.
+`material_implication()` returns a `CustomSemigroupoid` whose `tensor_op` is `a ⊗ b = 1 - a + a * b` (Reichenbach implication) and whose `join` is a product reduction. The helper disables the usual associativity verification because this `tensor_op` is not associative. Algebra-only operations such as `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, and `cap(A)` are unavailable.
 
 ```python
 import torch

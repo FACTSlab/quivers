@@ -1,22 +1,31 @@
 # Correlation-Matrix Prior via LKJCholesky
 #
-# A multivariate-Gaussian model whose correlation matrix is given
-# the LKJ prior (named after Lewandowski-Kurowicka-Joe), specified
-# in its Cholesky-factor form. The Cholesky factorisation is
-# numerically preferable to the dense matrix when downstream
-# inference samples in unconstrained space, since the unit-lower-
-# triangular factor admits a smooth bijection.
+# A prior over correlation matrices, given in its Cholesky-factor
+# form (named after Lewandowski-Kurowicka-Joe). The Cholesky
+# factorisation is numerically preferable to the dense matrix when
+# downstream inference samples in unconstrained space, since the
+# factor admits a smooth bijection onto an unconstrained vector
+# while the dense correlation matrix does not.
 #
 # Generative structure:
 #
 #   eta     ~ HalfNormal(2)                          shape parameter
 #   chol    ~ LKJCholesky(eta)                       Cholesky factor
 #
+# The program carries no observe step: it is the prior surface a
+# multivariate model composes with, and Sigma = chol * chol^T is
+# the correlation matrix a downstream likelihood would consume.
+#
+# Dim is the matrix dimension the LKJCholesky family reads off its
+# index annotation, and Factor is the value space of one row of
+# the returned factor, a point of R^K.
+#
 # Reference: [Lewandowski et al. 2009](https://doi.org/10.1016/j.jmva.2009.04.008).
 
 object Dim : FinSet 4
+object Factor : Real 4
 
-program correlation_model : Dim -> Dim
+program correlation_model : Dim -> Factor
     sample eta <- HalfNormal(2.0)
     sample chol : Dim <- LKJCholesky(eta)
     return chol

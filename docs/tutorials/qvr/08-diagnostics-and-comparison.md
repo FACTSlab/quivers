@@ -4,7 +4,7 @@ Fitting a model is half the workflow. The other half is asking whether the fit c
 
 ## The DataTree bridge
 
-ArviZ's lingua franca is an [`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) with named groups: `posterior`, `sample_stats`, `posterior_predictive`, `log_likelihood`, `observed_data`, `constant_data`. [`to_datatree`](../../api/diagnostics/index.md) converts an [`MCMCResult`](../../api/inference/predictive.md) into that tree. Once you have the tree, every ArviZ entry point works out of the box.
+The diagnostics adapter uses an [`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html) with named groups such as `posterior`, `sample_stats`, `posterior_predictive`, `log_likelihood`, `observed_data`, and `constant_data`. [`to_datatree`](../../api/diagnostics/index.md) converts an [`MCMCResult`](../../api/inference/predictive.md) into that tree for compatible ArviZ entry points.
 
 ```python
 import torch
@@ -73,7 +73,7 @@ print(summary)
 The columns to watch:
 
 - `r_hat`: rank-normalised split-R-hat. Should be < 1.01 for every site.
-- `ess_bulk`, `ess_tail`: bulk and tail effective sample sizes. Both should clear 100 per chain (so 400 here, since `num_chains=4`).
+- `ess_bulk`, `ess_tail`: bulk and tail effective sample sizes. Judge them against the Monte Carlo precision needed for the estimand; this example runs two chains.
 - `mcse_mean`, `mcse_sd`: Monte Carlo standard error of the posterior mean and standard deviation. Should be small relative to the posterior `sd`.
 
 Trace and rank plots give you a visual on the same diagnostics:
@@ -84,7 +84,7 @@ az.plot_trace(tree, var_names=["beta_0", "beta_1", "sigma"])
 az.plot_rank(tree,  var_names=["beta_0", "beta_1", "sigma"])
 ```
 
-A healthy `plot_trace` shows hairy caterpillars overlapping across chains; a healthy `plot_rank` shows uniformly mixed bars across chains. Anything else is a mixing problem and you should run more warmup, raise `target_accept`, or reparameterise.
+A well-mixed `plot_trace` shows overlapping stationary traces across chains; a `plot_rank` should not show systematic chain separation. If either plot indicates poor mixing, consider more warmup, a higher `target_accept`, or a better parameterization.
 
 ## Posterior-predictive checks
 
@@ -120,7 +120,7 @@ table = compare({"linear": tree_linear, "quadratic": tree_quad})
 print(table)
 ```
 
-[`compare`](../../api/diagnostics/index.md) delegates to [`arviz.compare`](https://python.arviz.org/en/stable/api/generated/arviz.compare.html), which runs PSIS-LOO ([Vehtari, Gelman & Gabry, 2017](https://doi.org/10.1007/s11222-016-9696-4)) on each fit and ranks them by expected log-pointwise predictive density (`elpd_loo`). The first row of the table is the preferred model; the `dse` column gives the standard error of the difference relative to the top model, and pseudo-BMA weights (`weight`) tell you how much each model is worth in a model-average.
+[`compare`](../../api/diagnostics/index.md) delegates to [`arviz.compare`](https://python.arviz.org/en/stable/api/generated/arviz.compare.html), which runs PSIS-LOO ([Vehtari, Gelman & Gabry, 2017](https://doi.org/10.1007/s11222-016-9696-4)) on each fit and ranks them by expected log-pointwise predictive density (`elpd_loo`). The `dse` column gives the standard error of the difference relative to the top model. Quivers uses ArviZ's default stacking method unless `method=` selects another weighting scheme.
 
 A few warning signs to watch for in `compare`'s output:
 
@@ -129,7 +129,7 @@ A few warning signs to watch for in `compare`'s output:
 
 ## Try this
 
-- Run the eight-schools fit from chapter 3 through this pipeline. Plot the trace; the centered parameterisation should show divergences in `sample_stats/diverging`.
+- Run the eight-schools fit from chapter 3 through this pipeline. Inspect `result.total_divergences` before conversion, because the current adapter stores aggregate diagnostics rather than a per-draw `sample_stats/diverging` variable.
 - Add a `Cauchy` likelihood model alongside the `Normal` one and compare them on a dataset with outliers.
 - Slice the posterior tree by chain (`tree.posterior.sel(chain=0)`) and confirm individual chains are converging to the same place.
 

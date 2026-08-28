@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - **A kernel's parameter source defaults to a linear map.** A morphism declared `f : X -> Y ~ Family` over continuous spaces reads its distribution parameters from a single `nn.Linear`, which is how its arrow reads. A model whose parameters depend nonlinearly on the input requests that with `[param_source=mlp]`, so the fact appears in the source instead of in a default: previously every such kernel carried a two-hidden-layer tanh MLP, and a `Real 1 -> Real 1` kernel silently held 4418 weights. The gallery is now what it says it is. `linear_gaussian_ssm` is linear, and an LSTM, GRU or vanilla-RNN gate is one matrix under a cell whose nonlinearity is the sigmoid its program body applies. `deep_markov`, the VAE's encoder and decoder bodies, the transformer and seq2seq feed-forward sublayers, and the recurrent cells that carry their own tanh now name the MLP they rely on.
 - **Morphism options are checked against the role that reads them.** Options were checked against the union of every role's keys and then read per role, so an option belonging to another role passed validation and was dropped in silence. `[scale=]` on a family-backed kernel is the case that bit: nothing reads it there, and all 34 uses across the examples configured an init that never existed. Each role now declares the keys its lowering consumes, and a key outside that set is rejected with an error naming the role that does read it.
-- **A default coefficient prior is autoscaled to its column.** A column enters a formula's linear predictor as `beta * column`, so a prior on the coefficient alone states the scale of its contribution, and one fixed `Normal(0, 5)` therefore means something different for every column. The default's scale is now divided by the column's root-mean-square, which states it in contribution space; an explicit per-name prior is emitted as written. Coefficients stay on their own column's scale, so nothing is transformed back.
+- **A default coefficient prior is autoscaled to its column.** A column enters a formula's linear predictor as `beta * column`, so a prior on the coefficient alone states the scale of its contribution, and one fixed `Normal(0, 5)` thus means something different for every column. The default's scale is now divided by the column's root-mean-square, which states it in contribution space; an explicit per-name prior is emitted as written. Coefficients stay on their own column's scale, so nothing is transformed back.
 
 ### Added
 
@@ -159,7 +159,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 #### Autoguide combinators
 
-- `AutoGuideList` concatenates disjoint per-block guides so a single model can hold, for example, `AutoNormal` on local variables and `AutoMultivariateNormal` on a small global block.
+- `AutoGuideList` concatenates disjoint per-block guides so a single model can hold, for instance, `AutoNormal` on local variables and `AutoMultivariateNormal` on a small global block.
 - `AutoStructured` admits per-site conditional choice (delta / normal / mvn) plus per-edge dependencies (linear affine or a user-supplied callable) walked in ancestral order.
 - Pyro-style short-name aliases (`AutoNormal`, `AutoMultivariateNormal`, `AutoLowRankMVN`, `AutoDelta`, `AutoLaplace`, `AutoIAFNormal`) re-exported from `quivers.inference.guides` as thin aliases for the pre-existing `Auto*Guide` classes.
 
@@ -431,7 +431,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](../semantics/algebras.md#2-order-and-structure-preservation). Migration:
+- **BREAKING: `quantale` → `algebra` across DSL, Python API, and docs.** The `quantale` keyword and every `Quantale`-named symbol overclaimed the algebraic structure: seven of the eleven built-in cases fail strict quantale-distributivity in [Kelly's sense](https://ncatlab.org/nlab/show/enriched+category). The new term *algebra* names the structure $(V, \otimes, \oplus, \mathbf{1})$ honestly; the subclass that does satisfy the strict laws keeps the name *strict quantale* and is identified inline in [Algebras §2](https://FACTSlab.github.io/quivers/semantics/algebras/#2-algebraic-scope). Migration:
 
   | Old | New |
   |-----|-----|

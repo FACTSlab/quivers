@@ -101,6 +101,7 @@ from quivers.continuous.families import (
     ConditionalLowRankMVN,
     ConditionalMatrixNormal,
     ConditionalMixture,
+    ConditionalMixtureNormal,
     ConditionalMultivariateNormal,
     ConditionalNegativeBinomial,
     ConditionalNormal,
@@ -119,6 +120,7 @@ from quivers.continuous.families import (
     LKJCorrelationFactor,
     Truncated,
 )
+from quivers.continuous._zip_hurdle import MixtureNormal
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.ordered import (
     ConditionalOrderedLogistic,
@@ -1438,12 +1440,31 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "edward2": "MixtureSameFamily",
             "turing": "MixtureModel",
             "webppl": "Mixture",
+            "jags": "dpois",
         },
         arg_aliases={
             "pymc": {
                 "mixture_distribution": "w",
                 "component_distribution": "comp_dists",
             },
+        },
+    ),
+    "MixtureNormal": FamilyMeta(
+        qvr_name="MixtureNormal",
+        distribution_class=MixtureNormal,
+        quivers_class=ConditionalMixtureNormal,
+        target_names={
+            "numpyro": "MixtureSameFamily",
+            "pyro": "MixtureSameFamily",
+            "edward2": "MixtureSameFamily",
+            "pymc": "NormalMixture",
+            "turing": "MixtureModel",
+            "stan": "log_mix",
+            "gen": "HomogeneousMixture",
+            "webppl": "Mixture",
+        },
+        arg_aliases={
+            "pymc": {"weights": "w", "loc": "mu", "scale": "sigma"},
         },
     ),
     "Independent": FamilyMeta(
@@ -1626,6 +1647,63 @@ def finite_enumerable_at_call_site(
 
 
 # ---------------------------------------------------------------------------
+# Class-index outcomes: the alphabet a family's value indexes into.
+# ---------------------------------------------------------------------------
+
+
+class ClassIndexOutcome(dx.Model):
+    """How a family whose value is an index into its own alphabet
+    relates that alphabet to one of its arguments.
+
+    A `Categorical` draw is not a number on a numeric scale but a
+    subscript into the family's ``K`` classes, so the value's support
+    is ``0, ..., K - 1`` and every target that declares an integer
+    range needs that ``K``. Where ``K`` comes from is a positional
+    question: it is the family's *codomain*, the per-row value space
+    a declared morphism names, never the plate the draw is replicated
+    over. This table records the second, weaker reading, the one a
+    call site can still supply when no morphism is declared: which
+    argument carries the alphabet, and how its trailing extent
+    relates to ``K``.
+
+    `alphabet_args` names the argument positions that carry it, in
+    preference order (`Categorical` is parameterised by `probs` or
+    equivalently by `logits`). `extent_offset` is added to that
+    argument's trailing extent to get ``K``: zero for a probability
+    vector, one for the ``K - 1`` cutpoints of an ordered family.
+    """
+
+    alphabet_args: tuple[str, ...]
+    extent_offset: int = 0
+
+
+#: The families whose value is a subscript into an alphabet rather
+#: than a count or a bit. `Bernoulli` is deliberately absent: its
+#: value is a genuine bit, and its support is already exact.
+_CLASS_INDEX_OUTCOMES: dict[str, ClassIndexOutcome] = {
+    "Categorical": ClassIndexOutcome(
+        alphabet_args=("probs", "logits"),
+    ),
+    "OrderedLogistic": ClassIndexOutcome(
+        alphabet_args=("cutpoints",), extent_offset=1,
+    ),
+    "OrderedProbit": ClassIndexOutcome(
+        alphabet_args=("cutpoints",), extent_offset=1,
+    ),
+}
+
+
+def class_index_outcome(
+    family_meta: FamilyMeta,
+) -> ClassIndexOutcome | None:
+    """Return the
+    [`ClassIndexOutcome`][quivers.transpile.family_meta.ClassIndexOutcome]
+    for `family_meta`, or `None` when the family's value is not a
+    subscript into an alphabet."""
+    return _CLASS_INDEX_OUTCOMES.get(family_meta.qvr_name)
+
+
+# ---------------------------------------------------------------------------
 # Marginalize support: the atom set the reduction integrates over.
 # ---------------------------------------------------------------------------
 
@@ -1709,9 +1787,11 @@ def marginalize_support(
 
 __all__ = [
     "FAMILY_META",
+    "ClassIndexOutcome",
     "FamilyMeta",
     "MarginalizeAtomSet",
     "MarginalizeSupport",
+    "class_index_outcome",
     "finite_enumerable_at_call_site",
     "marginalize_support",
 ]

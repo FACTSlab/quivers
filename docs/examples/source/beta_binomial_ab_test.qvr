@@ -2,14 +2,15 @@
 #
 # A two-arm A/B test on a binary conversion outcome. Each arm has
 # its own Beta(conc1, conc0) prior on the latent conversion rate;
-# the observed successes per arm are Beta-Binomial draws over a
-# shared trial count with per-arm concentration parameters.
+# the observed successes in each measurement batch are
+# Beta-Binomial draws over a shared trial count with that arm's
+# concentration parameters.
 #
 # Generative structure:
 #
-#   conc1_a ~ HalfCauchy(2)              per-arm success concentration
-#   conc0_a ~ HalfCauchy(2)              per-arm failure concentration
-#   y_a     ~ BetaBinomial(N, conc1_a, conc0_a)   per-arm successes
+#   conc1_j ~ HalfCauchy(2)              per-arm success concentration
+#   conc0_j ~ HalfCauchy(2)              per-arm failure concentration
+#   y_n     ~ BetaBinomial(n_trials, conc1_{j(n)}, conc0_{j(n)})
 #
 # The Beta-Binomial marginalises the latent conversion rate
 # analytically: each arm's posterior on the rate is conjugate-Beta,
@@ -17,15 +18,28 @@
 # concentration parameters without introducing an intermediate
 # rate variable.
 #
+# Arm is the plate the concentrations are allocated over and Batch
+# is the plate the counts are observed over; the per-row arm
+# assignment reaches the model through the standard plate-gather
+# idiom (conc1[arm_idx]). The trial count n_trials is exogenous
+# data supplied at fit time through the observations dict, and Val
+# is the value space of the returned per-row success
+# concentration.
+#
 # Reference: [Skellam 1948](https://www.jstor.org/stable/2983694).
 
 object Arm : FinSet 2
+object Batch : FinSet 12
+object Val : Real 1
 
-program ab_test : Arm -> Arm
+program ab_test : Batch -> Val
     sample conc1 : Arm <- HalfCauchy(2.0)
     sample conc0 : Arm <- HalfCauchy(2.0)
 
-    observe y : Arm <- BetaBinomial(N, conc1, conc0)
-    return conc1
+    let a = conc1[arm_idx]
+    let b = conc0[arm_idx]
+
+    observe y : Batch <- BetaBinomial(n_trials, a, b)
+    return a
 
 export ab_test

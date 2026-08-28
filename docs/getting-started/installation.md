@@ -5,8 +5,8 @@
 - **Python** >= 3.14
 - **PyTorch** >= 2.0
 - **didactic** >= 0.7.1
-- **panproto** >= 0.48.4 (provides the schema/lens machinery)
-- **panproto-grammars-all** >= 0.48.4 (ships the QVR tree-sitter parser)
+- **panproto** >= 0.58.0 (provides the schema/lens machinery)
+- **panproto-grammars-all** >= 0.58.0 (ships the QVR tree-sitter parser)
 - **Pygments** >= 2.10, **tree-sitter** >= 0.21
 
 The didactic, panproto, panproto-grammars-all, Pygments, and
@@ -114,8 +114,8 @@ Quivers depends on:
 
 - **torch** (>= 2.0): differentiable tensors and automatic differentiation
 - **didactic** (>= 0.7.1): typed-data layer that backs every value-type in quivers (`dx.Model`, `dx.TaggedUnion`, `dx.Lens`)
-- **panproto** (>= 0.48.4): schema/theory machinery used to extract a `Schema` from each `.qvr` program for diff/migrate workflows
-- **panproto-grammars-all** (>= 0.48.4): ships the QVR tree-sitter parser registered with panproto; quivers does not run a hand-written lexer or recursive-descent parser
+- **panproto** (>= 0.58.0): schema/theory machinery used to extract a `Schema` from each `.qvr` program for diff/migrate workflows
+- **panproto-grammars-all** (>= 0.58.0): ships the QVR tree-sitter parser registered with panproto; quivers does not run a hand-written lexer or recursive-descent parser
 - **Pygments** (>= 2.10): in-tree `qvr` lexer for documentation and notebooks
 - **tree-sitter** (>= 0.21): runtime bindings for the QVR grammar
 

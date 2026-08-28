@@ -2,7 +2,7 @@
 
 In this tutorial, you will construct probabilistic programs that mix discrete and continuous random variables. You will build [`MonadicProgram`](../../api/continuous/programs.md) instances by hand using the Python API, create conditional distribution families, and sample from programs.
 
-For a Stan/PyMC reader: a [`MonadicProgram`](../../api/continuous/programs.md) is the Python-API analogue of the QVR DSL's `program` block. You construct it as a list of steps (`bind`, `let`, `observe`, `marginalize`), each step typed by the space its result lives in. The runtime gives you `sample`, `rsample`, and `log_density`, mirroring the methods you'd reach for in `torch.distributions`. The categorical surface ([Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) of the [Giry monad](https://ncatlab.org/nlab/show/Giry+monad), restricted to the hybrid discrete/continuous fragment) is invisible until you want to build new constructs on top.
+For a Stan/PyMC reader: a [`MonadicProgram`](../../api/continuous/programs.md) is the Python-API analogue of the QVR DSL's `program` block. You construct it as a list of steps (`bind`, `let`, `observe`, `marginalize`), each step typed by the space its result lives in. The runtime provides `rsample` for draws and `log_joint` for trace-based joint scoring. `MonadicProgram.log_prob` is intentionally unavailable because marginalizing arbitrary intermediate latents is intractable in general.
 
 ### The two kinds of step in one sentence
 
@@ -42,7 +42,7 @@ from quivers.continuous.families import ConditionalNormal, ConditionalBernoulli
 from quivers.continuous.programs import MonadicProgram
 ```
 
-## Defining Spaces
+## Defining spaces
 
 Continuous random variables live in [continuous spaces](../../api/continuous/spaces.md). Create a few:
 
@@ -72,9 +72,9 @@ print(samples.shape)  # [100, 1]
 assert (samples >= 0.0).all() and (samples <= 1.0).all()
 ```
 
-## Conditional Distribution Families
+## Conditional distribution families
 
-A [conditional distribution family](../../api/continuous/families.md) maps an input space to a parameterized family of distributions. For example, [`ConditionalNormal`](../../api/continuous/families.md) learns mean and scale as functions of the input.
+A [conditional distribution family](../../api/continuous/families.md) maps an input space to a parameterized family of distributions. For instance, [`ConditionalNormal`](../../api/continuous/families.md) learns mean and scale as functions of the input.
 
 Create a conditional normal from a discrete input (finite set) to a continuous output:
 
@@ -106,7 +106,7 @@ print(y_samples.shape)  # [5, 1]
 
 Other families available include [`ConditionalBernoulli`](../../api/continuous/families.md), [`ConditionalBeta`](../../api/continuous/families.md), [`ConditionalLaplace`](../../api/continuous/families.md), and many more. They follow the same `rsample` / `log_prob` interface.
 
-## Building a MonadicProgram
+## Building a `MonadicProgram`
 
 A `MonadicProgram` represents a probabilistic computation as a sequence of steps. Each step is either:
 
@@ -148,9 +148,9 @@ print(output.shape)  # [10, 1]
 
 Note that `MonadicProgram.log_prob` is intractable in general (it requires marginalizing over intermediate latents) and raises `NotImplementedError`. To score a program, use a guide and the SVI machinery covered in [Tutorial 5](05-variational-inference.md).
 
-## Let Bindings
+## Let bindings
 
-Add a deterministic transformation step. For example, compute w = z * 2:
+Add a deterministic transformation step. For instance, compute w = z * 2:
 
 ```python
 Unit = FinSet(name="Unit", cardinality=1)
@@ -181,7 +181,7 @@ output = program.rsample(batch)
 
 A let binding's value can be a callable (run on the environment), a string (alias to an existing variable), or a float constant.
 
-## Multi-variable Outputs
+## Multi-variable outputs
 
 Return multiple variables. Multi-return programs yield a dict keyed by variable name:
 
@@ -224,7 +224,7 @@ print(((samples == 0) | (samples == 1)).all())  # True
 
 Note that Bernoulli sampling is not reparameterizable: gradients do not flow through the discrete output.
 
-## Forward and Backward
+## Forward and backward
 
 Wrap the program in a [`Program`](../../api/program.md) module so its parameters are visible to a PyTorch optimizer:
 
@@ -247,7 +247,7 @@ for epoch in range(10):
 
 This is a toy objective. Proper inference for a generative model is covered in [Tutorial 5](05-variational-inference.md).
 
-## Complex Programs
+## Complex programs
 
 Build larger programs with multiple stages and branches. Here is a model for two observations with a shared latent:
 

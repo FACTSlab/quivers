@@ -7,9 +7,10 @@ same elaborator
 ([`quivers.dsl.Compiler`](../api/dsl/compiler.md)), and the same highlight
 table, so the colour you see in the TUI matches the colour your
 editor shows over LSP, which matches what gets emitted as Jupyter
-output. One source of truth, four surfaces.
+output. The REPL, plain prompt, kernel, and language server use these
+shared components.
 
-This page is the comprehensive reference. For a one-paragraph
+This page is the full reference. For a one-paragraph
 overview see [Quickstart](../getting-started/quickstart.md).
 
 ## Installation
@@ -49,7 +50,7 @@ re-adds the optional extras (uv strips them otherwise).
 
 | Extra | Pulls in |
 | --- | --- |
-| `[repl]` | [Textual](https://textual.textualize.io/), [prompt_toolkit](https://python-prompt-toolkit.readthedocs.io/), [rich](https://rich.readthedocs.io/), [ipykernel](https://ipykernel.readthedocs.io/) |
+| `[repl]` | [Textual](https://textual.textualize.io/), [prompt_toolkit](https://python-prompt-toolkit.readthedocs.io/), [rich](https://rich.readthedocs.io/), [ipykernel](https://ipykernel.readthedocs.io/), [jupyter_client](https://jupyter-client.readthedocs.io/) |
 | `[lsp]` | [pygls](https://github.com/openlawlibrary/pygls), `lsprotocol` |
 
 Optional renderers that ``:plate --open`` will pick up if they are
@@ -194,8 +195,9 @@ column.
 | --- | --- | --- |
 | `:load FILE` | `:l` | Parse + elaborate, rebind the session env |
 | `:reload` | `:r` | Re-`:load` the last file, print added/removed/changed names |
-| `:type EXPR` | `:t` | Print EXPR's resolved type as canonical QVR (`morphism f : A -> B [role=latent]`, `object X : FinSet 3`, `object Z : Real 64`) |
-| `:kind T` | `:k` | Print T's AST variant and enumerate the sibling TypeExpr variants |
+| `:type EXPR` | `:t` | Print a value-level GHCi-style signature (`f :: A -> B`); type-level names are handled by `:kind` |
+| `:kind T` | `:k` | Resolve a type-level name or expression (`object X : FinSet 3`, `FinSet 3 :: FinSet 3`) |
+| `:transpile TARGET` |  | Emit the loaded module for `stan`, `numpyro`, `pyro`, `pymc`, `edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, or `jags` |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` |  | Render only the doc comment(s) for NAME |
 | `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
@@ -260,36 +262,44 @@ reloaded lda.qvr
 
 #### `:type EXPR` / `:t EXPR`
 
-Print `EXPR`'s resolved type as a single QVR-shaped line. Accepts
-either a bare identifier, a `::` scope path, or a general
-expression that the parser can elaborate.
+Print a value-level expression's resolved type as a GHCi-style
+`name :: type` line. The command accepts a bare identifier, a `::`
+scope path, or a general expression that the parser can elaborate.
+Use `:kind` for objects, spaces, and other type-level names.
 
 ```
 > :type lda
-program lda(alpha : Real, beta : Real) : Word -> Word
+lda :: (Real, Real) => Word -> Word
 
 > :type lda::theta
-sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
-
-> :type lda::z::w
-observe w : Word <- Categorical(phi[z]) [via=word_idx]
-
-> :type Doc
-object Doc : FinSet 20
+theta :: Doc -> Topic
 ```
 
 #### `:kind T` / `:k T`
 
-Print `T`'s AST variant class plus the sibling variants of the
-same tagged union. Useful for understanding the AST shape under
-the surface syntax.
+Resolve a type-level name or expression. Named objects and spaces
+print as declarations; standalone type expressions print as
+`expression :: resolved-type`.
 
 ```
 > :kind FinSet 20
-DiscreteConstructor
-  siblings: TypeName, ObjectProduct, ObjectCoproduct,
-            ObjectSlash, ObjectEffectApply,
-            ContinuousConstructor
+FinSet 20 :: FinSet 20
+
+> :kind Doc
+object Doc : FinSet 20
+```
+
+#### `:transpile TARGET`
+
+Emit the currently loaded module for one registered backend without
+changing session state. Targets are `stan`, `numpyro`, `pyro`, `pymc`,
+`edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, and `jags`.
+
+```
+> :transpile stan
+data {
+  // ...
+}
 ```
 
 #### `:info NAME [--python]` / `:i NAME`
@@ -589,10 +599,7 @@ that declaration's scope. Examples on the LDA gallery example:
 
 ```
 > :type lda::theta
-sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
-
-> :type lda::z::w
-observe w : Word <- Categorical(phi[z]) [via=word_idx]
+theta :: Doc -> Topic
 
 > :browse lda::z
 marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
@@ -848,7 +855,7 @@ In [1]: :load model.qvr
 loaded model.qvr: 17 binding(s)
 
 In [2]: :type backbone
-morphism backbone : Source * Target -> Combined [role=latent]
+backbone :: Source * Target -> Combined
 
 In [3]: object Extra : FinSet 8
         morphism g : Extra -> Combined [role=latent]
@@ -953,7 +960,7 @@ Every capability advertised by `qvr-lsp`:
 | `textDocument/documentSymbol` | All top-level declarations grouped by symbol kind (`Class` for objects/spaces, `Function` for morphisms, `Variable` otherwise) |
 | `textDocument/completion` | Env names + grammar keywords + builtins + paths, same source as the REPL completer |
 | `textDocument/semanticTokens/full` | Env-aware semantic token stream driven by the shared [`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) |
-| `textDocument/formatting` | Canonical re-emission via [`module_to_source`](../api/dsl/emit.md) (no-op when the module contains a statement variant the canonical emitter doesn't yet cover) |
+| `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md) |
 | `textDocument/didOpen` / `didChange` / `didSave` / `didClose` | Incremental sync, full re-analysis per change |
 
 ### Hover format

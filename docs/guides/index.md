@@ -62,8 +62,8 @@ The runtime semantics of programs and distributions.
     [`ContinuousMorphism`](../api/continuous/morphisms.md)
     interface, sampled composition, the discrete / continuous
     boundary, normalizing flows.
-11. [Continuous Families](continuous-families.md). The 30+
-    parameterized distribution registry, event ranks, and the
+11. [Continuous Families](continuous-families.md). The registry of more than forty
+    parameterized distributions, event ranks, and the
     structured priors (MatrixNormal, InverseWishart, GP,
     Horseshoe, LKJ) that interact with the axis-role surface.
 12. [Stochastic Morphisms](stochastic.md). The FinStoch category:

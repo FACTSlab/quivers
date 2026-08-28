@@ -25,6 +25,7 @@ object LatentDim : FinSet 2
 object ObsDim : FinSet 5
 object Item : FinSet 32
 object Resp : FinSet 160
+object Val : Real 1
 
 morphism Z : Item -> LatentDim [role=latent]
 
@@ -40,7 +41,7 @@ define ppca = Z >> W
 # the per-row inner product Z[i] . W[d]. The loading matrix is
 # sampled transposed (ObsDim -> LatentDim) so the per-Resp inner
 # product is two compatible Resp-by-LatentDim gathers.
-program ppca_program : Resp -> Resp
+program ppca_program : Resp -> Val
     sample sigma <- HalfCauchy(2.5)
     sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
     sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]

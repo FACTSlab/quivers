@@ -8,7 +8,7 @@ In this tutorial, you will fit a regression to data with one line, inspect the Q
 - **`fit`**: The one-liner that parses the formula against a dataframe, compiles to a QVR [`MonadicProgram`](../../api/continuous/programs.md), and dispatches to NUTS / HMC / SVI.
 - **`BayesianFit`**: The returned record. Carries the parsed `Formula`, the compiled program, the posterior (either an `MCMCResult` or a `Guide`), and the inference-time observations dict.
 - **Posterior**: For NUTS / HMC, an [`MCMCResult`](../../api/inference/predictive.md) with `(chain, draw)`-shaped sample tensors per site. For SVI, a fitted [`Guide`](../../api/inference/guide.md) from which you draw via `rsample`.
-- **`DataTree`**: The canonical [ArviZ 1.x](https://python.arviz.org/) container for posterior analysis. The [`to_datatree`](../../api/diagnostics/arviz_io.md) adapter wraps a `BayesianFit.posterior` into the right shape so every ArviZ plot, diagnostic, and information criterion just works.
+- **`DataTree`**: The [ArviZ 1.x](https://python.arviz.org/) container used by the diagnostics layer. [`to_datatree`](../../api/diagnostics/arviz_io.md) accepts an `MCMCResult`; [`to_datatree_from_svi`](../../api/diagnostics/arviz_io.md) accepts SVI samples, and [`to_datatree_any`](../../api/diagnostics/arviz_io.md) dispatches between supported inputs.
 
 ## Setup
 
@@ -109,7 +109,7 @@ intercept (true 1.0): 0.927 ± 0.036
 beta_x    (true 2.0): 2.023 ± 0.030
 ```
 
-SVI's posterior is biased toward the prior under small `num_samples`; bumping to `num_samples=4000` or switching to `method="nuts"` tightens recovery further.
+These printed values record one seeded, short optimization run; they are not a convergence guarantee. Increase the optimization budget and inspect diagnostics, or use a diagnosed MCMC fit, before interpreting coefficient recovery.
 
 ## Random effects: hierarchical model under SVI
 
@@ -161,7 +161,7 @@ program model : Resp -> Resp
 export model
 ```
 
-The random-intercept structure expands to a `HalfNormal` scale latent `sigma_g_Intercept`, a *standard-Normal* plate draw `z_g_Intercept` of size `|g|`, and a per-row contribution `sigma_g_Intercept * z_g_Intercept[g_idx]`. This is the non-centered parameterization: `alpha_g[i] = sigma * z[i]` is computed deterministically rather than drawn as `alpha_g[i] ~ Normal(0, sigma)`. Non-centered is the default because it eliminates Neal's funnel and gives HMC / NUTS a well-conditioned geometry for sampling variance components; flip to the textbook form with `fit(..., reparameterize="centered")` when you want it.
+The random-intercept structure expands to a `HalfNormal` scale latent `sigma_g_Intercept`, a *standard-Normal* plate draw `z_g_Intercept` of size `|g|`, and a per-row contribution `sigma_g_Intercept * z_g_Intercept[g_idx]`. This is the non-centered parameterization: `alpha_g[i] = sigma * z[i]` is computed deterministically rather than drawn as `alpha_g[i] ~ Normal(0, sigma)`. Non-centering often improves posterior geometry in weakly informed hierarchical models.
 
 Recovery:
 
@@ -189,15 +189,15 @@ sigma_g_Intercept    (true 0.60): 0.273 ± 0.014
 sigma                (true 0.40): 0.375 ± 0.028
 ```
 
-Non-centered emission means SVI gives recognisable recovery for the fixed effects on a model this small; the group-level scale is still under-shrunk because mean-field VI generically under-estimates posterior variance, but the funnel that wrecks centered hierarchical models is gone. For tighter posterior estimates on variance components, switch to `method="nuts"`; for a different variational family, pass `guide=AutoMultivariateNormalGuide` (or any other [auto-guide](../../api/inference/guide.md)).
+This short SVI fit recovers the fixed effects more closely than the group-level scale. Mean-field VI can underestimate posterior uncertainty and distort variance-component estimates. For a richer approximation, pass `guide=AutoMultivariateNormalGuide`; for sampling-based inference, use `method="nuts"` and inspect its diagnostics.
 
 ### Knobs: `method`, `guide`, `reparameterize`
 
-Three orthogonal choices control the inference path:
+The following choices control the inference path:
 
-- **`method="nuts" | "hmc" | "svi"`**. The default `"nuts"` is the right call for serious analysis of any model with random effects: it samples the joint posterior with the No-U-Turn extension to HMC, gets variance components right, and produces the `MCMCResult` that PSIS-LOO and posterior-predictive checks consume below. `"svi"` is the fast option for prototyping or for large models where NUTS chains would be too expensive; it fits a [`Guide`](../../api/inference/guide.md) by optimization instead of sampling.
+- **`method="nuts" | "hmc" | "svi"`**. The default `"nuts"` samples the joint posterior with the No-U-Turn extension to HMC and produces an `MCMCResult`. `"svi"` fits a [`Guide`](../../api/inference/guide.md) by optimization and may be more practical for large models. Either method still requires diagnostics.
 - **`guide=Cls`** (SVI only). Defaults to [`AutoNormalGuide`](../../api/inference/guide.md) (mean-field diagonal Normal). Other choices: [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) for a full-rank Cholesky; [`AutoLowRankMultivariateNormalGuide`](../../api/inference/guide.md) for `O(D·rank)` memory on high-dimensional models; [`AutoLaplaceApproximation`](../../api/inference/guide.md) for a Gaussian fit at the MAP; [`AutoIAFGuide`](../../api/inference/guide.md) for an inverse-autoregressive normalizing flow. Pass the class, not an instance: `fit(..., guide=AutoMultivariateNormalGuide)`.
-- **`reparameterize="noncentered" | "centered"`**. Controls how random-effect terms are emitted. The default `"noncentered"` matches Stan / brms expert practice; `"centered"` matches the textbook density. Mathematically identical posteriors, very different sampling geometry.
+- **`reparameterize="noncentered" | "centered"`**. [`formula_to_qvr`](../../api/formulas/compile.md) uses this option when emitting random-effect terms. The current `fit` implementation records the option on `BayesianFit` but does not pass it into the runtime compiler, which thus uses non-centering. Use `formula_to_qvr(..., reparameterize="centered")` when you need centered source and inspect `result.qvr_source` to confirm the fitted program.
 
 ## Model comparison with PSIS-LOO
 
@@ -268,7 +268,7 @@ with_x             0 -43.0  0.0        0.0    0.98  4.4  0.0    False
 intercept_only     1 -50.0  0.0       -6.0    0.02  3.3  3.4    False
 ```
 
-The predictor model wins decisively: `with_x` gets 0.98 of the stacking weight and the elpd difference (6.0) is multiple standard errors clear of zero.
+In this illustrative output, `with_x` receives most of the stacking weight. Interpret the comparison from the values produced by your run, including the standard errors and Pareto-$k$ warnings.
 
 ## Posterior-predictive checks
 
@@ -297,7 +297,7 @@ predictive mean: 0.312
 ppp (mean):    0.557
 ```
 
-A posterior-predictive p-value near 0.5 says the observed mean is in the bulk of the replicated distribution, exactly what we want when the model is well-calibrated for that test statistic. Values near 0 or 1 indicate the statistic is poorly captured.
+A posterior-predictive p-value near 0.5 places the observed mean near the middle of the replicated distribution for this statistic. Values near 0 or 1 can indicate that the model does not capture the chosen statistic, though the interpretation depends on how the check was constructed.
 
 Built-in statistics: `mean`, `median`, `sd`, `var`, `min`, `max`, `q05`, `q95`. The `by=` argument splits the calculation along a named dim (e.g. `by="Verb"` for a per-category check); for arbitrary statistics, pass a callable.
 
@@ -322,7 +322,7 @@ You have:
 - Inspected the emitted `.qvr` source and seen how predictors flow in through the host-data channel rather than as latent draws.
 - Fit a hierarchical model with `(1 | g)` random intercepts and seen where SVI's mean-field approximation under-shrinks group-level variance.
 - Run NUTS on a Bernoulli regression and compared two models via PSIS-LOO with stacking weights.
-- Wrapped a `BayesianFit.posterior` into an ArviZ `DataTree` and run a posterior-predictive check.
+- Wrapped MCMC results into an ArviZ `DataTree` and run a posterior-predictive check.
 - Inspected the lens machinery that maps a `Formula` to a QVR `Module`.
 
 ## Next

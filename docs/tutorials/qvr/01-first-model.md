@@ -93,7 +93,7 @@ Reading the QVR line by line:
 | `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The let-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
 | `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
-If you're coming from Pyro/NumPyro/Stan, the only feature without an obvious analogue is the optional `[effects=[...]]` clause: an *effect signature*. By default the compiler infers which effects (`Sample`, `Score`, `Marginal`) the body uses. Pinning the set explicitly turns it into a static promise. If you write `[effects=[Pure]]` and the body contains a `sample` step, the compiler rejects the program at `loads` time.
+If you're coming from Pyro/NumPyro/Stan, the only feature without a direct analogue is the optional `[effects=[...]]` clause: an *effect signature*. By default the compiler infers which effects (`Sample`, `Score`, `Marginal`) the body uses. Pinning the set explicitly turns it into a static promise. If you write `[effects=[Pure]]` and the body contains a `sample` step, the compiler rejects the program at `loads` time.
 
 ### What the effect signature buys you
 
@@ -117,7 +117,7 @@ Notice the free name `x_design` on line 27: it isn't declared anywhere in the mo
 
 If `observed_names` is missing a name the body references, the compiler reports an unbound free name. If the `observations` dict at runtime is missing a name from `observed_names`, the runtime raises a `KeyError` at the first step. Both errors point at the offending site and stop the run before any gradient is computed.
 
-#! Compile and fit
+## Compile and fit
 
 QVR programs compile to `nn.Module`. You can train them with the inference stack quivers ships (built around stochastic variational inference, [Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html)), or with any PyTorch optimizer if you want to drop to raw gradients.
 
@@ -165,7 +165,7 @@ for step in range(50):                        # bump to ~2000 for real fits
 
 The pattern is identical to Pyro: a [`Guide`](../../api/inference/guide.md) carries the variational family, an [`Objective`](../../api/inference/elbo.md) is the loss, an [`SVI`](../../api/inference/svi.md) driver runs the loop.
 
-The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaussian variational posterior trained by the pathwise (reparameterised) gradient estimator of [Kingma & Welling (2014)](https://doi.org/10.48550/arXiv.1312.6114); SVI ramps that to mini-batches.
+The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaussian variational posterior trained by a pathwise gradient estimator ([Kingma & Welling, 2014](https://doi.org/10.48550/arXiv.1312.6114)). Minibatching is available when the model and call site supply batches.
 
 ## Inspect the posterior
 

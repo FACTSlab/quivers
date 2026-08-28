@@ -2,23 +2,47 @@
 
 ## Overview
 
-Classical [factor analysis](https://en.wikipedia.org/wiki/Factor_analysis) ([Spearman 1904](https://www.jstor.org/stable/1412107); [Bartholomew, Knott, and Moustaki 2011](https://doi.org/10.1002/9781119970583)) decomposes a $D$-dimensional observation as a linear-Gaussian transformation of a $K$-dimensional latent factor plus a free diagonal idiosyncratic noise:
+Classical [factor analysis](https://en.wikipedia.org/wiki/Factor_analysis) ([Spearman, 1904](https://www.jstor.org/stable/1412107); [Bartholomew, Knott, and Moustaki, 2011](https://doi.org/10.1002/9781119970583)) decomposes a $D$-dimensional observation as a linear-Gaussian transformation of a $K$-dimensional latent factor plus diagonal idiosyncratic noise:
 
 $$
 z_i \sim \mathcal{N}(0, I_K), \quad y_i \mid z_i \sim \mathcal{N}(W z_i, \mathrm{diag}(\psi)).
 $$
 
-The free diagonal $\psi$ distinguishes factor analysis from [probabilistic PCA](ppca.md), whose noise is isotropic. The loading matrix is the canonical example of a morphism-valued latent in quivers: declared as an arrow $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ with a [matrix-normal](https://en.wikipedia.org/wiki/Matrix_normal_distribution) prior on its row and column covariances. The per-item latent factor is itself a learnable morphism $Z : \mathsf{Item} \to \mathsf{LatentDim}$, and the model mean is the composition $Z \mathbin{>>} W$.
+The runnable QVR program below uses one scalar `sigma`, not a free diagonal $\psi$. Its observation-noise structure is thus isotropic and matches [probabilistic PCA](ppca.md), despite the example's historical name. The top-level arrows $Z : \mathsf{Item} \to \mathsf{LatentDim}$ and $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ demonstrate the corresponding low-rank composition.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Factor Analysis
+#
+# Classical factor analysis decomposes a D-dimensional
+# observation as a linear-Gaussian transformation of a
+# K-dimensional latent factor. The model mean factors through a
+# learnable loading matrix and a per-item latent code, expressed
+# here as a morphism composition under the real algebra.
+#
+# Structural form:
+#
+#   Z     : Item      -> LatentDim       per-item latent code
+#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   model = Z >> W                       linear-Gaussian mean
+#
+# The loading matrix carries a matrix-normal prior whose
+# Kronecker covariance V (x) U expresses independent row and
+# column correlation, the natural prior for a low-rank factor
+# decomposition. Factor analysis pairs Z >> W with a free
+# diagonal noise (one psi per ObsDim coordinate), whereas PPCA
+# collapses that diagonal to a single isotropic scalar; both
+# choices are downstream observation kernels rather than
+# features of the matrix-valued mean expressed here.
+
 composition real [level=algebra]
 
 object LatentDim : FinSet 2
 object ObsDim : FinSet 5
 object Item : FinSet 32
 object Resp : FinSet 160
+object Val : Real 1
 
 morphism Z : Item -> LatentDim [role=latent]
 
@@ -26,7 +50,15 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 define factor_analysis = Z >> W
 
-program factor_analysis_program : Resp -> Resp
+# Probabilistic surface: every entry of the loading matrix and
+# per-item latent code carries an independent Normal(0, 1) prior
+# (the matrix-normal special case with V = U = I), the noise
+# scale carries a HalfCauchy(2.5) prior, and the observed
+# response is scored under Normal(mu, sigma) where mu is the
+# per-row inner product Z[i] . W[d]. The loading matrix is
+# sampled transposed (ObsDim -> LatentDim) so the per-Resp
+# inner product is two compatible Resp-by-LatentDim gathers.
+program factor_analysis_program : Resp -> Val
     sample sigma <- HalfCauchy(2.5)
     sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
     sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]
@@ -43,22 +75,24 @@ export factor_analysis_program
 
 ## Walkthrough
 
+An [object](../guides/dsl-declarations.md#object) name in QVR has no fixed reading; each position it can occupy gives it a different one, and this file uses four. In `morphism Z : Item -> LatentDim` the codomain is the arrow's own value space, which is what makes `Z` an `Item x LatentDim` real matrix. In `[over=LatentDim]` the object fixes the *event width* instead, the two coordinates a latent code or a loading row spans. In `observe y : Resp <- Normal(mu, sigma)` it fixes the *plate extent*, the 160 response rows, one per `(Item, ObsDim)` cell, which is why an object in that slot must be discrete; what a row holds is not `Resp`'s business but the family's, and `Normal` is what makes each response real. And in the program signature `Resp -> Val` the codomain names the *value space* of what the program returns: `return y` gives back one real response per row, so that space is `Real 1`, declared as `object Val : Real 1`. Reading that codomain as an index instead is the misstep to avoid: a signature `Resp -> Resp` would claim the program returns an element of the response index set, which is a category error the compiler cannot catch, since its only condition on `return` is that the name be bound and it never compares the returned value against the declared codomain.
+
 The two latent declarations introduce the per-item factor and the loading matrix as arrows. Under `composition real [level=algebra]` the composition `Z >> W` is a real-valued matmul: the `(i, d)` entry of the `Item x ObsDim` model tensor is $\sum_k Z_{i,k} W_{k,d}$, the factor analysis model mean.
 
-The top-level morphism prior
+The following block is an optional extension, not part of the source shown above:
 
 <!-- compile: false -->
 ```qvr
 morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
 ```
 
-places a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The two axes named under `over (dom, cod)` bind positionally to the family's event axes: `LatentDim` is the row axis carrying the row-covariance argument, `ObsDim` is the column axis carrying the column-covariance argument. The [Kronecker covariance](https://en.wikipedia.org/wiki/Kronecker_product) structure expresses independent row and column correlation in the loadings, the natural prior for a low-rank factor decomposition.
+It would place a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The actual `factor_analysis_program` instead samples `W_mat` through an indexed Normal plate.
 
-The distinction between factor analysis and PPCA appears in the observation noise kernel applied to the matmul mean: factor analysis uses a free diagonal $\psi_d$ per dimension; PPCA collapses that diagonal to a single isotropic scalar.
+To implement classical factor analysis, replace scalar `sigma` with a positive `ObsDim`-indexed noise vector and gather the appropriate element for each response row.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -124,11 +158,11 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The factor analysis mean is a composition $Z \mathbin{>>} W$ in the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category) over the [Giry monad](https://doi.org/10.1007/BFb0092872) under `composition real [level=algebra]`. The loading morphism $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ carries a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior whose [tensor-product](https://en.wikipedia.org/wiki/Tensor_product) factorisation $\mathrm{vec}(W) \sim \mathcal{N}(0, V \otimes U)$ expresses the prior as the product of two univariate Gaussians on the row and column axes. The morphism-valued prior surface treats the matrix as a first-class arrow and its prior as a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$.
+The top-level mean is the real-algebra composition $Z \mathbin{>>} W$, whose tensor is the low-rank matrix product. In the exported program, `Z_mat` and `W_mat` are explicit Normal plate draws and the scalar `sigma` supplies isotropic observation noise.
 
-## See Also
+## See also
 
 - [Probabilistic PCA](ppca.md), the isotropic-noise special case.
 - [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the morphism-valued prior surface.

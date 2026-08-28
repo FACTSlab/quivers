@@ -1,11 +1,31 @@
 # Bayesian Linear Regression
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Resp : FinSet 1
+# Bayesian Linear Regression
+#
+# A two-parameter linear model with a HalfCauchy prior on the
+# noise scale and Normal priors on the regression coefficients.
+# Exercises the core sample / let / observe pattern that every
+# richer model in the gallery composes from.
+#
+# Generative structure:
+#
+#   sigma   ~ HalfCauchy(2)              noise scale
+#   beta_0  ~ Normal(0, 5)               intercept
+#   beta_1  ~ Normal(0, 2)               slope
+#   y_n     ~ Normal(beta_0 + beta_1 * x_n, sigma)
+#
+# The predictor x is exogenous data: an (N,) tensor supplied at
+# fit time via the observations dict alongside the response y.
+# The runtime's host-data channel binds free variables in let
+# expressions from undeclared keys in the observations dict.
 
-program bayesian_regression : Resp -> Resp
+object Resp : FinSet 64
+object Val : Real 1
+
+program bayesian_regression : Resp -> Val
     sample sigma <- HalfCauchy(2.0)
     sample beta_0 <- Normal(0.0, 5.0)
     sample beta_1 <- Normal(0.0, 2.0)
@@ -30,7 +50,7 @@ The predictor $x$ is exogenous host data supplied alongside the response at fit 
 
 ## Walkthrough
 
-`object Resp : FinSet 1` declares the response object: a single scalar per row of the `Resp` plate. The program signature `program bayesian_regression : Resp -> Resp` is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the [probability monad](https://ncatlab.org/nlab/show/probability+monad) that scores observed responses under the model's joint kernel.
+`object Resp : FinSet 64` declares the response index: a 64 element finite set that the observed response is indexed by, so `y` carries one row per element and has shape `(64,)`. A `FinSet` names the plate, not the values on it; the value type of `y` comes from the family it is observed under, and `Normal` makes those values real. `object Val : Real 1` names the value space the program returns: `return y` hands back a plate of real scalars, so the codomain is the per-row value space `Real 1`, not the index set `Resp`. The signature `program bayesian_regression : Resp -> Val` is thus a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the [probability monad](https://ncatlab.org/nlab/show/probability+monad) that scores observed responses under the model's joint kernel.
 
 The three `sample` lines draw the prior parameters as global scalars: `sample sigma <- HalfCauchy(2.0)` puts a heavy-tailed positive prior on the noise scale, and `sample beta_0 <- Normal(0.0, 5.0)`, `sample beta_1 <- Normal(0.0, 2.0)` give the intercept and slope independent Gaussian priors with a wider spread on the intercept than on the slope.
 
@@ -38,7 +58,7 @@ The three `sample` lines draw the prior parameters as global scalars: `sample si
 
 `observe y : Resp <- Normal(mu, sigma)` scores the observed response under the Gaussian likelihood, accumulating $\log p(y \mid \mu, \sigma)$ into the program's score effect. `return y` projects the program's joint kernel onto the response site, and `export bayesian_regression` makes the program addressable from the loader.
 
-## DSL Features
+## DSL features
 
 - **`program` keyword**: Declares a probabilistic program with a type signature (`InputType -> OutputType`) and a monadic body.
 - **`<-` (bind)**: Samples a random variable from a distribution. Subsequent statements can depend on the sampled value.
@@ -50,7 +70,7 @@ The three `sample` lines draw the prior parameters as global scalars: `sample si
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -121,7 +141,7 @@ print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
 print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
-## Categorical Perspective
+## Categorical perspective
 
 A probabilistic program is a Kleisli morphism $A \to TB$ in the probability monad, where $T$ maps a set to its space of distributions. The `<-` bind operator is Kleisli composition: running $f : A \to TB$ and then $g : B \to TC$ yields $(g \circ_K f) : A \to TC$. In this example, the prior (sampling $\beta_0$, $\beta_1$, $\sigma$) composes with the likelihood ($\mathrm{Normal}(\mu, \sigma)$) via monadic bind, producing a joint distribution over parameters and observations. The `observe` statement then conditions this joint distribution, computing the posterior $P(\theta \mid y) \propto P(y \mid \theta) \cdot P(\theta)$ by Bayes' rule. Inference algorithms (VI, MCMC) are computational methods for evaluating the resulting integrals.
 
@@ -135,6 +155,6 @@ Quivers abstracts over inference algorithms, so the same model specification wor
 
 For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, place a [`GP`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) prior over the regression function. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
 
-## See Also
+## See also
 
 - [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the plate-draw, parametric-template, and `marginalize` constructs.

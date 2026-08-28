@@ -1,21 +1,21 @@
 # Transpilation architecture
 
-The transpile layer in [`quivers.transpile`][quivers.transpile]
-realizes every well-typed QVR module $M$ as source bytes for a
+The transpile layer in `quivers.transpile`
+converts supported QVR modules $M$ to source bytes for a
 target probabilistic programming language $\mathsf{T}$. This page
 describes the architecture of that realization: the intermediate
 representation, the family-metadata registry, the per-target
 renderer interface, and the dispatch pattern that lets one walker
 serve eleven backends without family-name special-casing.
 
-The companion page [Transpilation correctness](transpile-correctness.md)
-proves that the architecture preserves the joint distribution. This
-page tells you how the pieces fit together.
+The companion [transpilation-correctness contract](transpile-correctness/index.md)
+states the evidence available for supported programs. This page
+describes how the pieces fit together.
 
 ## 1. The three-stage pipeline
 
 The transpile pipeline is a
-[`didactic.api.Mapping`][didactic.api.Mapping]
+`didactic.api.Mapping`
 composition:
 
 $$
@@ -31,30 +31,30 @@ $$
 $$
 
 Each arrow is a small pure transformation; the composition is
-[Theorem 4.1][transpile-correctness.md]'s first structural handle,
+the correctness framework's first structural handle,
 because each arrow's correctness lemma is local to its file.
 
 * **Compile** parses a `.qvr` source text into a
   [`Module`][quivers.dsl.ast_nodes.Module] AST and resolves
   declarations into a `Program` containing the program's draws,
   morphism table, and let table.
-* **[`Lower`][quivers.transpile.lower.Lower]** is
+* **`Lower`** is
   target-independent. It walks the `Program` and emits an
-  [`IRProgram`][quivers.transpile.ir.IRProgram] whose nodes carry
+  `IRProgram` whose nodes carry
   the structural intent (sample, observe, marginalize, ...) plus
   the support and plate shape derived from
-  [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] and
-  [`torch.distributions.Distribution.arg_constraints`][torch.distributions.Distribution.arg_constraints].
-* **[`Render[T]`][quivers.transpile.renderers._base.RendererBase]**
+  `FAMILY_META` and
+  `torch.distributions.Distribution.arg_constraints`.
+* **`Render[T]`**
   is one subclass per backend
-  ([`StanRenderer`][quivers.transpile.renderers.stan.StanRenderer],
-  [`NumPyroRenderer`][quivers.transpile.renderers.numpyro.NumPyroRenderer],
-  [`PyMCRenderer`][quivers.transpile.renderers.pymc.PyMCRenderer],
+  (`StanRenderer`,
+  `NumPyroRenderer`,
+  `PyMCRenderer`,
   ...). It consumes the IR and emits a target-specific
-  [`panproto.Schema`][panproto.Schema] using only the support
+  `panproto.Schema` using only the support
   predicates of §2.2 and the `FAMILY_META` entries.
 * **Pretty[T]** is
-  [`panproto.AstParserRegistry.emit_pretty`][panproto.AstParserRegistry.emit_pretty]
+  `panproto.AstParserRegistry.emit_pretty`
   for the target's tree-sitter grammar. It renders the schema as
   the canonical source-byte serialization.
 
@@ -64,9 +64,9 @@ renderer's interface; see §3.
 ## 2. The IR
 
 The IR lives in
-[`src/quivers/transpile/ir.py`][quivers.transpile.ir]. Every entry
-is a [`dx.Model`][didactic.api.Model] or
-[`dx.TaggedUnion`][didactic.api.TaggedUnion]. The IR is purely
+`src/quivers/transpile/ir.py`. Every entry
+is a `dx.Model` or
+`dx.TaggedUnion`. The IR is purely
 structural: no target-language strings, no schema vertices, no
 panproto types.
 
@@ -99,16 +99,16 @@ class DimDynamic(Dim):
 `step.index` shorthand); `batch_dims` from `AxisSpec.iid_over`.
 `Lower` preserves the source-declaration order; each renderer
 walks `batch_dims` to emit nested `for` loops (Stan), nested
-[plate contexts][numpyro.plate] (NumPyro / Pyro),
-[`dims=(...)`][pymc.Distribution] declarations (PyMC), or
-[`filldist`][turing.distributions.filldist] / `arraydist` wrappers
+plate contexts (NumPyro / Pyro),
+`dims=(...)` declarations (PyMC), or
+`filldist` / `arraydist` wrappers
 (Turing.jl / Gen.jl) per its native idiom.
 
 ### 2.2 Support classification
 
 `src/quivers/transpile/ir.py` exports a small set of predicates
 over
-[`torch.distributions.constraints.Constraint`][torch.distributions.constraints]:
+`torch.distributions.constraints.Constraint`:
 
 ```python
 def is_real_scalar(c: Constraint) -> bool: ...
@@ -127,20 +127,20 @@ def is_int_count(c: Constraint) -> bool: ...
 
 These are the only typeclass operations a renderer performs.
 Renderers never `isinstance(c, _Simplex)` directly; they call
-[`is_real_simplex`][quivers.transpile.ir.is_real_simplex]. Adding
+`is_real_simplex`. Adding
 a new support kind (ordered vectors, say) means adding one
 predicate. The predicates dispatch on torch's existing
-[`Constraint`][torch.distributions.constraints.Constraint]
+`Constraint`
 taxonomy.
 
-Because [Torch][torch.distributions] does not survive
+Because Torch does not survive
 didactic's tagged-union encode / decode round trip, the IR
 actually stores constraints as a structural mirror
-[`ConstraintSpec`][quivers.transpile.ir.ConstraintSpec] that
+`ConstraintSpec` that
 materializes to the underlying `Constraint` via
 `.to_constraint()` when a renderer needs the real value. The
 mirror has one variant per kind the predicates distinguish; the
-[`from_constraint`][quivers.transpile.ir.from_constraint]
+`from_constraint`
 converter goes the other way at Lower time.
 
 ### 2.3 `IRArg`: typed argument tree
@@ -185,14 +185,14 @@ class IRArgFamilyRef(IRArg):
 ```
 
 Lower wraps a scalar arg in `IRArgBroadcast` when the matched
-[`arg_constraints[name]`][torch.distributions.Distribution.arg_constraints]
+`arg_constraints[name]`
 is `IndependentConstraint(base, n>=1)`. Each renderer translates
 the broadcast to its native op:
-[`rep_vector(x, K)`][stan.functions.rep_vector] in Stan,
-[`jnp.full((K,), x)`][jax.numpy.full] in NumPyro,
-[`torch.full((K,), x)`][torch.full] in Pyro,
-[`np.full((K,), x)`][numpy.full] in PyMC,
-[`fill(x, K)`][julia.fill] in Turing / Gen,
+`rep_vector(x, K)` in Stan,
+`jnp.full((K,), x)` in NumPyro,
+`torch.full((K,), x)` in Pyro,
+`np.full((K,), x)` in PyMC,
+`fill(x, K)` in Turing / Gen,
 `repeat(K, function() { return x; })` in WebPPL,
 `(make-list K x)` in Church. The translation lives in each
 renderer's `broadcast(value, target_shape)` method.
@@ -276,7 +276,7 @@ class IRProgram(dx.Model):
 ## 3. `FamilyMeta`: the registry for transpile-only facts
 
 One registry, in
-[`src/quivers/transpile/family_meta.py`][quivers.transpile.family_meta]:
+`src/quivers/transpile/family_meta.py`:
 
 ```python
 class FamilyMeta(dx.Model):
@@ -290,7 +290,7 @@ class FamilyMeta(dx.Model):
 * `qvr_name`: the DSL-facing family name (`"Normal"`,
   `"Dirichlet"`).
 * `distribution_class`: the underlying
-  [`torch.distributions.Distribution`][torch.distributions.Distribution]
+  `torch.distributions.Distribution`
   subclass (or a thin shim exposing the right `arg_constraints` +
   `.support` surface for families with no native torch
   counterpart, like `OrderedLogistic` and `HalfStudentT`). Source
@@ -327,7 +327,7 @@ Returns `True` for Bernoulli, Categorical, OrderedLogistic, and
 OrderedProbit unconditionally. For Binomial returns `True` only
 when `args[0]` (total_count) is a literal `IRArgNumber`; the
 Stan renderer's `marginalize` raises
-[`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+`UnsupportedConstruct`
 when the check returns `False`.
 
 ### 3.1 What `FAMILY_META` does not carry
@@ -348,17 +348,17 @@ class plus one `FamilyMeta` entry; no renderer touches.
 
 ## 4. `Lower`: Program → IR
 
-[`Lower`][quivers.transpile.lower.Lower] is a single class
+`Lower` is a single class
 implementing `dx.Mapping[Program, IRProgram]`. Its `forward`:
 
 1. Runs
-   [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+   `expand_composite_lets`
    on the program. Composite-let bindings (`let chain = prior >>
    likelihood`) flatten into atomic sample chains so each
    program-step the IR sees references a single morphism.
 2. Resolves every step's morphism slot to a `(family, args)`
    pair via
-   [`resolve_step_dist`][quivers.transpile._resolve.resolve_step_dist].
+   `resolve_step_dist`.
 3. Looks up `meta = FAMILY_META[family]`.
 4. Reads `arg_constraints = meta.distribution_class.arg_constraints`
    and resolves the output support, instantiating with sentinel
@@ -381,7 +381,7 @@ backend-specific module.
 ## 5. `Renderer[T]`: IR → panproto.Schema
 
 Each backend implements a
-[`Renderer`][quivers.transpile.renderers._base.RendererBase]
+`Renderer`
 subclass with one public method `render(ir: IRProgram) ->
 panproto.Schema` and four private dispatch points:
 
@@ -412,7 +412,7 @@ blocks; NumPyro's "block" is the function body; PyMC's is the
 `with pymc.Model() as model:` scope; BUGS / JAGS have only a
 single `model { ... }` enclosure.
 
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+`RendererBase`
 provides the IR walk (`IRDataInput → declare`, `IRSample
 (non-observed) → declare + sample`, `IRObserve → declare +
 sample(observed=True)`, `IRDeterministic → declare + assignment`,
@@ -461,10 +461,10 @@ The eleven backends fall into three idiomatic families:
   WebPPL). The renderer emits a `def model(...)` (or `@model
   function`, or `(define (model ...))`) and uses the target's
   native plate primitive
-  ([`numpyro.plate`][numpyro.plate],
-  [`pyro.plate`][pyro.plate],
-  [`filldist`][turing.distributions.filldist],
-  [`@trace`][gen.trace],
+  (`numpyro.plate`,
+  `pyro.plate`,
+  `filldist`,
+  `@trace`,
   `map` over `iota`, `repeat`)
   to express batch dimensions.
 * **Graphical-model relational** (PyMC, Edward2, BUGS, JAGS).
@@ -584,7 +584,7 @@ emits the `log_sum_exp` enumeration; the NumPyro renderer's
 `marginalize` lowers the construct to `IRSample(z) + scope` and
 the scope's `IRObserve(w)` becomes a `numpyro.sample(..., obs=w)`
 inside a per-word
-[`plate`][numpyro.plate]. Neither renderer's code
+`plate`. Neither renderer's code
 references the family name `Dirichlet` or `Categorical`; both
 dispatch on `is_real_simplex` (for the Dirichlet declaration) and
 `is_int_category` (for the Categorical observation).
@@ -598,7 +598,7 @@ dispatch on `is_real_simplex` (for the Dirichlet declaration) and
    has its own structural shape, like the cutpoint-parameterized
    ordered families in `src/quivers/continuous/ordered.py`).
 2. Add a
-   [`FamilyMeta`][quivers.transpile.family_meta.FamilyMeta]
+   `FamilyMeta`
    entry to `FAMILY_META`. Populate `qvr_name`,
    `distribution_class` (the torch class or a thin shim
    exposing the right `arg_constraints` and `.support`),
@@ -615,14 +615,14 @@ shape.
 1. Choose the target tree-sitter grammar (`stan`, `python`,
    `julia`, `scheme`, `javascript`, `bugs`, `jags`).
 2. Implement a
-   [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+   `RendererBase`
    subclass under `src/quivers/transpile/renderers/<backend>.py`.
    Override `declare`, `sample`, `marginalize`, and `broadcast`.
 3. Add a `target_names[<backend>] = ...` entry to every
    `FamilyMeta` in `FAMILY_META` for the families the backend
    supports. Omit the entry for unsupported families; the
    renderer's call-site lookup raises
-   [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+   `UnsupportedConstruct`
    with a precise kind.
 4. Register the renderer in `src/quivers/transpile/__init__.py`'s
    `_RENDERERS` table, with the appropriate grammar string.
@@ -666,7 +666,7 @@ rather than emitting wrong bytes.
 
 ## References
 
-* [Transpilation correctness](transpile-correctness.md). The
+* [Transpilation correctness](transpile-correctness/index.md). The
   per-arrow lemma chain that lifts to the natural isomorphism
   $\eta_{\mathsf{T}}: \mathsf{S}_{\mathrm{QVR}} \xRightarrow{\cong}
   \mathsf{S}_{\mathsf{T}} \circ \mathsf{T}_{\mathsf{T}}$ in

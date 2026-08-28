@@ -50,7 +50,7 @@ broadcasting semantics, `sample_shape=[B]` produces a $B$-fold
 i.i.d. product (TFP user guide on "Shapes and Broadcasting").
 
 **Marginalize.** Explicit-latent rewrite (head
-[§5.3.2](index.md#532-explicit-latent-rewrite-under-mcmc)).
+[the marginalization discussion](index.md#5-plates-marginalization-and-via)).
 
 **Score / let / return.** Edward2 has no native `factor`
 primitive; the renderer raises
@@ -60,13 +60,14 @@ assignments. The function returns the named random variables.
 
 ## Acceptance
 
-* **Tier 1 structural.** Every emit has a `def model(...)` whose
-  body is a sequence of `edward2.<Family>(...)` calls with
-  `sample_shape=[...]` and `name=...` parameters.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `python -m ast` accepts every emit.
-* **Tier 4 numeric equivalence.** The `ed.tape`-based probe agrees
-  with the QVR reference within $10^{-6}$.
+* **Tier 1 pipeline composition.** Structural checks cover the
+  emitted `model` function and the renderer pipeline.
+* **Tier 2 external syntax.** Python's AST parser accepts the
+  generated modules in the external-validation matrix.
+* **Tier 3 numeric equivalence.** For selected fixtures, the
+  `ed.tape`-based probe is compared with the QVR reference on the
+  shared finite grid and tolerance described in
+  [the test contract](index.md#6-evidence-tiers).
 
 ### References
 

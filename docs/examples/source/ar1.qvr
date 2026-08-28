@@ -17,8 +17,9 @@
 # the marginal stationary variance is sigma^2 / (1 - phi^2).
 
 object Step : FinSet 64
+object Val : Real 1
 
-program ar1 : Step -> Step
+program ar1 : Step -> Val
     sample alpha <- Normal(0.0, 5.0)
     sample phi <- Uniform(-1.0, 1.0)
     sample sigma <- HalfCauchy(1.0)

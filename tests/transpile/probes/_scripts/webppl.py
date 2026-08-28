@@ -1,11 +1,11 @@
 """In-container WebPPL probe.
 
 The node container has the `webppl` CLI on PATH. This Python driver
-takes the rendered model source, transforms each `sample(<dist>)` and
-`observe(<dist>, <val>)` call into a plain JavaScript expression that
-accumulates a `score(<value>)` term into a running `globalStore.lp`,
-then runs the program with `webppl` and parses the printed
-log-density JSON.
+takes the rendered model source, transforms each `sample(<dist>)`,
+`observe(<dist>, <val>)` and `factor(<weight>)` call into a plain
+JavaScript expression that accumulates a term into a running
+`globalStore.lp`, then runs the program with `webppl` and parses the
+printed log-density JSON.
 
 Why a source rewrite: WebPPL's `sample` / `observe` / `factor`
 primitives are CPS-transformed inside the interpreter and only have
@@ -20,15 +20,22 @@ lifts all three:
 
 1. scalar, `var <name> = sample(<dist>);`
 2. iid plate, `var <name> = repeat(<n>, function () { return
-   sample(<dist>); });`
+   <draw>; });`, where `<draw>` is either a `sample(<dist>)` or a
+   further `repeat(...)` over a nested residual axis
 3. indexed plate, `var <name> = mapIndexed(function (<i>, <j>) {
    return sample(<dist>); }, <plate>);` where `<dist>` reads `<i>`.
+
+A fourth shape carries density without a site: a `marginalize` block
+whose discrete latent the renderer integrates out emits its reduced
+log-weight as `factor(<weight>)`, which the probe accumulates
+directly.
 
 A plated draw the probe failed to lift would stay live: WebPPL would
 redraw it at run time, dropping its prior term and making the
 returned log-density non-deterministic. That is a wrong finite number
 rather than an error, so after rewriting the probe asserts that no
-`sample(` or `observe(` token survives inside the model function.
+`sample(`, `observe(` or `factor(` token survives inside the model
+function.
 
 Scoring a distribution declared by the transpiler's runtime prelude
 needs one extra step. WebPPL's CPS transform compiles a member call
@@ -159,12 +166,19 @@ _MAPINDEXED_DECL_RE = re.compile(
     r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*mapIndexed\s*\("
 )
 _OBSERVE_RE = re.compile(r"\bobserve\s*\(")
+_FACTOR_RE = re.compile(r"\bfactor\s*\(")
 
 # `repeat`'s callback for an iid plate takes no arguments and its whole
-# body is a single `return sample(<dist>)`.
-_IID_CALLBACK_RE = re.compile(
-    r"\Afunction\s*\(\s*\)\s*\{\s*return\s+sample\s*\("
+# body is a single `return <draw>`, where `<draw>` is either a
+# `sample(<dist>)` call or a further `repeat(...)` over a nested
+# residual axis.
+_IID_CALLBACK_HEAD_RE = re.compile(
+    r"\Afunction\s*\(\s*\)\s*\{\s*return\s+"
 )
+# The two body shapes a lifted iid callback may take, matched at the
+# start of the callback body.
+_SAMPLE_CALL_RE = re.compile(r"\Asample\s*\(")
+_REPEAT_CALL_RE = re.compile(r"\Arepeat\s*\(")
 # `mapIndexed`'s callback binds the plate index and the (unused) plate
 # element; the distribution expression reads the index.
 _INDEXED_CALLBACK_RE = re.compile(
@@ -289,38 +303,89 @@ def _clamped_bind(name: str, score_term: str) -> str:
     )
 
 
+def _iid_body_score(
+    body: str, element: str, depth: int, grafted: frozenset[str],
+) -> str | None:
+    """Score the body of a lifted `repeat` callback at ``element``.
+
+    ``body`` is the callback text after its ``return``, up to and
+    including the callback's closing brace. Two shapes carry a draw:
+    a bare ``sample(<dist>)``, which scores the clamped element under
+    that distribution, and a further ``repeat(<n>, <callback>)``,
+    which is one more residual axis of the same latent and recurses.
+
+    Returns ``None`` when the body draws nothing, which is the
+    deterministic use of `repeat` and needs no clamping. Raises when
+    the body does draw but carries trailing statements this lift
+    cannot account for, so an unrecognised emission never leaves a
+    free latent scored at a redrawn value.
+    """
+    stripped = body.lstrip()
+    for call_re, kind in (
+        (_SAMPLE_CALL_RE, "sample"), (_REPEAT_CALL_RE, "repeat"),
+    ):
+        head = call_re.match(stripped)
+        if head is None:
+            continue
+        open_paren = head.end() - 1
+        close_paren = _find_matching(stripped, open_paren)
+        args = stripped[open_paren + 1:close_paren]
+        tail = stripped[close_paren + 1:]
+        if _CALLBACK_TAIL_RE.match(tail) is None:
+            msg = (
+                f"webppl probe: a `repeat(...)` callback returns "
+                f"`{kind}(...)` inside a body that does more than "
+                f"return it; the probe cannot clamp it. "
+                f"body: {body!r}"
+            )
+            raise ValueError(msg)
+        if kind == "sample":
+            return _score_expr(args.strip(), element, grafted)
+        return _iid_plate_score(args, element, depth, grafted)
+    return None
+
+
+def _iid_plate_score(
+    args: str, base: str, depth: int, grafted: frozenset[str],
+) -> str | None:
+    """Score one `repeat(<n>, <callback>)` axis of a clamped latent.
+
+    ``base`` is the JavaScript expression naming the clamped value at
+    the axes already peeled off, so the axis this call introduces
+    subscripts it with a fresh index and hands the result to
+    :func:`_iid_body_score`. Nested `repeat`s recurse, which is how a
+    latent declared over two residual axes (an `(Item, Latent)` factor
+    matrix, for instance) reaches its scalar leaves.
+    """
+    n_expr, callback = _split_top_level_comma(args)
+    head = _IID_CALLBACK_HEAD_RE.match(callback)
+    if head is None:
+        return None
+    index = f"{_PLATE_INDEX_VAR}{depth}"
+    inner = _iid_body_score(
+        callback[head.end():], f"{base}[{index}]", depth + 1, grafted,
+    )
+    if inner is None:
+        return None
+    return (
+        f"sum(mapN(function ({index}) {{\n"
+        f"    return {inner};\n"
+        f"  }}, {n_expr}))"
+    )
+
+
 def _lift_iid_plate(
     name: str, args: str, grafted: frozenset[str],
 ) -> str | None:
-    """Lift ``repeat(<n>, function () { return sample(<dist>); })``.
+    """Lift ``repeat(<n>, function () { return <draw>; })``.
 
-    Returns ``None`` when the callback is not a bare draw, which is the
+    Returns ``None`` when the callback is not a draw, which is the
     deterministic use of `repeat` (a broadcast concentration vector,
-    a dummy plate array) and needs no clamping. Raises when the
-    callback does draw but in a shape this lift does not cover, so an
-    unrecognised plate emission never scores a free latent.
+    a dummy plate array) and needs no clamping.
     """
-    n_expr, callback = _split_top_level_comma(args)
-    head = _IID_CALLBACK_RE.match(callback)
-    if head is None:
+    score_term = _iid_plate_score(args, name, 0, grafted)
+    if score_term is None:
         return None
-    open_paren = head.end() - 1
-    close_paren = _find_matching(callback, open_paren)
-    dist_expr = callback[open_paren + 1:close_paren].strip()
-    tail = callback[close_paren + 1:]
-    if _CALLBACK_TAIL_RE.match(tail) is None:
-        msg = (
-            f"webppl probe: `var {name} = repeat(...)` draws a sample "
-            f"inside a callback whose body does more than return it; "
-            f"the probe cannot clamp it. callback: {callback!r}"
-        )
-        raise ValueError(msg)
-    element = f"{name}[{_PLATE_INDEX_VAR}]"
-    score_term = (
-        f"sum(mapN(function ({_PLATE_INDEX_VAR}) {{\n"
-        f"    return {_score_expr(dist_expr, element, grafted)};\n"
-        f"  }}, {n_expr}))"
-    )
     return _clamped_bind(name, score_term)
 
 
@@ -441,20 +506,53 @@ def _rewrite_observe(source: str, grafted: frozenset[str]) -> str:
     return "".join(out)
 
 
+def _rewrite_factor(source: str) -> str:
+    """Replace each ``factor(<weight>);`` with a log-weight
+    accumulation::
+
+        globalStore.lp = globalStore.lp + (<weight>);
+
+    `factor` is how the renderer spells a term that belongs to the
+    density but to no site: the reduced measure a `marginalize` block
+    leaves behind once its discrete latent is integrated out. WebPPL
+    admits the primitive only under an inference algorithm, and the
+    probe evaluates the model outside one, so the weight has to reach
+    `globalStore.lp` the same way a scored site's does. Dropping it
+    instead would score the un-reduced measure and report a finite
+    number for a different program.
+    """
+    out: list[str] = []
+    cursor = 0
+    for match in _FACTOR_RE.finditer(source):
+        out.append(source[cursor:match.start()])
+        open_paren = match.end() - 1
+        close_paren = _find_matching(source, open_paren)
+        weight_expr = source[open_paren + 1:close_paren].strip()
+        out.append(
+            f"globalStore.lp = globalStore.lp + ({weight_expr});"
+        )
+        cursor = _statement_end(source, close_paren)
+    out.append(source[cursor:])
+    return "".join(out)
+
+
 _MODEL_FN_RE = re.compile(
     r"\bvar\s+model\s*=\s*function\s*\(([^)]*)\)"
 )
-_LIVE_PRIMITIVE_RE = re.compile(r"\b(sample|observe)\s*\(")
+_LIVE_PRIMITIVE_RE = re.compile(r"\b(sample|observe|factor)\s*\(")
 
 
 def _assert_fully_lifted(rewritten: str) -> None:
-    """Fail when a `sample` / `observe` primitive survives the rewrite.
+    """Fail when a `sample` / `observe` / `factor` primitive survives
+    the rewrite.
 
     A surviving `sample(` is the dangerous case: WebPPL draws it fresh
     on every run, so the site contributes no prior term and the
-    returned log-density is a random number. Checking only from the
-    model declaration onward keeps the runtime prelude's `sample:`
-    method definitions and its prose comments out of scope.
+    returned log-density is a random number. A surviving `factor(`
+    aborts the run outright, since WebPPL rejects the primitive
+    outside inference. Checking only from the model declaration onward
+    keeps the runtime prelude's `sample:` method definitions and its
+    prose comments out of scope.
     """
     match = _MODEL_FN_RE.search(rewritten)
     if match is None:
@@ -509,8 +607,8 @@ def _build_driver(
 
     Composes:
 
-    * the rewritten model source (with every `sample` / `observe`
-      lifted to score accumulation),
+    * the rewritten model source (with every `sample` / `observe` /
+      `factor` lifted to score accumulation),
     * the grafted-distribution scoring helper,
     * clamped-params object literal,
     * data bindings as top-level `var <name> = <literal>;` decls,
@@ -522,6 +620,7 @@ def _build_driver(
     rewritten = _rewrite_plated_samples(rendered, grafted)
     rewritten = _rewrite_sample(rewritten, grafted)
     rewritten = _rewrite_observe(rewritten, grafted)
+    rewritten = _rewrite_factor(rewritten)
     _assert_fully_lifted(rewritten)
     param_names = _model_parameter_names(rendered)
     data_decls = "\n".join(

@@ -49,7 +49,11 @@ Examples
 from __future__ import annotations
 import torch
 import torch.nn as nn
-from quivers.continuous.morphisms import ContinuousMorphism, _event_dim
+from quivers.continuous.morphisms import (
+    ContinuousMorphism,
+    _event_dim,
+    dimension_probe,
+)
 from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 
 
@@ -185,6 +189,61 @@ class ScanMorphism(ContinuousMorphism):
                 h = self._flatten_cell_output(h)
         return h
 
+    def _initial_state(self, batch: int, x: torch.Tensor) -> torch.Tensor:
+        """The hidden state the recurrence starts from, shaped ``(batch, H)``."""
+        if self._init_strategy == "learned":
+            return self._h0.unsqueeze(0).expand(batch, -1)
+        dtype = x.dtype if x.is_floating_point() else torch.get_default_dtype()
+        return torch.zeros(batch, self._hidden_dim, device=x.device, dtype=dtype)
+
+    def _step_dimension(self, x: torch.Tensor) -> int | None:
+        """Base coordinates one application of the cell consumes."""
+        probe = dimension_probe(x)
+        batch = probe.shape[0]
+        probe_x = probe if probe.dim() > 2 else probe.unsqueeze(1)
+        h = self._initial_state(batch, probe_x)
+        cell_input = torch.cat([probe_x[:, 0, :], h], dim=-1)
+        return self._cell.base_dimension(cell_input)
+
+    def base_dimension(self, x: torch.Tensor) -> int | None:
+        """One cell's worth of coordinates per time step of the input.
+
+        The recurrence draws once per position, so its coordinate
+        budget is the sequence length times the cell's own. The length
+        is read off the input rather than declared, because
+        ``scan(cell) : A -> H`` says nothing about how many positions a
+        given input carries.
+        """
+        step = self._step_dimension(x)
+        if step is None:
+            return None
+        seq_len = 1 if x.dim() == 2 else int(x.shape[1])
+        return seq_len * step
+
+    def push_base(self, x: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
+        """Run the recurrence on supplied coordinates instead of draws.
+
+        Time step ``t`` reads the ``t``-th block of ``base``, so the
+        trajectory is a deterministic function of the coordinates and
+        the input, and the same coordinates always produce the same
+        final state.
+        """
+        step = self._step_dimension(x)
+        if step is None:
+            raise ValueError(
+                f"ScanMorphism.push_base: the cell "
+                f"{type(self._cell).__name__} declares no "
+                f"reparameterization, so the recurrence has none either."
+            )
+        seq = x if x.dim() > 2 else x.unsqueeze(1)
+        batch, seq_len, _ = seq.shape
+        h = self._initial_state(batch, seq)
+        for t in range(seq_len):
+            cell_input = torch.cat([seq[:, t, :], h], dim=-1)
+            block = base[:, t * step : (t + 1) * step]
+            h = self._flatten_cell_output(self._cell.push_base(cell_input, block))
+        return h
+
     @staticmethod
     def _flatten_cell_output(
         result: torch.Tensor | dict[str, torch.Tensor],
@@ -224,6 +283,16 @@ class ScanMorphism(ContinuousMorphism):
         delta at the realised :math:`h_T`); the cell's weight
         latents carry the model's stochasticity and are scored on
         their own ``sample`` steps.
+
+        The zero is a modelling convention, not an evaluated
+        integral, and it is the density of the deterministic-recurrence
+        reading of the scan. A cell that draws fresh per-step noise
+        (``h_t ~ Normal(cell(x_t, h_{t-1}), sigma)``) has a marginal at
+        :math:`h_T` this does not compute: recovering it exactly needs
+        :math:`h_1, \\ldots, h_{T-1}` bound as sites of their own, and
+        [`log_joint`][quivers.continuous.scan.ScanMorphism.log_joint]
+        is the entry point that scores them once a caller holds the
+        whole trajectory.
 
         Returns a ``(batch,)``-shaped tensor of zeros so the surrounding
         ``log_joint`` can add it without further special-casing.

@@ -105,6 +105,9 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    assert_no_dropped_param_map,
+    mixture_component_count,
+    mixture_normal_components,
 )
 from quivers.transpile.renderers._javascript_helpers import (
     render_let_expr_javascript,
@@ -265,6 +268,7 @@ class WebPPLRenderer(RendererBase):
         declaration) is built once per call.
         """
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
@@ -403,6 +407,10 @@ class WebPPLRenderer(RendererBase):
                 "qvr-webppl",
                 [f"family:no-webppl-target:{family}"],
             )
+        if family == "MixtureNormal":
+            return self._emit_mixture_normal(
+                ctx, name, args, arg_names, plate, observed=observed
+            )
         injected_args, injected_arg_names = _inject_webppl_specific_args(
             family, args, arg_names
         )
@@ -425,6 +433,198 @@ class WebPPLRenderer(RendererBase):
             injected_arg_names,
             plate,
         )
+
+    def _emit_mixture_normal(
+        self,
+        ctx: _RenderCtx,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+        *,
+        observed: bool,
+    ) -> SchemaFragment:
+        """Emit a `MixtureNormal` site as WebPPL's own `Mixture`.
+
+        WebPPL ships no Gaussian-mixture constructor but it ships
+        `Mixture({dists, ps})`, a finite mixture over an explicit array
+        of component distributions whose `score` is the weighted
+        log-sum-exp of the components' scores: the QVR likelihood's own
+        closed form. `MixtureNormal(w, mu, sigma)` unrolls to `K`
+        `Gaussian` components read off the per-component vectors, with
+        the weight vector passed through as `ps`.
+
+        The component array is the same for every row of the plate, so
+        the emitted site keeps the ordinary batched shape: the
+        `mapIndexed` observe for an observed site, `repeat` for a
+        latent one.
+        """
+        weights, loc, scale = mixture_normal_components(
+            "webppl", args, arg_names
+        )
+        components = mixture_component_count(
+            "webppl",
+            weights,
+            self._binding_plates.get(
+                weights.name if isinstance(weights, IRArgRef) else ""
+            ),
+        )
+        meta = FAMILY_META["MixtureNormal"]
+        webppl_name = meta.target_names["webppl"]
+        return self._emit_prepared_site(
+            ctx,
+            name,
+            plate,
+            observed=observed,
+            dist_call=lambda: self._call(
+                ctx,
+                self._ident(ctx, webppl_name),
+                (
+                    self._object_literal(
+                        ctx,
+                        (
+                            (
+                                "dists",
+                                self._mixture_component_array(
+                                    ctx, loc, scale, components
+                                ),
+                            ),
+                            ("ps", self._mixture_vector_ref(ctx, weights)),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    def _mixture_component_array(
+        self,
+        ctx: _RenderCtx,
+        loc: IRArg,
+        scale: IRArg,
+        components: int,
+    ) -> str:
+        """Build `[Gaussian({mu: loc[0], sigma: scale[0]}), ...]`.
+
+        One entry per mixture component, reading the component's
+        location and scale out of the per-component vectors the QVR
+        call supplies.
+        """
+        arr = self._fresh(ctx, "mxarr")
+        ctx.sb.vertex(arr, "array")
+        normal_name = FAMILY_META["Normal"].target_names["webppl"]
+        aliases = FAMILY_META["Normal"].arg_aliases["webppl"]
+        for index in range(components):
+            entry = self._call(
+                ctx,
+                self._ident(ctx, normal_name),
+                (
+                    self._object_literal(
+                        ctx,
+                        (
+                            (
+                                aliases["loc"],
+                                self._subscript(
+                                    ctx,
+                                    self._mixture_vector_ref(ctx, loc),
+                                    self._number_literal(ctx, index),
+                                ),
+                            ),
+                            (
+                                aliases["scale"],
+                                self._subscript(
+                                    ctx,
+                                    self._mixture_vector_ref(ctx, scale),
+                                    self._number_literal(ctx, index),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            ctx.sb.edge(arr, entry, "child_of")
+        return arr
+
+    def _mixture_vector_ref(self, ctx: _RenderCtx, arg: IRArg) -> str:
+        """Render one of a `MixtureNormal` call's per-component vectors.
+
+        The component axis belongs to the mixture rather than to the
+        surrounding plate, so the reference stays whole and picks up no
+        row index; anything other than a bare reference would carry an
+        index the unrolled components cannot honour.
+        """
+        if not isinstance(arg, IRArgRef) or arg.indices:
+            raise UnsupportedConstruct(
+                "qvr-webppl",
+                [
+                    f"family:MixtureNormal:component-arg:"
+                    f"{type(arg).__name__}: each of the weight, "
+                    f"location and scale arguments must be a bare "
+                    f"reference to a per-component vector"
+                ],
+            )
+        return self._ident(ctx, arg.name)
+
+    def _emit_prepared_site(
+        self,
+        ctx: _RenderCtx,
+        name: str,
+        plate: Plate,
+        *,
+        observed: bool,
+        dist_call: Callable[[], str],
+    ) -> SchemaFragment:
+        """Emit a sample / observe statement around a distribution
+        expression the caller builds itself.
+
+        `dist_call` is invoked once per emitted occurrence rather than
+        once overall: a schema vertex belongs to exactly one parent, so
+        a batched site whose body is re-entered needs its own copy of
+        the expression.
+        """
+        if observed:
+            if not plate.batch_dims:
+                observe_call = self._call(
+                    ctx,
+                    self._ident(ctx, "observe"),
+                    (dist_call(), self._ident(ctx, name)),
+                )
+                self._emit_expression_statement(
+                    ctx, self._body_vid, observe_call
+                )
+                return observe_call
+            loop_var = "n"
+            per_elem_var = f"{name}_n"
+            body = self._fresh(ctx, "obody")
+            ctx.sb.vertex(body, "statement_block")
+            self._emit_expression_statement(
+                ctx,
+                body,
+                self._call(
+                    ctx,
+                    self._ident(ctx, "observe"),
+                    (dist_call(), self._ident(ctx, per_elem_var)),
+                ),
+            )
+            mi_call = self._call(
+                ctx,
+                self._ident(ctx, "mapIndexed"),
+                (
+                    self._function_expression(
+                        ctx, (loop_var, per_elem_var), body
+                    ),
+                    self._ident(ctx, name),
+                ),
+            )
+            self._emit_expression_statement(ctx, self._body_vid, mi_call)
+            return mi_call
+        rhs = self._call(
+            ctx, self._ident(ctx, "sample"), (dist_call(),)
+        )
+        for dim in reversed(plate.batch_dims):
+            rhs = self._wrap_in_repeat(ctx, rhs, dim)
+        self._emit_var_decl(ctx, self._body_vid, name, rhs)
+        self._binding_plates[name] = plate
+        return rhs
 
     def _emit_gp_block(
         self,
@@ -1504,6 +1704,10 @@ class WebPPLRenderer(RendererBase):
                 vid = self._render_reciprocal(ctx, substituted)
             else:
                 vid = self._render_arg(ctx, substituted)
+            if raw_name in _WEBPPL_TENSOR_ARGS.get(
+                meta.qvr_name, frozenset()
+            ):
+                vid = self._call(ctx, self._ident(ctx, "Vector"), (vid,))
             out.append((keyword, vid))
         return tuple(out)
 
@@ -2909,6 +3113,19 @@ _PREPEND_MU_ZERO: frozenset[str] = frozenset(
 #: the emitted density is wrong whenever ``rate != 1``.
 _WEBPPL_ARG_RECIPROCAL: dict[str, frozenset[str]] = {
     "Gamma": frozenset({"rate"}),
+}
+
+
+#: Argument slots whose WebPPL parameter type is a tensor rather than a
+#: plain JavaScript array, keyed by QVR family name and QVR argument
+#: name. WebPPL's `Dirichlet` declares its concentration
+#: `positiveVector` and rejects an array outright, so the rendered
+#: value is wrapped in the language's own `Vector(...)` constructor.
+#: Slots WebPPL declares as vector-or-array (`Discrete`'s `ps`,
+#: `Mixture`'s `ps`) stay unwrapped: the array form is accepted there
+#: and carries the same measure.
+_WEBPPL_TENSOR_ARGS: dict[str, frozenset[str]] = {
+    "Dirichlet": frozenset({"concentration"}),
 }
 
 

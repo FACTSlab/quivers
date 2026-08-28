@@ -38,7 +38,7 @@ The shipped *singletons* (no arguments needed):
 | `MATERIAL_IMPLICATION` | `ProductFuzzyAlgebra` | `Godel` | Reichenbach implication lift. |
 | `PROBABILITY_CLAMP` | `Real` | `Probability` | Clamp real entries to `[0, 1]`. |
 | `PROBABILITY_TO_REAL` | `Probability` | `Real` | Forget the `[0, 1]` constraint. |
-| `COUNTING_FROM_REAL` | `Real` | `Counting` | Round real entries to non-negative integers. |
+| `COUNTING_FROM_REAL` | `Real` | `Counting` | Floor real entries and clamp them to non-negative integers. |
 | `COUNTING_TO_REAL` | `Counting` | `Real` | Embed counts as reals. |
 
 The shipped *constructors* (one argument):

@@ -104,6 +104,8 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    assert_no_dropped_param_map,
+    mixture_normal_components,
 )
 
 
@@ -1071,6 +1073,7 @@ class GenRenderer(RendererBase):
 
     def render(self, ir: IRProgram) -> panproto.Schema:
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         gx = _GenCtx(sb=sb, cards={}, morphisms={})
@@ -1453,6 +1456,8 @@ class GenRenderer(RendererBase):
                 arg_ctx=arg_ctx,
             )
         gx = self._gx
+        if family == "MixtureNormal":
+            return self._mixture_normal_call(args, arg_names, arg_ctx)
         callee_name = _gen_target_name(family)
         arg_vids: list[str] = []
         for arg, name in zip(args, arg_names, strict=False):
@@ -1473,6 +1478,49 @@ class GenRenderer(RendererBase):
             _, location = prefix
             arg_vids.insert(0, _number(gx, float(location)))
         return _call(gx, _ident(gx, callee_name), tuple(arg_vids))
+
+    def _mixture_normal_call(
+        self,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        arg_ctx: _ArgCtx,
+    ) -> str:
+        """Build `HomogeneousMixture(normal, [0, 0])(w, mu, sigma)`.
+
+        Gen.jl ships no `mixture_normal` distribution but it ships the
+        mixture *combinator*: `HomogeneousMixture(base, dims)` lifts a
+        base distribution to a finite mixture whose first argument is
+        the weight vector and whose remaining arguments are the base's
+        own parameters stacked along a trailing component axis. `dims`
+        records the rank of each base parameter, both zero for
+        `normal(mu, sigma)`. The resulting distribution's `logpdf` is
+        the weighted log-sum-exp the QVR likelihood scores, so the emit
+        is the same closed form rather than an approximation.
+
+        The component axis lives inside the mixture, so the three
+        arguments are the whole per-component vectors and pick up no
+        loop index from the surrounding plate.
+        """
+        gx = self._gx
+        weights, loc, scale = mixture_normal_components(
+            "gen", args, arg_names
+        )
+        dims = gx.v("vector_expression", "mxdims")
+        gx.e(dims, _integer(gx, 0))
+        gx.e(dims, _integer(gx, 0))
+        mixture = _call(
+            gx,
+            _ident(gx, _gen_target_name("MixtureNormal")),
+            (_ident(gx, "normal"), dims),
+        )
+        return _call(
+            gx,
+            mixture,
+            tuple(
+                _render_arg(gx, arg, arg_ctx=arg_ctx)
+                for arg in (weights, loc, scale)
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Deterministic let-bindings

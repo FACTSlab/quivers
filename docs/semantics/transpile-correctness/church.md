@@ -13,12 +13,9 @@ trace is a sequence of (address, distribution, value) triples. The
 joint log-density is the product of the per-site contributions.
 
 Church does not have a single canonical compiler or runtime; the
-target language is the abstract semantics rather than a specific
-implementation. The empirical tier (Tier 4) is therefore not
-exercised for Church; the proof reduces to Tier 1 (structural
-shape) + Tier 2 (re-emit fixed point) + Tier 3 (parens-balance
-check, since no Scheme dialect uniformly implements the full
-Church primitive set).
+target language is not pinned to one external implementation. Church
+is absent from the shared Docker numeric matrix; Church-specific audit
+tests provide narrower evidence.
 
 ## Unconstrained-space change of variables
 
@@ -63,10 +60,9 @@ via rejection sampling) are also not supported.
 
 * **Tier 1 structural.** Every emit has `(define (model ...) ...)`
   with `sample` / `observe` invocations.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** Parens-balance check (no full Church
-  compiler is required for the documented primitive set; the
-  parens count is a sufficient lightweight syntactic acceptance
-  criterion).
-* **Tier 4 numeric equivalence.** Not exercised (no canonical
-  Church implementation in the test environment).
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** No canonical external Church compiler
+  is exercised by the shared syntax suite. Parenthesis balance is a
+  smoke check only, not a sufficient syntax criterion.
+* **Tier 3 numeric equivalence.** Not part of the shared Docker matrix;
+  Church-specific audit tests cover selected emitted programs.

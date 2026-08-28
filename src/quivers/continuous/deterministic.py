@@ -62,6 +62,16 @@ class _DeterministicMorphism(ContinuousMorphism):
         del sample_shape
         return self._apply_fn(x)
 
+    def point_mass_value(self, x: torch.Tensor) -> torch.Tensor:
+        """The Dirac's location, :math:`f(x)`.
+
+        Reporting it lets a composition through this morphism
+        integrate over its codomain exactly, by evaluating the next
+        kernel at the single point carrying all the mass, instead of
+        approximating an integral that has no spread to resolve.
+        """
+        return self._apply_fn(x)
+
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         # Deterministic kernels: log-prob is 0 at y == f(x), -inf otherwise.
         # In the variational backend we drop the indicator and treat

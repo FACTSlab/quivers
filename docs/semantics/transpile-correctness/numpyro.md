@@ -60,11 +60,11 @@ probe.
 documented [`plate`](https://num.pyro.ai/en/stable/primitives.html#numpyro.primitives.plate)
 primitive (Phan, Pradhan, Jankowiak 2019 §3.2). The semantics is
 exactly the conditionally-independent product measure of $B$
-i.i.d. draws (head [§5.2](index.md#52-plate-indexed-bind-translation-soundness)).
+i.i.d. draws ([plate discussion](index.md#5-plates-marginalization-and-via)).
 
 **Marginalize.** The NumPyro renderer lowers `IRMarginalize` to
 `IRSample(latent) + scope body` inline (head
-[§5.3.2](index.md#532-explicit-latent-rewrite-under-mcmc)). The
+[the marginalization discussion](index.md#5-plates-marginalization-and-via)). The
 latent contributes a normal sample site; the scope's observe site
 runs with the same trace. Soundness for inference targets that
 estimate the $\theta$-posterior is the projection property of
@@ -77,12 +77,12 @@ return clause.
 
 ## Acceptance
 
-* **Tier 1 structural.** Every emit has a `def model(...): ...
-  return ...` function whose body is a sequence of `with ... :`
-  contexts wrapping `numpyro.sample` and `numpyro.factor` calls.
-* **Tier 2 lens-laws.** `Lower >> NumPyroRenderer >>
-  EmitPretty(python)` composition law holds.
-* **Tier 3 external syntax.** `python -m ast` accepts every emit.
-* **Tier 4 numeric equivalence.** `numpyro.infer.util.log_density`
-  evaluated at 256 grid points + corners agrees with the QVR
-  reference within $10^{-6}$; pairwise transitivity holds.
+* **Tier 1 pipeline composition.** Structural checks cover the
+  emitted `model` function and the `Lower >> NumPyroRenderer >>
+  EmitPretty(python)` pipeline.
+* **Tier 2 external syntax.** Python's AST parser accepts the
+  generated modules in the external-validation matrix.
+* **Tier 3 numeric equivalence.** For selected fixtures,
+  `numpyro.infer.util.log_density` is compared with the QVR
+  reference on the shared finite grid and tolerance described in
+  [the test contract](index.md#6-evidence-tiers).

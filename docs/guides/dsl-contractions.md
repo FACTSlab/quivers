@@ -46,27 +46,25 @@ contraction over a shared latent axis, parallel composition with
 output axes that simply propagate) without requiring the user to
 spell out an einsum string for every contraction.
 
-## `share`: keep shared axes element-wise
+## Shared axes in the output
 
-The `share T1, T2, ...` clause keeps the listed axes element-wise
-even when they are shared across inputs (rather than contracted):
+An axis named in the declared output is kept element-wise even when
+it appears in more than one input:
 
 <!-- compile: false -->
 ```qvr
 contraction broadcast_add (
     f : A -> B,
     g : A -> B
-) : A -> B [rule=real, share=[B]]
+) : A -> B [rule=real]
 ```
 
-Without `share B`, the axis `B` would be contracted because it
-appears in two inputs and the output sequence after flattening is
-`A, B`. The `share B` clause forces `B` to be kept across the
-contraction, yielding element-wise sum on a kept axis.
-
-The `share` clause is the disambiguator for element-wise
-contractions and broadcasting patterns where the default inference
-rule would over-contract a propagating axis.
+Here both `A` and `B` occur in the flattened output sequence, so the
+inferred wiring is `ab, ab -> ab`. The grammar also accepts a
+`share=[...]` option, but it does not add an axis to the inferred
+output sequence; the declared result type still determines that
+sequence. Use an explicit `wiring` clause when the result cannot be
+expressed by the type-driven rule.
 
 ## `wiring`: explicit einsum escape hatch
 
@@ -101,7 +99,7 @@ The `rule` keyword references a previously declared composition
 rule (built-in or user-defined). The rule fixes the algebraic
 operations used to contract shared axes:
 
-- **`product_fuzzy`** (default): truncated-sum / product on
+- **`product_fuzzy`** (default): noisy-OR / product on
   `[0, 1]`. Right for compositions of fuzzy-truth-valued morphisms.
 - **`real`**: ordinary sum / product on $\mathbb{R}$. Right for
   ordinary linear-algebra contractions.
@@ -138,21 +136,19 @@ morphism T : Item -> Embed [role=latent]
 # Score = sum_d sum_e E[i, d] * W[d, e] * T[i, e]
 # Two shared axes: d (between E and W) and e (between W and T)
 # get contracted; axis i is shared between E and T and the output,
-# so it must be `share`d to keep it element-wise (per-item score).
+# so it is kept element-wise in the per-item score.
 contraction score (
     e : Item -> Embed,
     w : Embed -> Embed,
     t : Item -> Embed
-) : Item -> Score [rule=real, share=[Item]]
+) : Item -> Score [rule=real]
 
 define final = score(E, W, T)
 export final
 ```
 
-Without `share Item`, the axis `Item` would be contracted (it
-appears in two inputs and is not in the output's flattened
-signature `Item, Score`). With `share Item`, the contraction
-returns a per-item score.
+Because `Item` is present in the flattened output signature
+`Item, Score`, the inferred contraction returns a per-item score.
 
 ## See also
 

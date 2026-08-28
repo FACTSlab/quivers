@@ -113,6 +113,7 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
     assert_no_dangling_refs,
 )
 
@@ -161,6 +162,7 @@ class PyMCRenderer(RendererBase):
         rendering can read the referenced morphism's `init_family`
         clause."""
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), defines=dict(lets))

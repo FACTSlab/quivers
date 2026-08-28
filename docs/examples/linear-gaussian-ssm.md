@@ -1,8 +1,8 @@
-# Linear-Gaussian State-Space Model
+# Gaussian-kernel state-space model
 
 ## Overview
 
-The canonical linear-Gaussian [state-space model](https://en.wikipedia.org/wiki/State-space_representation) whose closed-form forward filter is the [Kalman filter](https://doi.org/10.1115/1.3662552) and whose closed-form backward smoother is the [Rauch-Tung-Striebel smoother](https://doi.org/10.2514/3.3166):
+The classical linear-Gaussian [state-space model](https://en.wikipedia.org/wiki/State-space_representation) has a closed-form [Kalman filter](https://doi.org/10.1115/1.3662552) and [Rauch-Tung-Striebel smoother](https://doi.org/10.2514/3.3166):
 
 $$
 s_t = A s_{t-1} + B u_t + w_t, \quad w_t \sim \mathcal{N}(0, Q)
@@ -11,11 +11,34 @@ $$
 o_t = C s_t + v_t, \quad v_t \sim \mathcal{N}(0, R)
 $$
 
-Both transitions and emissions are linear in the latent state and the noise covariances are constant in time. Because both the prior and the likelihood are Gaussian, the joint, the filtered marginals, and the data marginal are all Gaussian; the runtime conditions on the observed series and back-props through the per-step `scan`, or invokes the closed-form filter via a downstream `bayes_invert` step. The model is the reference point for the more elaborate [continuous-HMM](continuous-hmm.md) and [deep Markov](deep-markov.md) examples.
+The QVR source below uses learned conditional-Normal kernels. Their means and diagonal scales are produced from each input, so the source does not guarantee constant covariance, and its separate `filter_cell` is not the analytic Kalman update. It demonstrates the state-space wiring used again in the [continuous-state](continuous-hmm.md) and [deep Markov](deep-markov.md) examples.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Linear-Gaussian State-Space Model
+#
+# The canonical linear-Gaussian state-space model whose forward
+# filter is the Kalman filter. The transition and emission are
+# Kleisli morphisms with Normal output families, and scan over
+# the input sequence assembles the per-step filtered state.
+#
+# Generative structure:
+#
+#   s_t  ~ Normal(transition_cell(driver, s_{t-1}), Q)
+#   o_t  ~ Normal(emission(s_t), R)
+#   s_t  ~ Normal(filter_cell(o_t, s_{t-1}), R)
+#
+# Because both the prior and the likelihood are Gaussian, the
+# filter and the smoother are closed-form (Kalman /
+# Rauch-Tung-Striebel) and the marginal data likelihood is
+# itself Gaussian; the runtime can either condition on the
+# observed series and back-prop through the per-step scan, or
+# use the closed-form filter via a downstream bayes_invert
+# step.
+#
+# Reference: [Kalman 1960](https://doi.org/10.1115/1.3662552).
+
 object Driver : Real 2
 object State : Real 4
 object Obs : Real 2
@@ -27,6 +50,12 @@ morphism filter_cell : Obs * State -> State ~ Normal
 define generate = scan(transition_cell) >> emission
 define filter = scan(filter_cell)
 
+# Probabilistic surface: the per-step generative kernel takes
+# the previous (driver, state) pair and produces a new state by
+# applying the linear-Gaussian transition, then scores the
+# observation o under the emission kernel. scan threads this
+# step across the input sequence so trace clamps the full
+# (s_new, o) trajectory once per call.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 
@@ -38,15 +67,15 @@ export generative_step
 
 ## Walkthrough
 
-`Driver`, `State`, and `Obs` are Euclidean spaces; `Driver` carries an optional exogenous input concatenated with the previous state at each step. The transition cell `Driver * State -> State ~ Normal` parameterizes a Gaussian per-step kernel whose mean is a learned linear function of `(u_t, s_{t-1})` and whose scale is the prior `scale` hyperparameter. The emission `State -> Obs ~ Normal` is the constant-in-time observation kernel.
+`Driver`, `State`, and `Obs` are Euclidean spaces; `Driver` carries an exogenous input concatenated with the previous state at each step. The transition and emission are conditional-Normal kernels with learned input-dependent means and diagonal scales.
 
-`scan(transition_cell)` threads the latent state forward across a sequence, producing the per-step filtered state of shape `(batch, seq_len, state_dim)`; composing with `emission` via `>>` produces the generative pipeline. `scan(filter_cell)` is the recognition counterpart: at each step it takes the new observation concatenated with the previous belief and returns the updated belief, exactly the Kalman filter recurrence when `filter_cell` is the closed-form posterior update.
+`scan(transition_cell)` threads the latent state forward across a sequence; composing with `emission` produces the generative pipeline. `scan(filter_cell)` is a separately learned recognition path. Nothing in the declaration constrains `filter_cell` to equal the closed-form posterior update.
 
 A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role surface applies once the state factorizes into named components.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -134,9 +163,9 @@ print("divergences:", int(result.divergence_counts.sum()))
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. `scan` realizes the iterated Kleisli composition of the per-step Gaussian kernel; the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-step cell along the time projection gives the joint over the sequence. Because every step is affine-Gaussian, the joint is itself Gaussian and the standard linear-algebra recurrences (Kalman / RTS) are the explicit formulae for the categorical pushforward.
+`scan` iterates the conditional Gaussian kernel along the time index. Because each intermediate state is stochastic and the kernel parameters can depend on their inputs, the full composed distribution need not remain a single Gaussian. The synthetic-data block uses a classical linear-Gaussian process for comparison, but the QVR declarations are more general.
 
 ```mermaid
 flowchart LR

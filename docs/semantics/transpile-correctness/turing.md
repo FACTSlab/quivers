@@ -49,8 +49,9 @@ for index-independent batches; [`arraydist([D_i for i in 1:B])`](https://turingl
 for index-dependent batches. Both denote the documented product
 measure (Turing.jl documentation, "Composing distributions").
 
-**Marginalize.** Explicit-latent rewrite. Turing.jl's HMC samplers
-natively handle discrete latents.
+**Marginalize.** The renderer may keep a finite latent explicit.
+Turing can use discrete-capable samplers or composed inference for
+such a model; HMC and NUTS do not directly update discrete states.
 
 **Score / let / return.** [`Turing.@addlogprob!(expr)`](https://turinglang.org/Turing.jl/dev/api/Distributions/#Turing.@addlogprob!)
 for score; native `<name> = <expr>` for let; native `return` for
@@ -61,9 +62,8 @@ return.
 * **Tier 1 structural.** Every emit has `@model function model(...)
   ... end` with `~` statements wrapping `filldist` / `arraydist`
   per plate axis.
-* **Tier 2 lens-laws.** Composition law holds.
-* **Tier 3 external syntax.** `julia --eval "Meta.parse(read(stdin, String); raise=true)"`
+* **Tier 1 pipeline composition.** Direct and composed pipeline calls agree.
+* **Tier 2 external syntax.** `julia --eval "Meta.parse(read(stdin, String); raise=true)"`
   accepts every emit.
-* **Tier 4 numeric equivalence.** `Turing.logjoint` evaluated at
-  256 grid points + corners agrees with the QVR reference within
-  $10^{-6}$.
+* **Tier 3 numeric equivalence.** The Turing probe evaluates the
+  selected fixture grids under the shared constant-spread tolerance.

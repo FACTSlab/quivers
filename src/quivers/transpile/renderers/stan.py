@@ -128,6 +128,9 @@ from quivers.transpile.renderers._base import (
     SchemaFragment,
     _RenderCtx,
     assert_no_dangling_refs,
+    assert_no_dropped_param_map,
+    mixture_component_count,
+    mixture_normal_components,
 )
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
@@ -325,6 +328,7 @@ class StanRenderer(RendererBase):
         per call.
         """
         assert_no_dangling_refs(ir)
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
@@ -1080,6 +1084,10 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{family}"],
             )
+        if family == "MixtureNormal":
+            return self._emit_mixture_normal(
+                ctx, name=name, args=args, arg_names=arg_names, plate=plate
+            )
         density_name = self._log_density_name(family, stan_name)
         del arg_names  # Stan is positional; arg_names are unused.
         parent = self._ensure_block(ctx, "model")
@@ -1148,6 +1156,142 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(ts, rhs, "child_of")
         ctx.sb.edge(innermost_parent, ts, "child_of")
         return ts
+
+    def _emit_mixture_normal(
+        self,
+        ctx: _RenderCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> SchemaFragment:
+        """Emit the explicit log-sum-exp form of a `MixtureNormal` site.
+
+        Stan ships no mixture distribution, but a finite mixture is an
+        ordinary expression in its language: the per-row density
+        `sum_k w_k N(y; mu_k, sigma_k)` is `log_sum_exp` over a
+        `vector[K]` of weighted component log-densities, which is the
+        idiom the Stan manual gives for finite mixtures and the same
+        closed form the QVR likelihood scores. The emitted block is
+
+        ```stan
+        {
+          array[N] vector[K] lps_<name>;
+          for (m in 1:N) {
+            for (k in 1:K) {
+              lps_<name>[m, k] = log(w[k])
+                + normal_lpdf(<name>[m] | mu[k], sigma[k]);
+            }
+          }
+          for (m in 1:N) {
+            target += log_sum_exp(lps_<name>[m]);
+          }
+        }
+        ```
+
+        The accumulator declaration, the seeding loop nest and the
+        reduction reuse the marginalize machinery, so the mixture and
+        the enumerated-latent lowering compute their reductions the
+        same way.
+
+        A residual event axis on the site would ask each row to carry
+        a vector-valued mixture, which the scalar `normal_lpdf`
+        component cannot express, so it raises rather than emitting a
+        differently-shaped density.
+        """
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"family:MixtureNormal:event-axis:{name}: the "
+                    f"scalar-component log-sum-exp form carries no "
+                    f"event shape, but the site declares "
+                    f"{[d.name for d in plate.event_dims]!r}"
+                ],
+            )
+        weights, loc, scale = mixture_normal_components(
+            "stan", args, arg_names
+        )
+        declared = self._declared_shapes.get(
+            weights.name if isinstance(weights, IRArgRef) else ""
+        )
+        components = mixture_component_count(
+            "stan", weights, declared[1] if declared is not None else None
+        )
+        parent = self._ensure_block(ctx, "model")
+        outer_block = self._fresh(ctx, "mxbs")
+        ctx.sb.vertex(outer_block, "block_statement")
+        ctx.sb.edge(parent, outer_block, "child_of")
+        lps_name = f"lps_{name}"
+        loop_names = self.index_for(ctx, plate)
+        self._declare_lps_array(
+            ctx, outer_block, lps_name, plate.batch_dims, components
+        )
+        current = self._wrap_in_for_loops(
+            ctx, outer_block, plate.batch_dims, loop_names
+        )
+        k_loop = self._fresh(ctx, "mxfs")
+        ctx.sb.vertex(k_loop, "for_statement")
+        ctx.sb.edge(current, k_loop, "child_of")
+        klv = self._fresh(ctx, "mxlv")
+        ctx.sb.vertex(klv, "identifier")
+        ctx.sb.constraint(klv, "literal-value", "k")
+        ctx.sb.edge(k_loop, klv, "loopvar")
+        ctx.sb.edge(k_loop, self._int_literal(ctx, 1), "child_of")
+        ctx.sb.edge(k_loop, self._int_literal(ctx, components), "child_of")
+        kbs = self._fresh(ctx, "mxbs2")
+        ctx.sb.vertex(kbs, "block_statement")
+        ctx.sb.edge(k_loop, kbs, "child_of")
+        asn = self._fresh(ctx, "mxasn")
+        ctx.sb.vertex(asn, "assignment_statement")
+        ctx.sb.edge(kbs, asn, "child_of")
+        ctx.sb.edge(
+            asn,
+            self._build_indexed_lhs(ctx, lps_name, (*loop_names, "k")),
+            "child_of",
+        )
+        op = self._fresh(ctx, "mxop")
+        ctx.sb.vertex(op, "assignment_op")
+        ctx.sb.constraint(op, "literal-value", "=")
+        ctx.sb.edge(asn, op, "child_of")
+        log_weight = self._stan_call(
+            ctx,
+            "log",
+            (self._mixture_component_slice(ctx, weights),),
+        )
+        de = self._fresh(ctx, "mxde")
+        ctx.sb.vertex(de, "distr_expression")
+        fn_id = self._fresh(ctx, "mxfid")
+        ctx.sb.vertex(fn_id, "identifier")
+        ctx.sb.constraint(fn_id, "literal-value", "normal_lpdf")
+        ctx.sb.edge(de, fn_id, "name")
+        dal = self._fresh(ctx, "mxdal")
+        ctx.sb.vertex(dal, "distr_argument_list")
+        ctx.sb.edge(dal, self._build_lhs(ctx, name, loop_names), "child_of")
+        ctx.sb.edge(dal, self._mixture_component_slice(ctx, loc), "child_of")
+        ctx.sb.edge(dal, self._mixture_component_slice(ctx, scale), "child_of")
+        ctx.sb.edge(de, dal, "child_of")
+        ctx.sb.edge(asn, self._stan_binop(ctx, log_weight, "+", de), "child_of")
+        self._emit_lps_accumulate(
+            ctx, outer_block, lps_name, plate.batch_dims, loop_names
+        )
+        return outer_block
+
+    def _mixture_component_slice(self, ctx: _RenderCtx, arg: IRArg) -> str:
+        """Render `<arg>[k]`: the component-`k` entry of one of a
+        `MixtureNormal` call's three per-component vectors."""
+        if not isinstance(arg, IRArgRef) or arg.indices:
+            raise UnsupportedConstruct(
+                "qvr-stan",
+                [
+                    f"family:MixtureNormal:component-arg:"
+                    f"{type(arg).__name__}: each of the weight, "
+                    f"location and scale arguments must be a bare "
+                    f"reference to a per-component vector"
+                ],
+            )
+        return self._build_indexed_arg_expression(ctx, arg.name, ("k",))
 
     def _apply_truncation_correction(
         self,

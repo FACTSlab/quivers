@@ -20,7 +20,11 @@ import torch.nn.functional as F
 
 from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
-from quivers.continuous.morphisms import ContinuousMorphism
+from quivers.continuous.morphisms import (
+    ContinuousMorphism,
+    _event_size,
+    dimension_probe,
+)
 from quivers.core._util import EPS
 
 
@@ -212,6 +216,36 @@ class Embed(ContinuousMorphism):
         self.centers = nn.Parameter(init_centers)
         self.log_sigma = nn.Parameter(torch.zeros(n, d))
 
+    def _kernel_params(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Gather the Gaussian kernel's location and scale at ``x``.
+
+        Both gathers index the learnable tables by the domain index,
+        so the returned shapes follow ``x``: a ``(batch,)`` index
+        vector gives ``(batch, d)``, and a ``(batch, seq)`` index
+        matrix (a token sequence) gives ``(batch, seq, d)``.
+        """
+        index = x.long()
+        mu = self.centers[index]
+        sigma = self.log_sigma[index].exp().clamp(min=EPS)
+        return mu, sigma
+
+    def base_dimension(self, x: torch.Tensor) -> int:
+        """One standard-normal coordinate per embedded output axis.
+
+        A ``(batch, seq)`` index matrix places one kernel per
+        position, so the budget grows with the sequence length as well
+        as the codomain dimension.
+        """
+        mu, _ = self._kernel_params(dimension_probe(x))
+        return _event_size(mu.shape)
+
+    def push_base(self, x: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
+        """The location-scale map around the embedding of ``x``."""
+        mu, sigma = self._kernel_params(x)
+        return mu + sigma * base.reshape(mu.shape)
+
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-density of y under the kernel centered at x's embedding.
 
@@ -227,8 +261,7 @@ class Embed(ContinuousMorphism):
         torch.Tensor
             Log-densities. Shape (batch,).
         """
-        mu = self.centers[x.long()]  # (batch, d)
-        sigma = self.log_sigma[x.long()].exp().clamp(min=EPS)  # (batch, d)
+        mu, sigma = self._kernel_params(x)
 
         import math
 
@@ -257,8 +290,7 @@ class Embed(ContinuousMorphism):
         torch.Tensor
             Continuous samples. Shape (*sample_shape, batch, d).
         """
-        mu = self.centers[x.long()]  # (batch, d)
-        sigma = self.log_sigma[x.long()].exp().clamp(min=EPS)
+        mu, sigma = self._kernel_params(x)
 
         eps = torch.randn(
             *sample_shape,

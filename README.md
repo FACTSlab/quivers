@@ -34,7 +34,7 @@ Quivers is a functional probabilistic programming language for PyTorch. The surf
 
 It also has some features you are used to from other PPLs:
 
-- **An inference toolkit.** Forty distribution families. SVI with nine automatic guides (mean-field through full-rank multivariate normal, low-rank, mixture, IAF, neural-spline flow, AutoDAIS) and four objectives (ELBO, IWAE, Renyi, VR-IWAE) with reparameterized, score-function, sticking-the-landing, and DReG gradient estimators. NUTS and HMC with dual-averaging step-size adaptation and Welford mass-matrix adaptation.
+- **An inference toolkit.** More than forty distribution families. SVI with automatic guides from mean-field and full-rank multivariate normals through low-rank, mixture, structured, IAF, neural-spline flow, and AutoDAIS guides; seven objectives (ELBO, IWAE, Renyi, VR-IWAE, ChiVI, RWS, and DReGs); and reparameterized, score-function, sticking-the-landing, and DReG gradient estimators. NUTS and HMC use dual-averaging step-size adaptation and Welford mass-matrix adaptation.
 - **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-aware, saturation-free initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization would saturate the active algebra.
 - **Diagnostics and model comparison.** ArviZ ecosystem integration: posteriors from any inference method (NUTS, HMC, or SVI) export to ArviZ for trace plots, rank plots, ESS, and $\hat R$. PSIS-LOO (Pareto-smoothed importance-sampling leave-one-out cross-validation) for ranking competing models; posterior-predictive checks against user-defined test statistics; LOO-PIT for calibration.
 - **A mixed-effect model API.** A [brms-style formula frontend](https://FACTSlab.github.io/quivers/guides/analysis) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, with pandas / polars dataframes as the input surface and R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
@@ -79,7 +79,7 @@ The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tut
 ## Documentation
 
 - [**Tutorial**](https://FACTSlab.github.io/quivers/tutorials/): the QVR DSL tutorial walks probabilistic-programming users from linear regression to inference-algorithm choice with PyMC, NumPyro, and Stan equivalents shown side-by-side, while the Python API tutorial covers the typed categorical surface.
-- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 41 end-to-end models covering regression, latent-variable, state-space, language models, seq2seq, and formal grammars.
+- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 46 end-to-end models covering regression, latent-variable, state-space, language models, seq2seq, and formal grammars.
 - [**Conceptual guides**](https://FACTSlab.github.io/quivers/guides/): feature-area deep dives.
 - [**API reference**](https://FACTSlab.github.io/quivers/api/): the typed Python surface.
 - [**Denotational semantics**](https://FACTSlab.github.io/quivers/semantics/): the meaning of every well-typed program in a $\mathcal{V}$-enriched symmetric monoidal closed category.

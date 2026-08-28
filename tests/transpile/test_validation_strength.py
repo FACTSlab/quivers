@@ -181,6 +181,10 @@ _UNPERTURBABLE_COORDINATES: tuple[UnperturbableCoordinate, ...] = tuple(
     )
     for _example, _coordinate, _detail in (
         (
+            "beta_binomial_ab_test", "arm_idx",
+            "Gathers conc1 and conc0 over the Arm plate",
+        ),
+        (
             "beta_regression", "out_idx",
             "Gathers beta_0, beta_1 and phi over the Out plate",
         ),
@@ -196,6 +200,10 @@ _UNPERTURBABLE_COORDINATES: tuple[UnperturbableCoordinate, ...] = tuple(
         (
             "gamma_regression", "cat_idx",
             "Gathers beta_0 and beta_1 over the Cat plate",
+        ),
+        (
+            "half_student_t_hierarchical", "group_idx",
+            "Gathers the per-group offset u over the Group plate",
         ),
         (
             "horseshoe_regression", "coef_idx",
@@ -241,7 +249,18 @@ Populate an entry only for a coordinate that is genuinely outside the
 quantified space. A covariate whose value enters the density is
 inside it: `x` is perturbed in every regression example, so any other
 covariate that the harness merely fails to move is a coverage gap to
-close in the perturber, not an entry to add here."""
+close in the perturber, not an entry to add here.
+
+Which of the two a given coordinate is, is not left to the entry's
+prose. `test_every_quantified_coordinate_varies` checks every
+`plate-subscript` entry against
+[`structural_subscript_names`][tests.transpile._gallery_data.structural_subscript_names],
+the classifier the point builder itself consults, so the registry can
+only ever exempt a coordinate the perturber independently reads as a
+plate subscript. A frozen coordinate the classifier does not name,
+`n_trials` being the count parameter of a Beta-Binomial rather than
+an index into a plate, cannot be registered at all and has to be
+fixed in the perturber."""
 
 
 _MIN_JUSTIFICATION_CHARS = 80
@@ -686,10 +705,11 @@ def test_every_quantified_coordinate_varies(
     A coordinate that is genuinely outside the quantified space, a
     plate subscript fixed by the experimental design, needs an entry
     in `_UNPERTURBABLE_COORDINATES` stating the argument. The registry
-    is checked in both directions: an unexplained frozen coordinate
-    fails, and a registered coordinate that has started moving fails
-    as a stale claim. Neither direction may be settled by editing the
-    assertion.
+    is checked in three directions: an unexplained frozen coordinate
+    fails, a registered coordinate that has started moving fails as a
+    stale claim, and an entry whose `kind` the point builder's own
+    classifier does not confirm fails as a misfiled one. None of the
+    three may be settled by editing the assertion.
     """
     evaluated = _evaluate(example)
     dataset = evaluated.dataset
@@ -706,6 +726,24 @@ def test_every_quantified_coordinate_varies(
         f"array of this example. Drop the stale entry; a registry of "
         f"names that no longer exist stops describing the gap it "
         f"claims to."
+    )
+
+    subscripts = _gallery_data.structural_subscript_names(dataset)
+    misfiled = sorted(
+        name
+        for name, entry in registry.items()
+        if entry.kind == "plate-subscript" and name not in subscripts
+    )
+    assert not misfiled, (
+        f"{example.stem!r}: `_UNPERTURBABLE_COORDINATES` files "
+        f"{misfiled!r} as a plate subscript, but "
+        f"`structural_subscript_names` does not classify it as one. "
+        f"A subscript indexes a plate, so it is an integer vector "
+        f"with one entry per row; anything else the harness leaves "
+        f"frozen is a coordinate of the support whose value enters "
+        f"the density, and the exemption would hide a coverage gap "
+        f"instead of recording a structural one. Close the gap in "
+        f"the perturber."
     )
 
     for name in latents:

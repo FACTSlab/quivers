@@ -119,6 +119,8 @@ from quivers.transpile.renderers._base import (
     RendererBase,
     SchemaFragment,
     _RenderCtx,
+    assert_no_dropped_param_map,
+    mixture_normal_components,
 )
 
 
@@ -496,6 +498,7 @@ class TuringRenderer(RendererBase):
     # ----- top-level render -----
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         counter: list[int] = [0]
@@ -754,6 +757,16 @@ class TuringRenderer(RendererBase):
                 "qvr-turing", [f"family:{family}: no Turing.jl mapping"]
             )
 
+        if family == "MixtureNormal":
+            return self._emit_mixture_normal(
+                ctx,
+                name=name,
+                target_dist=target_dist,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+            )
+
         # Split the site's event dims into the trailing ones the
         # family produces natively (`Normal` none, `Dirichlet` one,
         # `LKJCholesky` two) and the leading residual the source
@@ -904,6 +917,73 @@ class TuringRenderer(RendererBase):
                 (dist, *size_vids),
             )
         stmt = _tilde(sb, counter, lhs, dist)
+        sb.edge(ctx.body, stmt, "child_of")
+        return ""
+
+    def _emit_mixture_normal(
+        self,
+        ctx: _TuringCtx,
+        *,
+        name: str,
+        target_dist: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> SchemaFragment:
+        """Emit `name ~ filldist(MixtureModel(Normal.(mu, sigma), w), N)`.
+
+        Distributions.jl ships no `MixtureNormal` constructor, but it
+        ships `MixtureModel(components, prior)`, whose `logpdf` is the
+        log-sum-exp of the prior-weighted component log-densities: the
+        QVR likelihood's own closed form. `Normal.(mu, sigma)`
+        broadcasts the per-component location and scale vectors into
+        the component vector the constructor takes.
+
+        The component axis lives inside the mixture, so the plate axes
+        replicate the whole mixture rather than indexing its
+        parameters, which is exactly `filldist`. A residual event axis
+        would ask for a mixture-valued event shape, which
+        `MixtureModel` over univariate components cannot carry, so it
+        raises instead of emitting a differently-shaped draw.
+        """
+        sb, counter = ctx.sb, ctx.counter
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"family:MixtureNormal:event-axis:{name}: a "
+                    f"`MixtureModel` over univariate components carries "
+                    f"no event shape, so the residual "
+                    f"{[d.name for d in plate.event_dims]!r} axis has no "
+                    f"Turing.jl spelling"
+                ],
+            )
+        weights, loc, scale = mixture_normal_components(
+            "turing", args, arg_names
+        )
+        components = _broadcast_call(
+            sb,
+            counter,
+            _identifier(sb, counter, "Normal"),
+            (_arg_to_julia(ctx, loc), _arg_to_julia(ctx, scale)),
+        )
+        dist = _call(
+            sb,
+            counter,
+            _identifier(sb, counter, target_dist),
+            (components, _arg_to_julia(ctx, weights)),
+        )
+        if plate.batch_dims:
+            size_vids = tuple(
+                _dim_to_size(sb, counter, dim) for dim in plate.batch_dims
+            )
+            dist = _call(
+                sb,
+                counter,
+                _identifier(sb, counter, "filldist"),
+                (dist, *size_vids),
+            )
+        stmt = _tilde(sb, counter, _identifier(sb, counter, name), dist)
         sb.edge(ctx.body, stmt, "child_of")
         return ""
 

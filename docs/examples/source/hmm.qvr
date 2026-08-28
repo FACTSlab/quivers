@@ -21,6 +21,8 @@ composition product_fuzzy [level=algebra]
 
 object State : FinSet 8
 object Obs : FinSet 16
+object Step : FinSet 12
+object StateDist : Real 8
 
 morphism initial, transition : State -> State [role=latent]
 morphism emission : State -> Obs [role=latent]
@@ -33,17 +35,23 @@ define hmm = initial >> n_step
 # uniform conjugate prior the header describes; equivalently the
 # Bayesian-Laplace add-one prior of Manning and Schuetze 1999,
 # section 6.2). The initial-state vector is one Dirichlet draw
-# on the State simplex; the transition kernel allocates one
-# Dirichlet row per source state (iid over the State axis); the
-# emission kernel allocates one Dirichlet row per latent state
-# over the Obs simplex.
-program hmm_program : State -> Obs
-    sample initial_row : State <- Dirichlet(1.0) [over=State]
+# on the State simplex, so it carries no plate annotation; the
+# transition kernel allocates one Dirichlet row per source state
+# (iid over the State axis); the emission kernel allocates one
+# Dirichlet row per latent state over the Obs simplex.
+#
+# Step is the plate the emitted sequence is observed over and
+# Obs is the alphabet each emission takes its value in, so the
+# two are separate objects. StateDist is the value space of the
+# returned initial-state vector, a point of the State simplex
+# embedded in R^8.
+program hmm_program : Step -> StateDist
+    sample initial_row <- Dirichlet(1.0) [over=State]
     sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
     sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
 
     marginalize state <- Categorical(initial_row) [reduction=logsumexp]
-        observe obs : Obs <- Categorical(emission_rows[state])
+        observe obs : Step <- Categorical(emission_rows[state])
 
     return initial_row
 
