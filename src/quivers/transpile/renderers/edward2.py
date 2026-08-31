@@ -132,6 +132,26 @@ _EDWARD2_ARG_ALIASES: dict[str, dict[str, str]] = {
 }
 
 
+#: QVR arguments that carry an integer support on the torch side but
+#: that TFP requires in floating point, keyed by family.
+#:
+#: `Binomial` and `BetaBinomial` are the only two families in
+#: `FAMILY_META` whose `distribution_class.arg_constraints` marks a
+#: parameter as integer-valued while the remaining parameters are
+#: continuous, and both TFP constructors unify every parameter dtype
+#: through `dtype_util.common_dtype`. A trial count supplied as an
+#: `int32` tensor beside `float32` concentrations therefore raises
+#: `TypeError: Found incompatible dtypes` before anything is scored,
+#: so the renderer casts the count to `tf.float32` at the call site.
+#: The cast is exact: a trial count is a small non-negative integer
+#: and `float32` represents every such value below 2**24 without
+#: rounding, so the emitted density is the one the QVR measure names.
+_EDWARD2_FLOAT_COUNT_ARGS: dict[str, frozenset[str]] = {
+    "Binomial": frozenset({"total_count"}),
+    "BetaBinomial": frozenset({"total_count"}),
+}
+
+
 #: Families whose TFP constructor takes a shape argument the generic
 #: keyword path does not supply (``MatrixNormal`` needs Cholesky
 #: ``LinearOperator``s, ``LKJCholesky`` a leading matrix dimension,
@@ -236,14 +256,7 @@ class Edward2Renderer(RendererBase):
                 assignment(
                     py,
                     lhs_name=name,
-                    rhs=call(
-                        py,
-                        attribute(py, ("tf", "cast")),
-                        positional=(
-                            identifier(py, name),
-                            attribute(py, ("tf", "float32")),
-                        ),
-                    ),
+                    rhs=_cast_float32(py, identifier(py, name)),
                 ),
                 "child_of",
             )
@@ -968,6 +981,18 @@ class Edward2Renderer(RendererBase):
             )
             for i, a in enumerate(args)
         )
+
+        # Lift the integer-supported count parameters TFP unifies
+        # against continuous ones into `float32` (see
+        # `_EDWARD2_FLOAT_COUNT_ARGS`).
+        float_count_args = _EDWARD2_FLOAT_COUNT_ARGS.get(family, frozenset())
+        if float_count_args:
+            rendered_args = tuple(
+                _cast_float32(py, rendered)
+                if i < len(arg_names) and arg_names[i] in float_count_args
+                else rendered
+                for i, rendered in enumerate(rendered_args)
+            )
 
         # TFP / Edward2 distribution constructors accept every arg
         # by keyword; some (Categorical, Bernoulli) require the
@@ -1696,6 +1721,15 @@ def _event_shape(plate: Plate) -> tuple[int, ...]:
         else:
             out.append(0)
     return tuple(out)
+
+
+def _cast_float32(py: PyCtx, expr: str) -> str:
+    """Wrap `expr` in ``tf.cast(<expr>, tf.float32)``."""
+    return call(
+        py,
+        attribute(py, ("tf", "cast")),
+        positional=(expr, attribute(py, ("tf", "float32"))),
+    )
 
 
 def _true_literal(py: PyCtx) -> str:

@@ -59,10 +59,17 @@ densities
 
 so `log f_half = log 2 + log f_base` at every point of the support.
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] records how
-each target spells each family:
+each target spells each family, and the renderer may rewrite that
+spelling at the site; the two together give the effective spelling:
 
-* `numpyro`, `pyro`, `pymc`, `edward2` name the native `HalfCauchy` /
+* `numpyro`, `pyro`, `pymc` name the native `HalfCauchy` /
   `HalfNormal` / `HalfStudentT` class, which carries the factor of two.
+  `numpyro` and `pyro` ship no `HalfStudentT`, so both graft one, in
+  each case a fold of the symmetric base that scores the `log 2`.
+* `edward2` names the native `HalfCauchy` and `HalfNormal`, but TFP has
+  no `HalfStudentT` and `renderers/edward2.py` rewrites that site to
+  the bare `edward2.StudentT(df, 0, scale)`, dropping `log 2` per site
+  while `FAMILY_META` still reads `edward2 -> "HalfStudentT"`.
 * `turing` composes `truncated(Cauchy(0, gamma), 0, Inf)`, and
   Distributions.jl's `truncated` divides by `1 - F(0) = 1/2`, which
   restores the same `log 2`.
@@ -98,7 +105,35 @@ nested in a `marginalize` scope as well. Hence
 with `drops_half(T, f) = 1` when `T` spells `f` as its bare symmetric
 base and `0` otherwise.
 
-**3. Everything else is zero.** Argument aliasing (`loc -> mu`,
+**3. The zeros-trick carrier constant on the BUGS / JAGS engines.**
+Neither engine has a `target +=` statement, so a family whose density
+they cannot name is added to the joint through the zeros trick: the
+renderer writes the density out in closed form and scores a host-bound
+`zeros[n] = 0` against a Poisson whose rate is that density negated.
+Because `log P(X = 0; lambda) = -lambda`, the relation contributes
+exactly the closed form back. A rate must be positive, though, and the
+negated log-density is not, so the idiom conventionally lifts the rate
+by a constant `C` chosen to dominate the density over the whole
+support, which subtracts `C` from the joint at every row it scores:
+
+    zeros[n] ~ dpois(C - log f(y_n))   contributes   log f(y_n) - C.
+
+`C` is a fixed literal of the renderer rather than a function of the
+point, so the drop is legitimate under Theorem 4.1 and countable the
+same way the folded-family factors are, over the `observe` steps
+naming a family the target lowers this way. The two zeros-trick
+families are not treated alike:
+[`renderers/jags.py`][quivers.transpile.renderers.jags] lifts the rate
+by `1e6` for `MixtureNormal` and emits the bare `-(<term>)` for
+`BetaBinomial`, whose closed form is negative over the fixtures'
+support and so needs no lift.
+[`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
+records which pairs carry the constant, and
+`test_zeros_trick_table_agrees_with_the_emit` reads both the
+membership and the value of `C` back off the emitted program rather
+than taking either on trust.
+
+**4. Everything else is zero.** Argument aliasing (`loc -> mu`,
 `concentration -> a`) and parameterization substitution (BUGS and JAGS
 precision `tau = 1/sigma^2`) are algebraic identities on the density,
 not on a normalizer, so they contribute nothing. Plate expansion,
@@ -114,7 +149,8 @@ The pinned numbers rest on two independent legs, neither of which is
 the other's restatement.
 
 1. `test_registry_offset_matches_the_closed_form_derivation` recomputes
-   `sum_f drops_half(T, f) * n_f(M) * log 2` from the example's `.qvr`
+   `sum_f drops_half(T, f) * n_f(M) * log 2 + sum_f lifts(T, f) *
+   m_f(M) * C` from the example's `.qvr`
    source, in process and without Docker, and requires the registry to
    equal it exactly. A registry entry cannot be quietly retuned to
    whatever a container returned; it has to agree with a count taken
@@ -142,6 +178,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -162,10 +199,11 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
     ProgramStep,
     SampleStep,
+    ScoreStep,
     TypeFromExpr,
 )
 from quivers.dsl.parser import parse
-from quivers.transpile import transpile
+from quivers.transpile import UnsupportedConstruct, transpile
 from quivers.transpile.family_meta import FAMILY_META
 from tests.transpile import _docker, _equivalence, _gallery_data
 from tests.transpile.probes._protocol import Point
@@ -215,13 +253,15 @@ and needs a per-family term here when they are not."""
 _DROPS_HALF_NORMALIZER: dict[str, frozenset[str]] = {
     "HalfCauchy": frozenset({"stan", "gen", "webppl"}),
     "HalfNormal": frozenset({"stan", "gen", "webppl"}),
-    "HalfStudentT": frozenset({"stan"}),
+    "HalfStudentT": frozenset({"stan", "edward2"}),
 }
 """Per folded family, the targets whose emit is the symmetric base
 density with no truncation renormalization.
 
-Read off
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META].
+Read off the *effective* spelling of the family at the draw site, which
+is [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] amended
+by
+[`_RENDERER_SPELLING_OVERRIDES`][tests.transpile.test_expected_offsets._RENDERER_SPELLING_OVERRIDES].
 `HalfCauchy.target_names` maps `stan -> "cauchy"`, `gen -> "cauchy"`,
 `webppl -> "Cauchy"`, all symmetric bases emitted without a truncation
 wrapper, against `numpyro / pyro / pymc / edward2 -> "HalfCauchy"`
@@ -229,16 +269,193 @@ wrapper, against `numpyro / pyro / pymc / edward2 -> "HalfCauchy"`
 renormalizes) and `bugs / jags -> "dt"` carrying a one-sided truncation
 suffix that JAGS renormalizes over.
 
-`HalfStudentT` splits differently: only `stan -> "student_t"` is a bare
-base. `gen -> "half_student_t"`, `turing -> "HalfStudentT"` and
+`HalfStudentT` splits differently. `stan -> "student_t"` is a bare
+base, and so is `edward2`: TFP ships no `HalfStudentT` class, so
+`renderers/edward2.py` rewrites the site to the location-scale
+`edward2.StudentT(df, 0, scale)` and leans on the fold being an
+additive-constant shift, which is exactly a dropped `log 2` per site.
+`gen -> "half_student_t"`, `turing -> "HalfStudentT"` and
 `webppl -> "HalfStudentT"` all resolve to a grafted runtime helper
 whose scorer adds `log 2` explicitly, so those three targets keep the
 renormalizer for this family while dropping it for the other two. A
 single per-target flag cannot express that, hence the keying by family.
 
+`bugs` and `jags` keep a zero here for `HalfStudentT` for the same
+reason they do for the other two folded families: the renderer writes
+`sigma ~ dt(0,1/(scale*scale),df) T (0 ,)`, the symmetric base under a
+one-sided truncation suffix, and JAGS renormalizes over the truncation
+interval. The suffix is the whole of the entitlement question on these
+two targets, and it is what
+`test_drop_table_agrees_with_the_family_registry` cannot read off the
+name table: `dt` and `dnorm` are symmetric spellings whether or not a
+`T ( , )` follows, so the assertion below keeps them out of
+`bare_base` on the strength of the suffix rather than of the name.
+
 `test_drop_table_agrees_with_the_family_registry` re-derives each set
-from the family registry so a renderer that switches to a native or
-truncated spelling cannot leave a stale entry behind."""
+from the effective spelling and checks every override against the
+emitted program, so a renderer that switches to a native or truncated
+spelling cannot leave a stale entry behind."""
+
+
+_RENDERER_SPELLING_OVERRIDES: dict[tuple[str, str], str] = {
+    ("edward2", "HalfStudentT"): "StudentT",
+}
+"""Draw-site spellings a renderer substitutes for the registered one.
+
+[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] records the
+name a family resolves to on each target, but a renderer may replace
+that name at the site when the target ships no such class. Reading the
+name table alone would then charge the cell nothing while its emit
+drops a renormalizer at every site, which is precisely the
+point-independent error this module exists to catch.
+
+`edward2` is the one such case. TFP has no `HalfStudentT`, so
+`renderers/edward2.py` emits `edward2.StudentT(df, 0, scale)` and
+carries the non-negativity nowhere at all, while `FAMILY_META` still
+reads `edward2 -> "HalfStudentT"`.
+
+Each entry is checked against the emitted program by
+`test_drop_table_agrees_with_the_family_registry`: the substituted name
+must appear in the emit and the registered name must not, so an
+override cannot outlive the renderer branch that motivated it."""
+
+
+_HALF_FAMILY_PROBE_ARGS: dict[str, str] = {
+    "HalfCauchy": "HalfCauchy(1.0)",
+    "HalfNormal": "HalfNormal(1.0)",
+    "HalfStudentT": "HalfStudentT(3.0, 1.0)",
+}
+"""Call spelling used to make each folded family emit a draw site.
+
+Argument values are irrelevant to the spelling the renderer picks; the
+arity is not, since a family is resolved by name and arity together."""
+
+
+_HALF_FAMILY_PROBE_SOURCE = """object Resp : FinSet 3
+object Val : Real 1
+
+program probe : Resp -> Val
+    sample v <- {call}
+    observe y : Resp <- Normal(v, 1.0)
+    return v
+
+export probe
+"""
+"""Smallest QVR module that puts one folded-family draw on every target.
+
+A single scalar latent scored by one plated observation. Every backend
+in the Docker matrix renders it, so the emitted text is available for
+each `(target, family)` pair without a container and without depending
+on which gallery example happens to use the family."""
+
+
+_ZEROS_TRICK_OFFSET: float = 1.0e6
+"""The constant `C` a lifted BUGS / JAGS zeros-trick row subtracts.
+
+`zeros[n] ~ dpois(C - log f(y_n))` scored against a host-bound
+`zeros[n] = 0` adds `log f(y_n) - C` to the joint, so a program that
+lowers a site this way scores `C` below the reference at every row,
+whatever the parameter point. The lift exists only to keep the Poisson
+rate positive where the negated closed form is not, and `1e6` is the
+literal `renderers/jags.py` picks for it.
+
+The value is not taken on trust:
+`test_zeros_trick_table_agrees_with_the_emit` parses it back out of the
+`phi_<site>[n] <- <C>-log(...)` relation the renderer emits, so a
+renderer that changes the lift, or drops it as
+`_emit_beta_binomial` already has, moves the pin instead of leaving
+this number stale."""
+
+_ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset(
+    {"MixtureNormal", "BetaBinomial"}
+)
+"""QVR families the BUGS / JAGS renderers score through the zeros
+trick rather than through a named distribution.
+
+Membership is a statement about the lowering, not about the lift: both
+families reach the engine as `zeros[n] ~ dpois(phi[n])`, and only the
+subset in
+[`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
+pays a constant for it. The set is kept apart from that table so the
+emit check has a negative control: a family that goes through the
+trick with no lift is the evidence that the lift is a choice the
+renderer makes per family rather than a property of the idiom."""
+
+_ZEROS_TRICK_OFFSET_FAMILIES: dict[str, frozenset[str]] = {
+    "MixtureNormal": frozenset({"jags"}),
+    "BetaBinomial": frozenset(),
+}
+"""Per zeros-trick family, the targets whose emit lifts the Poisson
+rate by [`_ZEROS_TRICK_OFFSET`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET].
+
+`MixtureNormal` lowers to `phi[n] <- 1e6-log(<mixture density>)`, whose
+inner term is a density value and so may exceed one; the lift is what
+keeps the rate positive when it does. `BetaBinomial` lowers to
+`phi[n] <- -(<log pmf>)`, already positive because a pmf is at most
+one, and `renderers/jags.py` emits it with no lift at all. The two
+therefore sit on opposite sides of this table even though they share
+the idiom.
+
+`bugs` appears nowhere: it has no target name for either family and
+raises before reaching the trick, which
+`test_zeros_trick_table_agrees_with_the_emit` confirms rather than
+assumes. The `bugs` renderer does carry the same lift on its `score`
+statement path, and no gallery example currently exercises it;
+[`zeros_trick_factor_counts`][tests.transpile.test_expected_offsets.zeros_trick_factor_counts]
+raises rather than undercount if one ever does."""
+
+_ZEROS_TRICK_PROBE_SOURCES: dict[str, str] = {
+    "MixtureNormal": """object Component : FinSet 3
+object Resp : FinSet 5
+object Weights : Real 3
+
+program probe : Resp -> Weights
+    sample probs <- Dirichlet(1.0) [over=Component]
+    sample mu : Component <- Normal(0.0, 5.0)
+    sample sigma : Component <- HalfNormal(1.0)
+    observe r : Resp <- MixtureNormal(probs, mu, sigma)
+    return probs
+
+export probe
+""",
+    "BetaBinomial": """object Arm : FinSet 2
+object Batch : FinSet 4
+object Val : Real 1
+
+program probe : Batch -> Val
+    sample conc1 : Arm <- HalfCauchy(2.0)
+    sample conc0 : Arm <- HalfCauchy(2.0)
+
+    let a = conc1[arm_idx]
+    let b = conc0[arm_idx]
+
+    observe y : Batch <- BetaBinomial(n_trials, a, b)
+    return a
+
+export probe
+""",
+}
+"""Smallest QVR module that puts one zeros-trick observation on every
+target, per family.
+
+Each family needs its own module because the two take different
+argument shapes: a mixture site needs a weight simplex and per-
+component location and scale vectors, a beta-binomial site needs a
+trial count and two gathered concentrations. Both are self-contained,
+so the emit check does not depend on which gallery example happens to
+use the family."""
+
+_ZEROS_TRICK_PHI_RE = re.compile(
+    r"phi_\w+\[[^\]]*\] <- ?(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)-"
+)
+"""Matches the lift out of a `phi_<site>[n] <- <C>-log(...)` relation.
+
+The negative case is what makes the pattern the right shape. An
+unlifted row reads `phi_<site>[n] <-- (<term>)`, the assignment arrow
+run together with a unary minus, where this pattern finds no leading
+number and reports no lift. A lifted row reads
+`phi_<site>[n] <- 1000000-log(...)`, where the captured group is the
+constant the renderer chose."""
 
 
 class OffsetJustification(dx.TaggedUnion, discriminator="kind"):
@@ -282,18 +499,30 @@ class Derived(OffsetJustification):
         are kept apart rather than collapsed into one flag because a
         single example may mix families whose drop sets differ, as
         `HalfCauchy` and `HalfStudentT` do on Gen, Turing and WebPPL.
+    lifted_rows : int
+        How many observed rows this target scores through a
+        zeros-trick relation whose Poisson rate the renderer lifts by
+        [`_ZEROS_TRICK_OFFSET`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET].
+        Each contributes that constant to the offset. Zero on every
+        target that names the family as a distribution, and zero on
+        the two BUGS / JAGS zeros-trick families whose emit carries no
+        lift, so the default states the common case and an entry only
+        names the count when the example actually pays it.
     """
 
     kind: Literal["derived"] = "derived"
     half_sites: int
     dropped_sites: int
+    lifted_rows: int = 0
 
     @property
     def summary(self) -> str:
         return (
             f"derived from {self.half_sites} folded-family density "
             f"factor(s) in the QVR source, {self.dropped_sites} of them "
-            f"emitted without a truncation renormalizer"
+            f"emitted without a truncation renormalizer, plus "
+            f"{self.lifted_rows} zeros-trick row(s) whose Poisson rate "
+            f"is lifted by {_ZEROS_TRICK_OFFSET:g}"
         )
 
 
@@ -341,7 +570,9 @@ class ExpectedOffset(dx.Model):
     justification: OffsetJustification
 
 
-def _derived(*, half_sites: int, dropped_sites: int) -> ExpectedOffset:
+def _derived(
+    *, half_sites: int, dropped_sites: int, lifted_rows: int = 0,
+) -> ExpectedOffset:
     """Registry entry for a cell the derivation accounts for.
 
     Parameters
@@ -354,11 +585,21 @@ def _derived(*, half_sites: int, dropped_sites: int) -> ExpectedOffset:
         How many of those the target emits as a bare symmetric base,
         per
         [`_DROPS_HALF_NORMALIZER`][tests.transpile.test_expected_offsets._DROPS_HALF_NORMALIZER].
+    lifted_rows
+        Observed rows the target scores through a lifted zeros-trick
+        relation, per
+        [`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES].
+        Defaults to zero, which is the count for every cell whose
+        target names each of the example's families as a distribution.
     """
     return ExpectedOffset(
-        offset=dropped_sites * _LOG_2,
+        offset=(
+            dropped_sites * _LOG_2 + lifted_rows * _ZEROS_TRICK_OFFSET
+        ),
         justification=Derived(
-            half_sites=half_sites, dropped_sites=dropped_sites,
+            half_sites=half_sites,
+            dropped_sites=dropped_sites,
+            lifted_rows=lifted_rows,
         ),
     )
 
@@ -403,8 +644,21 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('stan', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=1),
     ('turing', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
     ('webppl', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=1),
-    # beta_binomial_ab_test: 4 HalfCauchy folded factor(s).
-    ('bugs', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
+    # beta_binomial_ab_test: 4 HalfCauchy folded factor(s). `bugs` is
+    # absent because the cell raises in transpile: the BUGS family
+    # registry has no target name for `BetaBinomial`, and unlike JAGS
+    # the renderer has no zeros-trick path to fall back on.
+    #
+    # `edward2` keeps a zero on the strength of a corrected emit
+    # rather than of the current one. `renderers/edward2.py` passes the
+    # exogenous trial count straight through as
+    # `total_count=n_trials`, which reaches TFP as an int32 beside
+    # float32 concentrations, and `BetaBinomial.__init__` rejects the
+    # pair through `dtype_util.common_dtype` before scoring anything.
+    # The entry states what a float-valued `total_count` would be
+    # entitled to, which is nothing;
+    # `test_backend_offset_matches_registry` stays red for this cell
+    # until the renderer emits one.
     ('edward2', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
     ('gen', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=4),
     ('jags', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
@@ -484,8 +738,19 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('turing', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
     # half_student_t_hierarchical: 2 HalfStudentT folded factor(s).
+    #
+    # `turing` keeps its zero on the strength of a corrected harness
+    # rather than of the current one. The emit is right, and it is the
+    # only Turing cell that grafts `runtime_turing.jl`, so it is the
+    # only one whose source file carries top-level statements above the
+    # `@model` macrocall. `probes/_scripts/turing.jl` feeds that file
+    # to `Meta.parse`, which reads one expression and rejects the rest
+    # ("extra token after end of expression"), so the container never
+    # scores it. The entry states what the emitted program is entitled
+    # to, which is nothing: `runtime_turing.jl` folds `TDist` with an
+    # explicit `+ log(2)`.
     ('bugs', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('edward2', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
+    ('edward2', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=2),
     ('gen', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
     ('jags', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
     ('numpyro', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
@@ -496,6 +761,12 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('webppl', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
     # hmm: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
+    #
+    # `bugs` keeps its zero on the strength of a corrected emit, for
+    # the same reason `bugs` on `lda` does: the `marginalize state`
+    # scope lowers to `state ~ dcat(initial_row)`, a latent no point
+    # payload clamps, and the engine rejects it ("Cannot normalize
+    # density" at `state`) rather than integrating it out.
     ('bugs', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
@@ -533,12 +804,26 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('webppl', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=1),
     # lda: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
+    #
+    # `bugs` keeps its zero on the strength of a corrected emit rather
+    # than of the current one. The renderer lowers the example's
+    # `marginalize z` scope to a stochastic node, `z[d] ~ dcat(...)`,
+    # instead of writing the logsumexp marginal the reduction denotes,
+    # so the emitted program declares a latent the point payload never
+    # clamps and the engine rejects it ("Cannot normalize density" at
+    # `z[6]`) before scoring. The entry states what the marginal emit
+    # would be entitled to, which is nothing;
+    # `test_backend_offset_matches_registry` stays red for this cell
+    # until the renderer emits it.
     ('bugs', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('edward2', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('pymc', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    # logistic_noise_regression: 1 HalfNormal folded factor(s).
+    # logistic_noise_regression: 1 HalfNormal folded factor(s). The
+    # engines' `dlogis(mu, tau)` is rate-parameterised, so `bugs` and
+    # `jags` emit `y[n] ~ dlogis(mu[n], 1/scale)`; the reciprocal is an
+    # algebraic identity on the density and carries no constant.
     ('bugs', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
     ('edward2', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
     ('gen', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
@@ -549,10 +834,16 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('stan', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
     ('turing', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
     ('webppl', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
-    # mixture_model: 3 HalfNormal folded factor(s).
+    # mixture_model: 3 HalfNormal folded factor(s). `jags` also owes
+    # the zeros-trick lift: it has no `MixtureNormal` distribution, so
+    # it writes the closed-form mixture density into a Poisson rate and
+    # lifts that rate by `_ZEROS_TRICK_OFFSET` on each of the 100 rows
+    # of `Resp`. `bugs` is absent because the cell raises in transpile.
     ('edward2', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
     ('gen', 'mixture_model'): _derived(half_sites=3, dropped_sites=3),
-    ('jags', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
+    ('jags', 'mixture_model'): _derived(
+        half_sites=3, dropped_sites=0, lifted_rows=100,
+    ),
     ('numpyro', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
     ('pymc', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
     ('pyro', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
@@ -651,6 +942,19 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('stan', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
     ('turing', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
+    # tree_categorical: 1 HalfNormal folded factor(s). `sigma_v` is
+    # the example's only folded site and it carries no axis, so the
+    # count is one whatever `Verb`, `Class` and `Resp` are sized at.
+    # `stan` is absent because the cell raises in transpile.
+    ('bugs', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('edward2', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('gen', 'tree_categorical'): _derived(half_sites=1, dropped_sites=1),
+    ('jags', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('numpyro', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('pymc', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('pyro', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('turing', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
+    ('webppl', 'tree_categorical'): _derived(half_sites=1, dropped_sites=1),
     # type_logical: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     ('bugs', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
@@ -900,6 +1204,73 @@ def half_family_factor_counts(example: pathlib.Path) -> dict[str, int]:
     return counts
 
 
+def zeros_trick_factor_counts(example: pathlib.Path) -> dict[str, int]:
+    """Observed rows a QVR source offers to the zeros trick, by family.
+
+    Sums, over every `observe` step of the exported program naming a
+    family in
+    [`_ZEROS_TRICK_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_FAMILIES],
+    the number of variables the step binds times the product of the
+    cardinalities of the axes attached to it. That is one row per
+    `zeros[n] ~ dpois(phi[n])` relation the BUGS / JAGS renderers
+    write, which is the granularity the lift is paid at.
+
+    Only `observe` steps count. Both renderers reject a *latent* draw
+    from a zeros-trick family outright, on the ground that the idiom
+    contributes a density term without declaring a node the engine can
+    sample, so a latent site never reaches an emit and never pays a
+    lift.
+
+    Families with no observed site in the source are absent from the
+    returned map, and the count is a property of the source alone: it
+    is the same for every target, and
+    [`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
+    decides which targets pay for it.
+
+    Raises
+    ------
+    AssertionError
+        If the exported program carries a `score` statement (the BUGS
+        renderer lowers one through the same lifted trick, so the
+        program would pay a constant this count does not model), or if
+        a zeros-trick site indexes an axis that is not a plain
+        `FinSet`.
+    """
+    module = parse(example.read_text())
+    program = _exported_program(module, example.stem)
+    cardinalities = _finset_cardinalities(module)
+
+    counts: dict[str, int] = {}
+    for step in _flatten_steps(program.draws):
+        if isinstance(step, ScoreStep):
+            raise AssertionError(
+                f"{example.stem!r}: the exported program carries a "
+                f"`score` statement, which the BUGS and JAGS renderers "
+                f"lower through the same zeros trick and lift by the "
+                f"same constant. Extend `zeros_trick_factor_counts` to "
+                f"count it before registering an offset for this "
+                f"example; leaving it out would charge the cell less "
+                f"than its emit pays."
+            )
+        if not isinstance(step, ObserveStep):
+            continue
+        if step.morphism not in _ZEROS_TRICK_FAMILIES:
+            continue
+        multiplicity = len(step.vars)
+        for axis in _axis_names(step):
+            if axis not in cardinalities:
+                raise AssertionError(
+                    f"{example.stem!r}: zeros-trick step {step.vars!r} "
+                    f"indexes axis {axis!r}, which is not declared as a "
+                    f"plain `FinSet`. Its cardinality decides how many "
+                    f"lifted rows the site carries, so the derivation "
+                    f"cannot proceed without it."
+                )
+            multiplicity *= cardinalities[axis]
+        counts[step.morphism] = counts.get(step.morphism, 0) + multiplicity
+    return counts
+
+
 def _dropped_factor_count(backend: str, stem: str) -> int:
     """Folded factors `backend` emits without a renormalizer, for
     `stem`.
@@ -915,12 +1286,31 @@ def _dropped_factor_count(backend: str, stem: str) -> int:
     )
 
 
+def _lifted_row_count(backend: str, stem: str) -> int:
+    """Rows `backend` scores through a lifted zeros-trick relation, for
+    `stem`.
+
+    The per-family observed-row counts of the source restricted to the
+    families whose lift set contains the target.
+    """
+    counts = zeros_trick_factor_counts(_example_path(stem))
+    return sum(
+        count
+        for family, count in counts.items()
+        if backend in _ZEROS_TRICK_OFFSET_FAMILIES[family]
+    )
+
+
 def _derived_offset(backend: str, stem: str) -> float:
     """The closed-form expected offset for a cell.
 
-    `sum_f drops_half(T, f) * n_f(M) * log 2` per the module docstring.
+    `sum_f drops_half(T, f) * n_f(M) * log 2 + sum_f lifts(T, f) *
+    m_f(M) * C` per the module docstring.
     """
-    return _dropped_factor_count(backend, stem) * _LOG_2
+    return (
+        _dropped_factor_count(backend, stem) * _LOG_2
+        + _lifted_row_count(backend, stem) * _ZEROS_TRICK_OFFSET
+    )
 
 
 def _offset_atol(dataset: _gallery_data.GalleryDataset) -> float:
@@ -1139,6 +1529,118 @@ def _qvr_log_densities(
     return values
 
 
+def _half_family_emit(backend: str, family: str) -> str:
+    """The program `backend` emits for one folded-family draw.
+
+    Renders
+    [`_HALF_FAMILY_PROBE_SOURCE`][tests.transpile.test_expected_offsets._HALF_FAMILY_PROBE_SOURCE]
+    with `family`'s call spelling. The result is the renderer's own
+    account of how it writes the family, which is the authority the
+    drop table has to answer to: a name table records the resolution a
+    renderer *usually* takes, and a renderer that rewrites the site is
+    invisible in it.
+    """
+    source = _HALF_FAMILY_PROBE_SOURCE.format(
+        call=_HALF_FAMILY_PROBE_ARGS[family]
+    )
+    return transpile(parse(source), target=backend).decode("utf-8")
+
+
+def _zeros_trick_lift(backend: str, family: str) -> float | None:
+    """The constant `backend` lifts a `family` zeros-trick rate by, or
+    `None` when the site is not lowered through a lifted trick.
+
+    Renders the family's entry in
+    [`_ZEROS_TRICK_PROBE_SOURCES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_PROBE_SOURCES]
+    and reads the lift straight out of the emitted
+    `phi_<site>[n] <- <C>-log(...)` relation. A target that raises on
+    the family cannot pay a lift at all and reports `None`, and so does
+    one whose emit names the family as a distribution or writes the
+    unlifted `phi_<site>[n] <-- (<term>)`.
+    """
+    try:
+        emitted = transpile(
+            parse(_ZEROS_TRICK_PROBE_SOURCES[family]), target=backend
+        ).decode("utf-8")
+    except UnsupportedConstruct:
+        return None
+    match = _ZEROS_TRICK_PHI_RE.search(emitted)
+    if match is None:
+        return None
+    return float(match.group(1))
+
+
+def test_zeros_trick_table_agrees_with_the_emit() -> None:
+    """
+    [`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
+    names exactly the targets that lift a zeros-trick rate, and
+    [`_ZEROS_TRICK_OFFSET`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET]
+    is the constant they lift it by.
+
+    The lift is worth a hundred thousand nats a row, so it dwarfs every
+    other term in the derivation, and it is invisible to the
+    constant-spread check by construction. Pinning the table as a
+    literal and never reading it back would let the renderer drop the
+    lift (as `_emit_beta_binomial` already did for the other
+    zeros-trick family) while the registry kept charging a cell `1e6`
+    per row it no longer pays, or add one where the registry charges
+    nothing. Both directions are checked, and the value is parsed out
+    of the emitted relation rather than compared against a number
+    copied from the renderer, so the pin answers to the program the
+    container actually scores.
+    """
+    assert set(_ZEROS_TRICK_OFFSET_FAMILIES) == set(_ZEROS_TRICK_FAMILIES), (
+        f"the lift table keys "
+        f"{sorted(_ZEROS_TRICK_OFFSET_FAMILIES)} but the zeros-trick "
+        f"families are {sorted(_ZEROS_TRICK_FAMILIES)}. Every family "
+        f"lowered through the trick needs its own lift set, or a cell "
+        f"using it is charged by a table that never considered it."
+    )
+    assert set(_ZEROS_TRICK_PROBE_SOURCES) == set(_ZEROS_TRICK_FAMILIES), (
+        f"the zeros-trick probe sources key "
+        f"{sorted(_ZEROS_TRICK_PROBE_SOURCES)} but the families are "
+        f"{sorted(_ZEROS_TRICK_FAMILIES)}. Without a probe module the "
+        f"lift cannot be read off an emit and the table falls back to "
+        f"being asserted from memory."
+    )
+
+    lifted_somewhere = False
+    for family in sorted(_ZEROS_TRICK_FAMILIES):
+        lifting: set[str] = set()
+        for backend in sorted(_BACKENDS_WITH_IMAGES):
+            lift = _zeros_trick_lift(backend, family)
+            if lift is None:
+                continue
+            lifting.add(backend)
+            lifted_somewhere = True
+            assert lift == pytest.approx(_ZEROS_TRICK_OFFSET, rel=0, abs=0), (
+                f"{backend!r} lifts the {family!r} zeros-trick rate by "
+                f"{lift!r}, but the derivation charges every lifted row "
+                f"{_ZEROS_TRICK_OFFSET!r}. Every cell of every example "
+                f"observing this family on this target is off by "
+                f"{(lift - _ZEROS_TRICK_OFFSET)!r} per row; re-derive "
+                f"before editing either side."
+            )
+        assert lifting == _ZEROS_TRICK_OFFSET_FAMILIES[family], (
+            f"targets lifting the {family!r} zeros-trick rate are "
+            f"{sorted(lifting)}, but the table claims "
+            f"{sorted(_ZEROS_TRICK_OFFSET_FAMILIES[family])}. A "
+            f"renderer changed how it writes this family's Poisson "
+            f"rate; re-derive the entitled constant for every affected "
+            f"cell before editing either side."
+        )
+
+    assert lifted_somewhere, (
+        "no target in the Docker matrix lifts any zeros-trick rate, so "
+        "this test would pass on a pattern that matches nothing at "
+        "all. Either every renderer dropped the lift (in which case "
+        "the term leaves the derivation and every `lifted_rows` count "
+        "goes to zero) or "
+        "`_ZEROS_TRICK_PHI_RE` no longer matches the relation the "
+        "renderers emit."
+    )
+
+
 def test_drop_table_agrees_with_the_family_registry() -> None:
     """Every target in
     [`_DROPS_HALF_NORMALIZER`][tests.transpile.test_expected_offsets._DROPS_HALF_NORMALIZER]
@@ -1150,9 +1652,20 @@ def test_drop_table_agrees_with_the_family_registry() -> None:
     a literal set and never re-checking it would let a renderer switch
     `HalfCauchy` from `cauchy` to a native or truncated spelling while
     the registry kept charging the cell a `log 2` it no longer drops.
-    The reconciliation here is against
-    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], which is
-    the single source of truth for target spellings.
+
+    The reconciliation is against the *effective* spelling: the name
+    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] resolves
+    the family to, amended by
+    [`_RENDERER_SPELLING_OVERRIDES`][tests.transpile.test_expected_offsets._RENDERER_SPELLING_OVERRIDES]
+    where the renderer rewrites the draw site rather than take that
+    resolution. The name table alone is not enough, and the way it
+    fails is exactly the failure this module is built around: Edward2's
+    `HalfStudentT` reads as a native folded class in `FAMILY_META` and
+    emits as the bare `edward2.StudentT`, so a derivation off the table
+    would name zero for a cell that drops `log 2` at every site and the
+    constant-spread check would never notice. Each override is
+    therefore held against the emitted program rather than taken on
+    trust.
     """
     symmetric_bases = {
         "cauchy", "Cauchy", "normal", "Normal", "gaussian", "Gaussian",
@@ -1163,26 +1676,56 @@ def test_drop_table_agrees_with_the_family_registry() -> None:
         f"folded families are {sorted(_HALF_FAMILIES)}. Every folded "
         f"family needs its own drop set; the two differ."
     )
+    assert set(_HALF_FAMILY_PROBE_ARGS) == set(_HALF_FAMILIES), (
+        f"the probe-call table keys {sorted(_HALF_FAMILY_PROBE_ARGS)} "
+        f"but the folded families are {sorted(_HALF_FAMILIES)}. Every "
+        f"folded family needs a call spelling, or its effective "
+        f"spelling cannot be read off an emit."
+    )
     for family in sorted(_HALF_FAMILIES):
         meta = FAMILY_META[family]
         bare_base: set[str] = set()
         for backend in sorted(_BACKENDS_WITH_IMAGES):
-            target_name = meta.target_names.get(backend)
-            assert target_name is not None, (
+            registered = meta.target_names.get(backend)
+            assert registered is not None, (
                 f"{family!r} has no {backend!r} target name in "
                 f"`FAMILY_META`, yet {backend!r} is in the Docker "
                 f"matrix. Either the family lost its spelling or the "
                 f"matrix gained a backend; the derivation cannot "
                 f"decide whether the cell drops a `log 2` without it."
             )
-            if target_name in symmetric_bases:
+            override = _RENDERER_SPELLING_OVERRIDES.get((backend, family))
+            emitted = _half_family_emit(backend, family)
+            if override is not None:
+                assert override in emitted, (
+                    f"`_RENDERER_SPELLING_OVERRIDES` claims "
+                    f"{backend!r} rewrites {family!r} to {override!r}, "
+                    f"but that name is absent from the emitted "
+                    f"program. Read the renderer's current spelling "
+                    f"off the emit and re-derive the entitled constant "
+                    f"for every cell of every example using this "
+                    f"family."
+                )
+                assert registered not in emitted, (
+                    f"`_RENDERER_SPELLING_OVERRIDES` claims "
+                    f"{backend!r} replaces the registered spelling "
+                    f"{registered!r} of {family!r} with "
+                    f"{override!r}, but {registered!r} still appears "
+                    f"in the emitted program. The renderer took the "
+                    f"`FAMILY_META` resolution after all, so the "
+                    f"override is stale and the cells of every example "
+                    f"using this family are charged a constant they no "
+                    f"longer drop."
+                )
+            effective = override if override is not None else registered
+            if effective in symmetric_bases:
                 bare_base.add(backend)
 
-        # BUGS and JAGS name the symmetric `dt` / `dnorm` but attach a
-        # one-sided truncation suffix the renderer emits at the site,
-        # which JAGS renormalizes over; the spelling alone therefore
-        # does not settle them and the `dt` / `dnorm` names keep them
-        # out of `bare_base` above. Gen, Turing and WebPPL name
+        # BUGS and JAGS name the symmetric `dt` / `dnorm` and attach a
+        # one-sided truncation suffix at every folded site, which JAGS
+        # renormalizes over; the spelling alone therefore does not
+        # settle them and the `dt` / `dnorm` names keep them out of
+        # `bare_base` above. Gen, Turing and WebPPL name
         # `half_student_t` / `HalfStudentT`, each a grafted runtime
         # helper whose scorer adds the `log 2` itself.
         assert bare_base == _DROPS_HALF_NORMALIZER[family], (
@@ -1297,12 +1840,23 @@ def test_registry_offset_matches_the_closed_form_derivation(
         f"renormalizer, but the drop table gives {dropped} for the "
         f"source's {counts!r}. Re-derive the entitled constant."
     )
+    zeros_counts = zeros_trick_factor_counts(_example_path(stem))
+    lifted = _lifted_row_count(backend, stem)
+    assert lifted == justification.lifted_rows, (
+        f"{backend!r} on {stem!r}: the registry records "
+        f"{justification.lifted_rows} lifted zeros-trick row(s), but "
+        f"the lift table gives {lifted} for the source's "
+        f"{zeros_counts!r}. Each row is worth "
+        f"{_ZEROS_TRICK_OFFSET:g} nats, so this is the largest term the "
+        f"derivation carries; re-derive the entitled constant."
+    )
     predicted = _derived_offset(backend, stem)
     assert entry.offset == pytest.approx(predicted, abs=1e-12), (
         f"{backend!r} on {stem!r}: registry pins offset "
         f"{entry.offset!r} but the derivation predicts {predicted!r} "
         f"({counted} folded-family factor(s) of which {dropped} lose "
-        f"the truncation renormalizer on {backend!r}). The registry "
+        f"the truncation renormalizer on {backend!r}, and {lifted} "
+        f"zeros-trick row(s) whose Poisson rate it lifts). The registry "
         f"must state the constant the target is entitled to, not the "
         f"constant it happened to produce."
     )

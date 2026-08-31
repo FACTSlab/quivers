@@ -33,7 +33,7 @@ Each cell resolves to one of three pre-declared outcomes:
 1. `(backend, example) in _EXPECTED_TRANSPILE_RAISES`: the
    pipeline MUST `pytest.raises(UnsupportedConstruct)` with the
    pinned kind-prefix.
-2. Cell falls in one of the four `_SKIP_*` registries: a known
+2. Cell falls in one of the three `_SKIP_*` registries: a known
    environmental gap (missing data block, QVR-probe incompatibility,
    backend probe script lacking shape registration for arbitrary
    gallery datasets). `pytest.skip` with the diagnostic.
@@ -136,7 +136,13 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "parametric_pooling"): "family:school_effects",
     ("webppl", "parametric_pooling"): "family:school_effects",
     # pmf / tensor_contraction carry `composition` (and `contraction`)
-    # declarations; no PPL backend has a surface for them.
+    # declarations; no PPL backend has a surface for them. Both
+    # examples still score a joint, because their `.md` snippets wrap
+    # the compiled composition in a `MonadicProgram`, so both carry a
+    # `_QVR_REFERENCE_JOINT` row. Every one of their cells being a
+    # pinned raise means no container re-derives that row, and the
+    # witness therefore has to come from the raw-`torch.distributions`
+    # side in `test_oracle_reference_strength.py`.
     ("bugs", "pmf"): "composition_decl",
     ("bugs", "tensor_contraction"): "composition_decl",
     ("edward2", "pmf"): "composition_decl",
@@ -167,6 +173,22 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
         "family:no-target-name:Kumaraswamy"
     ),
     ("jags", "zip_regression"): "family:",
+    # beta_binomial_ab_test observes `BetaBinomial`. Every other
+    # backend either has the family natively or reaches it through
+    # the closed-form marginal: JAGS writes that marginal into the
+    # joint with the zeros trick, whose Poisson carrier has to be
+    # bound to data, and JAGS binds it in the `data { ... }` block
+    # the emitted source opens. The BUGS language has no such block,
+    # so the carrier has nowhere to be declared inside a
+    # self-contained model file, and
+    # `renderers/bugs.py::_NO_BUGS_DISTRIBUTION` records the family
+    # as unreachable rather than emitting source that references an
+    # undeclared node. The boundary is the BUGS *language*, not the
+    # engine: the `panproto-test-bugs` image runs JAGS, which is why
+    # the sibling `jags` cell is live and scores the same model.
+    ("bugs", "beta_binomial_ab_test"): (
+        "family:BetaBinomial:no-bugs-distribution"
+    ),
 }
 
 # bnn's `net` morphism draws its mean from an `mlp` param source. The
@@ -773,31 +795,25 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     ('turing', 'linear_gaussian_ssm'),
     ('webppl', 'continuous_hmm'),
     ('webppl', 'linear_gaussian_ssm'),
-    # tree_categorical: the synthetic-data snippet in
-    # `docs/examples/tree-categorical.md` emits a single response and
-    # clamps every scalar latent at rank-2 singleton shape, while the
-    # model declares `object Resp : FinSet 200`. Stan reports `y`
-    # declared (200) against data found (1,1), pymc raises
-    # `ShapeError`, JAGS and BUGS report a dimension mismatch, the
-    # Julia backends meet a `Matrix{Float64}` where a scalar belongs,
-    # and the Python backends score a shape-broadcast joint that
-    # drifts by ~178 nats across the point set. Rebuilt against a
-    # corrected 200-response dataset the renderer sides measure a
-    # constant spread (numpyro / pymc 6.83e-05, edward2 2.29e-05,
-    # pyro 1.94e-05, jags / bugs 1.14e-06), so the fix is the data
-    # snippet plus the rank-0 clamp path in
-    # `src/quivers/continuous/inline.py`, with the
-    # `_QVR_REFERENCE_JOINT` entry re-derived in the same change.
-    ('bugs', 'tree_categorical'),
-    ('edward2', 'tree_categorical'),
-    ('gen', 'tree_categorical'),
-    ('jags', 'tree_categorical'),
-    ('numpyro', 'tree_categorical'),
-    ('pymc', 'tree_categorical'),
-    ('pyro', 'tree_categorical'),
+    # tree_categorical on Stan alone. The example binds
+    # `let cell0 = cell_score[0, 0]`, a literal index into the rank-2
+    # score table, and the Stan renderer carries that subscript
+    # through unchanged: the emitted transformed-parameters block
+    # holds `cell0[m_Resp] = cell_score[0,0];`. Stan indexes from 1,
+    # so cmdstan rejects the program at `log_prob` time with
+    # "index 0 out of range; expecting index to be between 1 and 12",
+    # and no point of the set is ever scored. The renderer's literal
+    # index path in `src/quivers/transpile/renderers/stan.py` owns
+    # the off-by-one; every other 1-based target already rebases the
+    # same expression, which is why JAGS and BUGS score it.
+    #
+    # The other nine cells are live and pass. Measured spread against
+    # the QVR reference over the six-point set: numpyro / pymc /
+    # turing / gen / jags / bugs / webppl 7.49e-05 (the float64
+    # backends agree with each other far below that and inherit the
+    # same offset from the float32 reference), pyro 2.91e-05,
+    # edward2 1.78e-05, all under the 5e-04 constant-spread floor.
     ('stan', 'tree_categorical'),
-    ('turing', 'tree_categorical'),
-    ('webppl', 'tree_categorical'),
     # hmm: `sample initial_row : State <- Dirichlet(1.0)
     # [over=State]` lowers to one `simplex[8]` under an empty plate
     # while the QVR runtime produces an (8, 8) batch of simplices,
@@ -809,11 +825,17 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # every typed backend reports the clash directly (stan: `obs`
     # declared (16), found (8); pymc: cannot convert Matrix(8, 8)
     # into Vector(8,); gen: Vector{Float64}(::Matrix{Float64});
-    # turing: +(::Float64, ::Vector{Float64}); jags: compilation
-    # error on line 2). edward2 leaves the mis-ranked `initial_row`
-    # unconditioned and drifts 0.92 nats; webppl additionally passes
-    # the Dirichlet concentration as a plain JS array, which its
-    # `Dirichlet` rejects as not a vector.
+    # turing: +(::Float64, ::Vector{Float64}); jags: `Error in node
+    # state / Cannot normalize density` at `console.update`, the
+    # marginalized `state` reaching the engine as a live node whose
+    # Categorical row is the mis-ranked `initial_row`). edward2
+    # leaves the mis-ranked `initial_row` unconditioned and drifts
+    # 0.92 nats; webppl additionally passes the Dirichlet
+    # concentration as a plain JS array, which its `Dirichlet`
+    # rejects as not a vector. The `bugs` cell is live and failing on
+    # the same engine error as `jags`: the two renderers emit
+    # different source, so the cell stays a visible failure rather
+    # than a tenth row here.
     ('edward2', 'hmm'),
     ('gen', 'hmm'),
     ('jags', 'hmm'),
@@ -830,8 +852,13 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     #   jags: `RendererBase.explicit_latent_scope` lowers the
     #     marginalize to a live `IRSample(z)` and drops the
     #     reduction, so the emitted measure lives on a strictly
-    #     larger space and the spread runs to 409 nats. The zeros
-    #     trick `jags.py::_emit_score` already uses is the closure.
+    #     larger space; the engine now rejects the model outright
+    #     with `Error in node z[6] / Cannot normalize density` rather
+    #     than scoring it. The zeros trick `jags.py::_emit_score`
+    #     already uses is the closure. The `bugs` cell is live and
+    #     failing on the same engine error from its own renderer's
+    #     emission, so it stays a visible failure rather than a sixth
+    #     row here.
     #   stan: the point payload ships `theta` / `phi` rows as float32
     #     summing to 1.00000006, which `stan::math::simplex_free`
     #     rejects; the harness must renormalize simplex-typed

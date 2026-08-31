@@ -21,10 +21,15 @@ The renderer follows the structural protocol of
   and the family's distribution call on the RHS, indexing every
   arg whose plate overlaps the surrounding batch dims.
 * [`marginalize`][quivers.transpile.renderers.bugs.BUGSRenderer.marginalize]
-  lowers [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to
-  an explicit `IRSample(latent)` followed by the scope body. BUGS
-  supports discrete latents natively, so explicit sampling is the
-  right idiom.
+  collapses [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+  into the single `dcat` row its atoms sum to whenever the scope is
+  one scalar categorical observation of a latent-picked row. BUGS
+  carries no statement that adds a free log-density term to the
+  joint, so that mixture identity is the only integration the
+  language writes directly; every other scope takes the
+  explicit-latent lowering, `<l> ~ d<family>(...)` followed by the
+  scope inline, which is the marginalize emit BUGS's own contract
+  names.
 * [`broadcast`][quivers.transpile.renderers.bugs.BUGSRenderer.broadcast]
   fills a helper array: BUGS has no repetition builtin and no
   implicit scalar-to-vector coercion, but `for (i in 1:K) { v[i] <- s }`
@@ -77,6 +82,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    CSPositiveDefinite,
     CSReal,
     ConstraintSpec,
     Dim,
@@ -113,12 +119,17 @@ from quivers.transpile.renderers._base import (
 )
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
+    CategoricalMixture,
+    categorical_mixture,
     factor_axis_sizes,
     factor_cells,
     half_support_truncation,
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
+    reorder_binomial_dbin,
+    reorder_half_studentt_dt,
+    reorder_pareto_dpar,
     split_event_dims,
 )
 
@@ -195,6 +206,25 @@ _ALIAS_TRANSFORMS: dict[str, str] = {
 #: rate ``tau = 1/scale`` rather than ``1/scale^2``.
 _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
     "Laplace": {"tau": "inv"},
+    "Logistic": {"tau": "inv"},
+}
+
+#: Renderer-supplied arg renames for families whose
+#: [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] entry
+#: records no ``bugs`` alias even though the BUGS distribution is
+#: parameterised differently from the torch one. ``Logistic`` is the
+#: case: torch carries ``(loc, scale)`` while ``dlogis(mu, tau)`` has
+#: density ``tau * e^{-tau(x-mu)} / (1 + e^{-tau(x-mu)})^2``, i.e.
+#: the second slot is the rate ``tau = 1/scale``. Passing the scale
+#: through unchanged scores a Logistic of scale ``1/s``, which is a
+#: different density at every point rather than a constant offset.
+#: The rename feeds the same transform pipeline the ``FAMILY_META``
+#: aliases do, with the ``inv`` transform supplied by
+#: [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.bugs._FAMILY_ALIAS_TRANSFORM_OVERRIDE].
+_FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
+    "Logistic": {"scale": "tau"},
+    "LogNormal": {"scale": "tau"},
+    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -207,7 +237,9 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
 #: The constant ``log(2)`` offset that distinguishes HalfNormal from
 #: the full Normal is absorbed by the constant-spread tolerance in
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+_PREPEND_ZERO: frozenset[str] = frozenset(
+    {"HalfNormal", "HalfCauchy", "Horseshoe"}
+)
 
 #: BUGS-side argument injection for QVR families that map to BUGS'
 #: ``dt(mu, tau, k)`` distribution. BUGS Student-t requires three
@@ -229,6 +261,66 @@ _APPEND_DF_ONE: frozenset[str] = frozenset({"Cauchy", "HalfCauchy"})
 #: BUGS / JAGS fixtures and matches the offset shipped in WinBUGS /
 #: OpenBUGS examples.
 _ZEROS_TRICK_OFFSET: float = 1.0e6
+
+
+#: Families whose [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]
+#: ``bugs`` entry names a distribution no BUGS engine implements,
+#: mapped to the reason the boundary stands.
+#:
+#: ``BetaBinomial`` is the whole registry. The BUGS distribution
+#: catalogue (Lunn et al. 2012, appendix I) carries ``dbin``,
+#: ``dbeta``, ``dnegbin`` and ``dhyper`` but no beta-binomial, and the
+#: ``dbetabin`` spelling the registry records resolves in no engine
+#: this renderer's source can reach: WinBUGS and OpenBUGS have no such
+#: name, and JAGS carries ``dbetabin`` only in the optional ``mix``
+#: module, which a stock engine (``basemod``, ``bugs``, ``dic``) never
+#: loads. Emitting the call anyway produces source that parses and
+#: then fails to compile with ``Unknown distribution``.
+#:
+#: Neither of the two ways round it survives inspection.
+#:
+#: (i) The compound ``p[n] ~ dbeta(a, b); y[n] ~ dbin(p[n], N)`` is a
+#: different model: it allocates a latent rate per row, so the joint
+#: it scores lives on a larger space than the beta-binomial marginal
+#: QVR names, and the two densities agree at no point rather than up
+#: to an additive constant.
+#:
+#: (ii) The zeros trick writes the marginal out in closed form (see
+#: [`beta_binomial_log_pmf`][quivers.transpile.renderers._bugs_helpers.beta_binomial_log_pmf])
+#: and adds it through ``zeros[n] ~ dpois(C - log p(y_n))``, which is
+#: what the JAGS renderer does. It needs ``zeros[n]`` to be *data*,
+#: and JAGS binds it in the ``data { ... }`` block the JAGS renderer
+#: emits ahead of the model. The BUGS language has no such block: its
+#: data arrive from a separate host-side list the model source cannot
+#: declare, and a node bound by ``zeros[n] <- 0`` inside ``model``
+#: is logical, so giving it a distribution as well is a duplicate
+#: definition. Nor can an already-observed node stand in as the
+#: carrier: the closed form reads ``y[n]``, so scoring it through
+#: ``y[n]``'s own relation would put ``y[n]`` on both sides of a
+#: single edge and cycle the graph.
+#:
+#: [`_emit_score_node`][quivers.transpile.renderers.bugs.BUGSRenderer._emit_score_node]
+#: does emit a host-bound ``zero_<name>``, and the difference is what
+#: the two constructs promise. ``score`` is an explicit request for an
+#: extra log-density term, and the carrier it needs is part of that
+#: construct's documented host contract; an ``observe`` site promises
+#: that the emitted model scores the named likelihood on its own. A
+#: caller who ran the emitted source without knowing to add a zeros
+#: vector would get a model that compiles, samples the carrier as a
+#: free Poisson node, and drops the observation's likelihood term
+#: entirely, which is a silently different posterior rather than a
+#: reported gap.
+#:
+#: This mirrors the boundary ``MixtureNormal`` already stands on,
+#: where JAGS scores through the zeros trick and BUGS rejects.
+_NO_BUGS_DISTRIBUTION: dict[str, str] = {
+    "BetaBinomial": (
+        "the BUGS distribution catalogue has no beta-binomial, and "
+        "the zeros trick that would write its closed-form marginal "
+        "into the joint needs a data-bound carrier the BUGS language "
+        "cannot declare (it has no `data { ... }` block)"
+    ),
+}
 
 
 @dataclasses.dataclass
@@ -472,12 +564,19 @@ class BUGSRenderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to an explicit latent draw followed by the scope body.
+        """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        as the collapsed `dcat` row its atoms sum to when the scope is
+        a categorical mixture, and as the explicit latent draw
+        otherwise.
 
-        BUGS supports discrete latents natively (it samples them
-        in the chain), so the explicit-latent rewrite is the right
-        idiom.
+        A program that declares the latent denotes a measure on the
+        product of the latent's support with the scope's, where QVR's
+        `marginalize` denotes the integral of that product over the
+        latent, so the collapse is preferred wherever the language
+        writes it. BUGS has no statement that adds a free log-density
+        term to the joint, which is what a general `logsumexp`
+        reduction would need, so the remaining scopes lower to the
+        native discrete draw BUGS does sample.
         """
         if not isinstance(ctx, _BugsCtx):
             raise UnsupportedConstruct(
@@ -680,6 +779,20 @@ class BUGSRenderer(RendererBase):
                 f"qvr-{self.target}",
                 [f"family:{family}: no BUGS target name"],
             )
+        # A registry entry is a spelling, not a guarantee that an
+        # engine implements the name. `_NO_BUGS_DISTRIBUTION` records
+        # the families whose recorded spelling resolves nowhere, so
+        # the boundary shows up as a raise here rather than as source
+        # that parses and then fails to compile.
+        unavailable = _NO_BUGS_DISTRIBUTION.get(family)
+        if unavailable is not None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:{family}:no-bugs-distribution: "
+                    f"{unavailable}"
+                ],
+            )
         return meta
 
     # ------------------------------------------------------------------
@@ -809,22 +922,318 @@ class BUGSRenderer(RendererBase):
         )
 
     def _emit_marginalize_node(self, ctx: _BugsCtx, node: IRMarginalize) -> None:
-        """Lower marginalize to explicit-latent + scope body.
+        """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+        as the collapsed `dcat` row its atoms sum to when the scope is a
+        categorical mixture, and as the explicit latent draw otherwise.
 
-        The latent's loop variable is suffixed with the latent
-        name so it stays distinct from any prior loop over the same
-        plate axis."""
-        latent_sample = IRSample(
-            name=node.latent,
-            family=node.family,
-            args=node.args,
-            arg_names=node.arg_names,
-            constraint=node.constraint,
-            plate=node.plate,
+        BUGS carries no statement that adds a free log-density term to
+        the joint, so the general `logsumexp` reduction has no direct
+        emission: the zeros trick that writes one needs a data-bound
+        carrier the BUGS language cannot declare (it has no
+        `data { ... }` block). The general lowering is therefore the
+        explicit-latent rewrite BUGS's own marginalize contract names,
+        `<l> ~ d<family>(...)` followed by the scope inline, which
+        declares the latent the engine samples natively; a latent
+        family with no BUGS distribution reports itself from the
+        family lookup that lowering runs into rather than from here.
+
+        The mixture of categoricals needs no free term. Summing a
+        row-stochastic matrix against mixing weights,
+
+            p(y = v) = sum_k weights[k] * rows[k, v],
+
+        is itself a categorical measure on the observation's alphabet,
+        which `dcat` scores natively and exactly, so
+        [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
+        recognises that shape and
+        [`_emit_collapsed_mixture`][quivers.transpile.renderers.bugs.BUGSRenderer._emit_collapsed_mixture]
+        writes the integral itself, with no latent site declared.
+        """
+        mixture = categorical_mixture(node, ctx.decl_plates)
+        if mixture is None:
+            for inner in self.explicit_latent_scope(node):
+                self._dispatch_bugs_node(ctx, inner)
+            return
+        self._emit_collapsed_mixture(ctx, node, mixture)
+
+    def _emit_collapsed_mixture(
+        self,
+        ctx: _BugsCtx,
+        node: IRMarginalize,
+        mixture: CategoricalMixture,
+    ) -> None:
+        """Emit the integrated density of a marginalized categorical
+        latent as one collapsed `dcat` row.
+
+        Three relations carry it, all of them under the *observation's*
+        plate rather than the latent's:
+
+        1. the mixture itself, one row per observed cell,
+
+               <mix>[i_<mix>, <cell>] <- inprod(<weights>, <rows>[1:K, i_<mix>])
+
+           with the alphabet axis leading so the row is addressable by
+           the observed symbol;
+        2. the integrated density at the symbol the cell actually
+           carries, `<dens>[<cell>] <- <mix>[<y>[<cell>], <cell>]`;
+        3. the observation itself, `<y>[<cell>] ~ dcat(<mix>[1:V, <cell>])`.
+
+        Relation 2 is what makes the observation's *index* role
+        explicit. `dcat`'s outcome is a subscript of its probability
+        vector: BUGS counts array positions from 1, so a categorical
+        outcome is a 1-based index, and the emitted source says so the
+        only way BUGS lets it, by subscripting with it. Nothing in the
+        language can rebase the datum itself (there is no expression
+        form on the left of `~`, and position 0 does not exist), so
+        the convention is part of the host contract this renderer
+        already keeps for every other integer index it emits. Relation
+        2 cannot feed relation 3 -- a row built from `<y>` and then
+        scored by `<y>` would cycle the graph -- which is why the
+        density stands beside the draw rather than inside it.
+        """
+        observe = mixture.observe
+        name = self._fresh_mixture_name(ctx, node.latent)
+        loop_names = self._loop_names(observe.plate, "")
+        self._emit_mixture_rows(ctx, name, mixture, loop_names)
+        ctx.decl_plates[name] = Plate(
+            event_dims=(),
+            batch_dims=(mixture.alphabet_dim, *observe.plate.batch_dims),
         )
-        self._emit_sample_node(ctx, latent_sample, loop_suffix=f"_{node.latent}")
-        for inner in node.scope:
-            self._dispatch_bugs_node(ctx, inner)
+        self._emit_observed_density(ctx, name, node.latent, mixture, loop_names)
+        self._emit_collapsed_observe(ctx, name, mixture, loop_names)
+
+    def _emit_mixture_rows(
+        self,
+        ctx: _BugsCtx,
+        name: str,
+        mixture: CategoricalMixture,
+        loop_names: tuple[str, ...],
+    ) -> None:
+        """Emit the deterministic relations carrying the collapsed
+        mixture row, one row per cell of the observation's plate.
+
+        The relation sits under one loop per batch axis the observation
+        replicates over plus one innermost loop over the alphabet axis,
+        whose variable indexes the column of the row matrix the
+        `inprod` contracts against the weights. The weights render
+        through the ordinary reference path in the observation's own
+        loop and `via` context, so a weight row declared on a coarser
+        axis is gathered by the fibration exactly as it would be at the
+        observation itself.
+        """
+        observe = mixture.observe
+        column_loop = f"i_{name}"
+        body_id = self._open_loops(
+            ctx, ctx.block_id, observe.plate, loop_names
+        )
+        body_id = self._open_loops(
+            ctx,
+            body_id,
+            Plate(event_dims=(), batch_dims=(mixture.alphabet_dim,)),
+            (column_loop,),
+        )
+        dr_id = self._fresh(ctx, "dr")
+        ctx.sb.vertex(dr_id, "deterministic_relation")
+        ctx.sb.edge(body_id, dr_id, "deterministic_relation")
+        lhs_id = self._emit_indexed_name(
+            ctx,
+            name,
+            tuple(_LoopRef(n) for n in (column_loop, *loop_names)),
+            (),
+        )
+        ctx.sb.edge(dr_id, lhs_id, "variable")
+        prev_plate = ctx.enclosing_plate
+        prev_loops = ctx.enclosing_loop_names
+        prev_via = ctx.via
+        ctx.enclosing_plate = observe.plate
+        ctx.enclosing_loop_names = loop_names
+        ctx.via = observe.via
+        try:
+            weights_id = self._emit_arg(ctx, mixture.weights)
+        finally:
+            ctx.enclosing_plate = prev_plate
+            ctx.enclosing_loop_names = prev_loops
+            ctx.via = prev_via
+        rows_id = self._emit_column_slice(
+            ctx,
+            mixture.rows_name,
+            self._dim_upper_text(mixture.atom_dim),
+            column_loop,
+        )
+        ctx.sb.edge(dr_id, self._emit_inprod(ctx, weights_id, rows_id), "value")
+
+    def _emit_observed_density(
+        self,
+        ctx: _BugsCtx,
+        name: str,
+        latent: str,
+        mixture: CategoricalMixture,
+        loop_names: tuple[str, ...],
+    ) -> None:
+        """Emit `<dens>[<cell>] <- <mix>[<y>[<cell>], <cell>]`, the
+        integrated density at the symbol each observed cell carries.
+
+        This is the quantity the `marginalize` reduction denotes,
+        evaluated where the data lands, and it is the relation that
+        writes the observation into subscript position, which is how a
+        BUGS model states that an integer input is a 1-based index.
+        """
+        observe = mixture.observe
+        dens_name = self._fresh_density_name(ctx, latent)
+        dr_id = self._fresh(ctx, "dr")
+        ctx.sb.vertex(dr_id, "deterministic_relation")
+        body_id = self._open_loops(
+            ctx, ctx.block_id, observe.plate, loop_names
+        )
+        ctx.sb.edge(body_id, dr_id, "deterministic_relation")
+        lhs_id = self._emit_lhs(ctx, dens_name, observe.plate, loop_names)
+        ctx.sb.edge(dr_id, lhs_id, "variable")
+        symbol = IRArgRef(
+            name=observe.name,
+            indices=tuple(IRArgRef(name=n) for n in loop_names),
+        )
+        rhs_id = self._emit_indexed_name(
+            ctx,
+            name,
+            (symbol, *(_LoopRef(n) for n in loop_names)),
+            (),
+        )
+        ctx.sb.edge(dr_id, rhs_id, "value")
+        ctx.decl_plates[dens_name] = observe.plate
+
+    def _emit_collapsed_observe(
+        self,
+        ctx: _BugsCtx,
+        name: str,
+        mixture: CategoricalMixture,
+        loop_names: tuple[str, ...],
+    ) -> None:
+        """Emit `<y>[<cell>] ~ dcat(<mix>[1:V, <cell>])`.
+
+        The row is an alphabet-major slice of the mixture array, so
+        the argument is the whole alphabet's measure at that cell and
+        the scored entry is the one the observed symbol subscripts.
+        """
+        observe = mixture.observe
+        body_id = self._open_loops(
+            ctx, ctx.block_id, observe.plate, loop_names
+        )
+        sr_id = self._fresh(ctx, "sr")
+        ctx.sb.vertex(sr_id, "stochastic_relation")
+        ctx.sb.edge(body_id, sr_id, "stochastic_relation")
+        lhs_id = self._emit_lhs(ctx, observe.name, observe.plate, loop_names)
+        ctx.sb.edge(sr_id, lhs_id, "variable")
+        row_id = self._emit_row_slice(
+            ctx,
+            name,
+            self._dim_upper_text(mixture.alphabet_dim),
+            loop_names,
+        )
+        dc_id = self._fresh(ctx, "dc")
+        ctx.sb.vertex(dc_id, "distribution_call")
+        name_id = self._fresh(ctx, "id")
+        ctx.sb.vertex(name_id, "identifier")
+        ctx.sb.constraint(
+            name_id,
+            "literal-value",
+            self._lookup_family(observe.family).target_names[self.target],
+        )
+        ctx.sb.edge(dc_id, name_id, "name")
+        al_id = self._fresh(ctx, "al")
+        ctx.sb.vertex(al_id, "argument_list")
+        ctx.sb.edge(dc_id, al_id, "arguments")
+        ctx.sb.edge(al_id, row_id, "indexed_variable")
+        ctx.sb.edge(sr_id, dc_id, "distribution")
+
+    def _emit_row_slice(
+        self,
+        ctx: _BugsCtx,
+        name: str,
+        upper: str,
+        loop_names: tuple[str, ...],
+    ) -> str:
+        """Emit `name[1:upper, <loop_names>]`, the alphabet-major row
+        of the collapsed mixture at one cell of the observation."""
+        iv_id = self._fresh(ctx, "iv")
+        ctx.sb.vertex(iv_id, "indexed_variable")
+        ctx.sb.edge(iv_id, self._emit_bare_identifier(ctx, name), "name")
+        il_id = self._fresh(ctx, "il")
+        ctx.sb.vertex(il_id, "index_list")
+        ctx.sb.edge(iv_id, il_id, "indices")
+        self._emit_one_to(ctx, il_id, upper)
+        for loop_name in loop_names:
+            ctx.sb.edge(
+                il_id, self._emit_bare_identifier(ctx, loop_name), "identifier"
+            )
+        return iv_id
+
+    def _fresh_density_name(self, ctx: _BugsCtx, latent: str) -> str:
+        """Return an unused BUGS identifier for the integrated density
+        of `latent` at the observed symbol."""
+        taken = set(ctx.decl_plates) | set(ctx.broadcast_helpers.values())
+        candidate = f"dens_{latent}"
+        index = 1
+        while candidate in taken:
+            index += 1
+            candidate = f"dens_{latent}_{index}"
+        return candidate
+
+    def _fresh_mixture_name(self, ctx: _BugsCtx, latent: str) -> str:
+        """Return an unused BUGS identifier for the collapsed mixture
+        row of `latent`.
+
+        The name leads with a letter, which is what the BUGS / JAGS
+        lexer requires of an identifier, and carries the latent's own
+        name so the emitted source reads as the integral of that
+        latent rather than as an anonymous helper.
+        """
+        taken = set(ctx.decl_plates) | set(ctx.broadcast_helpers.values())
+        candidate = f"marg_{latent}"
+        index = 1
+        while candidate in taken:
+            index += 1
+            candidate = f"marg_{latent}_{index}"
+        return candidate
+
+    def _emit_column_slice(
+        self,
+        ctx: _BugsCtx,
+        name: str,
+        upper: str,
+        column_loop: str,
+    ) -> str:
+        """Emit `name[1:upper, <column_loop>]`, the atom-indexed column
+        of a row-stochastic matrix."""
+        iv_id = self._fresh(ctx, "iv")
+        ctx.sb.vertex(iv_id, "indexed_variable")
+        ctx.sb.edge(iv_id, self._emit_bare_identifier(ctx, name), "name")
+        il_id = self._fresh(ctx, "il")
+        ctx.sb.vertex(il_id, "index_list")
+        ctx.sb.edge(iv_id, il_id, "indices")
+        self._emit_one_to(ctx, il_id, upper)
+        ctx.sb.edge(
+            il_id, self._emit_bare_identifier(ctx, column_loop), "identifier"
+        )
+        return iv_id
+
+    def _emit_inprod(self, ctx: _BugsCtx, left: str, right: str) -> str:
+        """Emit `inprod(<left>, <right>)`.
+
+        Both operands are indexed variables:
+        [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
+        admits only weights declared over an event axis and a row
+        matrix declared over a batch and an event axis, so each side
+        carries at least one index.
+        """
+        call_id = self._fresh(ctx, "call")
+        ctx.sb.vertex(call_id, "function_call")
+        ctx.sb.edge(call_id, self._emit_bare_identifier(ctx, "inprod"), "name")
+        al_id = self._fresh(ctx, "al")
+        ctx.sb.vertex(al_id, "argument_list")
+        ctx.sb.edge(call_id, al_id, "arguments")
+        ctx.sb.edge(al_id, left, "indexed_variable")
+        ctx.sb.edge(al_id, right, "indexed_variable")
+        return call_id
 
     def _emit_truncated(self, ctx: _BugsCtx, node: IRSample) -> None:
         """Emit `<lhs> ~ d<base>(base_args) T(lo, hi)`."""
@@ -1006,7 +1415,7 @@ class BUGSRenderer(RendererBase):
                 IRArgRef(name=zeros_name),
                 IRArgRef(name=tau_name),
             ),
-            arg_names=("loc", "covariance_matrix"),
+            arg_names=("loc", "precision_matrix"),
             constraint=node.constraint,
             plate=Plate(event_dims=(), batch_dims=()),
         )
@@ -1245,6 +1654,9 @@ class BUGSRenderer(RendererBase):
         helper prepends an ``IRArgNumber(0)`` plus the parallel
         ``"loc"`` arg-name entry so the alias-transform pipeline
         still rewrites the scale into ``tau = 1/(scale*scale)``.
+        ``Horseshoe(scale)`` denotes ``Normal(0, scale)`` and takes
+        the same treatment, without the one-sided truncation the two
+        half-support families also carry.
 
         ``Cauchy(loc, scale)`` and ``HalfCauchy(scale)`` map to BUGS'
         ``dt(mu, tau, k)`` (Student-t parameterised by precision and
@@ -1259,6 +1671,96 @@ class BUGSRenderer(RendererBase):
             args = (*args, IRArgNumber(value=1.0))
             arg_names = (*arg_names, "df")
         return args, arg_names
+
+    def _dmnorm_precision_args(
+        self,
+        ctx: _BugsCtx,
+        *,
+        name: str,
+        family: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+        """Rewrite a ``MultivariateNormal`` site into ``dmnorm``'s
+        precision parameterisation.
+
+        ``dmnorm(mu, Omega)`` reads its second argument as the
+        precision, the inverse of the covariance: with
+        ``Omega = [[2, .5], [.5, 1.5]]``, ``mu = (.1, .3)`` and
+        ``x = (.4, -.2)`` the engine scores -1.534577, which is
+        ``torch.distributions.MultivariateNormal(mu,
+        precision_matrix=Omega).log_prob(x)`` and not the
+        ``covariance_matrix=Omega`` reading (-2.486405). Emitting the
+        QVR ``covariance_matrix`` slot straight into that position
+        therefore scores a different Gaussian at every point.
+
+        A site that already names ``precision_matrix`` passes through
+        untouched, which is the door the GP block comes through: it
+        inverts its own kernel matrix and hands the result over
+        already in precision form. A site naming ``covariance_matrix``
+        gains a ``prec_<name> <- inverse(<covariance>)`` relation
+        ahead of the draw. A ``scale_tril`` site raises: ``dmnorm``
+        has no Cholesky slot, and rebuilding the precision from the
+        factor would need a matrix product this renderer has no
+        emission for.
+        """
+        if family != "MultivariateNormal":
+            return args, arg_names
+        by_name = dict(zip(arg_names, args, strict=True))
+        if "loc" not in by_name:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:MultivariateNormal:missing-arg:loc: "
+                    f"`dmnorm(mu, Omega)` needs a mean vector; the "
+                    f"site supplies {list(arg_names)}"
+                ],
+            )
+        if "precision_matrix" in by_name:
+            return (
+                (by_name["loc"], by_name["precision_matrix"]),
+                ("loc", "precision_matrix"),
+            )
+        covariance = by_name.get("covariance_matrix")
+        if covariance is None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:MultivariateNormal:no-scale-arg: "
+                    f"`dmnorm(mu, Omega)` takes a precision matrix, "
+                    f"which this renderer builds from a covariance or "
+                    f"reads directly from a precision; the site "
+                    f"supplies {list(arg_names)}"
+                ],
+            )
+        if not isinstance(covariance, IRArgRef) or covariance.indices:
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"family:MultivariateNormal:non-ref-covariance: "
+                    f"the `inverse(...)` relation that turns the "
+                    f"covariance into `dmnorm`'s precision needs a "
+                    f"whole named matrix, and this slot carries a "
+                    f"{type(covariance).__name__}"
+                ],
+            )
+        precision_name = f"prec_{name}"
+        self._emit_deterministic_node(
+            ctx,
+            IRDeterministic(
+                name=precision_name,
+                expr=LetExprCall(
+                    func="inverse",
+                    args=(LetExprVar(name=covariance.name),),
+                ),
+                constraint=CSPositiveDefinite(),
+                plate=Plate(event_dims=(), batch_dims=()),
+            ),
+        )
+        return (
+            (by_name["loc"], IRArgRef(name=precision_name)),
+            ("loc", "precision_matrix"),
+        )
 
     def _emit_relation(
         self,
@@ -1280,6 +1782,9 @@ class BUGSRenderer(RendererBase):
             truncation = half_support_truncation(family, observed=observed)
         meta = self._lookup_family(family)
         args, arg_names = self._inject_bugs_specific_args(family, args, arg_names)
+        args, arg_names = self._dmnorm_precision_args(
+            ctx, name=name, family=family, args=args, arg_names=arg_names
+        )
         # Split the site's event dims into the family's own event
         # shape and the residual axes that merely replicate it. BUGS
         # has no vector form for a scalar family, so each residual
@@ -1469,11 +1974,20 @@ class BUGSRenderer(RendererBase):
         ctx.sb.edge(dc_id, al_id, "arguments")
         if meta.qvr_name == "StudentT":
             args, arg_names = _reorder_studentt_dt(args, arg_names)
+        elif meta.qvr_name == "HalfStudentT":
+            args, arg_names = reorder_half_studentt_dt(args, arg_names)
         elif meta.qvr_name == "NegativeBinomial":
             args, arg_names = reorder_negbin_args(args, arg_names)
         elif meta.qvr_name == "Weibull":
             args, arg_names = reorder_weibull_args(args, arg_names)
-        renames = meta.arg_aliases.get("bugs", {})
+        elif meta.qvr_name == "Binomial":
+            args, arg_names = reorder_binomial_dbin(args, arg_names)
+        elif meta.qvr_name == "Pareto":
+            args, arg_names = reorder_pareto_dpar(args, arg_names)
+        renames = {
+            **meta.arg_aliases.get("bugs", {}),
+            **_FAMILY_ALIAS_OVERRIDE.get(meta.qvr_name, {}),
+        }
         for arg, aname in zip(args, arg_names, strict=True):
             wrapped = self._apply_alias_transform(arg, aname, renames, meta.qvr_name)
             receiver_event_rank = self._receiver_event_rank(meta, aname)

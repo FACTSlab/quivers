@@ -53,13 +53,23 @@ def _arr(value):
     return np.asarray(value)
 
 
-def _monitored_export(dumped: dict, alias: str, name: str) -> list:
+def _monitored_export(
+    dumped: dict, alias: str, name: str, shapes: dict,
+) -> list:
     """Read one monitored alias out of a `dumpMonitors` payload.
 
     pyjags shapes a monitored node as ``(*node_dims, iterations,
     chains)``; the probe runs one iteration on one chain, so dropping
     the two trailing axes recovers the node's own shape. A scalar node
     comes back as ``(1, 1)`` and collapses to a bare float.
+
+    A node of rank two or more arrives flattened, in the column-major
+    order JAGS stores it in, with its own dims dropped. The declared
+    shape from ``shapes.json`` restores it: reading the flat run back
+    in Fortran order recovers the element mapping, and the nested
+    result is then row-major like the reference. A node whose dropped
+    shape already matches its declaration is returned untouched, which
+    is every rank-one and scalar export.
     """
     if alias not in dumped:
         msg = (
@@ -76,7 +86,13 @@ def _monitored_export(dumped: dict, alias: str, name: str) -> list:
             f"to drop."
         )
         raise RuntimeError(msg)
-    return as_nested(array[..., 0, 0])
+    core = array[..., 0, 0]
+    declared = shapes.get(name)
+    if declared is not None and len(declared) > 1:
+        expected = tuple(int(d) for d in declared)
+        if core.shape != expected:
+            core = np.reshape(core, expected, order="F")
+    return as_nested(core)
 
 
 def main() -> None:
@@ -126,7 +142,9 @@ def main() -> None:
         log_densities.append(-dev / 2)
         if export_names:
             exports.append([
-                _monitored_export(dumped, f"{name}_value", name)
+                _monitored_export(
+                    dumped, f"{name}_value", name, shapes,
+                )
                 for name in export_names
             ])
 

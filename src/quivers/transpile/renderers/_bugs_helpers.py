@@ -30,7 +30,9 @@ tag with the correct backend.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
+
+import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
     LetExprBinOp,
@@ -73,18 +75,21 @@ from quivers.transpile.ir import (
     IRSample,
     Plate,
 )
+from quivers.transpile.renderers._base import IRArgTransform
 
 
 #: QVR families supported on the non-negative reals whose BUGS / JAGS
 #: target distribution is supported on all of R. ``HalfNormal(scale)``
-#: lowers to ``dnorm(0, 1/scale^2)`` and ``HalfCauchy(scale)`` to
-#: ``dt(0, 1/scale^2, 1)``; both need an explicit lower truncation at
-#: zero so the emitted support matches the family's, and so the
+#: lowers to ``dnorm(0, 1/scale^2)``, ``HalfCauchy(scale)`` to
+#: ``dt(0, 1/scale^2, 1)`` and ``HalfStudentT(df, scale)`` to
+#: ``dt(0, 1/scale^2, df)``; each needs an explicit lower truncation
+#: at zero so the emitted support matches the family's, and so the
 #: normalising constant picks up the factor of two the folded density
 #: carries. The value is the lower bound of the family's support.
 HALF_SUPPORT_LOWER_BOUND: dict[str, float] = {
     "HalfNormal": 0.0,
     "HalfCauchy": 0.0,
+    "HalfStudentT": 0.0,
 }
 
 #: The truncation-suffix keyword each backend spells. Both the ``jags``
@@ -128,7 +133,7 @@ def _let_sub(left: LetExprNode, right: LetExprNode) -> LetExprNode:
 
 
 def _let_signed_sum(
-    head: LetExprNode, *tail: tuple[str, LetExprNode]
+    head: LetExprNode, *tail: tuple[Literal["+", "-"], LetExprNode]
 ) -> LetExprNode:
     """Left-fold a signed term list into one ``+`` / ``-`` chain.
 
@@ -251,6 +256,112 @@ def beta_binomial_log_pmf(
         ("-", loggam(a)),
         ("-", loggam(b)),
         ("+", loggam(_let_add(a, b))),
+    )
+
+
+def reorder_half_studentt_dt(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape ``HalfStudentT(df, scale)`` into the BUGS / JAGS
+    ``dt(mu, tau, k)`` argument order.
+
+    ``dt`` is parameterised by location, precision and degrees of
+    freedom, in that order, and carries no half-support variant; the
+    QVR call site writes ``(df, scale)`` and names a density folded
+    at zero. This returns ``(0, 1/(scale*scale), df)``, which the
+    caller pairs with the lower truncation
+    [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
+    supplies for the family, so the emitted relation is
+    ``dt(0, 1/(scale*scale), df) T (0 ,)``: the renormalized
+    one-sided fold, not the two-sided Student-t.
+
+    The precision is pre-wrapped here rather than left to the
+    alias-rename pipeline because the reordered names no longer line
+    up with the family's own slots, exactly as
+    ``StudentT``'s reorder does.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    missing = [slot for slot in ("df", "scale") if slot not in by_name]
+    if missing:
+        raise UnsupportedConstruct(
+            "qvr-bugs",
+            [
+                f"family:HalfStudentT:missing-arg:{','.join(missing)}: "
+                f"the `dt(mu, tau, k)` reparameterisation needs both "
+                f"the degrees of freedom and the scale; the site "
+                f"supplies {list(arg_names)}"
+            ],
+        )
+    return (
+        (
+            IRArgNumber(value=0.0),
+            IRArgTransform(inner=by_name["scale"], transform="inv_square"),
+            by_name["df"],
+        ),
+        ("loc", "tau", "df"),
+    )
+
+
+def reorder_binomial_dbin(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape ``Binomial(total_count, probs)`` into the BUGS / JAGS
+    ``dbin(p, n)`` argument order.
+
+    ``dbin`` takes the per-trial success probability first and the
+    trial count second, the reverse of the torch spelling the QVR
+    call site is positional against. Emitting the two in QVR order
+    binds the trial count to ``p`` and the probability to ``n``, which
+    scores a different pmf at every point rather than up to a
+    constant.
+
+    The logit spelling has no ``dbin`` slot, so a site that supplies
+    ``logits`` instead of ``probs`` raises rather than emitting a call
+    the engine would read as a probability.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    if "probs" not in by_name or "total_count" not in by_name:
+        raise UnsupportedConstruct(
+            "qvr-bugs",
+            [
+                f"family:Binomial:missing-arg: `dbin(p, n)` takes a "
+                f"probability and a trial count, and neither engine "
+                f"has a logit-parameterised binomial; the site "
+                f"supplies {list(arg_names)}"
+            ],
+        )
+    return (
+        (by_name["probs"], by_name["total_count"]),
+        ("p", "n"),
+    )
+
+
+def reorder_pareto_dpar(
+    args: tuple[IRArg, ...], arg_names: tuple[str, ...]
+) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+    """Reshape ``Pareto(scale, alpha)`` into the BUGS / JAGS
+    ``dpar(alpha, c)`` argument order.
+
+    Both parameterisations denote the same density ``alpha c^alpha
+    x^{-(alpha + 1)}`` on ``x > c``; they disagree only on which slot
+    carries the shape. ``dpar`` names the shape first and the scale
+    (the support's lower endpoint) second, so emitting the QVR order
+    positionally swaps the two.
+    """
+    by_name = dict(zip(arg_names, args, strict=True))
+    missing = [slot for slot in ("alpha", "scale") if slot not in by_name]
+    if missing:
+        raise UnsupportedConstruct(
+            "qvr-bugs",
+            [
+                f"family:Pareto:missing-arg:{','.join(missing)}: "
+                f"`dpar(alpha, c)` takes the shape and the scale; the "
+                f"site supplies {list(arg_names)}"
+            ],
+        )
+    return (
+        (by_name["alpha"], by_name["scale"]),
+        ("alpha", "c"),
     )
 
 
@@ -1481,3 +1592,124 @@ __all__ = [
     "residual_event_dims",
     "split_event_dims",
 ]
+
+
+class CategoricalMixture(dx.Model):
+    """The collapsed form of a marginalized categorical latent.
+
+    A [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] whose
+    latent is a `Categorical` over the rows of a stochastic matrix,
+    and whose scope is one scalar `Categorical` observation of a row
+    picked by that latent, denotes the finite mixture
+
+        p(y = v) = sum_k weights[k] * rows[k, v],
+
+    which is itself a categorical measure on the observation's
+    alphabet. This carries the pieces that mixture is written from:
+    the mixing-weight reference, the row-matrix name, the atom axis
+    the sum runs over, the alphabet axis the mixture lives on, and
+    the scope's observation, against whose plate the renderer builds
+    the mixture and whose `probs` argument it rewrites.
+
+    The recogniser
+    [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
+    is the only constructor; every field it fills is read back out of
+    the declaration-plate table, so a renderer can emit the mixture
+    without re-deriving any shape.
+    """
+
+    weights: IRArgRef
+    rows_name: str
+    atom_dim: Dim
+    alphabet_dim: Dim
+    observe: IRObserve
+
+
+def _axis_key(dim: Dim) -> tuple[str, str]:
+    """Return the (axis name, extent) pair two dims are compared on."""
+    return (str(dim.name), dim_upper_text(dim))
+
+
+def categorical_mixture(
+    node: IRMarginalize,
+    decl_plates: dict[str, Plate],
+) -> CategoricalMixture | None:
+    """Recognise `node` as a collapsible categorical mixture, or
+    return `None` when it is some other marginalize.
+
+    BUGS carries no statement that adds a free log-density term to
+    the joint at an observation site, so the general `logsumexp`
+    reduction over a latent's atoms has no closed emission: the zeros
+    trick that would write one needs a data-bound carrier the BUGS
+    language cannot declare (it has no `data { ... }` block). One
+    shape does close, and this is the recogniser for it: summing a
+    categorical row matrix against mixing weights gives a categorical
+    on the same alphabet, which `dcat` scores natively and exactly.
+
+    The shape recognised is
+
+        marginalize <l> <- Categorical(<weights>) [over=<batch>]
+            observe <y> <- Categorical(<rows>[<l>])
+
+    with `<weights>` declared over the latent's own batch axes and one
+    event axis (the atoms), `<rows>` declared over one batch axis (the
+    same atoms) and one event axis (the alphabet), and `<y>` a scalar
+    draw (no event axis of its own) the emitted `dcat` can score.
+
+    `None` is the honest answer for every other marginalize rather
+    than a raise: the collapse is one emission among the renderer's
+    marginalize emissions, and the caller decides what the rest take.
+    A shape BUGS cannot express at all still reports itself, from the
+    family lookup the general lowering runs into.
+    """
+    if node.family != "Categorical":
+        return None
+    if node.arg_names != ("probs",) or len(node.args) != 1:
+        return None
+    weights = node.args[0]
+    if not isinstance(weights, IRArgRef) or weights.indices:
+        return None
+    weight_plate = decl_plates.get(weights.name)
+    if weight_plate is None or len(weight_plate.event_dims) != 1:
+        return None
+    weight_axes = tuple(_axis_key(d) for d in weight_plate.batch_dims)
+    latent_axes = frozenset(_axis_key(d) for d in node.plate.batch_dims)
+    if len(frozenset(weight_axes)) != len(weight_axes) or not (
+        frozenset(weight_axes) <= latent_axes
+    ):
+        return None
+    if len(node.scope) != 1 or not isinstance(node.scope[0], IRObserve):
+        return None
+    observe = node.scope[0]
+    if observe.family != "Categorical":
+        return None
+    if observe.arg_names != ("probs",) or len(observe.args) != 1:
+        return None
+    if observe.plate.event_dims:
+        return None
+    rows = observe.args[0]
+    if (
+        not isinstance(rows, IRArgRef)
+        or len(rows.indices) != 1
+        or not isinstance(rows.indices[0], IRArgRef)
+        or rows.indices[0].name != node.latent
+        or rows.indices[0].indices
+    ):
+        return None
+    row_plate = decl_plates.get(rows.name)
+    if (
+        row_plate is None
+        or len(row_plate.batch_dims) != 1
+        or len(row_plate.event_dims) != 1
+    ):
+        return None
+    atom_dim = row_plate.batch_dims[0]
+    if _axis_key(atom_dim) != _axis_key(weight_plate.event_dims[0]):
+        return None
+    return CategoricalMixture(
+        weights=weights,
+        rows_name=rows.name,
+        atom_dim=atom_dim,
+        alphabet_dim=row_plate.event_dims[0],
+        observe=observe,
+    )

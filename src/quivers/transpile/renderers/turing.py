@@ -551,11 +551,12 @@ class TuringRenderer(RendererBase):
         )
         macro = _macro_call(sb, counter, "model", fn)
         # Turing.jl + Distributions.jl ship a large catalogue of
-        # distributions but lack `HalfStudentT` and `ContinuousBernoulli`.
-        # When the IR samples or observes from either, graft the helper
-        # at [`runtime_turing.jl`][quivers.transpile.runtime_turing] onto
+        # distributions but lack `ContinuousBernoulli` and an RBF
+        # kernel builder. When the IR samples or observes through
+        # either, graft the helper at
+        # [`runtime_turing.jl`][quivers.transpile.runtime_turing] onto
         # the source above the `@model function model` macrocall so the
-        # body's `~ HalfStudentT(...)` / `~ ContinuousBernoulli(...)`
+        # body's `~ ContinuousBernoulli(...)` / `_qvr_rbf_kernel(...)`
         # call sites resolve through normal Julia name lookup.
         if any(
             _ir_uses_family(ir.body, f)
@@ -841,9 +842,15 @@ class TuringRenderer(RendererBase):
                 _arg_to_julia(ctx, a, via=via, family=family)
                 for a in args
             )
-            rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
-            family_callee = _identifier(sb, counter, target_dist)
-            rhs = _broadcast_call(sb, counter, family_callee, rhs_args)
+            rhs = _dist_expr(
+                sb,
+                counter,
+                target_dist,
+                rhs_args,
+                family,
+                dotted=True,
+                event_dims=own_event,
+            )
             stmt = _tilde(sb, counter, lhs, rhs, broadcast=True)
             sb.edge(ctx.body, stmt, "child_of")
             return ""
@@ -861,9 +868,15 @@ class TuringRenderer(RendererBase):
             rhs_args = tuple(
                 _arg_to_julia(ctx, a, family=family) for a in args
             )
-            rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
-            family_callee = _identifier(sb, counter, target_dist)
-            elemwise = _broadcast_call(sb, counter, family_callee, rhs_args)
+            elemwise = _dist_expr(
+                sb,
+                counter,
+                target_dist,
+                rhs_args,
+                family,
+                dotted=True,
+                event_dims=own_event,
+            )
             rhs = _call(
                 sb,
                 counter,
@@ -1256,12 +1269,14 @@ class TuringRenderer(RendererBase):
             _arg_to_julia(ctx, a, via=observe.via, family=observe.family)
             for a in observe.args
         )
-        rhs_args = _transform_rhs_args(sb, counter, rhs_args, observe.family)
-        callee = _identifier(sb, counter, target_dist)
-        dist = (
-            _broadcast_call(sb, counter, callee, rhs_args)
-            if elementwise
-            else _call(sb, counter, callee, rhs_args)
+        dist = _dist_expr(
+            sb,
+            counter,
+            target_dist,
+            rhs_args,
+            observe.family,
+            dotted=elementwise,
+            event_dims=observe.plate.event_dims,
         )
         value = _identifier(sb, counter, observe.name)
         if observe.family in _ONE_BASED_SUPPORT_FAMILIES:
@@ -1404,121 +1419,24 @@ class TuringRenderer(RendererBase):
         family: str,
         event_dims: tuple[Dim, ...] = (),
     ) -> str:
-        """Build `<TargetDist>(<args>)` for the no-batch-iteration case.
+        """Render `args` and build the family's scalar call expression.
 
-        Most families lower to a direct `<target_dist>(<args>)` call.
-        Three QVR families have no native Turing.jl distribution and
-        the renderer composes them out of the `truncated` wrapper:
-
-        * `HalfNormal(sigma)` -> `truncated(Normal(0, sigma), 0, Inf)`
-        * `HalfCauchy(gamma)` -> `truncated(Cauchy(0, gamma), 0, Inf)`
-        * `TruncatedNormal(loc, scale, low, high)` ->
-          `truncated(Normal(loc, scale), low, high)`
-
-        Two QVR families take a rate parameter that the Distributions.jl
-        equivalent expects as a scale `theta = 1/rate`; the renderer
-        emits the inverse explicitly so the log-density matches:
-
-        * `Exponential(rate)` -> `Exponential(1/rate)`
-        * `Gamma(concentration, rate)` -> `Gamma(concentration, 1/rate)`
-
-        Two further families need a per-target rewrite because the
-        Distributions.jl surface differs from torch's:
-
-        * `StudentT(df, loc, scale)` -> `loc + scale * TDist(df)`
-          (Distributions.jl `TDist` is standardised, one-parameter;
-          the affine form recovers the location-scale density);
-        * `LKJCholesky(concentration)` ->
-          `LKJCholesky(<dim>, concentration)` (the matrix dimension is
-          a mandatory leading argument, recovered from the sample's
-          event axis).
-
-        The compositions are keyed on the family name (the FAMILY_META
-        target_name for the half-truncated and `TruncatedNormal`
-        families is `"truncated"`, which is the wrapper callable); a
-        per-renderer recipe supplies the inner base distribution and
-        argument layout because those choices are per-target lowering
-        conventions rather than renderer-level dispatch on the QVR
-        family discriminator.
+        The composition itself lives in
+        [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr],
+        which every emission path shares; this wrapper only supplies
+        the rendered arguments and the site's own event axes (the
+        `LKJCholesky` matrix dimension).
         """
-        sb, counter = ctx.sb, ctx.counter
         rhs_args = tuple(
             _arg_to_julia(ctx, a, family=family) for a in args
         )
-        recipe = _HALF_TRUNCATED_BASES.get(family)
-        if recipe is not None:
-            base_name = recipe
-            zero = _integer(sb, counter, 0)
-            base_call = _call(
-                sb,
-                counter,
-                _identifier(sb, counter, base_name),
-                (zero, *rhs_args),
-            )
-            return _call(
-                sb,
-                counter,
-                _identifier(sb, counter, target_dist),
-                (
-                    base_call,
-                    _integer(sb, counter, 0),
-                    _identifier(sb, counter, "Inf"),
-                ),
-            )
-        if family == "TruncatedNormal":
-            # args order: (loc, scale, low, high).
-            if len(rhs_args) != 4:
-                raise UnsupportedConstruct(
-                    "qvr-turing",
-                    [
-                        f"family:TruncatedNormal: expected 4 args "
-                        f"(loc, scale, low, high), got {len(rhs_args)}"
-                    ],
-                )
-            base_call = _call(
-                sb,
-                counter,
-                _identifier(sb, counter, "Normal"),
-                (rhs_args[0], rhs_args[1]),
-            )
-            return _call(
-                sb,
-                counter,
-                _identifier(sb, counter, target_dist),
-                (base_call, rhs_args[2], rhs_args[3]),
-            )
-        if family == "StudentT":
-            if len(rhs_args) != 3:
-                raise UnsupportedConstruct(
-                    "qvr-turing",
-                    [
-                        f"family:StudentT: expected 3 args "
-                        f"(df, loc, scale), got {len(rhs_args)}"
-                    ],
-                )
-            df, loc, scale = rhs_args
-            tdist = _call(
-                sb, counter, _identifier(sb, counter, target_dist), (df,)
-            )
-            scaled = _binary_expr(sb, counter, scale, "*", tdist)
-            return _binary_expr(sb, counter, loc, "+", scaled)
-        if family == "LKJCholesky":
-            if not event_dims:
-                raise UnsupportedConstruct(
-                    "qvr-turing",
-                    [
-                        "family:LKJCholesky: missing matrix dimension "
-                        "(no event axis on the sample)"
-                    ],
-                )
-            dim = _dim_to_size(sb, counter, event_dims[0])
-            rhs_args = (dim, *rhs_args)
-        rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
-        return _call(
-            sb,
-            counter,
-            _identifier(sb, counter, target_dist),
+        return _dist_expr(
+            ctx.sb,
+            ctx.counter,
+            target_dist,
             rhs_args,
+            family,
+            event_dims=event_dims,
         )
 
     def _arraydist_call(
@@ -1539,18 +1457,12 @@ class TuringRenderer(RendererBase):
             _replace_first_index(a, binder, ctx.batch_shaped_names)
             for a in args
         )
-        body_call = _call(
+        body_call = _dist_expr(
             sb,
             counter,
-            _identifier(sb, counter, target_dist),
-            _transform_rhs_args(
-                sb,
-                counter,
-                tuple(
-                    _arg_to_julia(ctx, a, family=family) for a in rewritten
-                ),
-                family,
-            ),
+            target_dist,
+            tuple(_arg_to_julia(ctx, a, family=family) for a in rewritten),
+            family,
         )
         size_vid = _dim_to_size(sb, counter, batch_dim)
         rng = _range(sb, counter, _integer(sb, counter, 1), size_vid)
@@ -1644,7 +1556,7 @@ _ARRAYDIST_BINDER = "i"
 # Recipe table: QVR families with no native Turing.jl distribution
 # whose canonical Turing.jl encoding is `truncated(<base>(0, scale),
 # 0, Inf)`. The mapped value is the inner base-distribution name.
-# Keyed on the QVR family name; consulted from `_family_call`.
+# Keyed on the QVR family name; consulted from `_dist_expr`.
 _HALF_TRUNCATED_BASES: dict[str, str] = {
     "HalfNormal": "Normal",
     "HalfCauchy": "Cauchy",
@@ -1746,12 +1658,13 @@ def _transform_rhs_args(
     probs complement (NegativeBinomial) and the argument reordering
     (Weibull). Structural rewrites that change the call shape
     (StudentT affine, LKJCholesky dimension prepend, half-truncated
-    wrapping) live in
-    [`_family_call`][TuringRenderer._family_call]; these arg
-    transforms preserve the rendered arg strings themselves and are
-    safe to apply on every path that renders a family's args, whether
-    the call is scalar, broadcast (`Family.(args)`) or inside an
-    `arraydist` comprehension.
+    wrapping) sit beside these in
+    [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr],
+    which is the sole caller: these arg transforms preserve the
+    rendered arg strings themselves and are safe to apply on every
+    path that renders a family's args, whether the call is scalar,
+    broadcast (`Family.(args)`) or inside an `arraydist`
+    comprehension.
     """
     if family in _RATE_TO_SCALE_INVERT_POSITIONS:
         rhs_args = _invert_rate_arg(
@@ -1766,6 +1679,176 @@ def _transform_rhs_args(
             rhs_args, _ARG_ORDER_PERMUTATIONS[family], family
         )
     return rhs_args
+
+
+def _dist_expr(
+    sb: panproto.SchemaBuilder,
+    counter: list[int],
+    target_dist: str,
+    rhs_args: tuple[str, ...],
+    family: str,
+    *,
+    dotted: bool = False,
+    event_dims: tuple[Dim, ...] = (),
+) -> str:
+    """Build the Distributions.jl expression denoting one draw from
+    `family`, given its already-rendered arguments.
+
+    Most families lower to a direct `<target_dist>(<args>)` call. Six
+    need a *structural* rewrite, because the Distributions.jl surface
+    is not a renaming of the QVR one but a different call shape:
+
+    * `HalfNormal(sigma)` -> `truncated(Normal(0, sigma), 0, Inf)`
+    * `HalfCauchy(gamma)` -> `truncated(Cauchy(0, gamma), 0, Inf)`
+    * `HalfStudentT(df, scale)` ->
+      `truncated(scale * TDist(df), 0, Inf)` (the base is the
+      standardised `TDist` scaled into a location-zero
+      `AffineDistribution`, since Distributions.jl has no
+      two-parameter symmetric Student-t to truncate directly)
+    * `TruncatedNormal(loc, scale, low, high)` ->
+      `truncated(Normal(loc, scale), low, high)`
+    * `StudentT(df, loc, scale)` -> `loc + scale * TDist(df)`
+      (Distributions.jl `TDist` is standardised and one-parameter; the
+      affine form recovers the location-scale density)
+    * `LKJCholesky(concentration)` ->
+      `LKJCholesky(<dim>, concentration)` (the matrix dimension is a
+      mandatory leading argument, recovered from the site's own event
+      axis)
+
+    Three further rewrites are *value-level*: they replace a rendered
+    argument and leave the call shape alone. Those live in
+    [`_transform_rhs_args`][quivers.transpile.renderers.turing._transform_rhs_args]
+    and are applied here, after any structural rewrite, so both kinds
+    compose in one place.
+
+    Both kinds must reach every emission path. The renderer builds a
+    distribution expression in four situations: the plain /
+    `filldist` call, the broadcast `Family.(args)` observe (with and
+    without a `via` fibration), the `arraydist` comprehension body,
+    and the per-atom `logpdf.` of a marginalize scope. A rewrite
+    present on some of them silently emits a different measure on the
+    rest, so routing every one through this single function is what
+    keeps them from drifting. The failure is not a misspelling but a
+    wrong call: `truncated.(sigma)`, which is what the broadcast
+    observe emitted while the half-truncated composition lived on the
+    scalar path alone, names no method at all, and no text
+    expectation pinned to the scalar path would have caught it.
+
+    `dotted` selects the broadcasting form of every call and operator
+    the composition builds, so a per-row `HalfNormal(sigma_vec)`
+    observe reads `truncated.(Normal.(0, sigma_vec), 0, Inf)` and
+    scores each row against its own scale.
+
+    The three folded families share one identity, and the rewrite is
+    what makes Turing honour it. A fold of a density symmetric about
+    zero onto the non-negative half-line is `2 * f(v)` there, and
+    `truncated(d, 0, Inf)` divides by `1 - F(0) = 1/2`, so the
+    Distributions.jl renormalizer *is* the folding factor: no site
+    pays a `log 2` the QVR reference charges.
+    """
+    call = _broadcast_call if dotted else _call
+    binary = _dotted_binary if dotted else _binary_expr
+    if family == "HalfStudentT":
+        # `target_dist` is bypassed here: the family resolves through
+        # `FAMILY_META` to a one-name spelling, and the fold needs the
+        # two-name `truncated(<affine TDist>, 0, Inf)` composition
+        # instead. `TDist(df)` is the unit-scale symmetric base, so
+        # `scale * TDist(df)` is the symmetric `StudentT(df, 0, scale)`
+        # and truncating it at zero folds it.
+        if len(rhs_args) != 2:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"family:HalfStudentT: expected 2 args "
+                    f"(df, scale), got {len(rhs_args)}"
+                ],
+            )
+        df, scale = rhs_args
+        tdist = call(sb, counter, _identifier(sb, counter, "TDist"), (df,))
+        base_call = binary(sb, counter, scale, "*", tdist)
+        return call(
+            sb,
+            counter,
+            _identifier(sb, counter, "truncated"),
+            (
+                base_call,
+                _integer(sb, counter, 0),
+                _identifier(sb, counter, "Inf"),
+            ),
+        )
+    base_name = _HALF_TRUNCATED_BASES.get(family)
+    if base_name is not None:
+        base_call = call(
+            sb,
+            counter,
+            _identifier(sb, counter, base_name),
+            (_integer(sb, counter, 0), *rhs_args),
+        )
+        return call(
+            sb,
+            counter,
+            _identifier(sb, counter, target_dist),
+            (
+                base_call,
+                _integer(sb, counter, 0),
+                _identifier(sb, counter, "Inf"),
+            ),
+        )
+    if family == "TruncatedNormal":
+        # args order: (loc, scale, low, high).
+        if len(rhs_args) != 4:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"family:TruncatedNormal: expected 4 args "
+                    f"(loc, scale, low, high), got {len(rhs_args)}"
+                ],
+            )
+        base_call = call(
+            sb,
+            counter,
+            _identifier(sb, counter, "Normal"),
+            (rhs_args[0], rhs_args[1]),
+        )
+        return call(
+            sb,
+            counter,
+            _identifier(sb, counter, target_dist),
+            (base_call, rhs_args[2], rhs_args[3]),
+        )
+    if family == "StudentT":
+        if len(rhs_args) != 3:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    f"family:StudentT: expected 3 args "
+                    f"(df, loc, scale), got {len(rhs_args)}"
+                ],
+            )
+        df, loc, scale = rhs_args
+        tdist = call(
+            sb, counter, _identifier(sb, counter, target_dist), (df,)
+        )
+        scaled = binary(sb, counter, scale, "*", tdist)
+        return binary(sb, counter, loc, "+", scaled)
+    if family == "LKJCholesky":
+        if not event_dims:
+            raise UnsupportedConstruct(
+                "qvr-turing",
+                [
+                    "family:LKJCholesky: missing matrix dimension "
+                    "(no event axis on the sample)"
+                ],
+            )
+        dim = _dim_to_size(sb, counter, event_dims[0])
+        rhs_args = (dim, *rhs_args)
+    rhs_args = _transform_rhs_args(sb, counter, rhs_args, family)
+    return call(
+        sb,
+        counter,
+        _identifier(sb, counter, target_dist),
+        rhs_args,
+    )
 
 
 def _permute_args(
@@ -2654,11 +2737,12 @@ def _pick_program(module: Module) -> ProgramDecl:
 
 
 # ---------------------------------------------------------------------------
-# Runtime-helper graft: `HalfStudentT`, `ContinuousBernoulli` as
-# Distributions.ContinuousUnivariateDistribution subclasses.
+# Runtime-helper graft: `ContinuousBernoulli` as a
+# Distributions.ContinuousUnivariateDistribution subclass, plus the RBF
+# kernel builder a `GP` site needs.
 #
 # Distributions.jl ships `Normal`, `Beta`, `TDist`, `Kumaraswamy`, ... as
-# built-in distributions but lacks `HalfStudentT` and `ContinuousBernoulli`.
+# built-in distributions but lacks `ContinuousBernoulli`.
 # The transpile-time graft parses the hand-written helper at
 # [`runtime_turing.jl`][quivers.transpile.runtime_turing] once at module
 # load through panproto's Julia tree-sitter grammar; per-render, it
@@ -2667,13 +2751,13 @@ def _pick_program(module: Module) -> ProgramDecl:
 # statements as `child_of` of the emitted `source_file` above the
 # `@model function model` macrocall.
 #
-# The emit is structurally a normal Julia source file: `using Distributions`,
-# `using Random`, `using SpecialFunctions`, the `HalfStudentT` struct, the
-# `Distributions.logpdf` / `Distributions.rand` / support methods, and the
-# `ContinuousBernoulli` struct with the same method set. Subsequent
-# `~ HalfStudentT(df, scale)` and `~ ContinuousBernoulli(probs)` call sites
-# in the model body then resolve to the grafted types via normal Julia
-# name lookup.
+# The emit is structurally a normal Julia source file: the `using`
+# preamble, the `ContinuousBernoulli` struct with its
+# `Distributions.logpdf` / `Distributions.rand` / support methods, and
+# the `_qvr_rbf_kernel` builder. Subsequent
+# `~ ContinuousBernoulli(probs)` call sites and `_qvr_rbf_kernel(...)`
+# covariance builds in the model body then resolve to the grafted
+# definitions via normal Julia name lookup.
 # ---------------------------------------------------------------------------
 
 
@@ -2687,8 +2771,15 @@ _RUNTIME_TURING_PATH = (
 #: Distributions.jl ships `Normal`, `Beta`, `TDist`, `Kumaraswamy`, etc.
 #: as built-in distributions but lacks these; the renderer grafts the
 #: helper when the IR samples or observes from any of them.
+#:
+#: `HalfStudentT` is deliberately absent. Distributions.jl has no such
+#: type either, but it does have every piece the fold is built from, so
+#: [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr]
+#: composes `truncated(scale * TDist(df), 0, Inf)` out of the library's
+#: own combinators rather than paying for a grafted scorer. Composing
+#: keeps the emitted file a single top-level `@model` macrocall, which
+#: a graft would turn into a sequence of top-level statements.
 _TURING_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "HalfStudentT",
     "ContinuousBernoulli",
     "GP",
 })
