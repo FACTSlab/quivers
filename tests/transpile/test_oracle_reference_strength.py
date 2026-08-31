@@ -19,10 +19,11 @@ asserts the cover is total:
    has its oracle re-derived by a foreign runtime (Stan's own
    `log_prob`, NumPyro's `log_joint`, JAGS's node scores) at every
    point of the set.
-2. **Raw-torch witness, this module.** Six examples have *no* live
+2. **Raw-torch witness, this module.** Eight examples have *no* live
    cell at all: `bnn`, `continuous_hmm`, `linear_gaussian_ssm`,
-   `mixture_model`, `parametric_pooling`, `tree_categorical`. Every
-   backend either raises a pinned `UnsupportedConstruct` or sits in
+   `mixture_model`, `parametric_pooling`, `pmf`,
+   `tensor_contraction`, `tree_categorical`. Every backend either
+   raises a pinned `UnsupportedConstruct` or sits in
    `_SKIP_PROBE_INCOMPATIBLE`. Nothing outside this module ever
    compares their oracle against an independent computation, so this
    module rebuilds each joint from the `.qvr` source and the `.md`
@@ -58,23 +59,36 @@ a soft sum-to-zero factor dropped) and requires each to move the
 joint past a pinned floor. A defect that stops being rejected trips
 the floor before it trips the tolerance.
 
-Ten gallery examples ship synthetic data and carry no pin at all,
+Eight gallery examples ship synthetic data and carry no pin at all,
 and this module holds their exemptions to the same standard rather
-than to their own prose. The two structural ones must parse to a
-module that declares no probabilistic program *and* leave
-`load_gallery_data` with nothing to build, since an example whose
-`.md` snippet assembles a program in Python scores a joint whatever
-its `.qvr` text declares. The eight sequence
-models each bind a latent to a `SampledComposition`, and must be
-shown to report a joint that no pin could hold: either the value
-moves when the composition's quadrature node count changes, so what
-the oracle returns is the rule's approximation rather than the
-model's density, or the composite site scores exactly zero at every
-value it is given, so the joint is missing the prior on the only
-latent the program declares. Which of the two holds is declared per
-example and re-measured on every run. An example that stops
-exhibiting either has a density worth pinning and loses its
-exemption instead of keeping an unpinned joint forever.
+than to their own prose. All eight are sequence models binding a
+latent to a `SampledComposition`, and each must be shown to report a
+joint that no pin could hold: either the value moves when the
+composition's quadrature node count changes, so what the oracle
+returns is the rule's approximation rather than the model's density,
+or the composite site scores exactly zero at every value it is given,
+so the joint is missing the prior on the only latent the program
+declares. Which of the two holds is declared per example and
+re-measured on every run. An example that stops exhibiting either has
+a density worth pinning and loses its exemption instead of keeping an
+unpinned joint forever.
+
+The second exemption ground, a `.qvr` that declares no probabilistic
+program at all, is currently claimed by nobody. An empty category is
+a claim in its own right rather than an absence of work, so it is
+declared empty in
+[`_DECLARED_STRUCTURAL_EXEMPT`][tests.transpile.test_oracle_reference_strength._DECLARED_STRUCTURAL_EXEMPT]
+and checked over the examples that *could* claim it: the four whose
+source parses to no `ProgramDecl`. Each is required to land on one
+side of the line for a stated reason. `pmf` and `tensor_contraction`
+score a joint regardless, since their `.md` snippet wraps the
+compiled composition in a `MonadicProgram`, so both carry a pin and a
+reconstruction here; `schema_chart_parser` and `term_autoencoder`
+leave `load_gallery_data` with nothing to build, so the numeric tier
+never reaches them and neither registry may name them. A check
+parametrized over the exempt set alone would have gone quiet the
+moment that set emptied, which is exactly when it has the most to
+say.
 """
 
 from __future__ import annotations
@@ -485,6 +499,150 @@ def _reconstruct_parametric_pooling(
     }
 
 
+def _reconstruct_pmf(
+    dataset: _gallery_data.GalleryDataset,
+    values: dict[str, Tensor],
+    weights: dict[str, Tensor],
+    variant: str,
+) -> dict[str, Tensor]:
+    """`pmf.qvr`, an algebra-level example whose source declares a
+    mean surface rather than a measure:
+
+        object LatentDim : FinSet 2
+        object User, Movie : FinSet 8
+        morphism U : LatentDim -> User   [role=latent]
+        morphism V : LatentDim -> Movie  [role=latent]
+        define pmf = U.dagger >> V
+
+    The `.md` snippet supplies the probabilistic surface the source
+    leaves open, and it is the standard PMF one: an entrywise
+    `Normal(0, 1)` prior over each factor matrix, and a
+    `Normal(S, 0.5)` likelihood over every cell of the dense rating
+    matrix, with `S` rebuilt from the sampled factors by the same
+    composition the source names.
+
+    Wholly reconstructible. An arrow's tensor is indexed
+    `(domain, codomain)`, so each factor is `(2, 8)`, and
+    `U.dagger >> V` under the `real` algebra contracts the shared
+    `LatentDim` index: the `(u, m)` entry is
+    `sum_k U[k, u] * V[k, m]`, written here as an `einsum` rather
+    than through the compiled composition, which is the code under
+    test. `mu` is a deterministic `let` and scores zero.
+    """
+    del dataset, weights
+    if variant == "factors_read_column_major":
+        # The wire payload arrives flat; inflating it as `(User,
+        # LatentDim)` and transposing keeps every entry and every
+        # shape while permuting which factor coordinate meets which.
+        user_factor = values["U"].reshape(8, 2).transpose(0, 1)
+        movie_factor = values["V"].reshape(8, 2).transpose(0, 1)
+    elif variant in (
+        "",
+        "score_transposed",
+        "drop_movie_factor_prior",
+        "unit_rating_scale",
+        "plate_mean",
+    ):
+        user_factor = values["U"].reshape(2, 8)
+        movie_factor = values["V"].reshape(2, 8)
+    else:
+        raise _unknown_variant("pmf", variant)
+
+    score = torch.einsum("ku,km->um", user_factor, movie_factor)
+    if variant == "score_transposed":
+        score = score.transpose(0, 1)
+
+    unit = td.Normal(0.0, 1.0)
+    movie_term = (
+        torch.zeros(())
+        if variant == "drop_movie_factor_prior"
+        else unit.log_prob(movie_factor).sum()
+    )
+    # `sigma = 0.5` in the snippet: the source fixes the mean surface
+    # and says nothing about the observation scale.
+    scale = 1.0 if variant == "unit_rating_scale" else 0.5
+    per_cell = td.Normal(score, scale).log_prob(values["rating"])
+
+    return {
+        "U": unit.log_prob(user_factor).sum(),
+        "V": movie_term,
+        "rating": (
+            per_cell.mean() if variant == "plate_mean" else per_cell.sum()
+        ),
+    }
+
+
+def _reconstruct_tensor_contraction(
+    dataset: _gallery_data.GalleryDataset,
+    values: dict[str, Tensor],
+    weights: dict[str, Tensor],
+    variant: str,
+) -> dict[str, Tensor]:
+    """`tensor_contraction.qvr`, the other algebra-level example:
+
+        object Item : FinSet 4
+        object PredDim, ArgDim : FinSet 2
+        object Judgment : FinSet 3
+        morphism pred_embed  : Item -> PredDim
+        morphism arg_embed   : Item -> ArgDim
+        morphism interaction : (PredDim * ArgDim) -> Judgment
+        define plausibility = bilinear_score(
+            pred_embed, arg_embed, interaction,
+        )
+
+    The `.md` snippet gives each declared arrow an entrywise
+    `Normal(0, 1)` prior and scores the judgment plate under
+    `Normal(S, 0.5)`, with `S` the contraction of the three sampled
+    tensors.
+
+    Wholly reconstructible. The contraction's wiring is fixed by the
+    typed signature rather than spelled out: `PredDim` and `ArgDim`
+    each appear in two inputs and not in the output, so both are
+    summed over, while `Item` and `Judgment` appear in the output and
+    propagate. That is `sum_b sum_c p[i, b] * a[i, c] * w[b, c, s]`,
+    written here as an `einsum` rather than by calling the compiled
+    wiring. `mu` is a deterministic `let` and scores zero.
+    """
+    del dataset, weights
+    pred = values["pred_embed"].reshape(4, 2)
+    arg = values["arg_embed"].reshape(4, 2)
+    interaction = values["interaction"].reshape(2, 2, 3)
+
+    if variant == "interaction_axes_swapped":
+        # `PredDim` and `ArgDim` are both `FinSet 2`, so reading the
+        # interaction tensor's two contracted axes in the wrong order
+        # passes every shape check the wiring performs.
+        spec = "ib,ic,cbs->is"
+    elif variant in (
+        "",
+        "drop_interaction_prior",
+        "unit_judgment_scale",
+        "plate_mean",
+    ):
+        spec = "ib,ic,bcs->is"
+    else:
+        raise _unknown_variant("tensor_contraction", variant)
+    score = torch.einsum(spec, pred, arg, interaction)
+
+    unit = td.Normal(0.0, 1.0)
+    interaction_term = (
+        torch.zeros(())
+        if variant == "drop_interaction_prior"
+        else unit.log_prob(interaction).sum()
+    )
+    scale = 1.0 if variant == "unit_judgment_scale" else 0.5
+    per_cell = td.Normal(score, scale).log_prob(values["judgment"])
+
+    return {
+        "pred_embed": unit.log_prob(pred).sum(),
+        "arg_embed": unit.log_prob(arg).sum(),
+        "interaction": interaction_term,
+        "judgment": (
+            per_cell.mean() if variant == "plate_mean" else per_cell.sum()
+        ),
+    }
+
+
 def _reconstruct_tree_categorical(
     dataset: _gallery_data.GalleryDataset,
     values: dict[str, Tensor],
@@ -639,6 +797,10 @@ _RECONSTRUCTIONS: dict[str, _Reconstruction] = {
     "parametric_pooling": _Reconstruction(
         _reconstruct_parametric_pooling, (), "",
     ),
+    "pmf": _Reconstruction(_reconstruct_pmf, (), ""),
+    "tensor_contraction": _Reconstruction(
+        _reconstruct_tensor_contraction, (), "",
+    ),
     "tree_categorical": _Reconstruction(
         _reconstruct_tree_categorical, (), "",
     ),
@@ -775,6 +937,66 @@ _MUTANTS: tuple[_Mutant, ...] = (
         "parametric_pooling", "plate_mean",
         "the 8-school plate is averaged instead of summed.",
         2.0,
+    ),
+    _Mutant(
+        "pmf", "score_transposed",
+        "the rating mean is read as `S[m, u]` rather than `S[u, m]`, "
+        "the orientation error a mis-taken dagger produces. The score "
+        "matrix is square, so no shape check objects.",
+        1000.0,
+    ),
+    _Mutant(
+        "pmf", "factors_read_column_major",
+        "each flat factor payload is inflated as `(User, LatentDim)` "
+        "and transposed rather than read as `(LatentDim, User)`, "
+        "permuting which latent coordinate meets which user while "
+        "leaving both entrywise priors, and every shape, untouched.",
+        1000.0,
+    ),
+    _Mutant(
+        "pmf", "drop_movie_factor_prior",
+        "the entrywise `Normal(0, 1)` prior on the movie factor "
+        "matrix is dropped.",
+        27.0,
+    ),
+    _Mutant(
+        "pmf", "unit_rating_scale",
+        "the rating likelihood is scored at unit scale instead of at "
+        "the snippet's `sigma = 0.5`.",
+        18.0,
+    ),
+    _Mutant(
+        "pmf", "plate_mean",
+        "the 64-cell `(User, Movie)` rating plate is averaged instead "
+        "of summed.",
+        85.0,
+    ),
+    _Mutant(
+        "tensor_contraction", "interaction_axes_swapped",
+        "the interaction tensor's `PredDim` and `ArgDim` axes are "
+        "read in the wrong order. Both are `FinSet 2`, so the "
+        "contraction stays well-typed and every shape check passes.",
+        70.0,
+    ),
+    _Mutant(
+        "tensor_contraction", "drop_interaction_prior",
+        "the entrywise `Normal(0, 1)` prior on the third-order "
+        "interaction tensor is dropped.",
+        19.0,
+    ),
+    _Mutant(
+        "tensor_contraction", "unit_judgment_scale",
+        "the judgment likelihood is scored at unit scale instead of "
+        "at the snippet's `sigma = 0.5`. The ground truth sits close "
+        "to the bilinear score, so this mutant is nearly invisible "
+        "there and only the perturbed points reject it firmly.",
+        9.5,
+    ),
+    _Mutant(
+        "tensor_contraction", "plate_mean",
+        "the 12-cell `(Item, Judgment)` plate is averaged instead of "
+        "summed.",
+        24.0,
     ),
     _Mutant(
         "tree_categorical", "wrong_leaf_branch",
@@ -1568,6 +1790,58 @@ def _exempt_by(registry: frozenset[str]) -> list[str]:
     return sorted(set(_gallery_tier._REFERENCE_PIN_EXEMPT) & registry)
 
 
+_DECLARED_STRUCTURAL_EXEMPT: frozenset[str] = frozenset()
+"""Examples claiming exemption from the reference pin on the grounds
+that they declare no probabilistic program at all.
+
+Empty, and empty on purpose. The ground is available: an example whose
+`.qvr` exports a `define`d composition denotes a linear map rather
+than a measure, so its source names no joint a pin could hold. But the
+source is not the only place a program can come from, and both
+algebra-level examples take the other route. `pmf` and
+`tensor_contraction` each carry a `.md` snippet that wraps the
+compiled composition in a `MonadicProgram` with entrywise
+`Normal(0, 1)` priors over the declared arrows and a
+`Normal(score, 0.5)` likelihood, so both score a joint at every point
+of the set and both are pinned and reconstructed in this module
+instead. `schema_chart_parser` and `term_autoencoder` also parse to no
+`ProgramDecl` and build no dataset either, so the numeric tier never
+reaches them and they need no exemption.
+
+Declaring the emptiness rather than deriving it is the point. An
+exemption added on this ground has to be written down here, next to
+the reason the category was empty, and
+[`test_program_free_examples_are_exempt_or_pinned`][tests.transpile.test_oracle_reference_strength.test_program_free_examples_are_exempt_or_pinned]
+then has to establish it example by example."""
+
+
+def _declared_programs(example: str) -> list[str]:
+    """Names of the `program`s one example's `.qvr` declares."""
+    source = (_SOURCE_DIR / f"{example}.qvr").read_text(encoding="utf-8")
+    return [
+        statement.name
+        for statement in parse(source).statements
+        if isinstance(statement, ProgramDecl)
+    ]
+
+
+@functools.cache
+def _program_free_examples() -> tuple[str, ...]:
+    """Gallery examples whose `.qvr` parses to no `ProgramDecl`.
+
+    Derived from the sources rather than listed, so an example that
+    loses its program declaration joins the set without anyone
+    remembering to add it. This is the candidate set for the
+    structural exemption: no other example could claim that ground,
+    and every one of these has to be shown to fall on one side of it.
+    """
+    return tuple(
+        path.stem
+        for path in sorted(_SOURCE_DIR.glob("*.qvr"))
+        if not _declared_programs(path.stem)
+    )
+
+
 def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
     """Every exemption from the reference pin falls to one of the two
     checks below, and none escapes both.
@@ -1577,6 +1851,19 @@ def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
     hole would grow in. Partitioning it, and asserting the partition
     is total, means an exemption of a third kind cannot be added
     without also adding the evidence for it.
+
+    The two categories are held to that standard differently, because
+    one of them is currently empty. An empty category cannot be
+    covered by a check parametrized over its members, which would
+    collect nothing and report nothing; so the structural category is
+    pinned against
+    [`_DECLARED_STRUCTURAL_EXEMPT`][tests.transpile.test_oracle_reference_strength._DECLARED_STRUCTURAL_EXEMPT]
+    by equality, and the check below runs over the examples that
+    *could* claim it rather than over the ones that do. The
+    non-deterministic category needs neither device: its membership is
+    pinned example by example by `_QUADRATURE_DEPENDENT_JOINT` and
+    `_FLAT_COMPOSITE_LATENT`, so it cannot empty without those
+    emptying first, and an assertion that it has not is enough.
     """
     exempt = set(_gallery_tier._REFERENCE_PIN_EXEMPT)
     structural = set(_exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED))
@@ -1596,60 +1883,115 @@ def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
         f"either has no program or has a non-deterministic one; "
         f"claiming both means one of the two skip registries is stale."
     )
-    assert structural and nondeterministic, (
-        f"one of the two exemption categories is empty (structural="
-        f"{sorted(structural)!r}, nondeterministic="
-        f"{sorted(nondeterministic)!r}), so one of the checks below "
-        f"parametrizes over nothing and passes vacuously."
+
+    assert structural == set(_DECLARED_STRUCTURAL_EXEMPT), (
+        f"the structural exemption category holds "
+        f"{sorted(structural)!r}, against the declared "
+        f"{sorted(_DECLARED_STRUCTURAL_EXEMPT)!r}. Membership of this "
+        f"category is a claim about which examples score no joint at "
+        f"all, and it is written down rather than read off so that "
+        f"the category emptying, or filling, is a decision someone "
+        f"records here with its reason."
+    )
+    candidates = _program_free_examples()
+    assert candidates, (
+        "no gallery example parses to a module without a "
+        "`ProgramDecl`, so nothing exercises the structural "
+        "exemption's discriminator and its emptiness is untested "
+        "rather than measured. Every source now declares a program: "
+        "either the algebra-level examples left the gallery, or the "
+        "parse is finding declarations that are not there."
+    )
+
+    assert nondeterministic, (
+        "the non-deterministic exemption category is empty, so "
+        "`test_quadrature_exempt_examples_have_a_rule_dependent_joint` "
+        "and `test_flat_latent_exempt_examples_carry_no_density_for_it` "
+        "parametrize over nothing. Every composition-bound example "
+        "gained a pinnable joint, which is a real change worth "
+        "reading the measurements for, not a green run."
     )
 
 
 @pytest.mark.parametrize(
     "example",
-    _exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED),
+    sorted(
+        set(_program_free_examples())
+        | set(_exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED)),
+    ),
     ids=lambda name: name,
 )
-def test_structurally_exempt_examples_declare_no_probabilistic_program(
-    example: str,
-) -> None:
-    """An example exempt on structural grounds really does declare no
-    probabilistic program.
+def test_program_free_examples_are_exempt_or_pinned(example: str) -> None:
+    """An example whose `.qvr` declares no probabilistic program is
+    either structurally exempt, or pinned, or outside the numeric tier
+    entirely, and which of the three is measured rather than assumed.
 
-    `pmf` and `tensor_contraction` export a `define`d composition
-    morphism, which denotes a linear map rather than a measure, so
-    there is no joint log-density a pin could hold. The claim is
-    checked against the parsed module rather than against the prose:
-    a `ProgramDecl` appearing in either file means the example gained
-    a program and lost its exemption.
+    This is the check that stands behind an empty
+    `_DECLARED_STRUCTURAL_EXEMPT`. Parametrizing it over the exempt
+    set would make it collect nothing the moment that set emptied, and
+    a check that runs over nothing cannot report that the emptiness is
+    correct. Parametrizing it over the *candidates* keeps the
+    discriminator running on real examples whatever the registry says:
+    a `.qvr` with no `ProgramDecl` is the necessary condition for the
+    exemption, and what settles it is whether anything else supplies a
+    program.
 
-    The source is not the only place a program can come from. A `.md`
-    synthetic-data snippet is free to assemble a `MonadicProgram` in
-    Python around the compiled composition, and one that does gives
-    the oracle a joint to score at every point of the set, whatever
-    the `.qvr` text declares. The exemption therefore has to survive
-    the second reading too: `load_gallery_data` must find nothing to
-    build.
+    Something else usually does. A `.md` synthetic-data snippet is
+    free to assemble a `MonadicProgram` in Python around the compiled
+    composition, and one that does gives the oracle a joint to score
+    at every point of the set whatever the `.qvr` text declares. Both
+    algebra-level examples take that route, so both are pinned rather
+    than exempt, and the branch below requires exactly that of them.
+    An example that builds nothing is claimed by neither registry: a
+    pin over a program that does not exist would be a row nothing
+    could ever re-derive.
     """
-    source = (_SOURCE_DIR / f"{example}.qvr").read_text(encoding="utf-8")
-    module = parse(source)
-    programs = [
-        statement.name
-        for statement in module.statements
-        if isinstance(statement, ProgramDecl)
-    ]
-    assert not programs, (
-        f"{example!r} is exempt from the reference pin on the grounds "
-        f"that it declares no probabilistic program, but it declares "
-        f"program(s) {programs!r}. Either the example gained a joint "
-        f"and needs a `_QVR_REFERENCE_JOINT` row, or the exemption "
-        f"names the wrong file."
-    )
-    assert _gallery_data.load_gallery_data(
+    programs = _declared_programs(example)
+    exempt = example in _exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED)
+    pinned = example in _gallery_tier._QVR_REFERENCE_JOINT
+    dataset = _gallery_data.load_gallery_data(
         _SOURCE_DIR / f"{example}.qvr",
-    ) is None, (
-        f"{example!r} declares no program yet `load_gallery_data` "
-        f"built a dataset for it, so something does score. Re-derive "
-        f"the exemption."
+    )
+
+    if exempt:
+        assert not programs, (
+            f"{example!r} is exempt from the reference pin on the "
+            f"grounds that it declares no probabilistic program, but "
+            f"it declares program(s) {programs!r}. Either the example "
+            f"gained a joint and needs a `_QVR_REFERENCE_JOINT` row, "
+            f"or the exemption names the wrong file."
+        )
+        assert dataset is None, (
+            f"{example!r} declares no program yet `load_gallery_data` "
+            f"built a dataset for it, so something does score. "
+            f"Re-derive the exemption."
+        )
+        assert not pinned, (
+            f"{example!r} is exempt from the reference pin and pinned "
+            f"at the same time. One of the two registries describes an "
+            f"example that no longer exists."
+        )
+        return
+
+    if dataset is not None:
+        assert pinned, (
+            f"{example!r} declares no probabilistic program, but its "
+            f"`.md` snippet builds one anyway and `load_gallery_data` "
+            f"returns a dataset, so the oracle scores a joint for it "
+            f"at every point. It carries neither a "
+            f"`_QVR_REFERENCE_JOINT` row nor a structural exemption, "
+            f"so that joint is asserted by nothing. Pin it, or add it "
+            f"to `_DECLARED_STRUCTURAL_EXEMPT` and show that it "
+            f"scores nothing."
+        )
+        return
+
+    assert not pinned, (
+        f"{example!r} declares no probabilistic program and "
+        f"`load_gallery_data` builds no dataset for it, so there is no "
+        f"joint at any point, yet `_QVR_REFERENCE_JOINT` pins one. "
+        f"Nothing can re-derive that row: drop it, or restore the data "
+        f"block that made the example score."
     )
 
 

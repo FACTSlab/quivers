@@ -13,10 +13,11 @@ validates the joint alone, and its blindness to the return clause is
 not a conjecture: `tests/transpile/_mutations.py` pins
 `exported_value_negated` as a measured
 [`BlindSpot`][tests.transpile._mutations.BlindSpot] on both Stan and
-NumPyro, where negating the exported value moves the constant-spread
-statistic by 2.6e-05 and 2.3e-05 against a harness noise floor of the
-same order. Every backend shares that blind spot, because the joint
-is what the tier reads and the export never enters it.
+NumPyro, where negating the exported value leaves the constant-spread
+statistic exactly where the unmutated emit puts it: 2.564e-05 on Stan
+and 2.270e-05 on NumPyro, identical to the last printed digit on both
+sides of the rewrite. Every backend shares that blind spot, because
+the joint is what the tier reads and the export never enters it.
 
 This module closes the gap. For every `(backend, example)` cell the
 gallery tier scores numerically, it compares the backend's exported
@@ -144,24 +145,46 @@ The budget is calibrated against a direct measurement rather than a
 guess: across every live `(backend, example)` cell, every point of
 the six-point set, and every element of every exported vector, the
 largest disagreement is
-`_MEASURED_WORST_ULP_RATIO` float32 ULPs. Eight ULPs leaves three
-bits of headroom over that worst case, and
+`_MEASURED_WORST_ULP_RATIO` float32 ULPs. Eight ULPs clears that
+worst case by a factor of 1.29, and
 [`test_export_tolerance_is_tight`][tests.transpile.test_export_equivalence.test_export_tolerance_is_tight]
 pins both numbers so the headroom cannot quietly grow.
+
+The factor is that small because one gallery export runs a link
+function. `kumaraswamy_bounded_outcome` returns
+`a = exp(gamma_0 + gamma_1 * x)`, and `exp` turns the reference's
+float32 error on the exponent into a *relative* error on the result,
+so its worst element misses by six ULPs of a 99-magnitude value
+where every export without a link misses by less than one. Those
+cells sit an order of magnitude inside the budget: `beta_regression`,
+`pcfg` and `ccg` top out at 0.81, 0.73 and 0.63 ULPs, and 53 cells
+reproduce the reference bit for bit.
 
 This is a headroom figure, not a necessity. Widening it is never the
 fix for a failure: a real export defect moves the value by a
 multiple of its own magnitude, not by bits."""
 
-_MEASURED_WORST_ULP_RATIO = 0.81
+_MEASURED_WORST_ULP_RATIO = 6.18
 """Largest measured reference-versus-backend disagreement, in float32
 ULPs at the compared element's magnitude.
 
-Measured over all 127 live `(backend, example)` cells, all six points
-of each cell's set, and every element of every exported vector: the
-worst is `stan@beta_regression`, 9.60e-08 absolute at a reference
-magnitude of 1.114, which is 0.806 float32 ULPs. Forty of the 127
-cells agree to the last bit.
+Measured over every `(backend, example)` cell whose probe run
+completes, 250 of them at the time of the measurement, all six
+points of each cell's set, and every element of every exported
+vector: the worst is `pyro@kumaraswamy_bounded_outcome`, 4.71431e-05
+absolute at a reference magnitude of 99.0359, which is 6.179 float32
+ULPs. 53 of the 250 cells agree to the last bit.
+
+The worst case is a link function rather than a renderer, and the
+attribution is derived rather than assumed. That program returns
+`a = exp(gamma_0 + gamma_1 * x)`; recomputing the exponent in
+float64 from the point's own clamped `gamma_0 = 0.0594303198158741`,
+`gamma_1 = 1.3300246000289917` and `x[59] = 3.4105026721954346`
+gives `exp(gamma_0 + gamma_1 * x[59]) = 99.03593581497408`, which is
+what pyro reports to the last digit, while the reference rounds the
+same quantity onto the float32 grid at 99.035888671875. The gap is
+the reference's own rounding scaled by the exported magnitude, so no
+change to any emission would close it.
 
 Recorded so the budget above reads as a ratio rather than as a bare
 constant. Re-measure before changing it; a growth here is a change in
@@ -202,8 +225,11 @@ _NO_EXPORTED_PROGRAM: dict[str, str] = {
     # composition morphism (`U.dagger >> V`, `bilinear_score(...)`),
     # which denotes a linear map rather than a Markov kernel. There is
     # no `return` clause, and `exported_return_names` raises rather
-    # than inventing one. Both already sit in the gallery tier's
-    # `_SKIP_DATASET_LOAD_FAILED`.
+    # than inventing one. Both carry a synthetic-data block and a
+    # pinned joint, so the density tier scores them; what they lack is
+    # a codomain for this tier to compare, and every one of their
+    # `(backend, example)` cells sits in the gallery tier's
+    # `_EXPECTED_TRANSPILE_RAISES` under `composition_decl`.
     "pmf": "structural: composition morphism, no program block",
     "tensor_contraction": (
         "structural: contraction morphism, no program block"
@@ -214,9 +240,13 @@ _NO_EXPORTED_PROGRAM: dict[str, str] = {
 # whose exported value cannot yet be compared, each with the single
 # defect that blocks it and the measurement the container produced.
 #
-# **Currently empty**: every one of the 127 cells the density tier
-# scores also has its exported value compared, at every point and
-# elementwise. The registry stays because the alternative to an empty
+# **Currently empty**: every cell whose probe run completes, 250 of
+# them at the last measurement, has its exported value compared at
+# every point and elementwise, and the widest of the 250 sits at 0.77
+# of the round-off budget. No cell fails on its export alone: where a
+# cell does not report an export it also does not report a joint, so
+# the density tier records it and this registry has nothing to hold.
+# The registry stays because the alternative to an empty
 # registry is a `pytest.skip` reached by a bare `except`, which is how
 # a tier stops asserting anything without anyone noticing;
 # `test_export_skip_registry_is_disjoint_from_the_gallery_skips`
@@ -252,13 +282,26 @@ def _gallery_examples() -> list[pathlib.Path]:
 
 
 def _scorable_examples() -> list[pathlib.Path]:
-    """Gallery examples the QVR reference can score to a deterministic
-    joint, which is the precondition for a deterministic export."""
+    """Gallery examples that have an exported value the QVR reference
+    can trace to a deterministic one.
+
+    Two conditions, and both are read off registries rather than
+    restated. The reference has to score the example to a
+    deterministic joint, which is the precondition for a deterministic
+    export; and the example has to declare a probabilistic program at
+    all, since a module whose only export is a composition morphism
+    has no `return` clause to trace. The second exclusion is not a
+    hole: `test_export_registry_is_total` re-derives it from the
+    `.qvr` text for every entry of `_NO_EXPORTED_PROGRAM`, so an
+    example that grows a program fails there rather than quietly
+    dropping out here.
+    """
     return [
         example
         for example in _gallery_examples()
         if example.stem not in _gallery_tier._SKIP_DATASET_LOAD_FAILED
         and example.stem not in _gallery_tier._SKIP_QVR_INCOMPATIBLE
+        and example.stem not in _NO_EXPORTED_PROGRAM
     ]
 
 
@@ -1335,6 +1378,16 @@ def test_export_tolerance_is_tight() -> None:
        no more than a factor of 16. The lower bound is what keeps the
        tier from failing on arithmetic noise; the upper bound is what
        keeps the headroom from growing into a hiding place.
+
+    The third claim is the loose one today, and knowing by how much
+    matters: the measured worst case is 6.18 ULPs against a budget of
+    8, so the real headroom is a factor of 1.29 while the ceiling
+    would tolerate 16. The ceiling bites only once the measurement
+    drops under half an ULP, a little below where the widest
+    link-free export sits today (`stan@beta_regression`, 0.81); a
+    budget of 8 over a half-ULP worst case would be headroom rather
+    than round-off, and the assertion would then demand it be
+    re-derived.
     """
     assert _EXPORT_ULP_BUDGET == 8, (
         f"the export round-off budget is {_EXPORT_ULP_BUDGET}, not the "

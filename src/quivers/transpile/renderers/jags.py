@@ -57,6 +57,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    CSPositiveDefinite,
     CSReal,
     ConstraintSpec,
     Dim,
@@ -92,6 +93,9 @@ from quivers.transpile.renderers._bugs_helpers import (
     index_letexpr_refs,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
+    reorder_binomial_dbin,
+    reorder_half_studentt_dt,
+    reorder_pareto_dpar,
     split_event_dims,
 )
 from quivers.transpile.renderers._base import (
@@ -135,6 +139,26 @@ _ALIAS_TRANSFORMS: dict[str, _TransformKind] = {
 #: maps to the rate ``tau = 1/scale`` rather than ``1/scale^2``.
 _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, _TransformKind]] = {
     "Laplace": {"tau": "inv"},
+    "Logistic": {"tau": "inv"},
+}
+
+#: Renderer-supplied arg renames for families whose
+#: [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] entry
+#: records no ``jags`` alias even though the JAGS distribution is
+#: parameterised differently from the torch one. ``Logistic`` is the
+#: case: torch carries ``(loc, scale)`` while JAGS' ``dlogis(mu,
+#: tau)`` has density ``tau * e^{-tau(x-mu)} / (1 +
+#: e^{-tau(x-mu)})^2``, i.e. the second slot is the rate ``tau =
+#: 1/scale``. Passing the scale through unchanged scores a Logistic
+#: of scale ``1/s``, which is a different density at every point
+#: rather than a constant offset. The rename feeds the same transform
+#: pipeline the ``FAMILY_META`` aliases do, with the ``inv``
+#: transform supplied by
+#: [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.jags._FAMILY_ALIAS_TRANSFORM_OVERRIDE].
+_FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
+    "Logistic": {"scale": "tau"},
+    "LogNormal": {"scale": "tau"},
+    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -187,7 +211,15 @@ def _reorder_studentt_dt(
 #: one-sided truncation suffix
 #: [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
 #: supplies.
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
+#:
+#: ``Horseshoe(scale)`` is the same shape of gap without the
+#: truncation: the family denotes ``Normal(0, scale)`` on all of R and
+#: the QVR call site writes only the scale, so the prepended zero
+#: fills ``dnorm``'s location and the family carries no entry in
+#: ``HALF_SUPPORT_LOWER_BOUND``.
+_PREPEND_ZERO: frozenset[str] = frozenset(
+    {"HalfNormal", "HalfCauchy", "Horseshoe"}
+)
 
 #: JAGS-side argument injection for QVR families that map to JAGS'
 #: ``dt(mu, tau, k)`` distribution. JAGS Student-t requires three
@@ -945,6 +977,95 @@ class JAGSRenderer(RendererBase):
         ctx.sb.edge(dc, al, "arguments")
         return dc
 
+    def _dmnorm_precision_args(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        family: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+    ) -> tuple[tuple[IRArg, ...], tuple[str, ...]]:
+        """Rewrite a ``MultivariateNormal`` site into ``dmnorm``'s
+        precision parameterisation.
+
+        JAGS' ``dmnorm(mu, Omega)`` reads its second argument as the
+        precision, the inverse of the covariance: with
+        ``Omega = [[2, .5], [.5, 1.5]]``, ``mu = (.1, .3)`` and
+        ``x = (.4, -.2)`` the engine scores -1.534577, which is
+        ``torch.distributions.MultivariateNormal(mu,
+        precision_matrix=Omega).log_prob(x)`` and not the
+        ``covariance_matrix=Omega`` reading (-2.486405). Emitting the
+        QVR ``covariance_matrix`` slot straight into that position
+        therefore scores a different Gaussian at every point.
+
+        A site that already names ``precision_matrix`` passes through
+        untouched. A site naming ``covariance_matrix`` gains a
+        ``prec_<name> <- inverse(<covariance>)`` relation ahead of the
+        draw, which is the same idiom the GP block uses to invert its
+        kernel matrix. A ``scale_tril`` site raises: ``dmnorm`` has no
+        Cholesky slot, and reconstructing the precision from the
+        factor would need a matrix product this renderer has no
+        emission for.
+        """
+        if family != "MultivariateNormal":
+            return args, arg_names
+        by_name = dict(zip(arg_names, args, strict=True))
+        if "loc" not in by_name:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MultivariateNormal:missing-arg:loc: "
+                    f"`dmnorm(mu, Omega)` needs a mean vector; the "
+                    f"site supplies {list(arg_names)}"
+                ],
+            )
+        if "precision_matrix" in by_name:
+            return (
+                (by_name["loc"], by_name["precision_matrix"]),
+                ("loc", "precision_matrix"),
+            )
+        covariance = by_name.get("covariance_matrix")
+        if covariance is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MultivariateNormal:no-scale-arg: "
+                    f"`dmnorm(mu, Omega)` takes a precision matrix, "
+                    f"which this renderer builds from a covariance or "
+                    f"reads directly from a precision; the site "
+                    f"supplies {list(arg_names)}"
+                ],
+            )
+        if not isinstance(covariance, IRArgRef) or covariance.indices:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:MultivariateNormal:non-ref-covariance: "
+                    f"the `inverse(...)` relation that turns the "
+                    f"covariance into `dmnorm`'s precision needs a "
+                    f"whole named matrix, and this slot carries a "
+                    f"{type(covariance).__name__}"
+                ],
+            )
+        precision_name = f"prec_{name}"
+        self._emit_deterministic(
+            ctx,
+            IRDeterministic(
+                name=precision_name,
+                expr=LetExprCall(
+                    func="inverse",
+                    args=(LetExprVar(name=covariance.name),),
+                ),
+                constraint=CSPositiveDefinite(),
+                plate=Plate(event_dims=(), batch_dims=()),
+            ),
+        )
+        return (
+            (by_name["loc"], IRArgRef(name=precision_name)),
+            ("loc", "precision_matrix"),
+        )
+
     def _emit_sample(
         self,
         ctx: _JAGSCtx,
@@ -982,6 +1103,10 @@ class JAGSRenderer(RendererBase):
             args = (IRArgNumber(value=0.0), *args)
             arg_names = ("loc", *arg_names)
 
+        args, arg_names = self._dmnorm_precision_args(
+            ctx, name=name, family=family, args=args, arg_names=arg_names
+        )
+
         # TruncatedNormal lowers to `dnorm(loc, tau) T(low, high)`.
         # Peel off the last two args (low, high) before the
         # alias-renaming pipeline so they don't try to map through
@@ -1011,6 +1136,16 @@ class JAGSRenderer(RendererBase):
         if family == "StudentT":
             args, arg_names = _reorder_studentt_dt(args, arg_names)
 
+        # HalfStudentT: QVR (df, scale) -> JAGS dt(mu, tau, k) =
+        # (0, 1/scale^2, df), paired with the `T (0 ,)` suffix
+        # `half_support_truncation` supplies for the family. `dt` has
+        # no half-support variant and takes three arguments, so the
+        # site's two go through the same pre-wrapped reshape StudentT
+        # uses rather than through `_PREPEND_ZERO` / the alias
+        # pipeline, which would leave `(0, df, scale)`.
+        if family == "HalfStudentT":
+            args, arg_names = reorder_half_studentt_dt(args, arg_names)
+
         # NegativeBinomial / Weibull carry a target-specific argument
         # order and reparameterisation that JAGS' `dnegbin(prob, size)`
         # / `dweib(v, lambda)` calls require; reorder before the alias
@@ -1020,8 +1155,15 @@ class JAGSRenderer(RendererBase):
             args, arg_names = reorder_negbin_args(args, arg_names)
         elif family == "Weibull":
             args, arg_names = reorder_weibull_args(args, arg_names)
+        elif family == "Binomial":
+            args, arg_names = reorder_binomial_dbin(args, arg_names)
+        elif family == "Pareto":
+            args, arg_names = reorder_pareto_dpar(args, arg_names)
 
-        aliases = meta.arg_aliases.get(_BACKEND, {})
+        aliases = {
+            **meta.arg_aliases.get(_BACKEND, {}),
+            **_FAMILY_ALIAS_OVERRIDE.get(family, {}),
+        }
         renamed_pairs: list[tuple[str, IRArg]] = []
         for arg_name, arg in zip(arg_names, args, strict=False):
             emitted_name = aliases.get(arg_name, arg_name)
@@ -2099,10 +2241,36 @@ class JAGSRenderer(RendererBase):
         `data { ... }` block, `zeros_<name>[n] ~ dpois(phi_<name>[n])`
         contributes `-phi_<name>[n]`, so
 
-            phi_<name>[n] <- C - log p(y_n)
+            phi_<name>[n] <- -log p(y_n)
 
-        adds `log p(y_n) - C` per row. The per-row `C` is an additive
-        constant on the joint, which Theorem 4.1's quotient absorbs.
+        adds exactly `log p(y_n)` per row, with no additive constant
+        at all.
+
+        The zeros trick usually carries a large positive offset `C`,
+        emitted as `phi <- C - <term>`, because the Poisson rate has to
+        stay in support and a general score term is unbounded above.
+        [`_emit_score`][quivers.transpile.renderers.jags.JAGSRenderer._emit_score]
+        and
+        [`_emit_mixture_normal`][quivers.transpile.renderers.jags.JAGSRenderer._emit_mixture_normal]
+        both need it: a user score expression is arbitrary, and a
+        Gaussian mixture's log-*density* exceeds zero wherever the
+        mixture concentrates. A beta-binomial is a *mass* function, so
+        `p(y_n) <= 1` and `-log p(y_n) >= 0` at every parameter value
+        in the support, with equality only for a point mass. The rate
+        is therefore in support without an offset, and dropping it
+        makes the emitted program denote the reference measure on the
+        nose rather than up to a constant Theorem 4.1's quotient has to
+        absorb: the cell's named constant is the folded-family
+        derivation's value and nothing else. (The residual pointwise
+        spread is unchanged at roughly `6e-6`, so the `1e6`-scale
+        cancellation was not what bounded the agreement; the offset had
+        to go because it was an unentitled constant, not because it was
+        imprecise.)
+
+        The emitted relation reads `phi_<name>[n] <- -(<term>)`, whose
+        text runs the two operators together as `<--`. Both the JAGS
+        lexer and the tree-sitter grammar take the longest match, so
+        that is the assignment arrow followed by a unary minus.
 
         The emitted term is the beta-binomial's own marginal, with the
         latent rate integrated out analytically, rather than the
@@ -2134,10 +2302,8 @@ class JAGSRenderer(RendererBase):
             ctx,
             IRDeterministic(
                 name=phi_name,
-                expr=LetExprBinOp(
-                    op="-",
-                    left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
-                    right=beta_binomial_log_pmf(
+                expr=LetExprUnaryOp(
+                    operand=beta_binomial_log_pmf(
                         _BACKEND,
                         variate=name,
                         args=args,
