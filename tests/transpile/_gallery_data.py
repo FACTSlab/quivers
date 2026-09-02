@@ -49,6 +49,7 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -1066,6 +1067,25 @@ def _point_from_tensors(
 # term (Stan's `~` sampling statement discards data-only summands) keeps
 # a constant offset as the latents move and only breaks constancy when
 # the data moves.
+#
+# Two parameters of the point set decide what a passing check is
+# evidence FOR, and neither is cosmetic.
+#
+# The SEED fixes which finite sample of an infinite support the check
+# runs on. A defect confined to a region the sample never visits is
+# invisible, and no statistic computed from that sample can say so, so a
+# sensitivity claim proved at one seed is a claim about that draw rather
+# than about the perturbation design. `GALLERY_SEEDS` and
+# `points_across_seeds` exist to make the claim about the design; the
+# default seed stays fixed so a regression cannot present as a flake.
+#
+# The SCALE fixes how far the sample travels. A defect whose per-point
+# discrepancy is nonlinear in the point contributes a spread that grows
+# superlinearly in the scale, so one quadratic in the displacement is
+# roughly nine times louder at three times the excursion and can sit
+# under tolerance at one excursion while being rejected outright at
+# another. `WIDE_PERTURBATION_SCALE` and `point_displacements` exist so
+# that gap can be measured rather than assumed away.
 # ---------------------------------------------------------------------------
 
 
@@ -1101,6 +1121,57 @@ that a dropped data term or a truncated latent shifts the difference
 by orders of magnitude more than float round-off; small enough that
 the joint stays well inside the region where every backend's
 log-density is numerically well behaved."""
+
+PERTURBATION_SCALE = _PERTURBATION_SCALE
+"""The base scale, published so a caller that wants to *vary* the
+excursion has a named origin to vary it from.
+
+The magnitude is a coverage parameter, not a cosmetic one. Every
+displacement the point set makes is proportional to it, so a defect
+whose per-point discrepancy is nonlinear in the point contributes a
+spread that grows superlinearly in the scale: a discrepancy quadratic
+in the displacement is nine times louder at three times the scale.
+A defect of that shape can therefore sit under tolerance at one
+excursion and be rejected outright at a wider one, which is why
+[`WIDE_PERTURBATION_SCALE`][tests.transpile._gallery_data.WIDE_PERTURBATION_SCALE]
+exists and why the strength suite measures the check at both."""
+
+WIDE_PERTURBATION_SCALE = 0.6
+"""A deliberately wider excursion, three times
+[`PERTURBATION_SCALE`][tests.transpile._gallery_data.PERTURBATION_SCALE].
+
+The base scale is the excursion at which every gallery cell draws its
+whole point set in support on the first attempt: the redraw ladder
+never fires there, at any seed swept. Widening it changes that, and
+three is where the change is still marginal. At three times the base,
+exactly one cell needs a halving (a response bounded on the unit
+interval, whose wider draw can land numerically on a boundary) and it
+recovers on that single halving; larger multiples pull further cells
+into the ladder.
+
+A rescued draw is the reason nothing here trusts the scale it asked
+for. The ladder returns a point set that travelled *less* than the
+caller requested, and it does so silently, so the excursion a set
+actually achieved is read back off its points by
+[`point_excursion`][tests.transpile._gallery_data.point_excursion] and
+every claim made about the wider set is gated on that measurement."""
+
+GALLERY_SEEDS: tuple[int, ...] = (0, 1, 2, 3)
+"""Seeds the strength sweep draws independent point sets at.
+
+One seed gives one sample of an infinite support, so a defect confined
+to a region that sample never visits is invisible, and a sensitivity
+claim proved at that seed is a claim about one draw rather than about
+the perturbation design. Sweeping several seeds turns the claim into
+one about the design: a coordinate whose planted defect is rejected at
+every seed is rejected because the perturber moves it far enough, not
+because one draw happened to land well.
+
+Four is a compromise the sweep has to earn on cost, since every seed
+re-scores the reference joint at every point of every example. It is
+deliberately a *fixed* tuple rather than a random draw: a sweep whose
+membership moved run to run would turn a genuine regression into an
+intermittent one."""
 
 _INTEGER_STEP_FRACTION = 0.25
 """Fraction of a count vector's mean magnitude used as the standard
@@ -1292,7 +1363,63 @@ def _perturb_integer(
         return work
     if low > high:
         return work
-    return moved.clamp(min=low, max=high)
+    clamped = moved.clamp(min=low, max=high)
+    if torch.equal(clamped, work):
+        return _nudge_frozen_integer(work, noise, low, high)
+    return clamped
+
+
+def _nudge_frozen_integer(
+    work: torch.Tensor,
+    noise: torch.Tensor,
+    low: float,
+    high: float,
+) -> torch.Tensor:
+    """Step one entry of an integer draw that came back unmoved.
+
+    A count perturbation rounds a real step to an integer one and then
+    clamps it into the value's window, and both stages can annihilate
+    the whole draw. A sparse count vector is where they conspire: an
+    entry sitting at the bottom of its window only moves on a step that
+    rounds *upward*, an entry at the top only on one that rounds down,
+    and a step drawn at a scale comparable to a single count rounds to
+    zero about a third of the time. On a nine-entry vector of small
+    counts the three effects together leave the entire vector at ground
+    truth often enough to hit within a handful of seeds.
+
+    What that costs is a whole point of the evaluation set. A
+    data-perturbed point whose data did not move is byte-identical to
+    the ground-truth point, so the six-point schedule silently becomes
+    a five-point one, and the mode the schedule was covering twice is
+    covered once. Nothing reports it: the per-coordinate coverage check
+    still sees the coordinate move at the *other* data point, and the
+    spread statistic simply has one fewer distinct point to work with.
+
+    The step taken here is the smallest one that restores the point:
+    a single count, on the entry whose drawn noise was largest in
+    magnitude, in the direction that noise pointed, falling back to the
+    opposite direction and then to the next entry when the window has
+    no room. It consumes no randomness of its own, so a draw that was
+    not frozen is bit-identical with or without this pass and the
+    generator state every later point sees is unchanged.
+
+    Returns `work` unchanged only when no entry has anywhere to go,
+    which means the window admits the one value the vector already
+    holds; the point-set strength check then reports that coordinate as
+    unexercised rather than absorbing it.
+    """
+    flat = work.flatten().clone()
+    flat_noise = noise.flatten()
+    order = torch.argsort(flat_noise.abs(), descending=True)
+    for position in order.tolist():
+        current = float(flat[position].item())
+        direction = 1.0 if float(flat_noise[position].item()) >= 0.0 else -1.0
+        for step in (direction, -direction):
+            candidate = current + step
+            if low <= candidate <= high:
+                flat[position] = candidate
+                return flat.reshape(work.shape)
+    return work
 
 
 def _perturb_lower_cholesky(
@@ -1699,6 +1826,7 @@ def points_from_dataset(
     dataset: GalleryDataset,
     n_points: int = 6,
     seed: int = 0,
+    scale: float = _PERTURBATION_SCALE,
 ) -> list[Point]:
     """Build a deterministic multi-point evaluation set for `dataset`.
 
@@ -1731,6 +1859,24 @@ def points_from_dataset(
         global RNG is never touched, so the point set is reproducible
         run to run and independent of whatever the example's
         synthetic-data snippet seeded.
+
+        The default of 0 is what keeps CI reproducible, but it is one
+        draw from an infinite support, and a check proved at one draw
+        is a check about that draw. Sweeping
+        [`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS]
+        through
+        [`points_across_seeds`][tests.transpile._gallery_data.points_across_seeds]
+        is how a sensitivity claim is made about the perturbation
+        design instead.
+    scale
+        Excursion magnitude, in the natural unconstrained coordinate of
+        each value's support, before the redraw ladder halves it. The
+        default is
+        [`PERTURBATION_SCALE`][tests.transpile._gallery_data.PERTURBATION_SCALE];
+        [`WIDE_PERTURBATION_SCALE`][tests.transpile._gallery_data.WIDE_PERTURBATION_SCALE]
+        is the wider excursion the strength suite measures the check's
+        sensitivity at, since a per-point discrepancy that is nonlinear
+        in the point grows superlinearly in this number.
 
     Returns
     -------
@@ -1783,10 +1929,10 @@ def points_from_dataset(
     for index in range(1, n_points):
         mode = labels[index]
         for attempt in range(_MAX_REDRAWS):
-            scale = _PERTURBATION_SCALE * (0.5 ** attempt)
+            attempt_scale = scale * (0.5 ** attempt)
             params = (
                 _perturb_section(
-                    dataset.params, supports, generator, scale,
+                    dataset.params, supports, generator, attempt_scale,
                     infer_from_value=False,
                 )
                 if mode in (PERTURB_LATENTS, PERTURB_BOTH)
@@ -1794,7 +1940,8 @@ def points_from_dataset(
             )
             observations = (
                 _perturb_section(
-                    dataset.observations, supports, generator, scale,
+                    dataset.observations, supports, generator,
+                    attempt_scale,
                     infer_from_value=True,
                     observe_names=dataset.observe_names,
                     exclude=shared_names,
@@ -1813,23 +1960,159 @@ def points_from_dataset(
                 break
         else:
             raise AssertionError(
-                f"point {index} ({mode}): every perturbation attempt "
-                f"down to scale {_PERTURBATION_SCALE * 0.5 ** (_MAX_REDRAWS - 1):.4g} "
-                f"left the QVR joint non-finite, so no in-support "
-                f"point exists under the constraints this module "
-                f"derived. Sites: {sorted(supports)}."
+                f"point {index} ({mode}) at seed {seed}: every "
+                f"perturbation attempt from scale {scale:.4g} down to "
+                f"{scale * 0.5 ** (_MAX_REDRAWS - 1):.4g} left the QVR "
+                f"joint non-finite, so no in-support point exists under "
+                f"the constraints this module derived. Sites: "
+                f"{sorted(supports)}."
             )
     return points
 
 
+def points_across_seeds(
+    dataset: GalleryDataset,
+    n_points: int = 6,
+    seeds: Sequence[int] = GALLERY_SEEDS,
+    scale: float = _PERTURBATION_SCALE,
+) -> dict[int, list[Point]]:
+    """Independent point sets for `dataset`, one per entry of `seeds`.
+
+    The seeds index *independent draws of the same perturbation
+    design*, not variations of it: every set runs the same schedule
+    [`perturbation_labels`][tests.transpile._gallery_data.perturbation_labels]
+    reports, at the same scale, under the same support constraints,
+    and differs only in where in each site's support the draw landed.
+
+    That is what makes a claim proved across the returned sets a claim
+    about the design. A single set is one finite sample of an infinite
+    support: a coordinate it moves by a hair, or a region it never
+    visits, is a blind spot no aggregate statistic over that set can
+    reveal, because the statistic is computed from the same sample.
+    Re-proving the claim on independent draws is the cheapest way to
+    tell a property of the perturber from an accident of one draw.
+
+    Parameters
+    ----------
+    dataset
+        The example's synthetic data and captured ground truth.
+    n_points
+        Points per set, ground truth included.
+    seeds
+        Seeds to draw at, defaulting to
+        [`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS].
+    scale
+        Excursion magnitude, shared by every set so the sets differ in
+        draw alone.
+
+    Returns
+    -------
+    dict[int, list[Point]]
+        One point set per seed, keyed by the seed.
+
+    Raises
+    ------
+    ValueError
+        When `seeds` is empty, which would return a sweep that proves
+        nothing while reading as a sweep that passed, or repeats a
+        seed, which would report one draw as two independent ones.
+    """
+    ordered = list(seeds)
+    if not ordered:
+        raise ValueError(
+            "points_across_seeds was given no seeds, so it would "
+            "return an empty sweep that vacuously satisfies every "
+            "claim made over it. Pass at least one seed."
+        )
+    duplicates = sorted(
+        {seed for seed in ordered if ordered.count(seed) > 1}
+    )
+    if duplicates:
+        raise ValueError(
+            f"points_across_seeds was given repeated seed(s) "
+            f"{duplicates!r}. A repeated seed yields a byte-identical "
+            f"point set, so a sweep over it reports one draw as "
+            f"several and overstates the coverage it achieved."
+        )
+    return {
+        seed: points_from_dataset(
+            dataset, n_points=n_points, seed=seed, scale=scale,
+        )
+        for seed in ordered
+    }
+
+
+def point_displacements(points: Sequence[Point]) -> list[float]:
+    """Euclidean distance of each point from point 0, measured in the
+    flat wire coordinate both evaluators are driven with.
+
+    This is the observable magnitude of the excursion, and it is what
+    the perturbation *scale* only nominally controls: the redraw ladder
+    halves the scale whenever a draw leaves the support, so a caller
+    that asked for a wide excursion may have been handed a narrow one.
+    Reading the displacement back off the points is the only way to
+    know which happened.
+
+    Its use is to characterise a defect by how its discrepancy grows.
+    A defect linear in the displacement contributes a spread
+    proportional to the scale; one quadratic in it contributes a spread
+    proportional to the square, so it can hide under tolerance at one
+    excursion and be rejected at a wider one. Both point sections
+    contribute, since a discrepancy may grow in the latents, in the
+    data, or in both.
+
+    Every coordinate the point carries under a name point 0 also
+    carries is included; a name present at only one of the two is
+    skipped, since a coordinate that appears and disappears has no
+    displacement to measure.
+    """
+    if not points:
+        return []
+    origin = points[0]
+    out: list[float] = []
+    for point in points:
+        total = 0.0
+        for section, base in (
+            (point.params, origin.params), (point.data, origin.data),
+        ):
+            for name, value in section.items():
+                if name not in base:
+                    continue
+                here = _wire_key(value)
+                there = _wire_key(base[name])
+                if len(here) != len(there):
+                    continue
+                total += sum(
+                    (a - b) ** 2 for a, b in zip(here, there)
+                )
+        out.append(math.sqrt(total))
+    return out
+
+
+def point_excursion(points: Sequence[Point]) -> float:
+    """Largest distance any point of the set travels from the ground
+    truth, in the flat wire coordinate.
+
+    The single number that answers "how far did this point set
+    actually go", as opposed to how far its `scale` argument asked it
+    to go. Returns 0.0 for a set of one point, which is exactly the
+    degenerate set whose spread statistic is identically zero.
+    """
+    displacements = point_displacements(points)
+    return max(displacements) if displacements else 0.0
+
+
 __all__ = [
+    "GALLERY_SEEDS",
     "GalleryDataset",
     "PERTURB_BOTH",
     "PERTURB_DATA",
     "PERTURB_GROUND_TRUTH",
     "PERTURB_LATENTS",
+    "PERTURBATION_SCALE",
     "PROBE_SCRATCH_PARENT",
     "PROBE_SCRIPT_DIR",
+    "WIDE_PERTURBATION_SCALE",
     "assert_probe_scripts_unchanged",
     "gallery_examples_with_data",
     "is_discrete_support",
@@ -1838,7 +2121,10 @@ __all__ = [
     "observations_for_point",
     "observed_data_names",
     "perturbation_labels",
+    "point_displacements",
+    "point_excursion",
     "point_from_dataset",
+    "points_across_seeds",
     "points_from_dataset",
     "probe_scratch",
     "probe_scratch_root",

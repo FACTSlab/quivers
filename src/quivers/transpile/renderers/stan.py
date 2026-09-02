@@ -86,6 +86,7 @@ from quivers.transpile.family_meta import (
 )
 from quivers.transpile.ir import (
     ConstraintSpec,
+    LetExprAffineMap,
     Dim,
     DimDynamic,
     DimStatic,
@@ -3245,11 +3246,13 @@ class StanRenderer(RendererBase):
         #   - the let's expression is already shape-aware (a
         #     [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
         #     or [`LetExprList`][quivers.dsl.ast_nodes.LetExprList]
-        #     literal produces the full array on the RHS, so no
+        #     literal produces the full array on the RHS, and a
+        #     [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap]
+        #     produces it as one matrix-vector product, so no
         #     broadcasting / per-element substitution is needed and
         #     Stan accepts the array-to-array assignment directly).
         if not node.plate.batch_dims or isinstance(
-            body_expr, (LetExprFactor, LetExprList)
+            body_expr, (LetExprAffineMap, LetExprFactor, LetExprList)
         ):
             rhs = render_let_expr_stan(
                 _StanLetCtx(

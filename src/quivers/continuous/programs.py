@@ -809,6 +809,19 @@ class MonadicProgram(ContinuousMorphism):
         eq = f"...{in_letters},{in_letters}{out_letters}->...{out_letters}"
         return torch.einsum(eq, inp, m_tensor)
 
+    def has_conditional_density(self) -> bool:
+        """No: a program's density at its output marginalizes its draws.
+
+        [`log_prob`][quivers.continuous.programs.MonadicProgram.log_prob]
+        raises for exactly this reason, and a caller choosing between
+        constructions reads the answer here rather than by catching
+        that raise.
+        [`log_joint`][quivers.continuous.programs.MonadicProgram.log_joint]
+        is the exact route: it scores the draws themselves, given
+        values for all of them.
+        """
+        return False
+
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability is not supported for monadic programs.
 

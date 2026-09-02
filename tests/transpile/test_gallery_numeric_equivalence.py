@@ -163,15 +163,20 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # zip_regression names `ContinuousBernoulli` and
-    # kumaraswamy_bounded_outcome names `Kumaraswamy`; neither has a
-    # JAGS or BUGS target name. The two renderers spell the rejection
-    # differently, so each cell pins the kind its own path produces.
+    # zip_regression names `ContinuousBernoulli`, which has neither a
+    # JAGS nor a BUGS target name. The two renderers spell the
+    # rejection differently, so each cell pins the kind its own path
+    # produces.
+    #
+    # kumaraswamy_bounded_outcome names `Kumaraswamy`, which has no
+    # target name on either engine either, and there the two part
+    # company: `renderers/jags.py::_emit_kumaraswamy` writes the
+    # density out in `log` and `pow` alone and adds it through the
+    # zeros trick, so the JAGS cell is live and scores the model up to
+    # the lift the trick pays. The BUGS renderer carries no such path
+    # and its cell stays a raise.
     ("bugs", "kumaraswamy_bounded_outcome"): "family:Kumaraswamy",
     ("bugs", "zip_regression"): "family:",
-    ("jags", "kumaraswamy_bounded_outcome"): (
-        "family:no-target-name:Kumaraswamy"
-    ),
     ("jags", "zip_regression"): "family:",
     # beta_binomial_ab_test observes `BetaBinomial`. Every other
     # backend either has the family natively or reaches it through
@@ -189,12 +194,36 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("bugs", "beta_binomial_ab_test"): (
         "family:BetaBinomial:no-bugs-distribution"
     ),
+    # gru_lm and lstm_lm build their gate arguments with `+` between
+    # two `Hidden`-wide operands. The BUGS model language has no
+    # elementwise vector arithmetic: only the contracted product
+    # lowers, to `inprod(a, b)`. Both engines therefore reject the
+    # `let` before any site is emitted, which is a statement about the
+    # target language rather than about the oracle. Both examples sit
+    # in `_SKIP_QVR_INCOMPATIBLE`, and the test consults the raises
+    # first, so pinning these four turns four cells that asserted
+    # nothing into four that assert the boundary. The remaining eight
+    # targets render both examples and stay carried by that registry.
+    ("bugs", "gru_lm"): "let-expr:elementwise-axis-operator",
+    ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # bnn's `net` morphism draws its mean from an `mlp` param source. The
 # network weights are model-internal, absent from both the wire form
 # and the sample sites, so no backend can reconstruct the mean; the
 # transpiler raises on every backend.
+#
+# vanilla_rnn_lm reaches the same raise from the other direction. Its
+# `cell : Embedded * Hidden -> Hidden [param_source=mlp]` is consumed
+# inside `define backbone = tok_embed >> scan(cell)`, so flattening
+# the composite leaves `cell` in an ordinary expression rather than at
+# a draw site. The resolver walks the `define` table and rejects the
+# name in value position, which spells the kind
+# `param-source:mlp:value-position:cell`; the prefix below matches it,
+# and the cell is a raise on all ten targets rather than a skip whose
+# emitted program would read the network as a free input.
 for _neural_model in (
     "bnn",
     "bidirectional_rnn_lm",
@@ -202,6 +231,7 @@ for _neural_model in (
     "seq2seq",
     "transformer_lm",
     "vae",
+    "vanilla_rnn_lm",
 ):
     for _neural_backend in _BACKENDS_WITH_IMAGES:
         _EXPECTED_TRANSPILE_RAISES[(_neural_backend, _neural_model)] = (
@@ -242,20 +272,49 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset()
 #
 # 1. For `bidirectional_rnn_lm`, `deep_markov`, `seq2seq`,
 #    `transformer_lm`, and `vae` the joint is a property of the
-#    quadrature rule, moving by many multiples of the pin tolerance
-#    when the node count changes. It is the output of an estimator
-#    rather than a density, so there is no value a pin could hold.
+#    quadrature rule rather than of the model, so it is the output of
+#    an estimator and there is no value a pin could hold. This is a
+#    measurement, not an inference from the shape of the program:
+#    forcing every `SampledComposition.n_intermediate` in the compiled
+#    module from its default 100 down to 23 and re-scoring the same
+#    six points moves the joint by 1.04 nats (`seq2seq`), 1.45
+#    (`deep_markov`), 12.97 (`vae`), 1.36e04 (`transformer_lm`) and
+#    9.17e05 (`bidirectional_rnn_lm`) at the point each moves most.
+#    Two rules integrating the same kernel against the same data would
+#    return the same density; these return different numbers, and the
+#    smallest of them is already thousands of times the pin tolerance
+#    at its magnitude.
+#    `test_oracle_reference_strength.py::test_quadrature_exempt_examples_have_a_rule_dependent_joint`
+#    holds each example to a floor on that ratio under a 37-node rule,
+#    so a quadrature converging toward the tolerance, which is the
+#    event that would make these pinnable, surfaces as a shrinking
+#    margin rather than as a silent change of grounds.
 # 2. For `gru_lm`, `lstm_lm`, and `vanilla_rnn_lm` the composite site
 #    scores identically zero, so the reported number is the emission
 #    likelihood alone and omits the `~ Normal` recurrent transition
-#    density the source declares at every step.
+#    density the source declares at every step. That flat site is also
+#    plate-shaped where the emission site is scalar, so the sum
+#    broadcasts and the joint carries the emission likelihood once per
+#    scored row: measured exactly 32 times at all six points of all
+#    three,
+#    `test_oracle_reference_strength.py::test_flat_latent_exempt_examples_inflate_their_emission_per_row`.
+#    The excess is `(rows - 1)` times a likelihood the perturbation
+#    schedule moves, so it is not the additive constant Theorem 4.1's
+#    quotient absorbs; it varies across the point set by 3.2e06
+#    equivalence tolerances (`gru_lm`, `lstm_lm`) and 2.7e08
+#    (`vanilla_rnn_lm`). Dropping these three rows would therefore
+#    produce 30 failing cells rather than 30 recovered ones.
 #
 # The joints themselves are bitwise stable across global RNG seeds,
 # which `test_oracle_determinism.py::test_composition_marginalised_models_are_bitwise_deterministic`
 # measures at every point of the set; stability is what makes the
 # quadrature probe meaningful, and is not on its own enough to pin
-# against. Pinning these needs the composition's integral made a rule
-# whose value has converged, and its inner latents exposed as sites.
+# against. It is emphatically not enough to lift the exemption: a
+# joint that reproducibly counts its likelihood 32 times is
+# deterministic and wrong, which is why both grounds above are
+# measured against the density rather than against the generator.
+# Pinning these needs the composition's integral made a rule whose
+# value has converged, and its inner latents exposed as sites.
 _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "bidirectional_rnn_lm",
     "deep_markov",
@@ -587,20 +646,24 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
 # example has no reference, so an exemption cannot outlive the gap it
 # describes.
 _REFERENCE_PIN_EXEMPT: dict[str, str] = {
-    # Sequence models carrying a `SampledComposition` latent. The
-    # oracle marginalises the composition's internal states by
-    # importance sampling and redraws on every call, so its "joint" is
-    # a sample from an estimator rather than a density and there is no
-    # value a pin could hold. Each sits in `_SKIP_QVR_INCOMPATIBLE`,
-    # whose comment carries the full diagnosis.
-    "bidirectional_rnn_lm": "no deterministic oracle joint to pin",
-    "deep_markov": "no deterministic oracle joint to pin",
-    "gru_lm": "no deterministic oracle joint to pin",
-    "lstm_lm": "no deterministic oracle joint to pin",
-    "seq2seq": "no deterministic oracle joint to pin",
-    "transformer_lm": "no deterministic oracle joint to pin",
-    "vae": "no deterministic oracle joint to pin",
-    "vanilla_rnn_lm": "no deterministic oracle joint to pin",
+    # Sequence models carrying a `SampledComposition` latent. Every one
+    # of them scores a bitwise-stable joint, so non-determinism is not
+    # the ground and never was the one that mattered: what disqualifies
+    # the number is that it is not the model's density. Five report the
+    # output of a quadrature rule, which moves by 1.04 to 9.17e05 nats
+    # when the rule's node count changes; three report their emission
+    # likelihood inflated once per scored row, because the composite
+    # site carries no density at all. Each sits in
+    # `_SKIP_QVR_INCOMPATIBLE`, whose comment carries the full
+    # diagnosis and names the test that measures each ground.
+    "bidirectional_rnn_lm": "oracle joint is a quadrature output, not a density",
+    "deep_markov": "oracle joint is a quadrature output, not a density",
+    "gru_lm": "oracle joint omits the recurrent density and inflates the emission",
+    "lstm_lm": "oracle joint omits the recurrent density and inflates the emission",
+    "seq2seq": "oracle joint is a quadrature output, not a density",
+    "transformer_lm": "oracle joint is a quadrature output, not a density",
+    "vae": "oracle joint is a quadrature output, not a density",
+    "vanilla_rnn_lm": "oracle joint omits the recurrent density and inflates the emission",
 }
 
 _REFERENCE_PIN_ULP_BUDGET = 8
@@ -716,43 +779,35 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # whose spread is constant to within `adaptive_atol` belongs outside
 # the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    # Sequence-model examples carried by `_SKIP_QVR_INCOMPATIBLE`,
-    # which the test consults first: the composite site binding each
-    # example's hidden state scores identically zero, so the oracle
-    # reports the emission likelihood alone and there is no reference
-    # a container can be compared against. The entries stay so that
-    # closing the oracle gap surfaces the backend-side state of each
-    # cell rather than 30 fresh failures.
-    ('bugs', 'gru_lm'),
-    ('bugs', 'lstm_lm'),
-    ('bugs', 'vanilla_rnn_lm'),
+    # gru_lm and lstm_lm on the eight targets that render them.
+    # `_SKIP_QVR_INCOMPATIBLE` carries both examples and the test
+    # consults it first, so these rows are inert today: the composite
+    # site binding each example's hidden state scores identically
+    # zero, the oracle reports the emission likelihood alone, and
+    # there is no reference a container can be compared against. They
+    # stay so that closing the oracle gap surfaces the backend-side
+    # state of each cell rather than sixteen fresh failures. The
+    # `bugs` and `jags` cells of both examples are absent because
+    # their transpile raises before any of this: the raise is pinned
+    # in `_EXPECTED_TRANSPILE_RAISES`, which asserts something a skip
+    # never could. `vanilla_rnn_lm` is absent on every target for the
+    # same reason.
     ('edward2', 'gru_lm'),
     ('edward2', 'lstm_lm'),
-    ('edward2', 'vanilla_rnn_lm'),
     ('gen', 'gru_lm'),
     ('gen', 'lstm_lm'),
-    ('gen', 'vanilla_rnn_lm'),
-    ('jags', 'gru_lm'),
-    ('jags', 'lstm_lm'),
-    ('jags', 'vanilla_rnn_lm'),
     ('numpyro', 'gru_lm'),
     ('numpyro', 'lstm_lm'),
-    ('numpyro', 'vanilla_rnn_lm'),
     ('pymc', 'gru_lm'),
     ('pymc', 'lstm_lm'),
-    ('pymc', 'vanilla_rnn_lm'),
     ('pyro', 'gru_lm'),
     ('pyro', 'lstm_lm'),
-    ('pyro', 'vanilla_rnn_lm'),
     ('stan', 'gru_lm'),
     ('stan', 'lstm_lm'),
-    ('stan', 'vanilla_rnn_lm'),
     ('turing', 'gru_lm'),
     ('turing', 'lstm_lm'),
-    ('turing', 'vanilla_rnn_lm'),
     ('webppl', 'gru_lm'),
     ('webppl', 'lstm_lm'),
-    ('webppl', 'vanilla_rnn_lm'),
     # continuous_hmm / linear_gaussian_ssm: a Kleisli morphism
     # declared with a `~ Family` init and no `[param_source=...]`
     # option takes the default linear source, whose weights are
@@ -814,37 +869,48 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # same offset from the float32 reference), pyro 2.91e-05,
     # edward2 1.78e-05, all under the 5e-04 constant-spread floor.
     ('stan', 'tree_categorical'),
-    # hmm: `sample initial_row : State <- Dirichlet(1.0)
-    # [over=State]` lowers to one `simplex[8]` under an empty plate
-    # while the QVR runtime produces an (8, 8) batch of simplices,
-    # and the gallery data ships `obs` with 8 entries against the
-    # model's `object Obs : FinSet 16`. The axis-role derivation in
-    # `src/quivers/transpile/lower.py::_build_plate` owns the first
-    # half and `tests/transpile/_gallery_data.py` the second. numpyro
-    # and pyro reproduce the reference through untyped broadcasting;
-    # every typed backend reports the clash directly (stan: `obs`
-    # declared (16), found (8); pymc: cannot convert Matrix(8, 8)
-    # into Vector(8,); gen: Vector{Float64}(::Matrix{Float64});
-    # turing: +(::Float64, ::Vector{Float64}); jags: `Error in node
-    # state / Cannot normalize density` at `console.update`, the
-    # marginalized `state` reaching the engine as a live node whose
-    # Categorical row is the mis-ranked `initial_row`). edward2
-    # leaves the mis-ranked `initial_row` unconditioned and drifts
-    # 0.92 nats; webppl additionally passes the Dirichlet
-    # concentration as a plain JS array, which its `Dirichlet`
-    # rejects as not a vector. The `bugs` cell is live and failing on
-    # the same engine error as `jags`: the two renderers emit
-    # different source, so the cell stays a visible failure rather
-    # than a tenth row here.
-    ('edward2', 'hmm'),
+    # hmm: the axis-role derivation now ranks `sample initial_row :
+    # State <- Dirichlet(1.0) [over=State]` as one simplex rather than
+    # a batch of them, so the typed backends that reported the rank
+    # clash score the model: edward2 reproduces the reference exactly
+    # (spread 0.0) and pymc to 1.16e-05, both out of this registry
+    # beside numpyro and pyro. These five carry the blockers that
+    # survive, each the error its own container returned on the
+    # six-point set.
+    #   gen: `Gen.assess` requires every traced address to be
+    #     constrained, so the marginalized `state` surfaces as
+    #     `KeyError: key :state not found` before anything is scored.
+    #     The same missing log-weight primitive blocks gen/lda.
+    #   jags: `RendererBase.explicit_latent_scope` lowers the
+    #     marginalize to a live `IRSample(state)` and drops the
+    #     reduction, so the engine rejects the model at
+    #     `console.update` with `Error in node state / Cannot
+    #     normalize density` rather than integrating it out. The
+    #     `bugs` cell is live and failing on the same engine error
+    #     from its own renderer's emission, so it stays a visible
+    #     failure rather than a sixth row here.
+    #   stan: the program now compiles and scores every point, and
+    #     disagrees with the reference by a spread of 2.19 nats over
+    #     the six-point set, four thousand times the 5e-04 floor. The
+    #     offset is not constant, so the emitted measure differs from
+    #     the reference rather than differing by a base measure.
+    #   turing: the renderer hands `Categorical` a row of the
+    #     `emission_rows` matrix, and Distributions.jl rejects the
+    #     `Vector{Float64}` where its `SubArray`-parameterised
+    #     constructor was resolved (`MethodError: Cannot convert an
+    #     object of type Vector{Float64} to an object of type
+    #     SubArray{...}`).
+    #   webppl: the emit reads `Categorical({ps: emission_rows[0]})`
+    #     and WebPPL's `Categorical` requires a `vs` support argument
+    #     beside `ps` (`Parameter "vs" missing from Categorical
+    #     distribution`).
     ('gen', 'hmm'),
     ('jags', 'hmm'),
-    ('pymc', 'hmm'),
     ('stan', 'hmm'),
     ('turing', 'hmm'),
     ('webppl', 'hmm'),
-    # lda: the four backends that integrate the topic latent
-    # correctly are out of this registry; these five each carry a
+    # lda: the five backends that integrate the topic latent
+    # correctly are out of this registry; these four each carry a
     # distinct blocker.
     #   gen: `Gen.assess` requires every traced address to be
     #     constrained and the `@gen` DSL has no log-weight primitive,
@@ -859,23 +925,17 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     #     failing on the same engine error from its own renderer's
     #     emission, so it stays a visible failure rather than a sixth
     #     row here.
-    #   stan: the point payload ships `theta` / `phi` rows as float32
-    #     summing to 1.00000006, which `stan::math::simplex_free`
-    #     rejects; the harness must renormalize simplex-typed
-    #     parameters. The renderer's log_sum_exp accumulator is
-    #     fixed and measures 3.18e-04 once that holds.
     #   turing: the gathered per-word topic weights index a scalar,
     #     raising BoundsError at index [2].
     #   webppl: the Dirichlet concentration reaches WebPPL as a plain
     #     JS array rather than a vector.
     ('gen', 'lda'),
     ('jags', 'lda'),
-    ('stan', 'lda'),
     ('turing', 'lda'),
     ('webppl', 'lda'),
     # zip_regression: the backends whose Poisson uses an `xlogy` form
     # integrate the zero-inflation indicator correctly and are out of
-    # this registry; these four do not.
+    # this registry; these three do not.
     #   numpyro: its `Poisson` computes log(rate) * value directly,
     #     so the z = 0 atom's rate of exactly 0 yields nan at every
     #     y == 0 observation. The emitted expression is faithful; the
@@ -889,26 +949,9 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     #     reduced density has no address to ride on, and
     #     `Gen.logpdf(Gen.poisson, 0, 0.0)` is NaN where the
     #     reference scores the point mass exactly.
-    #   webppl: the atom reduction emits `factor(...)`, which the
-    #     probe's rewrite does not turn into `globalStore.lp`
-    #     accumulation, so WebPPL raises `factor allowed only inside
-    #     inference`.
     ('gen', 'zip_regression'),
     ('numpyro', 'zip_regression'),
     ('stan', 'zip_regression'),
-    ('webppl', 'zip_regression'),
-    # webppl/ppca and webppl/factor_analysis: the renderer emits the
-    # residual event axis as a nested
-    # `repeat(32, function () { return repeat(2, ...); })`, but the
-    # probe's `_lift_iid_plate` matches only a callback whose body is
-    # a bare `return sample(...)`. The nested plate falls through
-    # unlifted and the probe raises rather than let the site be
-    # redrawn. Measured against a locally patched probe the cells are
-    # constant to 6.75e-06 and 2.10e-05, so the closure is a
-    # recursive branch in
-    # `tests/transpile/probes/_scripts/webppl.py`.
-    ('webppl', 'factor_analysis'),
-    ('webppl', 'ppca'),
     # webppl/stochastic_volatility: the latent trajectory emits as
     # `mapIndexed(..., repeat(200, 0))` and WebPPL's `repeat`
     # requires its second argument to be a function. The probe's

@@ -82,6 +82,7 @@ from quivers.transpile._resolve import (
 )
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    LetExprAffineMap,
     ConstraintSpec,
     Dim,
     DimDynamic,
@@ -2674,6 +2675,11 @@ def _let_expr_var_refs(expr: LetExprNode) -> set[str]:
         for a in expr.args:
             out3 |= _let_expr_var_refs(a)
         return out3
+    if isinstance(expr, LetExprAffineMap):
+        out4 = _let_expr_var_refs(expr.weight) | _let_expr_var_refs(expr.bias)
+        for source in expr.sources:
+            out4 |= _let_expr_var_refs(source.value)
+        return out4
     if isinstance(expr, LetExprFactor):
         body_refs2: set[str] = (
             _let_expr_var_refs(expr.body) if expr.body is not None else set()

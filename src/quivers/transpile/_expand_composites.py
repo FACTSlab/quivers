@@ -10,11 +10,14 @@ The pass operates at the Module level: it rebuilds every
    into a chain of atomic steps whose shape depends on each leaf's
    declaration:
 
-   * A morphism with `~ Family(args)` init clause becomes a
-     `SampleStep` drawing from that family. The step's first
-     positional arg threads the previous chain output (or the
-     family's canonical default when at the head of the chain);
-     remaining slots take the family's default tail.
+   * A morphism with a family init clause becomes a `SampleStep`
+     drawing from that family. A bare `~ Family` declaration reads
+     its parameters off the morphism's own parameter map, so the
+     step's argument list is the conditioning row that map is
+     applied to: the previous chain output, or nothing at all at
+     the head of the chain, where the row is the chain's own input.
+     A declaration that writes its parameters (`~ Family(args)`)
+     denotes a constant kernel and keeps those arguments.
    * A morphism with no init clause (a deterministic parameter
      table such as an embedding lookup or a learned linear layer)
      becomes a `LetStep` whose RHS is a function call against the
@@ -82,31 +85,6 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.transpile._draw_args import atom_to_draw_arg
-
-
-# Canonical default args per family for kernels that ship `~ Family`
-# with no init args. The first arg becomes `prev_output` when the
-# step is mid-chain; remaining args use these defaults verbatim.
-_FAMILY_DEFAULT_ARGS: dict[str, tuple[float, ...]] = {
-    "Normal":       (0.0, 1.0),
-    "HalfNormal":   (1.0,),
-    "Cauchy":       (0.0, 1.0),
-    "HalfCauchy":   (1.0,),
-    "Laplace":      (0.0, 1.0),
-    "LogNormal":    (0.0, 1.0),
-    "Beta":         (1.0, 1.0),
-    "Bernoulli":    (0.5,),
-    "Gamma":        (1.0, 1.0),
-    "InverseGamma": (1.0, 1.0),
-    "Exponential":  (1.0,),
-    "Uniform":      (0.0, 1.0),
-    "StudentT":     (1.0, 0.0, 1.0),
-    "Pareto":       (1.0, 1.0),
-    "Weibull":      (1.0, 1.0),
-    "Categorical":  (),
-    "Dirichlet":    (),
-    "MultivariateNormal": (),
-}
 
 
 class _ChainElem(dx.TaggedUnion, discriminator="kind"):
@@ -773,37 +751,33 @@ def _derive_chain_args(
     morphism_name: str,
     prev_var: str | None,
     morphisms: dict[str, MorphismDecl],
-) -> tuple[DrawArg, ...]:
+) -> tuple[DrawArg, ...] | None:
     """Compute the chain-position args for a kernel morphism.
 
-    If the morphism declaration carries explicit `~ Family(args)`,
-    those args are used verbatim. Otherwise the kernel is `~ Family`
-    with no explicit args, and we substitute canonical defaults: the
-    first arg is the upstream step's output variable name (when one
-    exists) or the family's first default; remaining args are the
-    family's default tail.
+    The argument list of a draw whose head names a declared morphism
+    is a *conditioning row*, not a list of family parameters: the
+    morphism's own parameter map computes the family's parameters
+    from that row (``docs/semantics/morphisms.md`` §2.1), and the row
+    is what the runtime assembles from the list before applying the
+    morphism.
+    A chained kernel therefore conditions on the upstream step's
+    output, and an absent list conditions on the chain's own input,
+    which is exactly the pair of draws
+    [`SampledComposition`][quivers.continuous.morphisms.SampledComposition]
+    makes: ``y ~ f(x, .)`` then ``z ~ g(y, .)``.
+
+    A declaration that writes its own parameters (``~ Normal(0, 1)``)
+    means them: it denotes a constant kernel, so the chain position
+    keeps the declared arguments and reads nothing upstream.
     """
     decl = morphisms.get(morphism_name)
-    family: str | None = None
-    explicit_args: tuple[DrawArg, ...] = ()
-    if decl is not None:
-        if decl.init_family is not None:
-            family = decl.init_family.family
-            explicit_args = decl.init_family.args
-        elif isinstance(decl.init_expr, ExprIdent):
-            family = decl.init_expr.name
-    if explicit_args:
-        return explicit_args
-    if family is None:
-        return ()
-    defaults = _FAMILY_DEFAULT_ARGS.get(family)
-    if defaults is None:
-        return ()
+    if decl is not None and decl.init_family is not None:
+        explicit_args = decl.init_family.args
+        if explicit_args:
+            return tuple(atom_to_draw_arg(a) for a in explicit_args)
     if prev_var is None:
-        return tuple(atom_to_draw_arg(d) for d in defaults)
-    if not defaults:
-        return ()
-    return (atom_to_draw_arg(prev_var), *(atom_to_draw_arg(d) for d in defaults[1:]))
+        return None
+    return (atom_to_draw_arg(prev_var),)
 
 
 __all__ = ["expand_composite_lets"]

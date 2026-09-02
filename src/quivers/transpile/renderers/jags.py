@@ -21,9 +21,11 @@ The renderer:
   [`IRObserve`][quivers.transpile.ir.IRObserve] to per-batch-axis
   ``for (m_<axis> in 1:N_<axis>) { <name>[m_<axis>] ~ d<family>(args) }``
   nests.
-* Lowers [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] inline
-  via [`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-  (JAGS samples discrete latents natively).
+* Lowers [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to the
+  weighted sum over the latent's finite support
+  ([`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]),
+  declaring no latent site and adding the sum's logarithm to the joint
+  through the zeros trick.
 * Refuses to emit a scalar broadcast to a vector / matrix arg or a
   bare list / matrix literal, raising
   [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
@@ -36,7 +38,6 @@ The renderer:
 
 from __future__ import annotations
 
-import math
 from typing import Literal
 
 import panproto
@@ -84,23 +85,36 @@ from quivers.transpile.ir import (
     event_dim_of,
 )
 from quivers.transpile.renderers._bugs_helpers import (
+    SQRT_TWO_PI,
     TRUNCATION_FINGERPRINT,
     beta_binomial_log_pmf,
     build_decl_plates,
+    continuous_bernoulli_log_pdf,
     factor_axis_sizes,
     factor_cells,
     half_support_truncation,
     index_letexpr_refs,
+    inline_letexpr,
+    irarg_letexpr,
+    kumaraswamy_log_pdf,
+    marginal_scope_density,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
     reorder_binomial_dbin,
     reorder_half_studentt_dt,
     reorder_pareto_dpar,
     split_event_dims,
+    subscript_letexpr,
+)
+from quivers.transpile.renderers._python_helpers import (
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
 )
 from quivers.transpile.renderers._base import (
     BlockKind,
     IRArgTransform,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
@@ -250,20 +264,93 @@ _ZEROS_TRICK_OFFSET: float = 1.0e6
 #: The families JAGS has no distribution for and whose density the
 #: renderer therefore writes out in closed form, adding it to the
 #: joint through the zeros trick. Each needs the ``data { ... }``
-#: block that binds the trick's constant-zero carrier, and each is
-#: emittable only at an observed site: the trick contributes a density
-#: term without declaring a node the engine can sample, so a latent
-#: draw from one of these families has no JAGS form.
+#: block that binds the trick's constant-zero carrier.
+#:
+#: The trick contributes a density term without declaring a node the
+#: engine can sample, so at an observed site it is the whole emission,
+#: while a *latent* draw needs a node declaration as well; the
+#: families that can supply one are the entries of
+#: [`_ZEROS_TRICK_LATENT_CARRIER`][quivers.transpile.renderers.jags._ZEROS_TRICK_LATENT_CARRIER].
 _ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset({
     "MixtureNormal",
     "BetaBinomial",
+    "ContinuousBernoulli",
+    "Kumaraswamy",
 })
 
-#: `sqrt(2 * pi)`, the Gaussian density's normalising constant. The
-#: mixture emit writes the component densities out in closed form, and
-#: JAGS evaluates the constant once per compile whether it is spelled
-#: as an expression or a literal.
-_SQRT_TWO_PI: float = math.sqrt(2.0 * math.pi)
+#: Zeros-trick families a *latent* site can carry, mapped to the QVR
+#: family whose JAGS distribution declares the drawn node's support.
+#:
+#: A latent site has to leave the engine a node it can sample, which
+#: the zeros trick alone never does. Pairing the trick with a draw
+#: from the *uniform measure on the family's own support* supplies
+#: one: `z[n] ~ dunif(0, 1)` declares `z` over `(0, 1)` and adds
+#: `-log(1 - 0) = 0` to the joint, so the closed-form term the trick
+#: carries is the entire contribution and the emitted program scores
+#: the family's own density rather than a tilted version of it. The
+#: carrier is exact rather than approximate: the uniform's log density
+#: is identically zero over the unit interval, not merely small.
+#:
+#: Both entries are supported on `(0, 1)`, which is what makes the
+#: unit uniform the right carrier. `MixtureNormal` and `BetaBinomial`
+#: are deliberately absent. A mixture of normals is supported on all
+#: of `R`, whose uniform measure is improper: JAGS spells it
+#: `dflat()`, which is not a distribution the sampler can initialise a
+#: node from, so a latent mixture draw would emit a model that
+#: compiles and then fails to run. A beta-binomial is supported on the
+#: integers `0..n`, and its carrier would have to be a categorical
+#: over a support whose width is a model quantity rather than a
+#: compile-time constant.
+_ZEROS_TRICK_LATENT_CARRIER: dict[str, str] = {
+    "ContinuousBernoulli": "Uniform",
+    "Kumaraswamy": "Uniform",
+}
+
+#: The `(low, high)` pair the unit-interval carrier draw supplies,
+#: with the argument names
+#: [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] gives
+#: `Uniform`.
+_UNIT_INTERVAL_CARRIER_ARGS: tuple[IRArg, ...] = (
+    IRArgNumber(value=0.0),
+    IRArgNumber(value=1.0),
+)
+_UNIT_INTERVAL_CARRIER_ARG_NAMES: tuple[str, ...] = ("low", "high")
+
+#: The zeros-trick families whose closed form is a *density* and so
+#: may exceed zero, which is what obliges the emit to lift the Poisson
+#: rate by [`_ZEROS_TRICK_OFFSET`][quivers.transpile.renderers.jags._ZEROS_TRICK_OFFSET]
+#: to keep it in support. ``BetaBinomial`` is deliberately absent: a
+#: mass function is at most one, so its negated log form is already
+#: non-negative and
+#: [`_emit_beta_binomial`][quivers.transpile.renderers.jags.JAGSRenderer._emit_beta_binomial]
+#: emits it with no lift, which keeps that family's emission equal to
+#: the reference measure on the nose rather than up to a constant.
+#: ``ContinuousBernoulli`` is present for the same reason
+#: ``Kumaraswamy`` is: it is a density on ``(0, 1)`` whose value
+#: exceeds one wherever the tilt concentrates the mass at an endpoint,
+#: so its log form is positive there and an unlifted ``-log f(z)``
+#: would hand ``dpois`` a negative rate.
+_ZEROS_TRICK_LIFTED_FAMILIES: frozenset[str] = frozenset({
+    "MixtureNormal",
+    "ContinuousBernoulli",
+    "Kumaraswamy",
+})
+
+
+def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
+    """True iff `body` carries an
+    [`IRMarginalize`][quivers.transpile.ir.IRMarginalize].
+
+    Every marginalize emits its integrated density through the zeros
+    trick, so the render pre-pass opens the ``data { ... }`` block that
+    binds the trick's carrier whenever one is present. Scanning the
+    top level is enough: a nested block sits inside an outer one, and
+    the outer one is already the answer.
+    """
+    for node in body:
+        if isinstance(node, IRMarginalize):
+            return True
+    return False
 
 
 class JAGSRenderer(RendererBase):
@@ -311,13 +398,13 @@ class JAGSRenderer(RendererBase):
         jctx.decl_plates = build_decl_plates(ir)
 
         _vertex(jctx, "src", "source_file")
-        # A `MixtureNormal` or `BetaBinomial` site scores through the
-        # zeros trick, whose constant-zero carrier is a node JAGS has
-        # to see as data. The language's `data { ... }` transformation
-        # block binds exactly such nodes from inside the model source,
-        # so the emit declares one when, and only when, a site needs
-        # it.
-        if any(
+        # A site whose family JAGS cannot name, and every
+        # `marginalize` block, scores through the zeros trick, whose
+        # constant-zero carrier is a node JAGS has to see as data. The
+        # language's `data { ... }` transformation block binds exactly
+        # such nodes from inside the model source, so the emit declares
+        # one when, and only when, a site needs it.
+        if _ir_has_marginalize(ir.body) or any(
             ir_uses_family(ir.body, family)
             for family in _ZEROS_TRICK_FAMILIES
         ):
@@ -391,45 +478,179 @@ class JAGSRenderer(RendererBase):
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        scope inline to its latent ``~`` sample plus the scope body, via
-        the inherited
-        [`explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-        helper.
+        to the weighted sum over its latent's atoms.
 
-        JAGS samples discrete latents natively rather than enumerating
-        like Stan, so the lowering is mechanical."""
+        QVR's `marginalize` denotes the *integral* over the latent of
+        the measure the scope carries, so the emitted program has to
+        score that integral and declare no latent site: a program that
+        draws the latent instead denotes a measure on the product of
+        the latent's support with the scope's, which differs from the
+        integral by an amount that moves with the data.
+
+        JAGS has no reduction over a parameterised family, but it has
+        every piece the integral needs. The support is finite, so the
+        sum
+
+            p(y_n) = sum_a w_a * f_a(y_n)
+
+        is an ordinary arithmetic expression once the atom count is
+        known, and the zeros trick adds its logarithm to the joint.
+        [`_emit_marginal_reduction`][quivers.transpile.renderers.jags.JAGSRenderer._emit_marginal_reduction]
+        writes it.
+        """
         jctx = _as_jags_ctx(ctx)
-        rewritten = self.explicit_latent_scope(node)
-        latent = rewritten[0]
-        if isinstance(latent, IRSample):
-            renamed, rename_map = self._dedupe_plate(
-                jctx, latent.plate, latent.name
-            )
-            # Stash the rename map so `_emit_sample` extends its
-            # axis-to-loop-var map to cover the original axes too.
-            jctx.axis_aliases.update(rename_map)
-            latent_dedup = IRSample(
-                name=latent.name,
-                family=latent.family,
-                args=latent.args,
-                arg_names=latent.arg_names,
-                constraint=latent.constraint,
-                plate=renamed,
-            )
-            self._dispatch_jags_node(jctx, latent_dedup)
-            for follow in rewritten[1:]:
-                via_name = (
-                    follow.via
-                    if isinstance(follow, IRObserve) and follow.via is not None
-                    else None
-                )
-                if via_name is not None:
-                    jctx.latent_via[latent.name] = via_name
-                self._dispatch_jags_node(jctx, follow)
-        else:  # pragma: no cover -- explicit_latent_scope contract
-            for child in rewritten:
-                self._dispatch_jags_node(jctx, child)
+        self._emit_marginal_reduction(jctx, node)
         return ""
+
+    def _emit_marginal_reduction(
+        self, ctx: _JAGSCtx, node: IRMarginalize
+    ) -> None:
+        """Emit `log sum_a w_a f_a(y)` for one marginalized latent,
+        one row per cell of the scope's observed plate.
+
+        The scope reduces to a run of deterministic bindings and a
+        single observed site
+        ([`marginalize_body`][quivers.transpile.renderers._python_helpers.marginalize_body]),
+        and
+        [`marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
+        hands back one copy of that scope per atom with the latent
+        pinned to the atom's value. Each copy becomes one term:
+
+        * the bindings are *inlined* rather than emitted, because a
+          BUGS / JAGS name may be defined once and every atom would
+          otherwise want the same names for its own copy;
+        * the observed site's density is written out in closed form by
+          [`marginal_scope_density`][quivers.transpile.renderers._bugs_helpers.marginal_scope_density];
+        * the weight comes from
+          [`marginal_weight_probs`][quivers.transpile.renderers._python_helpers.marginal_weight_probs],
+          which gathers a per-group weight tensor through the
+          observation's `via` fibration and leaves a shared one alone.
+
+        The row runs over the *observation's* plate, not the latent's:
+        the reference replicates the latent per observed cell, so each
+        cell carries its own mixture. Every reference in the emitted
+        expression is re-indexed against that plate's loop variables
+        by the ordinary deterministic path, which is why the weight
+        and the density are built as let-expressions over declared
+        names rather than as pre-indexed text.
+
+        The lift the zeros trick usually pays is dropped when every
+        atom's density is a mass function: the mixture is then at most
+        one, so its negated logarithm is already a valid Poisson rate
+        and the emitted program scores the reference measure with no
+        additive constant at all.
+        """
+        raw = marginalize_body(
+            node.scope, latent=node.latent, target=self.target
+        )
+        observe = raw.observe
+        if observe.plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"marginalize:event-axis:{node.latent}: the "
+                    f"scalar closed form carries no event shape, but "
+                    f"the scope's observed site declares "
+                    f"{[_dim_name(d) for d in observe.plate.event_dims]!r}"
+                ],
+            )
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(
+                node, name_plates=ctx.decl_plates
+            ),
+        )
+        total: LetExprNode | None = None
+        lifted = False
+        for atom in atoms:
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            bindings: dict[str, LetExprNode] = {}
+            for det in scored.deterministics:
+                bindings[det.name] = inline_letexpr(det.expr, bindings)
+            density = marginal_scope_density(
+                _BACKEND,
+                family=scored.observe.family,
+                variate=scored.observe.name,
+                args=tuple(
+                    irarg_letexpr(_BACKEND, arg, bindings)
+                    for arg in scored.observe.args
+                ),
+                arg_names=scored.observe.arg_names,
+            )
+            lifted = lifted or not density.mass
+            term = LetExprBinOp(
+                op="*",
+                left=self._marginal_atom_weight(ctx, node, observe, atom),
+                right=density.expr,
+            )
+            total = (
+                term
+                if total is None
+                else LetExprBinOp(op="+", left=total, right=term)
+            )
+        if total is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"marginalize:empty-support:{node.latent}: a "
+                    f"latent with no atoms has no integrated density"
+                ],
+            )
+        self._emit_zeros_trick_row(
+            ctx,
+            name=observe.name,
+            family=node.family,
+            log_density=LetExprCall(func="log", args=(total,)),
+            row_plate=observe.plate,
+            lifted=lifted,
+        )
+
+    def _marginal_atom_weight(
+        self,
+        ctx: _JAGSCtx,
+        node: IRMarginalize,
+        observe: IRObserve,
+        atom: IRMarginalAtom,
+    ) -> LetExprNode:
+        """The mixing weight one atom carries, as a let-expression.
+
+        Two atom sets reach here and they read their weights
+        differently. A `class_index` set weights atom `k` by the
+        `k`-th entry of the latent's own probability vector, so the
+        weight is that vector subscripted by the atom's value. A
+        `binary` set weights the two atoms by a *discrete* Bernoulli
+        on the same probability, so atom one reads the probability
+        itself and atom zero reads its complement.
+
+        The probability tensor arrives from
+        [`marginal_weight_probs`][quivers.transpile.renderers._python_helpers.marginal_weight_probs]
+        already gathered through the observation's `via` fibration
+        where one is needed, and stays a named reference so the
+        deterministic path re-indexes it against the row loop.
+        """
+        probs = irarg_letexpr(
+            _BACKEND,
+            marginal_weight_probs(
+                node,
+                observe,
+                atom.weight_args,
+                atom.weight_arg_names,
+                name_plates=ctx.decl_plates,
+                target=self.target,
+            ),
+            {},
+        )
+        if atom.weight_family == "Bernoulli":
+            if atom.value.value == 1.0:
+                return probs
+            return LetExprBinOp(
+                op="-", left=LetExprLiteral(value=1.0), right=probs
+            )
+        return subscript_letexpr(
+            _BACKEND, probs, LetExprLiteral(value=atom.value.value)
+        )
 
     def broadcast(
         self,
@@ -615,17 +836,8 @@ class JAGSRenderer(RendererBase):
                 self._emit_gp_block(ctx, node)
                 return
             if node.family in _ZEROS_TRICK_FAMILIES:
-                raise UnsupportedConstruct(
-                    f"qvr-{_BACKEND}",
-                    [
-                        f"family:{node.family}:latent-site:{node.name}: "
-                        f"the family has no JAGS distribution and "
-                        f"scores through the zeros trick, which adds a "
-                        f"density term without declaring a node the "
-                        f"engine can sample; only an observed site can "
-                        f"carry it"
-                    ],
-                )
+                self._emit_zeros_trick_latent(ctx, node)
+                return
             self._emit_sample(
                 ctx,
                 name=node.name,
@@ -636,19 +848,11 @@ class JAGSRenderer(RendererBase):
             )
             return
         if isinstance(node, IRObserve):
-            if node.family == "MixtureNormal":
-                self._emit_mixture_normal(
+            if node.family in _ZEROS_TRICK_FAMILIES:
+                self._emit_closed_form_density(
                     ctx,
                     name=node.name,
-                    args=node.args,
-                    arg_names=node.arg_names,
-                    plate=node.plate,
-                )
-                return
-            if node.family == "BetaBinomial":
-                self._emit_beta_binomial(
-                    ctx,
-                    name=node.name,
+                    family=node.family,
                     args=node.args,
                     arg_names=node.arg_names,
                     plate=node.plate,
@@ -1214,16 +1418,10 @@ class JAGSRenderer(RendererBase):
         # Build the axis-to-loop-var map for this sample's surrounding
         # plate. `_rewrite_arg` uses this to choose the right loop var
         # when a latent's recorded axis appears in the current plate.
-        # Renamed axes (from `_dedupe_plate`) also resolve to their
-        # original axis so a sample on the renamed plate can index
-        # latents bound on the original.
-        axis_to_lv: dict[str, str] = {}
-        for dim, lv in zip(loop_dims, loop_var_names, strict=True):
-            renamed = _dim_name(dim)
-            axis_to_lv[renamed] = lv
-            original = ctx.axis_aliases.get(renamed)
-            if original is not None:
-                axis_to_lv[original] = lv
+        axis_to_lv: dict[str, str] = {
+            _dim_name(dim): lv
+            for dim, lv in zip(loop_dims, loop_var_names, strict=True)
+        }
 
         # Pre-rewrite every arg ONCE: thread latent loop vars + event
         # ranges + via fibration through any ref to a previously-bound
@@ -2093,7 +2291,10 @@ class JAGSRenderer(RendererBase):
         )
         let_ctx = _jags_let_ctx(ctx, self._cards)
         val = render_let_expr_bugs(
-            let_ctx, rewritten, decl_plates=ctx.decl_plates,
+            let_ctx,
+            rewritten,
+            decl_plates=ctx.decl_plates,
+            row_index=loop_var_names[0] if loop_var_names else None,
         )
         ctx.sb.edge(dr, val, "value")
         wrapped = self._wrap_in_for_loops(
@@ -2121,6 +2322,184 @@ class JAGSRenderer(RendererBase):
             )
             for dim in node.plate.batch_dims:
                 ctx.emitted_plate_names.add(_dim_name(dim))
+
+    def _emit_closed_form_density(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        family: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> None:
+        """Route one
+        [`_ZEROS_TRICK_FAMILIES`][quivers.transpile.renderers.jags._ZEROS_TRICK_FAMILIES]
+        site to the emitter that writes its density out.
+
+        Both site kinds reach here: an observed draw, whose whole
+        emission is the density term, and the density half of a latent
+        draw, whose node declaration
+        [`_emit_zeros_trick_latent`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_latent]
+        emits first.
+        """
+        if family == "MixtureNormal":
+            self._emit_mixture_normal(
+                ctx,
+                name=name,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+            )
+            return
+        if family == "BetaBinomial":
+            self._emit_beta_binomial(
+                ctx,
+                name=name,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+            )
+            return
+        if family == "ContinuousBernoulli":
+            self._emit_continuous_bernoulli(
+                ctx,
+                name=name,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+            )
+            return
+        if family == "Kumaraswamy":
+            self._emit_kumaraswamy(
+                ctx,
+                name=name,
+                args=args,
+                arg_names=arg_names,
+                plate=plate,
+            )
+            return
+        raise UnsupportedConstruct(
+            f"qvr-{_BACKEND}",
+            [
+                f"family:{family}:no-closed-form:{name}: the family is "
+                f"registered as scoring through the zeros trick, but "
+                f"no emitter writes its density out"
+            ],
+        )
+
+    def _emit_zeros_trick_latent(
+        self, ctx: _JAGSCtx, node: IRSample
+    ) -> None:
+        """Emit a latent draw from a family JAGS cannot name.
+
+        The zeros trick adds a density term to the joint without
+        declaring a node, which is the whole emission an *observed*
+        site needs and exactly half of what a *latent* site needs: the
+        drawn name has to be a node the engine can sample and every
+        downstream relation can read. The missing half is a draw from
+        the uniform measure on the family's own support, which
+        [`_ZEROS_TRICK_LATENT_CARRIER`][quivers.transpile.renderers.jags._ZEROS_TRICK_LATENT_CARRIER]
+        names. For the two unit-interval families that is
+        `dunif(0, 1)`, whose log density is identically zero over
+        `(0, 1)`, so the pair
+
+        ```
+        z[n] ~ dunif(0, 1)
+        phi_z[n] <- C - <log f(z[n])>
+        zeros_z[n] ~ dpois(phi_z[n])
+        ```
+
+        contributes `log f(z[n]) - C` and nothing else. The carrier is
+        a genuine parent of `z` rather than a re-scoring of it, so the
+        graph stays acyclic: `z -> phi_z -> zeros_z` is a chain.
+
+        Both relations run over the latent's *declared* plate, which is
+        the axis every reference the density row reads is re-indexed
+        against: the row has to reach `z` and the site's arguments, and
+        those resolve by declared axis name.
+        """
+        carrier = _ZEROS_TRICK_LATENT_CARRIER.get(node.family)
+        if carrier is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:{node.family}:latent-site:{node.name}: "
+                    f"the family has no JAGS distribution and scores "
+                    f"through the zeros trick, which adds a density "
+                    f"term without declaring a node the engine can "
+                    f"sample; declaring one needs a proper uniform "
+                    f"measure on the family's support, and this "
+                    f"family's support carries none JAGS can name"
+                ],
+            )
+        row_plate = ctx.decl_plates.get(node.name, node.plate)
+        self._emit_sample(
+            ctx,
+            name=node.name,
+            family=carrier,
+            args=_UNIT_INTERVAL_CARRIER_ARGS,
+            arg_names=_UNIT_INTERVAL_CARRIER_ARG_NAMES,
+            plate=row_plate,
+        )
+        self._emit_closed_form_density(
+            ctx,
+            name=node.name,
+            family=node.family,
+            args=node.args,
+            arg_names=node.arg_names,
+            plate=row_plate,
+        )
+
+    def _emit_continuous_bernoulli(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> None:
+        """Emit a `ContinuousBernoulli` site through the zeros trick.
+
+        JAGS names no continuous Bernoulli in any module a stock
+        engine loads, and no reparameterisation reaches it: it is the
+        exponentially-tilted uniform on `(0, 1)`, and the tilt's
+        normaliser is a transcendental function of the tilt rather
+        than a constant a named family absorbs.
+        [`continuous_bernoulli_log_pdf`][quivers.transpile.renderers._bugs_helpers.continuous_bernoulli_log_pdf]
+        writes the density out in `log` and `abs` alone and
+        [`_emit_zeros_trick_row`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_row]
+        adds it to the joint.
+
+        A residual event axis on the site would ask each row to carry
+        a vector-valued variate, which the scalar closed form cannot
+        express, so it raises rather than emitting a
+        differently-shaped density.
+        """
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:ContinuousBernoulli:event-axis:{name}: "
+                    f"the scalar closed form carries no event shape, "
+                    f"but the site declares "
+                    f"{[_dim_name(d) for d in plate.event_dims]!r}"
+                ],
+            )
+        self._emit_zeros_trick_row(
+            ctx,
+            name=name,
+            family="ContinuousBernoulli",
+            log_density=continuous_bernoulli_log_pdf(
+                _BACKEND,
+                variate=name,
+                args=args,
+                arg_names=arg_names,
+            ),
+            row_plate=Plate(event_dims=(), batch_dims=plate.batch_dims),
+            lifted="ContinuousBernoulli" in _ZEROS_TRICK_LIFTED_FAMILIES,
+        )
 
     def _emit_mixture_normal(
         self,
@@ -2181,40 +2560,20 @@ class JAGSRenderer(RendererBase):
                 weights.name if isinstance(weights, IRArgRef) else ""
             ),
         )
-        row_plate = Plate(event_dims=(), batch_dims=plate.batch_dims)
-        zeros_name = f"zeros_{name}"
-        phi_name = f"phi_{name}"
-        ctx.decl_plates[zeros_name] = row_plate
-        ctx.decl_plates[phi_name] = row_plate
-        self._emit_zeros_carrier(ctx, zeros_name, row_plate)
-        self._emit_deterministic(
+        self._emit_zeros_trick_row(
             ctx,
-            IRDeterministic(
-                name=phi_name,
-                expr=LetExprBinOp(
-                    op="-",
-                    left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
-                    right=LetExprCall(
-                        func="log",
-                        args=(
-                            self._mixture_density_expr(
-                                name, weights, loc, scale, components
-                            ),
-                        ),
+            name=name,
+            family="MixtureNormal",
+            log_density=LetExprCall(
+                func="log",
+                args=(
+                    self._mixture_density_expr(
+                        name, weights, loc, scale, components
                     ),
                 ),
-                constraint=CSReal(),
-                plate=row_plate,
             ),
-        )
-        self._emit_sample(
-            ctx,
-            name=zeros_name,
-            family="Poisson",
-            args=(IRArgRef(name=phi_name),),
-            arg_names=("rate",),
-            plate=row_plate,
-            observed=True,
+            row_plate=Plate(event_dims=(), batch_dims=plate.batch_dims),
+            lifted="MixtureNormal" in _ZEROS_TRICK_LIFTED_FAMILIES,
         )
 
     def _emit_beta_binomial(
@@ -2292,24 +2651,148 @@ class JAGSRenderer(RendererBase):
                     f"{[_dim_name(d) for d in plate.event_dims]!r}"
                 ],
             )
-        row_plate = Plate(event_dims=(), batch_dims=plate.batch_dims)
-        zeros_name = f"zeros_{name}"
-        phi_name = f"phi_{name}"
+        self._emit_zeros_trick_row(
+            ctx,
+            name=name,
+            family="BetaBinomial",
+            log_density=beta_binomial_log_pmf(
+                _BACKEND,
+                variate=name,
+                args=args,
+                arg_names=arg_names,
+            ),
+            row_plate=Plate(event_dims=(), batch_dims=plate.batch_dims),
+            lifted="BetaBinomial" in _ZEROS_TRICK_LIFTED_FAMILIES,
+        )
+
+    def _emit_kumaraswamy(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        args: tuple[IRArg, ...],
+        arg_names: tuple[str, ...],
+        plate: Plate,
+    ) -> None:
+        """Emit a `Kumaraswamy` observation through the zeros trick.
+
+        JAGS names no Kumaraswamy in any module a stock engine loads,
+        and the family is not one a reparameterisation reaches: it is
+        not a Beta, and the `1 - (1 - u)^(1/b)` inverse-CDF identity
+        that generates it needs a transform of a sampled node, which
+        the model language applies to a *logical* node and so cannot
+        attach a likelihood to.
+        [`kumaraswamy_log_pdf`][quivers.transpile.renderers._bugs_helpers.kumaraswamy_log_pdf]
+        writes the density out instead, in `log` and `pow` alone, and
+        [`_emit_zeros_trick_row`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_row]
+        adds it to the joint.
+
+        The rate carries the lift: a Kumaraswamy is a density on
+        `(0, 1)` rather than a mass function, so its log form exceeds
+        zero wherever the density does (which the fixture's shapes
+        reach), and an unlifted `-log f(y_n)` would ask `dpois` for a
+        negative rate.
+
+        A residual event axis on the site would ask each row to carry
+        a vector-valued response, which the scalar closed form cannot
+        express, so it raises rather than emitting a
+        differently-shaped density.
+        """
+        if plate.event_dims:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"family:Kumaraswamy:event-axis:{name}: the "
+                    f"scalar closed form carries no event shape, but "
+                    f"the site declares "
+                    f"{[_dim_name(d) for d in plate.event_dims]!r}"
+                ],
+            )
+        self._emit_zeros_trick_row(
+            ctx,
+            name=name,
+            family="Kumaraswamy",
+            log_density=kumaraswamy_log_pdf(
+                _BACKEND,
+                variate=name,
+                args=args,
+                arg_names=arg_names,
+            ),
+            row_plate=Plate(event_dims=(), batch_dims=plate.batch_dims),
+            lifted="Kumaraswamy" in _ZEROS_TRICK_LIFTED_FAMILIES,
+        )
+
+    def _fresh_helper_name(self, ctx: _JAGSCtx, stem: str) -> str:
+        """Return `stem`, or the first `<stem>_<k>` no declaration has
+        taken.
+
+        Every name the renderer synthesises is registered in
+        `ctx.decl_plates` as it is emitted, so that table is the
+        complete record of what is already bound.
+        """
+        if stem not in ctx.decl_plates:
+            return stem
+        index = 1
+        while f"{stem}_{index}" in ctx.decl_plates:
+            index += 1
+        return f"{stem}_{index}"
+
+    def _emit_zeros_trick_row(
+        self,
+        ctx: _JAGSCtx,
+        *,
+        name: str,
+        family: str,
+        log_density: LetExprNode,
+        row_plate: Plate,
+        lifted: bool,
+    ) -> None:
+        """Add `log_density` to the joint, one row per plate index.
+
+        The three relations the trick needs, in the order the engine
+        reads them:
+
+        ```
+        data { zeros_<name>[n] <- 0 }
+        phi_<name>[n]  <- C - <log_density>     (lifted families)
+        phi_<name>[n]  <- -(<log_density>)      (unlifted families)
+        zeros_<name>[n] ~ dpois(phi_<name>[n])
+        ```
+
+        `log P(X = 0; lambda) = -lambda` makes the last relation
+        contribute `-phi_<name>[n]`, which is `<log_density>` back,
+        less the lift where one is carried. `lifted` decides which of
+        the two forms the row takes: a term bounded above by zero (the
+        log of a mass function, or of a mixture of them) needs no lift,
+        and paying one anyway would charge the emitted program a
+        constant it does not owe.
+
+        Both helper names are made unique against every name already
+        declared, because they are derived from a name the *source*
+        chose: a program that itself binds `phi_<name>` would otherwise
+        have that binding silently redefined, which JAGS reports as a
+        duplicate relation at best and scores as the wrong model at
+        worst.
+        """
+        zeros_name = self._fresh_helper_name(ctx, f"zeros_{name}")
+        phi_name = self._fresh_helper_name(ctx, f"phi_{name}")
         ctx.decl_plates[zeros_name] = row_plate
         ctx.decl_plates[phi_name] = row_plate
-        self._emit_zeros_carrier(ctx, zeros_name, row_plate)
+        self._emit_zeros_carrier(ctx, family, zeros_name, row_plate)
+        rate: LetExprNode
+        if lifted:
+            rate = LetExprBinOp(
+                op="-",
+                left=LetExprLiteral(value=_ZEROS_TRICK_OFFSET),
+                right=log_density,
+            )
+        else:
+            rate = LetExprUnaryOp(operand=log_density)
         self._emit_deterministic(
             ctx,
             IRDeterministic(
                 name=phi_name,
-                expr=LetExprUnaryOp(
-                    operand=beta_binomial_log_pmf(
-                        _BACKEND,
-                        variate=name,
-                        args=args,
-                        arg_names=arg_names,
-                    ),
-                ),
+                expr=rate,
                 constraint=CSReal(),
                 plate=row_plate,
             ),
@@ -2402,7 +2885,7 @@ class JAGSRenderer(RendererBase):
             right=LetExprBinOp(
                 op="*",
                 left=scale_k,
-                right=LetExprLiteral(value=_SQRT_TWO_PI),
+                right=LetExprLiteral(value=SQRT_TWO_PI),
             ),
         )
 
@@ -2426,7 +2909,11 @@ class JAGSRenderer(RendererBase):
         )
 
     def _emit_zeros_carrier(
-        self, ctx: _JAGSCtx, zeros_name: str, row_plate: Plate
+        self,
+        ctx: _JAGSCtx,
+        family: str,
+        zeros_name: str,
+        row_plate: Plate,
     ) -> None:
         """Bind `zeros_<name>[n] <- 0` inside the `data { ... }` block.
 
@@ -2438,8 +2925,8 @@ class JAGSRenderer(RendererBase):
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}",
                 [
-                    f"family:MixtureNormal:no-data-block:{zeros_name}: "
-                    f"the emit reached a mixture site the render "
+                    f"family:{family}:no-data-block:{zeros_name}: "
+                    f"the emit reached a zeros-trick site the render "
                     f"pre-pass did not see"
                 ],
             )
@@ -2544,50 +3031,6 @@ class JAGSRenderer(RendererBase):
     # Plate-name disambiguation
     # ------------------------------------------------------------------
 
-    def _dedupe_plate(
-        self,
-        ctx: _JAGSCtx,
-        plate: Plate,
-        latent_name: str,
-    ) -> tuple[Plate, dict[str, str]]:
-        """Return a Plate whose batch_dim names get a ``_<latent>``
-        suffix only when the name has already been emitted in this
-        render call. Mirrors the NumPyro / Stan convention for the
-        LDA-style marginalize-then-reuse pattern.
-
-        Also returns a map from each renamed axis to its original axis
-        name, so a sample inside the renamed plate can resolve refs to
-        latents bound on the original axis (e.g. theta on Doc must
-        thread through m_Doc_z when sampled inside the Doc_z plate).
-        """
-        seen = ctx.emitted_plate_names
-        new_batch: list[Dim] = []
-        rename_map: dict[str, str] = {}
-        for dim in plate.batch_dims:
-            original = _dim_name(dim)
-            renamed = (
-                f"{original}_{latent_name}"
-                if original in seen
-                else original
-            )
-            if renamed != original:
-                rename_map[renamed] = original
-            if isinstance(dim, DimStatic):
-                new_batch.append(DimStatic(size=dim.size, name=renamed))
-            elif isinstance(dim, DimDynamic):
-                new_batch.append(
-                    DimDynamic(size_name=dim.size_name, name=renamed)
-                )
-            else:
-                new_batch.append(dim)
-        return (
-            Plate(
-                event_dims=plate.event_dims,
-                batch_dims=tuple(new_batch),
-            ),
-            rename_map,
-        )
-
     # ------------------------------------------------------------------
     # model_block finalisation
     # ------------------------------------------------------------------
@@ -2662,8 +3105,10 @@ def _rewrite_arg(
     `axis_to_lv` maps each axis name in the surrounding plate to the
     loop var that iterates it. A latent ref whose recorded axis appears
     in this map indexes through the *current* loop var (so two samples
-    on the same axis share the same loop body), with via-wrapping when
-    the latent's recorded fibration applies.
+    on the same axis share the same loop body); one whose axis the
+    surrounding plate does not iterate indexes through the caller's
+    `via` fibration where there is one, and through the latent's own
+    fallback loop var otherwise.
     """
     if isinstance(arg, IRArgRef):
         new_indices = tuple(
@@ -2676,19 +3121,11 @@ def _rewrite_arg(
                 return arg
             return IRArgRef(name=arg.name, indices=new_indices)
         fallback_lv, event_dims, axes = info
-        via_for_latent = ctx.latent_via.get(arg.name)
         # Choose the loop-var index expression.
-        if via_for_latent is not None and loop_vars:
-            # Latent's recorded fibration: wrap the observe loop var
-            # through it (`z[word_idx[n]]`).
-            lv_idx: IRArg = IRArgRef(
-                name=via_for_latent,
-                indices=(IRArgRef(name=loop_vars[0]),),
-            )
-        elif axes and axes[-1] in axis_to_lv:
+        if axes and axes[-1] in axis_to_lv:
             # Surrounding plate iterates the latent's axis directly:
-            # reuse the current loop var (`theta[m_Doc_z, ...]`).
-            lv_idx = IRArgRef(name=axis_to_lv[axes[-1]])
+            # reuse the current loop var (`theta[m_Doc, ...]`).
+            lv_idx: IRArg = IRArgRef(name=axis_to_lv[axes[-1]])
         elif via is not None and loop_vars:
             # Caller-set via overrides (passed via fibration).
             lv_idx = IRArgRef(
@@ -2820,15 +3257,6 @@ class _JAGSCtx(_RenderCtx):
         self.latent_plate_info: dict[
             str, tuple[str, tuple[object, ...], tuple[str, ...]]
         ] = {}
-        #: For each latent on a per-observation plate, record the
-        #: fibration that maps the observation row to its parent plate
-        #: index.
-        self.latent_via: dict[str, str] = {}
-        #: For each renamed axis (from `_dedupe_plate`), record its
-        #: original axis name. The arg rewriter consults this so a
-        #: sample on the renamed plate can resolve refs to latents
-        #: bound on the original axis.
-        self.axis_aliases: dict[str, str] = {}
 
 
 def _as_jags_ctx(ctx: _RenderCtx) -> _JAGSCtx:
@@ -2891,24 +3319,39 @@ class _JagsLetCtx:
 
     def range_1_to(self, upper: str) -> str:
         """Build the `1:<upper>` range vertex the JAGS grammar wants."""
+        return self.range_between("1", upper)
+
+    def range_between(self, lower: str, upper: str) -> str:
+        """Build the `<lower>:<upper>` range vertex the JAGS grammar
+        wants.
+
+        Either bound is a `number` when it reads as an integer and an
+        `identifier` otherwise, which is how a dynamic axis extent
+        reaches the range.
+        """
         rng = _fresh(self._ctx, "rng", "range")
         self._ctx.sb.constraint(rng, "chose-alt-fingerprint", ":")
-        is_static = upper.lstrip("-").isdigit()
-        upper_kind = "number" if is_static else "identifier"
+        kinds: list[str] = []
+        bounds: list[tuple[str, str]] = []
+        for text, edge in ((lower, "lower"), (upper, "upper")):
+            is_static = text.lstrip("-").isdigit()
+            kinds.append("number" if is_static else "identifier")
+            bounds.append(
+                (
+                    _number(self._ctx, float(text))
+                    if is_static
+                    else _identifier(self._ctx, text),
+                    edge,
+                )
+            )
         self._ctx.sb.constraint(
-            rng, "chose-alt-child-kinds", f"number {upper_kind}"
+            rng, "chose-alt-child-kinds", " ".join(kinds)
         )
-        self._ctx.sb.constraint(rng, "ptrace-0", "Cnumber")
+        self._ctx.sb.constraint(rng, "ptrace-0", f"C{kinds[0]}")
         self._ctx.sb.constraint(rng, "ptrace-1", "T:")
-        self._ctx.sb.constraint(rng, "ptrace-2", f"C{upper_kind}")
-        lo = _number(self._ctx, 1)
-        hi = (
-            _number(self._ctx, float(upper))
-            if is_static
-            else _identifier(self._ctx, upper)
-        )
-        self._ctx.sb.edge(rng, lo, "lower")
-        self._ctx.sb.edge(rng, hi, "upper")
+        self._ctx.sb.constraint(rng, "ptrace-2", f"C{kinds[1]}")
+        for vid, edge in bounds:
+            self._ctx.sb.edge(rng, vid, edge)
         return rng
 
 

@@ -57,6 +57,107 @@ IRExpr = LetExprNode
 
 
 # ---------------------------------------------------------------------------
+# The one let-expression variant the surface grammar cannot write.
+#
+# A declared kernel morphism's parameter map is an affine map from the
+# concatenated domain coordinates to a block of the family's argument
+# row. Spelling it with the arithmetic variants above costs one node
+# per (codomain coordinate, domain coordinate) pair, and every node is
+# a validated `dx.Model`, so a 16-wide state took hours to lower and
+# emitted a program no reader could follow. `LetExprAffineMap` names
+# the contraction instead: one node per head, whatever the widths.
+#
+# It lives here rather than in `quivers.dsl.ast_nodes` because the QVR
+# surface has no syntax for it. Nothing parses to a
+# `LetExprAffineMap`; `Lower` is its only constructor, and renderers
+# its only readers. Being a `LetExprNode` subclass, it rides in
+# `IRDeterministic.expr` alongside the variants the parser does
+# produce, so plate derivation, name binding, and declaration
+# emission treat a mapped head exactly as they treat any other
+# deterministic binding.
+# ---------------------------------------------------------------------------
+
+
+class LetAffineSource(dx.Model):
+    """One factor of the conditioning row an affine map reads.
+
+    A morphism whose domain is a product reads the concatenation of
+    its factors in declaration order, so
+    [`LetExprAffineMap.sources`][quivers.transpile.ir.LetExprAffineMap]
+    is ordered and `width` is the column count this factor occupies.
+    `value` is the expression the factor's coordinates are read from,
+    a `LetExprVar` naming a program input or a previously bound site.
+    """
+
+    value: LetExprNode
+    width: int
+
+
+class LetExprAffineMap(LetExprNode):
+    """One head's block of a parameter map's ``W x + b``.
+
+    The expression denotes the length-`rows` vector
+
+    ```
+    y[i] = sum_j weight[row_offset + i, j] * x[j] + bias[row_offset + i]
+    ```
+
+    for `i` in `0 .. rows - 1`, where `x` is the concatenation of
+    `sources` in order, followed by `transform`:
+
+    * ``identity``: `y` is the value.
+    * ``exp``: the value is ``exp(y)`` coordinatewise.
+
+    `weight` is a `rows_total x columns` array whose `rows_total` is
+    `rows` times the number of heads the family reads, and whose
+    `columns` is the total width of `sources`; `bias` is the matching
+    `rows_total` vector. `row_offset` is this head's first row.
+
+    Every index above is **zero-based**, QVR's own origin. A
+    one-based target rebases the row block when it emits: Stan's
+    inclusive slice, for instance, spans ``row_offset + 1`` to
+    ``row_offset + rows``.
+
+    Renderers spell the contraction in their own language: Stan and
+    Julia a `matrix * vector`, the array-shaped Python backends a
+    matmul, JAGS and BUGS a loop over the codomain axis with `inprod`
+    per row. The node carries no unrolled arithmetic, so its size is
+    independent of either width.
+    """
+
+    weight: LetExprNode
+    bias: LetExprNode
+    sources: tuple[LetAffineSource, ...]
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp"]
+    kind: Literal["let_expr_affine_map"] = "let_expr_affine_map"
+
+
+def affine_domain_width(expr: LetExprAffineMap) -> int:
+    """Total column count of an affine map's conditioning row."""
+    return sum(source.width for source in expr.sources)
+
+
+def affine_column_offsets(
+    expr: LetExprAffineMap,
+) -> tuple[tuple[LetAffineSource, int], ...]:
+    """Each source paired with its zero-based first column.
+
+    A renderer whose language cannot concatenate the factors into one
+    vector slices the weight column-block-wise instead, and this
+    gives it the block boundaries without recomputing the running
+    sum.
+    """
+    out: list[tuple[LetAffineSource, int]] = []
+    column = 0
+    for source in expr.sources:
+        out.append((source, column))
+        column += source.width
+    return tuple(out)
+
+
+# ---------------------------------------------------------------------------
 # ConstraintSpec: a structural mirror of `torch.distributions.constraints`.
 # ---------------------------------------------------------------------------
 
@@ -828,6 +929,8 @@ __all__ = [
     "IRReturn",
     "IRSample",
     "IRScore",
+    "LetAffineSource",
+    "LetExprAffineMap",
     "LetExprBinOp",
     "LetExprCall",
     "LetExprFactor",
@@ -841,6 +944,8 @@ __all__ = [
     "LetExprUnaryOp",
     "LetExprVar",
     "Plate",
+    "affine_column_offsets",
+    "affine_domain_width",
     "event_dim_of",
     "event_shape_of",
     "from_constraint",

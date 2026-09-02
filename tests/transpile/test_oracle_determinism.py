@@ -46,6 +46,16 @@ Five things are asserted, in the order a reader needs them:
    intermediates against a deterministic rule rather than by drawing
    them. This tier asserts that measurement instead of the prose the
    registry carries: one of the eight starting to redraw fails here.
+   Passing here is not a route out of `_SKIP_QVR_INCOMPATIBLE`,
+   though, and the assertion is deliberately narrow for that reason.
+   Determinism says the oracle returns a number rather than a draw;
+   it says nothing about whether the number is the model's density.
+   What keeps the eight exempt is measured against the density, in
+   `test_oracle_reference_strength.py`: five report a value the
+   quadrature rule chose, and three report a likelihood counted once
+   per plate row with no factor at all for the latent the program
+   declares. Both defects are perfectly reproducible, which is
+   precisely why this tier cannot see them.
 3. **The contrast.** The structural guard passing where the
    behavioural guard rejects is the whole reason the behavioural one
    is worth its cost, and no gallery example exhibits that gap any

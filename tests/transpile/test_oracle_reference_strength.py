@@ -2066,6 +2066,45 @@ recurrent update, so `h` is meant to carry a transition density at
 every step; the joint the oracle reports carries none of it, and the
 number it returns is the emission likelihood alone."""
 
+_PLATE_INFLATED_EMISSION: dict[str, str] = {
+    "gru_lm": "next_token",
+    "lstm_lm": "next_token",
+    "vanilla_rnn_lm": "next_token",
+}
+"""Flat-latent exempt examples whose joint counts their emission site
+once per plate row, and the site it counts.
+
+A second defect, riding on the first. The emission site reduces to a
+scalar log-density, while the flat latent bound to the composition
+carries a plate-shaped tensor of zeros, so adding the two broadcasts
+the scalar across the plate: the joint is the emission likelihood
+times the number of scored rows. The registry is a refinement of
+`_FLAT_COMPOSITE_LATENT` rather than a third ground, and
+`test_plate_inflation_registry_refines_the_flat_latent_ground`
+requires it to cover that ground exactly."""
+
+_PLATE_INFLATION_SPREAD_FLOOR: dict[str, float] = {
+    "gru_lm": 3.0e6,
+    "lstm_lm": 3.0e6,
+    "vanilla_rnn_lm": 2.5e8,
+}
+"""Floor on how far the inflation moves *between* points, in multiples
+of the equivalence tolerance at the example's observation count.
+
+This is what separates an unpinnable oracle from an unusable one.
+Theorem 4.1's quotient absorbs an oracle error that is the same at
+every point, so an inflation of constant size would leave the backend
+comparison green and only the pin would object. The inflation here is
+`(rows - 1)` times a likelihood that moves with the data, so it moves
+with the data too, and a cell un-exempted on the strength of the
+determinism measurement alone would fail rather than pass.
+
+Measured spread of the residual across the six points, over
+`adaptive_atol` at 32 observations: `vanilla_rnn_lm` 2.7e08, `gru_lm`
+3.2e06, `lstm_lm` 3.2e06. Each floor sits below its measurement, so an
+inflation shrinking toward the tolerance surfaces here rather than
+silently becoming a cell that could be recovered."""
+
 _FLATNESS_PROBE_SHIFT = 5.0
 """Offset added to a flat latent to show that its value is read.
 
@@ -2418,3 +2457,177 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
             f"`test_composition_exemption_grounds_partition_the_registry` "
             f"asserts."
         )
+
+
+def test_plate_inflation_registry_refines_the_flat_latent_ground() -> None:
+    """The inflation registry covers the flat-latent ground exactly.
+
+    `_PLATE_INFLATED_EMISSION` is evidence about
+    `_FLAT_COMPOSITE_LATENT`, not a ground of its own, so it is only
+    evidence if the two registries name the same examples. An example
+    in the flat-latent ground and not here would keep an exemption
+    whose consequence for the equivalence tier is unmeasured, which is
+    the measurement that says un-exempting it would produce a failing
+    cell rather than a green one. An example here and not there would
+    be claiming a defect nothing else in this module establishes.
+    """
+    flat = set(_FLAT_COMPOSITE_LATENT)
+    inflated = set(_PLATE_INFLATED_EMISSION)
+
+    unmeasured = sorted(flat - inflated)
+    assert not unmeasured, (
+        f"{unmeasured!r} are exempt on flat-latent grounds but carry "
+        f"no measurement of what their joint does to the emission "
+        f"likelihood. Measure the residual `joint - sum(site "
+        f"log-densities)` at every point: if it is `(rows - 1)` times "
+        f"the emission, register the site here with its measured "
+        f"spread floor; if it is zero, the joint is the emission "
+        f"likelihood exactly and the exemption rests on the missing "
+        f"transition density alone, which wants its own stated ground."
+    )
+    stale = sorted(inflated - flat)
+    assert not stale, (
+        f"{stale!r} carry an inflation measurement but are not exempt "
+        f"on flat-latent grounds: either they left "
+        f"`_FLAT_COMPOSITE_LATENT` or this registry names the wrong "
+        f"example."
+    )
+    missing_floor = sorted(inflated - set(_PLATE_INFLATION_SPREAD_FLOOR))
+    assert not missing_floor, (
+        f"{missing_floor!r} name an inflated emission site with no "
+        f"entry in `_PLATE_INFLATION_SPREAD_FLOOR`, so the check below "
+        f"would read the inflation without bounding how far it moves "
+        f"across the point set."
+    )
+    surplus_floor = sorted(set(_PLATE_INFLATION_SPREAD_FLOOR) - inflated)
+    assert not surplus_floor, (
+        f"{surplus_floor!r} declare an inflation floor for an example "
+        f"with no inflated emission site, so the floor bounds nothing."
+    )
+
+
+@pytest.mark.parametrize(
+    "example", sorted(_PLATE_INFLATED_EMISSION), ids=lambda name: name,
+)
+def test_flat_latent_exempt_examples_inflate_their_emission_per_row(
+    example: str,
+) -> None:
+    """A flat-latent exemption is necessary for the *equivalence* tier,
+    not only for the pin.
+
+    The flat-latent measurement establishes that the joint is missing
+    the transition density the source declares. On its own that says
+    nothing about the backend comparison, which quotients by an
+    additive constant and would happily stay green against a reference
+    short by a fixed amount. What decides the cell is whether the
+    error moves with the data, and here it does, for a reason this
+    check reads off the trace rather than asserting.
+
+    Two facts, in the order they compose:
+
+    1. **The joint counts the emission once per scored row.** The flat
+       latent contributes a plate-shaped tensor of zeros and the
+       emission site contributes a scalar, so the sum broadcasts and
+       the reduction returns `rows` copies of the likelihood. The row
+       count is taken from the observation payload, which is the
+       dataset's own statement of how many rows there are, so the
+       claim is checked against the data rather than against the
+       number the trace happened to print.
+    2. **The excess moves between points.** The residual is
+       `(rows - 1)` times a likelihood the perturbation schedule
+       moves, so it is not the additive constant Theorem 4.1's
+       quotient absorbs. Its spread across the point set is required
+       to exceed the equivalence tolerance by the declared floor,
+       which is what makes dropping the registry row a failing cell
+       rather than a recovered one.
+
+    Together they are the reason the exemption cannot be lifted by the
+    determinism measurement alone: a bit-identical joint that counts
+    its likelihood 32 times is reproducible and wrong.
+    """
+    name = _PLATE_INFLATED_EMISSION[example]
+    latent = _FLAT_COMPOSITE_LATENT[example]
+    fixture = _fixture(example)
+    labels = _gallery_data.perturbation_labels(len(fixture.points))
+
+    residuals: list[float] = []
+    row_counts: set[int] = set()
+    for index, point in enumerate(fixture.points):
+        traced = _exempt_trace(example, index)
+        observed = _gallery_data.observations_for_point(
+            fixture.dataset, point,
+        )
+        payload = observed.get(name)
+        assert payload is not None, (
+            f"{example!r} point {index} ({labels[index]}): the "
+            f"observation payload carries no {name!r} entry "
+            f"(entries: {sorted(observed)!r}), so there is no "
+            f"independent row count to check the joint against."
+        )
+        assert payload.dim() >= 1, (
+            f"{example!r} point {index} ({labels[index]}): the "
+            f"{name!r} observation is a scalar, so it declares no "
+            f"plate and a broadcast over one cannot be what inflates "
+            f"the joint. Re-derive the ground."
+        )
+        rows = int(payload.shape[0])
+        assert rows > 1, (
+            f"{example!r} point {index} ({labels[index]}): the "
+            f"{name!r} observation carries {rows} row(s), so counting "
+            f"it once and counting it once per row are the same "
+            f"number and this check cannot see the defect."
+        )
+        row_counts.add(rows)
+
+        emission_log_prob = traced.sites[name].log_prob
+        assert emission_log_prob.dim() == 0, (
+            f"{example!r} point {index} ({labels[index]}): site "
+            f"{name!r} scores to shape "
+            f"{tuple(emission_log_prob.shape)!r} rather than to a "
+            f"scalar, so it no longer broadcasts against the "
+            f"{latent!r} plate and the inflation this check measures "
+            f"has a different cause. Re-derive it."
+        )
+        emission = float(emission_log_prob.sum().item())
+        summands = sum(
+            float(site.log_prob.sum().item())
+            for site in traced.sites.values()
+        )
+        joint = fixture.joints[index]
+        residual = joint - summands
+        predicted = (rows - 1) * emission
+        atol = _gallery_tier.reference_pin_atol(joint)
+        assert abs(residual - predicted) <= atol, (
+            f"{example!r} point {index} ({labels[index]}): the joint "
+            f"{joint!r} exceeds the sum of its per-site log-densities "
+            f"{summands!r} by {residual:.6g} nats, where counting the "
+            f"{name!r} likelihood once per each of the {rows} scored "
+            f"rows predicts {predicted:.6g}. The oracle's arithmetic "
+            f"has changed; re-derive what the joint is doing before "
+            f"trusting either registry."
+        )
+        residuals.append(residual)
+
+    assert len(row_counts) == 1, (
+        f"{example!r}: the point set scores "
+        f"{sorted(row_counts)!r} rows at different points, so a single "
+        f"equivalence tolerance does not describe the comparison and "
+        f"the spread floor below is measured against the wrong scale."
+    )
+    n_obs = row_counts.pop()
+
+    mean = sum(residuals) / len(residuals)
+    spread = max(abs(residual - mean) for residual in residuals)
+    atol = _equivalence.adaptive_atol(n_obs=n_obs)
+    ratio = spread / atol
+    floor = _PLATE_INFLATION_SPREAD_FLOOR[example]
+    assert ratio >= floor, (
+        f"{example!r}: the inflation varies by only {spread:.6g} nats "
+        f"across the point set, {ratio:.0f} equivalence tolerances, "
+        f"below the declared floor {floor:.0f}. An inflation that is "
+        f"the same at every point is absorbed by Theorem 4.1's "
+        f"quotient, so the backend cells would pass on a reference "
+        f"that is nonetheless wrong. Re-measure the example and "
+        f"restate what the exemption is protecting. Do not lower the "
+        f"floor to restore green."
+    )

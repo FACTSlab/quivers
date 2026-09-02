@@ -18,6 +18,29 @@ that identifier resolves to; composite expressions raise
 [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
 with a clear message naming the composition operator.
 
+A morphism that draws its parameters from a network
+(``[param_source=<kind>]``) has no wire form at all: the weights are
+model-internal and appear in neither the emitted source nor any sample
+site. `build_morphism_table` rejects it over the whole module, in
+every one of the three positions it can be consumed from:
+
+1. The *site* position, a draw step's morphism slot.
+2. The *value* position, the right-hand side of a let / score
+   binding or a draw step's argument list, which is where flattening
+   a ``scan(...)`` cell or a ``define``d chain leaves the morphism's
+   name.
+3. The *composite* position, a leaf of a ``define``d composition (or
+   of a morphism's own ``~ <expr>`` init) that a draw step consumes
+   without the pre-lower expansion having flattened it.
+
+Rejecting over the module rather than per step matters because the
+boundary is a property of the program, not of the order in which a
+lowering pass happens to visit its steps: a module that consumes such
+a morphism anywhere cannot be transpiled at all, and it should say so
+before any step-by-step machinery reports a downstream symptom
+instead. `resolve_step_dist` keeps its own site-position raise for
+direct callers that resolve a single step without building the table.
+
 The output is a [`ResolvedDist`][quivers.transpile._resolve.ResolvedDist]
 record carrying ``family`` (the canonical QVR family name) and
 ``args`` (the tuple of literal-or-variable arguments). Callers feed
@@ -33,21 +56,70 @@ import inspect as _inspect
 import torch.distributions as _td
 
 from quivers.dsl.ast_nodes import (
+    BindStep,
     DrawArg,
     DrawArgDist,
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
     DrawArgScalar,
+    DrawStep,
     Expr,
+    ExprCap,
+    ExprChangeBase,
+    ExprChartFold,
+    ExprCompose,
+    ExprCup,
+    ExprCurry,
+    ExprDagger,
+    ExprFan,
+    ExprFreeze,
+    ExprFromData,
     ExprIdent,
+    ExprIdentity,
+    ExprMarginalize,
+    ExprMorphismCall,
+    ExprParser,
+    ExprRepeat,
+    ExprScan,
+    ExprStack,
+    ExprTensorProduct,
+    ExprTrace,
+    ExprTransCompose,
     DefineDecl,
+    GroupedBodyObserveStep,
+    GroupedLatentInitStep,
+    GroupedMarginalizeStep,
+    LetExprBinOp,
+    LetExprCall,
+    LetExprFactor,
+    LetExprIndex,
+    LetExprLambda,
+    LetExprList,
+    LetExprLiteral,
+    LetExprMethodCall,
+    LetExprNode,
+    LetExprString,
+    LetExprUnaryOp,
+    LetExprVar,
+    LetStep,
+    MarginalizeStep,
     Module,
     MorphismDecl,
     MorphismInitFamily,
+    ObserveStep,
+    PlateDrawStep,
+    ProgramDecl,
+    ProgramStep,
+    ReturnStep,
+    SampleStep,
+    ScoreStep,
+    VectorisedObserveStep,
 )
 from quivers.dsl.ast_nodes._shared import (
+    OptionCall,
     OptionEntry,
+    OptionName,
     OptionNumber,
     OptionString,
 )
@@ -127,13 +199,525 @@ def _format_number(value: float) -> str:
     return repr(value)
 
 
+def param_source_kind(decl: MorphismDecl, *, target: str) -> str | None:
+    """Return the parameter-source kind a morphism declaration names
+    in its ``[param_source=...]`` option, or ``None`` when it carries
+    no such option.
+
+    Two surface shapes name a kind. The bare identifier
+    (``[param_source=mlp]``) parses to an
+    [`OptionName`][quivers.dsl.ast_nodes._shared.OptionName] whose
+    ``value`` is the kind; the parameterised call
+    (``[param_source=mlp(16, 8)]``) parses to an
+    [`OptionCall`][quivers.dsl.ast_nodes._shared.OptionCall] whose
+    ``func`` is the kind and whose ``args`` are the hidden widths.
+    Both denote the same source architecture, so both resolve to the
+    same kind string and hit the same transpile boundary.
+
+    Any other option shape (a bare flag, a number, a list) names no
+    architecture, so there is nothing for the message to report and
+    nothing a target could be told it is missing. That is a malformed
+    declaration rather than an unsupported one, and it is rejected
+    here by name instead of reaching a target.
+    """
+    for entry in decl.options:
+        if entry.key != "param_source":
+            continue
+        value = entry.value
+        if isinstance(value, OptionName):
+            return value.value
+        if isinstance(value, OptionCall):
+            return value.func
+        raise UnsupportedConstruct(
+            target,
+            [
+                f"param-source:unnamed:{decl.names[0]}",
+                (
+                    f"morphism {decl.names[0]!r} carries a "
+                    f"`param_source` option of shape "
+                    f"{value.kind!r}, which names no source "
+                    f"architecture. Write `[param_source=<kind>]` or "
+                    f"`[param_source=<kind>(<widths>)]`."
+                ),
+            ],
+        )
+    return None
+
+
+def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
+    """Return every free name a let / score expression reads.
+
+    A name in a let expression is a *value*: the emitted target binds
+    it to whatever the host supplies under that name. The set is what
+    [`_reject_param_source_consumed`][quivers.transpile._resolve._reject_param_source_consumed]
+    tests against the module's parameter-source morphisms.
+
+    Binders subtract their own names: a lambda parameter and a factor
+    binder's index variable shadow anything declared outside, so a
+    morphism whose name they reuse is not read at that occurrence.
+    """
+    if isinstance(expr, LetExprVar):
+        return frozenset({expr.name})
+    if isinstance(expr, (LetExprLiteral, LetExprString)):
+        return frozenset()
+    if isinstance(expr, LetExprUnaryOp):
+        return _let_expr_value_names(expr.operand)
+    if isinstance(expr, LetExprBinOp):
+        return _let_expr_value_names(expr.left) | _let_expr_value_names(
+            expr.right
+        )
+    if isinstance(expr, LetExprCall):
+        # The callee is read as a value too: a morphism with no
+        # `~ Family` init lowers to `f(prev)` with `f` a free
+        # identifier the host wires.
+        return frozenset({expr.func}).union(
+            *(_let_expr_value_names(a) for a in expr.args),
+            frozenset(),
+        )
+    if isinstance(expr, LetExprMethodCall):
+        # The method name belongs to the receiver's interface, not to
+        # the module's namespace, so only the receiver and the
+        # arguments contribute.
+        return _let_expr_value_names(expr.receiver).union(
+            *(_let_expr_value_names(a) for a in expr.args),
+            frozenset(),
+        )
+    if isinstance(expr, LetExprIndex):
+        return _let_expr_value_names(expr.array).union(
+            *(_let_expr_value_names(i) for i in expr.indices),
+            frozenset(),
+        )
+    if isinstance(expr, LetExprList):
+        return frozenset().union(
+            *(_let_expr_value_names(i) for i in expr.items),
+            frozenset(),
+        )
+    if isinstance(expr, LetExprLambda):
+        return _let_expr_value_names(expr.body) - {expr.param}
+    if isinstance(expr, LetExprFactor):
+        bound = {binder.var for binder in expr.binders}
+        inner = frozenset().union(
+            *(
+                _let_expr_value_names(case.value)
+                for case in expr.cases
+            ),
+            (
+                _let_expr_value_names(expr.body)
+                if expr.body is not None
+                else frozenset()
+            ),
+        )
+        return inner - bound
+    raise TypeError(
+        f"_let_expr_value_names: unsupported let-expression variant "
+        f"{type(expr).__name__}"
+    )
+
+
+def _draw_arg_value_names(arg: DrawArg) -> frozenset[str]:
+    """Return every name a draw-step argument reads as a value."""
+    if isinstance(arg, DrawArgName):
+        return frozenset({arg.text})
+    if isinstance(arg, DrawArgIndex):
+        return frozenset({arg.name})
+    if isinstance(arg, DrawArgScalar):
+        return frozenset()
+    if isinstance(arg, DrawArgDist):
+        return frozenset().union(
+            *(_draw_arg_value_names(a) for a in arg.args),
+            frozenset(),
+        )
+    if isinstance(arg, DrawArgList):
+        return frozenset().union(
+            *(_draw_arg_value_names(i) for i in arg.items),
+            frozenset(),
+        )
+    raise TypeError(
+        f"_draw_arg_value_names: unsupported arg variant "
+        f"{type(arg).__name__}"
+    )
+
+
+def _expr_ident_names(expr: Expr) -> frozenset[str]:
+    """Return every morphism / binding name a composition expression
+    references.
+
+    This is the composite counterpart of
+    [`_let_expr_value_names`][quivers.transpile._resolve._let_expr_value_names]:
+    it walks a ``define``d chain (or a morphism's ``~ <expr>`` init)
+    and collects the leaves, so a parameter-source morphism buried
+    under ``scan(...)``, ``stack(...)`` or a ``>>`` chain is visible to
+    the module-level check even when the pre-lower expansion pass
+    never flattens the composite into program steps.
+
+    Object names (``identity(A)``, ``cup(A)``) and category / goal
+    names are not morphism references and contribute nothing.
+    """
+    if isinstance(expr, ExprIdent):
+        return frozenset({expr.name})
+    if isinstance(
+        expr, (ExprIdentity, ExprCup, ExprCap, ExprFromData)
+    ):
+        # Object-indexed or data-indexed primitives: the payload is an
+        # object name or a data key, never a morphism.
+        return frozenset()
+    if isinstance(
+        expr,
+        (ExprFreeze, ExprDagger, ExprTrace, ExprMarginalize, ExprCurry),
+    ):
+        return _expr_ident_names(expr.inner)
+    if isinstance(expr, ExprChangeBase):
+        return _expr_ident_names(expr.inner) | _expr_ident_names(
+            expr.phi
+        )
+    if isinstance(
+        expr, (ExprCompose, ExprTensorProduct, ExprTransCompose)
+    ):
+        return _expr_ident_names(expr.left) | _expr_ident_names(
+            expr.right
+        )
+    if isinstance(expr, ExprFan):
+        return frozenset().union(
+            *(_expr_ident_names(e) for e in expr.exprs),
+            frozenset(),
+        )
+    if isinstance(expr, (ExprRepeat, ExprStack, ExprScan)):
+        return _expr_ident_names(expr.expr)
+    if isinstance(expr, ExprParser):
+        # `rules` names rule declarations and `terminal` the lexicon
+        # morphism; `categories` and `start` name categories.
+        return frozenset(expr.rules) | (
+            frozenset({expr.terminal})
+            if expr.terminal is not None
+            else frozenset()
+        )
+    if isinstance(expr, ExprChartFold):
+        return frozenset().union(
+            _expr_ident_names(expr.lex),
+            *(
+                _expr_ident_names(e)
+                for e in (expr.binary, expr.unary)
+                if e is not None
+            ),
+            frozenset(),
+        )
+    if isinstance(expr, ExprMorphismCall):
+        return frozenset({expr.callee, *expr.args})
+    raise TypeError(
+        f"_expr_ident_names: unsupported expression variant "
+        f"{type(expr).__name__}"
+    )
+
+
+def _step_site_names(step: ProgramStep) -> frozenset[str]:
+    """Return every name ``step`` consumes in a *site* position: the
+    morphism slot of a draw step, which is the slot that has to denote
+    a distribution.
+
+    A marginalize / bind step contributes its own slot and those of
+    every step in its nested scope.
+    """
+    if isinstance(step, (SampleStep, ObserveStep)):
+        return frozenset({step.morphism})
+    if isinstance(step, MarginalizeStep):
+        return frozenset({step.morphism}).union(
+            *(_step_site_names(s) for s in step.scope),
+            frozenset(),
+        )
+    if isinstance(step, BindStep):
+        return frozenset({step.morphism}).union(
+            *(_step_site_names(s) for s in step.scope or ()),
+            frozenset(),
+        )
+    if isinstance(
+        step,
+        (
+            DrawStep,
+            PlateDrawStep,
+            VectorisedObserveStep,
+            GroupedBodyObserveStep,
+        ),
+    ):
+        return frozenset({step.morphism})
+    if isinstance(
+        step,
+        (
+            LetStep,
+            ScoreStep,
+            ReturnStep,
+            GroupedMarginalizeStep,
+            GroupedLatentInitStep,
+        ),
+    ):
+        # None of these carries a morphism slot: a let / score binds an
+        # expression, a return names bound program variables, and the
+        # two grouped-marginalize IR steps carry env slots and a class
+        # size rather than a distribution reference.
+        return frozenset()
+    raise TypeError(
+        f"_step_site_names: unsupported step variant "
+        f"{type(step).__name__}"
+    )
+
+
+def _step_value_names(step: ProgramStep) -> frozenset[str]:
+    """Return every name ``step`` reads in a value position.
+
+    The morphism slot of a draw step is deliberately excluded: that is
+    the *site* position,
+    [`_step_site_names`][quivers.transpile._resolve._step_site_names]
+    collects it separately, and the two positions produce different
+    diagnostics. What remains is the argument list, the right-hand
+    side of a let / score binding, and (for a step with a nested
+    scope) the same over that scope.
+
+    A `ReturnStep`'s ``vars`` are excluded on the same grounds: the
+    grammar admits only bound program variables there, so a morphism
+    name in that slot is impossible and reading it would only invent
+    false positives against a shadowing binding.
+    """
+    if isinstance(step, (LetStep, ScoreStep)):
+        return _let_expr_value_names(step.value)
+    if isinstance(
+        step,
+        (
+            SampleStep,
+            ObserveStep,
+            DrawStep,
+            PlateDrawStep,
+            VectorisedObserveStep,
+            GroupedBodyObserveStep,
+        ),
+    ):
+        return frozenset().union(
+            *(_draw_arg_value_names(a) for a in step.args or ()),
+            frozenset(),
+        )
+    if isinstance(step, MarginalizeStep):
+        return frozenset().union(
+            *(_draw_arg_value_names(a) for a in step.args or ()),
+            *(_step_value_names(s) for s in step.scope),
+            frozenset(),
+        )
+    if isinstance(step, BindStep):
+        return frozenset().union(
+            *(_draw_arg_value_names(a) for a in step.args or ()),
+            *(_step_value_names(s) for s in step.scope or ()),
+            frozenset(),
+        )
+    if isinstance(
+        step,
+        (ReturnStep, GroupedMarginalizeStep, GroupedLatentInitStep),
+    ):
+        return frozenset()
+    raise TypeError(
+        f"_step_value_names: unsupported step variant "
+        f"{type(step).__name__}"
+    )
+
+
+_SITE_POSITION = "site"
+_VALUE_POSITION = "value"
+_COMPOSITE_POSITION = "composite"
+
+_PARAM_SOURCE_REMEDY = (
+    "Express the network as explicit sampled weights and a "
+    "deterministic forward pass, or write the step as a `sample` / "
+    "`observe` against a closed-form family."
+)
+
+
+def _param_source_message(
+    *, name: str, kind: str, position: str, line: int, via: str
+) -> str:
+    """Compose the diagnostic for a parameter-source morphism consumed
+    at ``position``. The three positions fail for different reasons
+    and a target given the program would fail differently, so each
+    says what the emitted program would otherwise have done."""
+    if position == _SITE_POSITION:
+        return (
+            f"morphism {name!r} draws its parameters from a {kind!r} "
+            f"network. The network's weights are model-internal and "
+            f"appear in neither the wire form nor the sample sites, so "
+            f"no backend can reconstruct the mean the morphism "
+            f"computes at line {line}. " + _PARAM_SOURCE_REMEDY
+        )
+    if position == _VALUE_POSITION:
+        return (
+            f"morphism {name!r} draws its parameters from a {kind!r} "
+            f"network, and the program reads it as a value at line "
+            f"{line} instead of drawing from it. The morphism is "
+            f"consumed inside a composite (a `scan(...)` cell, or a "
+            f"link of a `define`d chain), and flattening that "
+            f"composite leaves its name in an ordinary expression: the "
+            f"declaration's own family contributes no density and the "
+            f"network's weights, which are model-internal, have "
+            f"nowhere to be emitted. A target given that program would "
+            f"read {name!r} as a free input and score a different "
+            f"measure. " + _PARAM_SOURCE_REMEDY
+        )
+    return (
+        f"morphism {name!r} draws its parameters from a {kind!r} "
+        f"network, and the step at line {line} consumes it through the "
+        f"composition {via}. The composite never puts {name!r} in a "
+        f"slot a target can emit: its declared family contributes no "
+        f"density and the network's weights, which are "
+        f"model-internal, have nowhere to go, so a target given that "
+        f"program would score a different measure. "
+        + _PARAM_SOURCE_REMEDY
+    )
+
+
+def _reject_param_source_consumed(
+    module: Module, morphisms: dict[str, MorphismDecl]
+) -> None:
+    """Reject a module that consumes a parameter-source morphism.
+
+    A morphism declared ``[param_source=<kind>]`` computes its
+    distribution parameters with a network whose weights are
+    model-internal: they appear in neither the emitted source nor any
+    sample site, so no target can reconstruct what the morphism
+    computes. That makes the boundary a property of the whole module,
+    and this walk enforces it there rather than leaving it to whichever
+    pass happens to touch the offending name first.
+
+    Three positions consume such a morphism, and each fails
+    differently if left alone:
+
+    1. *Site*: the morphism slot of a draw step. Reaching this
+       through
+       [`resolve_step_dist`][quivers.transpile._resolve.resolve_step_dist]
+       raises correctly, but only once lowering walks as far as that
+       step; an unrelated defect in an earlier step reports first and
+       hides the real boundary behind a downstream symptom.
+    2. *Value*: a let / score right-hand side or a draw step's
+       argument list, which is where `expand_composite_lets` leaves the
+       name after flattening a ``scan(...)`` cell or a ``define``d
+       chain. Nothing emits the declaration's family there, and the
+       name reaches the target as a free input the host is expected to
+       supply, so every backend reports a missing argument instead of
+       a boundary.
+    3. *Composite*: a leaf of a ``define``d composition (or of a
+       morphism's own ``~ <expr>`` init) that a draw step consumes and
+       the expansion pass did not flatten. The name then occurs in no
+       program step at all.
+
+    The walk is seeded from program steps only and closed transitively
+    over the ``define`` table and over morphism init expressions, so a
+    morphism that is merely declared, or that appears in a ``define``
+    no program draws from, is left alone. Seeds are visited in program
+    order and each closure in sorted order, so the reported morphism is
+    deterministic.
+    """
+    lets = build_let_table(module)
+    for stmt in module.statements:
+        if not isinstance(stmt, ProgramDecl):
+            continue
+        for step in stmt.draws:
+            seeds = [
+                (name, _SITE_POSITION)
+                for name in sorted(_step_site_names(step))
+            ] + [
+                (name, _VALUE_POSITION)
+                for name in sorted(_step_value_names(step))
+            ]
+            line = _step_line(step)
+            for seed, seed_position in seeds:
+                _reject_reachable_param_source(
+                    seed=seed,
+                    seed_position=seed_position,
+                    line=line,
+                    morphisms=morphisms,
+                    lets=lets,
+                )
+
+
+def _step_line(step: ProgramStep) -> int:
+    """Return a step's source line. Every concrete `ProgramStep`
+    variant declares ``line: int``, but the tagged-union base does
+    not, so the value is narrowed here rather than assumed."""
+    line = step.line
+    if not isinstance(line, int):
+        raise TypeError(
+            f"_step_line: {type(step).__name__}.line is "
+            f"{type(line).__name__}, not int"
+        )
+    return line
+
+
+def _reject_reachable_param_source(
+    *,
+    seed: str,
+    seed_position: str,
+    line: int,
+    morphisms: dict[str, MorphismDecl],
+    lets: dict[str, Expr],
+) -> None:
+    """Raise if ``seed``, or any name reachable from it through the
+    ``define`` table or a morphism's ``~ <expr>`` init, is a
+    parameter-source morphism.
+
+    The frontier is a breadth-first walk in sorted order, and each
+    entry carries the chain of names it was reached through so the
+    diagnostic can name the composition that consumed the morphism.
+    """
+    frontier: list[tuple[str, tuple[str, ...]]] = [(seed, ())]
+    seen: set[str] = {seed}
+    while frontier:
+        name, chain = frontier.pop(0)
+        decl = morphisms.get(name)
+        if decl is not None:
+            kind = param_source_kind(decl, target="qvr-transpile")
+            if kind is not None:
+                position = (
+                    seed_position if not chain else _COMPOSITE_POSITION
+                )
+                suffix = (
+                    ""
+                    if position == _SITE_POSITION
+                    else f":{position}-position:{name}"
+                )
+                raise UnsupportedConstruct(
+                    "qvr-transpile",
+                    [
+                        f"param-source:{kind}{suffix}",
+                        _param_source_message(
+                            name=name,
+                            kind=kind,
+                            position=position,
+                            line=line,
+                            via=" -> ".join((*chain, name)),
+                        ),
+                    ],
+                )
+        reached: frozenset[str] = frozenset()
+        if name in lets:
+            reached |= _expr_ident_names(lets[name])
+        if decl is not None and decl.init_expr is not None:
+            reached |= _expr_ident_names(decl.init_expr)
+        for nxt in sorted(reached):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            frontier.append((nxt, (*chain, name)))
+
+
 def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
     """Return name → MorphismDecl for every morphism declaration in
     ``module``. A plural-name declaration contributes one entry per
     name (each name is an independent morphism with the same
     signature and init). Duplicate names are an error (the QVR
     compiler also rejects them, but the resolver catches it locally
-    with a clearer transpile-time message)."""
+    with a clearer transpile-time message).
+
+    Building the table is also where a module is checked for
+    parameter-source morphisms it consumes, in a site, value or
+    composite position; see
+    [`_reject_param_source_consumed`][quivers.transpile._resolve._reject_param_source_consumed].
+    The table is the resolver's authority on what each name denotes,
+    so it is the one place that sees every declaration at once, which
+    is what deciding a module-wide boundary needs.
+    """
     out: dict[str, MorphismDecl] = {}
     for stmt in module.statements:
         if isinstance(stmt, MorphismDecl):
@@ -146,6 +730,7 @@ def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
                     )
                     raise UnsupportedConstruct("qvr-transpile", [msg])
                 out[name] = stmt
+    _reject_param_source_consumed(module, out)
     return out
 
 
@@ -224,10 +809,7 @@ def resolve_step_dist(
 
     if morphism_name in morphisms:
         decl = morphisms[morphism_name]
-        param_source = next(
-            (e.value.value for e in decl.options if e.key == "param_source"),
-            None,
-        )
+        param_source = param_source_kind(decl, target=target)
         if param_source is not None:
             msg = (
                 f"morphism {morphism_name!r} draws its parameters from a "
@@ -565,5 +1147,6 @@ __all__ = [
     "ResolvedDist",
     "build_let_table",
     "build_morphism_table",
+    "param_source_kind",
     "resolve_step_dist",
 ]

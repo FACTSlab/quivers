@@ -29,6 +29,7 @@ from quivers.dsl.ast_nodes import (
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.ir import LetAffineSource, LetExprAffineMap
 
 _TARGET = "qvr-scheme-helper"
 
@@ -82,7 +83,7 @@ def render_let_expr_scheme(ctx, expr: LetExprNode) -> str:
         ctx.e(lst, fn)
         ctx.e(lst, render_let_expr_scheme(ctx, expr.array))
         for idx in expr.indices:
-            ctx.e(lst, render_let_expr_scheme(ctx, idx))
+            ctx.e(lst, _render_index_scheme(ctx, idx))
         return lst
     if isinstance(expr, LetExprList):
         lst = ctx.v(ctx.fresh("list"), "list")
@@ -94,6 +95,8 @@ def render_let_expr_scheme(ctx, expr: LetExprNode) -> str:
         return lst
     if isinstance(expr, LetExprLambda):
         return _render_lambda(ctx, expr)
+    if isinstance(expr, LetExprAffineMap):
+        return _render_affine_map(ctx, expr)
     if isinstance(expr, LetExprFactor):
         return _render_factor(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
@@ -102,6 +105,127 @@ def render_let_expr_scheme(ctx, expr: LetExprNode) -> str:
         _TARGET,
         [f"let-expr:{type(expr).__name__}: unhandled node kind"],
     )
+
+
+def _render_index_scheme(ctx, expr: LetExprNode) -> str:
+    """Render one subscript of a `list-ref`.
+
+    Scheme's `list-ref` takes an exact integer, and
+    [`LetExprLiteral`][quivers.dsl.ast_nodes.LetExprLiteral] carries
+    its value as a float, so a literal subscript is emitted as its
+    integer spelling rather than through the general numeric path.
+    Scheme's index origin is QVR's own, so the value passes through
+    unshifted. Any other index expression renders normally.
+    """
+    if isinstance(expr, LetExprLiteral) and float(expr.value).is_integer():
+        return _scheme_number(ctx, int(expr.value))
+    return render_let_expr_scheme(ctx, expr)
+
+
+def _scheme_form(ctx, head: str, children: tuple[str, ...]) -> str:
+    """Emit ``(<head> <c0> <c1> ...)`` as a `list` vertex."""
+    lst = ctx.v(ctx.fresh("list"), "list")
+    sym = ctx.v(ctx.fresh("sym"), "symbol")
+    ctx.lit(sym, head)
+    ctx.e(lst, sym)
+    for child in children:
+        ctx.e(lst, child)
+    return lst
+
+
+def _scheme_number(ctx, value: int) -> str:
+    """Emit an integer `number` vertex."""
+    vid = ctx.v(ctx.fresh("num"), "number")
+    ctx.lit(vid, str(value))
+    return vid
+
+
+def _affine_conditioning_row(
+    ctx, sources: tuple[LetAffineSource, ...]
+) -> str:
+    """Emit the map's conditioning row: the factors joined by
+    `append` in declaration order.
+
+    A one-factor row is the factor itself, so the common case emits
+    no call at all.
+    """
+    if not sources:
+        raise UnsupportedConstruct(
+            _TARGET,
+            [
+                "let-expr:LetExprAffineMap: the map's conditioning "
+                "row carries no factors"
+            ],
+        )
+    rendered = tuple(
+        render_let_expr_scheme(ctx, source.value) for source in sources
+    )
+    if len(rendered) == 1:
+        return rendered[0]
+    return _scheme_form(ctx, "append", rendered)
+
+
+def _render_affine_map(ctx, expr: LetExprAffineMap) -> str:
+    """Emit one head's row block of ``W x + b`` as a list of
+    contracted rows.
+
+    Scheme has no matrix product, but `map` over two equal-length
+    lists paired with `apply +` is exactly the row contraction, so
+    each codomain coordinate costs one form rather than one per
+    domain coordinate. The row block is materialised as a `list` of
+    `rows` such contractions, which is `rows` forms whatever the
+    domain width.
+    """
+    row_expr = _affine_conditioning_row(ctx, expr.sources)
+    weight = render_let_expr_scheme(ctx, expr.weight)
+    bias = render_let_expr_scheme(ctx, expr.bias)
+    rows: list[str] = []
+    for i in range(expr.rows):
+        row = expr.row_offset + i
+        contracted = _scheme_form(
+            ctx,
+            "+",
+            (
+                _scheme_form(
+                    ctx,
+                    "apply",
+                    (
+                        _scheme_symbol(ctx, "+"),
+                        _scheme_form(
+                            ctx,
+                            "map",
+                            (
+                                _scheme_symbol(ctx, "*"),
+                                _scheme_form(
+                                    ctx,
+                                    "list-ref",
+                                    (weight, _scheme_number(ctx, row)),
+                                ),
+                                row_expr,
+                            ),
+                        ),
+                    ),
+                ),
+                _scheme_form(
+                    ctx,
+                    "list-ref",
+                    (bias, _scheme_number(ctx, row)),
+                ),
+            ),
+        )
+        rows.append(
+            _scheme_form(ctx, "exp", (contracted,))
+            if expr.transform == "exp"
+            else contracted
+        )
+    return _scheme_form(ctx, "list", tuple(rows))
+
+
+def _scheme_symbol(ctx, name: str) -> str:
+    """Emit a bare `symbol` vertex."""
+    vid = ctx.v(ctx.fresh("sym"), "symbol")
+    ctx.lit(vid, name)
+    return vid
 
 
 def _render_lambda(ctx, expr: LetExprLambda) -> str:

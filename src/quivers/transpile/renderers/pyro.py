@@ -64,6 +64,7 @@ from quivers.transpile.renderers._python_helpers import (
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
+    render_deterministic_python,
     render_let_expr_python,
     shape_tuple,
     string_literal,
@@ -278,7 +279,7 @@ class PyroRenderer(RendererBase):
             asn = pctx.v(pctx.fresh("asn"), "assignment")
             lhs = identifier(pctx, node.name)
             pctx.e(asn, lhs, "left")
-            pctx.e(asn, render_let_expr_python(pctx, node.expr), "right")
+            pctx.e(asn, render_deterministic_python(pctx, node), "right")
             pctx.e(pctx.body, asn, "child_of")
             return
         if isinstance(node, IRScore):
@@ -829,7 +830,7 @@ class PyroRenderer(RendererBase):
                 asn = assignment(
                     pctx,
                     lhs_name=det.name,
-                    rhs=render_let_expr_python(pctx, det.expr),
+                    rhs=render_deterministic_python(pctx, det),
                 )
                 pctx.e(pctx.body, asn, "child_of")
             dist_call = self._build_distribution_call(

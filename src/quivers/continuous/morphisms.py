@@ -8,14 +8,20 @@ operations:
     log_prob(x, y) — log-density/probability of y given x
     rsample(x)     — reparameterized samples from p(· | x)
 
-Composition samples ancestrally and scores by integration:
+Composition samples ancestrally. Its density marginalizes a discrete
+intermediate exactly, by finite summation:
 
-    (g . f)(x, z) = integral f(x, y) g(y, z) dy
+    (g . f)(x, z) = sum_y f(x, y) g(y, z)
 
-The integral is a finite sum over a discrete intermediate, a single
-evaluation when f is degenerate, and otherwise the deterministic
-quadrature f reports through ``marginal_quadrature``. No branch draws
-samples, so a composite density is the same number on every call.
+A continuous intermediate is not marginalized. The chain is scored
+along its canonical path instead: every stochastic factor's
+intermediate is bound to the image of its base measure's origin, each
+factor is scored once along that path, and the supplied value scores
+the last of them. That is exact where the integral would have been
+approximate, and it is a pure function of the endpoints where a
+quadrature would have made it a function of the node count as well.
+No branch draws samples, so a composite density is the same number on
+every call and under every global RNG state.
 
 This module provides:
 
@@ -132,6 +138,37 @@ def sobol_normal_points(
     unit = engine.draw(n + 1, dtype=torch.float64)[1:]
     unit = unit.clamp(min=_QUANTILE_EPS, max=1.0 - _QUANTILE_EPS)
     return torch.special.ndtri(unit).to(device=device, dtype=dtype)
+
+
+def _reduce_to_batch(log_prob: torch.Tensor) -> torch.Tensor:
+    """Sum a factor's log-density down to one number per row.
+
+    A kernel applied along a sequence returns one density per position
+    (``(batch, seq)``) where the same kernel on a single position
+    returns ``(batch,)``. The positions are independent factors of the
+    same row's density, so the row's contribution is their sum; leaving
+    the axis in place would let it broadcast against the rest of the
+    chain and count every other factor once per position.
+    """
+    if log_prob.dim() <= 1:
+        return log_prob
+    return log_prob.reshape(log_prob.shape[0], -1).sum(dim=-1)
+
+
+def _fold_features(value: torch.Tensor) -> torch.Tensor:
+    """Fold a chain intermediate to one feature axis per row.
+
+    A kernel applied along a sequence carries a position axis its
+    declared codomain does not, and the value the next factor expects
+    carries only the declared one. Scoring the two unfolded broadcasts
+    a ``(batch, seq, d)`` mean against a ``(batch, d)`` value into a
+    finite number that is the density of nothing, so the position axis
+    is folded into the feature axis and the next factor reads it back
+    from the width it declares.
+    """
+    if value.dim() <= 2:
+        return value
+    return value.reshape(value.shape[0], -1)
 
 
 def chain_dimensions(
@@ -343,6 +380,34 @@ class ContinuousMorphism(nn.Module, ABC):
         """
         ...
 
+    def has_conditional_density(self) -> bool:
+        """Whether
+        [`log_prob`][quivers.continuous.morphisms.ContinuousMorphism.log_prob]
+        evaluates a density rather than raising.
+
+        Every kernel whose conditional law is a named family answers
+        yes. A kernel that denotes a *program* answers no: its density
+        at a value marginalizes the program's internal draws, which no
+        closed form covers, and its `log_prob` says so by raising.
+
+        A caller deciding between two constructions needs that answer
+        before it calls, not as an exception afterwards, so the
+        capability is declared rather than discovered. The parallel
+        with
+        [`point_mass_value`][quivers.continuous.morphisms.ContinuousMorphism.point_mass_value]
+        and
+        [`base_dimension`][quivers.continuous.morphisms.ContinuousMorphism.base_dimension]
+        is exact: each reports a structural property of the kernel that
+        determines which exact treatment is open to a caller, and none
+        of them is a probe by trial.
+
+        Returns
+        -------
+        bool
+            True for a kernel with an evaluable conditional density.
+        """
+        return True
+
     def point_mass_value(self, x: torch.Tensor) -> torch.Tensor | None:
         """The single value this kernel puts all of its mass on, or None.
 
@@ -473,6 +538,12 @@ class ContinuousMorphism(nn.Module, ABC):
         expose it as a trace site. Everything else returns ``None``,
         and a caller that needs a rule raises on ``None`` rather than
         substituting a sampler.
+
+        A composite density does not ask for this rule.
+        [`SampledComposition.log_prob`][quivers.continuous.morphisms.SampledComposition.log_prob]
+        scores its chain's canonical path, which is exact; the rule
+        stays available to a caller that genuinely wants to integrate
+        against this kernel and is willing to own the approximation.
 
         Parameters
         ----------
@@ -617,19 +688,21 @@ class SampledComposition(ContinuousMorphism):
 
         (g . f)(x, z) = integral f(x, y) g(y, z) dy
 
-    This integral is computed:
+    That integral is what
+    [`log_prob`][quivers.continuous.morphisms.SampledComposition.log_prob]
+    evaluates when Y is discrete: a finite sum over Y's elements,
+    exact. A degenerate ``left`` collapses it to a single evaluation,
+    also exact.
 
-    - Exactly (finite sum) when Y is discrete.
-    - Exactly (single evaluation) when Y is continuous and ``left``
-      is degenerate, i.e. reports a
-      [`point_mass_value`][quivers.continuous.morphisms.ContinuousMorphism.point_mass_value].
-    - By the deterministic quadrature ``left`` reports through
-      [`marginal_quadrature`][quivers.continuous.morphisms.ContinuousMorphism.marginal_quadrature]
-      when Y is continuous and ``left`` is stochastic. This value
-      approximates the marginal; the exact treatment of a stochastic
-      intermediate is to bind it to a draw step of its own, so the
-      chain's factors are scored one at a time and nothing is
-      integrated at all.
+    When Y is continuous and ``left`` is stochastic the integral has
+    no closed form, and
+    [`_log_prob_reference_path`][quivers.continuous.morphisms.SampledComposition._log_prob_reference_path]
+    scores the chain's canonical path rather than approximating it:
+    the intermediate is bound to the image of ``left``'s base-measure
+    origin and every factor is scored once along the resulting path.
+    That is the density of the path rather than the marginal of its
+    endpoint, and it is exact, rule-free and reproducible where the
+    marginal's approximations are none of the three.
 
     For rsample: draw y ~ f(x, .), then draw z ~ g(y, .).
 
@@ -640,9 +713,12 @@ class SampledComposition(ContinuousMorphism):
     right : ContinuousMorphism
         Second morphism (applied second).
     n_intermediate : int
-        Requested node count for the deterministic quadrature over a
-        continuous intermediate. Ignored when the intermediate space
-        is discrete or the left kernel is degenerate.
+        Node count for the deterministic rule this composition offers
+        through
+        [`marginal_quadrature`][quivers.continuous.morphisms.ContinuousMorphism.marginal_quadrature]
+        to a caller that asks for one. The composite density does not
+        ask: it scores the canonical path and integrates nothing, so
+        this count does not reach `log_prob`.
     """
 
     def __init__(
@@ -694,7 +770,7 @@ class SampledComposition(ContinuousMorphism):
         no two factors share a coordinate and the composite map is the
         honest pushforward of one point set through the whole chain
         rather than a per-factor rule glued together by index. That is
-        what keeps the composite quadrature from resolving the same
+        what keeps a rule built on this map from resolving the same
         directions twice while leaving others unexplored.
         """
         dimensions = chain_dimensions(self.factors, x)
@@ -749,12 +825,17 @@ class SampledComposition(ContinuousMorphism):
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability of y given x through the composition.
 
-        When the intermediate space is discrete, computes the exact
-        marginalization by finite summation. When it is continuous,
-        delegates to
-        integrates against the deterministic rule
-        [`chain_marginal_quadrature`][quivers.continuous.morphisms.chain_marginal_quadrature]
-        builds for the chain ahead of the last factor.
+        A discrete intermediate is marginalized exactly, by finite
+        summation over its elements. A continuous one is not
+        marginalized at all: the chain is scored along the canonical
+        path
+        [`_log_prob_reference_path`][quivers.continuous.morphisms.SampledComposition._log_prob_reference_path]
+        describes, which is exact where an integral would have been
+        approximate, and is a pure function of ``(x, y)`` where a rule
+        would have made it a function of the node count as well.
+
+        Both branches return the same number when every intermediate
+        is degenerate, which is the case the two readings share.
 
         Parameters
         ----------
@@ -772,7 +853,7 @@ class SampledComposition(ContinuousMorphism):
         if isinstance(intermediate, SetObject):
             return self._log_prob_exact(x, y, intermediate)
         else:
-            return self._log_prob_quadrature(x, y)
+            return self._log_prob_reference_path(x, y)
 
     def _log_prob_exact(
         self, x: torch.Tensor, z: torch.Tensor, intermediate: SetObject
@@ -803,75 +884,117 @@ class SampledComposition(ContinuousMorphism):
         log_g = self.right.log_prob(y_flat, z_flat).reshape(batch, n_y)
         return torch.logsumexp(log_f + log_g, dim=1)
 
-    def _log_prob_quadrature(
+    def _log_prob_reference_path(
         self, x: torch.Tensor, z: torch.Tensor
     ) -> torch.Tensor:
-        """Marginalize a continuous intermediate by deterministic quadrature.
+        """Score every factor along the chain's canonical path.
 
-        Evaluates
-        :math:`\\log \\sum_i w_i\\, g(z \\mid y_i)` over the nodes
-        [`marginal_quadrature`][quivers.continuous.morphisms.ContinuousMorphism.marginal_quadrature]
-        supplies for the left kernel. A degenerate intermediate yields
-        one node of unit weight, so the sum collapses to a single
-        evaluation and the result is the exact marginal; a stochastic
-        intermediate yields the deterministic Sobol rule of
-        [`sobol_normal_points`][quivers.continuous.morphisms.sobol_normal_points],
-        whose value is an approximation of the marginal, not the
-        marginal itself.
+        The chain's marginal at ``z`` integrates each continuous
+        intermediate, and no closed form covers that integral once a
+        factor is a genuinely stochastic kernel. A deterministic
+        quadrature approximates it, and the approximation is a
+        property of the rule rather than of the model: the value moves
+        by thousands of nats when the node count changes, because one
+        point set of a fixed size has to resolve a Gaussian whose
+        scale a later factor predicts, in as many dimensions as the
+        whole prefix places coordinates. A density no two rules agree
+        on is not a density anything can be compared against.
 
-        The rule is a function of ``x`` alone, so repeated calls agree
-        bit for bit whatever the global RNG has been doing. That is
-        what a composite kernel has to provide before anything can use
-        its density as a reference: a value redrawn per call is a
-        sample from an estimator, and no comparison against it means
-        anything.
+        What this evaluates instead is exact, and needs no rule. The
+        chain's intermediates are bound to the images of the base
+        measure's origin, one per stochastic factor, which is what
+        [`push_base`][quivers.continuous.morphisms.ContinuousMorphism.push_base]
+        at zero coordinates returns; every factor is then scored once
+        along that path, and the supplied ``z`` scores the last of
+        them:
+
+        .. math::
+
+            \\sum_{k<n} \\log p_k(y_k \\mid y_{k-1})
+            + \\log p_n(z \\mid y_{n-1}),
+            \\qquad y_k = T_{y_{k-1}}(0).
+
+        The origin is a fixed point of the reparameterization, not a
+        draw, so the whole value is a pure function of ``(x, z)`` and
+        the factors' parameters: bitwise identical under every global
+        RNG state and under every node count, because there is no node
+        count left. A degenerate factor contributes no density and
+        passes its point mass along, exactly as the marginal treats
+        it, so a chain whose intermediates are all deterministic
+        scores the same number either way.
+
+        This is the density of the *path*, not the marginal of its
+        endpoint. The two differ by the intermediates the integral
+        would have removed, and the path is the object worth scoring:
+        a joint that drops the prefix carries none of the structure
+        the chain's own factors declare.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Inputs to the chain. Shape ``(batch, *domain)``.
+        z : torch.Tensor
+            Value at the chain's codomain. Shape ``(batch, *event)``.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``(batch,)``.
 
         Raises
         ------
         ValueError
-            When the left kernel offers no deterministic rule. The
-            composite marginal is then unavailable at the morphism
-            level, and the intermediate has to be bound to a draw
-            step of its own before the joint can score it exactly.
+            When a stochastic prefix factor declares no
+            reparameterization (so the path has no canonical
+            intermediate) or no conditional density (so the step
+            cannot be scored). Either way the intermediate has to be
+            bound to a draw step of its own before the joint can score
+            it exactly.
         """
-        batch = x.shape[0]
         factors = self.factors
         prefix = factors[:-1]
         last = factors[-1]
-        rule = chain_marginal_quadrature(prefix, x, self.n_intermediate)
-        if rule is None:
-            raise ValueError(
-                f"SampledComposition.log_prob: the intermediate object "
-                f"{prefix[-1].codomain!r} is continuous, and a factor "
-                f"of the chain {[type(f).__name__ for f in prefix]!r} "
-                f"leading to it declares no reparameterization, so the "
-                f"composite marginal cannot be evaluated without "
-                f"drawing samples. A drawn estimate would make this "
-                f"density a different number on every call. Bind the "
-                f"intermediate to a draw step of its own and score the "
-                f"chain factor by factor, or give the factor a "
-                f"`base_dimension` / `push_base` pair."
+        total: torch.Tensor | None = None
+        current = x
+        for factor in prefix:
+            degenerate = factor.point_mass_value(current)
+            if degenerate is not None:
+                current = degenerate
+                continue
+            dimension = factor.base_dimension(current)
+            if dimension is None:
+                raise ValueError(
+                    f"SampledComposition.log_prob: the intermediate "
+                    f"object {factor.codomain!r} is continuous and "
+                    f"{type(factor).__name__} declares no "
+                    f"reparameterization, so the chain has no canonical "
+                    f"value to bind it to. Bind the intermediate to a "
+                    f"draw step of its own and score the chain factor "
+                    f"by factor, or give the factor a `base_dimension` "
+                    f"/ `push_base` pair."
+                )
+            if not factor.has_conditional_density():
+                raise ValueError(
+                    f"SampledComposition.log_prob: "
+                    f"{type(factor).__name__} has no conditional "
+                    f"density, so its step of the chain cannot be "
+                    f"scored. Bind the intermediate to a draw step of "
+                    f"its own and score the factor's own draws."
+                )
+            dtype = (
+                current.dtype
+                if current.is_floating_point()
+                else torch.get_default_dtype()
             )
-        nodes, log_weights = rule
-        count = nodes.shape[0]
-        # Nodes and value are folded to one feature axis per row before
-        # the last factor scores them. A kernel applied along a
-        # sequence carries a position axis its declared codomain does
-        # not, and the value the caller supplies carries only the
-        # declared one, so scoring the two against each other unfolded
-        # broadcasts a ``(N, T, d)`` mean against an ``(N, d)`` value
-        # into an ``(N, N, d)`` tensor: a finite number that is not the
-        # density of anything.
-        if nodes.dim() == 2:
-            y_flat = nodes.reshape(count * batch)
-        else:
-            y_flat = nodes.reshape(count * batch, -1)
-        if z.dim() == 1:
-            z_flat = z.unsqueeze(0).expand(count, batch).reshape(count * batch)
-        else:
-            z_flat = z.unsqueeze(0).expand(count, *z.shape).reshape(count * batch, -1)
-        log_g = last.log_prob(y_flat, z_flat).reshape(count, batch)
-        return torch.logsumexp(log_weights.unsqueeze(-1) + log_g, dim=0)
+            base = torch.zeros(
+                current.shape[0], dimension, device=current.device, dtype=dtype
+            )
+            following = factor.push_base(current, base)
+            term = _reduce_to_batch(factor.log_prob(current, following))
+            total = term if total is None else total + term
+            current = following
+        term = _reduce_to_batch(last.log_prob(_fold_features(current), z))
+        return term if total is None else total + term
 
 
 class ProductContinuousMorphism(ContinuousMorphism):

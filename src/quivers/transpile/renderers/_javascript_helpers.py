@@ -56,6 +56,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder
 from quivers.dsl.ast_nodes.objects import TypeName
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.ir import LetExprAffineMap
 from quivers.transpile.renderers._stan_helpers import _substitute_let_expr
 
 
@@ -120,6 +121,8 @@ def _render(ctx: _JsLetCtx, expr: LetExprNode) -> tuple[str, str]:
         return _emit_lambda(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
         return _emit_method_call(ctx, expr)
+    if isinstance(expr, LetExprAffineMap):
+        return _emit_affine_map(ctx, expr)
     if isinstance(expr, LetExprFactor):
         return _emit_factor(ctx, expr)
     raise UnsupportedConstruct(
@@ -271,6 +274,38 @@ def _emit_arguments(
     for child_vid, _kind in rendered:
         ctx.e(vid, child_vid, "child_of")
     return vid, "arguments"
+
+
+def _emit_affine_map(
+    ctx: _JsLetCtx, expr: LetExprAffineMap
+) -> tuple[str, str]:
+    """Emit one head's row block of ``W x + b`` as a call to the
+    runtime's `_qvr_affine`.
+
+    WebPPL has neither a matrix product nor a numeric array type, and
+    its CPS transform rejects the loops a contraction would otherwise
+    need at the call site, so the contraction lives in
+    [`runtime_webppl.js`][quivers.transpile.runtime_webppl] and the
+    emit passes it the weight, the bias, the ordered factors of the
+    conditioning row, the head's row block, and its elementwise link.
+    Every index is zero-based, which is JavaScript's origin as well as
+    QVR's, so nothing is rebased.
+    """
+    return _emit_call(
+        ctx,
+        "_qvr_affine",
+        (
+            _render(ctx, expr.weight),
+            _render(ctx, expr.bias),
+            _emit_array(
+                ctx,
+                tuple(_render(ctx, s.value) for s in expr.sources),
+            ),
+            _emit_number(ctx, float(expr.row_offset)),
+            _emit_number(ctx, float(expr.rows)),
+            _emit_string(ctx, expr.transform),
+        ),
+    )
 
 
 def _emit_index(ctx: _JsLetCtx, expr: LetExprIndex) -> tuple[str, str]:

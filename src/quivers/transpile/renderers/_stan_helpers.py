@@ -52,6 +52,7 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder, LetFactorCase
 from quivers.dsl.ast_nodes.objects import TypeName
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.ir import LetAffineSource, LetExprAffineMap
 
 
 def render_let_expr_stan(ctx, expr: LetExprNode) -> str:
@@ -96,6 +97,8 @@ def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
         return _emit_function_expression(ctx, expr.func, expr.args)
     if isinstance(expr, LetExprIndex):
         return _emit_indexed(ctx, expr)
+    if isinstance(expr, LetExprAffineMap):
+        return _emit_affine_map(ctx, expr)
     if isinstance(expr, LetExprList):
         return _emit_array_expression(
             ctx, tuple(_render(ctx, item) for item in expr.items)
@@ -243,10 +246,23 @@ def _emit_infix(ctx, expr: LetExprBinOp) -> tuple[str, str]:
     `c * (...)` would re-parse as `(c * theta_1) - theta_0` and
     silently change the meaning).
     """
-    left_vid, left_kind = _stan_maybe_paren(ctx, _render(ctx, expr.left))
-    right_vid, right_kind = _stan_maybe_paren(ctx, _render(ctx, expr.right))
+    return _emit_infix_rendered(
+        ctx, expr.op, _render(ctx, expr.left), _render(ctx, expr.right)
+    )
+
+
+def _emit_infix_rendered(
+    ctx,
+    op: str,
+    left: tuple[str, str],
+    right: tuple[str, str],
+) -> tuple[str, str]:
+    """Emit an `infix_op_expression` over two already-rendered
+    operands, parenthesising each where Stan's printer needs it."""
+    left_vid, left_kind = _stan_maybe_paren(ctx, left)
+    right_vid, right_kind = _stan_maybe_paren(ctx, right)
     vid = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
-    ctx.constraint(vid, "chose-alt-fingerprint", expr.op)
+    ctx.constraint(vid, "chose-alt-fingerprint", op)
     ctx.constraint(
         vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}"
     )
@@ -294,13 +310,29 @@ def _emit_function_expression(
     table so QVR-named math primitives (`sigmoid`, ...) reach Stan
     under their stdlib identifiers (`inv_logit`, ...).
     """
-    rendered = tuple(_render(ctx, a) for a in args)
+    return _emit_call_rendered(
+        ctx,
+        _STAN_FUNCTION_RENAMES.get(func, func),
+        tuple(_render(ctx, a) for a in args),
+    )
+
+
+def _emit_call_rendered(
+    ctx, func: str, rendered: tuple[tuple[str, str], ...]
+) -> tuple[str, str]:
+    """Emit a `function_expression` calling `func` on operands that
+    are already rendered.
+
+    `func` is the Stan stdlib identifier; the
+    [`_STAN_FUNCTION_RENAMES`][quivers.transpile.renderers._stan_helpers._STAN_FUNCTION_RENAMES]
+    table is applied by the caller that starts from a QVR name.
+    """
     vid = ctx.vertex(ctx.fresh("call"), "function_expression")
     ctx.constraint(
         vid, "chose-alt-child-kinds", "identifier argument_list"
     )
     fn = ctx.vertex(ctx.fresh("fn"), "identifier")
-    ctx.literal(fn, _STAN_FUNCTION_RENAMES.get(func, func))
+    ctx.literal(fn, func)
     ctx.edge(vid, fn, "name")
     al_vid = _emit_argument_list(ctx, rendered)
     ctx.edge(vid, al_vid, "child_of")
@@ -352,6 +384,21 @@ accept it; otherwise emit_pretty silently drops the entire
 indexed expression and prints `[]`."""
 
 
+def _rebase_literal_index(index: LetExprNode) -> LetExprNode:
+    """Lift an integer-literal subscript from QVR's zero-based origin
+    to Stan's one-based one.
+
+    Only a literal is rebased: a subscript built from a loop
+    variable or from arithmetic the host already evaluates in its
+    own origin would be shifted twice.
+    """
+    if isinstance(index, LetExprLiteral):
+        value = int(index.value)
+        if float(value) == index.value:
+            return LetExprLiteral(value=float(value) + 1.0)
+    return index
+
+
 def _emit_indexed(
     ctx, expr: LetExprIndex
 ) -> tuple[str, str]:
@@ -362,6 +409,14 @@ def _emit_indexed(
     [`_STAN_INDEXED_CALLEE_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_INDEXED_CALLEE_KINDS]),
     wrap it in `parenthized_expression` so the printer keeps the
     subtree intact instead of bailing to `[]`.
+
+    Literal subscripts are rebased from QVR's zero-based origin to
+    Stan's one-based one by
+    [`_rebase_literal_index`][quivers.transpile.renderers._stan_helpers._rebase_literal_index],
+    the way the Julia and BUGS helpers rebase theirs. Every other
+    subscript shape (a loop variable, an arithmetic expression, a
+    nested lookup) is already in the host's origin and passes
+    through untouched.
     """
     arr_vid, arr_kind = _render(ctx, expr.array)
     if arr_kind not in _STAN_INDEXED_CALLEE_KINDS:
@@ -374,7 +429,7 @@ def _emit_indexed(
     index_vids: list[str] = []
     child_kinds: list[str] = [arr_kind]
     for idx in expr.indices:
-        inner_vid, inner_kind = _render(ctx, idx)
+        inner_vid, inner_kind = _render(ctx, _rebase_literal_index(idx))
         wrap = ctx.vertex(ctx.fresh("idx"), "index")
         ctx.constraint(wrap, "chose-alt-child-kinds", inner_kind)
         ctx.edge(wrap, inner_vid, "child_of")
@@ -389,6 +444,112 @@ def _emit_indexed(
     for wrap in index_vids:
         ctx.edge(vid, wrap, "child_of")
     return vid, "indexed_expression"
+
+
+def _emit_row_block(
+    ctx, array: LetExprNode, offset: int, rows: int
+) -> tuple[str, str]:
+    """Emit ``<array>[lo:hi]``, one head's contiguous row block.
+
+    `offset` and `rows` arrive in QVR's zero-based origin; Stan
+    indexes from one and its ``lo:hi`` slice is inclusive at both
+    ends, so the block spans ``offset + 1`` to ``offset + rows``.
+    """
+    arr_vid, arr_kind = _render(ctx, array)
+    if arr_kind not in _STAN_INDEXED_CALLEE_KINDS:
+        arr_vid, arr_kind = _stan_paren(ctx, (arr_vid, arr_kind))
+    colon = ctx.vertex(ctx.fresh("colon"), "colon_expression")
+    ctx.constraint(colon, "chose-alt-fingerprint", ":")
+    ctx.constraint(
+        colon,
+        "chose-alt-child-kinds",
+        "integer_literal integer_literal",
+    )
+    lo_vid, _lo_kind = _emit_literal(ctx, float(offset + 1))
+    hi_vid, _hi_kind = _emit_literal(ctx, float(offset + rows))
+    ctx.edge(colon, lo_vid, "child_of")
+    ctx.edge(colon, hi_vid, "child_of")
+    wrap = ctx.vertex(ctx.fresh("idx"), "index")
+    ctx.constraint(wrap, "chose-alt-child-kinds", "colon_expression")
+    ctx.edge(wrap, colon, "child_of")
+    vid = ctx.vertex(ctx.fresh("ix"), "indexed_expression")
+    ctx.constraint(vid, "chose-alt-fingerprint", "[ ]")
+    ctx.constraint(vid, "chose-alt-child-kinds", f"{arr_kind} index")
+    ctx.edge(vid, arr_vid, "child_of")
+    ctx.edge(vid, wrap, "child_of")
+    return vid, "indexed_expression"
+
+
+def _emit_conditioning_row(
+    ctx, sources: tuple[LetAffineSource, ...]
+) -> tuple[str, str]:
+    """Emit the map's conditioning row: the factors concatenated in
+    declaration order, as one Stan `vector`.
+
+    Each factor is coerced with `to_vector` so a `vector`-typed
+    object and an ``array[] real``-typed one stack the same way, and
+    the factors are joined with `append_row`.
+    """
+    row: tuple[str, str] | None = None
+    for source in sources:
+        column = _emit_call_rendered(
+            ctx, "to_vector", (_render(ctx, source.value),)
+        )
+        row = (
+            column
+            if row is None
+            else _emit_call_rendered(ctx, "append_row", (row, column))
+        )
+    if row is None:
+        raise UnsupportedConstruct(
+            "qvr-stan-helper",
+            [
+                "let-expr:LetExprAffineMap:stan: the map's "
+                "conditioning row carries no factors"
+            ],
+        )
+    return row
+
+
+def _emit_affine_map(ctx, expr: LetExprAffineMap) -> tuple[str, str]:
+    """Emit one head's row block of ``W x + b`` as a matrix-vector
+    product.
+
+    Stan's ``*`` on a `matrix` and a `vector` is exactly the
+    contraction the map denotes, so the whole head is one product
+    rather than a row per codomain coordinate. `to_matrix` and
+    `to_vector` coerce the ``array[,] real`` / ``array[] real``
+    shapes the map's data inputs arrive on, `exp` is Stan's
+    vectorised exponential, and `to_array_1d` converts the resulting
+    `vector` back to the ``array[N] real`` the binding is declared
+    at.
+    """
+    total = _emit_infix_rendered(
+        ctx,
+        "+",
+        _emit_infix_rendered(
+            ctx,
+            "*",
+            _emit_call_rendered(
+                ctx,
+                "to_matrix",
+                (
+                    _emit_row_block(
+                        ctx, expr.weight, expr.row_offset, expr.rows
+                    ),
+                ),
+            ),
+            _emit_conditioning_row(ctx, expr.sources),
+        ),
+        _emit_call_rendered(
+            ctx,
+            "to_vector",
+            (_emit_row_block(ctx, expr.bias, expr.row_offset, expr.rows),),
+        ),
+    )
+    if expr.transform == "exp":
+        total = _emit_call_rendered(ctx, "exp", (total,))
+    return _emit_call_rendered(ctx, "to_array_1d", (total,))
 
 
 def _emit_array_expression(
@@ -420,9 +581,11 @@ def _render_factor(ctx, expr: LetExprFactor) -> tuple[str, str]:
     `array_expression` vertices of shape
     `(|b0|, |b1|, ..., |bn-1|)`. The shared
     [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
-    walk receives a 1-indexed `index_value` (Stan arrays are
-    1-based) and a 0-indexed `scalar_value` (arithmetic on the
-    binder uses QVR's 0-based surface convention).
+    walk receives the binder's 0-indexed value in both slots,
+    since
+    [`_emit_indexed`][quivers.transpile.renderers._stan_helpers._emit_indexed]
+    is the one place that lifts a literal subscript to Stan's
+    one-based origin.
     """
     if expr.cases and expr.body is None:
         if len(expr.binders) != 1:
@@ -499,7 +662,7 @@ def _build_nested_array(
             subst = _substitute_let_expr(
                 subst,
                 binder.var,
-                index_value=LetExprLiteral(value=value + 1),
+                index_value=LetExprLiteral(value=value),
                 scalar_value=LetExprLiteral(value=value),
             )
         return _render(ctx, subst)
@@ -646,6 +809,39 @@ def _substitute_let_expr_walk(
                 )
                 for i in expr.indices
             ),
+        )
+    if isinstance(expr, LetExprAffineMap):
+        return LetExprAffineMap(
+            weight=_substitute_let_expr_walk(
+                expr.weight,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
+            bias=_substitute_let_expr_walk(
+                expr.bias,
+                name,
+                index_value=index_value,
+                scalar_value=scalar_value,
+                in_index_slot=False,
+            ),
+            sources=tuple(
+                LetAffineSource(
+                    value=_substitute_let_expr_walk(
+                        source.value,
+                        name,
+                        index_value=index_value,
+                        scalar_value=scalar_value,
+                        in_index_slot=False,
+                    ),
+                    width=source.width,
+                )
+                for source in expr.sources
+            ),
+            row_offset=expr.row_offset,
+            rows=expr.rows,
+            transform=expr.transform,
         )
     if isinstance(expr, LetExprList):
         return LetExprList(

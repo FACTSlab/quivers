@@ -192,6 +192,30 @@ var _qvr_take_last = function(x, k) {
   }
   return x[k];
 };
+var _qvr_concat = function(rows, i) {
+  // Concatenate `rows` (an array of arrays) from index `i` onward.
+  // WebPPL's `reduce` is a right fold, which would reverse the
+  // factor order an affine map's conditioning vector depends on, so
+  // the walk is written as an explicit recursion by index.
+  if (i >= rows.length) { return []; }
+  return rows[i].concat(_qvr_concat(rows, i + 1));
+};
+var _qvr_affine = function(weight, bias, sources, rowOffset, rows, link) {
+  // One head's row block of the affine parameter map `W x + b`, where
+  // `x` is the concatenation of `sources` in declaration order.
+  // WebPPL has no matrix product and no numeric array type, so the
+  // contraction is written as a `mapN` over the codomain axis with an
+  // inner `sum` over the domain; `link` is the head's elementwise
+  // transform, the identity or `exp`.
+  var x = _qvr_concat(sources, 0);
+  return mapN(function(i) {
+    var row = weight[rowOffset + i];
+    var z = sum(mapN(function(j) {
+      return row[j] * x[j];
+    }, x.length)) + bias[rowOffset + i];
+    return link === "exp" ? Math.exp(z) : z;
+  }, rows);
+};
 var _qvr_logsumexp = function(terms) {
   // Elementwise `logsumexp` across a list of same-shaped terms, one
   // per atom of a marginalized latent's finite support. Shifting by
@@ -243,9 +267,10 @@ var sigmoid = function(x) {
 };
 
 // Elementwise math primitives, mapped over scalars and (possibly
-// nested) arrays. The QVR `exp` / `log` / `sqrt` math primitives have
-// no WebPPL stdlib globals; a deterministic `let scale = exp(eta)`
-// binding against an array-valued gather needs the elementwise form.
+// nested) arrays. The QVR `exp` / `log` / `sqrt` / `abs` math
+// primitives have no WebPPL stdlib globals; a deterministic
+// `let scale = exp(eta)` binding against an array-valued gather needs
+// the elementwise form.
 var exp = function(x) {
   return Array.isArray(x) ? map(exp, x) : Math.exp(x);
 };
@@ -256,6 +281,10 @@ var log = function(x) {
 
 var sqrt = function(x) {
   return Array.isArray(x) ? map(sqrt, x) : Math.sqrt(x);
+};
+
+var abs = function(x) {
+  return Array.isArray(x) ? map(abs, x) : Math.abs(x);
 };
 
 var Logistic = function(params) {

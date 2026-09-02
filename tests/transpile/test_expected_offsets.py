@@ -121,12 +121,13 @@ support, which subtracts `C` from the joint at every row it scores:
 `C` is a fixed literal of the renderer rather than a function of the
 point, so the drop is legitimate under Theorem 4.1 and countable the
 same way the folded-family factors are, over the `observe` steps
-naming a family the target lowers this way. The two zeros-trick
+naming a family the target lowers this way. The three zeros-trick
 families are not treated alike:
 [`renderers/jags.py`][quivers.transpile.renderers.jags] lifts the rate
-by `1e6` for `MixtureNormal` and emits the bare `-(<term>)` for
-`BetaBinomial`, whose closed form is negative over the fixtures'
-support and so needs no lift.
+by `1e6` for `MixtureNormal` and `Kumaraswamy`, whose closed forms are
+densities and so exceed one where the density does, and emits the bare
+`-(<term>)` for `BetaBinomial`, whose closed form is negative over the
+fixtures' support and so needs no lift.
 [`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
 records which pairs carry the constant, and
 `test_zeros_trick_table_agrees_with_the_emit` reads both the
@@ -367,7 +368,7 @@ renderer that changes the lift, or drops it as
 this number stale."""
 
 _ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset(
-    {"MixtureNormal", "BetaBinomial"}
+    {"MixtureNormal", "BetaBinomial", "Kumaraswamy"}
 )
 """QVR families the BUGS / JAGS renderers score through the zeros
 trick rather than through a named distribution.
@@ -384,19 +385,22 @@ renderer makes per family rather than a property of the idiom."""
 _ZEROS_TRICK_OFFSET_FAMILIES: dict[str, frozenset[str]] = {
     "MixtureNormal": frozenset({"jags"}),
     "BetaBinomial": frozenset(),
+    "Kumaraswamy": frozenset({"jags"}),
 }
 """Per zeros-trick family, the targets whose emit lifts the Poisson
 rate by [`_ZEROS_TRICK_OFFSET`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET].
 
 `MixtureNormal` lowers to `phi[n] <- 1e6-log(<mixture density>)`, whose
 inner term is a density value and so may exceed one; the lift is what
-keeps the rate positive when it does. `BetaBinomial` lowers to
-`phi[n] <- -(<log pmf>)`, already positive because a pmf is at most
-one, and `renderers/jags.py` emits it with no lift at all. The two
-therefore sit on opposite sides of this table even though they share
-the idiom.
+keeps the rate positive when it does. `Kumaraswamy` lowers the same
+way and for the same reason: it is a density on `(0, 1)` rather than a
+mass function, so its log form exceeds zero wherever the density does.
+`BetaBinomial` lowers to `phi[n] <- -(<log pmf>)`, already positive
+because a pmf is at most one, and `renderers/jags.py` emits it with no
+lift at all. The three therefore do not sit on one side of this table
+even though they share the idiom.
 
-`bugs` appears nowhere: it has no target name for either family and
+`bugs` appears nowhere: it has no target name for any of the three and
 raises before reaching the trick, which
 `test_zeros_trick_table_agrees_with_the_emit` confirms rather than
 assumes. The `bugs` renderer does carry the same lift on its `score`
@@ -434,16 +438,27 @@ program probe : Batch -> Val
 
 export probe
 """,
+    "Kumaraswamy": """object Resp : FinSet 5
+object Val : Real 1
+
+program probe : Resp -> Val
+    sample a <- HalfNormal(2.0)
+    sample b <- HalfNormal(2.0)
+    observe y : Resp <- Kumaraswamy(a, b)
+    return a
+
+export probe
+""",
 }
 """Smallest QVR module that puts one zeros-trick observation on every
 target, per family.
 
-Each family needs its own module because the two take different
+Each family needs its own module because the three take different
 argument shapes: a mixture site needs a weight simplex and per-
 component location and scale vectors, a beta-binomial site needs a
-trial count and two gathered concentrations. Both are self-contained,
-so the emit check does not depend on which gallery example happens to
-use the family."""
+trial count and two gathered concentrations, a Kumaraswamy site needs
+two positive shapes. All three are self-contained, so the emit check
+does not depend on which gallery example happens to use the family."""
 
 _ZEROS_TRICK_PHI_RE = re.compile(
     r"phi_\w+\[[^\]]*\] <- ?(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)-"
@@ -725,6 +740,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('pyro', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
     ('stan', 'factor_analysis'): _derived(half_sites=1, dropped_sites=1),
     ('turing', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
+    ('webppl', 'factor_analysis'): _derived(half_sites=1, dropped_sites=1),
     # gamma_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     ('bugs', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
@@ -768,7 +784,9 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # payload clamps, and the engine rejects it ("Cannot normalize
     # density" at `state`) rather than integrating it out.
     ('bugs', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('edward2', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('pymc', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     # horseshoe_regression: 6 HalfCauchy folded factor(s).
     ('bugs', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
@@ -794,8 +812,18 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('turing', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
     # kumaraswamy_bounded_outcome: 1 HalfNormal folded factor(s).
+    # `jags` also owes the zeros-trick lift: it has no `Kumaraswamy`
+    # distribution, so `_emit_kumaraswamy` writes the closed-form
+    # density into a Poisson rate and lifts that rate by
+    # `_ZEROS_TRICK_OFFSET` on each of the 64 rows of `Resp`. `bugs` is
+    # absent because the cell raises in transpile: the BUGS family
+    # registry has no target name for `Kumaraswamy` and its renderer
+    # carries no closed-form path to reach one.
     ('edward2', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
     ('gen', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=1),
+    ('jags', 'kumaraswamy_bounded_outcome'): _derived(
+        half_sites=1, dropped_sites=0, lifted_rows=64,
+    ),
     ('numpyro', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
     ('pymc', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
     ('pyro', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
@@ -820,6 +848,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('numpyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('pymc', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
+    ('stan', 'lda'): _derived(half_sites=0, dropped_sites=0),
     # logistic_noise_regression: 1 HalfNormal folded factor(s). The
     # engines' `dlogis(mu, tau)` is rate-parameterised, so `bugs` and
     # `jags` emit `y[n] ~ dlogis(mu[n], 1/scale)`; the reciprocal is an
@@ -908,6 +937,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('pyro', 'ppca'): _derived(half_sites=1, dropped_sites=0),
     ('stan', 'ppca'): _derived(half_sites=1, dropped_sites=1),
     ('turing', 'ppca'): _derived(half_sites=1, dropped_sites=0),
+    ('webppl', 'ppca'): _derived(half_sites=1, dropped_sites=1),
     # quantifier_scope: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     ('bugs', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
@@ -973,6 +1003,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('pymc', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('turing', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
+    ('webppl', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
 }
 
 

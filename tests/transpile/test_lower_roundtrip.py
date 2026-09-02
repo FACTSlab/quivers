@@ -4,6 +4,12 @@ error, and the lowered IR's input list covers every free name in the
 source while the body step count matches the source's expanded step
 count (after `expand_composite_lets` plus marginalize unrolling).
 
+A site whose morphism carries a parameter map lowers to more than one
+node: the deterministic bindings that compute the family's arguments
+from the conditioning row precede the draw. Those bindings carry
+names the source never binds, so the step count excludes them and
+each one is instead required to be read by a node that follows it.
+
 Parameterised over `docs/examples/source/*.qvr`. Gallery files that
 do not declare a program (deduction-only files such as
 `ccg.qvr`) are skipped at collection time. Gallery files that
@@ -34,6 +40,11 @@ from quivers.dsl.parser import parse
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile.ir import (
+    IRArg,
+    IRArgBroadcast,
+    IRArgList,
+    IRArgMatrix,
+    IRArgRef,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -112,9 +123,23 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     )
 
     # Body step count: every source `ProgramStep` (after composite
-    # expansion + marginalize unrolling) maps to an IR node.
+    # expansion + marginalize unrolling) maps to one IR site node.
+    #
+    # A site whose morphism carries a parameter map is preceded by
+    # the deterministic bindings that compute the family's arguments
+    # from the conditioning row. Those bindings bind names the source
+    # never mentions, so they are excluded from the count; in exchange
+    # every one of them has to be read by a node that follows it,
+    # which is a tighter claim than the count alone would make.
+    source_bound = _source_bound_names(expanded_program)
+    head_bindings = _param_map_head_bindings(ir.body, source_bound)
+    dangling = _unread_bindings(ir.body, head_bindings)
+    assert not dangling, (
+        f"{path.name}: parameter-map head bindings bound but never "
+        f"read: {sorted(dangling)}"
+    )
     expected_body_len = _expected_body_step_count(expanded_program)
-    body_step_count = _ir_body_step_count(ir.body)
+    body_step_count = _ir_body_step_count(ir.body) - len(head_bindings)
     assert body_step_count == expected_body_len, (
         f"{path.name}: IR body step count {body_step_count} != "
         f"expected source step count {expected_body_len}"
@@ -186,6 +211,70 @@ def _ir_bound_names(ir: IRProgram) -> set[str]:
 
     walk(ir.body)
     return out
+
+
+def _source_bound_names(program: ProgramDecl) -> set[str]:
+    """Every name the source program's steps bind, recursively."""
+    out: set[str] = set()
+    _collect_step_names(program.draws, out, [])
+    return out
+
+
+def _param_map_head_bindings(
+    body: tuple[IRNode, ...], source_bound: set[str]
+) -> set[str]:
+    """The deterministic bindings lowering introduced on its own.
+
+    A parameter map's heads are computed into fresh bindings named
+    after the site they feed, so their names are exactly the
+    `IRDeterministic` names the source never binds.
+    """
+    out: set[str] = set()
+    for node in body:
+        if isinstance(node, IRDeterministic) and node.name not in source_bound:
+            out.add(node.name)
+        elif isinstance(node, IRMarginalize):
+            out |= _param_map_head_bindings(node.scope, source_bound)
+    return out
+
+
+def _unread_bindings(
+    body: tuple[IRNode, ...], names: set[str]
+) -> set[str]:
+    """Which of `names` nothing in the body reads."""
+    return set(names) - _names_read(body)
+
+
+def _names_read(body: tuple[IRNode, ...]) -> set[str]:
+    """Every bound name the body's nodes read."""
+    out: set[str] = set()
+    for node in body:
+        if isinstance(node, (IRDeterministic, IRScore)):
+            out |= set(free_vars_in_let(node.expr))
+        elif isinstance(node, (IRSample, IRObserve, IRMarginalize)):
+            for arg in node.args:
+                out |= _ir_arg_names(arg)
+            if isinstance(node, IRMarginalize):
+                out |= _names_read(node.scope)
+        elif isinstance(node, IRReturn):
+            out |= set(node.names)
+    return out
+
+
+def _ir_arg_names(arg: IRArg) -> set[str]:
+    """Every bound name an IR argument reads."""
+    if isinstance(arg, IRArgRef):
+        out = {arg.name}
+        for index in arg.indices:
+            out |= _ir_arg_names(index)
+        return out
+    if isinstance(arg, IRArgBroadcast):
+        return _ir_arg_names(arg.value)
+    if isinstance(arg, IRArgList):
+        return {n for e in arg.elements for n in _ir_arg_names(e)}
+    if isinstance(arg, IRArgMatrix):
+        return {n for row in arg.rows for n in _ir_arg_names(row)}
+    return set()
 
 
 def _ir_body_step_count(body: tuple[IRNode, ...]) -> int:

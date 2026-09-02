@@ -30,6 +30,7 @@ tag with the correct backend.
 
 from __future__ import annotations
 
+import math
 from typing import Literal, Protocol, runtime_checkable
 
 import didactic.api as dx
@@ -57,6 +58,7 @@ from quivers.dsl.ast_nodes.objects import (
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.ir import (
+    affine_column_offsets,
     Dim,
     DimDynamic,
     DimStatic,
@@ -73,6 +75,8 @@ from quivers.transpile.ir import (
     IRProgram,
     IRArgNumber,
     IRSample,
+    LetAffineSource,
+    LetExprAffineMap,
     Plate,
 )
 from quivers.transpile.renderers._base import IRArgTransform
@@ -123,6 +127,12 @@ TRUNCATION_FINGERPRINT: dict[str, str] = {
 _LOG_GAMMA: str = "loggam"
 _LOG_FACTORIAL: str = "logfact"
 
+#: ``sqrt(2 * pi)``, the Gaussian density's normalising constant. A
+#: closed-form Gaussian factor writes it as a literal; both engines
+#: evaluate a constant expression once per compile either way, and the
+#: literal keeps the emitted relation readable.
+SQRT_TWO_PI: float = math.sqrt(2.0 * math.pi)
+
 
 def _let_add(left: LetExprNode, right: LetExprNode) -> LetExprNode:
     return LetExprBinOp(op="+", left=left, right=right)
@@ -130,6 +140,14 @@ def _let_add(left: LetExprNode, right: LetExprNode) -> LetExprNode:
 
 def _let_sub(left: LetExprNode, right: LetExprNode) -> LetExprNode:
     return LetExprBinOp(op="-", left=left, right=right)
+
+
+def _let_mul(left: LetExprNode, right: LetExprNode) -> LetExprNode:
+    return LetExprBinOp(op="*", left=left, right=right)
+
+
+def _let_log(inner: LetExprNode) -> LetExprNode:
+    return LetExprCall(func="log", args=(inner,))
 
 
 def _let_signed_sum(
@@ -256,6 +274,211 @@ def beta_binomial_log_pmf(
         ("-", loggam(a)),
         ("-", loggam(b)),
         ("+", loggam(_let_add(a, b))),
+    )
+
+
+def kumaraswamy_log_pdf(
+    backend: str,
+    *,
+    variate: str,
+    args: tuple[IRArg, ...],
+    arg_names: tuple[str, ...],
+) -> LetExprNode:
+    """Build ``log Kumaraswamy(<variate>; a, b)`` in closed form.
+
+    Neither the BUGS distribution catalogue nor the JAGS modules a
+    stock engine loads (``basemod``, ``bugs``, ``dic``) carries a
+    Kumaraswamy. The density is nonetheless elementary: with shape
+    parameters ``a`` (``concentration1``) and ``b``
+    (``concentration0``) the pdf on ``(0, 1)`` is
+
+        p(y; a, b) = a * b * y^(a - 1) * (1 - y^a)^(b - 1),
+
+    whose logarithm
+
+        log(a) + log(b) + (a - 1) * log(y) + (b - 1) * log(1 - y^a)
+
+    is what this returns. Every symbol in it (``log``, ``pow``) is a
+    base-library function on both engines, so the closed form needs no
+    optional module and no user-defined function, which is what makes
+    the zeros trick reachable for a family neither language names.
+
+    It is the family's own density rather than a surrogate: no
+    auxiliary node enters the model, so the joint the engine scores is
+    the one QVR names, up to the trick's additive lift.
+
+    The exponent ``y^a`` is spelled ``pow(y, a)`` rather than with an
+    infix operator because ``pow`` is the spelling both the BUGS
+    function library and the JAGS base module share.
+    """
+    by_name = dict(zip(arg_names, args, strict=False))
+    missing = [
+        slot
+        for slot in ("concentration1", "concentration0")
+        if slot not in by_name
+    ]
+    if missing:
+        raise UnsupportedConstruct(
+            f"qvr-{backend}",
+            [
+                f"family:Kumaraswamy:missing-arg:{','.join(missing)}: "
+                f"the closed-form density needs both shape "
+                f"parameters; the site supplies {list(arg_names)}"
+            ],
+        )
+    a = _scalar_arg_expr(
+        backend, "Kumaraswamy", "concentration1", by_name["concentration1"]
+    )
+    b = _scalar_arg_expr(
+        backend, "Kumaraswamy", "concentration0", by_name["concentration0"]
+    )
+    y = LetExprVar(name=variate)
+    one = LetExprLiteral(value=1.0)
+    return _let_signed_sum(
+        _let_log(a),
+        ("+", _let_log(b)),
+        ("+", _let_mul(_let_sub(a, one), _let_log(y))),
+        (
+            "+",
+            _let_mul(
+                _let_sub(b, one),
+                _let_log(
+                    _let_sub(
+                        one, LetExprCall(func="pow", args=(y, a)),
+                    )
+                ),
+            ),
+        ),
+    )
+
+
+#: Half-width of the interval around ``lambda = 1/2`` on which the
+#: continuous Bernoulli's normaliser is read at a displaced argument.
+#:
+#: ``C(lambda) = (log(1 - lambda) - log(lambda)) / (1 - 2 lambda)``
+#: is a ratio of two quantities that vanish together at one half. The
+#: limit is ``2`` and the function is analytic through it, but the
+#: emitted arithmetic is not: at ``lambda = 1/2`` exactly both
+#: logarithms of absolute values are ``-inf`` and their difference is
+#: ``NaN``, which no engine recovers from. Reading the normaliser at
+#: an argument displaced off the singular point instead keeps every
+#: intermediate finite. Writing ``d = 1 - 2 lambda``, the normaliser
+#: satisfies ``log C = log 2 + d^2 / 3 + O(d^4)``, so a displacement
+#: bounded by ``2 * _CONT_BERNOULLI_STABLE_HALF_WIDTH`` moves the
+#: value by at most about ``3e-12`` -- far below any tolerance the
+#: equivalence suite runs at, and confined to a window the emitted
+#: expression leaves untouched everywhere else, where it is exact.
+_CONT_BERNOULLI_STABLE_HALF_WIDTH: float = 1.0e-6
+
+
+def continuous_bernoulli_log_pdf(
+    backend: str,
+    *,
+    variate: str,
+    args: tuple[IRArg, ...],
+    arg_names: tuple[str, ...],
+) -> LetExprNode:
+    """Build ``log ContinuousBernoulli(<variate>; lambda)`` in closed
+    form.
+
+    No BUGS distribution catalogue and no JAGS module carries the
+    continuous Bernoulli, and no reparameterisation reaches it: it is
+    the exponentially-tilted uniform on ``(0, 1)``, whose normaliser
+    is a transcendental function of the tilt rather than a constant a
+    named family absorbs. The density is nonetheless elementary. With
+    tilt ``lambda`` (``probs``) the pdf on ``(0, 1)`` is
+
+        p(x; lambda) = C(lambda) * lambda^x * (1 - lambda)^(1 - x),
+
+    with normaliser
+
+        C(lambda) = 2 * artanh(1 - 2 lambda) / (1 - 2 lambda).
+
+    Substituting ``d = 1 - 2 lambda`` into
+    ``artanh(d) = log((1 + d) / (1 - d)) / 2`` turns ``(1 + d)`` into
+    ``2 (1 - lambda)`` and ``(1 - d)`` into ``2 lambda``, so the
+    factors of two cancel and
+
+        C(lambda) = (log(1 - lambda) - log(lambda)) / d.
+
+    Numerator and denominator change sign together at
+    ``lambda = 1/2``, so the ratio is positive throughout and equals
+    the ratio of the two absolute values, which is what lets the log
+    split into the difference of two logarithms of ``abs(...)``. The
+    term this returns is therefore
+
+        x * log(lambda) + (1 - x) * log(1 - lambda)
+        + log(abs(log(1 - m) - log(m))) - log(abs(d_safe)),
+
+    where ``d_safe`` is ``d`` displaced off the singular point and
+    ``m = (1 - d_safe) / 2`` is the tilt that displacement names (see
+    [`_CONT_BERNOULLI_STABLE_HALF_WIDTH`][quivers.transpile.renderers._bugs_helpers._CONT_BERNOULLI_STABLE_HALF_WIDTH]).
+    The displacement is zero, and the two logarithms read the site's
+    own tilt, at every ``lambda`` outside a window of half-width
+    ``1e-6`` around one half. The tilted factors ``x * log(lambda)``
+    and ``(1 - x) * log(1 - lambda)`` read the tilt itself
+    everywhere: they carry no singularity to step around.
+
+    Every symbol in the result (``log``, ``abs``, ``step``) is a
+    base-library function on both engines, so the closed form needs no
+    optional module and no user-defined function, which is what makes
+    the zeros trick reachable for a family neither language names.
+
+    It is the family's own density rather than a surrogate: no
+    auxiliary node enters the model, so the joint the engine scores is
+    the one QVR names, up to the zeros trick's additive lift.
+    """
+    by_name = dict(zip(arg_names, args, strict=False))
+    if "probs" not in by_name:
+        raise UnsupportedConstruct(
+            f"qvr-{backend}",
+            [
+                f"family:ContinuousBernoulli:missing-arg:probs: the "
+                f"closed-form density needs the tilt parameter; the "
+                f"site supplies {list(arg_names)}"
+            ],
+        )
+    lam = _scalar_arg_expr(
+        backend, "ContinuousBernoulli", "probs", by_name["probs"]
+    )
+    x = LetExprVar(name=variate)
+    half = LetExprLiteral(value=0.5)
+    one = LetExprLiteral(value=1.0)
+    two = LetExprLiteral(value=2.0)
+    width = LetExprLiteral(value=_CONT_BERNOULLI_STABLE_HALF_WIDTH)
+
+    def absolute(inner: LetExprNode) -> LetExprNode:
+        return LetExprCall(func="abs", args=(inner,))
+
+    # d = 1 - 2 * lambda, and the indicator of the window around zero
+    # on which the ratio is read at a displaced argument.
+    gap = _let_sub(one, _let_mul(two, lam))
+    near = LetExprCall(
+        func="step", args=(_let_sub(width, absolute(gap)),)
+    )
+    # Displacing by twice the half-width keeps `d_safe` clear of zero
+    # for every `d` the indicator selects, including `d = -width`,
+    # which the indicator includes and a one-width shift would send to
+    # zero.
+    gap_safe = _let_add(
+        gap, _let_mul(near, _let_mul(two, width))
+    )
+    # The tilt that `d_safe` names, `m = (1 - d_safe) / 2`.
+    tilt = _let_mul(_let_sub(one, gap_safe), half)
+    return _let_signed_sum(
+        _let_mul(x, _let_log(lam)),
+        ("+", _let_mul(_let_sub(one, x), _let_log(_let_sub(one, lam)))),
+        (
+            "+",
+            _let_log(
+                absolute(
+                    _let_sub(
+                        _let_log(_let_sub(one, tilt)), _let_log(tilt)
+                    )
+                )
+            ),
+        ),
+        ("-", _let_log(absolute(gap_safe))),
     )
 
 
@@ -387,12 +610,13 @@ def half_support_truncation(family: str, *, observed: bool) -> tuple[IRArg, ...]
 class _BugsLetCtx(Protocol):
     """Structural protocol for the helper's ctx parameter.
 
-    `range_1_to` builds the `1:<upper>` range vertex each backend's
-    grammar wants; the two grammars disagree on the alternative-
-    selection constraints a `range` carries, so the renderer owns the
-    construction and the helper only asks for one. It is reached only
-    when the caller supplies a declared-plate table, so a caller
-    rendering a standalone expression never needs it.
+    `range_1_to` and `range_between` build the range vertex each
+    backend's grammar wants; the two grammars disagree on the
+    alternative-selection constraints a `range` carries, so the
+    renderer owns the construction and the helper only asks for one.
+    `range_1_to` is reached only when the caller supplies a
+    declared-plate table, so a caller rendering a standalone
+    expression never needs it.
     """
 
     target: str
@@ -404,6 +628,7 @@ class _BugsLetCtx(Protocol):
     def lit(self, vid: str, text: str) -> None: ...
     def constraint(self, vid: str, sort: str, value: str) -> None: ...
     def range_1_to(self, upper: str) -> str: ...
+    def range_between(self, lower: str, upper: str) -> str: ...
 
 
 class _LetEnv:
@@ -418,12 +643,19 @@ class _LetEnv:
     """
 
     def __init__(
-        self, ctx: _BugsLetCtx, decl_plates: dict[str, Plate]
+        self,
+        ctx: _BugsLetCtx,
+        decl_plates: dict[str, Plate],
+        row_index: str | None = None,
     ) -> None:
         self._ctx = ctx
         self.decl_plates = decl_plates
         self.target = _target(ctx)
         self.cards = ctx.cards
+        # Loop variable of the binding's codomain axis, when the
+        # caller emits the binding inside a `for` loop. An affine
+        # parameter map reads it as the row it contracts.
+        self.row_index = row_index
 
     def fresh(self, prefix: str) -> str:
         return self._ctx.fresh(prefix)
@@ -443,12 +675,16 @@ class _LetEnv:
     def range_1_to(self, upper: str) -> str:
         return self._ctx.range_1_to(upper)
 
+    def range_between(self, lower: str, upper: str) -> str:
+        return self._ctx.range_between(lower, upper)
+
 
 def render_let_expr_bugs(
     ctx: _BugsLetCtx,
     expr: LetExprNode,
     *,
     decl_plates: dict[str, Plate] | None = None,
+    row_index: str | None = None,
 ) -> str:
     """Build a BUGS / JAGS expression schema for ``expr`` in ``ctx``.
 
@@ -469,8 +705,14 @@ def render_let_expr_bugs(
     rank error rather than a row. Omitting it renders the expression
     with no declared shapes in scope, which is the right reading for
     an expression that sits in no program.
+
+    `row_index` names the loop variable of the binding's codomain
+    axis when the caller wraps the relation in a `for` loop. A
+    [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap]
+    contracts one row of its weight per iteration and needs that
+    name; every other construct ignores it.
     """
-    return _render(_LetEnv(ctx, decl_plates or {}), expr)
+    return _render(_LetEnv(ctx, decl_plates or {}, row_index), expr)
 
 
 def _render(ctx: _LetEnv, expr: LetExprNode) -> str:
@@ -490,6 +732,8 @@ def _render(ctx: _LetEnv, expr: LetExprNode) -> str:
         return _emit_index(ctx, expr)
     if isinstance(expr, LetExprList):
         return _emit_list(ctx, expr.items)
+    if isinstance(expr, LetExprAffineMap):
+        return _emit_affine_map(ctx, expr)
     if isinstance(expr, LetExprFactor):
         return _emit_factor(ctx, expr)
     if isinstance(expr, LetExprString):
@@ -609,10 +853,20 @@ def _emit_binop(ctx: _LetEnv, expr: LetExprBinOp) -> str:
     Neither language lifts an infix operator over an axis: `a * b` on
     two vector nodes is a rank error, not the elementwise product QVR
     denotes. The one axis-carrying product both languages do express
-    is the contraction `inprod(a, b)`, which
+    *as an expression* is the contraction `inprod(a, b)`, which
     [`_emit_reduction_or_call`][quivers.transpile.renderers._bugs_helpers._emit_reduction_or_call]
     recognises before reaching here; any other axis-carrying operand
     pair raises.
+
+    The raise is a statement about this emission path, and the message
+    says so rather than claiming the languages cannot express the
+    value at all. An elementwise result does exist in both, as a named
+    array built one index at a time inside a loop of its own
+    (`for (i in 1:N) { z[i] <- a[i] + b[i] }`). What the helper
+    renders is a single expression, with no relation of its own to
+    hang such a loop from, so reaching that form would take a
+    different lowering of the whole binding rather than a different
+    expression here.
     """
     left_rank = axis_rank(ctx.decl_plates, expr.left)
     right_rank = axis_rank(ctx.decl_plates, expr.right)
@@ -622,9 +876,16 @@ def _emit_binop(ctx: _LetEnv, expr: LetExprBinOp) -> str:
             [
                 f"let-expr:elementwise-axis-operator:{_target(ctx)}: "
                 f"{expr.op!r} between a rank-{left_rank} and a "
-                f"rank-{right_rank} operand has no BUGS / JAGS form; "
-                f"only the contracted product `sum(a * b)` lowers, to "
-                f"`inprod(a, b)`"
+                f"rank-{right_rank} operand has no BUGS / JAGS "
+                f"*expression* form: neither language lifts an infix "
+                f"operator over an axis, and the elementwise result "
+                f"exists only as a named array built one index at a "
+                f"time inside a loop of its own "
+                f"(`for (i in 1:N) {{ z[i] <- a[i] + b[i] }}`), which "
+                f"a let-binding lowered to one scalar expression has "
+                f"nowhere to put. The one axis-carrying operand pair "
+                f"that does lower as an expression is the contracted "
+                f"product `sum(a * b)`, to `inprod(a, b)`"
             ],
         )
     b = ctx.v(ctx.fresh("be"), "binary_expression")
@@ -762,6 +1023,168 @@ def _emit_contracted_binop(
         (_render(ctx, arg),),
         (_arg_edge_kind(arg),),
     )
+
+
+def _emit_binary_ids(
+    ctx: _LetEnv,
+    op: str,
+    left: tuple[str, str],
+    right: tuple[str, str],
+) -> tuple[str, str]:
+    """Emit a `binary_expression` over two already-rendered operands,
+    parenthesising each that the printer would otherwise re-group."""
+    b = ctx.v(ctx.fresh("be"), "binary_expression")
+    ctx.constraint(b, "field:operator", op)
+    ctx.constraint(b, "chose-alt-fingerprint", op)
+    for vid, kind, edge in ((*left, "left"), (*right, "right")):
+        if kind in ("binary_expression", "unary_expression"):
+            vid = _emit_paren(ctx, vid, kind)
+        ctx.e(b, vid, edge)
+    return b, "binary_expression"
+
+
+def _affine_row_slot(ctx: _LetEnv, offset: int) -> tuple[str, str]:
+    """Emit the weight row this loop iteration contracts.
+
+    The loop variable already runs ``1:width`` in the target's
+    one-based origin, so the head's zero-based `row_offset` shifts it
+    without any further rebasing: head `k` of a `width`-wide codomain
+    reads row ``<loop> + k * width``. Offset zero needs no arithmetic
+    at all.
+    """
+    if ctx.row_index is None:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprAffineMap:{_target(ctx)}: the map "
+                f"contracts one weight row per codomain coordinate "
+                f"and so has to be emitted inside the loop over that "
+                f"axis, but no loop variable reached the renderer"
+            ],
+        )
+    loop = (_emit_identifier(ctx, ctx.row_index), "identifier")
+    if offset == 0:
+        return loop
+    return _emit_binary_ids(
+        ctx, "+", loop, (_emit_number(ctx, float(offset)), "number")
+    )
+
+
+def _affine_named_array(ctx: _LetEnv, expr: LetExprNode, role: str) -> str:
+    """The array name an affine-map operand subscripts.
+
+    BUGS and JAGS subscript a named array and nothing else, so an
+    operand that is not a bare name has no target spelling and raises
+    rather than emitting a subscript of an expression.
+    """
+    if isinstance(expr, LetExprVar):
+        return expr.name
+    raise UnsupportedConstruct(
+        f"qvr-{_target(ctx)}-helper",
+        [
+            f"let-expr:LetExprAffineMap:{_target(ctx)}: BUGS / JAGS "
+            f"subscript a named array, so the map's {role} has to be "
+            f"a bare name, got {type(expr).__name__}"
+        ],
+    )
+
+
+def _affine_slice(
+    ctx: _LetEnv,
+    name: str,
+    row: tuple[str, str] | None,
+    lower: int,
+    width: int,
+) -> str:
+    """Emit ``<name>[lo:hi]``, or ``<name>[<row>, lo:hi]`` when a row
+    slot is supplied.
+
+    `lower` arrives in QVR's zero-based origin and the slice is
+    inclusive at both ends in BUGS and JAGS, so it spans
+    ``lower + 1`` to ``lower + width``.
+    """
+    iv = ctx.v(ctx.fresh("iv"), "indexed_variable")
+    ctx.e(iv, _emit_identifier(ctx, name), "name")
+    il = ctx.v(ctx.fresh("il"), "index_list")
+    ctx.e(iv, il, "indices")
+    if row is not None:
+        ctx.e(il, row[0], row[1])
+    ctx.e(
+        il,
+        ctx.range_between(str(lower + 1), str(lower + width)),
+        "range",
+    )
+    return iv
+
+
+def _emit_affine_map(ctx: _LetEnv, expr: LetExprAffineMap) -> str:
+    """Emit one row of ``W x + b`` as a sum of `inprod` contractions.
+
+    Neither BUGS nor JAGS has a matrix product, so the map is written
+    one codomain coordinate at a time and the surrounding `for` loop
+    supplies the coordinate. Each factor of the conditioning row
+    contributes one `inprod` against its own column block of the
+    weight, so a head costs one term per factor rather than one per
+    (row, column) pair.
+    """
+    weight = _affine_named_array(ctx, expr.weight, "weight")
+    total: tuple[str, str] | None = None
+    for source, column in affine_column_offsets(expr):
+        term = (
+            _emit_call(
+                ctx,
+                "inprod",
+                (
+                    _affine_slice(
+                        ctx,
+                        weight,
+                        _affine_row_slot(ctx, expr.row_offset),
+                        column,
+                        source.width,
+                    ),
+                    _affine_slice(
+                        ctx,
+                        _affine_named_array(
+                            ctx, source.value, "conditioning factor"
+                        ),
+                        None,
+                        0,
+                        source.width,
+                    ),
+                ),
+                ("indexed_variable", "indexed_variable"),
+            ),
+            "function_call",
+        )
+        total = (
+            term
+            if total is None
+            else _emit_binary_ids(ctx, "+", total, term)
+        )
+    if total is None:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprAffineMap:{_target(ctx)}: the map's "
+                f"conditioning row carries no factors"
+            ],
+        )
+    bias_iv = ctx.v(ctx.fresh("iv"), "indexed_variable")
+    ctx.e(
+        bias_iv,
+        _emit_identifier(ctx, _affine_named_array(ctx, expr.bias, "bias")),
+        "name",
+    )
+    bias_il = ctx.v(ctx.fresh("il"), "index_list")
+    ctx.e(bias_iv, bias_il, "indices")
+    row_vid, row_kind = _affine_row_slot(ctx, expr.row_offset)
+    ctx.e(bias_il, row_vid, row_kind)
+    total = _emit_binary_ids(
+        ctx, "+", total, (bias_iv, "indexed_variable")
+    )
+    if expr.transform == "exp":
+        return _emit_call(ctx, "exp", (total[0],), (total[1],))
+    return total[0]
 
 
 def _emit_index(ctx: _LetEnv, expr: LetExprIndex) -> str:
@@ -917,6 +1340,10 @@ def axis_rank(decl_plates: dict[str, Plate], expr: LetExprNode) -> int:
         return axis_rank(decl_plates, expr.operand)
     if isinstance(expr, (LetExprList, LetExprFactor)):
         return 1
+    if isinstance(expr, LetExprAffineMap):
+        # The map is emitted one row per loop iteration, so what
+        # reaches the surrounding relation is a scalar.
+        return 0
     return 0
 
 
@@ -1441,6 +1868,13 @@ def collect_letexpr_vars(expr: LetExprNode) -> frozenset[str]:
         for ix in expr.indices:
             out2 = out2 | collect_letexpr_vars(ix)
         return out2
+    if isinstance(expr, LetExprAffineMap):
+        out3: frozenset[str] = collect_letexpr_vars(
+            expr.weight
+        ) | collect_letexpr_vars(expr.bias)
+        for source in expr.sources:
+            out3 = out3 | collect_letexpr_vars(source.value)
+        return out3
     return frozenset()
 
 
@@ -1574,6 +2008,27 @@ def _index_letexpr_refs_inner(
                 _index_letexpr_refs_inner(ix, decl_plates, axis_to_loop)
                 for ix in expr.indices
             ),
+        )
+    if isinstance(expr, LetExprAffineMap):
+        return LetExprAffineMap(
+            weight=_index_letexpr_refs_inner(
+                expr.weight, decl_plates, axis_to_loop
+            ),
+            bias=_index_letexpr_refs_inner(
+                expr.bias, decl_plates, axis_to_loop
+            ),
+            sources=tuple(
+                LetAffineSource(
+                    value=_index_letexpr_refs_inner(
+                        source.value, decl_plates, axis_to_loop
+                    ),
+                    width=source.width,
+                )
+                for source in expr.sources
+            ),
+            row_offset=expr.row_offset,
+            rows=expr.rows,
+            transform=expr.transform,
         )
     return expr
 
@@ -1712,4 +2167,251 @@ def categorical_mixture(
         atom_dim=atom_dim,
         alphabet_dim=row_plate.event_dims[0],
         observe=observe,
+    )
+
+
+class MarginalScopeDensity(dx.Model):
+    """The density of one marginalized atom's scope, in closed form.
+
+    A `marginalize` block contributes ``log sum_a w_a f_a`` to the
+    joint, where `f_a` is the *density* (not the log density) the
+    scope scores at atom `a`. BUGS and JAGS have no `log_prob` form
+    for a named distribution, so a renderer that writes the sum has
+    to write each `f_a` out; this carries one such term together with
+    the property that decides whether the reduction needs the zeros
+    trick's lift.
+
+    `mass` is True when the family is a probability *mass* function,
+    whose value never exceeds one. The mixture of such densities is
+    then at most one as well, so ``-log sum_a w_a f_a`` is
+    non-negative and the Poisson rate the zeros trick writes it into
+    is in support with no lift, which keeps the emitted program equal
+    to the reference measure on the nose. A family with a *density*
+    can exceed one and obliges the lift.
+    """
+
+    expr: LetExprNode
+    mass: bool
+
+
+def inline_letexpr(
+    expr: LetExprNode, bindings: dict[str, LetExprNode]
+) -> LetExprNode:
+    """Substitute every `LetExprVar` named in `bindings` by its
+    expression.
+
+    The marginal reduction writes one arithmetic expression per atom
+    rather than one relation per atom, because a BUGS / JAGS name may
+    be defined exactly once and the atoms would otherwise each want
+    their own copy of the scope's deterministic bindings under the
+    same names. Inlining removes the need for a name at all.
+    """
+    if isinstance(expr, LetExprVar):
+        return bindings.get(expr.name, expr)
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=inline_letexpr(expr.left, bindings),
+            right=inline_letexpr(expr.right, bindings),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(
+            operand=inline_letexpr(expr.operand, bindings)
+        )
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=tuple(inline_letexpr(a, bindings) for a in expr.args),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=expr.array,
+            indices=tuple(
+                inline_letexpr(i, bindings) for i in expr.indices
+            ),
+        )
+    return expr
+
+
+def irarg_letexpr(
+    backend: str, arg: IRArg, bindings: dict[str, LetExprNode]
+) -> LetExprNode:
+    """Read one distribution argument back as a let-expression.
+
+    The marginal reduction consumes its arguments as arithmetic
+    operands rather than as distribution-call children, so each one
+    has to come back as a `LetExprNode`. A reference to a name the
+    scope binds resolves to that binding's inlined expression; every
+    other bare reference stays a name the surrounding relation
+    re-indexes, and a subscripted reference keeps its subscripts.
+
+    A broadcast wrapper, a list, or a matrix literal carries
+    structure no scalar arithmetic operand can place, so each raises
+    rather than emitting an expression of the wrong shape.
+    """
+    if isinstance(arg, IRArgNumber):
+        return LetExprLiteral(value=arg.value)
+    if isinstance(arg, IRArgRef):
+        if not arg.indices:
+            return bindings.get(arg.name, LetExprVar(name=arg.name))
+        if arg.name in bindings:
+            raise UnsupportedConstruct(
+                f"qvr-{backend}",
+                [
+                    f"marginalize:subscripted-binding:{arg.name}: the "
+                    f"scope binds this name to an expression, which a "
+                    f"subscript has no position to index into"
+                ],
+            )
+        return LetExprIndex(
+            array=LetExprVar(name=arg.name),
+            indices=tuple(
+                irarg_letexpr(backend, index, bindings)
+                for index in arg.indices
+            ),
+        )
+    raise UnsupportedConstruct(
+        f"qvr-{backend}",
+        [
+            f"marginalize:scope-arg:{type(arg).__name__}: the "
+            f"closed-form scope density reads each argument as a "
+            f"scalar arithmetic operand"
+        ],
+    )
+
+
+def subscript_letexpr(
+    backend: str, base: LetExprNode, index: LetExprNode
+) -> LetExprNode:
+    """Append one subscript to `base`.
+
+    BUGS and JAGS spell a two-axis lookup with one bracket pair,
+    `a[i, j]`, and reject the chained `a[i][j]` a naive wrapper would
+    build, so a subscript of an already-subscripted reference extends
+    the existing index list rather than nesting a second one.
+    """
+    if isinstance(base, LetExprVar):
+        return LetExprIndex(array=base, indices=(index,))
+    if isinstance(base, LetExprIndex):
+        return LetExprIndex(
+            array=base.array, indices=(*base.indices, index)
+        )
+    raise UnsupportedConstruct(
+        f"qvr-{backend}",
+        [
+            f"marginalize:subscript:{type(base).__name__}: only a "
+            f"named array can be subscripted in a BUGS / JAGS model "
+            f"body"
+        ],
+    )
+
+
+def marginal_scope_density(
+    backend: str,
+    *,
+    family: str,
+    variate: str,
+    args: tuple[LetExprNode, ...],
+    arg_names: tuple[str, ...],
+) -> MarginalScopeDensity:
+    """Write the scope's density at one atom out in closed form.
+
+    Neither language exposes a distribution's density as a callable,
+    so the three families a gallery `marginalize` scope observes are
+    written out directly. Each is the family's own density, not a
+    surrogate: no auxiliary node enters the model, and the sum over
+    atoms the caller builds from these terms is the integral QVR's
+    `marginalize` denotes.
+
+    * `Categorical(probs)` at a one-based host index `v` is the
+      lookup `probs[v]`. The observed datum lands in *subscript*
+      position, which is the only way a BUGS / JAGS model can say
+      that an integer input is an index.
+    * `Poisson(mu)` at a count `y` is
+      ``exp(-mu - logfact(y)) * pow(mu, y)``. The `pow` factor
+      carries the ``mu^y`` term rather than the algebraically equal
+      ``exp(y * log(mu))`` because a zero-inflation atom pins `mu` to
+      zero exactly, where `log(mu)` is undefined while
+      ``pow(0, 0) = 1`` and ``pow(0, y) = 0`` are the point mass the
+      atom denotes.
+    * `Normal(mu, sigma)` at `y` is the Gaussian kernel over its
+      normaliser, written the same way the mixture emit writes a
+      component.
+
+    Every other family raises: a scope this module cannot write out
+    has no emission, and a live draw in its place would denote a
+    measure on a strictly larger space than the reference integrates.
+    """
+    by_name = dict(zip(arg_names, args, strict=False))
+
+    def required(slot: str) -> LetExprNode:
+        value = by_name.get(slot)
+        if value is None:
+            raise UnsupportedConstruct(
+                f"qvr-{backend}",
+                [
+                    f"marginalize:scope-arg:{family}:{slot}: the "
+                    f"closed-form density needs the {slot!r} "
+                    f"argument; the site supplies {list(arg_names)}"
+                ],
+            )
+        return value
+
+    y = LetExprVar(name=variate)
+    if family == "Categorical":
+        return MarginalScopeDensity(
+            expr=subscript_letexpr(backend, required("probs"), y),
+            mass=True,
+        )
+    if family == "Poisson":
+        rate = required("rate")
+        return MarginalScopeDensity(
+            expr=_let_mul(
+                LetExprCall(
+                    func="exp",
+                    args=(
+                        _let_sub(
+                            LetExprUnaryOp(operand=rate),
+                            LetExprCall(
+                                func=_LOG_FACTORIAL, args=(y,)
+                            ),
+                        ),
+                    ),
+                ),
+                LetExprCall(func="pow", args=(rate, y)),
+            ),
+            mass=True,
+        )
+    if family == "Normal":
+        loc = required("loc")
+        scale = required("scale")
+        standardised = LetExprBinOp(
+            op="/", left=_let_sub(y, loc), right=scale
+        )
+        return MarginalScopeDensity(
+            expr=LetExprBinOp(
+                op="/",
+                left=LetExprCall(
+                    func="exp",
+                    args=(
+                        _let_mul(
+                            LetExprLiteral(value=-0.5),
+                            _let_mul(standardised, standardised),
+                        ),
+                    ),
+                ),
+                right=_let_mul(
+                    scale, LetExprLiteral(value=SQRT_TWO_PI)
+                ),
+            ),
+            mass=False,
+        )
+    raise UnsupportedConstruct(
+        f"qvr-{backend}",
+        [
+            f"marginalize:scope-family:{family}: the reduction over "
+            f"the latent's atoms needs the scope's density as an "
+            f"arithmetic expression, and no closed form is written "
+            f"for this family"
+        ],
     )

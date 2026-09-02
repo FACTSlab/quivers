@@ -80,6 +80,8 @@ from quivers.dsl.ast_nodes.objects import (
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.ir import (
     IRArg,
+    LetAffineSource,
+    LetExprAffineMap,
     IRArgList,
     IRArgNumber,
     IRArgRef,
@@ -296,13 +298,15 @@ def render_let_expr_julia(
 def let_expr_has_axis_reduction(
     ctx: _JlShapeView, expr: LetExprNode
 ) -> bool:
-    """True iff ``expr`` contains a reduction over a positive-rank
-    event axis anywhere in its tree.
+    """True iff ``expr`` contracts an axis anywhere in its tree:
+    either a reduction over a positive-rank event axis, or the
+    matrix-vector product an affine parameter map denotes.
 
-    A binding whose body reduces an event axis cannot be wrapped in
-    Julia's ``@.`` macro: the macro broadcasts the reducing call
-    itself, applying `sum` to each scalar element and leaving the
-    reduction undone. The renderers ask this question to decide
+    A binding whose body contracts an axis cannot be wrapped in
+    Julia's ``@.`` macro: the macro broadcasts the contraction
+    itself, applying `sum` to each scalar element (or turning a
+    `matrix * vector` into an elementwise `.*`) and leaving the
+    contraction undone. The renderers ask this question to decide
     between the ``@.`` form and the explicitly dotted form.
     """
     if isinstance(expr, LetExprCall):
@@ -345,6 +349,12 @@ def let_expr_has_axis_reduction(
         return any(
             let_expr_has_axis_reduction(ctx, c.value) for c in expr.cases
         )
+    if isinstance(expr, LetExprAffineMap):
+        # The matrix-vector product contracts the map's column axis.
+        # `@.` would broadcast the `*` into a `.*` and leave the
+        # contraction undone, so the binding takes the explicitly
+        # dotted form and the emitter writes its own operators.
+        return True
     return False
 
 
@@ -391,6 +401,9 @@ def infer_array_rank(ctx: _JlShapeView, expr: LetExprNode) -> int:
         )
     if isinstance(expr, LetExprFactor):
         return len(expr.binders)
+    if isinstance(expr, LetExprAffineMap):
+        # One head's row block is a length-`rows` vector.
+        return 1
     return 0
 
 
@@ -457,6 +470,8 @@ def _render(ctx: _JlState, expr: LetExprNode) -> tuple[str, str]:
         return _emit_lambda(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
         return _emit_method_call(ctx, expr)
+    if isinstance(expr, LetExprAffineMap):
+        return _emit_affine_map(ctx, expr)
     if isinstance(expr, LetExprFactor):
         return _render_factor(ctx, expr)
     raise UnsupportedConstruct(
@@ -893,6 +908,154 @@ def _emit_subscript(
     ctx.e(vid, arr_vid, "child_of")
     ctx.e(vid, inner_vid, "child_of")
     return vid, "index_expression"
+
+
+def _emit_range(ctx: _JlState, lower: int, upper: int) -> tuple[str, str]:
+    """Emit the inclusive index range ``<lower>:<upper>``.
+
+    Both bounds arrive in QVR's zero-based origin and are lifted to
+    Julia's one-based one by the caller.
+    """
+    vid = ctx.v(ctx.fresh("rng"), "range_expression")
+    ctx.constraint(vid, "chose-alt-fingerprint", ":")
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", "integer_literal integer_literal"
+    )
+    lo_vid, _lo_kind = _emit_literal(ctx, float(lower))
+    hi_vid, _hi_kind = _emit_literal(ctx, float(upper))
+    ctx.e(vid, lo_vid, "child_of")
+    ctx.e(vid, hi_vid, "child_of")
+    return vid, "range_expression"
+
+
+def _emit_row_block(
+    ctx: _JlState,
+    array: LetExprNode,
+    offset: int,
+    rows: int,
+    *,
+    trailing_colon: bool,
+) -> tuple[str, str]:
+    """Emit ``<array>[lo:hi]``, or ``<array>[lo:hi, :]`` for the
+    rank-2 weight, in Julia's one-based inclusive origin.
+    """
+    arr = _render(ctx, array)
+    if arr[1] not in _JL_INDEX_CALLEE_KINDS:
+        arr = _force_paren(ctx, arr)
+    block = _emit_range(ctx, offset + 1, offset + rows)
+    indices = (
+        (block, _emit_operator(ctx, ":")) if trailing_colon else (block,)
+    )
+    return _emit_subscript(ctx, arr, indices)
+
+
+def _emit_conditioning_row(
+    ctx: _JlState, sources: tuple[LetAffineSource, ...]
+) -> tuple[str, str]:
+    """Emit the map's conditioning row: the factors stacked in
+    declaration order with Julia's `vcat`.
+
+    A one-factor row is the factor itself, so the common case emits
+    no call at all.
+    """
+    if not sources:
+        raise UnsupportedConstruct(
+            f"qvr-{_target(ctx)}-helper",
+            [
+                f"let-expr:LetExprAffineMap:{_target(ctx)}: the map's "
+                f"conditioning row carries no factors"
+            ],
+        )
+    rendered = tuple(_render(ctx, source.value) for source in sources)
+    if len(rendered) == 1:
+        return rendered[0]
+    callee_vid, _callee_kind = _emit_identifier(ctx, "vcat")
+    al_vid = _emit_argument_list(ctx, rendered)
+    vid = ctx.v(ctx.fresh("ce"), "call_expression")
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", "identifier argument_list"
+    )
+    ctx.e(vid, callee_vid, "child_of")
+    ctx.e(vid, al_vid, "child_of")
+    return vid, "call_expression"
+
+
+def _emit_infix(
+    ctx: _JlState,
+    op: str,
+    left: tuple[str, str],
+    right: tuple[str, str],
+) -> tuple[str, str]:
+    """Emit a `binary_expression` over two already-rendered operands
+    with a literal operator, bypassing `ctx.dotted`."""
+    left_vid, left_kind = _maybe_paren(ctx, left)
+    op_vid, _op_kind = _emit_operator(ctx, op)
+    right_vid, right_kind = _maybe_paren(ctx, right)
+    vid = ctx.v(ctx.fresh("be"), "binary_expression")
+    ctx.constraint(
+        vid,
+        "chose-alt-child-kinds",
+        f"{left_kind} operator {right_kind}",
+    )
+    ctx.e(vid, left_vid, "child_of")
+    ctx.e(vid, op_vid, "child_of")
+    ctx.e(vid, right_vid, "child_of")
+    return vid, "binary_expression"
+
+
+def _emit_affine_map(
+    ctx: _JlState, expr: LetExprAffineMap
+) -> tuple[str, str]:
+    """Emit one head's row block of ``W x + b`` as a matrix-vector
+    product.
+
+    Julia's ``*`` on a matrix and a vector is exactly the contraction
+    the map denotes, so the whole head is one product rather than a
+    row per codomain coordinate. The operators are written literally
+    rather than through `ctx.dotted`: the product must stay a
+    contraction, the bias add is vector-plus-vector, and only the
+    `exp` link broadcasts, which it does through its own
+    `broadcast_call_expression`.
+    """
+    outer = ctx.dotted
+    ctx.dotted = False
+    try:
+        total = _emit_infix(
+            ctx,
+            "+",
+            _emit_infix(
+                ctx,
+                "*",
+                _emit_row_block(
+                    ctx,
+                    expr.weight,
+                    expr.row_offset,
+                    expr.rows,
+                    trailing_colon=True,
+                ),
+                _emit_conditioning_row(ctx, expr.sources),
+            ),
+            _emit_row_block(
+                ctx,
+                expr.bias,
+                expr.row_offset,
+                expr.rows,
+                trailing_colon=False,
+            ),
+        )
+    finally:
+        ctx.dotted = outer
+    if expr.transform != "exp":
+        return total
+    callee_vid, _callee_kind = _emit_identifier(ctx, "exp")
+    al_vid = _emit_argument_list(ctx, (total,))
+    vid = ctx.v(ctx.fresh("ce"), "broadcast_call_expression")
+    ctx.constraint(
+        vid, "chose-alt-child-kinds", "identifier argument_list"
+    )
+    ctx.e(vid, callee_vid, "child_of")
+    ctx.e(vid, al_vid, "child_of")
+    return vid, "broadcast_call_expression"
 
 
 def _rebase_literal_index(index: LetExprNode) -> LetExprNode:
