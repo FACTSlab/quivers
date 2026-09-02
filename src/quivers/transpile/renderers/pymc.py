@@ -72,6 +72,7 @@ from quivers.transpile.renderers._python_helpers import (
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
+    render_deterministic_python,
     render_let_expr_python,
     string_literal,
     with_statement,
@@ -1201,7 +1202,7 @@ class PyMCRenderer(RendererBase):
     ) -> None:
         """Emit `<name> = <expr>` for a let-bound deterministic
         computation."""
-        rhs = render_let_expr_python(ctx.py, node.expr)
+        rhs = render_deterministic_python(ctx.py, node)
         stmt = assignment(ctx.py, lhs_name=node.name, rhs=rhs)
         ctx.py.e(ctx.with_body, stmt, "child_of")
 

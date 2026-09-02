@@ -23,8 +23,9 @@ The WebPPL-specific layout decisions:
 * Sample-step plate loops: per batch dim, a `repeat(N, function() {
   return sample(<dist>); })` when no arg uses the per-element
   index, or `mapIndexed(function(m, _) { return sample(<dist
-  using m>); }, repeat(N, 0))` when at least one arg refers to a
-  name whose binding plate shares the surrounding batch dim.
+  using m>); }, repeat(N, function() { return 0; }))` when at
+  least one arg refers to a name whose binding plate shares the
+  surrounding batch dim.
 * Observe: when a `via` fibration is present, the renderer threads
   the per-observe loop variable through every reference whose
   binding plate matches the fibration's group plate. The emit
@@ -75,6 +76,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    LetExprAffineMap,
     ConstraintSpec,
     Dim,
     DimDynamic,
@@ -313,6 +315,7 @@ class WebPPLRenderer(RendererBase):
             or _ir_uses_webppl_math(ir.body)
             or _ir_reduces_event_axis(ir.body, self._name_event_rank)
             or _ir_has_marginalize(ir.body)
+            or _ir_has_affine_map(ir.body)
         ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
@@ -385,9 +388,9 @@ class WebPPLRenderer(RendererBase):
 
         Wraps the call in `repeat(B, function() { ... })` per batch
         dim when no arg uses the per-element index; uses
-        `mapIndexed(function(m, _) { ... }, repeat(B, 0))` when an
-        arg refers to a name whose binding plate aligns with the
-        surrounding plate's batch dims.
+        `mapIndexed(function(m, _) { ... }, repeat(B, function() {
+        return 0; }))` when an arg refers to a name whose binding
+        plate aligns with the surrounding plate's batch dims.
 
         For an observed step the emit shape is
         `mapIndexed(function(n, <obs>_n) { observe(<dist>, <obs>_n);
@@ -1985,6 +1988,26 @@ class WebPPLRenderer(RendererBase):
             ctx, self._ident(ctx, "repeat"), (size_vid, lam)
         )
 
+    def _zero_array(self, ctx: _RenderCtx, size_vid: str) -> str:
+        """`repeat(<size>, function () { return 0; })`.
+
+        The array an index-carrying `mapIndexed` walks when the
+        elements themselves are unread: `mapIndexed` takes an array,
+        not a count, and WebPPL's `repeat` builds one by calling its
+        second argument, which must therefore be a function rather
+        than the constant it returns.
+        """
+        body = self._fresh(ctx, "zbody")
+        ctx.sb.vertex(body, "statement_block")
+        self._emit_return_statement(
+            ctx, body, self._number_literal(ctx, 0)
+        )
+        return self._call(
+            ctx,
+            self._ident(ctx, "repeat"),
+            (size_vid, self._function_expression(ctx, (), body)),
+        )
+
     def _wrap_for_batch(
         self,
         ctx: _RenderCtx,
@@ -1994,9 +2017,15 @@ class WebPPLRenderer(RendererBase):
         index_dependent: bool,
     ) -> str:
         """Wrap `inner_value` in `repeat(N, function() { return <v>;
-        })` per batch dim or
-        `mapIndexed(function(m, _) { return <v>; }, repeat(N, 0))`
+        })` per batch dim, or
+        `mapIndexed(function(m, _) { return <v>; }, <length-N array>)`
         when an arg uses the loop index.
+
+        `mapIndexed` is the only WebPPL combinator that hands its
+        callback the position, and it walks an array rather than a
+        count, so the index-dependent form needs a length-`N` array
+        to walk: [`_zero_array`][quivers.transpile.renderers.webppl.WebPPLRenderer._zero_array]
+        builds one.
 
         The unbatched case returns `inner_value` unchanged.
         """
@@ -2018,18 +2047,13 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.vertex(body, "statement_block")
         self._emit_return_statement(ctx, body, inner_value)
         if index_dependent and loop_name is not None:
-            # mapIndexed(function(m, _) { return <inner>; }, repeat(N, 0))
+            # mapIndexed(function(m, _) { return <inner>; },
+            #            repeat(N, function() { return 0; }))
             lam = self._function_expression(ctx, (loop_name, "_"), body)
-            zero = self._number_literal(ctx, 0)
-            inner_repeat = self._call(
-                ctx,
-                self._ident(ctx, "repeat"),
-                (size_vid, zero),
-            )
             return self._call(
                 ctx,
                 self._ident(ctx, "mapIndexed"),
-                (lam, inner_repeat),
+                (lam, self._zero_array(ctx, size_vid)),
             )
         # repeat(N, function() { return <inner>; })
         lam = self._function_expression(ctx, (), body)
@@ -2704,6 +2728,19 @@ def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
     return any(isinstance(node, IRMarginalize) for node in body)
 
 
+def _ir_has_affine_map(body: tuple[IRNode, ...]) -> bool:
+    """True iff any deterministic binds an affine parameter map, whose
+    contraction the emit spells as the runtime's `_qvr_affine`."""
+    for node in body:
+        if isinstance(node, IRDeterministic) and isinstance(
+            node.expr, LetExprAffineMap
+        ):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_has_affine_map(node.scope):
+            return True
+    return False
+
+
 def _ir_reduces_event_axis(
     body: tuple[IRNode, ...], ranks: dict[str, int]
 ) -> bool:
@@ -2930,9 +2967,10 @@ def _ir_emits_qvr_bcast(ir: IRProgram, array_names: frozenset[str]) -> bool:
 
 
 #: QVR math primitives the WebPPL runtime supplies as elementwise
-#: globals (`Math` has no bare `sigmoid` / `exp` / `log` / `sqrt`).
+#: globals (`Math` has no bare `sigmoid` / `exp` / `log` / `sqrt` /
+#: `abs`).
 _WEBPPL_MATH_HELPERS: frozenset[str] = frozenset(
-    {"sigmoid", "exp", "log", "sqrt"}
+    {"sigmoid", "exp", "log", "sqrt", "abs"}
 )
 
 
@@ -2941,9 +2979,10 @@ def _ir_uses_webppl_math(body: tuple[IRNode, ...]) -> bool:
     marginalize scopes) calls a runtime math primitive that the WebPPL
     stdlib lacks as a global.
 
-    The graft prepends the runtime carrying `sigmoid` / `exp` / `log` /
-    `sqrt` whenever one of them is called, independent of whether the
-    binding also routes through `_qvr_bcast`.
+    The graft prepends the runtime carrying `sigmoid` / `exp` /
+    `log` / `sqrt` / `abs` whenever one of them is called,
+    independent of whether the binding also routes through
+    `_qvr_bcast`.
     """
     for node in body:
         if isinstance(node, (IRDeterministic, IRScore)) and (

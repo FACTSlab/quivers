@@ -52,6 +52,7 @@ from quivers.transpile.renderers._python_helpers import (
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
+    render_deterministic_python,
     render_let_expr_python,
     string_literal,
 )
@@ -349,7 +350,7 @@ class Edward2Renderer(RendererBase):
             asn = py.v(py.fresh("asn"), "assignment")
             lhs = identifier(py, node.name)
             py.e(asn, lhs, "left")
-            py.e(asn, render_let_expr_python(py, node.expr), "right")
+            py.e(asn, render_deterministic_python(py, node), "right")
             py.e(body_vid, asn, "child_of")
             bindings[node.name] = _Binding(
                 constraint=node.constraint, plate=node.plate
@@ -673,7 +674,7 @@ class Edward2Renderer(RendererBase):
             for det in scored.deterministics:
                 asn = py.v(py.fresh("asn"), "assignment")
                 py.e(asn, identifier(py, det.name), "left")
-                py.e(asn, render_let_expr_python(py, det.expr), "right")
+                py.e(asn, render_deterministic_python(py, det), "right")
                 py.e(body_vid, asn, "child_of")
                 bindings[det.name] = _Binding(
                     constraint=det.constraint, plate=det.plate

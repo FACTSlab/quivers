@@ -66,6 +66,7 @@ from quivers.transpile.renderers._python_helpers import (
     python_method_call as _python_method_call,
     python_paren as _python_paren,
     python_unary_minus as _python_unary_minus,
+    render_deterministic_python,
     render_let_expr_python,
     string_literal,
     with_statement,
@@ -1771,7 +1772,7 @@ class NumPyroRenderer(RendererBase):
         [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
         let-binding."""
         py = ctx.py
-        rhs = render_let_expr_python(py, node.expr)
+        rhs = render_deterministic_python(py, node)
         return self._assignment_statement(py, node.name, rhs)
 
     def _score_statement(

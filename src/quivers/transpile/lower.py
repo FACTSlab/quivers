@@ -41,12 +41,14 @@ import inspect
 import math
 import re
 from collections.abc import Callable
+from typing import Literal
 
 import didactic.api as dx
 import torch
 import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
+from quivers.core._util import EPS
 from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgDist,
@@ -66,6 +68,7 @@ from quivers.dsl.ast_nodes import (
     OptionList,
     OptionName,
     OptionNumber,
+    OptionString,
     OptionValue,
     ProgramDecl,
     ProgramStep,
@@ -92,6 +95,8 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprString,
     LetExprUnaryOp,
     LetExprVar,
+    LetFactorBinder,
+    LetFactorCase,
 )
 from quivers.dsl.ast_nodes.objects import (
     ContinuousConstructor,
@@ -152,6 +157,8 @@ from quivers.transpile.ir import (
     IRReturn,
     IRSample,
     IRScore,
+    LetAffineSource,
+    LetExprAffineMap,
     OverOrCodomainAxes,
     Plate,
     StructuredArgSpec,
@@ -233,6 +240,382 @@ _BRACKET_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)((?:\[[^\]]+\])+)$")
 _BRACKET_INDICES_RE = re.compile(r"\[([^\]]+)\]")
 
 
+# ---------------------------------------------------------------------------
+# Declared-morphism parameter maps.
+#
+# A kernel morphism declared `morphism f : X -> Y ~ Family` with no
+# family arguments of its own is a *conditional* family: the runtime
+# builds `Conditional<Family>(X, Y)`, which owns a
+# [`ParamSource`][quivers.continuous.param_source.ParamSource] from `X`
+# to a row of `k * dim(Y)` numbers and reads the family's `k`
+# per-coordinate arguments off that row. The declaration names neither
+# the map nor its numbers, so a program emitted from the declaration
+# alone scores the family at its defaults: a different measure, and on
+# a different space whenever `dim(X) != dim(Y)`.
+#
+# Lowering closes that by putting the map *into* the IR: the map's
+# weight and bias become two `IRDataInput` entries (the numbers are
+# fixed model data, exactly as the runtime's compile-time draw makes
+# them), and one `IRDeterministic` per family argument carries the row
+# block the head reads and the head's transform. The site then scores
+# against those arguments rather than against the family's defaults.
+#
+# The encoding is linear algebra, not arithmetic:
+# [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap] names the
+# weight, the bias, the row block, and the ordered sources whose
+# concatenation is the conditioning row, and each renderer spells the
+# contraction in its own language. One expression node per head,
+# whatever the object's width, so a 16-wide state costs what a 2-wide
+# state costs.
+# ---------------------------------------------------------------------------
+
+
+class _ParamHead(dx.Model):
+    """One family argument read off a row of the parameter map.
+
+    Head `k` of a family whose codomain is `d` wide reads columns
+    ``k * d .. k * d + d`` of the map's output row. `transform` names
+    what the runtime applies to the raw column before the family sees
+    it:
+
+    * ``identity``: the column is the argument
+      (`ConditionalNormal`'s `loc`).
+    * ``exp_floor``: the column is a log-parameter, exponentiated and
+      floored at [`EPS`][quivers.core._util.EPS]
+      (`ConditionalNormal`'s `scale`, whose runtime spelling is
+      ``log_sigma.exp().clamp(min=EPS)``).
+    """
+
+    arg_name: str
+    transform: Literal["identity", "exp_floor"]
+
+
+#: Families whose conditional runtime class reads its arguments off a
+#: parameter-map row, in the family's canonical argument order. A
+#: family absent from this table keeps whatever arguments its
+#: declaration and option block supply, which is what the emission has
+#: always done; see the module note above for why the table is not
+#: simply every conditional family.
+_CONDITIONAL_HEADS: dict[str, tuple[_ParamHead, ...]] = {
+    "Normal": (
+        _ParamHead(arg_name="loc", transform="identity"),
+        _ParamHead(arg_name="scale", transform="exp_floor"),
+    ),
+}
+
+
+class _ParamMapSource(dx.Model):
+    """One factor of the conditioning row a parameter map reads.
+
+    A morphism whose domain is a product reads the concatenation of
+    its factors, in declaration order, exactly as the runtime's
+    `MonadicProgram` stacks a multi-argument step along the feature
+    axis.
+    """
+
+    name: str
+    width: int
+
+
+class _ParamMap(dx.Model):
+    """The affine parameter map one declared kernel morphism carries.
+
+    `weight` and `bias` are the wire names of the two data inputs the
+    map's numbers arrive on; `sources` is the conditioning row in
+    column order; `axis` and `width` name the codomain object and its
+    width; `heads` is the family's head table.
+    """
+
+    morphism: str
+    family: str
+    weight: str
+    bias: str
+    sources: tuple[_ParamMapSource, ...]
+    axis: str
+    width: int
+    heads: tuple[_ParamHead, ...]
+
+
+def _param_map_domain_width(pmap: _ParamMap) -> int:
+    """Total width of the map's conditioning row."""
+    return sum(source.width for source in pmap.sources)
+
+
+def _param_map_rows(pmap: _ParamMap) -> int:
+    """Number of rows in the map's weight: one per head coordinate."""
+    return pmap.width * len(pmap.heads)
+
+
+def _param_map_weight_name(morphism: str) -> str:
+    """Wire name of a morphism's parameter-map weight."""
+    return f"{morphism}_param_weight"
+
+
+def _param_map_bias_name(morphism: str) -> str:
+    """Wire name of a morphism's parameter-map bias."""
+    return f"{morphism}_param_bias"
+
+
+def _head_binding_name(site: str, head: _ParamHead) -> str:
+    """Wire name of the deterministic binding carrying one head."""
+    return f"{site}_{head.arg_name}"
+
+
+def _head_raw_binding_name(site: str, head: _ParamHead) -> str:
+    """Wire name of the pre-floor binding of an ``exp_floor`` head."""
+    return f"{site}_{head.arg_name}_raw"
+
+
+def _affine_map_expr(
+    pmap: _ParamMap, head_index: int, transform: Literal["identity", "exp"]
+) -> LetExprAffineMap:
+    """One head's row block of the map, as a single contraction.
+
+    Head `k` reads rows ``k * width .. k * width + width`` of the
+    weight, which is the layout the runtime's `ParamSource` writes its
+    output row in; the columns are the concatenated domain
+    coordinates, in the declaration order `sources` already carries.
+    """
+    if _param_map_domain_width(pmap) == 0:
+        raise UnsupportedConstruct(
+            "qvr-lower",
+            [
+                f"param-source:linear:empty-domain:{pmap.morphism}: the "
+                f"morphism's domain carries no coordinates, so its "
+                f"parameter map has no input row"
+            ],
+        )
+    return LetExprAffineMap(
+        weight=LetExprVar(name=pmap.weight),
+        bias=LetExprVar(name=pmap.bias),
+        sources=tuple(
+            LetAffineSource(
+                value=LetExprVar(name=source.name), width=source.width
+            )
+            for source in pmap.sources
+        ),
+        row_offset=head_index * pmap.width,
+        rows=pmap.width,
+        transform=transform,
+    )
+
+
+def _option_identifier(
+    options: tuple[OptionEntry, ...], key: str
+) -> str | None:
+    """The identifier an option is bound to, when it is bound to one."""
+    for entry in options:
+        if entry.key == key and isinstance(entry.value, OptionName):
+            return entry.value.value
+    return None
+
+
+def _has_bare_family_init(
+    decl: MorphismDecl, family: str, family_set: frozenset[str]
+) -> bool:
+    """Whether the declaration's init clause is the bare
+    ``~ Family`` form for `family`.
+
+    The parser models ``~ Normal`` (no parentheses) as an
+    `init_expr` naming an identifier and ``~ Normal(0, 1)`` as an
+    `init_family` carrying args, so both shapes are read here. A
+    declaration with args wrote its parameters and keeps them.
+    """
+    init = decl.init_family
+    if init is not None:
+        return init.family == family and not init.args
+    expr = decl.init_expr
+    return (
+        isinstance(expr, ExprIdent)
+        and expr.name == family
+        and expr.name in family_set
+    )
+
+
+def _declares_head_argument(
+    options: tuple[OptionEntry, ...], heads: tuple[_ParamHead, ...]
+) -> bool:
+    """Whether the option block writes one of the family's arguments.
+
+    ``[scale=0.5] ~ Normal`` routes the option into the family's
+    `scale` slot, which is a declaration of that parameter; the
+    emission keeps it rather than replacing it with a map the source
+    never asked for.
+    """
+    names = {head.arg_name for head in heads}
+    return any(
+        entry.key in names
+        and isinstance(entry.value, (OptionNumber, OptionString))
+        for entry in options
+    )
+
+
+def _assert_param_map_plate(
+    morphism: str, plate: Plate, axis: str, width: int
+) -> None:
+    """Assert a mapped site is plated over its codomain's width.
+
+    The map produces one row per codomain coordinate, so the site it
+    feeds carries exactly that one axis; any other plate is scoring
+    something other than the row the map computes.
+    """
+    dims = (*plate.event_dims, *plate.batch_dims)
+    if (
+        len(dims) == 1
+        and isinstance(dims[0], DimStatic)
+        and dims[0].size == width
+        and dims[0].name == axis
+    ):
+        return
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"param-source:linear:plate:{morphism}: the parameter map "
+            f"produces one row per coordinate of {axis!r} ({width} of "
+            f"them) and the site is plated {plate!r}"
+        ],
+    )
+
+
+def _domain_wire_name(factor: TypeName) -> str:
+    """Wire name of one ``Real N`` factor of a program domain."""
+    return factor.name.lower()
+
+
+def _program_domain_sources(ctx: _LowerCtx) -> tuple[_ParamMapSource, ...]:
+    """The program input, factor by factor, as a conditioning row.
+
+    Mirrors [`Lower._domain_inputs`][quivers.transpile.lower.Lower._domain_inputs]:
+    same factors, same wire names, same order, so a map conditioned on
+    the program input reads the inputs that pass declares.
+    """
+    out: list[_ParamMapSource] = []
+    for factor in object_factors(ctx.program.domain):
+        if not isinstance(factor, TypeName):
+            continue
+        width = ctx.real_widths.get(factor.name)
+        if width is None:
+            continue
+        out.append(
+            _ParamMapSource(name=_domain_wire_name(factor), width=width)
+        )
+    return tuple(out)
+
+
+def _declared_domain_width(morphism_name: str, ctx: _LowerCtx) -> int:
+    """Coordinate count of a declared morphism's domain.
+
+    The runtime sizes a parameter source by this number, so an
+    emission that conditions the map on anything else is applying a
+    different map.
+    """
+    decl = ctx.morphisms[morphism_name]
+    total = 0
+    for factor in object_factors(decl.domain):
+        if not isinstance(factor, TypeName):
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:domain:{morphism_name}: the "
+                    f"morphism's domain has a factor that is not a "
+                    f"named object, so the width of its parameter "
+                    f"map's input row is not readable"
+                ],
+            )
+        width = ctx.real_widths.get(factor.name)
+        if width is None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:domain:{morphism_name}: the "
+                    f"domain factor {factor.name!r} declares no real "
+                    f"width, so the width of the parameter map's "
+                    f"input row is not readable"
+                ],
+            )
+        total += width
+    return total
+
+
+def _assert_free_binding(name: str, ctx: _LowerCtx) -> None:
+    """Assert a synthesised binding name is not already spoken for."""
+    if name not in ctx.reserved_names:
+        return
+    raise UnsupportedConstruct(
+        "qvr-lower",
+        [
+            f"param-source:linear:name-collision:{name}: the parameter "
+            f"map's head binds {name!r}, and the program already binds "
+            f"that name; rename the binding so the map's arguments "
+            f"have an unambiguous wire name"
+        ],
+    )
+
+
+def _reserved_names(
+    program: ProgramDecl,
+    morphisms: dict[str, MorphismDecl],
+    lets: dict[str, Expr],
+) -> frozenset[str]:
+    """Every name the module already speaks for.
+
+    A synthesised head binding or map input may not shadow a program
+    binding, a declared morphism, or a let; the check is by name
+    because a name is what every target's emission collides on.
+    """
+    names: set[str] = set(morphisms) | set(lets)
+    _collect_step_names(program.draws, names)
+    for factor in object_factors(program.domain):
+        if isinstance(factor, TypeName):
+            names.add(_domain_wire_name(factor))
+    return frozenset(names)
+
+
+def _collect_step_names(
+    steps: tuple[ProgramStep, ...], names: set[str]
+) -> None:
+    """Add every name the steps bind, marginalize scopes included."""
+    for step in steps:
+        if isinstance(step, (SampleStep, ObserveStep, ReturnStep)):
+            names.update(step.vars)
+        elif isinstance(step, MarginalizeStep):
+            names.add(step.var)
+            _collect_step_names(step.scope, names)
+        elif isinstance(step, (LetStep, ScoreStep)):
+            names.add(step.name)
+
+
+def _floor_expr(name: str, coordinate: int) -> LetExprNode:
+    """``max(name[coordinate], EPS)`` as ``(a + e + |a - e|) / 2``.
+
+    The runtime floors an exponentiated scale head at
+    [`EPS`][quivers.core._util.EPS]. No target-portable two-argument
+    `max` exists in the let-expression surface (`max` is the
+    axis-reducing aggregator on the array-shaped backends), so the
+    floor is spelled with the arithmetic identity, whose only call is
+    `abs`.
+    """
+    value = LetExprIndex(
+        array=LetExprVar(name=name),
+        indices=(LetExprLiteral(value=float(coordinate)),),
+    )
+    floor = LetExprLiteral(value=EPS)
+    return LetExprBinOp(
+        op="/",
+        left=LetExprBinOp(
+            op="+",
+            left=LetExprBinOp(op="+", left=value, right=floor),
+            right=LetExprCall(
+                func="abs",
+                args=(
+                    LetExprBinOp(op="-", left=value, right=floor),
+                ),
+            ),
+        ),
+        right=LetExprLiteral(value=2.0),
+    )
+
+
 class Lower(dx.Mapping[Module, IRProgram]):
     """Map a parsed [`Module`][quivers.dsl.ast_nodes.Module] to an
     [`IRProgram`][quivers.transpile.ir.IRProgram].
@@ -279,6 +662,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             real_widths=real_widths,
             bounds=bounds,
             shapes=shapes,
+            reserved_names=_reserved_names(program, morphisms, lets),
         )
 
         body = self._lower_steps(program.draws, ctx)
@@ -312,15 +696,22 @@ class Lower(dx.Mapping[Module, IRProgram]):
         the next step lowers, so a step whose argument references an
         earlier binding can read whether that binding already carries
         an event shape.
+
+        A step lowers to *one or more* nodes: a draw through a
+        declared morphism that carries a parameter map is preceded by
+        the deterministic bindings that compute the family's
+        arguments from it.
         """
         out: list[IRNode] = []
         for step in steps:
-            node = self._lower_step(step, ctx)
-            _record_bound_plate(node, ctx)
-            out.append(node)
+            for node in self._lower_step(step, ctx):
+                _record_bound_plate(node, ctx)
+                out.append(node)
         return tuple(out)
 
-    def _lower_step(self, step: ProgramStep, ctx: _LowerCtx) -> IRNode:
+    def _lower_step(
+        self, step: ProgramStep, ctx: _LowerCtx
+    ) -> tuple[IRNode, ...]:
         if isinstance(step, SampleStep):
             return self._lower_sample(step, ctx)
         if isinstance(step, ObserveStep):
@@ -328,16 +719,18 @@ class Lower(dx.Mapping[Module, IRProgram]):
         if isinstance(step, MarginalizeStep):
             return self._lower_marginalize(step, ctx)
         if isinstance(step, LetStep):
-            return self._lower_let(step, ctx)
+            return (self._lower_let(step, ctx),)
         if isinstance(step, ScoreStep):
-            return self._lower_score(step)
+            return (self._lower_score(step),)
         if isinstance(step, ReturnStep):
-            return IRReturn(names=step.vars)
+            return (IRReturn(names=step.vars),)
         raise UnsupportedConstruct(
             "qvr-lower", [f"step:{step.kind}"]
         )
 
-    def _lower_sample(self, step: SampleStep, ctx: _LowerCtx) -> IRSample:
+    def _lower_sample(
+        self, step: SampleStep, ctx: _LowerCtx
+    ) -> tuple[IRNode, ...]:
         resolved = resolve_step_dist(
             step.morphism,
             step.args,
@@ -350,7 +743,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         if meta.structured_lowering is not None and (
             not step.args or meta.structured_lowering.always_apply
         ):
-            return self._lower_sample_from_meta(meta, step, ctx)
+            return (self._lower_sample_from_meta(meta, step, ctx),)
         ir_args, arg_names = self._lower_args(
             meta, resolved, ctx,
             event_axes=_event_axis_names(step, ctx),
@@ -382,13 +775,26 @@ class Lower(dx.Mapping[Module, IRProgram]):
                     "expansion"
                 ],
             )
-        return IRSample(
-            name=step.vars[0],
-            family=resolved.family,
-            args=ir_args,
-            arg_names=arg_names,
-            constraint=constraint,
-            plate=plate,
+        head_nodes, ir_args = self._apply_param_map(
+            step.morphism,
+            step.args,
+            resolved.family,
+            step.vars[0],
+            arg_names,
+            ir_args,
+            plate,
+            ctx,
+        )
+        return (
+            *head_nodes,
+            IRSample(
+                name=step.vars[0],
+                family=resolved.family,
+                args=ir_args,
+                arg_names=arg_names,
+                constraint=constraint,
+                plate=plate,
+            ),
         )
 
     def _lower_sample_from_meta(
@@ -441,7 +847,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
 
     def _lower_observe(
         self, step: ObserveStep, ctx: _LowerCtx
-    ) -> IRObserve:
+    ) -> tuple[IRNode, ...]:
         resolved = resolve_step_dist(
             step.morphism,
             step.args,
@@ -473,19 +879,33 @@ class Lower(dx.Mapping[Module, IRProgram]):
             ctx,
             _observe_var(step),
         )
-        return IRObserve(
-            name=_observe_var(step),
-            family=resolved.family,
-            args=ir_args,
-            arg_names=arg_names,
-            constraint=constraint,
-            plate=plate,
+        head_nodes, ir_args = self._apply_param_map(
+            step.morphism,
+            step.args,
+            resolved.family,
+            _observe_var(step),
+            arg_names,
+            ir_args,
+            plate,
+            ctx,
             via=step.via,
+        )
+        return (
+            *head_nodes,
+            IRObserve(
+                name=_observe_var(step),
+                family=resolved.family,
+                args=ir_args,
+                arg_names=arg_names,
+                constraint=constraint,
+                plate=plate,
+                via=step.via,
+            ),
         )
 
     def _lower_marginalize(
         self, step: MarginalizeStep, ctx: _LowerCtx
-    ) -> IRMarginalize:
+    ) -> tuple[IRNode, ...]:
         resolved = resolve_step_dist(
             step.morphism,
             step.args,
@@ -522,17 +942,358 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 "qvr-lower",
                 [f"marginalize:reduction:{step.reduction}"],
             )
-        scope = self._lower_steps(step.scope, ctx)
-        return IRMarginalize(
-            latent=step.var,
-            family=resolved.family,
-            args=ir_args,
-            arg_names=arg_names,
-            constraint=constraint,
-            plate=plate,
-            reduction="logsumexp",
-            scope=scope,
+        head_nodes, ir_args = self._apply_param_map(
+            step.morphism,
+            step.args,
+            resolved.family,
+            step.var,
+            arg_names,
+            ir_args,
+            plate,
+            ctx,
         )
+        scope = self._lower_steps(step.scope, ctx)
+        return (
+            *head_nodes,
+            IRMarginalize(
+                latent=step.var,
+                family=resolved.family,
+                args=ir_args,
+                arg_names=arg_names,
+                constraint=constraint,
+                plate=plate,
+                reduction="logsumexp",
+                scope=scope,
+            ),
+        )
+
+    def _apply_param_map(
+        self,
+        morphism_name: str,
+        step_args: tuple[DrawArg, ...] | None,
+        family: str,
+        site: str,
+        arg_names: tuple[str, ...],
+        ir_args: tuple[IRArg, ...],
+        plate: Plate,
+        ctx: _LowerCtx,
+        *,
+        via: str | None = None,
+    ) -> tuple[tuple[IRNode, ...], tuple[IRArg, ...]]:
+        """Replace a site's family arguments with its morphism's
+        parameter map, when the morphism carries one.
+
+        Returns the deterministic bindings the site's arguments are
+        computed by, and the arguments themselves. A step that draws
+        from anything but a declared kernel morphism with a mapped
+        head keeps the arguments it already had, and the pair is
+        ``((), ir_args)``.
+        """
+        pmap = self._param_map_for(morphism_name, family, plate, ctx)
+        if pmap is None:
+            return (), ir_args
+        if via is not None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:via:{morphism_name}: the "
+                    f"observation reads its site through the {via!r} "
+                    f"fibration, which regroups the rows the "
+                    f"morphism's parameter map is applied to; the map "
+                    f"and the fibration have no combined wire form"
+                ],
+            )
+        if arg_names != tuple(head.arg_name for head in pmap.heads):
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:head-mismatch:{morphism_name}: "
+                    f"the site takes arguments {arg_names} where the "
+                    f"{family} parameter head supplies "
+                    f"{tuple(h.arg_name for h in pmap.heads)}"
+                ],
+            )
+        sources = self._param_map_sources(morphism_name, step_args, ctx)
+        declared = _declared_domain_width(morphism_name, ctx)
+        supplied = sum(source.width for source in sources)
+        if declared != supplied:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:domain-width:{morphism_name}: "
+                    f"the morphism's parameter map reads a "
+                    f"{declared}-wide row, and the step conditions it "
+                    f"on {supplied} coordinates "
+                    f"({', '.join(f'{s.name}:{s.width}' for s in sources)})"
+                ],
+            )
+        pmap = _ParamMap(
+            morphism=pmap.morphism,
+            family=pmap.family,
+            weight=pmap.weight,
+            bias=pmap.bias,
+            sources=sources,
+            axis=pmap.axis,
+            width=pmap.width,
+            heads=pmap.heads,
+        )
+        self._record_param_map_inputs(pmap, ctx)
+        nodes = self._param_map_head_nodes(pmap, site, plate, ctx)
+        return nodes, tuple(
+            IRArgRef(name=_head_binding_name(site, head))
+            for head in pmap.heads
+        )
+
+    def _param_map_for(
+        self,
+        morphism_name: str,
+        family: str,
+        plate: Plate,
+        ctx: _LowerCtx,
+    ) -> _ParamMap | None:
+        """The parameter map a step's morphism carries, or None.
+
+        Four conditions have to hold together, and each says
+        something the emission would otherwise get wrong:
+
+        1. The step draws from a *declared kernel morphism*. A draw
+           from a family (`sample x <- Normal(0, 1)`) names its own
+           parameters and has no map.
+        2. The declaration's init clause is the bare ``~ Family``
+           form and the option block populates no argument slot of
+           that family. A declaration that writes its parameters
+           (``~ Cauchy(0, 1)``, ``[scale=0.5] ~ Normal``) means them,
+           and the emission honours them.
+        3. The family is in
+           [`_CONDITIONAL_HEADS`][quivers.transpile.lower._CONDITIONAL_HEADS],
+           so how the runtime reads its arguments off the map is
+           known rather than guessed.
+        4. The codomain is a named ``Real`` object and the site's
+           plate is exactly that object's width. The map produces one
+           row per coordinate of the codomain; a site plated any
+           other way is not scoring that row.
+
+        The first three return None (the step keeps the arguments it
+        had); the fourth raises, because a mapped family whose head
+        shape cannot be read is a gap in this pass rather than a step
+        outside its scope.
+        """
+        decl = ctx.morphisms.get(morphism_name)
+        if decl is None:
+            return None
+        role = _option_identifier(decl.options, "role")
+        if role is not None and role != "kernel":
+            return None
+        heads = _CONDITIONAL_HEADS.get(family)
+        if heads is None:
+            return None
+        if not _has_bare_family_init(decl, family, ctx.family_set):
+            return None
+        if _declares_head_argument(decl.options, heads):
+            return None
+        codomain = decl.codomain
+        if not isinstance(codomain, TypeName):
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:codomain:{morphism_name}: the "
+                    f"morphism's {family} parameter map produces one "
+                    f"row per codomain coordinate, and the codomain is "
+                    f"not a named object"
+                ],
+            )
+        width = ctx.real_widths.get(codomain.name)
+        if width is None:
+            raise UnsupportedConstruct(
+                "qvr-lower",
+                [
+                    f"param-source:linear:codomain:{morphism_name}: the "
+                    f"morphism's {family} parameter map produces one "
+                    f"row per coordinate of {codomain.name!r}, which "
+                    f"declares no real width"
+                ],
+            )
+        _assert_param_map_plate(morphism_name, plate, codomain.name, width)
+        return _ParamMap(
+            morphism=morphism_name,
+            family=family,
+            weight=_param_map_weight_name(morphism_name),
+            bias=_param_map_bias_name(morphism_name),
+            sources=(),
+            axis=codomain.name,
+            width=width,
+            heads=heads,
+        )
+
+    def _param_map_sources(
+        self,
+        morphism_name: str,
+        step_args: tuple[DrawArg, ...] | None,
+        ctx: _LowerCtx,
+    ) -> tuple[_ParamMapSource, ...]:
+        """The conditioning row the map is applied to, in column
+        order.
+
+        A step that names arguments (``emission(s_new)``) conditions
+        on those bindings; a step that names none conditions on the
+        program's own input, which is what the runtime hands a step
+        whose argument list is absent.
+
+        The row is bindings the whole way down. A draw whose head
+        names a declared morphism supplies that morphism's input, not
+        the family's parameters, so a literal in the list is not a
+        form the language admits: the compiler rejects it outright
+        (``literal argument not allowed for named morphism``), and it
+        names no coordinate the map could read.
+        """
+        if not step_args:
+            return _program_domain_sources(ctx)
+        out: list[_ParamMapSource] = []
+        for arg in step_args:
+            if not isinstance(arg, DrawArgName):
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"param-source:linear:argument:{morphism_name}: "
+                        f"the parameter map conditions on a value, and "
+                        f"the step supplies a {arg.kind} argument "
+                        f"instead of a binding to read it from"
+                    ],
+                )
+            width = self._binding_width(arg.text, ctx)
+            if width is None:
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"param-source:linear:argument-width:"
+                        f"{morphism_name}: the conditioning binding "
+                        f"{arg.text!r} carries no statically known "
+                        f"width, so the map's input row cannot be "
+                        f"laid out"
+                    ],
+                )
+            out.append(_ParamMapSource(name=arg.text, width=width))
+        return tuple(out)
+
+    def _binding_width(self, name: str, ctx: _LowerCtx) -> int | None:
+        """Coordinate count of a binding a step conditions on.
+
+        A drawn site carries its width in the plate lowering already
+        recorded for it; a program-input factor carries it in the
+        domain wire table.
+        """
+        plate = ctx.bound_plates.get(name)
+        if plate is not None:
+            dims = (*plate.event_dims, *plate.batch_dims)
+            if len(dims) == 1 and isinstance(dims[0], DimStatic):
+                return dims[0].size
+            return None
+        for source in _program_domain_sources(ctx):
+            if source.name == name:
+                return source.width
+        return None
+
+    def _record_param_map_inputs(
+        self, pmap: _ParamMap, ctx: _LowerCtx
+    ) -> None:
+        """Declare the map's weight and bias as data inputs.
+
+        Two sites drawing the same morphism share one map, exactly as
+        the runtime registers one module for the morphism and reads it
+        from every step that names it, so a second site records the
+        same two entries rather than a second pair.
+        """
+        rows = _param_map_rows(pmap)
+        columns = _param_map_domain_width(pmap)
+        weight_plate = Plate(
+            event_dims=(),
+            batch_dims=(
+                DimStatic(size=rows, name=f"{pmap.morphism}_param_row"),
+                DimStatic(size=columns, name=f"{pmap.morphism}_param_col"),
+            ),
+        )
+        bias_plate = Plate(
+            event_dims=(),
+            batch_dims=(
+                DimStatic(size=rows, name=f"{pmap.morphism}_param_row"),
+            ),
+        )
+        for name, plate in (
+            (pmap.weight, weight_plate),
+            (pmap.bias, bias_plate),
+        ):
+            previous = ctx.param_map_inputs.get(name)
+            if previous is not None and previous != plate:
+                raise UnsupportedConstruct(
+                    "qvr-lower",
+                    [
+                        f"param-source:linear:shape-conflict:{name}: the "
+                        f"same parameter map is read at two shapes"
+                    ],
+                )
+            ctx.param_map_inputs[name] = plate
+
+    def _param_map_head_nodes(
+        self, pmap: _ParamMap, site: str, plate: Plate, ctx: _LowerCtx
+    ) -> tuple[IRNode, ...]:
+        """The deterministic bindings one site's arguments are read
+        from: one contraction per head, and the floor for a head that
+        carries one.
+
+        An ``identity`` head is the contraction itself. An
+        ``exp_floor`` head is the exponentiated contraction bound to
+        a raw name, then floored coordinatewise at
+        [`EPS`][quivers.core._util.EPS], which is the runtime's
+        ``log_sigma.exp().clamp(min=EPS)``. The floor is the only
+        part still written per coordinate, and it costs one term per
+        coordinate rather than one per coordinate pair.
+        """
+        out: list[IRNode] = []
+        for index, head in enumerate(pmap.heads):
+            name = _head_binding_name(site, head)
+            _assert_free_binding(name, ctx)
+            if head.transform == "identity":
+                out.append(
+                    IRDeterministic(
+                        name=name,
+                        expr=_affine_map_expr(pmap, index, "identity"),
+                        constraint=CSReal(),
+                        plate=plate,
+                    )
+                )
+                continue
+            raw = _head_raw_binding_name(site, head)
+            _assert_free_binding(raw, ctx)
+            out.append(
+                IRDeterministic(
+                    name=raw,
+                    expr=_affine_map_expr(pmap, index, "exp"),
+                    constraint=CSReal(),
+                    plate=plate,
+                )
+            )
+            out.append(
+                IRDeterministic(
+                    name=name,
+                    expr=LetExprFactor(
+                        binders=(
+                            LetFactorBinder(
+                                var=f"_{pmap.axis.lower()}_i",
+                                index=TypeName(name=pmap.axis),
+                            ),
+                        ),
+                        cases=tuple(
+                            LetFactorCase(
+                                label=i, value=_floor_expr(raw, i)
+                            )
+                            for i in range(pmap.width)
+                        ),
+                    ),
+                    constraint=CSPositive(),
+                    plate=plate,
+                )
+            )
+        return tuple(out)
 
     def _lower_let(self, step: LetStep, ctx: _LowerCtx) -> IRDeterministic:
         """Deterministic let-step.
@@ -1142,6 +1903,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
           (`mu[cls]` references `cls` and `mu`).
         * `observe ... [via=fibration]` fibrations.
         * Observed variables themselves (the rhs of `observe`).
+        * The weight and bias of every declared morphism's parameter
+          map, whose shapes lowering recorded on the context as it
+          built the heads that read them.
         """
         bound = self._bound_names(body)
         used = self._used_names(body)
@@ -1240,7 +2004,25 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # GP kernel-input names ride on `IRArgKernel.x_name` and need
         # a vector plate sized by the grid axis so renderers declare
         # them as `vector[N]` / `array[N] real`.
-        seen_param_names = seen_domain | seen_param | seen_via | seen_obs
+        # Parameter-map inputs: the numbers a declared morphism's
+        # affine map is made of. Their shapes are declared rather than
+        # inferred (the map's row count is the family's head layout
+        # over the codomain, its column count the morphism's domain),
+        # so they are emitted from the recorded table rather than left
+        # to the free-name pass, which would type them as scalars.
+        map_inputs: list[IRDataInput] = [
+            IRDataInput(
+                name=name,
+                constraint=CSReal(),
+                plate=plate,
+            )
+            for name, plate in ctx.param_map_inputs.items()
+        ]
+        seen_map = {inp.name for inp in map_inputs}
+
+        seen_param_names = (
+            seen_domain | seen_param | seen_via | seen_obs | seen_map
+        )
         integer_names = self._integer_typed_free_names(body)
         kernel_input_plates = self._kernel_input_plates(body)
         structured_input_specs = self._structured_input_specs(body)
@@ -1286,6 +2068,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             + param_inputs
             + via_inputs
             + obs_inputs
+            + map_inputs
             + free_inputs
         )
 
@@ -1617,6 +2400,10 @@ class _LowerCtx(dx.Model):
     alphabet_event_dims: dict[str, DimStatic] = dx.field(
         default_factory=dict, opaque=True
     )
+    param_map_inputs: dict[str, Plate] = dx.field(
+        default_factory=dict, opaque=True
+    )
+    reserved_names: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -2309,6 +3096,12 @@ def free_vars_in_let(expr: LetExprNode) -> list[str]:
             visit(n.receiver, bound)
             for a in n.args:
                 visit(a, bound)
+            return
+        if isinstance(n, LetExprAffineMap):
+            visit(n.weight, bound)
+            for source in n.sources:
+                visit(source.value, bound)
+            visit(n.bias, bound)
             return
 
     visit(expr, frozenset())
@@ -3383,23 +4176,32 @@ def _collect_let_expr_var_names(
         for a in expr.args:
             _collect_let_expr_var_names(a, out)
         return
+    if isinstance(expr, LetExprAffineMap):
+        _collect_let_expr_var_names(expr.weight, out)
+        for source in expr.sources:
+            _collect_let_expr_var_names(source.value, out)
+        _collect_let_expr_var_names(expr.bias, out)
+        return
 
 
 def _let_expr_needs_plate(expr: LetExprNode) -> bool:
     """True iff `expr` denotes a value whose shape inherits from its
     free variables (arithmetic, index, call, method-call), false iff
     it is shape-self-determining (literal, string, list, factor,
-    lambda).
+    lambda, affine map).
 
     The plate-propagation pass uses this to decide whether a
     `let v = expr` may pick up the surrounding observe/sample's
     batch_dims. A `let sigma = 0.5` (literal) never inherits a
     plate; a `let mu = a + b * x_design` (arithmetic that reads a
-    free name) may, when one of its free names is itself plated.
+    free name) may, when one of its free names is itself plated. A
+    [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap] is
+    the `rows`-wide vector its own row block names, whatever the
+    shapes it reads, so it never inherits either.
     """
     if isinstance(
         expr, (LetExprLiteral, LetExprString, LetExprList, LetExprFactor,
-               LetExprLambda)
+               LetExprLambda, LetExprAffineMap)
     ):
         return False
     return True
@@ -3693,6 +4495,12 @@ def _collect_integer_index_names(
         _collect_integer_index_names(expr.receiver, out)
         for a in expr.args:
             _collect_integer_index_names(a, out)
+        return
+    if isinstance(expr, LetExprAffineMap):
+        _collect_integer_index_names(expr.weight, out)
+        for source in expr.sources:
+            _collect_integer_index_names(source.value, out)
+        _collect_integer_index_names(expr.bias, out)
         return
 
 

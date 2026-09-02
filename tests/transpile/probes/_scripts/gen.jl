@@ -14,6 +14,17 @@
 # a rank-2 latent traced at `(:Z_mat, m_Item, m_LatentDim)` gets one
 # scalar per cell, a simplex-valued latent traced at `(:theta, m_Doc)`
 # gets the whole row at one address.
+#
+# A simplex-valued latent needs one marshalling step beyond the
+# reshape, which `_reshape.jl` supplies: every name the emitted model
+# draws from `dirichlet` is rescaled by its own row sum on the way in.
+# `Gen.dirichlet` scores through `Distributions.Dirichlet`, whose
+# support check rejects a row that misses a sum of one by the float32
+# rounding the wire form carries, and it reports that rejection as a
+# `-Inf` log-density rather than as an error. An unrescaled row
+# therefore leaves the probe as a wrong answer at some points of a set
+# and a correct one at others, which reads as a non-constant offset
+# rather than as the marshalling defect it is.
 using Gen, Distributions, JSON3
 
 include("/io/_reshape.jl")
@@ -53,6 +64,29 @@ function _trace_site_arities(source::String)
     return arities
 end
 
+# The Gen renderer spells a simplex-valued draw as a `dirichlet` call
+# inside a `@trace`, in the same four macro-call shapes
+# `_trace_site_arities` reads, and the site name lives in the address
+# rather than on the left of the assignment. Both address forms carry
+# it as the first symbol after the distribution's own argument list.
+const _DIRICHLET_SCALAR_RE =
+    r"@trace[\s(]\s*dirichlet\b[^\n]*?[\s,]:([A-Za-z_][A-Za-z0-9_]*)\b(?!\s*,)"
+const _DIRICHLET_BATCHED_RE =
+    r"@trace[\s(]\s*dirichlet\b[^\n]*?\(\s*:([A-Za-z_][A-Za-z0-9_]*)\s*(?:,\s*[A-Za-z_][A-Za-z0-9_]*\s*)+\)"
+
+# Names the emitted model draws from `dirichlet`, whose value is a
+# point of the simplex and reaches Distributions.jl through a support
+# check.
+function simplex_site_names(source::AbstractString)
+    names = Set{String}()
+    for re in (_DIRICHLET_SCALAR_RE, _DIRICHLET_BATCHED_RE)
+        for m in eachmatch(re, source)
+            push!(names, String(m.captures[1]))
+        end
+    end
+    return names
+end
+
 function _set_constraint_at!(constraints, name::Symbol, prefix, value, depth::Int)
     # Descend exactly `depth` axes, one per `for` loop the renderer
     # wrapped around the trace site, accumulating the index prefix.
@@ -90,6 +124,7 @@ function main()
     # Julia arrays are 1-based; lift every 0-based covariate the model
     # subscripts before it reaches the @gen call.
     index_names = index_input_names(source, dtypes)
+    simplex_names = simplex_site_names(source)
 
     # Use `include_string` (whole-file evaluation) instead of
     # `Meta.parse` (single expression) so source files with multiple
@@ -113,7 +148,9 @@ function main()
             reshape_point(pt, shapes, dtypes), index_names,
         )
         data = reshaped["data"]
-        params = reshaped["params"]
+        params = renormalise_simplex_params(
+            reshaped["params"], simplex_names,
+        )
         # Pass observed values as positional args sorted by name to
         # match the renderer's alphabetical signature ordering.
         args = Tuple(

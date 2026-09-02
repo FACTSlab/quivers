@@ -11,6 +11,13 @@
 # latents first makes that value a deterministic function of the
 # point rather than of the sampler's generator.
 #
+# A simplex-valued latent needs one marshalling step beyond the
+# reshape, which `_reshape.jl` supplies: every name the emitted model
+# draws from a `Dirichlet` is rescaled by its own row sum on the way
+# in, and a row too far from one to be float32 rounding raises. All
+# this probe adds is the Turing-specific reading of which sites those
+# are.
+#
 # Julia world-age note: `Base.eval` introduces a new method (the
 # `@model`-expanded `model` factory) at a world age newer than the
 # enclosing `main`'s. Calling `model_factory(args...)` directly from
@@ -38,6 +45,22 @@ function _coerce_nt(d)
     return NamedTuple{Tuple(p[1] for p in pairs)}(Tuple(p[2] for p in pairs))
 end
 
+# The renderer spells a simplex-valued draw as `<name> ~ Dirichlet(...)`
+# for an unplated one and `<name>[<subscript>] ~ Dirichlet(...)` for a
+# plated one, so the site name is all this pattern needs.
+const _DIRICHLET_SITE_RE =
+    r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]*\])?\s*~\s*Dirichlet\s*\("
+
+# Names the emitted model draws from a `Dirichlet`, whose value is a
+# point of the simplex and reaches Distributions.jl through a
+# constraint check.
+function simplex_site_names(source::AbstractString)
+    return Set{String}(
+        String(m.captures[1])
+        for m in eachmatch(_DIRICHLET_SITE_RE, source)
+    )
+end
+
 function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
@@ -46,6 +69,7 @@ function main()
     # Julia arrays are 1-based; lift every 0-based covariate the model
     # subscripts before it reaches the @model call.
     index_names = index_input_names(source, dtypes)
+    simplex_names = simplex_site_names(source)
 
     # Eval the @model declaration in Main; the macro produces a
     # callable `model` symbol.
@@ -58,7 +82,9 @@ function main()
             reshape_point(pt, shapes, dtypes), index_names,
         )
         data = reshaped["data"]
-        params = reshaped["params"]
+        params = renormalise_simplex_params(
+            reshaped["params"], simplex_names,
+        )
         # Pass observed values as positional args (sorted by name to
         # match the python harness's convention).
         sorted_keys = sort(collect(keys(data)))

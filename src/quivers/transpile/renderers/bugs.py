@@ -172,19 +172,26 @@ class _BugsLetCtx:
 
     def range_1_to(self, upper: str) -> str:
         """Build the `1:<upper>` range vertex the BUGS grammar wants."""
+        return self.range_between("1", upper)
+
+    def range_between(self, lower: str, upper: str) -> str:
+        """Build the `<lower>:<upper>` range vertex the BUGS grammar
+        wants.
+
+        Either bound is a `number` when it reads as an integer and an
+        `identifier` otherwise, which is how a dynamic axis extent
+        reaches the range.
+        """
         rng_id = self._fresh_fn("rng")
         self._sb.vertex(rng_id, "range")
-        lo_id = self._fresh_fn("num")
-        self._sb.vertex(lo_id, "number")
-        self._sb.constraint(lo_id, "literal-value", "1")
-        self._sb.edge(rng_id, lo_id, "lower")
-        hi_id = self._fresh_fn("num")
-        self._sb.vertex(
-            hi_id,
-            "number" if upper.lstrip("-").isdigit() else "identifier",
-        )
-        self._sb.constraint(hi_id, "literal-value", upper)
-        self._sb.edge(rng_id, hi_id, "upper")
+        for text, edge in ((lower, "lower"), (upper, "upper")):
+            bound_id = self._fresh_fn("num")
+            self._sb.vertex(
+                bound_id,
+                "number" if text.lstrip("-").isdigit() else "identifier",
+            )
+            self._sb.constraint(bound_id, "literal-value", text)
+            self._sb.edge(rng_id, bound_id, edge)
         return rng_id
 
 
@@ -261,6 +268,54 @@ _APPEND_DF_ONE: frozenset[str] = frozenset({"Cauchy", "HalfCauchy"})
 #: BUGS / JAGS fixtures and matches the offset shipped in WinBUGS /
 #: OpenBUGS examples.
 _ZEROS_TRICK_OFFSET: float = 1.0e6
+
+
+#: Families the BUGS language can neither name nor reach through a
+#: written-out density, mapped to what the second route runs into.
+#:
+#: Each of these three is written out in closed form by the JAGS
+#: renderer, so the density itself is not the obstacle: a finite
+#: normal mixture, a Kumaraswamy, and a continuous Bernoulli are all
+#: ordinary arithmetic in ``log``, ``pow`` and ``abs``, every one of
+#: which the BUGS function library carries. What BUGS lacks is a
+#: *statement that adds an arithmetic expression to the joint
+#: log-density*. It has no ``target +=``, and the zeros / ones trick
+#: that stands in for one needs a carrier node the data binds: the
+#: language has no ``data { ... }`` block (data arrive from a separate
+#: host-side list the model source cannot declare), a node bound by
+#: ``zeros[n] <- 0`` inside ``model`` is logical and so cannot also
+#: carry a distribution, and an already-observed node cannot stand in
+#: because the density reads that node, so scoring it through its own
+#: relation would cycle the graph.
+#:
+#: The route round it that BUGS does express is a different model
+#: rather than the same one. Writing a mixture as
+#: ``T[n] ~ dcat(w); y[n] ~ dnorm(mu[T[n]], tau[T[n]])`` allocates a
+#: discrete latent per row, so the joint it scores lives on a strictly
+#: larger space than the marginal QVR names and the two densities
+#: agree at no point rather than up to an additive constant. The same
+#: holds for any auxiliary-variable construction of the other two.
+#:
+#: The boundary is therefore the BUGS *language*, not the engine: the
+#: ``panproto-test-bugs`` image runs JAGS, which is why every sibling
+#: ``jags`` cell scores the same model.
+_NO_BUGS_FREE_DENSITY_TERM: dict[str, str] = {
+    "MixtureNormal": (
+        "a finite mixture is an explicit weighted density in the "
+        "BUGS function library, but adding one to the joint needs a "
+        "free log-density term the language has no statement for"
+    ),
+    "Kumaraswamy": (
+        "the density is elementary in `log` and `pow`, but adding a "
+        "written-out density to the joint needs a free log-density "
+        "term the language has no statement for"
+    ),
+    "ContinuousBernoulli": (
+        "the density is elementary in `log` and `abs`, but adding a "
+        "written-out density to the joint needs a free log-density "
+        "term the language has no statement for"
+    ),
+}
 
 
 #: Families whose [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]
@@ -775,6 +830,21 @@ class BUGSRenderer(RendererBase):
                 [f"family:{family}: not in FAMILY_META"],
             )
         if "bugs" not in meta.target_names:
+            # A family with no BUGS spelling is reachable only by
+            # writing its density out, which needs a statement the
+            # language does not have.
+            # `_NO_BUGS_FREE_DENSITY_TERM` records what that costs for
+            # each family the gallery reaches, so the raise names the
+            # limitation rather than only the missing name.
+            blocked = _NO_BUGS_FREE_DENSITY_TERM.get(family)
+            if blocked is not None:
+                raise UnsupportedConstruct(
+                    f"qvr-{self.target}",
+                    [
+                        f"family:{family}:no-free-density-term: "
+                        f"{blocked}"
+                    ],
+                )
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
                 [f"family:{family}: no BUGS target name"],
@@ -1538,7 +1608,10 @@ class BUGSRenderer(RendererBase):
                 self.target,
             )
             rhs_id = render_let_expr_bugs(
-                let_ctx, expr, decl_plates=ctx.decl_plates,
+                let_ctx,
+                expr,
+                decl_plates=ctx.decl_plates,
+                row_index=loop_names[0] if loop_names else None,
             )
             ctx.sb.edge(dr_id, rhs_id, "value")
         finally:

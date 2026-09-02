@@ -67,6 +67,8 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
     ConstraintSpec,
+    LetAffineSource,
+    LetExprAffineMap,
     CSIntegerInterval,
     CSNonnegativeInteger,
     DimStatic,
@@ -769,6 +771,23 @@ def _substitute_latent_expr(
         return LetExprIndex(
             array=_substitute_latent_expr(expr.array, latent, value),
             indices=_substitute_latent_exprs(expr.indices, latent, value),
+        )
+    if isinstance(expr, LetExprAffineMap):
+        return LetExprAffineMap(
+            weight=_substitute_latent_expr(expr.weight, latent, value),
+            bias=_substitute_latent_expr(expr.bias, latent, value),
+            sources=tuple(
+                LetAffineSource(
+                    value=_substitute_latent_expr(
+                        source.value, latent, value
+                    ),
+                    width=source.width,
+                )
+                for source in expr.sources
+            ),
+            row_offset=expr.row_offset,
+            rows=expr.rows,
+            transform=expr.transform,
         )
     if isinstance(expr, LetExprList):
         return LetExprList(

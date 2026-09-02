@@ -9,8 +9,8 @@ gallery suite turns that into an operational check: evaluate both
 sides on a point set, subtract the mean difference, and require the
 residual spread to sit under a tight tolerance.
 
-That operationalisation has two independent failure surfaces, and
-both have already fired in this repository:
+That operationalisation has four independent failure surfaces, and
+the first two have already fired in this repository:
 
 1. **The tolerance can drift.** Widening the atol until a failing
    fixture goes green converts a detected measure-inequivalence back
@@ -22,26 +22,65 @@ both have already fired in this repository:
    vacuity restricted to the data coordinates: a backend that drops a
    data-dependent summand holds a perfectly constant offset as the
    latents move and passes.
+3. **The point set can be lucky.** Six points drawn at one seed are
+   one finite sample of an infinite support, so a claim proved on
+   them is a claim about that draw. A coordinate the draw happened to
+   move a long way looks well covered; the same coordinate at another
+   seed may move by a hair, and nothing in the aggregate statistics of
+   the first draw says which of the two the perturber generally does.
+   This is the **seed-locality gap**: sensitivity established at one
+   seed is not sensitivity of the design.
+4. **The excursion can be too short.** Every displacement is
+   proportional to the perturbation scale, so a defect whose per-point
+   discrepancy is *nonlinear* in the point contributes a spread that
+   grows superlinearly in that scale. A discrepancy quadratic in the
+   displacement is roughly nine times louder at three times the scale,
+   which means a real defect can sit under tolerance at one excursion
+   and be rejected outright at a wider one. This is the
+   **excursion-magnitude gap**, and unlike the first three it is not
+   closed by adding points at the same scale.
 
-Each of those decays left a green test that proved nothing. The
-principle this module enforces is that a check is not validated until
-what it rejects has been demonstrated, and that the demonstration is
-made by the suite on every run rather than by hand once. The tests
-below therefore assert the *properties that give the equivalence
-assertion its teeth*, not the equivalence itself:
+Each of the first two decays left a green test that proved nothing.
+The principle this module enforces is that a check is not validated
+until what it rejects has been demonstrated, that the demonstration is
+made by the suite on every run rather than by hand once, and that it
+is made across independent draws rather than at one. The tests below
+therefore assert the *properties that give the equivalence assertion
+its teeth*, not the equivalence itself:
 
 1. `test_tolerance_constants_are_pinned` and
    `test_adaptive_atol_stays_under_ceiling` pin the tolerance model.
 2. `test_gallery_point_set_size_is_pinned`,
-   `test_single_point_comparison_is_vacuous`, and
-   `test_min_points_rejects_a_collapsed_point_set` pin the point
-   count.
-3. `test_every_quantified_coordinate_varies` pins per-coordinate
-   coverage of the dimensions Theorem 4.1 quantifies over.
+   `test_single_point_comparison_is_vacuous`,
+   `test_min_points_rejects_a_collapsed_point_set`, and
+   `test_point_set_defaults_are_pinned` pin the point count and the
+   draw the gallery takes by default.
+3. `test_seed_sweep_draws_independent_point_sets`,
+   `test_seed_sweep_is_independent_for_every_cell`,
+   `test_no_point_collapses_onto_the_ground_truth`, and
+   `test_every_quantified_coordinate_varies` pin per-coordinate
+   coverage of the dimensions Theorem 4.1 quantifies over, and pin
+   that the sweep's draws are distinct and its points do not collapse,
+   at every swept seed. The first fixes that the builder answers to
+   its seed at all; the second fixes that it answers on every cell,
+   which is what keeps a claim proved once from being reported as
+   proved four times.
 4. `test_reference_joint_is_in_support_and_varies` pins that every
    point is in the support and that the reference measure genuinely
-   moves.
-5. The `test_spread_*` family pins the behaviour of the spread
+   moves, at every swept seed.
+5. `test_point_set_exposes_a_planted_coordinate_defect` pins that a
+   defect confined to any single coordinate is rejected, at every
+   swept seed, which is the claim the seed-locality gap otherwise
+   leaves as a statement about seed 0.
+6. `test_wider_excursion_detects_a_nonlinear_defect` and
+   `test_wide_excursion_gain_covers_the_corpus` measure the
+   excursion-magnitude gap: they exhibit, per cell, a defect quadratic
+   in the displacement that the default excursion provably cannot
+   detect and the wider one provably does, they check that the wider
+   set gains strictly more against that nonlinear shape than against a
+   linear control, and they keep the conditional those claims are made
+   under from decaying into a vacuous one.
+7. The `test_spread_*` family pins the behaviour of the spread
    statistic on synthetic difference sequences of known magnitude,
    which is the direct measurement of what the assertion rejects.
 """
@@ -51,6 +90,7 @@ from __future__ import annotations
 import inspect
 import math
 import pathlib
+from collections.abc import Sequence
 from typing import Literal
 
 import didactic.api as dx
@@ -134,6 +174,73 @@ the perturbation could expose is smaller than the noise the check
 already forgives. Requiring two orders of magnitude of headroom keeps
 "the points moved" from degenerating into "the points moved within
 round-off"."""
+
+_MIN_SWEPT_SEEDS = 4
+"""Smallest number of independent draws the per-cell claims must be
+proved on.
+
+One draw cannot distinguish a property of the perturbation design from
+an accident of where that draw landed, which is the seed-locality gap
+in one sentence. Two draws agreeing is weak evidence, since the second
+is one coin flip; four is the point at which a coordinate that moves
+far enough to expose a defect at every seed is doing so because the
+perturber steps it, not because a draw was kind. The floor is pinned
+rather than read from
+[`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS] so that
+shrinking the sweep back toward a single seed fails here instead of
+silently narrowing every per-cell claim in this module at once."""
+
+_DEFAULT_GALLERY_SEED = 0
+"""The seed every gallery caller takes by default.
+
+Reproducibility and coverage pull in opposite directions here. A seed
+drawn from the clock would sweep the support over a run history but
+would turn a genuine regression into an intermittent one, so the
+default stays fixed and the *sweep* is what covers the support."""
+
+_WIDE_EXCURSION_GAIN = 1.5
+"""How much further the wide point set must travel before this module
+holds it to the nonlinear-sensitivity claim.
+
+The perturbation scale only nominally controls the excursion: the
+redraw ladder halves it whenever a draw leaves the support, and a
+coordinate whose step is an integer clamped to its attested range does
+not move further however large the scale is. So the claim is gated on
+the excursion the set *measurably achieved*, read back off the points
+by
+[`point_excursion`][tests.transpile._gallery_data.point_excursion],
+rather than on the scale that was requested.
+
+Half again as far is where the gate sits because the measured
+relationship is clean there: across the corpus at sixteen seeds, every
+cell whose wide set travelled at least 1.5x further detected a
+quadratic defect at least 2.4x smaller, while cells gated in at 1.05x
+included one whose quadratic sensitivity was marginally *worse* (a
+beta-binomial whose excursion is dominated by integer counts that the
+wider scale merely reshuffles inside their attested window)."""
+
+_NONLINEAR_DEFECT_HEADROOM = 0.9
+"""Fraction of the tolerance the planted nonlinear defect is
+calibrated to occupy on the *default* point set.
+
+The defect has to be genuinely invisible at the default excursion for
+the wide set's rejection of it to mean anything, and it has to be as
+close to the boundary as possible for the demonstration to be about
+the excursion rather than about a defect chosen absurdly small. 0.9
+sits just inside the accept region, so the rejection at the wider
+excursion is attributable to the excursion alone."""
+
+_MIN_WIDE_GAIN_FRACTION = 0.5
+"""Fraction of the swept (example, seed) pairs whose wide point set
+must clear
+[`_WIDE_EXCURSION_GAIN`][tests.transpile.test_validation_strength._WIDE_EXCURSION_GAIN].
+
+`test_wider_excursion_detects_a_nonlinear_defect` is a conditional,
+and a conditional whose antecedent stops holding anywhere is a test
+that passes by never running. The measured fraction is about
+two-thirds; requiring half keeps the demonstration alive across corpus
+growth without pinning a number that a single new discrete-support
+example would break."""
 
 
 # ---------------------------------------------------------------------------
@@ -274,21 +381,26 @@ reason is how a registry of arguments decays into a list of names."""
 
 
 class _EvaluatedPointSet(dx.Model):
-    """One gallery example's point set and its reference log-densities.
+    """One gallery example's point set, at one seed and one excursion,
+    together with its reference log-densities.
 
     Held in a module-level cache so the per-example tests below share
     one QVR evaluation pass. Every input is deterministic (the point
     builder seeds its own generator and never touches the global RNG),
-    so the cached values are reproducible run to run.
+    so the cached values are reproducible run to run, and the cache key
+    carries the seed and the scale because two draws of the same
+    example are different point sets that must not be confused for one.
     """
 
     stem: str
+    seed: int
+    scale: float
     dataset: _gallery_data.GalleryDataset = dx.field(opaque=True)
     points: tuple[Point, ...] = dx.field(opaque=True)
     log_densities: tuple[float, ...]
 
 
-_EVALUATION_CACHE: dict[str, _EvaluatedPointSet] = {}
+_EVALUATION_CACHE: dict[tuple[str, int, float], _EvaluatedPointSet] = {}
 
 
 def _gallery_cells() -> list[pathlib.Path]:
@@ -304,10 +416,37 @@ def _gallery_cells() -> list[pathlib.Path]:
     ]
 
 
-def _evaluate(example: pathlib.Path) -> _EvaluatedPointSet:
-    """Load `example`, build its point set, and score the reference
-    joint at every point."""
-    cached = _EVALUATION_CACHE.get(example.stem)
+def _seeded_cells() -> list[tuple[pathlib.Path, int]]:
+    """Every (example, seed) pair the per-cell claims are proved on.
+
+    The cross product is the whole point: a claim proved at one seed is
+    a claim about one draw, and pytest reporting the pairs separately
+    is what makes a seed-specific failure legible as one rather than as
+    a flake in the example.
+    """
+    return [
+        (example, seed)
+        for example in _gallery_cells()
+        for seed in _gallery_data.GALLERY_SEEDS
+    ]
+
+
+def _cell_id(value: pathlib.Path | int) -> str:
+    """Parameter id for a `(example, seed)` pytest parametrisation."""
+    if isinstance(value, pathlib.Path):
+        return value.stem
+    return f"seed{value}"
+
+
+def _evaluate(
+    example: pathlib.Path,
+    seed: int = _DEFAULT_GALLERY_SEED,
+    scale: float = _gallery_data.PERTURBATION_SCALE,
+) -> _EvaluatedPointSet:
+    """Load `example`, build its point set at `seed` and `scale`, and
+    score the reference joint at every point."""
+    key = (example.stem, seed, scale)
+    cached = _EVALUATION_CACHE.get(key)
     if cached is not None:
         return cached
     dataset = _gallery_data.load_gallery_data(example)
@@ -316,7 +455,9 @@ def _evaluate(example: pathlib.Path) -> _EvaluatedPointSet:
         f"though the example is in neither "
         f"`_SKIP_DATASET_LOAD_FAILED` nor `_SKIP_QVR_INCOMPATIBLE`."
     )
-    points = _gallery_data.points_from_dataset(dataset)
+    points = _gallery_data.points_from_dataset(
+        dataset, seed=seed, scale=scale,
+    )
     probe = QvrProbe()
     scratch = pathlib.Path("/tmp") / f"qvr_strength_{example.stem}"
     scratch.mkdir(exist_ok=True, parents=True)
@@ -343,11 +484,13 @@ def _evaluate(example: pathlib.Path) -> _EvaluatedPointSet:
         )
     evaluated = _EvaluatedPointSet(
         stem=example.stem,
+        seed=seed,
+        scale=scale,
         dataset=dataset,
         points=tuple(points),
         log_densities=tuple(float(lp) for lp in log_densities),
     )
-    _EVALUATION_CACHE[example.stem] = evaluated
+    _EVALUATION_CACHE[key] = evaluated
     return evaluated
 
 
@@ -416,6 +559,22 @@ def _diff_pair(
     """
     qvr = [base - 3.5 * index for index in range(len(diffs))]
     return qvr, [q + d for q, d in zip(qvr, diffs)]
+
+
+def _spread(values: Sequence[float]) -> float:
+    """The statistic `assert_log_density_match` compares against the
+    tolerance: the largest deviation of a sequence from its own mean.
+
+    Recomputed here rather than imported so this module can *predict*
+    what the assertion will do to a sequence it constructs, which is
+    what lets the nonlinear-defect test calibrate a defect to sit just
+    inside the accept region rather than discovering after the fact
+    where it landed.
+    """
+    if not values:
+        raise ValueError("the spread of an empty sequence is undefined")
+    mean = sum(values) / len(values)
+    return max(abs(value - mean) for value in values)
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +765,79 @@ def test_gallery_point_set_size_is_pinned() -> None:
     )
 
 
+def test_point_set_defaults_are_pinned() -> None:
+    """The draw every gallery caller takes is the reproducible one, and
+    the sweep that covers the support is wide enough to be a sweep.
+
+    Two claims, and they pull against each other, which is why both are
+    pinned. The *default* seed has to be fixed: every equivalence cell
+    in the suite takes it, and a default drawn from the clock would
+    make a genuine regression appear and disappear between runs. The
+    *sweep* has to be plural: a per-cell sensitivity claim proved at
+    the default seed alone is a claim about one finite sample of an
+    infinite support, and the coordinate it happened to move a long way
+    tells us nothing about the coordinate it happened to move by a
+    hair.
+
+    The scale default is pinned for the same reason the tolerance
+    constants are. It is the excursion every displacement in the suite
+    is proportional to, so lowering it shortens every point set at once
+    and weakens every cell in a way no single cell's failure would
+    localise.
+    """
+    parameters = inspect.signature(
+        _gallery_data.points_from_dataset,
+    ).parameters
+    assert parameters["seed"].default == _DEFAULT_GALLERY_SEED, (
+        f"`points_from_dataset` defaults to seed "
+        f"{parameters['seed'].default!r} rather than the pinned "
+        f"{_DEFAULT_GALLERY_SEED!r}. Every gallery cell takes this "
+        f"default, so a default that moves run to run turns a real "
+        f"transpile regression into an intermittent one."
+    )
+    assert (
+        parameters["scale"].default == _gallery_data.PERTURBATION_SCALE
+    ), (
+        f"`points_from_dataset` defaults to scale "
+        f"{parameters['scale'].default!r} rather than "
+        f"{_gallery_data.PERTURBATION_SCALE!r}. The excursion every "
+        f"displacement is proportional to is not a knob: shortening it "
+        f"weakens every equivalence cell at once, and a defect "
+        f"nonlinear in the point is what goes quiet first."
+    )
+
+    seeds = _gallery_data.GALLERY_SEEDS
+    assert len(seeds) >= _MIN_SWEPT_SEEDS, (
+        f"`GALLERY_SEEDS` sweeps {len(seeds)} seed(s) {seeds!r}, below "
+        f"the pinned minimum {_MIN_SWEPT_SEEDS!r}. Narrowing the sweep "
+        f"narrows every per-cell claim in this module at once, and at "
+        f"one seed the sensitivity claim stops being about the "
+        f"perturbation design and becomes a statement about one draw."
+    )
+    assert len(set(seeds)) == len(seeds), (
+        f"`GALLERY_SEEDS` repeats a seed ({seeds!r}). A repeated seed "
+        f"yields a byte-identical point set, so the sweep would report "
+        f"one draw as several and overstate its own coverage."
+    )
+    assert _DEFAULT_GALLERY_SEED in seeds, (
+        f"`GALLERY_SEEDS` {seeds!r} omits the default seed "
+        f"{_DEFAULT_GALLERY_SEED!r}, so the one draw every gallery "
+        f"equivalence cell actually runs on is the one draw this "
+        f"module never checks."
+    )
+
+    assert (
+        _gallery_data.WIDE_PERTURBATION_SCALE
+        > _gallery_data.PERTURBATION_SCALE
+    ), (
+        f"`WIDE_PERTURBATION_SCALE` "
+        f"({_gallery_data.WIDE_PERTURBATION_SCALE!r}) does not exceed "
+        f"the base scale ({_gallery_data.PERTURBATION_SCALE!r}), so "
+        f"the excursion-magnitude measurement compares a point set "
+        f"against itself."
+    )
+
+
 def test_single_point_comparison_is_vacuous() -> None:
     """A one-point comparison accepts an arbitrarily wrong backend.
 
@@ -675,14 +907,244 @@ def test_min_points_rejects_a_collapsed_point_set() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
-)
-def test_every_quantified_coordinate_varies(
+def _point_signature(point: Point) -> tuple[
+    tuple[tuple[str, tuple[float, ...]], ...],
+    tuple[tuple[str, tuple[float, ...]], ...],
+]:
+    """The full identity of a point, both sections, for equality
+    comparison against another point of the same set."""
+    return (
+        tuple(
+            sorted(
+                (name, _coordinate_key(value))
+                for name, value in point.params.items()
+            )
+        ),
+        tuple(
+            sorted(
+                (name, _coordinate_key(value))
+                for name, value in point.data.items()
+            )
+        ),
+    )
+
+
+def test_seed_sweep_draws_independent_point_sets() -> None:
+    """The sweep draws genuinely different point sets, and drawing the
+    same seed twice reproduces one exactly.
+
+    Both halves are load-bearing and they pull in opposite directions.
+    Reproducibility is what lets a failure at one seed be re-run and
+    debugged rather than chased; independence is the whole reason to
+    sweep, since a sweep whose members coincide reports one draw as
+    several and overstates its own coverage by exactly the factor it
+    claims to have gained.
+
+    The independence claim is made on the *perturbed* points only. Point
+    0 is the captured ground truth and is the same at every seed by
+    construction: it is the fixture, not a draw.
+    """
+    cells = _gallery_cells()
+    assert cells, (
+        "no gallery example is available to draw a seed sweep from."
+    )
+    example = cells[0]
+    dataset = _gallery_data.load_gallery_data(example)
+    assert dataset is not None
+    sweep = _gallery_data.points_across_seeds(dataset)
+    assert set(sweep) == set(_gallery_data.GALLERY_SEEDS)
+
+    repeat = _gallery_data.points_from_dataset(
+        dataset, seed=_DEFAULT_GALLERY_SEED,
+    )
+    assert [
+        _point_signature(point) for point in repeat
+    ] == [
+        _point_signature(point)
+        for point in sweep[_DEFAULT_GALLERY_SEED]
+    ], (
+        f"{example.stem!r}: two draws at seed "
+        f"{_DEFAULT_GALLERY_SEED!r} gave different point sets, so the "
+        f"builder is reading a generator it does not own and no "
+        f"failure in this suite is reproducible."
+    )
+
+    seeds = sorted(sweep)
+    for left in range(len(seeds)):
+        for right in range(left + 1, len(seeds)):
+            first = sweep[seeds[left]]
+            second = sweep[seeds[right]]
+            assert _point_signature(first[0]) == _point_signature(
+                second[0]
+            ), (
+                f"{example.stem!r}: the ground-truth point differs "
+                f"between seeds {seeds[left]} and {seeds[right]}. "
+                f"Point 0 is the captured fixture, not a draw; a seed "
+                f"that moves it has leaked into the data loader."
+            )
+            shared = [
+                index
+                for index in range(1, min(len(first), len(second)))
+                if _point_signature(first[index])
+                == _point_signature(second[index])
+            ]
+            assert not shared, (
+                f"{example.stem!r}: seeds {seeds[left]} and "
+                f"{seeds[right]} produced identical perturbed points "
+                f"at indices {shared!r}, so the sweep is reporting one "
+                f"draw as two and the coverage it claims is smaller "
+                f"than it looks."
+            )
+
+    with pytest.raises(ValueError):
+        _gallery_data.points_across_seeds(dataset, seeds=())
+    with pytest.raises(ValueError):
+        _gallery_data.points_across_seeds(dataset, seeds=(0, 1, 0))
+
+
+@pytest.mark.parametrize("example", _gallery_cells(), ids=_cell_id)
+def test_seed_sweep_is_independent_for_every_cell(
     example: pathlib.Path,
 ) -> None:
+    """No cell's swept draws coincide, so the coverage the sweep
+    claims is the coverage it has.
+
+    `test_seed_sweep_draws_independent_point_sets` establishes that the
+    builder responds to its seed at all, and it does so on one example.
+    That is the right scope for the mechanism and the wrong scope for
+    the claim. Independence is a property of how each *coordinate kind*
+    consumes randomness, and the corpus spans several: a real coordinate
+    moves by a Gaussian step and is essentially certain to differ
+    between draws, whereas an integer coordinate rounds its step and
+    then clamps it into an attested window, so a count with a narrow
+    window has only a handful of admissible values and two seeds landing
+    on the same one is an ordinary event rather than a coincidence. A
+    cell built entirely from such coordinates could return the same
+    point set at every seed while the one example the mechanism test
+    watches goes on differing.
+
+    What that would cost is the sweep's whole premise. Every per-cell
+    claim in this module is proved once per seed, so a cell whose four
+    draws coincide is a cell whose claims were proved once and reported
+    four times, and the seed-locality gap those claims exist to close
+    would be closed only on paper. Nothing in the aggregate output says
+    so: four identical draws pass every assertion four times over.
+
+    One duplicate is admissible, and it is derived rather than
+    registered, on exactly the argument
+    `test_no_point_collapses_onto_the_ground_truth` makes: a
+    latents-only point of a program that declares no latent sample site
+    has an empty section to perturb, so it is the ground truth at every
+    seed and no draw could separate it from another. The sweep of such a
+    cell is independent in the coordinates it has.
+    """
+    sets = {
+        seed: _evaluate(example, seed=seed).points
+        for seed in _gallery_data.GALLERY_SEEDS
+    }
+    latents = _latent_site_names(_evaluate(example).dataset)
+    seeds = sorted(sets)
+    for left in range(len(seeds)):
+        for right in range(left + 1, len(seeds)):
+            first = sets[seeds[left]]
+            second = sets[seeds[right]]
+            labels = _gallery_data.perturbation_labels(
+                min(len(first), len(second))
+            )
+            for index in range(1, min(len(first), len(second))):
+                if _point_signature(first[index]) != _point_signature(
+                    second[index]
+                ):
+                    continue
+                assert (
+                    labels[index] == _gallery_data.PERTURB_LATENTS
+                    and not latents
+                ), (
+                    f"{example.stem!r}: seeds {seeds[left]} and "
+                    f"{seeds[right]} drew the identical point at index "
+                    f"{index} ({labels[index]}), and the program "
+                    f"declares {len(latents)} latent site(s), so this "
+                    f"is a coordinate that stopped responding to the "
+                    f"seed rather than a section with nothing to move. "
+                    f"Every per-cell claim in this module is proved "
+                    f"once per seed, so a draw that repeats is a claim "
+                    f"reported more times than it was proved: the "
+                    f"sweep still reads as {len(seeds)} independent "
+                    f"draws while covering fewer. Widen the step the "
+                    f"perturber takes for the coordinate that froze; "
+                    f"do not drop the seed from the sweep."
+                )
+
+
+@pytest.mark.parametrize(
+    "example, seed", _seeded_cells(), ids=_cell_id
+)
+def test_no_point_collapses_onto_the_ground_truth(
+    example: pathlib.Path, seed: int,
+) -> None:
+    """Every perturbed point is a distinct point, at every swept seed.
+
+    The schedule promises six points covering the latents-only,
+    data-only and joint modes twice, twice and once. A perturbed point
+    that comes back byte-identical to the ground truth quietly breaks
+    that promise: the set is a five-point set, the mode it belonged to
+    is covered once rather than twice, and nothing in the aggregate
+    statistics says so. The per-coordinate coverage check does not
+    catch it either, because the coordinate still moves at the *other*
+    point of the same mode.
+
+    The failure is real and seed-dependent. An integer perturbation
+    rounds a real step to a whole count and then clamps it into the
+    value's window, and on a sparse vector of small counts both stages
+    can annihilate every entry of the draw at once: entries at the
+    bottom of the window only move upward, entries at the top only
+    downward, and a step comparable to one count rounds to zero about a
+    third of the time. Nothing about the default seed makes that
+    impossible; it simply does not happen there, which is precisely why
+    the claim has to be made across seeds.
+
+    One duplicate is admissible, and the exemption is derived rather
+    than registered: a latents-only point of a program that declares no
+    latent sample site has an empty section to perturb, so it *is* the
+    ground truth and no perturber could make it otherwise. Such a
+    program is a likelihood with no free parameters of its own, and the
+    equivalence check for it is a claim about the data coordinates
+    alone.
+    """
+    evaluated = _evaluate(example, seed=seed)
+    points = evaluated.points
+    labels = _gallery_data.perturbation_labels(len(points))
+    ground_truth = _point_signature(points[0])
+    latents = _latent_site_names(evaluated.dataset)
+
+    for index in range(1, len(points)):
+        if _point_signature(points[index]) != ground_truth:
+            continue
+        assert (
+            labels[index] == _gallery_data.PERTURB_LATENTS
+            and not latents
+        ), (
+            f"{example.stem!r} at seed {seed}: point {index} "
+            f"({labels[index]}) is byte-identical to the ground-truth "
+            f"point, so the {len(points)}-point schedule realises only "
+            f"{len({_point_signature(p) for p in points})} distinct "
+            f"points and the {labels[index]!r} mode is covered one "
+            f"time fewer than the schedule claims. The program "
+            f"declares {len(latents)} latent site(s), so this is a "
+            f"perturbation that moved nothing rather than a section "
+            f"with nothing to move: fix the step the perturber takes "
+            f"for the coordinate that froze."
+        )
+
+
+@pytest.mark.parametrize(
+    "example, seed", _seeded_cells(), ids=_cell_id
+)
+def test_every_quantified_coordinate_varies(
+    example: pathlib.Path, seed: int,
+) -> None:
     """Every coordinate Theorem 4.1 quantifies over actually moves
-    across the point set.
+    across the point set, at every swept seed.
 
     The theorem quantifies over the whole support, so the operational
     check inherits a coverage obligation the aggregate statistics hide:
@@ -710,8 +1172,18 @@ def test_every_quantified_coordinate_varies(
     stale claim, and an entry whose `kind` the point builder's own
     classifier does not confirm fails as a misfiled one. None of the
     three may be settled by editing the assertion.
+
+    The seed sweep is what makes "moves" a property of the perturber
+    rather than of one draw. A coordinate whose step can round to zero,
+    an integer count near the edge of its attested window most of all,
+    may move at the default seed and freeze at another, and a
+    single-seed check would call that covered. The registry is
+    correspondingly a claim at *every* seed: a coordinate exempted as
+    structural must be frozen in all of them, since a subscript that
+    starts moving at one seed is a subscript the perturber is now
+    stepping.
     """
-    evaluated = _evaluate(example)
+    evaluated = _evaluate(example, seed=seed)
     dataset = evaluated.dataset
     points = evaluated.points
     registry = _registered(example.stem)
@@ -749,7 +1221,8 @@ def test_every_quantified_coordinate_varies(
     for name in latents:
         present = sum(1 for point in points if name in point.params)
         assert present == len(points), (
-            f"{example.stem!r}: latent site {name!r} is carried by "
+            f"{example.stem!r} at seed {seed}: latent site {name!r} is "
+            f"carried by "
             f"{present} of {len(points)} points. A site the point set "
             f"does not pin is a coordinate the equivalence check never "
             f"fixes, so the two evaluators are free to score it at "
@@ -760,8 +1233,8 @@ def test_every_quantified_coordinate_varies(
         entry = registry.get(name)
         if entry is None:
             assert distinct >= 2, (
-                f"{example.stem!r}: latent site {name!r} takes a "
-                f"single value across all {len(points)} points, so the "
+                f"{example.stem!r} at seed {seed}: latent site {name!r} takes "
+                f"a single value across all {len(points)} points, so the "
                 f"constant-spread check says nothing about how the "
                 f"backend scores that coordinate. Give the site a "
                 f"support the perturber can step in, or, if it truly "
@@ -770,8 +1243,9 @@ def test_every_quantified_coordinate_varies(
             )
         else:
             assert distinct < 2, (
-                f"{example.stem!r}: `_UNPERTURBABLE_COORDINATES` "
-                f"claims latent site {name!r} cannot move "
+                f"{example.stem!r} at seed {seed}: "
+                f"`_UNPERTURBABLE_COORDINATES` claims latent site "
+                f"{name!r} cannot move "
                 f"({entry.justification}), but it takes {distinct} "
                 f"distinct values. Drop the entry: the coordinate is "
                 f"covered and the claim is stale."
@@ -782,7 +1256,7 @@ def test_every_quantified_coordinate_varies(
         entry = registry.get(name)
         if entry is None:
             assert distinct >= 2, (
-                f"{example.stem!r}: observed array {name!r} is "
+                f"{example.stem!r} at seed {seed}: observed array {name!r} is "
                 f"byte-identical at every one of the {len(points)} "
                 f"points, so the check is blind to any backend error "
                 f"that depends on {name!r} alone: such an error is a "
@@ -794,8 +1268,9 @@ def test_every_quantified_coordinate_varies(
             )
         else:
             assert distinct < 2, (
-                f"{example.stem!r}: `_UNPERTURBABLE_COORDINATES` "
-                f"claims observed array {name!r} cannot move "
+                f"{example.stem!r} at seed {seed}: "
+                f"`_UNPERTURBABLE_COORDINATES` claims observed array "
+                f"{name!r} cannot move "
                 f"({entry.justification}), but it takes {distinct} "
                 f"distinct values. Drop the entry: the coordinate is "
                 f"covered and the claim is stale."
@@ -803,13 +1278,13 @@ def test_every_quantified_coordinate_varies(
 
 
 @pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
+    "example, seed", _seeded_cells(), ids=_cell_id
 )
 def test_point_set_exposes_a_planted_coordinate_defect(
-    example: pathlib.Path,
+    example: pathlib.Path, seed: int,
 ) -> None:
     """Each example's own point set provably rejects a defect confined
-    to any single coordinate.
+    to any single coordinate, at every swept seed.
 
     Counting distinct values shows a coordinate *moved*; this test
     shows the movement is enough to be *detected*, and it shows it on
@@ -828,8 +1303,21 @@ def test_point_set_exposes_a_planted_coordinate_defect(
     police, whatever its distinct-value count says, so the sensitivity
     of the point set is measured here on every run instead of being
     established once by hand.
+
+    Repeating the measurement at every seed of
+    [`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS] is
+    what makes the result a statement about the perturbation design.
+    Proved at one seed it says only that *this draw* moved every
+    coordinate onto a point where the planted term fires on some points
+    and not others; the shape of the defect is defined by where the
+    coordinate left its ground truth, so a draw that moved a
+    coordinate at every single point would leave the planted term
+    constant and absorbed. Independent draws are the cheapest way to
+    tell that hazard from a design that avoids it, and a failure at one
+    seed only is a real defect in the point builder rather than a flake
+    in the example.
     """
-    evaluated = _evaluate(example)
+    evaluated = _evaluate(example, seed=seed)
     points = evaluated.points
     labels = _gallery_data.perturbation_labels(len(points))
     reference = list(evaluated.log_densities)
@@ -865,15 +1353,15 @@ def test_point_set_exposes_a_planted_coordinate_defect(
             _equivalence.assert_log_density_match(
                 reference,
                 planted,
-                context=f"planted@{example.stem}:{name}",
+                context=f"planted@{example.stem}:s{seed}:{name}",
                 labels=labels,
                 min_points=2,
             )
         assert "spread" in str(exc_info.value), (
-            f"{example.stem!r}: the rejection of the defect planted on "
-            f"{name!r} does not report the spread statistic, so a real "
-            f"failure would not be diagnosable; got "
-            f"{str(exc_info.value)!r}"
+            f"{example.stem!r} at seed {seed}: the rejection of the "
+            f"defect planted on {name!r} does not report the spread "
+            f"statistic, so a real failure would not be diagnosable; "
+            f"got {str(exc_info.value)!r}"
         )
         # The same sequence without the defect must pass, so the
         # rejection above is attributable to the planted term and not
@@ -881,15 +1369,16 @@ def test_point_set_exposes_a_planted_coordinate_defect(
         assert _equivalence.assert_log_density_match(
             reference,
             [value + constant for value in reference],
-            context=f"constant-only@{example.stem}:{name}",
+            context=f"constant-only@{example.stem}:s{seed}:{name}",
             labels=labels,
             min_points=2,
         ) == pytest.approx(constant, abs=1e-9)
 
     assert planted_any, (
-        f"{example.stem!r}: every coordinate of this example is "
-        f"registered as unperturbable, so no defect can be planted "
-        f"anywhere and the equivalence cell for it tests nothing."
+        f"{example.stem!r} at seed {seed}: every coordinate of this "
+        f"example is registered as unperturbable, so no defect can be "
+        f"planted anywhere and the equivalence cell for it tests "
+        f"nothing."
     )
 
 
@@ -934,13 +1423,13 @@ def test_unperturbable_registry_is_well_formed() -> None:
 
 
 @pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
+    "example, seed", _seeded_cells(), ids=_cell_id
 )
 def test_reference_joint_is_in_support_and_varies(
-    example: pathlib.Path,
+    example: pathlib.Path, seed: int,
 ) -> None:
     """Every point scores a finite reference joint, and the joint
-    genuinely varies across the set.
+    genuinely varies across the set, at every swept seed.
 
     Theorem 4.1 quantifies over points *of the support*, so a
     perturbation that steps outside it is not a witness of anything:
@@ -955,24 +1444,31 @@ def test_reference_joint_is_in_support_and_varies(
     less than the tolerance cannot separate a correct backend from a
     wrong one, because every discrepancy such a perturbation could
     expose is smaller than the noise the assertion already forgives.
+
+    Both properties are claims about the perturbation design, so both
+    are made at every swept seed. Admissibility especially: the redraw
+    ladder rescues a draw that leaves the support by halving its scale,
+    and a design that needs the ladder at one seed in four is a design
+    whose excursion is set too close to the boundary of the support,
+    which no single-seed run would show.
     """
-    evaluated = _evaluate(example)
+    evaluated = _evaluate(example, seed=seed)
     labels = _gallery_data.perturbation_labels(len(evaluated.points))
     log_densities = list(evaluated.log_densities)
 
     for index, lp in enumerate(log_densities):
         assert math.isfinite(lp), (
-            f"{example.stem!r}: point {index} ({labels[index]}) scores "
-            f"a non-finite reference joint ({lp!r}), so it left the "
-            f"model's support and cannot witness the equivalence at "
-            f"any tolerance."
+            f"{example.stem!r} at seed {seed}: point {index} "
+            f"({labels[index]}) scores a non-finite reference joint "
+            f"({lp!r}), so it left the model's support and cannot "
+            f"witness the equivalence at any tolerance."
         )
 
     span = max(log_densities) - min(log_densities)
     required = _MIN_JOINT_VARIATION_IN_ATOL * _PINNED_DEFAULT_ATOL
     assert span >= required, (
-        f"{example.stem!r}: the reference joint spans only "
-        f"{span:.6e} nats across {len(log_densities)} points, under "
+        f"{example.stem!r} at seed {seed}: the reference joint spans "
+        f"only {span:.6e} nats across {len(log_densities)} points, under "
         f"the {required:.6e} nats this check requires "
         f"({_MIN_JOINT_VARIATION_IN_ATOL!r} times the "
         f"{_PINNED_DEFAULT_ATOL!r} tolerance). A point set that moves "
@@ -983,7 +1479,337 @@ def test_reference_joint_is_in_support_and_varies(
 
 
 # ---------------------------------------------------------------------------
-# 5. The spread statistic itself behaves.
+# 5. The excursion magnitude is a coverage parameter, not a cosmetic one.
+# ---------------------------------------------------------------------------
+
+
+def _quadratic_defect(points: Sequence[Point]) -> list[float]:
+    """The per-point discrepancy of a defect whose error grows with
+    distance from the ground truth.
+
+    Every point of the set is a displacement `r` away from point 0 in
+    the flat wire coordinate, and this returns `r**2` at each point.
+    Squared distance is the leading term of any discrepancy that
+    vanishes at the ground truth and is smooth around it, which is the
+    generic shape of a defect the harness would otherwise miss: a
+    backend that expands a density around the ground-truth parameters
+    and drops the second-order term, a link function inverted to first
+    order, a variance whose reparameterisation agrees to first order
+    with the reference. Each of those is exactly right at the point the
+    fixture was generated at and wrong in proportion to how far the
+    evaluation strays.
+
+    That is why the excursion magnitude is a coverage parameter. A
+    discrepancy linear in `r` contributes a spread proportional to the
+    scale, so widening the excursion buys detection in proportion; a
+    discrepancy quadratic in `r` contributes a spread proportional to
+    the square, so it can sit under tolerance at one excursion and be
+    rejected outright at a wider one. The first kind is a matter of
+    degree, the second is a matter of what the check can see at all.
+    """
+    return [
+        displacement ** 2
+        for displacement in _gallery_data.point_displacements(points)
+    ]
+
+
+def _linear_defect(points: Sequence[Point]) -> list[float]:
+    """The per-point discrepancy of a defect whose error grows in
+    direct proportion to distance from the ground truth.
+
+    The control against which the quadratic defect is measured. A
+    discrepancy linear in the displacement is the shape a mis-scaled
+    coefficient produces: wrong everywhere except at the ground truth,
+    and wrong in proportion to how far the evaluation strays. Widening
+    the excursion buys detection against it too, which is exactly why
+    it is the control. Showing that a wider point set rejects a
+    *quadratic* defect proves nothing on its own about the excursion
+    being a coverage parameter, since a longer excursion makes every
+    defect that vanishes at the ground truth louder. The claim only
+    has content if the wider set gains *more* against the nonlinear
+    shape than against the linear one, and that comparison needs both.
+    """
+    return list(_gallery_data.point_displacements(points))
+
+
+def _detection_threshold(
+    profile: Sequence[float], atol: float,
+) -> float:
+    """The smallest coefficient at which a defect of shape `profile` is
+    rejected on the point set that produced it.
+
+    A defect contributing `c * profile[i]` at point `i` has spread
+    `c * spread(profile)`, since the spread statistic is positively
+    homogeneous, and the assertion rejects once that exceeds `atol`.
+    The threshold is therefore `atol / spread(profile)` exactly, with
+    no search required, and it is the quantity that answers what a
+    point set can *detect* rather than how loudly it complains about
+    one defect that was planted.
+
+    Returns infinity for a profile that is constant across the set:
+    such a defect is absorbed into the additive constant Theorem 4.1
+    permits, at any coefficient whatever, so no magnitude of it is
+    detectable.
+    """
+    reach = _spread(profile)
+    return atol / reach if reach > 0.0 else math.inf
+
+
+def _wide_excursion_gain(
+    example: pathlib.Path, seed: int,
+) -> tuple[_EvaluatedPointSet, _EvaluatedPointSet, float]:
+    """The default and wide point sets of one cell, and the ratio of
+    the distances they actually travelled.
+
+    The ratio is read off the realised points rather than off the two
+    `scale` arguments, because the requested scale is not what a point
+    set achieves. Two mechanisms drive them apart, and both are
+    intended: the redraw ladder halves the scale whenever a draw leaves
+    the support, and an integer coordinate steps inside its attested
+    range whatever the scale asks for, so a cell whose coordinates are
+    all integer-clamped travels the same distance at any scale.
+    """
+    default = _evaluate(example, seed=seed)
+    wide = _evaluate(
+        example, seed=seed, scale=_gallery_data.WIDE_PERTURBATION_SCALE,
+    )
+    reach = _gallery_data.point_excursion(default.points)
+    assert reach > 0.0, (
+        f"{example.stem!r} at seed {seed}: the default point set never "
+        f"leaves the ground truth, so it has no excursion to widen and "
+        f"its spread statistic is identically zero."
+    )
+    return default, wide, (
+        _gallery_data.point_excursion(wide.points) / reach
+    )
+
+
+@pytest.mark.parametrize(
+    "example, seed", _seeded_cells(), ids=_cell_id
+)
+def test_wider_excursion_detects_a_nonlinear_defect(
+    example: pathlib.Path, seed: int,
+) -> None:
+    """A wider excursion changes *what the check can detect*, not
+    merely how loudly it detects it.
+
+    The six points the gallery evaluates move each coordinate a fixed
+    fraction of its own scale. That is enough for a defect whose
+    per-point discrepancy is constant on a region, which is the shape
+    every historical bug in this repository had. It is not enough for a
+    defect that vanishes at the ground truth and grows with distance
+    from it, because such a defect contributes a spread proportional to
+    the *square* of the excursion: shrink the excursion and it goes
+    quiet quadratically.
+
+    This test exhibits one. It plants
+    [`_quadratic_defect`][tests.transpile.test_validation_strength._quadratic_defect]
+    on the default point set, scaled so its spread is
+    `_NONLINEAR_DEFECT_HEADROOM` of the tolerance, and asserts two
+    things about the same defect:
+
+    1. The default point set **accepts** it. This is the gap, stated
+       as a measurement rather than as a worry: a real defect of this
+       shape and this magnitude passes the gallery equivalence cell
+       today.
+    2. The wide point set **rejects** it, with the constant-only
+       sequence still accepted so the rejection is attributable to the
+       planted term.
+
+    The second claim is conditional on the wide set having actually
+    travelled `_WIDE_EXCURSION_GAIN` further, and the condition is
+    measured from the realised points rather than assumed from the
+    scale argument. A cell whose coordinates are integer steps clamped
+    to their attested range does not travel further at a wider scale,
+    however large the scale is, so for such a cell the excursion is not
+    the lever and the claim is not made. That is not an exemption to be
+    granted by hand: the ratio is recomputed every run, and
+    `test_wide_excursion_gain_covers_the_corpus` fails if the
+    conditional ever stops firing across the corpus.
+    """
+    default, wide, gain = _wide_excursion_gain(example, seed)
+    constant = 4.25
+    atol = _PINNED_DEFAULT_ATOL
+
+    default_profile = _quadratic_defect(default.points)
+    default_spread = _spread(default_profile)
+    assert default_spread > 0.0, (
+        f"{example.stem!r} at seed {seed}: the squared displacement is "
+        f"the same at every point, so no defect that grows with "
+        f"distance from the ground truth can be planted here at all."
+    )
+    # Calibrate the defect to sit just inside the accept region on the
+    # default set. Its magnitude is therefore derived from that set's
+    # own geometry, not chosen to make either half of the test come
+    # out: the accept below is what fixes it, and the reject above is
+    # what the wider excursion then has to earn.
+    magnitude = _NONLINEAR_DEFECT_HEADROOM * atol / default_spread
+
+    reference = list(default.log_densities)
+    planted = [
+        value + constant + magnitude * profile
+        for value, profile in zip(reference, default_profile)
+    ]
+    assert _equivalence.assert_log_density_match(
+        reference,
+        planted,
+        context=f"nonlinear-invisible@{example.stem}:s{seed}",
+        labels=_gallery_data.perturbation_labels(len(default.points)),
+        min_points=2,
+    ) == pytest.approx(constant, abs=atol), (
+        f"{example.stem!r} at seed {seed}: the quadratic defect "
+        f"calibrated to {_NONLINEAR_DEFECT_HEADROOM!r} of the "
+        f"{atol!r} tolerance was rejected on the default point set, so "
+        f"the calibration is wrong rather than the check being blind. "
+        f"Squared-displacement spread: {default_spread:.6e}."
+    )
+
+    if gain < _WIDE_EXCURSION_GAIN:
+        return
+
+    wide_profile = _quadratic_defect(wide.points)
+    wide_reference = list(wide.log_densities)
+    wide_planted = [
+        value + constant + magnitude * profile
+        for value, profile in zip(wide_reference, wide_profile)
+    ]
+    wide_labels = _gallery_data.perturbation_labels(len(wide.points))
+    with pytest.raises(AssertionError) as exc_info:
+        _equivalence.assert_log_density_match(
+            wide_reference,
+            wide_planted,
+            context=f"nonlinear-detected@{example.stem}:s{seed}",
+            labels=wide_labels,
+            min_points=2,
+        )
+    assert "spread" in str(exc_info.value), (
+        f"{example.stem!r} at seed {seed}: the wide point set rejected "
+        f"the quadratic defect without reporting the spread "
+        f"statistic; got {str(exc_info.value)!r}"
+    )
+    # The rejection has to be attributable to the planted term. The
+    # wide set's own reference joints are far larger in magnitude than
+    # the default set's, so a statistic that grew with the values being
+    # differenced would reject the constant-only sequence too, and the
+    # demonstration would be about magnitude rather than about the
+    # defect.
+    assert _equivalence.assert_log_density_match(
+        wide_reference,
+        [value + constant for value in wide_reference],
+        context=f"nonlinear-constant-only@{example.stem}:s{seed}",
+        labels=wide_labels,
+        min_points=2,
+    ) == pytest.approx(constant, abs=1e-9)
+
+    # The rejection above says the wider set catches this one defect.
+    # On its own that is unremarkable: a longer excursion makes *every*
+    # discrepancy that vanishes at the ground truth louder, the linear
+    # ones included, so a set that travels further would reject a
+    # calibrated defect of any such shape. The excursion is a coverage
+    # parameter rather than a volume knob only if the nonlinear shape
+    # gains strictly more from the widening than the linear control
+    # does, and that is a ratio of detection thresholds rather than a
+    # statement about one planted magnitude.
+    #
+    # The floor is derived, not fitted. Were every displacement scaled
+    # by exactly `g`, the linear profile would scale by `g` and the
+    # quadratic one by `g**2`, so the quadratic threshold would improve
+    # by `g` times as much as the linear one: the advantage is the
+    # excursion gain itself, and it exceeds 1 whenever the set travels
+    # further at all. Real sets are mixtures, since an integer
+    # coordinate steps inside its attested window whatever the scale
+    # asks, which pulls the achieved advantage below `g` without
+    # touching the direction of the inequality.
+    quadratic_advantage = (
+        _detection_threshold(default_profile, atol)
+        / _detection_threshold(wide_profile, atol)
+    )
+    linear_advantage = (
+        _detection_threshold(_linear_defect(default.points), atol)
+        / _detection_threshold(_linear_defect(wide.points), atol)
+    )
+    assert quadratic_advantage > linear_advantage, (
+        f"{example.stem!r} at seed {seed}: widening the excursion by "
+        f"{gain:.3f}x improved the detection threshold for a quadratic "
+        f"defect by {quadratic_advantage:.3f}x and for a linear one by "
+        f"{linear_advantage:.3f}x, so the wider set is not "
+        f"preferentially better against the nonlinear shape. Under "
+        f"uniform scaling the quadratic advantage is the linear one "
+        f"times the excursion gain, so an advantage that failed to "
+        f"exceed it means the set did not really travel further in the "
+        f"coordinates the defect grows in: the excursion is being "
+        f"spent on coordinates clamped to a fixed window, and for this "
+        f"cell the scale is not the lever this test claims it is."
+    )
+
+
+def test_wide_excursion_gain_covers_the_corpus() -> None:
+    """The nonlinear-defect demonstration is made on a real share of
+    the corpus, and the wider scale never yields a narrower set.
+
+    `test_wider_excursion_detects_a_nonlinear_defect` is a conditional,
+    and a conditional is the quietest way for a measurement to stop
+    measuring: if the antecedent ever held nowhere, every one of its
+    parametrisations would still pass while demonstrating nothing.
+    This test is the guard, and it makes two claims.
+
+    First, monotonicity. A larger requested scale must never produce a
+    point set that travels less than the smaller one does. The redraw
+    ladder is the mechanism that could break this: a wide draw that
+    leaves the support is halved, and halved again, so a scale asked to
+    reach further can come back having reached less. That would make
+    the wide set strictly worse than the default one, and the gallery's
+    own excursion would be sitting at the edge of the support rather
+    than inside it.
+
+    Second, coverage. At least `_MIN_WIDE_GAIN_FRACTION` of the swept
+    (example, seed) pairs must clear `_WIDE_EXCURSION_GAIN`, so the
+    conditional demonstrably fires. The pairs that do not clear it are
+    the ones whose excursion is dominated by integer coordinates
+    stepping inside an attested range, where a wider scale reshuffles
+    which admissible integer each draw lands on rather than reaching
+    further; those cells are covered by the constant-magnitude planted
+    defect instead, which is the shape their discrete coordinates
+    admit.
+    """
+    pairs = _seeded_cells()
+    assert pairs, (
+        "no (example, seed) pair is available, so the excursion "
+        "measurement has no corpus to run on."
+    )
+    gains: list[tuple[float, str, int]] = []
+    for example, seed in pairs:
+        _, _, gain = _wide_excursion_gain(example, seed)
+        gains.append((gain, example.stem, seed))
+
+    narrowed = [entry for entry in gains if entry[0] < 1.0]
+    assert not narrowed, (
+        f"the wide excursion travelled *less* far than the default one "
+        f"for {[(round(g, 3), stem, seed) for g, stem, seed in narrowed]!r}. "
+        f"A larger scale that reaches less means the redraw ladder "
+        f"halved that draw more than once, so the wide excursion is "
+        f"sitting outside the support this module derives for some "
+        f"coordinate of the cell. Fix the support the perturber "
+        f"derives for the coordinate that left it; do not lower "
+        f"`WIDE_PERTURBATION_SCALE` to make this pass."
+    )
+
+    cleared = [entry for entry in gains if entry[0] >= _WIDE_EXCURSION_GAIN]
+    fraction = len(cleared) / len(gains)
+    assert fraction >= _MIN_WIDE_GAIN_FRACTION, (
+        f"only {len(cleared)} of {len(gains)} (example, seed) pairs "
+        f"reach {_WIDE_EXCURSION_GAIN!r} times the default excursion, "
+        f"a fraction of {fraction:.3f} under the required "
+        f"{_MIN_WIDE_GAIN_FRACTION!r}. "
+        f"`test_wider_excursion_detects_a_nonlinear_defect` is "
+        f"conditional on that ratio, so at this coverage it is close "
+        f"to demonstrating nothing. Widest gains: "
+        f"{sorted(gains, reverse=True)[:3]!r}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. The spread statistic itself behaves.
 # ---------------------------------------------------------------------------
 
 

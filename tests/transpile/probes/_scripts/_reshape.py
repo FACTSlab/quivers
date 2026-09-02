@@ -172,6 +172,18 @@ def reshape_point(
     return out
 
 
+#: One lexical token of an emitted program, for the subscript scan:
+#: an identifier, a bracketing delimiter, a comma, a run of
+#: whitespace, or any single other character. The alternation is
+#: ordered so an identifier wins over the catch-all.
+_SUBSCRIPT_TOKEN_RE = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]*|[\[\](){},]|\s+|.", re.DOTALL,
+)
+
+#: Delimiters that open a nesting level, mapped to their closer.
+_OPENERS = {"[": "]", "(": ")", "{": "}"}
+
+
 def index_input_names(
     source: str, dtypes: dict[str, str],
 ) -> set[str]:
@@ -186,18 +198,50 @@ def index_input_names(
     every such covariate to 1-based before handing it to the
     container.
 
-    An index input is any ``int``-dtyped name the source subscripts,
-    i.e. one that appears immediately after a ``[``. Integer values
-    that are never subscripts (count observations such as ``tally`` /
-    ``obs``, Bernoulli 0/1 responses) are left untouched: they are
+    An index input is any ``int``-dtyped name that opens a subscript
+    *component*: the token after the ``[`` that begins a subscript, or
+    the token after a comma separating one component of a subscript
+    from the next. Both positions are subscripts, and a renderer that
+    gathers a rank-two parameter puts the covariate in the second one:
+    the JAGS emission of the gallery's HMM reads
+    ``emission_rows[k,obs[m_Step]]`` and its LDA emission reads
+    ``phi[1,w[m_Token]]``, so a rule that only reads the first
+    component leaves the covariate 0-based and the engine rejects the
+    model with an out-of-range subset.
+
+    The scan tracks the delimiter nest rather than matching a flat
+    pattern, because a comma only separates subscript components when
+    the innermost open delimiter is a ``[``. A comma inside a call
+    argument list -- ``dnorm(mu, w)``, or ``phi[f(a, w)]`` -- separates
+    arguments, not subscripts, and leaves ``w`` untouched.
+
+    Integer values that are never subscripts (count observations such
+    as ``tally``, Bernoulli 0/1 responses) are left untouched: they are
     outcomes, not offsets.
     """
+    candidates = {
+        name for name, dtype in dtypes.items() if dtype == "int"
+    }
+    if not candidates:
+        return set()
     names: set[str] = set()
-    for name, dtype in dtypes.items():
-        if dtype != "int":
-            continue
-        if re.search(r"\[\s*" + re.escape(name) + r"(?![0-9A-Za-z_])", source):
-            names.add(name)
+    nest: list[str] = []
+    at_component_start = False
+    for token in _SUBSCRIPT_TOKEN_RE.finditer(source):
+        text = token.group(0)
+        if text in _OPENERS:
+            nest.append(text)
+            at_component_start = text == "["
+        elif text in _OPENERS.values():
+            if nest:
+                nest.pop()
+            at_component_start = False
+        elif text == ",":
+            at_component_start = bool(nest) and nest[-1] == "["
+        elif not text.isspace():
+            if at_component_start and text in candidates:
+                names.add(text)
+            at_component_start = False
     return names
 
 

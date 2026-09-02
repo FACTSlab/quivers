@@ -40,6 +40,8 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
     DimStatic,
+    LetAffineSource,
+    LetExprAffineMap,
     IRArg,
     IRArgRef,
     IRDeterministic,
@@ -795,6 +797,8 @@ def render_let_expr_python(
             ctx.e(args, render_let_expr_python(ctx, a_node), "child_of")
         ctx.e(c, args, "arguments")
         return c
+    if isinstance(expr, LetExprAffineMap):
+        return _render_affine_map_python(ctx, expr)
     if isinstance(expr, LetExprFactor):
         return _render_factor_python(ctx, expr)
     raise UnsupportedConstruct(
@@ -803,6 +807,122 @@ def render_let_expr_python(
             f"let-expr:{type(expr).__name__}: unhandled node kind"
         ],
     )
+
+
+#: Per-target array-concatenation primitive, as
+#: ``(dotted-chain, needs_axis_argument)``. The affine map's
+#: conditioning row is the concatenation of its factors, and every
+#: Python array library spells that join differently. TensorFlow's
+#: `concat` takes the axis positionally; the others default to the
+#: leading axis, which is the one a rank-1 row stacks along.
+_PY_CONCAT_SYMBOLS: dict[str, tuple[tuple[str, ...], bool]] = {
+    "pyro": (("torch", "cat"), False),
+    "numpyro": (("jnp", "concatenate"), False),
+    "pymc": (("pymc", "math", "concatenate"), False),
+    "edward2": (("tf", "concat"), True),
+}
+
+
+#: Targets whose ``@`` operator refuses a rank-1 right operand and so
+#: need a named matrix-vector primitive. TensorFlow's `matmul` demands
+#: rank two on both sides; JAX, PyTorch and PyTensor all contract a
+#: matrix against a vector under ``@`` directly.
+_PY_MATVEC_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "edward2": ("tf", "linalg", "matvec"),
+}
+
+
+def python_slice(ctx: PyCtx, lower: int, upper: int) -> str:
+    """Build a ``<lower>:<upper>`` slice node.
+
+    Python's origin is QVR's own, so the bounds pass through
+    unshifted; the upper bound is exclusive in both.
+    """
+    s = ctx.v(ctx.fresh("slice"), "slice")
+    ctx.constraint(s, "chose-alt-fingerprint", ":")
+    ctx.constraint(s, "chose-alt-child-kinds", "integer integer")
+    ctx.e(s, number_literal(ctx, lower), "child_of")
+    ctx.e(s, number_literal(ctx, upper), "child_of")
+    return s
+
+
+def _render_conditioning_row_python(
+    ctx: PyCtx, sources: tuple[LetAffineSource, ...]
+) -> str:
+    """Render the map's conditioning row: the factors concatenated
+    along their single axis, in declaration order.
+
+    A one-factor row is the factor itself, so the common case emits
+    no call at all.
+    """
+    if not sources:
+        raise UnsupportedConstruct(
+            "qvr-python-helper",
+            [
+                f"let-expr:LetExprAffineMap:{ctx.target}: the map's "
+                f"conditioning row carries no factors"
+            ],
+        )
+    rendered = tuple(
+        render_let_expr_python(ctx, source.value) for source in sources
+    )
+    if len(rendered) == 1:
+        return rendered[0]
+    entry = _PY_CONCAT_SYMBOLS.get(ctx.target)
+    if entry is None:
+        raise UnsupportedConstruct(
+            "qvr-python-helper",
+            [
+                f"let-expr:LetExprAffineMap:{ctx.target}: no array "
+                f"concatenation primitive is mapped for this target, "
+                f"so a product-domain conditioning row cannot be built"
+            ],
+        )
+    segments, needs_axis = entry
+    positional: tuple[str, ...] = (python_list(ctx, rendered),)
+    if needs_axis:
+        positional = (*positional, number_literal(ctx, 0))
+    return call(ctx, attribute(ctx, segments), positional=positional)
+
+
+def _render_affine_map_python(
+    ctx: PyCtx, expr: LetExprAffineMap
+) -> str:
+    """Render one head's row block of ``W x + b`` as a matmul.
+
+    Most Python array backends spell the contraction ``@``; a target
+    listed in
+    [`_PY_MATVEC_SYMBOLS`][quivers.transpile.renderers._python_helpers._PY_MATVEC_SYMBOLS]
+    spells it as a named call instead. Either way the whole head is
+    one product rather than a row per codomain coordinate, and the
+    row block is a plain slice: Python's index origin is QVR's own,
+    and its upper bound is exclusive in both.
+    """
+    weight = subscript(
+        ctx,
+        render_let_expr_python(ctx, expr.weight),
+        (python_slice(ctx, expr.row_offset, expr.row_offset + expr.rows),),
+    )
+    bias = subscript(
+        ctx,
+        render_let_expr_python(ctx, expr.bias),
+        (python_slice(ctx, expr.row_offset, expr.row_offset + expr.rows),),
+    )
+    row = _render_conditioning_row_python(ctx, expr.sources)
+    matvec = _PY_MATVEC_SYMBOLS.get(ctx.target)
+    product = (
+        python_binary_op(ctx, "@", weight, row)
+        if matvec is None
+        else call(
+            ctx, attribute(ctx, matvec), positional=(weight, row)
+        )
+    )
+    total = python_binary_op(ctx, "+", product, bias)
+    if expr.transform == "exp":
+        return call(
+            ctx, _resolve_python_call(ctx, "exp"), positional=(total,)
+        )
+    return total
 
 
 def _infer_event_rank(ctx: PyCtx, expr: LetExprNode) -> int:
@@ -946,6 +1066,107 @@ def _walk_for_factor_towers(
                 out.add(node.name)
         elif isinstance(node, IRMarginalize):
             _walk_for_factor_towers(node.scope, out)
+
+
+#: Per-target array-stacking primitive. A binding whose value is
+#: materialised coordinate by coordinate still denotes a vector, and a
+#: family argument reads it as one: a Python list reaches a
+#: distribution constructor unpromoted, and the library's own
+#: arithmetic then refuses to broadcast it against the array-valued
+#: arguments beside it. Stacking states the array-ness once, at the
+#: binding, rather than at every use.
+_PY_STACK_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "pyro": ("torch", "stack"),
+    "numpyro": ("jnp", "stack"),
+    "pymc": ("pymc", "math", "stack"),
+    "edward2": ("tf", "stack"),
+}
+
+
+#: Targets whose stack primitive demands an already-array element.
+#: `torch.stack` rejects a Python float, and a coordinate built from
+#: literals alone renders as one, so PyTorch's elements each go
+#: through `torch.as_tensor`: the identity on a tensor (the same
+#: object, its gradient history intact) and a promotion on a float.
+#: The other three targets promote inside `stack` itself.
+_PY_STACK_ELEMENT_SYMBOLS: dict[str, tuple[str, ...]] = {
+    "pyro": ("torch", "as_tensor"),
+}
+
+
+def _vector_binding_coordinates(
+    ctx: PyCtx, node: IRDeterministic
+) -> tuple[LetExprNode, ...] | None:
+    """The coordinate expressions of a rank-1 array binding, or `None`
+    when the binding is not one.
+
+    A [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor] over a
+    single binder denotes a vector over that binder's axis, which is
+    why its `IRDeterministic` carries exactly one batch dim. Both of
+    its forms enumerate the coordinates: the cases form names them,
+    and the uniform-body form substitutes the binder for each index
+    of the axis. A tower over two or more binders is rank two or
+    more, and stacking it would need a per-target nesting rule the
+    coordinate list cannot supply, so it stays a nested list literal.
+    """
+    if len(node.plate.batch_dims) != 1 or node.plate.event_dims:
+        return None
+    expr = node.expr
+    if not isinstance(expr, LetExprFactor) or len(expr.binders) != 1:
+        return None
+    if expr.cases and expr.body is None:
+        ordered = sorted(expr.cases, key=lambda c: c.label)
+        return tuple(case.value for case in ordered)
+    if expr.body is not None and not expr.cases:
+        (binder,) = expr.binders
+        coordinates: list[LetExprNode] = []
+        for index in range(_card_for(ctx, binder)):
+            literal = LetExprLiteral(value=index)
+            coordinates.append(
+                _substitute_let_expr(
+                    expr.body,
+                    binder.var,
+                    index_value=literal,
+                    scalar_value=literal,
+                )
+            )
+        return tuple(coordinates)
+    return None
+
+
+def render_deterministic_python(ctx: PyCtx, node: IRDeterministic) -> str:
+    """Render the right-hand side of a deterministic let-binding.
+
+    A binding that denotes a vector but is built coordinate by
+    coordinate is stacked into a target array; every other binding is
+    its expression rendered directly.
+    """
+    coordinates = _vector_binding_coordinates(ctx, node)
+    if coordinates is None:
+        return render_let_expr_python(ctx, node.expr)
+    stack = _PY_STACK_SYMBOLS.get(ctx.target)
+    if stack is None:
+        raise UnsupportedConstruct(
+            "qvr-python-helper",
+            [
+                f"let-expr:LetExprFactor:{ctx.target}: no array "
+                f"stacking primitive is mapped for this target, so "
+                f"the vector binding {node.name!r} cannot be "
+                f"materialised as an array"
+            ],
+        )
+    element = _PY_STACK_ELEMENT_SYMBOLS.get(ctx.target)
+    rendered: list[str] = []
+    for coordinate in coordinates:
+        vid = render_let_expr_python(ctx, coordinate)
+        if element is not None:
+            vid = call(ctx, attribute(ctx, element), positional=(vid,))
+        rendered.append(vid)
+    return call(
+        ctx,
+        attribute(ctx, stack),
+        positional=(python_list(ctx, tuple(rendered)),),
+    )
 
 
 def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:
@@ -1381,6 +1602,7 @@ __all__ = [
     "python_method_call",
     "python_paren",
     "python_unary_minus",
+    "render_deterministic_python",
     "render_let_expr_python",
     "shape_tuple",
     "string_literal",

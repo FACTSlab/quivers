@@ -15,6 +15,78 @@ from quivers.effects.base import EffectHandler, Message
 from quivers.effects.trace_types import SampleSite, Trace
 
 
+def _narrowest_shape(log_probs: list[torch.Tensor]) -> tuple[int, ...]:
+    """The widest shape no site has to be replicated into.
+
+    Shapes are right-aligned (a missing leading axis reads as extent
+    1, exactly as broadcasting reads it) and the extent kept for each
+    axis is the smallest any site carries there. Adding sites at that
+    shape can only ever reduce a site, never repeat one.
+
+    Parameters
+    ----------
+    log_probs : list of torch.Tensor
+        Per-site log-densities that carry density. An empty list has
+        no axis to agree on and gives the scalar shape.
+
+    Returns
+    -------
+    tuple of int
+        Target shape, right-aligned against every site.
+    """
+    if not log_probs:
+        return ()
+    rank = max(log_prob.dim() for log_prob in log_probs)
+    extents: list[int] = []
+    for axis in range(rank):
+        smallest = None
+        for log_prob in log_probs:
+            offset = rank - log_prob.dim()
+            here = 1 if axis < offset else int(log_prob.shape[axis - offset])
+            smallest = here if smallest is None else min(smallest, here)
+        assert smallest is not None
+        extents.append(smallest)
+    return tuple(extents)
+
+
+def _reduce_to(log_prob: torch.Tensor, target: tuple[int, ...]) -> torch.Tensor:
+    """Sum ``log_prob`` over every axis where it is wider than ``target``.
+
+    The reduction keeps the axis at extent 1 rather than dropping it,
+    so the result still lines up with ``target`` under the addition
+    that follows and no term is repeated by that addition. An axis
+    ``target`` does not reach at all belongs to a site of higher rank
+    than any density-carrying one, and is summed away outright rather
+    than kept, so it cannot widen the joint either.
+
+    Parameters
+    ----------
+    log_prob : torch.Tensor
+        One site's log-density.
+    target : tuple of int
+        Shape from
+        [`_narrowest_shape`][quivers.effects.trace_handler._narrowest_shape],
+        right-aligned against ``log_prob``.
+
+    Returns
+    -------
+    torch.Tensor
+        ``log_prob`` with its lane axes summed out.
+    """
+    rank = len(target)
+    while log_prob.dim() > rank:
+        log_prob = log_prob.sum(dim=0)
+    offset = rank - log_prob.dim()
+    axes = [
+        axis - offset
+        for axis in range(rank)
+        if axis >= offset and int(log_prob.shape[axis - offset]) > target[axis]
+    ]
+    if not axes:
+        return log_prob
+    return log_prob.sum(dim=axes, keepdim=True)
+
+
 class TraceHandler(EffectHandler):
     """Record every site visited during a program's execution.
 
@@ -69,19 +141,60 @@ class TraceHandler(EffectHandler):
         contribute their callable's return value, which the
         interpreter installed as the message's log-prob.
 
-        The accumulator seeds from a scalar zero rather than a
-        ``batch_size``-wide zero: the joint is the plain sum of the
-        per-site log-densities, whose shape is the broadcast of the
-        contributing sites. A replica-batched model whose every site
-        carries a leading ``(batch,)`` axis broadcasts to ``(batch,)``,
-        recovering the per-replica joint; a single-instance plate model
-        whose sites each reduce over their own plate / event axes to a
-        scalar (or a length-1 parameter-sample axis) sums to that
-        scalar, so a shared prior contributes exactly once instead of
-        being replicated across the response plate.
+        Every site contributes its whole log-density exactly once. The
+        invariant the accumulator holds is
+        ``total.sum() == sum(site.log_prob.sum())``, and it is the
+        invariant a plain ``+`` over the sites does *not* hold: ``+``
+        broadcasts, and broadcasting a scalar site against a site
+        carrying a lane axis of length ``n`` replicates the scalar
+        ``n`` times. A sequence model whose recurrent site scores one
+        lane per scored row and whose emission site reduces its plate
+        to a scalar returned the emission likelihood times the row
+        count under that reading, which is the per-lane broadcast this
+        method exists to rule out.
+
+        The joint's shape is therefore the *narrowest* shape the sites
+        agree on rather than their broadcast: axis by axis, the
+        smallest extent any site carries there. A site wider than that
+        along an axis is summed over it (with ``keepdim``, so the
+        remaining extent is 1 and the later addition broadcasts
+        without replicating), which is the reduction a lane axis calls
+        for. A replica-batched model whose every site carries the same
+        leading ``(batch,)`` axis has that axis as its own narrowest
+        extent, so nothing is reduced and the per-replica joint comes
+        back intact.
+
+        A site whose log-density is identically zero takes no part in
+        choosing that shape. It cannot be replicated into a wrong
+        answer, so its shape carries no information about which axes
+        are lanes, and letting it vote would collapse the joint of an
+        ordinary batched model the moment the program gained a ``let``
+        binding (whose log-prob is the interpreter's scalar zero). It
+        is still added, reduced like any other site, so the sum stays
+        a sum over every recorded site and keeps whatever gradient the
+        zero carries.
+
+        Parameters
+        ----------
+        batch_size : int
+            Leading extent of the program input. Not consulted: the
+            joint's shape follows from the sites themselves, and a
+            program whose sites reduce their own plate axes has a
+            joint narrower than its input.
+        device : torch.device
+            Device the accumulator seeds on.
+
+        Returns
+        -------
+        torch.Tensor
+            The joint log-density.
         """
         del batch_size  # the joint's shape follows from the sites
+        contributions = [site.log_prob for site in self.trace.sites.values()]
+        target = _narrowest_shape(
+            [lp for lp in contributions if not bool(torch.all(lp == 0))]
+        )
         total = torch.zeros((), device=device)
-        for site in self.trace.sites.values():
-            total = total + site.log_prob
+        for log_prob in contributions:
+            total = total + _reduce_to(log_prob, target)
         return total

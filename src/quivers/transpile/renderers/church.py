@@ -48,6 +48,7 @@ from quivers.transpile.family_meta import FAMILY_META
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
     LetExprCall,
+    LetExprFactor,
     LetExprIndex,
     LetExprList,
     LetExprNode,
@@ -82,6 +83,7 @@ from quivers.transpile.ir import (
     IRReturn,
     IRSample,
     IRScore,
+    LetExprAffineMap,
     Plate,
 )
 from quivers.transpile.renderers._base import (
@@ -137,6 +139,31 @@ def _loop_name(plate: Plate) -> str | None:
     if not plate.batch_dims:
         return None
     return f"m_{plate.batch_dims[0].name}"
+
+
+def _denotes_whole_row(expr: LetExprNode, plate: Plate) -> bool:
+    """True iff `expr` evaluates to the binding's whole plate row
+    rather than to one element of it.
+
+    Two expression kinds do. A
+    [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap] is
+    the contraction of a whole row block, and a
+    [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor] over a
+    single binder enumerates the axis itself: the Scheme helper
+    renders each as a length-`N` list. Lifting either through the
+    per-row map would bind an `N`-by-`N` table under a name every
+    reader indexes once.
+
+    The predicate is deliberately narrow. It answers only for a
+    rank-1 batch plate, because that is the rank at which a Scheme
+    list and a plate row are the same shape; a higher-rank plate
+    keeps the per-row lift.
+    """
+    if len(plate.batch_dims) != 1 or plate.event_dims:
+        return False
+    if isinstance(expr, LetExprAffineMap):
+        return True
+    return isinstance(expr, LetExprFactor) and len(expr.binders) == 1
 
 
 def _plates_align(decl: Plate, surrounding: Plate) -> bool:
@@ -320,14 +347,23 @@ class ChurchRenderer(RendererBase):
         plate is indexed by the loop variable, so the arithmetic runs
         elementwise rather than collapsing the batch axis to a single
         shared value.
+
+        A binding whose expression already denotes the whole row is
+        the exception: the per-row lift would wrap a length-`N` list
+        in a length-`N` map and bind an `N`-by-`N` table under a name
+        every reader indexes once. See
+        [`_denotes_whole_row`][quivers.transpile.renderers.church._denotes_whole_row].
         """
         expr = node.expr
-        if node.plate.batch_dims:
+        lift = bool(node.plate.batch_dims) and not _denotes_whole_row(
+            expr, node.plate
+        )
+        if lift:
             loop_name = _loop_name(node.plate)
             assert loop_name is not None
             expr = self._index_let_refs(expr, node.plate, loop_name)
         expr_id = render_let_expr_scheme(_LetExprCtx(ctx.sb, ctx, self._cards), expr)
-        if node.plate.batch_dims:
+        if lift:
             expr_id = self._wrap_in_maps(
                 ctx, expr_id, node.plate.batch_dims, axis_suffix=""
             )

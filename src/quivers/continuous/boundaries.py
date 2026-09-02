@@ -12,6 +12,7 @@ Embed      — finite set -> continuous space (kernel density)
 
 from __future__ import annotations
 
+import math
 from typing import cast
 
 import torch
@@ -262,8 +263,6 @@ class Embed(ContinuousMorphism):
             Log-densities. Shape (batch,).
         """
         mu, sigma = self._kernel_params(x)
-
-        import math
 
         log_p = (
             -0.5 * ((y - mu) / sigma) ** 2 - sigma.log() - 0.5 * math.log(2 * math.pi)

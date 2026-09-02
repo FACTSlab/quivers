@@ -153,16 +153,44 @@ end
 
 # The Julia targets (Turing, Gen) index arrays from 1, but the gallery
 # covariates count from 0. `index_input_names` finds every int-dtyped
-# name the source subscripts (`[name`); `shift_index_inputs` lifts
-# those entries to 1-based after reshape. Count observations and
-# response values are never subscripts, so they pass through untouched.
+# name that opens a subscript component -- the token after the `[` that
+# begins a subscript, or the token after a comma separating one
+# component from the next -- and `shift_index_inputs` lifts those
+# entries to 1-based after reshape. Both positions are subscripts, so a
+# rank-two gather such as `phi[1,w[m_Token]]` lifts its covariate the
+# same way `theta[word_idx[m_Token],1]` does.
+#
+# The scan tracks the delimiter nest rather than matching a flat
+# pattern, because a comma only separates subscript components when the
+# innermost open delimiter is a `[`. A comma inside a call argument
+# list -- `logpdf(d, w)`, or `phi[f(a, w)]` -- separates arguments, not
+# subscripts, and leaves `w` untouched. Count observations and response
+# values are never subscripts, so they pass through untouched.
+const _SUBSCRIPT_TOKEN_RE = r"[A-Za-z_][A-Za-z0-9_]*|[\[\](){},]|\s+|."s
+
 function index_input_names(source::AbstractString, dtypes::Dict)
+    candidates = Set{String}(
+        String(name) for (name, dt) in dtypes if dt == "int"
+    )
     names = Set{String}()
-    for (name, dt) in dtypes
-        if dt == "int" && occursin(
-            Regex("\\[\\s*" * name * "(?![0-9A-Za-z_])"), source,
-        )
-            push!(names, name)
+    isempty(candidates) && return names
+    nest = Char[]
+    at_component_start = false
+    for m in eachmatch(_SUBSCRIPT_TOKEN_RE, source)
+        text = m.match
+        if text in ("[", "(", "{")
+            push!(nest, text[1])
+            at_component_start = text == "["
+        elseif text in ("]", ")", "}")
+            isempty(nest) || pop!(nest)
+            at_component_start = false
+        elseif text == ","
+            at_component_start = !isempty(nest) && nest[end] == '['
+        elseif !all(isspace, text)
+            if at_component_start && String(text) in candidates
+                push!(names, String(text))
+            end
+            at_component_start = false
         end
     end
     return names
@@ -185,6 +213,66 @@ function shift_index_inputs(point, names, offset::Int = 1)
         )
     end
     return out
+end
+
+# ---------------------------------------------------------------------
+# Simplex marshalling.
+#
+# A simplex-valued latent needs one step beyond the reshape before it
+# reaches a Julia target. `Distributions.Dirichlet` and
+# `Distributions.Categorical` both screen their probability vector
+# through a support check, and the point payload carries each row as
+# float32-rounded doubles, which miss a sum of one by roughly
+# `eps(Float32)`. A row that is a simplex in the reference's arithmetic
+# is therefore not one in Distributions.jl's: `Categorical` aborts the
+# run outright and `Dirichlet` quietly returns `-Inf`, which is a
+# finite-looking wrong answer rather than an error. Rescaling each row
+# by its own sum is the smallest correction that restores the
+# constraint, moving every component by at most the float32 rounding
+# already present in the wire form.
+#
+# Each Julia probe supplies its own set of simplex-valued site names,
+# read off its renderer's own draw syntax (`~ Dirichlet(` for Turing,
+# `@trace dirichlet(...) :name` for Gen); the rescaling and its
+# tolerance live here so both probes police the same boundary.
+# ---------------------------------------------------------------------
+
+# How far a wire-form simplex row may sit from summing to one before
+# the probe calls it a defect rather than a rounding artefact. Anything
+# above this floor is a wrong value rather than a wrong representation,
+# and rescaling it would turn a mis-shipped parameter into a silently
+# valid one.
+const SIMPLEX_SUM_TOLERANCE = 1e-5
+
+# Scale every innermost row of `value` to sum to exactly one.
+function renormalise_rows(name::String, value)
+    if value isa AbstractArray && !isempty(value) &&
+            first(value) isa AbstractArray
+        return [renormalise_rows(name, row) for row in value]
+    end
+    row = [Float64(x) for x in value]
+    total = sum(row)
+    abs(total - 1.0) <= SIMPLEX_SUM_TOLERANCE || error(
+        "probe: the point's $(name) row sums to $(total), " *
+        "which is further from one than the float32 rounding of the " *
+        "wire form can explain (tolerance " *
+        "$(SIMPLEX_SUM_TOLERANCE)). " *
+        "The emitted model draws $(name) from a Dirichlet, so this " *
+        "row is not the value the reference scored."
+    )
+    return row ./ total
+end
+
+# Return `params` with every simplex-typed entry rescaled and every
+# other entry passed through untouched.
+function renormalise_simplex_params(params, names)
+    return Dict{Symbol,Any}(
+        k => (
+            String(k) in names && v isa AbstractArray ?
+                renormalise_rows(String(k), v) : v
+        )
+        for (k, v) in params
+    )
 end
 
 # ---------------------------------------------------------------------
