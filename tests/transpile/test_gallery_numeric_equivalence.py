@@ -199,12 +199,6 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     # first, so pinning these four turns four cells that asserted
     # nothing into four that assert the boundary. The remaining eight
     # targets render both examples and stay carried by that registry.
-    ("bugs", "gru_lm"): "let-expr:elementwise-axis-operator",
-    ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
-    ("bugs", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # bnn's `net` morphism draws its mean from an `mlp` param source. The
@@ -213,9 +207,24 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # transpiler raises on every backend. The same holds for every model
 # below: each hides part of its structure in a `param_source` network
 # rather than writing it as a program whose steps are declared sites.
+# `scan(cell)` denotes one draw per sequence position over
+# intermediate states the program never names, over a sequence axis
+# that is not a declared object. The expansion pass refuses before any
+# renderer runs, so the kind is the same on every target, and pinning
+# it asserts the boundary where a skip asserted nothing.
+for _scan_model in (
+    "bidirectional_rnn_lm",
+    "gru_lm",
+    "lstm_lm",
+    "vanilla_rnn_lm",
+):
+    for _scan_backend in _BACKENDS_WITH_IMAGES:
+        _EXPECTED_TRANSPILE_RAISES[(_scan_backend, _scan_model)] = (
+            "scan:no-lowering"
+        )
+
 for _neural_model in (
     "bnn",
-    "bidirectional_rnn_lm",
     "deep_markov",
     "seq2seq",
     "transformer_lm",
@@ -767,43 +776,10 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # whose spread is constant to within `adaptive_atol` belongs outside
 # the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    # gru_lm and lstm_lm on the eight targets that render them.
-    # `_SKIP_QVR_INCOMPATIBLE` carries both examples and the test
-    # consults it first, so these rows are inert today: the composite
-    # site binding each example's hidden state scores identically
-    # zero, the oracle reports the emission likelihood alone, and
-    # there is no reference a container can be compared against. They
-    # stay so that closing the oracle gap surfaces the backend-side
-    # state of each cell rather than sixteen fresh failures. The
-    # `bugs` and `jags` cells of both examples are absent because
-    # their transpile raises before any of this: the raise is pinned
-    # in `_EXPECTED_TRANSPILE_RAISES`, which asserts something a skip
-    # never could. `vanilla_rnn_lm` is absent on every target for the
-    # same reason.
-    ('edward2', 'gru_lm'),
-    ('edward2', 'lstm_lm'),
-    ('edward2', 'vanilla_rnn_lm'),
-    ('gen', 'gru_lm'),
-    ('gen', 'lstm_lm'),
-    ('gen', 'vanilla_rnn_lm'),
-    ('numpyro', 'gru_lm'),
-    ('numpyro', 'lstm_lm'),
-    ('numpyro', 'vanilla_rnn_lm'),
-    ('pymc', 'gru_lm'),
-    ('pymc', 'lstm_lm'),
-    ('pymc', 'vanilla_rnn_lm'),
-    ('pyro', 'gru_lm'),
-    ('pyro', 'lstm_lm'),
-    ('pyro', 'vanilla_rnn_lm'),
-    ('stan', 'gru_lm'),
-    ('stan', 'lstm_lm'),
-    ('stan', 'vanilla_rnn_lm'),
-    ('turing', 'gru_lm'),
-    ('turing', 'lstm_lm'),
-    ('turing', 'vanilla_rnn_lm'),
-    ('webppl', 'gru_lm'),
-    ('webppl', 'lstm_lm'),
-    ('webppl', 'vanilla_rnn_lm'),
+    # The scan-bearing sequence models are absent on every target:
+    # their transpile raises before a probe could run, and the raise
+    # is pinned in `_EXPECTED_TRANSPILE_RAISES`, which asserts
+    # something a skip never could.
     # continuous_hmm / linear_gaussian_ssm: a Kleisli morphism
     # declared with a `~ Family` init and no `[param_source=...]`
     # option takes the default linear source, whose weights are

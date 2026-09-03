@@ -69,7 +69,7 @@ class RefusedDeclaration(dx.Model):
 #: refusal tagged with one of these is target-independent: it holds for
 #: every backend, so the message says so instead of blaming a language.
 _STAGE_TARGETS: frozenset[str] = frozenset(
-    {"transpile", "lower", "renderer"}
+    {"transpile", "lower", "renderer", "expand"}
 )
 
 
@@ -1543,6 +1543,24 @@ def _render_target_kind(backend: str, tail: str, explained: bool) -> str:
     return f"{_cannot(backend, 'select a target')}: {tail}"
 
 
+def _render_scan_kind(backend: str, tail: str) -> str:
+    """`scan:no-lowering:<cell>` -- a `scan(...)` consumed at a draw."""
+    cell = tail.rpartition(":")[2] or "the cell"
+    return (
+        f"`scan({cell})` threads `{cell}` across the positions of a "
+        f"sequence, so it denotes one draw per position over "
+        f"intermediate states the program never names. Writing that "
+        f"out needs a loop whose bound is the sequence length and one "
+        f"sample site per position, and the sequence axis is not an "
+        f"object this module declares: it arrives with the data, so "
+        f"there is no extent to size the loop from and no name to "
+        f"bind the per-position states to. Write the "
+        f"recurrence as a program over a declared axis, giving each "
+        f"position its own `sample` step, or unroll the chain into one "
+        f"`sample` per step."
+    )
+
+
 def _render_transform_kind(backend: str, tail: str) -> str:
     """`transform:<name>` -- an argument transform the target has no
     expression for."""
@@ -1729,6 +1747,8 @@ def _render_head(
         return _render_type_expr_kind(backend, tail, explained)
     if head == "target":
         return _render_target_kind(backend, tail, explained)
+    if head == "scan":
+        return _render_scan_kind(backend, tail)
     if head == "transform":
         return _render_transform_kind(backend, tail)
     if head == "draw-arg":
