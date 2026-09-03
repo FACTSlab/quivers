@@ -154,6 +154,8 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
     ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
     ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
+    ("bugs", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # 4. Neural morphisms (`param_source=mlp`) compute their mean with a
@@ -168,7 +170,6 @@ for _neural_example in (
     "seq2seq",
     "transformer_lm",
     "vae",
-    "vanilla_rnn_lm",
 ):
     for _syntax_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (

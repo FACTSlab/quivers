@@ -163,21 +163,16 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # zip_regression names `ContinuousBernoulli`, which has neither a
-    # JAGS nor a BUGS target name. The two renderers spell the
-    # rejection differently, so each cell pins the kind its own path
-    # produces.
-    #
-    # kumaraswamy_bounded_outcome names `Kumaraswamy`, which has no
-    # target name on either engine either, and there the two part
-    # company: `renderers/jags.py::_emit_kumaraswamy` writes the
-    # density out in `log` and `pow` alone and adds it through the
-    # zeros trick, so the JAGS cell is live and scores the model up to
-    # the lift the trick pays. The BUGS renderer carries no such path
-    # and its cell stays a raise.
+    # zip_regression names `ContinuousBernoulli` and
+    # kumaraswamy_bounded_outcome names `Kumaraswamy`, and neither
+    # family has a JAGS or a BUGS target name. The two engines part
+    # company on both: the JAGS renderer writes each density out in
+    # `log` and `pow` alone and adds it through the zeros trick, so
+    # its cells are live and score the model up to the lift the trick
+    # pays. The BUGS renderer carries no such path and its cells stay
+    # a raise.
     ("bugs", "kumaraswamy_bounded_outcome"): "family:Kumaraswamy",
     ("bugs", "zip_regression"): "family:",
-    ("jags", "zip_regression"): "family:",
     # beta_binomial_ab_test observes `BetaBinomial`. Every other
     # backend either has the family natively or reaches it through
     # the closed-form marginal: JAGS writes that marginal into the
@@ -206,24 +201,18 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     # targets render both examples and stay carried by that registry.
     ("bugs", "gru_lm"): "let-expr:elementwise-axis-operator",
     ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
+    ("bugs", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
     ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
     ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # bnn's `net` morphism draws its mean from an `mlp` param source. The
 # network weights are model-internal, absent from both the wire form
 # and the sample sites, so no backend can reconstruct the mean; the
-# transpiler raises on every backend.
-#
-# vanilla_rnn_lm reaches the same raise from the other direction. Its
-# `cell : Embedded * Hidden -> Hidden [param_source=mlp]` is consumed
-# inside `define backbone = tok_embed >> scan(cell)`, so flattening
-# the composite leaves `cell` in an ordinary expression rather than at
-# a draw site. The resolver walks the `define` table and rejects the
-# name in value position, which spells the kind
-# `param-source:mlp:value-position:cell`; the prefix below matches it,
-# and the cell is a raise on all ten targets rather than a skip whose
-# emitted program would read the network as a free input.
+# transpiler raises on every backend. The same holds for every model
+# below: each hides part of its structure in a `param_source` network
+# rather than writing it as a program whose steps are declared sites.
 for _neural_model in (
     "bnn",
     "bidirectional_rnn_lm",
@@ -231,7 +220,6 @@ for _neural_model in (
     "seq2seq",
     "transformer_lm",
     "vae",
-    "vanilla_rnn_lm",
 ):
     for _neural_backend in _BACKENDS_WITH_IMAGES:
         _EXPECTED_TRANSPILE_RAISES[(_neural_backend, _neural_model)] = (
@@ -794,20 +782,28 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # same reason.
     ('edward2', 'gru_lm'),
     ('edward2', 'lstm_lm'),
+    ('edward2', 'vanilla_rnn_lm'),
     ('gen', 'gru_lm'),
     ('gen', 'lstm_lm'),
+    ('gen', 'vanilla_rnn_lm'),
     ('numpyro', 'gru_lm'),
     ('numpyro', 'lstm_lm'),
+    ('numpyro', 'vanilla_rnn_lm'),
     ('pymc', 'gru_lm'),
     ('pymc', 'lstm_lm'),
+    ('pymc', 'vanilla_rnn_lm'),
     ('pyro', 'gru_lm'),
     ('pyro', 'lstm_lm'),
+    ('pyro', 'vanilla_rnn_lm'),
     ('stan', 'gru_lm'),
     ('stan', 'lstm_lm'),
+    ('stan', 'vanilla_rnn_lm'),
     ('turing', 'gru_lm'),
     ('turing', 'lstm_lm'),
+    ('turing', 'vanilla_rnn_lm'),
     ('webppl', 'gru_lm'),
     ('webppl', 'lstm_lm'),
+    ('webppl', 'vanilla_rnn_lm'),
     # continuous_hmm / linear_gaussian_ssm: a Kleisli morphism
     # declared with a `~ Family` init and no `[param_source=...]`
     # option takes the default linear source, whose weights are
