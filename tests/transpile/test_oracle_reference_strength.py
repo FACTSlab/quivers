@@ -104,6 +104,7 @@ from torch import Tensor
 from torch import distributions as td
 
 from quivers.continuous.morphisms import SampledComposition
+from quivers.continuous.scan import ScanMorphism
 from quivers.dsl.ast_nodes.declarations import ProgramDecl
 from quivers.dsl.parser import parse
 from quivers.effects.trace_types import Trace
@@ -232,6 +233,114 @@ def _unknown_variant(example: str, variant: str) -> AssertionError:
 # the term they corrupt so that the defect reads as a one-line
 # difference from the correct term and cannot drift away from it.
 # ---------------------------------------------------------------------
+
+
+def _reconstruct_vae(
+    dataset: _gallery_data.GalleryDataset,
+    values: dict[str, Tensor],
+    weights: dict[str, Tensor],
+    variant: str,
+) -> dict[str, Tensor]:
+    """`vae.qvr`:
+
+        sample z <- prior
+        observe Y <- decoder(z)
+
+    `prior : UnitSpace -> Latent ~ Normal` is one affine map to a
+    `(loc, log_scale)` pair over `Latent : Real 4`. `decoder` is the
+    chain `dec_1 >> stack(dec_deep, 1) >> dec_to_obs`, whose three
+    factors each carry a conditional density, so
+    [`SampledComposition`][quivers.continuous.morphisms.SampledComposition]
+    scores every one of them along its canonical path: each
+    intermediate is bound to the image of the base measure's origin,
+    which for a Normal factor is its own location, and the observed
+    `Y` enters through the last factor. A factor scored at its own
+    location contributes its normalizer alone, and writing that out
+    is what makes this an independent statement of the path density
+    rather than a call back into the object under test.
+
+    The affine weights are compile-time draws with no spelling in the
+    source and are taken as given; the wiring, the layer order of the
+    `mlp` source, the head split, the three densities and the sum
+    over the 32-row plate are rebuilt.
+    """
+    x_input = dataset.x_input
+    if x_input is None:
+        raise AssertionError(
+            "vae's reconstruction needs the snippet's `UnitSpace` "
+            "driver column, which the dataset did not carry."
+        )
+    raw_z = _affine(
+        x_input,
+        weights["_step_z.param_source.linear.weight"],
+        weights["_step_z.param_source.linear.bias"],
+    )
+    # `object Latent : Real 4`.
+    loc_z, scale_z = _normal_head(raw_z, 4)
+    per_z = td.Normal(loc_z, scale_z).log_prob(values["z"])
+
+    # `dec_1 : Latent -> DecoderHidden`, `object DecoderHidden : Real 16`.
+    raw_1 = _affine(
+        values["z"],
+        weights["_step_Y.left.left.param_source.linear.weight"],
+        weights["_step_Y.left.left.param_source.linear.bias"],
+    )
+    loc_1, scale_1 = _normal_head(raw_1, 16)
+    if variant == "prefix_at_zero":
+        hidden_1 = torch.zeros_like(loc_1)
+    else:
+        hidden_1 = loc_1
+    per_1 = td.Normal(loc_1, scale_1).log_prob(hidden_1)
+
+    # `dec_deep : DecoderHidden -> DecoderHidden [param_source=mlp]`.
+    prefix = "_step_Y.left.right.param_source.net."
+    layer = _affine(
+        hidden_1, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+    )
+    if variant == "decoder_mlp_without_activation":
+        activated = layer
+    else:
+        activated = torch.tanh(layer)
+    layer = _affine(
+        activated, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+    )
+    if variant != "decoder_mlp_without_activation":
+        layer = torch.tanh(layer)
+    raw_2 = _affine(
+        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+    )
+    loc_2, scale_2 = _normal_head(raw_2, 16)
+    per_2 = td.Normal(loc_2, scale_2).log_prob(loc_2)
+
+    # `dec_to_obs : DecoderHidden -> ObsSpace`, `object ObsSpace : Real 8`.
+    raw_3 = _affine(
+        loc_2,
+        weights["_step_Y.right.param_source.linear.weight"],
+        weights["_step_Y.right.param_source.linear.bias"],
+    )
+    loc_3, scale_3 = _normal_head(
+        raw_3, 8, unit_scale=variant == "decoder_unit_scale",
+    )
+    per_obs = td.Normal(loc_3, scale_3).log_prob(values["Y"])
+
+    if variant == "drop_decoder_prefix":
+        observation = per_obs.sum()
+    elif variant in (
+        "",
+        "prefix_at_zero",
+        "decoder_mlp_without_activation",
+        "decoder_unit_scale",
+        "drop_latent_prior",
+    ):
+        observation = (
+            per_1.sum(-1) + per_2.sum(-1) + per_obs.sum(-1)
+        ).sum()
+    else:
+        raise _unknown_variant("vae", variant)
+
+    if variant == "drop_latent_prior":
+        return {"z": torch.zeros(()), "Y": observation}
+    return {"z": per_z.sum(), "Y": observation}
 
 
 def _reconstruct_bnn(
@@ -756,6 +865,26 @@ class _Reconstruction:
 
 
 _RECONSTRUCTIONS: dict[str, _Reconstruction] = {
+    "vae": _Reconstruction(
+        _reconstruct_vae,
+        (
+            "_step_z.param_source.linear.weight",
+            "_step_z.param_source.linear.bias",
+            "_step_Y.left.left.param_source.linear.weight",
+            "_step_Y.left.left.param_source.linear.bias",
+            "_step_Y.left.right.param_source.net.0.weight",
+            "_step_Y.left.right.param_source.net.0.bias",
+            "_step_Y.left.right.param_source.net.2.weight",
+            "_step_Y.left.right.param_source.net.2.bias",
+            "_step_Y.left.right.param_source.net.4.weight",
+            "_step_Y.left.right.param_source.net.4.bias",
+            "_step_Y.right.param_source.linear.weight",
+            "_step_Y.right.param_source.linear.bias",
+        ),
+        "`prior` and the three decoder factors take their affine "
+        "weights from compile-time draws, which are named in neither "
+        "the `.qvr` source nor the `.md` snippet.",
+    ),
     "bnn": _Reconstruction(
         _reconstruct_bnn,
         (
@@ -828,6 +957,43 @@ class _Mutant:
 
 
 _MUTANTS: tuple[_Mutant, ...] = (
+    _Mutant(
+        "vae", "drop_decoder_prefix",
+        "the two decoder prefix factors are dropped and only the "
+        "observation factor is scored, which is what a chain that "
+        "scores its endpoint's marginal alone would report.",
+        400.0,
+    ),
+    _Mutant(
+        "vae", "prefix_at_zero",
+        "the first decoder intermediate is bound to the origin of "
+        "the codomain rather than to the image of the base measure's "
+        "origin, which is the off-by-one a chain that forgets to "
+        "push its own location through would make.",
+        100.0,
+    ),
+    _Mutant(
+        "vae", "decoder_mlp_without_activation",
+        "the `tanh` between the deep decoder's layers is dropped, "
+        "collapsing its `mlp` source to a single affine map. The "
+        "margin is the smallest of the five because the deep factor "
+        "is scored at its own location, so the defect reaches the "
+        "joint through that factor's normalizer and through the "
+        "location it hands the next one, not through a residual.",
+        4.0,
+    ),
+    _Mutant(
+        "vae", "decoder_unit_scale",
+        "the observation head's log-scale columns are ignored and "
+        "`Y` is scored at unit scale.",
+        40.0,
+    ),
+    _Mutant(
+        "vae", "drop_latent_prior",
+        "the `sample z <- prior` term is dropped, leaving the "
+        "likelihood alone in a joint that claims to carry both.",
+        80.0,
+    ),
     _Mutant(
         "bnn", "mlp_without_activation",
         "the hidden layer's `tanh` is dropped, collapsing the network "
@@ -2038,7 +2204,6 @@ _QUADRATURE_DEPENDENT_JOINT: dict[str, float] = {
     "deep_markov": 800.0,
     "seq2seq": 1500.0,
     "transformer_lm": 7.0e6,
-    "vae": 15000.0,
 }
 """Exempt examples whose joint is a property of the quadrature rule,
 each with a floor on how far the joint moves when the node count
@@ -2057,14 +2222,24 @@ _FLAT_COMPOSITE_LATENT: dict[str, str] = {
     "lstm_lm": "h",
     "vanilla_rnn_lm": "h",
 }
-"""Exempt examples whose composition-bound latent carries no density,
-and the site it is bound at.
+"""Exempt examples whose recurrent factor carries no density, and the
+site the composition is bound at.
 
-All three bind the hidden state to `tok_embed >> scan(...)`, whose
-composite `log_prob` is identically zero. Each declares a `~ Normal`
-recurrent update, so `h` is meant to carry a transition density at
-every step; the joint the oracle reports carries none of it, and the
-number it returns is the emission likelihood alone."""
+All three bind the hidden state to `tok_embed >> scan(cell)` where
+`cell` is a program rather than a family. A program has no conditional
+density
+([`has_conditional_density`][quivers.continuous.morphisms.ContinuousMorphism.has_conditional_density]
+returns `False`), so
+[`ScanMorphism.log_prob`][quivers.continuous.scan.ScanMorphism.log_prob]
+keeps the deterministic-recurrence reading and the state carries a
+Dirac's zero: the scan factor scores exactly `0` at every point.
+
+The site itself is *not* zero, and reading it as the measurement would
+miss the defect. Its value is the stochastic `Embed` factor's own
+density at the canonical path, which the composition scores alongside
+the scan. What the joint omits is the transition density the source
+declares at every step, which is the whole of a recurrent model apart
+from its emission, so the scan factor is the object this measures."""
 
 _PLATE_INFLATED_EMISSION: dict[str, str] = {
     "gru_lm": "next_token",
@@ -2342,6 +2517,42 @@ def test_quadrature_exempt_examples_have_a_rule_dependent_joint(
     )
 
 
+def _scan_factor_log_prob(
+    traced: Trace, name: str, x_input: Tensor,
+) -> Tensor:
+    """The score the scan factor of a composition site contributes.
+
+    The site's own value adds the other factors' densities to this
+    one, so reading the site would report a number the recurrence had
+    no part in. This reaches past them to the `ScanMorphism` and
+    scores it along the same canonical path the composition uses: the
+    factors before it pushed from the base measure's origin, the
+    site's value as its endpoint.
+    """
+    site = traced.sites[name]
+    composition = site.morphism
+    assert isinstance(composition, SampledComposition), (
+        f"site {name!r} is bound to a "
+        f"{type(composition).__name__}, not a composition, so it has "
+        f"no scan factor to read."
+    )
+    scans = [f for f in composition.factors if isinstance(f, ScanMorphism)]
+    assert len(scans) == 1, (
+        f"site {name!r} is bound to a composition carrying "
+        f"{len(scans)} scan factors; this reads exactly one."
+    )
+    scan = scans[0]
+    prefix = composition.factors[: composition.factors.index(scan)]
+    current = x_input
+    for factor in prefix:
+        width = factor.base_dimension(current)
+        origin = torch.zeros(
+            current.shape[0], width, dtype=torch.get_default_dtype(),
+        )
+        current = factor.push_base(current, origin)
+    return scan.log_prob(current, site.value)
+
+
 @pytest.mark.parametrize(
     "example", sorted(_FLAT_COMPOSITE_LATENT), ids=lambda name: name,
 )
@@ -2382,14 +2593,15 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
             f"so whatever it scores says nothing about a composition's "
             f"marginalisation."
         )
-        log_prob = traced.sites[name].log_prob
+        log_prob = _scan_factor_log_prob(
+            traced, name, fixture.dataset.x_input,
+        )
         assert torch.equal(log_prob, torch.zeros_like(log_prob)), (
-            f"{example!r} point {index} ({labels[index]}): site "
-            f"{name!r} contributes "
-            f"{float(log_prob.sum().item())!r} nats, so the "
-            f"composition does return a density for it and the "
-            f"flat-latent ground no longer holds. Re-derive the "
-            f"exemption, or pin the joint."
+            f"{example!r} point {index} ({labels[index]}): the scan "
+            f"factor bound at site {name!r} contributes "
+            f"{float(log_prob.sum().item())!r} nats, so the recurrence "
+            f"is scored after all and the flat-latent ground no longer "
+            f"holds. Re-derive the exemption, or pin the joint."
         )
         entry = fixture.points[index].params[name]
         values.append(
@@ -2408,7 +2620,9 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
     base_point = fixture.points[0]
     shifted = _shifted_point(base_point, name, _FLATNESS_PROBE_SHIFT)
     traced = _exempt_traces(example, shifted)[0]
-    shifted_log_prob = traced.sites[name].log_prob
+    shifted_log_prob = _scan_factor_log_prob(
+        traced, name, fixture.dataset.x_input,
+    )
     assert torch.equal(
         shifted_log_prob, torch.zeros_like(shifted_log_prob),
     ), (
@@ -2509,125 +2723,48 @@ def test_plate_inflation_registry_refines_the_flat_latent_ground() -> None:
 @pytest.mark.parametrize(
     "example", sorted(_PLATE_INFLATED_EMISSION), ids=lambda name: name,
 )
-def test_flat_latent_exempt_examples_inflate_their_emission_per_row(
+def test_flat_latent_exempt_examples_sum_each_site_once(
     example: str,
 ) -> None:
-    """A flat-latent exemption is necessary for the *equivalence* tier,
-    not only for the pin.
+    """The joint adds each site's density once, not once per row.
 
-    The flat-latent measurement establishes that the joint is missing
-    the transition density the source declares. On its own that says
-    nothing about the backend comparison, which quotients by an
-    additive constant and would happily stay green against a reference
-    short by a fixed amount. What decides the cell is whether the
-    error moves with the data, and here it does, for a reason this
-    check reads off the trace rather than asserting.
+    A flat composite latent contributes a plate-shaped tensor of
+    zeros while the emission site contributes a scalar. Adding those
+    with a plain `+` broadcasts the scalar across the plate, and the
+    reduction then returns `rows` copies of the emission likelihood:
+    a joint wrong by `(rows - 1)` times a term the perturbation
+    schedule moves, which is not the additive constant Theorem 4.1's
+    quotient absorbs.
 
-    Two facts, in the order they compose:
+    `total_log_joint` reduces each lane to the narrowest
+    right-aligned shape the density-carrying sites agree on, so the
+    zeros no longer widen the sum. These three examples are where the
+    widening was largest, so they are where it is measured: the joint
+    must equal the sum of its own per-site densities, to round-off.
 
-    1. **The joint counts the emission once per scored row.** The flat
-       latent contributes a plate-shaped tensor of zeros and the
-       emission site contributes a scalar, so the sum broadcasts and
-       the reduction returns `rows` copies of the likelihood. The row
-       count is taken from the observation payload, which is the
-       dataset's own statement of how many rows there are, so the
-       claim is checked against the data rather than against the
-       number the trace happened to print.
-    2. **The excess moves between points.** The residual is
-       `(rows - 1)` times a likelihood the perturbation schedule
-       moves, so it is not the additive constant Theorem 4.1's
-       quotient absorbs. Its spread across the point set is required
-       to exceed the equivalence tolerance by the declared floor,
-       which is what makes dropping the registry row a failing cell
-       rather than a recovered one.
-
-    Together they are the reason the exemption cannot be lifted by the
-    determinism measurement alone: a bit-identical joint that counts
-    its likelihood 32 times is reproducible and wrong.
+    This is an invariant rather than an exemption. Should the
+    recurrent density ever be scored, this check keeps its meaning,
+    while the flat-latent ground beside it would not.
     """
-    name = _PLATE_INFLATED_EMISSION[example]
-    latent = _FLAT_COMPOSITE_LATENT[example]
     fixture = _fixture(example)
     labels = _gallery_data.perturbation_labels(len(fixture.points))
 
-    residuals: list[float] = []
-    row_counts: set[int] = set()
-    for index, point in enumerate(fixture.points):
+    for index in range(len(fixture.points)):
         traced = _exempt_trace(example, index)
-        observed = _gallery_data.observations_for_point(
-            fixture.dataset, point,
-        )
-        payload = observed.get(name)
-        assert payload is not None, (
-            f"{example!r} point {index} ({labels[index]}): the "
-            f"observation payload carries no {name!r} entry "
-            f"(entries: {sorted(observed)!r}), so there is no "
-            f"independent row count to check the joint against."
-        )
-        assert payload.dim() >= 1, (
-            f"{example!r} point {index} ({labels[index]}): the "
-            f"{name!r} observation is a scalar, so it declares no "
-            f"plate and a broadcast over one cannot be what inflates "
-            f"the joint. Re-derive the ground."
-        )
-        rows = int(payload.shape[0])
-        assert rows > 1, (
-            f"{example!r} point {index} ({labels[index]}): the "
-            f"{name!r} observation carries {rows} row(s), so counting "
-            f"it once and counting it once per row are the same "
-            f"number and this check cannot see the defect."
-        )
-        row_counts.add(rows)
-
-        emission_log_prob = traced.sites[name].log_prob
-        assert emission_log_prob.dim() == 0, (
-            f"{example!r} point {index} ({labels[index]}): site "
-            f"{name!r} scores to shape "
-            f"{tuple(emission_log_prob.shape)!r} rather than to a "
-            f"scalar, so it no longer broadcasts against the "
-            f"{latent!r} plate and the inflation this check measures "
-            f"has a different cause. Re-derive it."
-        )
-        emission = float(emission_log_prob.sum().item())
-        summands = sum(
+        joint = float(traced.log_joint.sum().item())
+        per_site = sum(
             float(site.log_prob.sum().item())
             for site in traced.sites.values()
         )
-        joint = fixture.joints[index]
-        residual = joint - summands
-        predicted = (rows - 1) * emission
-        atol = _gallery_tier.reference_pin_atol(joint)
-        assert abs(residual - predicted) <= atol, (
+        tolerance = _gallery_tier.reference_pin_atol(abs(joint))
+        assert abs(joint - per_site) <= tolerance, (
             f"{example!r} point {index} ({labels[index]}): the joint "
-            f"{joint!r} exceeds the sum of its per-site log-densities "
-            f"{summands!r} by {residual:.6g} nats, where counting the "
-            f"{name!r} likelihood once per each of the {rows} scored "
-            f"rows predicts {predicted:.6g}. The oracle's arithmetic "
-            f"has changed; re-derive what the joint is doing before "
-            f"trusting either registry."
+            f"{joint!r} differs from the sum of its per-site "
+            f"densities {per_site!r} by {abs(joint - per_site)!r} "
+            f"nats, more than the {tolerance!r} round-off this "
+            f"magnitude allows. A site is being counted more than "
+            f"once, or not at all: the flat latent's plate-shaped "
+            f"zeros broadcasting the scalar emission across the row "
+            f"plate is how that happened before. Find the reduction "
+            f"that widened rather than widening this tolerance."
         )
-        residuals.append(residual)
-
-    assert len(row_counts) == 1, (
-        f"{example!r}: the point set scores "
-        f"{sorted(row_counts)!r} rows at different points, so a single "
-        f"equivalence tolerance does not describe the comparison and "
-        f"the spread floor below is measured against the wrong scale."
-    )
-    n_obs = row_counts.pop()
-
-    mean = sum(residuals) / len(residuals)
-    spread = max(abs(residual - mean) for residual in residuals)
-    atol = _equivalence.adaptive_atol(n_obs=n_obs)
-    ratio = spread / atol
-    floor = _PLATE_INFLATION_SPREAD_FLOOR[example]
-    assert ratio >= floor, (
-        f"{example!r}: the inflation varies by only {spread:.6g} nats "
-        f"across the point set, {ratio:.0f} equivalence tolerances, "
-        f"below the declared floor {floor:.0f}. An inflation that is "
-        f"the same at every point is absorbed by Theorem 4.1's "
-        f"quotient, so the backend cells would pass on a reference "
-        f"that is nonetheless wrong. Re-measure the example and "
-        f"restate what the exemption is protecting. Do not lower the "
-        f"floor to restore green."
-    )
