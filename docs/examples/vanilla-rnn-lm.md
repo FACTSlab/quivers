@@ -10,15 +10,23 @@ The simplest recurrent language model in the gallery: a single Bayesian [Kleisli
 # Bayesian Vanilla RNN Language Model
 #
 # A standard vanilla RNN used as a causal language model. The
-# cell f is a Bayesian Kleisli morphism with stochastic weights
-# drawn from a Normal prior; scan threads hidden state across
-# the input sequence; the per-position hidden state is projected
-# onto the Token vocabulary by a Categorical lm_head.
+# recurrent cell is written as a program so every step of the
+# recurrence is a declared site: scan threads hidden state across
+# the input sequence, and the per-position hidden state is
+# projected onto the Token vocabulary by a Categorical lm_head.
 #
 # Generative structure:
 #
-#   h_t      ~ Normal(cell(x_t, h_{t-1}), 0.1)    recurrent update
-#   next_t   ~ Categorical(lm_head(h_t))          next-token target
+#   h_t      = tanh(W [x_t ; h_{t-1}])           recurrent update
+#   next_t   ~ Categorical(lm_head(h_t))         next-token target
+#
+# The tanh is drawn rather than applied. A LogitNormal draw is a
+# sigmoid of a Gaussian pre-activation, and tanh(u) = 2 sigmoid(2u) - 1,
+# so squashing that draw onto (-1, 1) with an affine let is exactly a
+# tanh-transformed Gaussian pre-activation. The cell's single weight
+# matrix is the linear parameter map its arrow already carries, which
+# is what makes this the one-matrix recurrence a vanilla RNN is
+# defined to be.
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
 # one next-token target per context. Token is the vocabulary, so it
@@ -35,10 +43,16 @@ object Embedded : Real 64
 object Hidden : Real 128
 
 morphism tok_embed : Token -> Embedded [role=embed]
-morphism cell : Embedded * Hidden -> Hidden [param_source=mlp] ~ Normal
+morphism cell : Embedded * Hidden -> Hidden ~ LogitNormal
 morphism lm_head : Hidden -> Token ~ Categorical
 
-define backbone = tok_embed >> scan(cell)
+program rnn_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
+    sample squashed <- cell(x_t, h_prev)
+
+    let h_new = 2.0 * squashed - 1.0
+    return h_new
+
+define backbone = tok_embed >> scan(rnn_cell)
 
 program vanilla_rnn_lm : Token -> Token
     sample h <- backbone
@@ -51,15 +65,15 @@ export vanilla_rnn_lm
 
 ## Walkthrough
 
-Tokens are embedded into the 64-dimensional `Embedded` space, then `scan(cell)` threads a 128-dimensional hidden state across the sequence: at each step the cell consumes the concatenated `(x_t, h_{t-1})` and emits `h_t`. The terminal hidden state $h_T$ summarizes the whole prefix; the `Categorical` [`lm_head`](../api/continuous/families.md) maps it to a Categorical distribution over the 256-symbol vocabulary, and the program's `observe next_token` step conditions on the next-token target tensor.
+Tokens are embedded into the 64-dimensional `Embedded` space, then `scan(rnn_cell)` threads a 128-dimensional hidden state across the sequence: at each step `rnn_cell` consumes the concatenated `(x_t, h_{t-1})`, draws the squashed pre-activation from `cell`, and returns the state rescaled onto $(-1, 1)$. Writing the recurrence as a program rather than as a single morphism is what makes each step a declared site, so the transition a backend emits is the transition the source states. Because `tanh(u) = 2\,\sigma(2u) - 1` and a `LogitNormal` draw is a sigmoid of a Gaussian pre-activation, the affine `let` recovers exactly the tanh update a vanilla RNN is defined by, with the cell's single weight matrix supplied by the linear parameter map its arrow already carries. The terminal hidden state $h_T$ summarizes the whole prefix; the `Categorical` [`lm_head`](../api/continuous/families.md) maps it to a Categorical distribution over the 256-symbol vocabulary, and the program's `observe next_token` step conditions on the next-token target tensor.
 
 The two `FinSet` objects play different roles, and the positions they appear in are what fix them. `Resp : FinSet 32` sits in the observe step's index slot, so it is the plate: 32 scored rows, one next-token target per context. `Token : FinSet 256` sits in `lm_head`'s codomain and in the program's own codomain, so it is the value space: the 256 outcomes a draw ranges over, and the space the returned `next_token` lives in.
 
 ```mermaid
 flowchart LR
     tok["tok"] --> embed["embed"]
-    embed["embed"] --> scan_cell_["scan(cell)"]
-    scan_cell_["scan(cell)"] --> h_T["h_T"]
+    embed["embed"] --> scan_cell_["scan(rnn_cell)"]
+    scan_cell_["scan(rnn_cell)"] --> h_T["h_T"]
     h_T["h_T"] --> lm_head["lm_head"]
     lm_head["lm_head"] --> next_token["next_token"]
 ```
@@ -179,7 +193,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 ## Categorical perspective
 
-The model is a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. [`scan(cell)`](../guides/dsl-declarations.md#scan-temporal-recurrence) is the recursive [fold](https://ncatlab.org/nlab/show/fold) along the sequence in the Kleisli category: each step composes the previous step's output kernel with the new cell. The closing Categorical head observes the next-token label as a sub-probability kernel in $\mathcal{G}_{\le 1}$.
+The model is a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Token})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. [`scan(rnn_cell)`](../guides/dsl-declarations.md#scan-temporal-recurrence) is the recursive [fold](https://ncatlab.org/nlab/show/fold) along the sequence in the Kleisli category: each step composes the previous step's output kernel with the new cell. The closing Categorical head observes the next-token label as a sub-probability kernel in $\mathcal{G}_{\le 1}$.
 
 
 ## References
