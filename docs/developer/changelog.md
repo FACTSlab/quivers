@@ -4,6 +4,18 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Every backend's transpilation support is published and measured.** `docs/transpile-support.md` records the outcome of transpiling all 46 gallery programs and all 46 construct fixtures against all 11 backends, separating what no backend supports, which is the boundary of the language, from what each backend alone refuses, which another backend renders. Each cell quotes the refusal that backend actually raises. The page is generated from the measurement rather than written alongside it, and a test regenerates it and requires the committed copy to match byte for byte, so support that changes without the page changing fails the suite instead of misleading a reader.
+
+### Fixed
+
+- **A refusal says what it refused, why the target has no form for it, and what to write instead.** `UnsupportedConstruct` carried a structured tag naming the grammar rule that tripped it, and the tag was the message, so a user asking Stan for a module built on a composition rule was told `composition_decl` and left to work out what that named, whether the fault lay in their program or in the target, and what to write in its place. The structured tag is still carried for programmatic dispatch, and the message is now prose assembled from the module's own AST. Refusals of unknown targets name the targets that do exist; refusals of axis extents, argument shapes, event dimensions, `factor` shapes and marginalization rewrites each name the construct and the two or three ways to express it that do transpile.
+- **A refusal's target name is not read as a diagnostic detail.** Church, Gen and Edward2 each spelled "the family registry holds no symbol for this target" in their own way, and the renderer read the trailing target name as a detail about the failure, reporting `church cannot emit a HalfStudentT draw (church)`. JAGS reported an unknown wrapped family with the inner family's name in the outer slot, so the message named the wrapper as wrapping nothing.
+- **A `param_source` refusal states the reason it refused.** The message read that the target `can` reconstruct the parameter the network computes, which is the opposite of the reason for the refusal, and the width-mismatch case now names the program, the site, the family, the argument and both widths rather than describing the shape of the problem in general.
+
 ## [0.16.0] - 2026-07-15
 
 ### Changed
