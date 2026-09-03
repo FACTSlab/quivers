@@ -592,7 +592,7 @@ encoder_decl
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Church has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
-**`family:BetaBinomial:church`**
+**`family:BetaBinomial:no-church-target`**
 
 Refused for: [`beta_binomial_ab_test`](examples/beta-binomial-ab-test.md).
 
@@ -601,16 +601,16 @@ Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing
 Reported kinds:
 
 ```text
-family:BetaBinomial:church
+family:BetaBinomial:no-church-target
 ```
 
 `church` on `beta_binomial_ab_test` reports:
 
 ```text
-church cannot emit a `BetaBinomial` draw (church)
+church has no `BetaBinomial` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:ContinuousBernoulli:church`**
+**`family:ContinuousBernoulli:no-church-target`**
 
 Refused for: [`zip_regression`](examples/zip-regression.md).
 
@@ -619,16 +619,16 @@ Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing
 Reported kinds:
 
 ```text
-family:ContinuousBernoulli:church
+family:ContinuousBernoulli:no-church-target
 ```
 
 `church` on `zip_regression` reports:
 
 ```text
-church cannot emit a `ContinuousBernoulli` draw (church)
+church has no `ContinuousBernoulli` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:HalfStudentT:church`**
+**`family:HalfStudentT:no-church-target`**
 
 Refused for: [`half_student_t_hierarchical`](examples/half-student-t-hierarchical.md).
 
@@ -637,16 +637,16 @@ Renders on: `bugs`, `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`,
 Reported kinds:
 
 ```text
-family:HalfStudentT:church
+family:HalfStudentT:no-church-target
 ```
 
 `church` on `half_student_t_hierarchical` reports:
 
 ```text
-church cannot emit a `HalfStudentT` draw (church)
+church has no `HalfStudentT` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:Kumaraswamy:church`**
+**`family:Kumaraswamy:no-church-target`**
 
 Refused for: [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md).
 
@@ -655,16 +655,16 @@ Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing
 Reported kinds:
 
 ```text
-family:Kumaraswamy:church
+family:Kumaraswamy:no-church-target
 ```
 
 `church` on `kumaraswamy_bounded_outcome` reports:
 
 ```text
-church cannot emit a `Kumaraswamy` draw (church)
+church has no `Kumaraswamy` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:LKJCholesky:church`**
+**`family:LKJCholesky:no-church-target`**
 
 Refused for: [`lkj_cholesky_correlation`](examples/lkj-cholesky-correlation.md).
 
@@ -673,16 +673,16 @@ Renders on: `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webp
 Reported kinds:
 
 ```text
-family:LKJCholesky:church
+family:LKJCholesky:no-church-target
 ```
 
 `church` on `lkj_cholesky_correlation` reports:
 
 ```text
-church cannot emit a `LKJCholesky` draw (church)
+church has no `LKJCholesky` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:Logistic:church`**
+**`family:Logistic:no-church-target`**
 
 Refused for: [`logistic_noise_regression`](examples/logistic-noise-regression.md).
 
@@ -691,16 +691,16 @@ Renders on: `bugs`, `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`,
 Reported kinds:
 
 ```text
-family:Logistic:church
+family:Logistic:no-church-target
 ```
 
 `church` on `logistic_noise_regression` reports:
 
 ```text
-church cannot emit a `Logistic` draw (church)
+church has no `Logistic` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`family:MixtureNormal:church`**
+**`family:MixtureNormal:no-church-target`**
 
 Refused for: [`mixture_model`](examples/mixture-model.md).
 
@@ -709,13 +709,13 @@ Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing
 Reported kinds:
 
 ```text
-family:MixtureNormal:church
+family:MixtureNormal:no-church-target
 ```
 
 `church` on `mixture_model` reports:
 
 ```text
-church cannot emit a `MixtureNormal` draw (church)
+church has no `MixtureNormal` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
 **`let-expr:LetExprFactor:multi-axis-body`**

@@ -108,8 +108,8 @@ def transpile(module: Module, *, target: str) -> bytes:
         raise UnsupportedConstruct(
             target,
             [
-                f"unknown target: {target!r}; available: "
-                f"{', '.join(sorted(_RENDERERS))}"
+                f"target:unknown:{target}:"
+                f"{','.join(sorted(_RENDERERS))}"
             ],
         )
     renderer_cls, grammar, support_tier = _RENDERERS[target]

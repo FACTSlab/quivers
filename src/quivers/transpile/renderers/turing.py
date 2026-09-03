@@ -2737,7 +2737,7 @@ def _pick_program(module: Module) -> ProgramDecl:
             exported.add(stmt.expr.name)
     if not programs:
         raise UnsupportedConstruct(
-            "qvr-turing", ["no program_decl: nothing to render"]
+            "qvr-turing", ["program:absent"]
         )
     return next((p for p in programs if p.name in exported), programs[-1])
 

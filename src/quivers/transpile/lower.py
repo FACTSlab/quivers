@@ -198,7 +198,7 @@ def pick_program(module: Module) -> ProgramDecl:
     if not programs:
         raise UnsupportedConstruct(
             "qvr-lower",
-            ["no program_decl: nothing to lower"],
+            ["program:absent"],
         )
     return next(
         (p for p in programs if p.name in exported_names),

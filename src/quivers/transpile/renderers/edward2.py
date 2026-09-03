@@ -899,7 +899,7 @@ class Edward2Renderer(RendererBase):
         if dist_class is None:
             raise UnsupportedConstruct(
                 _BACKEND_KEY,
-                [f"family:{family}: no edward2 target name in FAMILY_META"],
+                [f"family:{family}:no-edward2-target"],
             )
 
         # Families whose TFP constructor shape diverges from the

@@ -865,7 +865,7 @@ def _gen_target_name(family: str) -> str:
     if fallback is not None:
         return fallback
     raise UnsupportedConstruct(
-        "qvr-gen", [f"family:{family}: no Gen.jl target name"]
+        "qvr-gen", [f"family:{family}:no-gen-target"]
     )
 
 
