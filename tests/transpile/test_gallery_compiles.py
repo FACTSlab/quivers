@@ -144,6 +144,16 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("webppl", "parametric_pooling"): "family:school_effects",
     # 3. Method-call let-expressions have no Stan rendering.
     ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
+    # 3b. A recurrent cell adds two rank-1 operands. Neither BUGS nor
+    #     JAGS lifts an infix operator over an axis, and the
+    #     elementwise result exists only as a named array built one
+    #     index at a time inside a loop of its own, which a let
+    #     binding lowered to a single scalar expression has nowhere to
+    #     put. Every other target renders these two examples.
+    ("bugs", "gru_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
+    ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
+    ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # 4. Neural morphisms (`param_source=mlp`) compute their mean with a
@@ -158,52 +168,12 @@ for _neural_example in (
     "seq2seq",
     "transformer_lm",
     "vae",
+    "vanilla_rnn_lm",
 ):
     for _syntax_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (
             "param-source:mlp"
         )
-
-# 5. Linear parameter maps (`param_source=linear`). A Kleisli
-#    morphism declared between objects of *different* width, as in
-#    continuous_hmm's `emission : State -> Obs` (Real 16 to Real 8)
-#    and linear_gaussian_ssm's `emission : State -> Obs` (Real 4 to
-#    Real 2), carries a map from its domain to the family's parameter
-#    heads on its codomain. The runtime realises it as a
-#    [`LinearSource`][quivers.continuous.param_source.LinearSource]:
-#    continuous_hmm's emission holds a 16-to-16 weight (8 `loc` heads
-#    and 8 `scale` heads over `Obs`), linear_gaussian_ssm's a 4-to-4
-#    weight (2 heads each). Those weights are drawn when the module
-#    compiles, so they appear in neither the QVR text nor any sample
-#    site, and a target has nothing to reconstruct them from.
-#
-#    The declared morphism's parameter map therefore does not reach
-#    the targets, and the transpile raises rather than emitting a
-#    program that computes a different measure. The only emission
-#    available without the map is the one
-#    [`assert_no_dropped_param_map`][quivers.transpile.renderers._base.assert_no_dropped_param_map]
-#    exists to reject: for continuous_hmm it binds the 16-wide `s_new`
-#    straight into the 8-wide `Obs` site (`normal_lpdf(o[m_Obs] |
-#    s_new, 1)` in Stan, `Normal(loc=s_new, scale=1)` under
-#    `plate("Obs", 8)` in NumPyro), dropping the emission map
-#    entirely, substituting a unit scale for the learned one, and
-#    scoring a measure on a space of the wrong dimension.
-#
-#    This is a real gap, not an inherent limit of the targets. Closing
-#    it means threading the ParamSource through the renderers, so that
-#    a declared morphism's weights and bias are emitted as data (or as
-#    explicit sampled weights plus a deterministic forward pass) and
-#    the site scores against the map's output. Until they are, both
-#    examples raise on every syntax-check backend.
-for _linear_param_map_example in (
-    "continuous_hmm",
-    "linear_gaussian_ssm",
-):
-    for _syntax_backend in _SYNTAX_CHECKS:
-        _EXPECTED_UNSUPPORTED[(_syntax_backend, _linear_param_map_example)] = (
-            "param-source:linear"
-        )
-
 
 @pytest.mark.parametrize(
     "example", _gallery_examples(), ids=lambda p: p.stem

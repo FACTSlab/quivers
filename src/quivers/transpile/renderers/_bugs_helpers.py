@@ -1130,32 +1130,57 @@ def _emit_affine_map(ctx: _LetEnv, expr: LetExprAffineMap) -> str:
     weight = _affine_named_array(ctx, expr.weight, "weight")
     total: tuple[str, str] | None = None
     for source, column in affine_column_offsets(expr):
-        term = (
-            _emit_call(
+        if source.width == 1:
+            # A one-wide factor contracts to a single product, so the
+            # operand needs no slice and therefore no name to slice.
+            # This is what lets an already-subscripted factor through:
+            # a plated site reaches the renderer as `<name>[<row>]`,
+            # which BUGS and JAGS cannot slice but can multiply.
+            term = _emit_binary_ids(
                 ctx,
-                "inprod",
+                "*",
                 (
                     _affine_slice(
                         ctx,
                         weight,
                         _affine_row_slot(ctx, expr.row_offset),
                         column,
-                        source.width,
+                        1,
                     ),
-                    _affine_slice(
-                        ctx,
-                        _affine_named_array(
-                            ctx, source.value, "conditioning factor"
-                        ),
-                        None,
-                        0,
-                        source.width,
-                    ),
+                    "indexed_variable",
                 ),
-                ("indexed_variable", "indexed_variable"),
-            ),
-            "function_call",
-        )
+                (
+                    _render_bugs_operand(ctx, source.value),
+                    _arg_edge_kind(source.value),
+                ),
+            )
+        else:
+            term = (
+                _emit_call(
+                    ctx,
+                    "inprod",
+                    (
+                        _affine_slice(
+                            ctx,
+                            weight,
+                            _affine_row_slot(ctx, expr.row_offset),
+                            column,
+                            source.width,
+                        ),
+                        _affine_slice(
+                            ctx,
+                            _affine_named_array(
+                                ctx, source.value, "conditioning factor"
+                            ),
+                            None,
+                            0,
+                            source.width,
+                        ),
+                    ),
+                    ("indexed_variable", "indexed_variable"),
+                ),
+                "function_call",
+            )
         total = (
             term
             if total is None
