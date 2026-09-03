@@ -2200,7 +2200,7 @@ def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
     by equality, and the check below runs over the examples that
     *could* claim it rather than over the ones that do. The
     non-deterministic category needs neither device: its membership is
-    pinned example by example by `_QUADRATURE_DEPENDENT_JOINT` and
+    pinned example by example by `_UNWITNESSABLE_JOINT` and
     `_FLAT_COMPOSITE_LATENT`, so it cannot empty without those
     emptying first, and an assertion that it has not is enough.
     """
@@ -2372,22 +2372,32 @@ two rules resolve the integrand at genuinely different nodes, so a
 joint that agrees across them agrees because the quadrature has
 converged rather than because the two node sets overlapped."""
 
-_QUADRATURE_DEPENDENT_JOINT: dict[str, float] = {
-    "bidirectional_rnn_lm": 4.0e8,
-    "seq2seq": 1500.0,
-    "transformer_lm": 7.0e6,
-}
-"""Exempt examples whose joint is a property of the quadrature rule,
-each with a floor on how far the joint moves when the node count
-changes, in multiples of the reference pin tolerance at the moving
-point.
+_UNWITNESSABLE_JOINT: frozenset[str] = frozenset({
+    "bidirectional_rnn_lm",
+    "seq2seq",
+    "transformer_lm",
+})
+"""Exempt examples whose joint a pin could hold, but which nothing
+outside the oracle reproduces.
 
-Measured, largest shift across the six points over the tolerance
-there: `bidirectional_rnn_lm` 5.2e08, `transformer_lm` 9.5e06, `vae`
-21742, `seq2seq` 2216, `deep_markov` 1093. Each floor sits below its
-measurement so that a quadrature converging toward the pin tolerance,
-which is the event that would make the example pinnable, surfaces as a
-shrinking margin here rather than as a silent change of grounds."""
+Every factor of each composition carries a conditional density and is
+scored once along the canonical path, so the joint is exact, needs no
+quadrature rule, and is bitwise reproducible. What is missing is a
+second source for the number. All three refuse on every backend, so no
+container re-derives them, and none carries a reconstruction here.
+
+A reconstruction is what closes each row, and for these three that is
+harder than for `vae` or `deep_markov`, which is why they are still
+here. Their chains run through a scan whose cell carries its own
+density, so the prefix is a recurrence: as
+[`ScanMorphism.log_prob`][quivers.continuous.scan.ScanMorphism.log_prob]
+records, a perturbation of the state grows by roughly an order of
+magnitude per step, and a reconstruction spelling the cell's affine
+map as ``x @ W.T + b`` rather than through the
+``torch.nn.functional.linear`` the parameter source calls does not
+agree to round-off. `bidirectional_rnn_lm` scores near -1.5e08, where
+that gap is widest. What the value has to be compared against is the
+same map, not merely the same formula."""
 
 _FLAT_COMPOSITE_LATENT: dict[str, str] = {
     "gru_lm": "h",
@@ -2586,7 +2596,7 @@ def test_composition_exemption_grounds_partition_the_registry() -> None:
     joint whose composite site scores zero.
     """
     declared = set(_exempt_by(_gallery_tier._SKIP_QVR_INCOMPATIBLE))
-    rule_dependent = set(_QUADRATURE_DEPENDENT_JOINT)
+    rule_dependent = set(_UNWITNESSABLE_JOINT)
     flat = set(_FLAT_COMPOSITE_LATENT)
 
     unchecked = sorted(declared - rule_dependent - flat)
@@ -2596,7 +2606,7 @@ def test_composition_exemption_grounds_partition_the_registry() -> None:
         f"neither check below establishes what goes wrong with the "
         f"resulting value. Measure the example: if its joint moves "
         f"with the quadrature node count, add it to "
-        f"`_QUADRATURE_DEPENDENT_JOINT` with its measured floor; if "
+        f"`_UNWITNESSABLE_JOINT` with its measured floor; if "
         f"its composite site scores exactly zero, add it to "
         f"`_FLAT_COMPOSITE_LATENT`; if neither holds, the joint is a "
         f"value and the example wants a `_QVR_REFERENCE_JOINT` row "
@@ -2624,71 +2634,60 @@ def test_composition_exemption_grounds_partition_the_registry() -> None:
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_QUADRATURE_DEPENDENT_JOINT), ids=lambda name: name,
+    "example", sorted(_UNWITNESSABLE_JOINT), ids=lambda name: name,
 )
-def test_quadrature_exempt_examples_have_a_rule_dependent_joint(
+def test_unwitnessable_exempt_examples_have_no_independent_source(
     example: str,
 ) -> None:
-    """An example exempt on quadrature grounds really reports a value
-    the rule chose.
+    """An example exempt for want of a witness really has none.
 
-    The composite marginal over a stochastic intermediate is a finite
-    sum over quadrature nodes, so what the oracle returns is an
-    approximation of the model's density carrying an error nothing
-    bounds. Re-scoring the same point under a different node count
-    measures that error directly: the two rules integrate the same
-    kernel against the same data, so a model-level density would give
-    the same number and a rule-level artefact does not.
+    These three score a joint a pin could hold: every factor of the
+    composition carries a conditional density and is scored once
+    along the canonical path, the value is bitwise reproducible
+    across global RNG states, and it moves with the point set. What
+    they lack is anything outside the oracle that reproduces it.
+    Theorem 4.1's constant-spread quotient cannot see a
+    point-independent oracle error, so a pin whose only source is the
+    oracle would be a transcript of whatever the oracle printed, and
+    the registry would read as certification.
 
-    The shift is required to exceed
-    [`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol]
-    at the moving point, which is precisely the threshold that makes
-    the exemption necessary rather than merely defensible: a
-    quadrature converged to within the pin tolerance would be pinnable,
-    and the pin would then be holding the model rather than the rule.
-
-    At *some* point rather than at every point, for the same reason
-    the mutant catalogue asks for that: a quadrature error can vanish
-    at one configuration of the latents and reappear at the next, and
-    demanding visibility everywhere would force out the examples where
-    it is real but intermittent.
+    Two ways to acquire a witness, and this fails when either
+    arrives. A backend cell going live re-derives the joint in a
+    foreign runtime; a reconstruction in this module re-derives it
+    from the source. Neither exists here today, and an exemption that
+    outlives its ground is the failure this is built to produce.
     """
-    fixture = _fixture(example)
-    labels = _gallery_data.perturbation_labels(len(fixture.points))
-    shifts = [
-        abs(
-            _joint_at_nodes(example, index, _QUADRATURE_PROBE_NODES)
-            - fixture.joints[index]
-        )
-        for index in range(len(fixture.points))
-    ]
-
-    best = max(shifts)
-    best_index = shifts.index(best)
-    atol = _gallery_tier.reference_pin_atol(fixture.joints[best_index])
-    assert best > atol, (
-        f"{example!r}: re-scoring under a {_QUADRATURE_PROBE_NODES}-node "
-        f"rule moves the joint by at most {best:.6g} nats across the "
-        f"point set, inside the {atol:.6g} pin tolerance. The "
-        f"quadrature has converged to within the tolerance a pin would "
-        f"hold it to, so the oracle now reports the model's density "
-        f"rather than the rule's approximation of it: derive the "
-        f"joint, pin it at every point, and move the row out of "
+    live = _live_backend_cells(example)
+    assert not live, (
+        f"{example!r} now has live backend cells {live!r}, so its "
+        f"joint is re-derived outside the oracle and the "
+        f"want-of-a-witness ground is gone. Pin the joint at every "
+        f"point and drop the row from `_UNWITNESSABLE_JOINT` and "
+        f"from `_REFERENCE_PIN_EXEMPT`."
+    )
+    assert example not in _RECONSTRUCTIONS, (
+        f"{example!r} now carries a reconstruction, which is a "
+        f"witness. Pin the joint at every point and drop the row "
+        f"from `_UNWITNESSABLE_JOINT` and from "
         f"`_REFERENCE_PIN_EXEMPT`."
     )
-    ratio = best / atol
-    floor = _QUADRATURE_DEPENDENT_JOINT[example]
-    assert ratio >= floor, (
-        f"{example!r}: the node count now moves the joint by "
-        f"{ratio:.0f} pin tolerances at point {best_index} "
-        f"({labels[best_index]}), below the declared floor "
-        f"{floor:.0f}. The quadrature is converging, which is the "
-        f"event that ends this exemption; re-measure the example and "
-        f"either pin it or restate the ground. Do not lower the floor "
-        f"to restore green."
+
+    fixture = _fixture(example)
+    joints = [
+        float(_exempt_trace(example, index).log_joint.sum().item())
+        for index in range(len(fixture.points))
+    ]
+    assert all(math.isfinite(value) for value in joints), (
+        f"{example!r} scores a non-finite joint {joints!r}, so the "
+        f"ground for its exemption is not the missing witness this "
+        f"registry names but something worse. Re-derive it."
     )
-
-
+    assert len(set(joints)) > 1, (
+        f"{example!r} scores the same joint {joints[0]!r} at every "
+        f"point of the set, so the perturbation schedule does not "
+        f"move it and a pin here would say nothing about the data. "
+        f"That is a different exemption from this one; re-derive it."
+    )
 def _scan_factor_log_prob(
     traced: Trace, name: str, x_input: Tensor,
 ) -> Tensor:
