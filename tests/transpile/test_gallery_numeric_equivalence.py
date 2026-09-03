@@ -319,7 +319,6 @@ _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "lstm_lm",
     "seq2seq",
     "transformer_lm",
-    "vae",
     "vanilla_rnn_lm",
 })
 
@@ -634,6 +633,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -665.1041259765625,
         -747.2142333984375,
     ),
+    "vae": (
+        -1622.5546875,
+        -1632.2177734375,
+        -1626.509521484375,
+        -1643.0509033203125,
+        -1625.2979736328125,
+        -1634.581787109375,
+    ),
 }
 
 # Gallery examples that carry synthetic data but score no joint the
@@ -659,7 +666,6 @@ _REFERENCE_PIN_EXEMPT: dict[str, str] = {
     "lstm_lm": "oracle joint omits the recurrent density and inflates the emission",
     "seq2seq": "oracle joint is a quadrature output, not a density",
     "transformer_lm": "oracle joint is a quadrature output, not a density",
-    "vae": "oracle joint is a quadrature output, not a density",
     "vanilla_rnn_lm": "oracle joint omits the recurrent density and inflates the emission",
 }
 
