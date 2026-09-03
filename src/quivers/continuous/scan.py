@@ -159,7 +159,7 @@ class ScanMorphism(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Input sequence, in either layout
-            [`_as_sequence`][quivers.continuous.scan.ScanMorphism._as_sequence]
+            `_as_sequence`
             reads: ``(batch, seq_len, input_dim)`` or the folded
             ``(batch, seq_len * input_dim)``.
         sample_shape : torch.Size
@@ -219,7 +219,7 @@ class ScanMorphism(ContinuousMorphism):
         is read off the input rather than declared, because
         ``scan(cell) : A -> H`` says nothing about how many positions a
         given input carries, and it is read through
-        [`_as_sequence`][quivers.continuous.scan.ScanMorphism._as_sequence]
+        `_as_sequence`
         so a folded ``(batch, seq_len * input_dim)`` input reports the
         whole sequence's budget rather than one step's. Under-reporting
         it would hand
@@ -344,7 +344,7 @@ class ScanMorphism(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Input sequence, in either layout
-            [`_as_sequence`][quivers.continuous.scan.ScanMorphism._as_sequence]
+            `_as_sequence`
             reads.
         y : torch.Tensor
             Observed final state. Shape ``(batch, hidden_dim)``.
@@ -469,7 +469,7 @@ class ScanMorphism(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Input sequence, in either layout
-            [`_as_sequence`][quivers.continuous.scan.ScanMorphism._as_sequence]
+            `_as_sequence`
             reads.
         y : torch.Tensor
             Final hidden state. Shape ``(batch, hidden_dim)``.
@@ -502,7 +502,7 @@ class ScanMorphism(ContinuousMorphism):
         ----------
         x : torch.Tensor
             Input sequence, in either layout
-            [`_as_sequence`][quivers.continuous.scan.ScanMorphism._as_sequence]
+            `_as_sequence`
             reads.
         hidden_states : torch.Tensor | dict[str, torch.Tensor]
             All hidden states including final, shape

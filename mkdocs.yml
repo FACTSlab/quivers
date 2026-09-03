@@ -112,6 +112,7 @@ nav:
     - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
     - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
     - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
+  - Transpilation Support: transpile-support.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md

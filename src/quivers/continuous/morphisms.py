@@ -696,7 +696,7 @@ class SampledComposition(ContinuousMorphism):
 
     When Y is continuous and ``left`` is stochastic the integral has
     no closed form, and
-    [`_log_prob_reference_path`][quivers.continuous.morphisms.SampledComposition._log_prob_reference_path]
+    `_log_prob_reference_path`
     scores the chain's canonical path rather than approximating it:
     the intermediate is bound to the image of ``left``'s base-measure
     origin and every factor is scored once along the resulting path.
@@ -829,7 +829,7 @@ class SampledComposition(ContinuousMorphism):
         summation over its elements. A continuous one is not
         marginalized at all: the chain is scored along the canonical
         path
-        [`_log_prob_reference_path`][quivers.continuous.morphisms.SampledComposition._log_prob_reference_path]
+        `_log_prob_reference_path`
         describes, which is exact where an integral would have been
         approximate, and is a pure function of ``(x, y)`` where a rule
         would have made it a function of the node count as well.
