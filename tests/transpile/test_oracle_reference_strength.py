@@ -235,6 +235,127 @@ def _unknown_variant(example: str, variant: str) -> AssertionError:
 # ---------------------------------------------------------------------
 
 
+def _mlp3(
+    x: Tensor, weights: dict[str, Tensor], prefix: str, *, activated: bool = True,
+) -> Tensor:
+    """The parameter row a three-layer `mlp` source computes.
+
+    `[param_source=mlp]` builds `Linear, tanh, Linear, tanh, Linear`,
+    whose modules are numbered `0`, `2` and `4`. `activated=False` is
+    the mutant path: the same three matrices with the nonlinearities
+    dropped, which collapses the network to a single affine map.
+    """
+    layer = _affine(
+        x, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+    )
+    if activated:
+        layer = torch.tanh(layer)
+    layer = _affine(
+        layer, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+    )
+    if activated:
+        layer = torch.tanh(layer)
+    return _affine(
+        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+    )
+
+
+def _reconstruct_deep_markov(
+    dataset: _gallery_data.GalleryDataset,
+    values: dict[str, Tensor],
+    weights: dict[str, Tensor],
+    variant: str,
+) -> dict[str, Tensor]:
+    """`deep_markov.qvr`:
+
+        sample s_new <- transition_cell
+        observe o    <- emission(s_new)
+
+    with `transition_cell = trans_mlp_1 >> trans_mlp_2` and
+    `emission = emit_mlp_1 >> emit_mlp_2`. Each site is therefore a
+    two-factor chain whose factors both carry a conditional density,
+    so both are scored along the canonical path: the first factor's
+    intermediate is bound to the image of the base measure's origin,
+    which for a Normal factor is its own location, and the site's
+    value enters through the second.
+
+    `object Driver : Real 4`, `object State : Real 8`,
+    `object Hidden : Real 32`, `object Obs : Real 4`, so the
+    transition reads a 12-column `(driver, state)` row and both
+    inner factors emit a 64-column `(loc, log_scale)` pair over
+    `Hidden`. The eight MLPs' weights are compile-time draws with no
+    spelling in the source and are taken as given; the layer order,
+    the head splits, the four densities and the sum over the 32-row
+    plate are rebuilt.
+
+    Only the two mutants that drop a whole term are catalogued, and
+    that is a measurement rather than an oversight. A prefix factor is
+    scored at its own location, so it contributes its normalizer and
+    nothing else, and defects in the *shape* of the map reach the
+    joint only through that normalizer: dropping every `tanh` in the
+    transition moves it by 0.086 nats, reading a zero state into the
+    emission by 0.85, and ignoring the observation head's log-scale
+    columns by 3.5. Each is above the pin tolerance and far below the
+    4000-tolerance grip the mutant catalogue declares, so cataloguing
+    them would lower that floor while claiming to raise coverage.
+    What the numbers say is that the path density is much less
+    sensitive to a chain's nonlinear structure than the marginal it
+    stands in for would be, which bears on what a pin over it can be
+    trusted to certify.
+    """
+    x_input = dataset.x_input
+    if x_input is None:
+        raise AssertionError(
+            "deep_markov's reconstruction needs the snippet's "
+            "`(driver, state)` row, which the dataset did not carry."
+        )
+    known = (
+        "", "drop_transition_prefix", "drop_emission_term", "plate_mean",
+    )
+    if variant not in known:
+        raise _unknown_variant("deep_markov", variant)
+
+    raw_hidden = _mlp3(
+        x_input, weights, "_step_s_new.left.param_source.net.",
+    )
+    loc_hidden, scale_hidden = _normal_head(raw_hidden, 32)
+    per_hidden = td.Normal(loc_hidden, scale_hidden).log_prob(loc_hidden)
+    raw_state = _mlp3(
+        loc_hidden, weights, "_step_s_new.right.param_source.net.",
+    )
+    loc_state, scale_state = _normal_head(raw_state, 8)
+    per_state = td.Normal(loc_state, scale_state).log_prob(values["s_new"])
+
+    per_transition_row = per_hidden.sum(-1) + per_state.sum(-1)
+    if variant == "drop_transition_prefix":
+        transition = per_state.sum()
+    elif variant == "plate_mean":
+        transition = per_transition_row.mean()
+    else:
+        transition = per_transition_row.sum()
+
+    raw_emit = _mlp3(
+        values["s_new"], weights, "_step_o.left.param_source.net.",
+    )
+    loc_emit, scale_emit = _normal_head(raw_emit, 32)
+    per_emit = td.Normal(loc_emit, scale_emit).log_prob(loc_emit)
+    raw_obs = _mlp3(
+        loc_emit, weights, "_step_o.right.param_source.net.",
+    )
+    loc_obs, scale_obs = _normal_head(raw_obs, 4)
+    per_obs = td.Normal(loc_obs, scale_obs).log_prob(values["o"])
+    per_observation_row = per_emit.sum(-1) + per_obs.sum(-1)
+    observation = (
+        per_observation_row.mean()
+        if variant == "plate_mean"
+        else per_observation_row.sum()
+    )
+
+    if variant == "drop_emission_term":
+        return {"s_new": transition, "o": torch.zeros(())}
+    return {"s_new": transition, "o": observation}
+
+
 def _reconstruct_vae(
     dataset: _gallery_data.GalleryDataset,
     values: dict[str, Tensor],
@@ -865,6 +986,38 @@ class _Reconstruction:
 
 
 _RECONSTRUCTIONS: dict[str, _Reconstruction] = {
+    "deep_markov": _Reconstruction(
+        _reconstruct_deep_markov,
+        (
+            "_step_s_new.left.param_source.net.0.weight",
+            "_step_s_new.left.param_source.net.0.bias",
+            "_step_s_new.left.param_source.net.2.weight",
+            "_step_s_new.left.param_source.net.2.bias",
+            "_step_s_new.left.param_source.net.4.weight",
+            "_step_s_new.left.param_source.net.4.bias",
+            "_step_s_new.right.param_source.net.0.weight",
+            "_step_s_new.right.param_source.net.0.bias",
+            "_step_s_new.right.param_source.net.2.weight",
+            "_step_s_new.right.param_source.net.2.bias",
+            "_step_s_new.right.param_source.net.4.weight",
+            "_step_s_new.right.param_source.net.4.bias",
+            "_step_o.left.param_source.net.0.weight",
+            "_step_o.left.param_source.net.0.bias",
+            "_step_o.left.param_source.net.2.weight",
+            "_step_o.left.param_source.net.2.bias",
+            "_step_o.left.param_source.net.4.weight",
+            "_step_o.left.param_source.net.4.bias",
+            "_step_o.right.param_source.net.0.weight",
+            "_step_o.right.param_source.net.0.bias",
+            "_step_o.right.param_source.net.2.weight",
+            "_step_o.right.param_source.net.2.bias",
+            "_step_o.right.param_source.net.4.weight",
+            "_step_o.right.param_source.net.4.bias",
+        ),
+        "All four MLPs take their weights from compile-time "
+        "draws, which are named in neither the `.qvr` source "
+        "nor the `.md` snippet.",
+    ),
     "vae": _Reconstruction(
         _reconstruct_vae,
         (
@@ -957,6 +1110,26 @@ class _Mutant:
 
 
 _MUTANTS: tuple[_Mutant, ...] = (
+    _Mutant(
+        "deep_markov", "plate_mean",
+        "the 32-row plate is averaged instead of summed, the "
+        "reduction defect a renderer makes when it reads a plate as "
+        "a batch dimension.",
+        2000.0,
+    ),
+    _Mutant(
+        "deep_markov", "drop_transition_prefix",
+        "the transition chain's first factor is dropped and only its "
+        "second is scored, which is what a chain that scores its "
+        "endpoint's marginal alone would report.",
+        100.0,
+    ),
+    _Mutant(
+        "deep_markov", "drop_emission_term",
+        "the `observe o` term is dropped, leaving the transition "
+        "alone in a joint that claims to carry both.",
+        80.0,
+    ),
     _Mutant(
         "vae", "drop_decoder_prefix",
         "the two decoder prefix factors are dropped and only the "
@@ -2201,7 +2374,6 @@ converged rather than because the two node sets overlapped."""
 
 _QUADRATURE_DEPENDENT_JOINT: dict[str, float] = {
     "bidirectional_rnn_lm": 4.0e8,
-    "deep_markov": 800.0,
     "seq2seq": 1500.0,
     "transformer_lm": 7.0e6,
 }

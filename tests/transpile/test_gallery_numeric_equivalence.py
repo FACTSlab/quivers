@@ -314,7 +314,6 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset()
 # value has converged, and its inner latents exposed as sites.
 _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
     "bidirectional_rnn_lm",
-    "deep_markov",
     "gru_lm",
     "lstm_lm",
     "seq2seq",
@@ -633,6 +632,14 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -665.1041259765625,
         -747.2142333984375,
     ),
+    "deep_markov": (
+        -2267.484130859375,
+        -2273.70361328125,
+        -2268.07373046875,
+        -2275.23583984375,
+        -2269.27880859375,
+        -2269.96044921875,
+    ),
     "vae": (
         -1622.5546875,
         -1632.2177734375,
@@ -661,7 +668,6 @@ _REFERENCE_PIN_EXEMPT: dict[str, str] = {
     # `_SKIP_QVR_INCOMPATIBLE`, whose comment carries the full
     # diagnosis and names the test that measures each ground.
     "bidirectional_rnn_lm": "oracle joint is a quadrature output, not a density",
-    "deep_markov": "oracle joint is a quadrature output, not a density",
     "gru_lm": "oracle joint omits the recurrent density and inflates the emission",
     "lstm_lm": "oracle joint omits the recurrent density and inflates the emission",
     "seq2seq": "oracle joint is a quadrature output, not a density",
