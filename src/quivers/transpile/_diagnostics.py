@@ -161,6 +161,29 @@ _DIM_SURFACE: dict[str, str] = {
 }
 
 
+#: How each `let` right-hand side reads back as QVR source.
+_LET_EXPR_SURFACE: dict[str, str] = {
+    "LetExprLiteral": "a numeric literal",
+    "LetExprString": "a string literal",
+    "LetExprRef": "a reference to a bound name",
+    "LetExprIndex": "an indexed reference `name[i]`",
+    "LetExprBinOp": "an arithmetic expression",
+    "LetExprCall": "a function call",
+    "LetExprMethodCall": "a method call",
+    "LetExprLambda": "a lambda",
+    "LetExprFactor": "a `factor` over an axis",
+    "LetExprCases": "a `cases` expression",
+    "LetExprAffineMap": "an affine map from bound values",
+}
+
+
+def _let_expr_surface(class_name: str) -> str:
+    """QVR reading of a `let` right-hand-side class name."""
+    return _LET_EXPR_SURFACE.get(
+        class_name, f"a `let` body the IR carries as `{class_name}`"
+    )
+
+
 #: How each IR node variant reads back as a QVR program step.
 _NODE_SURFACE: dict[str, str] = {
     "IRDataInput": "a program-domain data input",
@@ -509,6 +532,19 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
       slot.
     """
     family, _, detail = tail.partition(":")
+    if family == "wrapper-inner-unknown":
+        # `family:wrapper-inner-unknown:<inner>` names the INNER
+        # family, so the wrapper is what the user wrote and the inner
+        # name is what is missing.
+        return (
+            f"a draw wraps another distribution whose family "
+            f"`{detail}` is not one quivers knows, so there is no "
+            f"inner density for {_language(backend)} to wrap. Check "
+            f"the spelling of the wrapped family, or register it "
+            f"before wrapping it."
+        )
+    if family == "unknown":
+        family, detail = detail, "unknown"
     if family in _NO_TARGET_HEADS:
         # Reshape from `family:no-stan-target:TruncatedNormal` to
         # `family:TruncatedNormal:no-stan-target` so the message
@@ -588,7 +624,42 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
             f"the event axes explicitly with `[over=...]` at the call "
             f"site."
         )
-    return _cannot(backend, f"emit a `{family}` draw ({detail})")
+    if detail in {"missing-event-dimension", "missing-dimension-axis"}:
+        headline = _cannot(
+            backend,
+            f"size a `{family}` draw: the site declares no event axis "
+            f"to read its dimension from",
+        )
+        if explained:
+            return headline
+        return (
+            f"{headline}. `{family}` is matrix-valued, so its "
+            f"dimension comes from the site's event axis. Give the "
+            f"site one with `[over=Dim]` where `Dim` is an object of "
+            f"fixed cardinality."
+        )
+    if detail in {
+        "non-static-event-dimension",
+        "dynamic-dimension-axis",
+    }:
+        headline = _cannot(
+            backend,
+            f"size a `{family}` draw from an event axis whose extent "
+            f"is bound at run time",
+        )
+        if explained:
+            return headline
+        return (
+            f"{headline}. `{family}` needs its dimension fixed when "
+            f"the module compiles. Declare the event axis with an "
+            f"explicit cardinality (`object Dim : FinSet 4`) rather "
+            f"than binding its size from data."
+        )
+    if explained:
+        return _cannot(backend, f"emit a `{family}` draw")
+    return (
+        f"{_cannot(backend, f'emit a `{family}` draw')}: {detail}."
+    )
 
 
 def _render_node_kind(backend: str, tail: str, explained: bool) -> str:
@@ -670,6 +741,42 @@ def _render_arg_kind(backend: str, tail: str, explained: bool) -> str:
             f"take {_arg_surface(tail.partition(':')[2])} in a "
             f"distribution-argument position",
         )
+    if tail.startswith("coerce:"):
+        if explained:
+            return _cannot(backend, "take this argument")
+        return (
+            f"a distribution argument reached the {backend} renderer "
+            f"as a Python `{tail.partition(':')[2]}` rather than as a "
+            f"lowered IR argument, so there is nothing to emit it "
+            f"from. This is a defect in the transpiler rather than in "
+            f"the program; please report it with the module that "
+            f"provoked it."
+        )
+    if tail.startswith("family_ref:"):
+        name = tail.partition(":")[2]
+        if explained:
+            return _cannot(backend, f"take the argument `{name}`")
+        return (
+            f"the argument `{name}` names a morphism whose "
+            f"distribution is built by wrapping another one "
+            f"(truncation, composition or rejection sampling), and "
+            f"{_language(backend)} has no wrapper distributions to "
+            f"build it with. Fold the wrapping into the outer "
+            f"distribution call, or draw from a family that states "
+            f"the wrapped density directly."
+        )
+    if tail and ":" not in tail:
+        headline = _cannot(
+            backend,
+            f"take {_arg_surface(tail)} in a distribution-argument "
+            f"position",
+        )
+        if explained:
+            return headline
+        return (
+            f"{headline}. Bind the value with a `let` or as a data "
+            f"input, and pass the bound name."
+        )
     if explained:
         return _cannot(backend, "take this argument")
     return f"{_cannot(backend, 'take this argument')}: {tail}"
@@ -714,11 +821,61 @@ def _render_let_expr_kind(backend: str, tail: str, explained: bool) -> str:
         return _cannot(
             backend, "lift an infix operator over an axis inside a `let`"
         )
-    if explained:
-        return _cannot(backend, f"emit a `{kind}` let-expression")
-    if not rest:
-        return _cannot(backend, f"emit a `{kind}` let-expression")
-    return f"{_cannot(backend, f'emit a `{kind}` let-expression')}: {rest}"
+    if kind == "LetExprFactor" and rest == "cases-with-multi-axis-binders":
+        return (
+            "a `factor` written with `cases` enumerates one axis, so "
+            "it may bind exactly one binder, and this one binds "
+            "several. Split it into one `factor` per axis, or write "
+            "the body as an expression over the binders instead of "
+            "as cases."
+        )
+    if kind == "LetExprFactor" and rest == "cases-labels-not-dense":
+        return (
+            "a `factor` written with `cases` is emitted as a "
+            "positional list, so its case labels have to run "
+            "`0, 1, ... n-1` with none missing. Give the factor one "
+            "case per value of the axis it ranges over."
+        )
+    if kind == "LetExprFactor" and rest == "no-body-no-cases":
+        return (
+            f"a `factor` has to say what it multiplies: either a body "
+            f"expression over its binder or an explicit list of "
+            f"`cases`. This one gives neither, so there is nothing "
+            f"for {_language(backend)} to fold over the axis."
+        )
+    if kind == "factor" and rest.startswith("expected-factor:"):
+        name = rest.partition(":")[2]
+        return (
+            f"the `let` binding `{name}` was routed to the "
+            f"factor emitter but its body is not a `factor`. This is "
+            f"a defect in the transpiler rather than in the program; "
+            f"please report it with the module that provoked it."
+        )
+    if kind == "substitute":
+        return (
+            f"{_cannot(backend, f'substitute into {_let_expr_surface(rest)} while rewriting a `let` body')}. "
+            f"Bind that expression to its own `let` and reference the "
+            f"bound name."
+        )
+    if kind == "outer-kind":
+        inner = rest.partition(":")[0] or rest
+        headline = _cannot(
+            backend,
+            f"emit {_let_expr_surface(inner)} as the outermost form "
+            f"of a `let` body",
+        )
+        if explained:
+            return headline
+        return (
+            f"{headline}. Bind the sub-expressions to their own "
+            f"`let`s and combine the bound names."
+        )
+    headline = _cannot(
+        backend, f"emit {_let_expr_surface(kind)} as a `let` body"
+    )
+    if explained or not rest:
+        return headline
+    return f"{headline}: {rest}"
 
 
 def _render_let_kind(backend: str, tail: str, explained: bool) -> str:
@@ -865,13 +1022,74 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"else. Use the default sum reduction, or do the "
             f"reduction in the host-side inference loop."
         )
+    if tail.startswith("arg:") or tail.startswith("expr:"):
+        slot, _, cls = tail.partition(":")
+        surface = (
+            _arg_surface(cls) if slot == "arg" else _let_expr_surface(cls)
+        )
+        if explained:
+            return _cannot(
+                backend, f"rewrite {surface} inside a `marginalize` block"
+            )
+        return (
+            f"integrating the latent out means rewriting every "
+            f"reference to it, and {_language(backend)} has no "
+            f"rewrite for {surface}. Move that expression out of the "
+            f"`marginalize` block, or bind it with a `let` before the "
+            f"block and reference the bound name inside."
+        )
+    if tail == "no-enclosing-body":
+        if explained:
+            return _cannot(backend, "marginalize this latent out")
+        return (
+            f"a `marginalize` block has to emit its enumerated terms "
+            f"into an enclosing program body, and the {backend} "
+            f"renderer reached this block with no body open. This is "
+            f"a defect in the transpiler rather than in the program; "
+            f"please report it with the module that provoked it."
+        )
+    if tail.startswith("weight-family:"):
+        family = tail.partition(":")[2]
+        if explained:
+            return _cannot(
+                backend, f"build a probability vector from `{family}`"
+            )
+        return (
+            f"integrating the latent out means summing its atoms "
+            f"against their probabilities, and the weights here come "
+            f"from `{family}`, which {_language(backend)} cannot turn "
+            f"into an explicit probability vector. Draw the mixing "
+            f"weights from a family that states them directly "
+            f"(`Categorical`, `Dirichlet`), or do the marginalisation "
+            f"in the host-side inference loop."
+        )
     if explained:
         return _cannot(backend, "marginalize this latent out")
     return f"{_cannot(backend, 'marginalize this latent out')}: {tail}"
 
 
 def _render_dim_kind(backend: str, tail: str, explained: bool) -> str:
-    """`dim:<reason>` -- an axis whose size the target cannot resolve."""
+    """`dim:<DimClass>` -- an axis whose extent the target cannot size.
+
+    An axis reaches a target in one of two forms: a cardinality fixed
+    when the module compiles, or a size read from the data at run
+    time. A third form has no extent a target could emit a loop bound
+    from, so the kind names the variant and the message names the two
+    that work.
+    """
+    variant = (
+        tail.removeprefix("unknown:").partition(":")[0].strip() or tail
+    )
+    if variant:
+        headline = _cannot(backend, f"size {_dim_surface(variant)}")
+        if explained:
+            return headline
+        return (
+            f"{headline}. An axis reaches a target either as a "
+            f"cardinality fixed at compile time (`object K : FinSet "
+            f"3`) or as an extent read from the data at run time; "
+            f"declare the axis one of those two ways."
+        )
     if explained:
         return _cannot(backend, "resolve this axis")
     return f"{_cannot(backend, 'resolve this axis')}: {tail}"
@@ -897,6 +1115,36 @@ def _render_plate_kind(backend: str, tail: str, explained: bool) -> str:
     return f"{_cannot(backend, 'emit this plate')}: {tail}"
 
 
+def _linear_width_mismatch_headline(detail: str) -> str:
+    """The headline for
+    `param-source:linear:width-mismatch:<program>:<site>:<family>:<arg>:<ref>:<site>`.
+
+    A morphism declared between objects of different width carries a
+    linear parameter map from its domain to the family's parameter
+    heads on its codomain. Its weights are drawn when the module
+    compiles, so they appear in neither the wire form nor the sample
+    sites. The user needs the site and the two widths to find the
+    declaration that disagrees, so the kind carries them.
+    """
+    parts = detail.split(":")
+    if len(parts) != 6:
+        return (
+            "a morphism between objects of different width carries a "
+            "compiled linear parameter map, whose weights are not "
+            "sites the program declares"
+        )
+    program, site, family, arg, ref_width, site_width = parts
+    return (
+        f"program `{program}` scores site `{site}` with "
+        f"`{family}`, passing `{arg}` a value of width {ref_width} at "
+        f"a site of width {site_width}. A morphism declared between "
+        f"objects of different width carries a linear parameter map "
+        f"from its domain to the family's parameter heads on its "
+        f"codomain, and that map's weights are drawn when the module "
+        f"compiles rather than declared as sites"
+    )
+
+
 def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
     """`param-source:<kind>[:...]` -- a morphism whose parameters come
     from a network or a compiled linear map rather than from sites the
@@ -908,7 +1156,11 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
     """
     kind, _, rest = tail.partition(":")
     name = rest.rpartition(":")[2]
-    if kind == "linear":
+    if kind == "linear" and rest.startswith("width-mismatch:"):
+        headline = _linear_width_mismatch_headline(
+            rest.removeprefix("width-mismatch:")
+        )
+    elif kind == "linear":
         headline = (
             "a morphism between objects of different width carries a "
             "compiled linear parameter map, whose weights are not "
@@ -928,10 +1180,14 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
         )
     if explained:
         return headline
+    unable = (
+        "no target can reconstruct"
+        if backend in _STAGE_TARGETS
+        else f"{_language(backend)} cannot reconstruct"
+    )
     return (
-        f"{headline}, so {_language(backend) if backend not in _STAGE_TARGETS else 'no target'} "
-        f"can reconstruct the parameter it computes. Express the "
-        f"network as explicit sampled weights and a deterministic "
+        f"{headline}, so {unable} the parameter it computes. Express "
+        f"the network as explicit sampled weights and a deterministic "
         f"forward pass, or write the step as a `sample` / `observe` "
         f"against a closed-form family."
     )
@@ -1273,11 +1529,17 @@ def _render_target_kind(backend: str, tail: str, explained: bool) -> str:
     """`target:unknown:<name>` -- no backend registered under that
     name."""
     if tail.startswith("unknown"):
-        name = tail.removeprefix("unknown:").partition(":")[0]
+        rest = tail.removeprefix("unknown:")
+        name, _, available = rest.partition(":")
         headline = f"there is no transpile target named `{name}`"
         if explained:
             return headline
-        return f"{headline}: {tail}"
+        offered = ", ".join(
+            f"`{t}`" for t in sorted(filter(None, available.split(",")))
+        )
+        if not offered:
+            return headline
+        return f"{headline}. The targets that exist are {offered}."
     return f"{_cannot(backend, 'select a target')}: {tail}"
 
 

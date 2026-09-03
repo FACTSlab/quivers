@@ -694,7 +694,7 @@ class ChurchRenderer(RendererBase):
             raise UnsupportedConstruct(_TARGET, [f"family:{family}"])
         target_symbol = meta.target_names.get("church")
         if target_symbol is None:
-            raise UnsupportedConstruct(_TARGET, [f"family:{family}:church"])
+            raise UnsupportedConstruct(_TARGET, [f"family:{family}:no-church-target"])
 
         if family in _HALF_FAMILIES:
             # `HalfNormal(scale)` -> `(half (gaussian 0 scale))`;

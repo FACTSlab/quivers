@@ -1325,19 +1325,9 @@ def _check_node_param_widths(
         raise UnsupportedConstruct(
             target,
             [
-                "param-source:linear",
-                f"program {program_name!r}: site {node.name!r} scores "
-                f"{node.family} with {arg_name}={arg.name!r}, a value of "
-                f"width {ref_extent}, at a site of width {site_extent}. A "
-                f"Kleisli morphism declared between objects of different "
-                f"width carries a linear parameter map from its domain to "
-                f"the family's parameter heads on its codomain; the map's "
-                f"weights are drawn when the module compiles and appear in "
-                f"neither the wire form nor the sample sites, so no backend "
-                f"can reconstruct the parameter this site scores against. "
-                f"Express the map as explicit sampled weights plus a "
-                f"deterministic forward pass, or give the site a parameter "
-                f"of its own width.",
+                f"param-source:linear:width-mismatch:"
+                f"{program_name}:{node.name}:{node.family}:"
+                f"{arg_name}:{ref_extent}:{site_extent}",
             ],
         )
 

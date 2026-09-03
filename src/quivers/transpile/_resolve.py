@@ -232,13 +232,6 @@ def param_source_kind(decl: MorphismDecl, *, target: str) -> str | None:
             target,
             [
                 f"param-source:unnamed:{decl.names[0]}",
-                (
-                    f"morphism {decl.names[0]!r} carries a "
-                    f"`param_source` option of shape "
-                    f"{value.kind!r}, which names no source "
-                    f"architecture. Write `[param_source=<kind>]` or "
-                    f"`[param_source=<kind>(<widths>)]`."
-                ),
             ],
         )
     return None
@@ -1129,16 +1122,6 @@ def _resolve_expr(
         target,
         [
             f"let:composite_expression:{expr_kind}",
-            (
-                f"morphism / let {morphism_name!r} resolves to a "
-                f"composite expression of kind {expr_kind!r} that the "
-                "pre-lower expansion pass could not flatten into "
-                "atomic sample / let steps. Extend "
-                "`_flatten_compose` in "
-                "`quivers.transpile._expand_composites` to recognise "
-                "the leaf shape, or rewrite the source with a direct "
-                "`~ Family(args)` declaration / a per-step `sample`."
-            ),
         ],
     )
 
