@@ -150,12 +150,6 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     #     index at a time inside a loop of its own, which a let
     #     binding lowered to a single scalar expression has nowhere to
     #     put. Every other target renders these two examples.
-    ("bugs", "gru_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "gru_lm"): "let-expr:elementwise-axis-operator",
-    ("bugs", "lstm_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "lstm_lm"): "let-expr:elementwise-axis-operator",
-    ("bugs", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
-    ("jags", "vanilla_rnn_lm"): "let-expr:elementwise-axis-operator",
 }
 
 # 4. Neural morphisms (`param_source=mlp`) compute their mean with a
@@ -165,7 +159,6 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
 #    observation. Every syntax-check backend is affected.
 for _neural_example in (
     "bnn",
-    "bidirectional_rnn_lm",
     "deep_markov",
     "seq2seq",
     "transformer_lm",
@@ -175,6 +168,26 @@ for _neural_example in (
         _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (
             "param-source:mlp"
         )
+
+# 5. `scan(cell)` denotes one draw per sequence position over
+#    intermediate states the program never names, and the sequence
+#    axis is not a declared object: it arrives with the data. There
+#    is no loop bound to emit and no name to bind the per-position
+#    states to, so the expansion pass refuses rather than emit a
+#    program that reads the cell as a free input and scores a measure
+#    the source does not state. The refusal is raised before any
+#    renderer runs, so it is the same kind on every target.
+for _scan_example in (
+    "bidirectional_rnn_lm",
+    "gru_lm",
+    "lstm_lm",
+    "vanilla_rnn_lm",
+):
+    for _syntax_backend in _SYNTAX_CHECKS:
+        _EXPECTED_UNSUPPORTED[(_syntax_backend, _scan_example)] = (
+            "scan:no-lowering"
+        )
+
 
 @pytest.mark.parametrize(
     "example", _gallery_examples(), ids=lambda p: p.stem

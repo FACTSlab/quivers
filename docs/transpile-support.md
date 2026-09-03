@@ -30,16 +30,16 @@ What this page does not cover is whether a rendered program's density agrees wit
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
 | [bugs](semantics/transpile-correctness/bugs.md)       | 26 / 46          | 38 / 46    |
-| [church](semantics/transpile-correctness/church.md)   | 26 / 46          | 41 / 46    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 34 / 46          | 41 / 46    |
-| [gen](semantics/transpile-correctness/gen.md)         | 34 / 46          | 41 / 46    |
+| [church](semantics/transpile-correctness/church.md)   | 24 / 46          | 41 / 46    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 32 / 46          | 41 / 46    |
+| [gen](semantics/transpile-correctness/gen.md)         | 32 / 46          | 41 / 46    |
 | [jags](semantics/transpile-correctness/jags.md)       | 30 / 46          | 38 / 46    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 34 / 46          | 43 / 46    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 34 / 46          | 41 / 46    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 34 / 46          | 43 / 46    |
-| [stan](semantics/transpile-correctness/stan.md)       | 33 / 46          | 39 / 46    |
-| [turing](semantics/transpile-correctness/turing.md)   | 34 / 46          | 41 / 46    |
-| [webppl](semantics/transpile-correctness/webppl.md)   | 34 / 46          | 41 / 46    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 46    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 32 / 46          | 41 / 46    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 43 / 46    |
+| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 39 / 46    |
+| [turing](semantics/transpile-correctness/turing.md)   | 32 / 46          | 41 / 46    |
+| [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 41 / 46    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
 
@@ -64,7 +64,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`deep_markov`](examples/deep-markov.md)                                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`factor_analysis`](examples/factor-analysis.md)                         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`gamma_regression`](examples/gamma-regression.md)                       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`gru_lm`](examples/gru-lm.md)                                           | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`gru_lm`](examples/gru-lm.md)                                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`half_student_t_hierarchical`](examples/half-student-t-hierarchical.md) | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`hmm`](examples/hmm.md)                                                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`horseshoe_regression`](examples/horseshoe-regression.md)               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -74,7 +74,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`linear_gaussian_ssm`](examples/linear-gaussian-ssm.md)                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`lkj_cholesky_correlation`](examples/lkj-cholesky-correlation.md)       | no   | no     | yes     | yes | no   | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`logistic_noise_regression`](examples/logistic-noise-regression.md)     | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`lstm_lm`](examples/lstm-lm.md)                                         | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`lstm_lm`](examples/lstm-lm.md)                                         | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`mixture_model`](examples/mixture-model.md)                             | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`montague_nli`](examples/montague-nli.md)                               | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
 | [`multimodal_tlg`](examples/multimodal-tlg.md)                           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -304,40 +304,68 @@ no transpile target can transpile this program:
   - a morphism draws its parameters from a `mlp` network, whose weights are not sites the program declares, so no target can reconstruct the parameter it computes. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
 ```
 
-### `param-source:mlp:value-position:cell`
-
-Refused for: [`vanilla_rnn_lm`](examples/vanilla-rnn-lm.md).
-
-Reported kinds:
-
-```text
-param-source:mlp:value-position:cell
-```
-
-Every backend reports it in the same words. `bugs` on `vanilla_rnn_lm` reports:
-
-```text
-no transpile target can transpile this program:
-  - no transpile target can transpile this program. The refusal is tagged `morphism 'cell' draws its parameters from a 'mlp' network, and the program reads it as a value at line 35 instead of drawing from it. The morphism is consumed inside a composite (a `scan(...)` cell, or a link of a `define`d chain), and flattening that composite leaves its name in an ordinary expression`, which has no explanation registered yet; please report it.: the declaration's own family contributes no density and the network's weights, which are model-internal, have nowhere to be emitted. A target given that program would read 'cell' as a free input and score a different measure. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
-  - a morphism draws its parameters from a `mlp` network, whose weights are not sites the program declares, so no target can reconstruct the parameter it computes. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
-```
-
-### `param-source:mlp:value-position:fwd_cell`
+### `scan:no-lowering:fwd_cell`
 
 Refused for: [`bidirectional_rnn_lm`](examples/bidirectional-rnn-lm.md).
 
 Reported kinds:
 
 ```text
-param-source:mlp:value-position:fwd_cell
+scan:no-lowering:fwd_cell
 ```
 
 Every backend reports it in the same words. `bugs` on `bidirectional_rnn_lm` reports:
 
 ```text
-no transpile target can transpile this program:
-  - no transpile target can transpile this program. The refusal is tagged `morphism 'fwd_cell' draws its parameters from a 'mlp' network, and the program reads it as a value at line 46 instead of drawing from it. The morphism is consumed inside a composite (a `scan(...)` cell, or a link of a `define`d chain), and flattening that composite leaves its name in an ordinary expression`, which has no explanation registered yet; please report it.: the declaration's own family contributes no density and the network's weights, which are model-internal, have nowhere to be emitted. A target given that program would read 'fwd_cell' as a free input and score a different measure. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
-  - a morphism draws its parameters from a `mlp` network, whose weights are not sites the program declares, so no target can reconstruct the parameter it computes. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
+`scan(fwd_cell)` threads `fwd_cell` across the positions of a sequence, so it denotes one draw per position over intermediate states the program never names. Writing that out needs a loop whose bound is the sequence length and one sample site per position, and the sequence axis is not an object this module declares: it arrives with the data, so there is no extent to size the loop from and no name to bind the per-position states to. Write the recurrence as a program over a declared axis, giving each position its own `sample` step, or unroll the chain into one `sample` per step.
+```
+
+### `scan:no-lowering:gru_cell`
+
+Refused for: [`gru_lm`](examples/gru-lm.md).
+
+Reported kinds:
+
+```text
+scan:no-lowering:gru_cell
+```
+
+Every backend reports it in the same words. `bugs` on `gru_lm` reports:
+
+```text
+`scan(gru_cell)` threads `gru_cell` across the positions of a sequence, so it denotes one draw per position over intermediate states the program never names. Writing that out needs a loop whose bound is the sequence length and one sample site per position, and the sequence axis is not an object this module declares: it arrives with the data, so there is no extent to size the loop from and no name to bind the per-position states to. Write the recurrence as a program over a declared axis, giving each position its own `sample` step, or unroll the chain into one `sample` per step.
+```
+
+### `scan:no-lowering:lstm_cell`
+
+Refused for: [`lstm_lm`](examples/lstm-lm.md).
+
+Reported kinds:
+
+```text
+scan:no-lowering:lstm_cell
+```
+
+Every backend reports it in the same words. `bugs` on `lstm_lm` reports:
+
+```text
+`scan(lstm_cell)` threads `lstm_cell` across the positions of a sequence, so it denotes one draw per position over intermediate states the program never names. Writing that out needs a loop whose bound is the sequence length and one sample site per position, and the sequence axis is not an object this module declares: it arrives with the data, so there is no extent to size the loop from and no name to bind the per-position states to. Write the recurrence as a program over a declared axis, giving each position its own `sample` step, or unroll the chain into one `sample` per step.
+```
+
+### `scan:no-lowering:rnn_cell`
+
+Refused for: [`vanilla_rnn_lm`](examples/vanilla-rnn-lm.md).
+
+Reported kinds:
+
+```text
+scan:no-lowering:rnn_cell
+```
+
+Every backend reports it in the same words. `bugs` on `vanilla_rnn_lm` reports:
+
+```text
+`scan(rnn_cell)` threads `rnn_cell` across the positions of a sequence, so it denotes one draw per position over intermediate states the program never names. Writing that out needs a loop whose bound is the sequence length and one sample site per position, and the sequence axis is not an object this module declares: it arrives with the data, so there is no extent to size the loop from and no name to bind the per-position states to. Write the recurrence as a program over a declared axis, giving each position its own `sample` step, or unroll the chain into one `sample` per step.
 ```
 
 ## 3. What each backend alone refuses
@@ -529,24 +557,6 @@ let-expr:LetExprMethodCall:bugs: BUGS / JAGS have no method-dispatch syntax; the
 
 ```text
 bugs-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
-```
-
-**`let-expr:elementwise-axis-operator:bugs`**
-
-Refused for: [`gru_lm`](examples/gru-lm.md), [`lstm_lm`](examples/lstm-lm.md).
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:elementwise-axis-operator:bugs: '+' between a rank-1 and a rank-1 operand has no BUGS / JAGS *expression* form: neither language lifts an infix operator over an axis, and the elementwise result exists only as a named array built one index at a time inside a loop of its own (`for (i in 1:N) { z[i] <- a[i] + b[i] }`), which a let-binding lowered to one scalar expression has nowhere to put. The one axis-carrying operand pair that does lower as an expression is the contracted product `sum(a * b)`, to `inprod(a, b)`
-```
-
-`bugs` on `gru_lm` reports:
-
-```text
-bugs-helper cannot lift an infix operator over an axis inside a `let`: '+' between a rank-1 and a rank-1 operand has no BUGS / JAGS *expression* form: neither language lifts an infix operator over an axis, and the elementwise result exists only as a named array built one index at a time inside a loop of its own (`for (i in 1:N) { z[i] <- a[i] + b[i] }`), which a let-binding lowered to one scalar expression has nowhere to put. The one axis-carrying operand pair that does lower as an expression is the contracted product `sum(a * b)`, to `inprod(a, b)`
 ```
 
 ### church
@@ -935,24 +945,6 @@ let-expr:LetExprMethodCall:jags: BUGS / JAGS have no method-dispatch syntax; the
 
 ```text
 jags-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
-```
-
-**`let-expr:elementwise-axis-operator:jags`**
-
-Refused for: [`gru_lm`](examples/gru-lm.md), [`lstm_lm`](examples/lstm-lm.md).
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:elementwise-axis-operator:jags: '+' between a rank-1 and a rank-1 operand has no BUGS / JAGS *expression* form: neither language lifts an infix operator over an axis, and the elementwise result exists only as a named array built one index at a time inside a loop of its own (`for (i in 1:N) { z[i] <- a[i] + b[i] }`), which a let-binding lowered to one scalar expression has nowhere to put. The one axis-carrying operand pair that does lower as an expression is the contracted product `sum(a * b)`, to `inprod(a, b)`
-```
-
-`jags` on `gru_lm` reports:
-
-```text
-jags-helper cannot lift an infix operator over an axis inside a `let`: '+' between a rank-1 and a rank-1 operand has no BUGS / JAGS *expression* form: neither language lifts an infix operator over an axis, and the elementwise result exists only as a named array built one index at a time inside a loop of its own (`for (i in 1:N) { z[i] <- a[i] + b[i] }`), which a let-binding lowered to one scalar expression has nowhere to put. The one axis-carrying operand pair that does lower as an expression is the contracted product `sum(a * b)`, to `inprod(a, b)`
 ```
 
 ### numpyro

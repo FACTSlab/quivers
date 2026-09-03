@@ -84,6 +84,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprNode,
     LetExprVar,
 )
+from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._draw_args import atom_to_draw_arg
 
 
@@ -723,26 +724,26 @@ def _function_call_expr(func_name: str, prev_var: str | None) -> LetExprNode:
 
 
 def _scan_call_expr(cell_name: str, prev_var: str | None) -> LetExprNode:
-    """Build a let-expression for an `ExprScan(cell)` leaf.
+    """Refuse an `ExprScan(cell)` leaf.
 
-    `scan(cell)` over a sequence threads `cell` across each
-    position. Lacking a first-class scan in every target
-    language, we encode the operation as `cell + prev` (an
-    elementwise sum of the cell's per-position output and the
-    upstream input). The sum is a syntactic shim: it surfaces
-    both `cell` and `prev` as free variables so the lower pass
-    declares them as data inputs the host wires, and produces a
-    result of the same plate shape as its operands.
+    `scan(cell)` threads `cell` across the positions of a sequence,
+    so the measure it denotes is the product of one cell density per
+    position, over intermediate states that are drawn rather than
+    given. Writing that out needs a loop whose bound is the sequence
+    length and one sample site per position, and the sequence axis is
+    not an object the module declares: it arrives with the data, so
+    there is no extent to size the loop from and no name to bind the
+    per-position states to.
 
-    At the chain head we emit `LetExprVar(cell_name)`: the
-    unindexed reference yields the cell's full output array.
+    There is no lowering that keeps the measure, and a target given a
+    program that reads `cell` as a free input would score a different
+    one: the recurrent density would be absent from the joint
+    entirely, leaving a program whose log density does not depend on
+    the parameters the chain declares. This refuses instead.
     """
-    if prev_var is None:
-        return LetExprVar(name=cell_name)
-    return LetExprBinOp(
-        op="+",
-        left=LetExprVar(name=cell_name),
-        right=LetExprVar(name=prev_var),
+    del prev_var
+    raise UnsupportedConstruct(
+        "qvr-expand", [f"scan:no-lowering:{cell_name}"]
     )
 
 
