@@ -101,6 +101,7 @@ from collections.abc import Callable
 import pytest
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 from torch import distributions as td
 
 from quivers.continuous.morphisms import SampledComposition
@@ -233,6 +234,202 @@ def _unknown_variant(example: str, variant: str) -> AssertionError:
 # the term they corrupt so that the defect reads as a one-line
 # difference from the correct term and cannot drift away from it.
 # ---------------------------------------------------------------------
+
+
+#: Factor widths of one `seq2seq` transformer block, in source order:
+#: `fan(head)`, `attn_proj`, `residual_attn`, `ff_up`, `ff_down`,
+#: `residual_ff`. `object Latent : Real 16`, `object FFHidden : Real 32`.
+_SEQ2SEQ_BLOCK_WIDTHS: tuple[int, ...] = (16, 16, 16, 32, 16, 16)
+
+
+def _seq2seq_block_prefixes(root: str) -> tuple[tuple[str, ...], ...]:
+    """Parameter prefixes of one block, in the order the source composes.
+
+    A block is `fan(head) >> attn_proj >> residual_attn >> ff_up >>
+    ff_down >> residual_ff`, composed left-associatively, so the last
+    factor sits at `right` and each earlier one gains a `left`. The
+    `fan` is the head of the chain and carries its four
+    `[replicate=4]` components. Each entry is the tuple of prefixes
+    that factor draws its parameters from: one for an ordinary factor,
+    four for the fan.
+    """
+    return (
+        tuple(
+            f"{root}.left.left.left.left.left._components.{index}"
+            f".param_source"
+            for index in range(4)
+        ),
+        (f"{root}.left.left.left.left.right.param_source",),
+        (f"{root}.left.left.left.right.param_source",),
+        (f"{root}.left.left.right.param_source",),
+        (f"{root}.left.right.param_source",),
+        (f"{root}.right.param_source",),
+    )
+
+
+def _seq2seq_side(
+    root: str,
+    tokens: Tensor,
+    weights: dict[str, Tensor],
+    *,
+    activated: bool,
+) -> tuple[Tensor, Tensor]:
+    """Score one `seq2seq` tower along its canonical path.
+
+    The tower is `embed >> stack(block, 2)`. Its embedding is a
+    `Normal` whose location is the token's own centre row, so at the
+    origin it is scored there and contributes its normalizer; every
+    later factor is likewise bound to its own location, which is what
+    the base measure's origin pushes to. Returns the summed density
+    and the tower's output, which is the row the cross-attention
+    factor reads.
+    """
+    centres = weights[root + ".left.centers"]
+    scales = weights[root + ".left.log_sigma"].exp()
+    embedded = centres[tokens]
+    term = td.Normal(centres[tokens], scales[tokens]).log_prob(embedded)
+    total = term.sum(tuple(range(1, term.dim())))
+
+    current = embedded
+    factors: list[tuple[tuple[str, ...], int]] = []
+    for block in ("right.left", "right.right"):
+        prefixes = _seq2seq_block_prefixes(f"{root}.{block}")
+        factors += list(zip(prefixes, _SEQ2SEQ_BLOCK_WIDTHS, strict=True))
+
+    for prefixes, width in factors:
+        if len(prefixes) > 1:
+            # `[replicate=4]`: four heads of `object HeadOut : Real 4`,
+            # concatenated back into the 16 columns of `Latent`.
+            locations, scale_columns = [], []
+            for prefix in prefixes:
+                head_loc, head_scale = _normal_head(
+                    _mlp3_linear(
+                        current, weights, prefix + ".net.",
+                        activated=activated,
+                    ),
+                    4,
+                )
+                locations.append(head_loc)
+                scale_columns.append(head_scale)
+            location = torch.cat(locations, dim=-1)
+            scale = torch.cat(scale_columns, dim=-1)
+        else:
+            location, scale = _normal_head(
+                _mlp3_linear(
+                    current, weights, prefixes[0] + ".net.",
+                    activated=activated,
+                ),
+                width,
+            )
+        factor_term = td.Normal(location, scale).log_prob(location)
+        total = total + factor_term.sum(tuple(range(1, factor_term.dim())))
+        current = location
+    return total, current
+
+
+def _reconstruct_seq2seq(
+    dataset: _gallery_data.GalleryDataset,
+    values: dict[str, Tensor],
+    weights: dict[str, Tensor],
+    variant: str,
+) -> dict[str, Tensor]:
+    """`seq2seq.qvr`:
+
+        sample h          <- backbone
+        observe next_token : Resp <- lm_head(h)
+
+    with `backbone = (encoder @ decoder) >> cross`, each tower
+    `embed >> stack(block, 2)`, and each block
+    `fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >>
+    residual_ff`. There is no scan here: the chain is feed-forward, so
+    the canonical path is a plain fold and the reconstruction agrees
+    with the oracle bitwise rather than to round-off.
+
+    The product scores both towers at the image of the base measure's
+    origin and hands their concatenated outputs to `cross`, which is
+    where `h` enters. `object Latent : Real 16`, `object Combined :
+    Real 32`, and `enc_head` / `dec_head` carry `[replicate=4]` over
+    `object HeadOut : Real 4`, so each fan rebuilds `Latent` from four
+    four-column heads. The MLP and embedding weights are compile-time
+    draws with no spelling in the source and are taken as given.
+    """
+    x_input = dataset.x_input
+    if x_input is None:
+        raise AssertionError(
+            "seq2seq's reconstruction needs the snippet's "
+            "`(source, target)` column pair, which the dataset did "
+            "not carry."
+        )
+    known = (
+        "", "plate_mean", "drop_encoder_tower", "drop_cross_factor",
+    )
+    if variant not in known:
+        raise _unknown_variant("seq2seq", variant)
+
+    activated = True
+    source_tokens = x_input[..., 0]
+    target_tokens = x_input[..., 1]
+    encoder_term, encoder_out = _seq2seq_side(
+        "_step_h.left.left", source_tokens, weights, activated=activated,
+    )
+    decoder_term, decoder_out = _seq2seq_side(
+        "_step_h.left.right", target_tokens, weights, activated=activated,
+    )
+
+    combined = torch.cat([encoder_out, decoder_out], dim=-1)
+    loc_cross, scale_cross = _normal_head(
+        _mlp3_linear(
+            combined, weights, "_step_h.right.param_source.net.",
+            activated=activated,
+        ),
+        32,
+    )
+    cross_term = td.Normal(loc_cross, scale_cross).log_prob(
+        values["h"],
+    ).sum(-1)
+
+    head = "_step_next_token._family.param_source.linear."
+    logits = F.linear(
+        values["h"], weights[head + "weight"], weights[head + "bias"],
+    )
+    per_token = td.Categorical(logits=logits).log_prob(
+        values["next_token"],
+    )
+
+    if variant == "drop_encoder_tower":
+        encoder_term = torch.zeros_like(encoder_term)
+    if variant == "drop_cross_factor":
+        cross_term = torch.zeros_like(cross_term)
+    latent = encoder_term + decoder_term + cross_term
+    if variant == "plate_mean":
+        return {"h": latent.mean(), "next_token": per_token.mean()}
+    return {"h": latent.sum(), "next_token": per_token.sum()}
+
+
+def _mlp3_linear(
+    x: Tensor, weights: dict[str, Tensor], prefix: str, *, activated: bool = True,
+) -> Tensor:
+    """`_mlp3` spelled through `torch.nn.functional.linear`.
+
+    The two differ only in floating-point re-association, which for a
+    feed-forward chain stays below the pin tolerance. A reconstruction
+    that scores a chain of many factors calls what the parameter
+    source itself calls, so that what the value is compared against is
+    the same map and not merely the same formula.
+    """
+    layer = F.linear(
+        x, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+    )
+    if activated:
+        layer = torch.tanh(layer)
+    layer = F.linear(
+        layer, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+    )
+    if activated:
+        layer = torch.tanh(layer)
+    return F.linear(
+        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+    )
 
 
 def _mlp3(
@@ -986,6 +1183,22 @@ class _Reconstruction:
 
 
 _RECONSTRUCTIONS: dict[str, _Reconstruction] = {
+    "seq2seq": _Reconstruction(
+        _reconstruct_seq2seq,
+        (
+            "_step_h.left.left.left.centers",
+            "_step_h.left.left.left.log_sigma",
+            "_step_h.left.right.left.centers",
+            "_step_h.left.right.left.log_sigma",
+            "_step_next_token._family.param_source.linear.weight",
+            "_step_next_token._family.param_source.linear.bias",
+        ),
+        "Both embedding tables, the twenty-four block factors "
+        "of the two towers, the cross factor and the "
+        "language-model head take their weights from "
+        "compile-time draws, named in neither the `.qvr` "
+        "source nor the `.md` snippet.",
+    ),
     "deep_markov": _Reconstruction(
         _reconstruct_deep_markov,
         (
@@ -1110,6 +1323,25 @@ class _Mutant:
 
 
 _MUTANTS: tuple[_Mutant, ...] = (
+    _Mutant(
+        "seq2seq", "plate_mean",
+        "the 32-row plate is averaged instead of summed.",
+        10000.0,
+    ),
+    _Mutant(
+        "seq2seq", "drop_encoder_tower",
+        "the encoder tower's thirteen factors are dropped and only "
+        "the decoder's are scored, which is the joint a chain that "
+        "scores one arm of a product would report.",
+        7000.0,
+    ),
+    _Mutant(
+        "seq2seq", "drop_cross_factor",
+        "the cross factor is dropped, so `h` enters no density at "
+        "all and the two towers are scored without the step that "
+        "relates them.",
+        1000.0,
+    ),
     _Mutant(
         "deep_markov", "plate_mean",
         "the 32-row plate is averaged instead of summed, the "
@@ -2374,7 +2606,6 @@ converged rather than because the two node sets overlapped."""
 
 _UNWITNESSABLE_JOINT: frozenset[str] = frozenset({
     "bidirectional_rnn_lm",
-    "seq2seq",
     "transformer_lm",
 })
 """Exempt examples whose joint a pin could hold, but which nothing
