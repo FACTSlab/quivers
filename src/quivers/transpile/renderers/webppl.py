@@ -101,6 +101,7 @@ from quivers.transpile.ir import (
     Plate,
 )
 from quivers.transpile.renderers._base import (
+    marginalize_row_rank,
     BlockKind,
     IRMarginalAtom,
     RendererBase,
@@ -897,11 +898,22 @@ class WebPPLRenderer(RendererBase):
             )
         finally:
             self._group_plate_axes = prev_group
+        # An ungrouped block shares one latent across the body's rows,
+        # so each class's per-row log-likelihoods are accumulated to a
+        # scalar before the weight is added and the reduction runs
+        # over the classes. Reducing the rows elementwise instead
+        # would give every row its own draw.
+        accumulate_rows = marginalize_row_rank(node) > 0
         shifted: list[str] = []
         for position, (weight, term) in enumerate(
             zip(weight_names, term_names, strict=True)
         ):
             name = f"{prefix}_t_{position}"
+            term_vid = self._ident(ctx, term)
+            if accumulate_rows:
+                term_vid = self._call(
+                    ctx, self._ident(ctx, "_qvr_total"), (term_vid,),
+                )
             self._emit_var_decl(
                 ctx,
                 self._body_vid,
@@ -912,7 +924,7 @@ class WebPPLRenderer(RendererBase):
                     (
                         self._string_literal(ctx, "+"),
                         self._ident(ctx, weight),
-                        self._ident(ctx, term),
+                        term_vid,
                     ),
                 ),
             )

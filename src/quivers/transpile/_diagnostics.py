@@ -1048,6 +1048,22 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"a defect in the transpiler rather than in the program; "
             f"please report it with the module that provoked it."
         )
+    if tail.startswith("ungrouped-over-plate:"):
+        latent = tail.partition(":")[2]
+        return (
+            f"`marginalize {latent}` carries no index and no `over =` "
+            f"clause, so it declares one latent and every row of the "
+            f"plated `observe` inside it is conditioned on that single "
+            f"draw. Its density therefore accumulates the body's rows "
+            f"and reduces over the latent once, and "
+            f"{_language(backend)} scores the rows the other way "
+            f"round, giving each its own draw. That is a different "
+            f"measure, not a different base measure, so it is refused "
+            f"rather than emitted. Give the latent the plate its rows "
+            f"share (`marginalize {latent} : A`) or a grouping "
+            f"`over =` clause, either of which this target does emit "
+            f"correctly."
+        )
     if tail.startswith("weight-family:"):
         family = tail.partition(":")[2]
         if explained:
