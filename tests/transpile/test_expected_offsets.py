@@ -812,6 +812,8 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # density" at `state`) rather than integrating it out.
     ('bugs', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('edward2', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('jags', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('webppl', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('pymc', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
@@ -870,6 +872,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # would be entitled to, which is nothing;
     # `test_backend_offset_matches_registry` stays red for this cell
     # until the renderer emits it.
+    ('jags', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('bugs', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('edward2', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
@@ -978,6 +981,9 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('turing', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
     # stochastic_volatility: 1 HalfCauchy folded factor(s).
+    ('webppl', 'stochastic_volatility'): _derived(
+        half_sites=1, dropped_sites=1,
+    ),
     ('bugs', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
     ('edward2', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
     ('gen', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=1),
@@ -1003,6 +1009,9 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # the example's only folded site and it carries no axis, so the
     # count is one whatever `Verb`, `Class` and `Resp` are sized at.
     # `stan` is absent because the cell raises in transpile.
+    ('stan', 'tree_categorical'): _derived(
+        half_sites=1, dropped_sites=1,
+    ),
     ('bugs', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
     ('edward2', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
     ('gen', 'tree_categorical'): _derived(half_sites=1, dropped_sites=1),
