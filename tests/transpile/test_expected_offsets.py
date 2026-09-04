@@ -718,6 +718,33 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('stan', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
     ('turing', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
+    # continuous_hmm / linear_gaussian_ssm: both programs score two
+    # `~ Normal` steps and name no folded family, so no target is
+    # entitled to a truncation renormalizer and none reaches its
+    # families through the zeros trick. Every cell owes nothing and
+    # scores the reference exactly. Both programs are declared
+    # without a plate, so the fixture presents the one row they
+    # denote and the emitted program reads it directly.
+    ('bugs', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('edward2', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('gen', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('jags', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('numpyro', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('pymc', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('pyro', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('stan', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('turing', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('webppl', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('bugs', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('edward2', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('gen', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('jags', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('numpyro', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('pymc', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('pyro', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('stan', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('turing', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ('webppl', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
     # custom_rules: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     ('bugs', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),

@@ -416,12 +416,12 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -135.9104766845703,
     ),
     "continuous_hmm": (
-        -716.6048583984375,
-        -733.0679321289062,
-        -721.8971557617188,
-        -736.2081909179688,
-        -722.6180419921875,
-        -721.2566528320312,
+        -21.395313262939453,
+        -21.497692108154297,
+        -21.478761672973633,
+        -22.007896423339844,
+        -22.696565628051758,
+        -21.73342514038086,
     ),
     "custom_rules": (
         -38.62127685546875,
@@ -496,12 +496,12 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -442.911376953125,
     ),
     "linear_gaussian_ssm": (
-        -218.77745056152344,
-        -224.5797119140625,
-        -219.4437255859375,
-        -218.57310485839844,
-        -223.74766540527344,
-        -219.547607421875,
+        -6.176448822021484,
+        -6.644833564758301,
+        -6.308502197265625,
+        -6.5248260498046875,
+        -6.4006500244140625,
+        -6.19073486328125,
     ),
     "logistic_noise_regression": (
         -80.29877471923828,
@@ -632,12 +632,12 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -747.2142333984375,
     ),
     "deep_markov": (
-        -2267.484130859375,
-        -2273.70361328125,
-        -2268.07373046875,
-        -2275.23583984375,
-        -2269.27880859375,
-        -2269.96044921875,
+        -70.9559326171875,
+        -71.23564910888672,
+        -70.98413848876953,
+        -70.98515319824219,
+        -70.94621276855469,
+        -71.1627197265625,
     ),
     "seq2seq": (
         -15812.892578125,
@@ -648,12 +648,12 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -15819.671875,
     ),
     "vae": (
-        -1622.5546875,
-        -1632.2177734375,
-        -1626.509521484375,
-        -1643.0509033203125,
-        -1625.2979736328125,
-        -1634.581787109375,
+        -41.807464599609375,
+        -42.399044036865234,
+        -42.460121154785156,
+        -42.049835205078125,
+        -42.313289642333984,
+        -42.44348907470703,
     ),
 }
 
@@ -841,26 +841,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     #   turing / gen: no method matching model(::Matrix{Float64})
     #   jags / bugs: dimension mismatch in subset expression of `o`
     #   webppl: Parameter "mu" should be of type "real"
-    ('bugs', 'continuous_hmm'),
-    ('bugs', 'linear_gaussian_ssm'),
-    ('edward2', 'continuous_hmm'),
-    ('edward2', 'linear_gaussian_ssm'),
-    ('gen', 'continuous_hmm'),
-    ('gen', 'linear_gaussian_ssm'),
-    ('jags', 'continuous_hmm'),
-    ('jags', 'linear_gaussian_ssm'),
-    ('numpyro', 'continuous_hmm'),
-    ('numpyro', 'linear_gaussian_ssm'),
-    ('pymc', 'continuous_hmm'),
-    ('pymc', 'linear_gaussian_ssm'),
-    ('pyro', 'continuous_hmm'),
-    ('pyro', 'linear_gaussian_ssm'),
-    ('stan', 'continuous_hmm'),
-    ('stan', 'linear_gaussian_ssm'),
-    ('turing', 'continuous_hmm'),
-    ('turing', 'linear_gaussian_ssm'),
-    ('webppl', 'continuous_hmm'),
-    ('webppl', 'linear_gaussian_ssm'),
     # tree_categorical on Stan alone. The example binds
     # `let cell0 = cell_score[0, 0]`, a literal index into the rank-2
     # score table, and the Stan renderer carries that subscript
@@ -1504,11 +1484,30 @@ def _shapes_from_dataset(
     and `_reshape.reshape_value` reads the empty shape as a no-op
     after the dtype cast.
     """
+    def _emitted_shape(value: torch.Tensor) -> list[int]:
+        """The shape the emitted program declares for this name.
+
+        A plate-less program is emitted for one row, so the fixture's
+        length-one batch axis has no counterpart in the declaration:
+        Stan writes `vector[16] state`, not `array[1] vector[16]`.
+        The flat list is identical, so dropping the axis here is what
+        lets the probe rebuild it against what the program declares.
+        """
+        shape = list(value.shape)
+        if dataset.single_row and len(shape) > 1 and shape[0] == 1:
+            return shape[1:]
+        return shape
+
     shapes: dict[str, list[int]] = {}
     for k, v in dataset.observations.items():
-        shapes[k] = list(v.shape)
+        shapes[k] = _emitted_shape(v)
     for k, v in dataset.params.items():
-        shapes[k] = list(v.shape)
+        shapes[k] = _emitted_shape(v)
+    # A compiled parameter map reaches the container in the data
+    # section, so the probe needs its shape to rebuild the matrix from
+    # the flat row-major list it travels as.
+    for k, v in dataset.param_wires.items():
+        shapes[k] = _emitted_shape(v)
     # A scalar type-parameter reaches the container as a bare float in
     # the point's data section; the empty shape casts it through the
     # dtype table without rebuilding a nested container around it.
@@ -1580,4 +1579,10 @@ def _dtypes_from_dataset(
     # wrong the moment the snippet instantiates at a fractional value.
     for name in dataset.scalar_params:
         out[name] = "float"
+    # A compiled parameter map is an affine weight table: real on
+    # every backend, and never a site whose family could say
+    # otherwise.
+    for name in dataset.param_wires:
+        out[name] = "float"
+
     return out

@@ -507,7 +507,10 @@ def _reconstruct_deep_markov(
             "`(driver, state)` row, which the dataset did not carry."
         )
     known = (
-        "", "drop_transition_prefix", "drop_emission_term", "plate_mean",
+        "",
+        "drop_transition_prefix",
+        "drop_emission_prefix",
+        "drop_emission_term",
     )
     if variant not in known:
         raise _unknown_variant("deep_markov", variant)
@@ -526,8 +529,6 @@ def _reconstruct_deep_markov(
     per_transition_row = per_hidden.sum(-1) + per_state.sum(-1)
     if variant == "drop_transition_prefix":
         transition = per_state.sum()
-    elif variant == "plate_mean":
-        transition = per_transition_row.mean()
     else:
         transition = per_transition_row.sum()
 
@@ -541,12 +542,10 @@ def _reconstruct_deep_markov(
     )
     loc_obs, scale_obs = _normal_head(raw_obs, 4)
     per_obs = td.Normal(loc_obs, scale_obs).log_prob(values["o"])
-    per_observation_row = per_emit.sum(-1) + per_obs.sum(-1)
-    observation = (
-        per_observation_row.mean()
-        if variant == "plate_mean"
-        else per_observation_row.sum()
-    )
+    if variant == "drop_emission_prefix":
+        observation = per_obs.sum()
+    else:
+        observation = (per_emit.sum(-1) + per_obs.sum(-1)).sum()
 
     if variant == "drop_emission_term":
         return {"s_new": transition, "o": torch.zeros(())}
@@ -615,15 +614,12 @@ def _reconstruct_vae(
     layer = _affine(
         hidden_1, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
     )
-    if variant == "decoder_mlp_without_activation":
-        activated = layer
-    else:
-        activated = torch.tanh(layer)
     layer = _affine(
-        activated, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+        torch.tanh(layer),
+        weights[prefix + "2.weight"],
+        weights[prefix + "2.bias"],
     )
-    if variant != "decoder_mlp_without_activation":
-        layer = torch.tanh(layer)
+    layer = torch.tanh(layer)
     raw_2 = _affine(
         layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
     )
@@ -646,7 +642,6 @@ def _reconstruct_vae(
     elif variant in (
         "",
         "prefix_at_zero",
-        "decoder_mlp_without_activation",
         "decoder_unit_scale",
         "drop_latent_prior",
     ):
@@ -755,7 +750,6 @@ def _reconstruct_state_space(
         "unit_transition_scale",
         "drop_transition_term",
         "swap_loc_and_log_scale",
-        "plate_mean",
     ):
         emission_input = state
     else:
@@ -772,11 +766,6 @@ def _reconstruct_state_space(
         loc_obs, scale_obs = _normal_head(raw_obs, obs_dim)
     per_step_obs = td.Normal(loc_obs, scale_obs).log_prob(values["o"])
 
-    if variant == "plate_mean":
-        return {
-            "s_new": per_step_state.sum(-1).mean(),
-            "o": per_step_obs.sum(-1).mean(),
-        }
     if variant == "drop_transition_term":
         return {"s_new": torch.zeros(()), "o": per_step_obs.sum()}
     return {"s_new": per_step_state.sum(), "o": per_step_obs.sum()}
@@ -1343,31 +1332,31 @@ _MUTANTS: tuple[_Mutant, ...] = (
         1000.0,
     ),
     _Mutant(
-        "deep_markov", "plate_mean",
-        "the 32-row plate is averaged instead of summed, the "
-        "reduction defect a renderer makes when it reads a plate as "
-        "a batch dimension.",
-        2000.0,
+        "deep_markov", "drop_emission_prefix",
+        "the emission chain's first factor is dropped and only its "
+        "second is scored, which is the joint a chain that scores its "
+        "endpoint's marginal alone would report.",
+        1.0,
     ),
     _Mutant(
         "deep_markov", "drop_transition_prefix",
         "the transition chain's first factor is dropped and only its "
         "second is scored, which is what a chain that scores its "
         "endpoint's marginal alone would report.",
-        100.0,
+        30.0,
     ),
     _Mutant(
         "deep_markov", "drop_emission_term",
         "the `observe o` term is dropped, leaving the transition "
         "alone in a joint that claims to carry both.",
-        80.0,
+        33.0,
     ),
     _Mutant(
         "vae", "drop_decoder_prefix",
         "the two decoder prefix factors are dropped and only the "
         "observation factor is scored, which is what a chain that "
         "scores its endpoint's marginal alone would report.",
-        400.0,
+        25.0,
     ),
     _Mutant(
         "vae", "prefix_at_zero",
@@ -1375,29 +1364,19 @@ _MUTANTS: tuple[_Mutant, ...] = (
         "the codomain rather than to the image of the base measure's "
         "origin, which is the off-by-one a chain that forgets to "
         "push its own location through would make.",
-        100.0,
-    ),
-    _Mutant(
-        "vae", "decoder_mlp_without_activation",
-        "the `tanh` between the deep decoder's layers is dropped, "
-        "collapsing its `mlp` source to a single affine map. The "
-        "margin is the smallest of the five because the deep factor "
-        "is scored at its own location, so the defect reaches the "
-        "joint through that factor's normalizer and through the "
-        "location it hands the next one, not through a residual.",
-        4.0,
+        43.0,
     ),
     _Mutant(
         "vae", "decoder_unit_scale",
         "the observation head's log-scale columns are ignored and "
         "`Y` is scored at unit scale.",
-        40.0,
+        0.35,
     ),
     _Mutant(
         "vae", "drop_latent_prior",
         "the `sample z <- prior` term is dropped, leaving the "
         "likelihood alone in a joint that claims to carry both.",
-        80.0,
+        6.3,
     ),
     _Mutant(
         "bnn", "mlp_without_activation",
@@ -1422,43 +1401,38 @@ _MUTANTS: tuple[_Mutant, ...] = (
         "continuous_hmm", "drop_transition_term",
         "the `sample s_new <- transition` prior term is dropped and "
         "only the emission likelihood is scored.",
-        200.0,
+        14.0,
     ),
     _Mutant(
         "continuous_hmm", "emission_reads_previous_state",
         "`emission` is conditioned on the program input rather than "
         "on the freshly-drawn `s_new`, an off-by-one in the scan's "
         "wiring that leaves every shape valid.",
-        2.0,
+        0.65,
     ),
     _Mutant(
         "continuous_hmm", "unit_transition_scale",
         "the transition head's log-scale columns are ignored.",
-        10.0,
+        0.7,
     ),
     _Mutant(
         "linear_gaussian_ssm", "swap_loc_and_log_scale",
         "the emission head's location and log-scale columns are "
         "transposed, which every shape check still accepts.",
-        3.0,
+        0.16,
     ),
     _Mutant(
         "linear_gaussian_ssm", "drop_transition_term",
         "the `sample s_new <- transition_cell` prior term is dropped "
         "and only the emission likelihood is scored.",
-        60.0,
+        3.5,
     ),
     _Mutant(
         "linear_gaussian_ssm", "unit_transition_scale",
         "the transition head's log-scale columns are ignored, so the "
         "process noise is scored at unit scale instead of at the "
         "kernel's own.",
-        2.0,
-    ),
-    _Mutant(
-        "linear_gaussian_ssm", "plate_mean",
-        "the 32-step scan is averaged instead of summed.",
-        100.0,
+        0.3,
     ),
     _Mutant(
         "mixture_model", "first_component_only",

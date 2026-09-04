@@ -404,6 +404,27 @@ class GalleryDataset:
     state-space and sequence-model programs consume the per-step
     input slice from it."""
 
+    param_wires: dict[str, torch.Tensor]
+    """The compiled parameter maps the emitted program reads as inputs.
+
+    Keyed by wire name, which the lowering derives from the morphism a
+    site draws from rather than from the site itself. They ride in
+    `Point.data` beside the scalar type-parameters, and never in
+    `observations`: they are inputs of the emitted program, not sites
+    the in-process trace clamps. See
+    [`_compiled_param_wires`][tests.transpile._gallery_data._compiled_param_wires]."""
+
+    single_row: bool
+    """Whether the exported program declares no plate.
+
+    Such a program denotes one row and every backend emits one, so the
+    fixture carries one. The tensors keep a length-one batch axis for
+    the in-process trace, which reads a bare `(16,)` as a 16-row batch
+    of scalars; the container wants that axis gone, because the
+    emitted program declares `vector[16]`. The flat list travelling to
+    the probe is the same either way, so only the shape it is rebuilt
+    against differs, and that is where the axis is dropped."""
+
     monadic: MonadicProgram | None
     """The compiled [`MonadicProgram`][quivers.continuous.programs.MonadicProgram]
     the synthetic-data block bound to `model` (or, for state-space
@@ -969,14 +990,172 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
         obs_tensors, params, x_input, observe_names, source_qvr.stem,
     )
 
+    single_row = _program_is_plateless(source_qvr)
+    if single_row:
+        # The program denotes one row and every backend emits one, so
+        # the fixture presents one. Broadcasting it over the rows the
+        # snippet generated would score a joint of that many iid
+        # copies, which is a different quantity from the one the
+        # emitted program computes and cannot be reconciled by any
+        # payload: a `(32, 16)` matrix against a declared `(16)` is a
+        # rank mismatch. Sliced here rather than in the snippet, whose
+        # SVI and MCMC demos want the full batch.
+        obs_tensors = {k: _first_row(v) for k, v in obs_tensors.items()}
+        params = {k: _first_row(v) for k, v in params.items()}
+        if x_input is not None:
+            x_input = _first_row(x_input)
+
     return GalleryDataset(
         observations=obs_tensors,
         params=params,
         scalar_params=scalar_params,
         observe_names=observe_names,
         x_input=x_input,
+        param_wires=(
+            _compiled_param_wires(source_qvr, monadic)
+            | (_domain_wires(source_qvr, x_input) if single_row else {})
+        ),
+        single_row=single_row,
         monadic=monadic,
     )
+
+
+def _program_is_plateless(source_qvr: Path) -> bool:
+    """True when the exported program declares no plate.
+
+    A `sample` / `observe` step carries its plate in an index
+    annotation (`observe y : Resp <- ...`). A program whose steps
+    carry none denotes one row, and that is what every backend emits:
+    a single `vector[16] state`, not an array of them. The in-process
+    trace will happily broadcast such a program over as many rows as
+    the snippet generated, so without this the two sides score
+    different things and no payload can bridge the rank.
+    """
+    text = source_qvr.read_text(encoding="utf-8")
+    steps = re.findall(
+        r"^\s*(?:sample|observe)\s+[\w$, ]+?(\s*:\s*\w+)?\s*<-", text, re.M,
+    )
+    return bool(steps) and not any(index for index in steps)
+
+
+def _first_row(value: torch.Tensor) -> torch.Tensor:
+    """The leading row of a batched fixture tensor, rank preserved.
+
+    The batch axis is kept at length one rather than dropped. The
+    in-process trace reads it: a program's morphisms are applied to a
+    batch of rows and a bare `(16,)` would be taken for a single
+    16-row batch of scalars. The container wants the axis gone, since
+    the emitted program declares `vector[16]`, and
+    `_shapes_from_dataset` is where that happens: the flat row-major
+    list is identical either way, so only the shape it is rebuilt
+    against differs.
+    """
+    if value.dim() == 0 or value.shape[0] <= 1:
+        return value
+    return value[:1]
+
+
+def _compiled_param_wires(
+    source_qvr: Path, monadic: MonadicProgram | None,
+) -> dict[str, torch.Tensor]:
+    """The linear parameter maps the emitted program reads as inputs.
+
+    A Kleisli morphism declared `~ Family` with no `[param_source=...]`
+    takes the default linear source, whose affine weights are drawn
+    when the module compiles. The lowering names them
+    `<morphism>_param_weight` / `<morphism>_param_bias`
+    ([`_param_map_weight_name`][quivers.transpile.lower._param_map_weight_name])
+    and emits them as *inputs*, because they are named nowhere in the
+    `.qvr` text and are not sample sites. Nothing else supplies them:
+    the snippet does not know their names and the trace does not clamp
+    them, so without this a container is handed a program whose data
+    block it cannot fill.
+
+    The compiled program files the tensors under the *site* that draws
+    from the morphism (`_step_<site>.param_source.linear.*`), so the
+    source is what bridges the two, saying which morphism each step
+    draws from. A site whose morphism carries an explicit
+    `[param_source=...]` network is absent: those are refused rather
+    than wired, since a network's forward pass is not reconstructible
+    from a weight table.
+    """
+    if monadic is None:
+        return {}
+    text = source_qvr.read_text(encoding="utf-8")
+    draws = re.findall(
+        r"^\s*(?:sample|observe)\s+(\w+)[^<]*<-\s*(\w+)", text, re.M,
+    )
+    named = dict(monadic.named_parameters())
+    wires: dict[str, torch.Tensor] = {}
+    for site, morphism in draws:
+        for kind in ("weight", "bias"):
+            tensor = named.get(f"_step_{site}.param_source.linear.{kind}")
+            if tensor is not None:
+                wires[f"{morphism}_param_{kind}"] = tensor.detach().to(
+                    dtype=torch.float64,
+                )
+    return wires
+
+
+def _domain_wires(
+    source_qvr: Path, x_input: torch.Tensor | None,
+) -> dict[str, torch.Tensor]:
+    """The program's own domain, split into the inputs it declares.
+
+    `program generative_step : Driver * State -> State` reaches a
+    backend as two inputs, `driver` and `state`, named for the domain
+    objects in declaration order and sized by their widths. The
+    snippet ships them as one concatenated matrix, which only the
+    in-process trace consumes, so without this split a container is
+    handed a program whose arguments nothing fills.
+
+    Split by the declared widths rather than guessed: each factor of
+    the domain product is looked up in the module's `object ... : Real
+    N` declarations, and the slices must account for the input's last
+    axis exactly, or the fixture and the signature disagree about what
+    the program reads and this raises rather than mis-wire it.
+    """
+    if x_input is None:
+        return {}
+    text = source_qvr.read_text(encoding="utf-8")
+    widths: dict[str, int] = {}
+    for names, width in re.findall(
+        r"^object\s+([\w, ]+?)\s*:\s*Real\s+(\d+)", text, re.M,
+    ):
+        for name in names.split(","):
+            widths[name.strip()] = int(width)
+    exported = set(re.findall(r"^export\s+(\w+)", text, re.M))
+    signature = None
+    for name, domain in re.findall(
+        r"^program\s+(\w+)[^:\n]*:\s*([^\n]+?)\s*->", text, re.M,
+    ):
+        if signature is None or name in exported:
+            signature = (name, domain)
+        if name in exported:
+            break
+    if signature is None:
+        return {}
+    factors = [factor.strip() for factor in signature[1].split("*")]
+    if not all(factor in widths for factor in factors):
+        # A domain factor over a `FinSet` contributes no data wire:
+        # it is an index space, not a value the program reads.
+        return {}
+    total = sum(widths[factor] for factor in factors)
+    if x_input.shape[-1] != total:
+        raise AssertionError(
+            f"{source_qvr.stem}: the program's domain "
+            f"{' * '.join(factors)} declares {total} columns and the "
+            f"snippet's input carries {x_input.shape[-1]}. One of the "
+            f"two is wrong; splitting on a mismatch would wire a "
+            f"backend to columns the program does not read."
+        )
+    wires: dict[str, torch.Tensor] = {}
+    offset = 0
+    for factor in factors:
+        width = widths[factor]
+        wires[factor.lower()] = x_input[..., offset : offset + width]
+        offset += width
+    return wires
 
 
 def gallery_examples_with_data() -> list[Path]:
@@ -1016,6 +1195,7 @@ def point_from_dataset(dataset: GalleryDataset) -> Point:
     formal arguments."""
     return _point_from_tensors(
         dataset.params, dataset.observations, dataset.scalar_params,
+        dataset.param_wires,
     )
 
 
@@ -1023,6 +1203,7 @@ def _point_from_tensors(
     params: dict[str, torch.Tensor],
     observations: dict[str, torch.Tensor],
     scalar_params: dict[str, float],
+    param_wires: dict[str, torch.Tensor] | None = None,
 ) -> Point:
     """Flatten a (latent, observed) tensor pair into a wire
     [`Point`][tests.transpile.probes._protocol.Point].
@@ -1033,7 +1214,9 @@ def _point_from_tensors(
     only under ``params`` (see
     [`point_from_dataset`][tests.transpile._gallery_data.point_from_dataset]),
     and each entry of ``scalar_params`` joins the data section as a
-    bare float.
+    bare float. ``param_wires`` joins it for the same reason: a
+    compiled parameter map is an input of the emitted program, so the
+    section that binds model arguments is where it belongs.
     """
     def _flatten(t: torch.Tensor) -> list[float]:
         return t.detach().to(dtype=torch.float64).flatten().tolist()
@@ -1050,6 +1233,9 @@ def _point_from_tensors(
         k: (v[0] if len(v) == 1 else v) for k, v in flat_data.items()
     }
     squeezed_data.update(scalar_params)
+    for name, tensor in (param_wires or {}).items():
+        flat = _flatten(tensor)
+        squeezed_data[name] = flat[0] if len(flat) == 1 else flat
     return Point(params=squeezed_params, data=squeezed_data)
 
 
@@ -1951,6 +2137,7 @@ def points_from_dataset(
             )
             candidate = _point_from_tensors(
                 params, observations, dataset.scalar_params,
+                dataset.param_wires,
             )
             if not validate:
                 points.append(candidate)
