@@ -2617,8 +2617,8 @@ quadrature rule, and is bitwise reproducible. What is missing is a
 second source for the number. All three refuse on every backend, so no
 container re-derives them, and none carries a reconstruction here.
 
-A reconstruction is what closes each row, and for these three it is
-not merely unwritten. Their chains run through a scan whose cell
+A reconstruction is what closes each row, and for these two it is not
+merely unwritten. Their chains run through a scan whose cell
 carries its own density, so the prefix is a recurrence, and as
 [`ScanMorphism.log_prob`][quivers.continuous.scan.ScanMorphism.log_prob]
 records, a perturbation of the state grows by roughly an order of
@@ -2637,13 +2637,29 @@ re-association amplified by the recurrence, not a different formula,
 and `test_reconstruction_matches_the_oracle_per_site` holds an
 absolute budget that no such reconstruction can meet.
 
-So the missing witness here is not a missing afternoon. Agreement at
-this magnitude would need the reconstruction to accumulate in the same
-order as the object under test, which is mirroring rather than
-witnessing. Closing these rows wants the joint's conditioning improved
-(a cell whose predicted scale is commensurate with the distance the
-next factor scores) or the comparison recast onto per-factor terms,
-each of which does agree exactly."""
+`transformer_lm` was written too, and lands in the same place from a
+different direction. It carries no recurrence at all: it is one
+feed-forward tower, the same shape as either arm of `seq2seq`, which
+*is* pinned here because its reconstruction agrees bitwise. What
+separates them is where the chain ends. `seq2seq` hands its towers'
+origin outputs to a further factor, so every factor is scored at its
+own location and nothing is evaluated far from it; `transformer_lm`
+ends at `h`, and its last factor scores a value the canonical path did
+not produce. That single term is near -4e06 and its sensitivity to the
+prefix runs as `(h - mu) / sigma^2`, so the reconstruction's token
+likelihood reproduces exactly while its `h` lands 0.5 nats out: two
+float32 units in the last place at that magnitude, and four hundred
+times the budget.
+
+So the missing witness in both rows is not a missing afternoon.
+`test_reconstruction_matches_the_oracle_per_site` holds an absolute
+budget, and agreement against a term of this size would need the
+reconstruction to accumulate in the same order as the object under
+test, which is mirroring rather than witnessing: a pin resting on it
+would certify the implementation against itself. What would close
+these rows is the joint's conditioning improved, so that what a factor
+scores lies within reach of what it predicts, or the comparison recast
+onto the per-factor terms, each of which does agree exactly."""
 
 _FLAT_COMPOSITE_LATENT: dict[str, str] = {
     "gru_lm": "h",
