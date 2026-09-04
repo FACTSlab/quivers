@@ -316,6 +316,11 @@ class WebPPLRenderer(RendererBase):
             or _ir_reduces_event_axis(ir.body, self._name_event_rank)
             or _ir_has_marginalize(ir.body)
             or _ir_has_affine_map(ir.body)
+            # A `Categorical` call site reads its support from
+            # `_qvr_support`, which lives in the same helper block
+            # although the family itself is scored through `.score`
+            # rather than through the helper path.
+            or _ir_uses_family(ir.body, "Categorical")
         ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
@@ -1712,6 +1717,29 @@ class WebPPLRenderer(RendererBase):
             ):
                 vid = self._call(ctx, self._ident(ctx, "Vector"), (vid,))
             out.append((keyword, vid))
+        if meta.qvr_name == "Categorical":
+            # WebPPL's `Categorical` ranges over the values it is
+            # given and has no default for them, so a `{ps}` alone is
+            # rejected outright. QVR's ranges over the positions of
+            # its own probability vector, which is what the observed
+            # index means, so the support is those positions.
+            probabilities = next(
+                (vid for key, vid in out if key == "ps"), None,
+            )
+            if probabilities is None:
+                raise UnsupportedConstruct(
+                    "qvr-webppl",
+                    [
+                        f"arg-names-mismatch:{meta.qvr_name}: no `ps` "
+                        f"argument to take the support from"
+                    ],
+                )
+            out.append((
+                "vs",
+                self._call(
+                    ctx, self._ident(ctx, "_qvr_support"), (probabilities,),
+                ),
+            ))
         return tuple(out)
 
     def _maybe_broadcast(
