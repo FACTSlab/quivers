@@ -891,15 +891,13 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     #     constructor was resolved (`MethodError: Cannot convert an
     #     object of type Vector{Float64} to an object of type
     #     SubArray{...}`).
-    #   webppl: the emit reads `Categorical({ps: emission_rows[0]})`
-    #     and WebPPL's `Categorical` requires a `vs` support argument
-    #     beside `ps` (`Parameter "vs" missing from Categorical
-    #     distribution`).
+    # The `webppl` cell is out of this registry: its `Categorical`
+    # emission now carries the support WebPPL requires beside the
+    # probabilities, and it scores the reference.
     ('gen', 'hmm'),
     ('jags', 'hmm'),
     ('stan', 'hmm'),
     ('turing', 'hmm'),
-    ('webppl', 'hmm'),
     # lda: the five backends that integrate the topic latent
     # correctly are out of this registry; these four each carry a
     # distinct blocker.

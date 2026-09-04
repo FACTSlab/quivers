@@ -452,6 +452,17 @@ var _qvr_zeros = function(n) {
   return mapN(function(i) { return 0; }, n);
 };
 
+// The support of a Categorical over the classes its probability
+// vector indexes. WebPPL's `Categorical` takes the values it ranges
+// over beside their probabilities and has no default for them, while
+// QVR's `Categorical` ranges over the positions of its own vector.
+// Derived from `ps` rather than from a class count carried down to
+// the call site, so it is the right length wherever the vector came
+// from.
+var _qvr_support = function(ps) {
+  return mapN(function(i) { return i; }, ps.length);
+};
+
 
 // Dense matrix utilities. Matrices are arrays-of-arrays in row-major
 // order (so `A[i][j]` is row i, column j). The helpers cover only what
