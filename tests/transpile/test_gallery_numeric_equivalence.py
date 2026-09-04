@@ -798,21 +798,42 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # their transpile raises before a probe could run, and the raise
     # is pinned in `_EXPECTED_TRANSPILE_RAISES`, which asserts
     # something a skip never could.
-    # continuous_hmm / linear_gaussian_ssm: a Kleisli morphism
-    # declared with a `~ Family` init and no `[param_source=...]`
-    # option takes the default linear source, whose weights are
-    # initialised at compile time, appear in no sample site and in no
-    # line of the `.qvr` text. The emitted program therefore degrades
-    # to the bare family at its defaults and binds a State-width mean
-    # to an Obs-width site, which no point payload can bridge. The
-    # program's domain object (the previous state, and the LGSSM
-    # driver) also has no wire channel: `dataset.x_input` is a single
-    # concatenated matrix that only the in-process `QvrProbe`
-    # consumes, so every container reports the missing argument or
-    # its rank. The raise belongs beside the existing
-    # `param-source:mlp` rejection in
-    # `src/quivers/transpile/_resolve.py`; the wire split belongs in
-    # `tests/transpile/_gallery_data.py`.
+    # continuous_hmm / linear_gaussian_ssm: the emission is faithful
+    # and the fixture cannot feed it. Two blockers, measured
+    # separately, and the second is the one that decides these rows.
+    #
+    # 1. A Kleisli morphism declared `~ Family` with no
+    #    `[param_source=...]` takes the default linear source, whose
+    #    affine weights are drawn when the module compiles. The
+    #    lowering emits them as inputs named
+    #    `<morphism>_param_weight` / `<morphism>_param_bias`, and
+    #    nothing supplies them: the snippet does not know the names
+    #    and the trace does not clamp them. This one is mechanical.
+    #    Deriving the tensors from the compiled program (the site's
+    #    `_step_<site>.param_source.linear.*`, keyed by the morphism
+    #    each site draws from) and adding them to `Point.data` clears
+    #    it, and was measured to: with the weights wired, Stan stops
+    #    reporting them and moves on to the next name.
+    #
+    # 2. It moves on to `state`, and that one is not plumbing. Both
+    #    programs are declared without a plate
+    #    (`program generative_step : State -> State`, one step, no
+    #    `observe o : Resp`), so the emitted program is single-row and
+    #    declares `vector[16] state`. The fixture evaluates the same
+    #    program batched over 32 rows, which is what the in-process
+    #    trace broadcasts to and what the pinned reference and the
+    #    reconstruction in `test_oracle_reference_strength` both
+    #    score. Supplying `x_input` cannot bridge that: a `(32, 16)`
+    #    matrix against a declared `(16)` is a rank mismatch, not a
+    #    missing argument.
+    #
+    # So the cells stay until the two sides agree on how many rows a
+    # plate-less program scores: either the examples declare the plate
+    # their data has, or the fixture scores one row and the pin and
+    # reconstruction move with it. Choosing between those is a
+    # question about what a plate-less program means, not a defect in
+    # the emission, which is why this is a registry entry and not a
+    # renderer fix.
     #   numpyro / pyro: model() missing 'state' (and 'driver')
     #   stan: dims declared=(16), dims found=() for `state`
     #   pymc: ShapeError, actual 2 != expected 1
