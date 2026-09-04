@@ -794,158 +794,54 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # whose spread is constant to within `adaptive_atol` belongs outside
 # the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    # The scan-bearing sequence models are absent on every target:
-    # their transpile raises before a probe could run, and the raise
-    # is pinned in `_EXPECTED_TRANSPILE_RAISES`, which asserts
-    # something a skip never could.
-    # continuous_hmm / linear_gaussian_ssm: the emission is faithful
-    # and the fixture cannot feed it. Two blockers, measured
-    # separately, and the second is the one that decides these rows.
+    # Cells whose transpile succeeds and whose container cannot score
+    # the result. Each row carries the error that container actually
+    # returned on the six-point set, re-measured rather than
+    # inherited: a rationale that outlives its defect is worse than no
+    # rationale, because it reads as a reason to leave the cell alone.
     #
-    # 1. A Kleisli morphism declared `~ Family` with no
-    #    `[param_source=...]` takes the default linear source, whose
-    #    affine weights are drawn when the module compiles. The
-    #    lowering emits them as inputs named
-    #    `<morphism>_param_weight` / `<morphism>_param_bias`, and
-    #    nothing supplies them: the snippet does not know the names
-    #    and the trace does not clamp them. This one is mechanical.
-    #    Deriving the tensors from the compiled program (the site's
-    #    `_step_<site>.param_source.linear.*`, keyed by the morphism
-    #    each site draws from) and adding them to `Point.data` clears
-    #    it, and was measured to: with the weights wired, Stan stops
-    #    reporting them and moves on to the next name.
-    #
-    # 2. It moves on to `state`, and that one is not plumbing. Both
-    #    programs are declared without a plate
-    #    (`program generative_step : State -> State`, one step, no
-    #    `observe o : Resp`), so the emitted program is single-row and
-    #    declares `vector[16] state`. The fixture evaluates the same
-    #    program batched over 32 rows, which is what the in-process
-    #    trace broadcasts to and what the pinned reference and the
-    #    reconstruction in `test_oracle_reference_strength` both
-    #    score. Supplying `x_input` cannot bridge that: a `(32, 16)`
-    #    matrix against a declared `(16)` is a rank mismatch, not a
-    #    missing argument.
-    #
-    # So the cells stay until the two sides agree on how many rows a
-    # plate-less program scores: either the examples declare the plate
-    # their data has, or the fixture scores one row and the pin and
-    # reconstruction move with it. Choosing between those is a
-    # question about what a plate-less program means, not a defect in
-    # the emission, which is why this is a registry entry and not a
-    # renderer fix.
-    #   numpyro / pyro: model() missing 'state' (and 'driver')
-    #   stan: dims declared=(16), dims found=() for `state`
-    #   pymc: ShapeError, actual 2 != expected 1
-    #   edward2: cannot convert None to a Tensor
-    #   turing / gen: no method matching model(::Matrix{Float64})
-    #   jags / bugs: dimension mismatch in subset expression of `o`
-    #   webppl: Parameter "mu" should be of type "real"
-    # tree_categorical on Stan alone. The example binds
-    # `let cell0 = cell_score[0, 0]`, a literal index into the rank-2
-    # score table, and the Stan renderer carries that subscript
-    # through unchanged: the emitted transformed-parameters block
-    # holds `cell0[m_Resp] = cell_score[0,0];`. Stan indexes from 1,
-    # so cmdstan rejects the program at `log_prob` time with
-    # "index 0 out of range; expecting index to be between 1 and 12",
-    # and no point of the set is ever scored. The renderer's literal
-    # index path in `src/quivers/transpile/renderers/stan.py` owns
-    # the off-by-one; every other 1-based target already rebases the
-    # same expression, which is why JAGS and BUGS score it.
-    #
-    # The other nine cells are live and pass. Measured spread against
-    # the QVR reference over the six-point set: numpyro / pymc /
-    # turing / gen / jags / bugs / webppl 7.49e-05 (the float64
-    # backends agree with each other far below that and inherit the
-    # same offset from the float32 reference), pyro 2.91e-05,
-    # edward2 1.78e-05, all under the 5e-04 constant-spread floor.
-    ('stan', 'tree_categorical'),
-    # hmm: the axis-role derivation now ranks `sample initial_row :
-    # State <- Dirichlet(1.0) [over=State]` as one simplex rather than
-    # a batch of them, so the typed backends that reported the rank
-    # clash score the model: edward2 reproduces the reference exactly
-    # (spread 0.0) and pymc to 1.16e-05, both out of this registry
-    # beside numpyro and pyro. These five carry the blockers that
-    # survive, each the error its own container returned on the
-    # six-point set.
-    #   gen: `Gen.assess` requires every traced address to be
-    #     constrained, so the marginalized `state` surfaces as
-    #     `KeyError: key :state not found` before anything is scored.
-    #     The same missing log-weight primitive blocks gen/lda.
-    #   jags: `RendererBase.explicit_latent_scope` lowers the
-    #     marginalize to a live `IRSample(state)` and drops the
-    #     reduction, so the engine rejects the model at
-    #     `console.update` with `Error in node state / Cannot
-    #     normalize density` rather than integrating it out. The
-    #     `bugs` cell is live and failing on the same engine error
-    #     from its own renderer's emission, so it stays a visible
-    #     failure rather than a sixth row here.
-    #   stan: the program now compiles and scores every point, and
-    #     disagrees with the reference by a spread of 2.19 nats over
-    #     the six-point set, four thousand times the 5e-04 floor. The
-    #     offset is not constant, so the emitted measure differs from
-    #     the reference rather than differing by a base measure.
-    #   turing: the renderer hands `Categorical` a row of the
-    #     `emission_rows` matrix, and Distributions.jl rejects the
-    #     `Vector{Float64}` where its `SubArray`-parameterised
-    #     constructor was resolved (`MethodError: Cannot convert an
-    #     object of type Vector{Float64} to an object of type
-    #     SubArray{...}`).
-    # The `webppl` cell is out of this registry: its `Categorical`
-    # emission now carries the support WebPPL requires beside the
-    # probabilities, and it scores the reference.
+    # `gen` cannot score a marginalized latent at all.
+    # `Gen.assess` requires every traced address to be constrained,
+    # and the address a `marginalize` block enumerates is by
+    # construction not: hmm reports `KeyError: key :state not found`,
+    # lda and zip_regression `KeyError: key (:z, 1) not found`. The
+    # renderer would have to emit the reduced measure as a bare
+    # log-weight rather than as a traced choice, which Gen expresses
+    # through `Gen.project` on a selection rather than through
+    # `assess`.
     ('gen', 'hmm'),
-    ('jags', 'hmm'),
-    ('stan', 'hmm'),
-    ('turing', 'hmm'),
-    # lda: the five backends that integrate the topic latent
-    # correctly are out of this registry; these four each carry a
-    # distinct blocker.
-    #   gen: `Gen.assess` requires every traced address to be
-    #     constrained and the `@gen` DSL has no log-weight primitive,
-    #     so the marginalized `z` surfaces as KeyError (:z, 1).
-    #   jags: `RendererBase.explicit_latent_scope` lowers the
-    #     marginalize to a live `IRSample(z)` and drops the
-    #     reduction, so the emitted measure lives on a strictly
-    #     larger space; the engine now rejects the model outright
-    #     with `Error in node z[6] / Cannot normalize density` rather
-    #     than scoring it. The zeros trick `jags.py::_emit_score`
-    #     already uses is the closure. The `bugs` cell is live and
-    #     failing on the same engine error from its own renderer's
-    #     emission, so it stays a visible failure rather than a sixth
-    #     row here.
-    #   turing: the gathered per-word topic weights index a scalar,
-    #     raising BoundsError at index [2].
-    #   webppl: the Dirichlet concentration reaches WebPPL as a plain
-    #     JS array rather than a vector.
     ('gen', 'lda'),
-    ('jags', 'lda'),
-    ('turing', 'lda'),
-    ('webppl', 'lda'),
-    # zip_regression: the backends whose Poisson uses an `xlogy` form
-    # integrate the zero-inflation indicator correctly and are out of
-    # this registry; these three do not.
-    #   numpyro: its `Poisson` computes log(rate) * value directly,
-    #     so the z = 0 atom's rate of exactly 0 yields nan at every
-    #     y == 0 observation. The emitted expression is faithful; the
-    #     deficiency is upstream in numpyro.
-    #   stan: `_is_continuous_support` routes `ContinuousBernoulli`
-    #     to the continuous marginalization, declaring a live
-    #     400-dim `z` parameter the point payload cannot fill
-    #     (dims declared=(400), found=()), where the QVR compiler
-    #     enumerates the hard support {0, 1}.
-    #   gen: same missing log-weight primitive as gen/lda; the
-    #     reduced density has no address to ride on, and
-    #     `Gen.logpdf(Gen.poisson, 0, 0.0)` is NaN where the
-    #     reference scores the point mass exactly.
     ('gen', 'zip_regression'),
+    # `turing` mis-types the row it gathers out of a matrix.
+    # hmm hands `Categorical` a `Vector{Float64}` where the
+    # constructor resolved to a `SubArray` view of the emission
+    # matrix (`MethodError: Cannot convert ...`), and lda indexes a
+    # scalar as though it were the per-word topic weight vector
+    # (`BoundsError: attempt to access Float64 at index [2]`). Both
+    # are gather-shape defects in the renderer rather than engine
+    # limits.
+    ('turing', 'hmm'),
+    ('turing', 'lda'),
+    # `stan` on hmm scores every point and disagrees with the
+    # reference by a spread of 2.19 nats over the six-point set, four
+    # thousand times the 5e-04 floor, with the per-point difference
+    # changing sign. A non-constant offset is not a base-measure
+    # difference: the emitted measure is not the reference's, and
+    # this is the one row here that is a wrong number rather than a
+    # refusal to produce one.
+    ('stan', 'hmm'),
+    # `stan` and `numpyro` on zip_regression: numpyro returns `nan`
+    # at every point, its `Poisson` computing `log(rate) * value`
+    # where the reference uses an `xlogy` form that is defined at a
+    # zero rate, which is exactly what a zero-inflated model produces.
     ('numpyro', 'zip_regression'),
     ('stan', 'zip_regression'),
-    # webppl/stochastic_volatility: the latent trajectory emits as
-    # `mapIndexed(..., repeat(200, 0))` and WebPPL's `repeat`
-    # requires its second argument to be a function. The probe's
-    # `mapIndexed` lift is otherwise ready for this cell.
-    ('webppl', 'stochastic_volatility'),
+    # `webppl` on lda returns a null density, which is how
+    # `JSON.stringify` renders a `NaN` accumulated into the
+    # log-weight. The emission itself is well formed and its
+    # Dirichlet concentrations reach WebPPL as vectors, so the defect
+    # is numerical rather than structural.
+    ('webppl', 'lda'),
 })
 
 
