@@ -999,7 +999,17 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ('webppl', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
     # zip_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
+    #
+    # `jags` has no `ContinuousBernoulli` distribution and reaches the
+    # family through the zeros trick, but owes no lift for it. The
+    # trick's rate is lifted only where a site is emitted directly,
+    # and this one is enumerated by a `marginalize z : Resp` block,
+    # whose emitter writes the integrated density into `dpois` with no
+    # offset: the rendered source carries no lift constant on any of
+    # the 400 rows. `bugs` is absent because its cell raises in
+    # transpile, its renderer carrying no path to the family at all.
     ('edward2', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
+    ('jags', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('pymc', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('turing', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
