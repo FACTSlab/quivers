@@ -207,6 +207,21 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # transpiler raises on every backend. The same holds for every model
 # below: each hides part of its structure in a `param_source` network
 # rather than writing it as a program whose steps are declared sites.
+# The four targets that reduce an ungrouped `marginalize` row by row
+# refuse it rather than emit it. An ungrouped block shares one latent
+# across the body's rows, so its density accumulates the rows and
+# reduces once; scoring each row on its own gives every row a draw the
+# source never declared, and the difference moves with the data, so it
+# is a different measure rather than a different base measure. The
+# reference was itself reducing per row until it was corrected against
+# `docs/semantics/programs.md` §2.6, which is why these four were
+# built to agree with it. `stan`, `numpyro`, `pyro` and `webppl` emit
+# the accumulated order and score the corrected reference.
+for _ungrouped_backend in ("bugs", "edward2", "jags", "pymc"):
+    _EXPECTED_TRANSPILE_RAISES[(_ungrouped_backend, "hmm")] = (
+        "marginalize:ungrouped-over-plate"
+    )
+
 # `scan(cell)` denotes one draw per sequence position over
 # intermediate states the program never names, over a sequence axis
 # that is not a declared object. The expansion pass refuses before any
@@ -456,12 +471,12 @@ _QVR_REFERENCE_JOINT: dict[str, tuple[float, ...]] = {
         -83.33959197998047,
     ),
     "hmm": (
-        266.3363342285156,
-        266.090087890625,
-        266.0382080078125,
-        266.6028137207031,
-        266.080810546875,
-        266.5773620605469,
+        267.8604736328125,
+        267.141845703125,
+        264.1581726074219,
+        266.13934326171875,
+        267.4548645019531,
+        266.83917236328125,
     ),
     "horseshoe_regression": (
         -64.92990112304688,
@@ -850,7 +865,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # question about what an ungrouped `marginalize` over a plated
     # `observe` means, and it is settled in the compiler and the
     # reference rather than in a renderer.
-    ('stan', 'hmm'),
     # `stan` and `numpyro` on zip_regression: numpyro returns `nan`
     # at every point, its `Poisson` computing `log(rate) * value`
     # where the reference uses an `xlogy` form that is defined at a

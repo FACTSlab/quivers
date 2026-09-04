@@ -103,6 +103,7 @@ from quivers.transpile.ir import (
     StructuredDataArg,
 )
 from quivers.transpile.renderers._base import (
+    marginalize_row_rank,
     BlockKind,
     IRMarginalAtom,
     RendererBase,
@@ -877,6 +878,17 @@ class PyroRenderer(RendererBase):
             ),
             "child_of",
         )
+        # An ungrouped block shares one latent across the body's rows,
+        # so their per-class log-likelihoods are accumulated before the
+        # reduction rather than each row reducing on its own.
+        atoms = identifier(pctx, prefix)
+        for _ in range(marginalize_row_rank(node)):
+            atoms = call(
+                pctx,
+                attribute(pctx, ("torch", "sum")),
+                positional=(atoms,),
+                keyword=(("dim", number_literal(pctx, 0)),),
+            )
         reduced = call(
             pctx,
             attribute(pctx, ("torch", "logsumexp")),
@@ -885,7 +897,7 @@ class PyroRenderer(RendererBase):
                     pctx,
                     "+",
                     identifier(pctx, f"{prefix}_w"),
-                    identifier(pctx, prefix),
+                    atoms,
                 ),
             ),
             keyword=(("dim", _minus_one(pctx)),),

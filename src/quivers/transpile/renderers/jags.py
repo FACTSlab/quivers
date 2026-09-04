@@ -112,6 +112,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginalize_body,
 )
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     IRArgTransform,
     IRMarginalAtom,
@@ -498,6 +499,7 @@ class JAGSRenderer(RendererBase):
         [`_emit_marginal_reduction`][quivers.transpile.renderers.jags.JAGSRenderer._emit_marginal_reduction]
         writes it.
         """
+        refuse_ungrouped_row_marginalize("qvr-jags", node)
         jctx = _as_jags_ctx(ctx)
         self._emit_marginal_reduction(jctx, node)
         return ""

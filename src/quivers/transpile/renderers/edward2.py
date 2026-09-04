@@ -94,6 +94,7 @@ from quivers.transpile.ir import (
     is_real_vector,
 )
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     IRMarginalAtom,
     RendererBase,
@@ -642,6 +643,7 @@ class Edward2Renderer(RendererBase):
         its own random variable on the trace, and the block denotes
         one observed variable, not three.
         """
+        refuse_ungrouped_row_marginalize("qvr-edward2", node)
         raw = marginalize_body(
             node.scope, latent=node.latent, target=self.target
         )

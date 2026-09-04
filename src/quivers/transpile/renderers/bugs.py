@@ -107,6 +107,7 @@ from quivers.transpile.ir import (
     Plate,
 )
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     IRArgTransform,
     RendererBase,
@@ -633,6 +634,7 @@ class BUGSRenderer(RendererBase):
         reduction would need, so the remaining scopes lower to the
         native discrete draw BUGS does sample.
         """
+        refuse_ungrouped_row_marginalize("qvr-bugs", node)
         if not isinstance(ctx, _BugsCtx):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -1019,6 +1021,7 @@ class BUGSRenderer(RendererBase):
         [`_emit_collapsed_mixture`][quivers.transpile.renderers.bugs.BUGSRenderer._emit_collapsed_mixture]
         writes the integral itself, with no latent site declared.
         """
+        refuse_ungrouped_row_marginalize("qvr-bugs", node)
         mixture = categorical_mixture(node, ctx.decl_plates)
         if mixture is None:
             for inner in self.explicit_latent_scope(node):

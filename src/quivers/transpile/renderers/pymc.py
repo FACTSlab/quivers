@@ -108,6 +108,7 @@ from quivers.transpile.ir import (
 )
 from quivers.transpile.lower import Lower
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     IRArgTransform,
     IRMarginalAtom,
@@ -862,6 +863,7 @@ class PyMCRenderer(RendererBase):
         random variable, so it carries the block's whole contribution
         to the model's log-density.
         """
+        refuse_ungrouped_row_marginalize("qvr-pymc", node)
         py = ctx.py
         raw = marginalize_body(
             node.scope, latent=node.latent, target=self.target

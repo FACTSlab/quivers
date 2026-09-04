@@ -101,6 +101,7 @@ from quivers.transpile.ir import (
     event_dim_of,
 )
 from quivers.transpile.renderers._base import (
+    marginalize_row_rank,
     BlockKind,
     IRMarginalAtom,
     RendererBase,
@@ -406,6 +407,17 @@ class NumPyroRenderer(RendererBase):
             "child_of",
         )
         py.required_imports.add(_MARGINALIZE_IMPORT)
+        # An ungrouped block shares one latent across the body's rows,
+        # so their per-class log-likelihoods are accumulated before the
+        # reduction rather than each row reducing on its own.
+        atoms = identifier(py, prefix)
+        for _ in range(marginalize_row_rank(node)):
+            atoms = call(
+                py,
+                attribute(py, ("jnp", "sum")),
+                positional=(atoms,),
+                keyword=(("axis", self._zero(py)),),
+            )
         reduced = call(
             py,
             attribute(py, ("jsp", "logsumexp")),
@@ -414,7 +426,7 @@ class NumPyroRenderer(RendererBase):
                     py,
                     "+",
                     identifier(py, f"{prefix}_w"),
-                    identifier(py, prefix),
+                    atoms,
                 ),
             ),
             keyword=(("axis", self._minus_one(py)),),
@@ -499,6 +511,10 @@ class NumPyroRenderer(RendererBase):
     def _minus_one(self, py: PyCtx) -> str:
         """Emit the literal ``-1``."""
         return _python_unary_minus(py, number_literal(py, 1))
+
+    def _zero(self, py: PyCtx) -> str:
+        """Emit the literal ``0``."""
+        return number_literal(py, 0)
 
     def broadcast(
         self,

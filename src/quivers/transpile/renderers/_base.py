@@ -260,6 +260,59 @@ class Renderer(Protocol):
         ...
 
 
+def marginalize_row_rank(node: IRMarginalize) -> int:
+    """How many axes of the block's body are accumulated before the
+    reduction over the latent.
+
+    `docs/semantics/programs.md` §2.7 reduces per group `g`:
+    ``aggr_k [log pi(g, k) + sum_{n : iota(n) = g} l(n, k)]``. A block
+    that carries a grouping plate has already keyed its accumulator by
+    `g`, and each group's rows are gathered into it by the observes'
+    `via` fibrations, so nothing further is accumulated here.
+
+    A block with no grouping plate declares one latent for its whole
+    body (§2.6 reduces "the accumulated log-likelihood"), which is the
+    same formula with a single group: every row of the enclosed
+    observe is conditioned on that one draw, so all of them are summed
+    before the reduction rather than each reducing on its own. The
+    two orders differ whenever the body is plated, and reducing per
+    row silently gives each row a draw the source never declared.
+    """
+    if node.plate.batch_dims:
+        return 0
+    ranks = {
+        len(inner.plate.batch_dims)
+        for inner in node.scope
+        if isinstance(inner, IRObserve)
+    }
+    return max(ranks, default=0)
+
+
+def refuse_ungrouped_row_marginalize(target: str, node: IRMarginalize) -> None:
+    """Refuse a block this renderer would score with the wrong order.
+
+    An ungrouped `marginalize` over a plated `observe` shares one
+    latent across the body's rows, so its density accumulates the rows
+    before reducing over the latent
+    (`docs/semantics/programs.md` §2.6, and §2.7 with a single group).
+    A renderer that reduces each row on its own instead scores a
+    measure in which every row carries its own draw, which differs
+    from the program's by an amount that moves with the data and so
+    survives Theorem 4.1's quotient by a constant.
+
+    Call this from a renderer that has not been taught the accumulated
+    order. Refusing is the honest outcome while that is true: a wrong
+    number that no comparison catches is worse than no number, and the
+    message says which order the target owes and where the ones that
+    already emit it can be read.
+    """
+    if marginalize_row_rank(node) == 0:
+        return
+    raise UnsupportedConstruct(
+        target, [f"marginalize:ungrouped-over-plate:{node.latent}"],
+    )
+
+
 class RendererBase(abc.ABC):
     """Shared IR-walk dispatch and helpers for backend renderers.
 

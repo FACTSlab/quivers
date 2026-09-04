@@ -29,13 +29,13 @@ What this page does not cover is whether a rendered program's density agrees wit
 
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
-| [bugs](semantics/transpile-correctness/bugs.md)       | 26 / 46          | 38 / 46    |
+| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 38 / 46    |
 | [church](semantics/transpile-correctness/church.md)   | 24 / 46          | 41 / 46    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 32 / 46          | 41 / 46    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 41 / 46    |
 | [gen](semantics/transpile-correctness/gen.md)         | 32 / 46          | 41 / 46    |
-| [jags](semantics/transpile-correctness/jags.md)       | 30 / 46          | 38 / 46    |
+| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 38 / 46    |
 | [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 46    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 32 / 46          | 41 / 46    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 41 / 46    |
 | [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 43 / 46    |
 | [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 39 / 46    |
 | [turing](semantics/transpile-correctness/turing.md)   | 32 / 46          | 41 / 46    |
@@ -66,7 +66,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`gamma_regression`](examples/gamma-regression.md)                       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`gru_lm`](examples/gru-lm.md)                                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`half_student_t_hierarchical`](examples/half-student-t-hierarchical.md) | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`hmm`](examples/hmm.md)                                                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`hmm`](examples/hmm.md)                                                 | no   | yes    | no      | yes | no   | yes     | no   | yes  | yes  | yes    | yes    |
 | [`horseshoe_regression`](examples/horseshoe-regression.md)               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`irt_2pl`](examples/irt-2pl.md)                                         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md) | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -559,6 +559,24 @@ let-expr:LetExprMethodCall:bugs: BUGS / JAGS have no method-dispatch syntax; the
 bugs-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
 ```
 
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`bugs` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and BUGS scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+```
+
 ### church
 
 Every program below renders on at least one other backend and is refused here.
@@ -789,6 +807,24 @@ encoder_decl
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Edward2 has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`edward2` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and Edward2 scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+```
+
 ### gen
 
 Every program below renders on at least one other backend and is refused here.
@@ -947,6 +983,24 @@ let-expr:LetExprMethodCall:jags: BUGS / JAGS have no method-dispatch syntax; the
 jags-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
 ```
 
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`jags` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and JAGS scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+```
+
 ### numpyro
 
 numpyro renders every program any other backend renders. Its remaining refusals are the language-level gaps of section 2.
@@ -992,6 +1046,24 @@ encoder_decl
 
 ```text
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; PyMC has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
+```
+
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`pymc` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and PyMC scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
 ```
 
 ### pyro

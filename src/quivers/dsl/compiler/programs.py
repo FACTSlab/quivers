@@ -3046,7 +3046,24 @@ class _ProgramsMixin:
                             )
                     ll_cols.append(_obs_family.log_prob(theta, response))
                 per_class = torch.stack(ll_cols, dim=-1)
-                weighted = log_prior + per_class
+                if log_prior.dim() < per_class.dim():
+                    # One latent for the whole body. The block
+                    # declares no index and no grouping plate, so the
+                    # rows of the enclosed observe are conditioned on
+                    # a single draw and the pushforward reduces the
+                    # body's *accumulated* log-likelihood
+                    # (`docs/semantics/programs.md` §2.6), which is
+                    # `aggr_k [log pi(k) + sum_n l(n, k)]`. Reducing
+                    # per row and summing would instead give each row
+                    # its own draw, which is what an indexed
+                    # `marginalize c : A` or a grouping `over =`
+                    # clause asks for.
+                    row_axes = tuple(range(per_class.dim() - 1))
+                    weighted = log_prior + per_class.sum(dim=row_axes)
+                else:
+                    # A per-row prior carries the rows' own latents,
+                    # so each row reduces on its own.
+                    weighted = log_prior + per_class
             if _reduction == "logsumexp":
                 per_row = torch.logsumexp(weighted, dim=-1)
             elif _reduction == "sum":

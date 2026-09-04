@@ -189,6 +189,18 @@ for _scan_example in (
         )
 
 
+# 6. An ungrouped `marginalize` over a plated `observe` shares one
+#    latent across the body's rows, so its density accumulates the
+#    rows and reduces once. These four targets reduce each row on its
+#    own, which gives every row a draw the source never declares, so
+#    they refuse rather than emit a different measure.
+for _ungrouped_backend in ("bugs", "edward2", "jags", "pymc"):
+    if _ungrouped_backend in _SYNTAX_CHECKS:
+        _EXPECTED_UNSUPPORTED[(_ungrouped_backend, "hmm")] = (
+            "marginalize:ungrouped-over-plate"
+        )
+
+
 @pytest.mark.parametrize(
     "example", _gallery_examples(), ids=lambda p: p.stem
 )
