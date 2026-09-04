@@ -822,13 +822,34 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # limits.
     ('turing', 'hmm'),
     ('turing', 'lda'),
-    # `stan` on hmm scores every point and disagrees with the
-    # reference by a spread of 2.19 nats over the six-point set, four
-    # thousand times the 5e-04 floor, with the per-point difference
-    # changing sign. A non-constant offset is not a base-measure
-    # difference: the emitted measure is not the reference's, and
-    # this is the one row here that is a wrong number rather than a
-    # refusal to produce one.
+    # `stan` on hmm is the one row here where the two sides compute
+    # different densities, and the evidence says the reference is the
+    # one out of step with the language.
+    #
+    # `marginalize state <- Categorical(initial_row)` carries no
+    # index and no `over =` clause, so it declares one latent, and
+    # the twelve observations of the enclosed `observe obs : Step`
+    # are conditioned on that one draw. `docs/semantics/programs.md`
+    # §2.6 realises the pushforward "by log-sum-exp on the
+    # accumulated log-likelihood": accumulate the body over its
+    # plate, then reduce over the latent, which is
+    # `log sum_k pi(k) prod_n p(obs_n | k)`. §2.7's grouped form
+    # reduces per group `g` and agrees. That is what Stan emits.
+    #
+    # The reference reduces inside the plate instead, giving each row
+    # its own draw: `sum_n log sum_k pi(k) p(obs_n | k)`. The two are
+    # -32.060161 and -33.584302 at the ground-truth point, and their
+    # difference of 1.524126 nats is exactly the diff the cell
+    # reports there; the spread across the point set is 2.19, and the
+    # per-point difference changes sign, which is why no constant
+    # absorbs it.
+    #
+    # Every other live backend matches the reference, so making Stan
+    # match too would be a one-line change and would propagate the
+    # reading the semantics does not describe. Which side moves is a
+    # question about what an ungrouped `marginalize` over a plated
+    # `observe` means, and it is settled in the compiler and the
+    # reference rather than in a renderer.
     ('stan', 'hmm'),
     # `stan` and `numpyro` on zip_regression: numpyro returns `nan`
     # at every point, its `Poisson` computing `log(rate) * value`
