@@ -2386,18 +2386,33 @@ quadrature rule, and is bitwise reproducible. What is missing is a
 second source for the number. All three refuse on every backend, so no
 container re-derives them, and none carries a reconstruction here.
 
-A reconstruction is what closes each row, and for these three that is
-harder than for `vae` or `deep_markov`, which is why they are still
-here. Their chains run through a scan whose cell carries its own
-density, so the prefix is a recurrence: as
+A reconstruction is what closes each row, and for these three it is
+not merely unwritten. Their chains run through a scan whose cell
+carries its own density, so the prefix is a recurrence, and as
 [`ScanMorphism.log_prob`][quivers.continuous.scan.ScanMorphism.log_prob]
 records, a perturbation of the state grows by roughly an order of
-magnitude per step, and a reconstruction spelling the cell's affine
-map as ``x @ W.T + b`` rather than through the
-``torch.nn.functional.linear`` the parameter source calls does not
-agree to round-off. `bidirectional_rnn_lm` scores near -1.5e08, where
-that gap is widest. What the value has to be compared against is the
-same map, not merely the same formula."""
+magnitude per step.
+
+That was measured on `bidirectional_rnn_lm` rather than assumed. A
+reconstruction of it written from the source, calling the same
+``torch.nn.functional.linear`` the parameter source calls, reproduces
+every isolated factor exactly: the embedding scored at its own centres,
+and both recurrent paths, to the last bit. The assembled site is
+nonetheless 16 nats from the oracle at a joint of -1.5e08, because the
+endpoint of each path reaches the combiner through eight steps of the
+cell's Jacobian, and the combiner's predicted scale is small compared
+with the distance it then scores. What arrives is float32
+re-association amplified by the recurrence, not a different formula,
+and `test_reconstruction_matches_the_oracle_per_site` holds an
+absolute budget that no such reconstruction can meet.
+
+So the missing witness here is not a missing afternoon. Agreement at
+this magnitude would need the reconstruction to accumulate in the same
+order as the object under test, which is mirroring rather than
+witnessing. Closing these rows wants the joint's conditioning improved
+(a cell whose predicted scale is commensurate with the distance the
+next factor scores) or the comparison recast onto per-factor terms,
+each of which does agree exactly."""
 
 _FLAT_COMPOSITE_LATENT: dict[str, str] = {
     "gru_lm": "h",
