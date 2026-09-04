@@ -2627,15 +2627,19 @@ magnitude per step.
 That was measured on `bidirectional_rnn_lm` rather than assumed. A
 reconstruction of it written from the source, calling the same
 ``torch.nn.functional.linear`` the parameter source calls, reproduces
-every isolated factor exactly: the embedding scored at its own centres,
-and both recurrent paths, to the last bit. The assembled site is
-nonetheless 16 nats from the oracle at a joint of -1.5e08, because the
-endpoint of each path reaches the combiner through eight steps of the
-cell's Jacobian, and the combiner's predicted scale is small compared
-with the distance it then scores. What arrives is float32
-re-association amplified by the recurrence, not a different formula,
-and `test_reconstruction_matches_the_oracle_per_site` holds an
-absolute budget that no such reconstruction can meet.
+the embedding, both recurrent paths, and the canonical prefix they
+produce, bitwise. What it does not reproduce bitwise is the last
+factor, which scores `h` against a combiner whose predicted scale is
+small compared with the distance it covers. That term is near -1.5e08,
+and the assembled site lands 16 nats away.
+
+Sixteen nats is not a discrepancy to chase. The float32 grid spacing
+at that magnitude *is* 16, so the reconstruction differs from the
+oracle by one unit in the last place, the smallest non-zero difference
+either can express.
+`test_reconstruction_matches_the_oracle_per_site` holds an absolute
+budget some thirty thousand times finer than that spacing, so nothing
+short of a bitwise-identical accumulation clears it.
 
 `transformer_lm` was written too, and lands in the same place from a
 different direction. It carries no recurrence at all: it is one
@@ -2647,9 +2651,9 @@ own location and nothing is evaluated far from it; `transformer_lm`
 ends at `h`, and its last factor scores a value the canonical path did
 not produce. That single term is near -4e06 and its sensitivity to the
 prefix runs as `(h - mu) / sigma^2`, so the reconstruction's token
-likelihood reproduces exactly while its `h` lands 0.5 nats out: two
-float32 units in the last place at that magnitude, and four hundred
-times the budget.
+likelihood reproduces exactly while its `h` lands 0.5 nats out. The
+float32 spacing at -4e06 is 0.25, so that too is two units in the last
+place, and still far finer than any budget an absolute check states.
 
 So the missing witness in both rows is not a missing afternoon.
 `test_reconstruction_matches_the_oracle_per_site` holds an absolute
