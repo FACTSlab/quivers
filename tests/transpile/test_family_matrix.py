@@ -23,6 +23,7 @@ import pytest
 from quivers.dsl.parser import parse
 from quivers.transpile import UnsupportedConstruct, available_targets, transpile
 from quivers.transpile.family_meta import FAMILY_META
+from quivers.transpile.renderers.jags import _ZEROS_TRICK_FAMILIES
 from tests.transpile.fixtures import _load
 
 
@@ -64,6 +65,26 @@ def _family_for_fixture(fixture: _load.Fixture) -> str:
     return canonical[fixture.name]
 
 
+#: Per backend, the families it renders without a native
+#: distribution name, by writing the density out longhand.
+#:
+#: `FAMILY_META[family].target_names` answers "which distribution does
+#: this target spell the family as", and a `None` there usually means
+#: the target cannot express the family at all. JAGS has a third
+#: option: the zeros trick writes a closed-form log-density into the
+#: rate of a `dpois` on a carrier of zeros, so the family is emitted
+#: with no distribution name to look for. Read from the renderer's own
+#: set rather than restated, so a family entering or leaving that path
+#: cannot drift from what this test expects.
+_LONGHAND_FAMILIES: dict[str, frozenset[str]] = {
+    "jags": _ZEROS_TRICK_FAMILIES,
+}
+
+#: What a zeros-trick emission looks like: a Poisson on a carrier of
+#: zeros, standing in for the distribution name the other branch reads.
+_ZEROS_TRICK_MARKERS: tuple[bytes, ...] = (b"dpois", b"zeros")
+
+
 @pytest.mark.parametrize(
     "fixture", _family_fixtures(), ids=lambda f: f.name
 )
@@ -86,6 +107,33 @@ def test_family_backend_cell(
     family = _family_for_fixture(fixture)
     backend_name = _backend_target_name(family, backend)
     module = parse(fixture.source)
+
+    if backend_name is None and family in _LONGHAND_FAMILIES.get(
+        backend, frozenset()
+    ):
+        # No native name, and none is wanted: the density is written
+        # out longhand, so the cell asserts the shape of that emission
+        # rather than a distribution name.
+        output = transpile(module, target=backend)
+        assert output, (
+            f"backend {backend!r} on family {family!r}: the renderer "
+            f"lists this family as one it writes out longhand, and it "
+            f"emitted nothing."
+        )
+        missing = [
+            marker for marker in _ZEROS_TRICK_MARKERS
+            if marker not in output
+        ]
+        assert not missing, (
+            f"backend {backend!r} on family {family!r}: emitted "
+            f"output is missing {missing!r}, so it does not carry the "
+            f"zeros-trick form this family is rendered through. "
+            f"Either the renderer found a native distribution for it, "
+            f"in which case add {backend!r} to "
+            f"`FAMILY_META[{family!r}].target_names`, or the longhand "
+            f"path changed shape."
+        )
+        return
 
     if backend_name is None:
         with pytest.raises(UnsupportedConstruct) as exc_info:
