@@ -87,6 +87,7 @@ from quivers.transpile.ir import (
     Plate,
 )
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     RendererBase,
     SchemaFragment,
@@ -607,6 +608,7 @@ class ChurchRenderer(RendererBase):
         to its sibling forms: the latent sample define, then one form
         per scope step (typically an observe).
         """
+        refuse_ungrouped_row_marginalize(_TARGET, node)
         expanded = self.explicit_latent_scope(node)
         prev_group = self._group_plate_axes
         self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)

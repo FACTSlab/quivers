@@ -115,6 +115,7 @@ from quivers.transpile.renderers._python_helpers import (
     name_event_rank_map,
 )
 from quivers.transpile.renderers._base import (
+    refuse_ungrouped_row_marginalize,
     BlockKind,
     IRMarginalAtom,
     RendererBase,
@@ -1121,6 +1122,7 @@ class TuringRenderer(RendererBase):
         declared for the latent: the atoms replace it, and the emitted
         program denotes the same measure the QVR reference integrates.
         """
+        refuse_ungrouped_row_marginalize("qvr-turing", node)
         assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         plates = {**ctx.input_plates, **ctx.sample_plates}

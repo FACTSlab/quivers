@@ -30,15 +30,15 @@ What this page does not cover is whether a rendered program's density agrees wit
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
 | [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 38 / 46    |
-| [church](semantics/transpile-correctness/church.md)   | 24 / 46          | 41 / 46    |
+| [church](semantics/transpile-correctness/church.md)   | 23 / 46          | 41 / 46    |
 | [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 41 / 46    |
-| [gen](semantics/transpile-correctness/gen.md)         | 32 / 46          | 41 / 46    |
+| [gen](semantics/transpile-correctness/gen.md)         | 31 / 46          | 41 / 46    |
 | [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 38 / 46    |
 | [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 46    |
 | [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 41 / 46    |
 | [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 43 / 46    |
 | [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 39 / 46    |
-| [turing](semantics/transpile-correctness/turing.md)   | 32 / 46          | 41 / 46    |
+| [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 41 / 46    |
 | [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 41 / 46    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
@@ -66,7 +66,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`gamma_regression`](examples/gamma-regression.md)                       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`gru_lm`](examples/gru-lm.md)                                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`half_student_t_hierarchical`](examples/half-student-t-hierarchical.md) | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`hmm`](examples/hmm.md)                                                 | no   | yes    | no      | yes | no   | yes     | no   | yes  | yes  | yes    | yes    |
+| [`hmm`](examples/hmm.md)                                                 | no   | no     | no      | no  | no   | yes     | no   | yes  | yes  | no     | yes    |
 | [`horseshoe_regression`](examples/horseshoe-regression.md)               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`irt_2pl`](examples/irt-2pl.md)                                         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md) | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -563,7 +563,7 @@ bugs-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a
 
 Refused for: [`hmm`](examples/hmm.md).
 
-Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 
 Reported kinds:
 
@@ -764,6 +764,24 @@ let-expr:LetExprFactor:multi-axis-body
 a `factor` whose body ranges over more than one axis has no scheme-helper expression form: the product would have to be built by nested loops over a named array, and a `let` lowered to one expression has nowhere to put it. Split the factor into one per axis, or move the product into a plated `score` step.
 ```
 
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`church` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and Church scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+```
+
 ### edward2
 
 Every program below renders on at least one other backend and is refused here.
@@ -811,7 +829,7 @@ the module's `encoder_decl` declaration declares a neural encoder over a `signat
 
 Refused for: [`hmm`](examples/hmm.md).
 
-Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 
 Reported kinds:
 
@@ -866,6 +884,24 @@ encoder_decl
 
 ```text
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
+```
+
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`gen` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and Gen.jl scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
 ```
 
 ### jags
@@ -987,7 +1023,7 @@ jags-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a
 
 Refused for: [`hmm`](examples/hmm.md).
 
-Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 
 Reported kinds:
 
@@ -1052,7 +1088,7 @@ the module's `encoder_decl` declaration declares a neural encoder over a `signat
 
 Refused for: [`hmm`](examples/hmm.md).
 
-Renders on: `church`, `gen`, `numpyro`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 
 Reported kinds:
 
@@ -1190,6 +1226,24 @@ encoder_decl
 
 ```text
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Turing.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
+```
+
+**`marginalize:ungrouped-over-plate:state`**
+
+Refused for: [`hmm`](examples/hmm.md).
+
+Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:ungrouped-over-plate:state
+```
+
+`turing` on `hmm` reports:
+
+```text
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and Turing.jl scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
 ```
 
 ### webppl
