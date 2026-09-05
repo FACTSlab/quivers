@@ -810,12 +810,9 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # scope lowers to `state ~ dcat(initial_row)`, a latent no point
     # payload clamps, and the engine rejects it ("Cannot normalize
     # density" at `state`) rather than integrating it out.
-    ('bugs', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('webppl', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ('stan', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     ('pyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
     # horseshoe_regression: 6 HalfCauchy folded factor(s).
     ('bugs', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
