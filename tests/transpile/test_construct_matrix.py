@@ -122,6 +122,12 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     # check before the construct gate.
     ("bugs", "axes", "matrix_kronecker"): "family:",
     ("jags", "axes", "matrix_kronecker"): "family:",
+    # Gen refuses every `marginalize`: its `@gen` DSL has no way to
+    # add a free log-density term to a trace, so the only thing it
+    # could emit is the latent as a draw, which denotes a measure on
+    # the product of the latent's support with the block's rather
+    # than the integral the block means.
+    ("gen", "steps", "marginalize_step"): "marginalize:",
 }
 
 

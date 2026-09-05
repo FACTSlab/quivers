@@ -1048,6 +1048,21 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"a defect in the transpiler rather than in the program; "
             f"please report it with the module that provoked it."
         )
+    if tail.startswith("no-log-weight:"):
+        latent = tail.partition(":")[2]
+        return (
+            f"`marginalize {latent}` denotes the integral of the "
+            f"block's measure over the latent, and "
+            f"{_language(backend)} has no way to add a free "
+            f"log-density term to a trace: every address it scores "
+            f"must be one it drew. Emitting the draw instead would "
+            f"denote a measure on the product of the latent's support "
+            f"with the block's, which is a larger space than the "
+            f"program's and differs from it by an amount that moves "
+            f"with the data. Draw the latent explicitly with `sample` "
+            f"if that is the model you want, or score the block on a "
+            f"target that carries a log-weight primitive."
+        )
     if tail.startswith("ungrouped-over-plate:"):
         latent = tail.partition(":")[2]
         return (

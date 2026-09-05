@@ -85,6 +85,24 @@ _LONGHAND_FAMILIES: dict[str, frozenset[str]] = {
 _ZEROS_TRICK_MARKERS: tuple[bytes, ...] = (b"dpois", b"zeros")
 
 
+#: Cells whose transpile refuses for a reason that has nothing to do
+#: with the family under test.
+#:
+#: A fixture exercises its family at an observed site, and may reach
+#: for other constructs around it. When a backend refuses one of those
+#: the cell says nothing about the family, so the pin records the kind
+#: the refusal must carry: a closed gap surfaces as a raise that no
+#: longer happens, and a regression as a raise of a different kind.
+_ORTHOGONAL_REFUSALS: dict[tuple[str, str], str] = {
+    # `categorical.qvr` carries a `marginalize` block beside its
+    # observed site, and Gen refuses every one of those: its `@gen`
+    # DSL has no way to add a free log-density term to a trace, so the
+    # only thing it could emit is the latent as a draw. The family
+    # itself is one Gen has.
+    ("gen", "categorical"): "marginalize:",
+}
+
+
 @pytest.mark.parametrize(
     "fixture", _family_fixtures(), ids=lambda f: f.name
 )
@@ -107,6 +125,20 @@ def test_family_backend_cell(
     family = _family_for_fixture(fixture)
     backend_name = _backend_target_name(family, backend)
     module = parse(fixture.source)
+
+    orthogonal = _ORTHOGONAL_REFUSALS.get((backend, fixture.name))
+    if orthogonal is not None:
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            transpile(module, target=backend)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith(orthogonal) for k in kinds), (
+            f"backend {backend!r} on family {family!r}: expected a "
+            f"refusal carrying {orthogonal!r}, got kinds={kinds!r}. "
+            f"The cell is pinned to a gap beside the family; if that "
+            f"gap closed, drop the row so the family is exercised "
+            f"again."
+        )
+        return
 
     if backend_name is None and family in _LONGHAND_FAMILIES.get(
         backend, frozenset()
