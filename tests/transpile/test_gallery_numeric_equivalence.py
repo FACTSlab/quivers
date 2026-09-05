@@ -207,6 +207,15 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # transpiler raises on every backend. The same holds for every model
 # below: each hides part of its structure in a `param_source` network
 # rather than writing it as a program whose steps are declared sites.
+# `gen` refuses every `marginalize`. Its `@gen` DSL has no way to add
+# a free log-density term to a trace, so it can only emit the latent
+# as a draw, and that denotes a measure on the product of the latent's
+# support with the block's rather than the integral the block means.
+for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
+    _EXPECTED_TRANSPILE_RAISES[("gen", _gen_marginalize_model)] = (
+        "marginalize:"
+    )
+
 # The four targets that reduce an ungrouped `marginalize` row by row
 # refuse it rather than emit it. An ungrouped block shares one latent
 # across the body's rows, so its density accumulates the rows and
@@ -218,7 +227,7 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # built to agree with it. `stan`, `numpyro`, `pyro` and `webppl` emit
 # the accumulated order and score the corrected reference.
 for _ungrouped_backend in (
-    "bugs", "church", "edward2", "gen", "jags", "pymc", "turing",
+    "bugs", "church", "edward2", "jags", "pymc", "turing",
 ):
     _EXPECTED_TRANSPILE_RAISES[(_ungrouped_backend, "hmm")] = (
         "marginalize:ungrouped-over-plate"
@@ -826,8 +835,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # log-weight rather than as a traced choice, which Gen expresses
     # through `Gen.project` on a selection rather than through
     # `assess`.
-    ('gen', 'lda'),
-    ('gen', 'zip_regression'),
     # `turing` mis-types the row it gathers out of a matrix.
     # hmm hands `Categorical` a `Vector{Float64}` where the
     # constructor resolved to a `SubArray` view of the emission

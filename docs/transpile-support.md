@@ -32,7 +32,7 @@ What this page does not cover is whether a rendered program's density agrees wit
 | [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 38 / 46    |
 | [church](semantics/transpile-correctness/church.md)   | 23 / 46          | 41 / 46    |
 | [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 41 / 46    |
-| [gen](semantics/transpile-correctness/gen.md)         | 31 / 46          | 41 / 46    |
+| [gen](semantics/transpile-correctness/gen.md)         | 29 / 46          | 40 / 46    |
 | [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 38 / 46    |
 | [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 46    |
 | [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 41 / 46    |
@@ -70,7 +70,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`horseshoe_regression`](examples/horseshoe-regression.md)               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`irt_2pl`](examples/irt-2pl.md)                                         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md) | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`lda`](examples/lda.md)                                                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`lda`](examples/lda.md)                                                 | yes  | yes    | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`linear_gaussian_ssm`](examples/linear-gaussian-ssm.md)                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`lkj_cholesky_correlation`](examples/lkj-cholesky-correlation.md)       | no   | no     | yes     | yes | no   | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`logistic_noise_regression`](examples/logistic-noise-regression.md)     | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -96,7 +96,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`type_logical`](examples/type-logical.md)                               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`vae`](examples/vae.md)                                                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`vanilla_rnn_lm`](examples/vanilla-rnn-lm.md)                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
-| [`zip_regression`](examples/zip-regression.md)                           | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`zip_regression`](examples/zip-regression.md)                           | no   | no     | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 
 ### 1.2 Constructs
 
@@ -129,7 +129,7 @@ One minimal program per surface construct, so a `no` here isolates the construct
 | Program                  | bugs | church | edward2 | gen | jags | numpyro | pymc | pyro | stan | turing | webppl |
 |--------------------------|------|--------|---------|-----|------|---------|------|------|------|--------|--------|
 | `steps/let_step`         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `steps/marginalize_step` | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `steps/marginalize_step` | yes  | yes    | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/observe_step`     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/return_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/sample_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -437,7 +437,7 @@ bugs cannot score a draw from `BetaBinomial`: the BUGS distribution catalogue ha
 
 Refused for: [`zip_regression`](examples/zip-regression.md).
 
-Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
 
 Reported kinds:
 
@@ -642,7 +642,7 @@ church has no `BetaBinomial` distribution. Pick a family this target supports, o
 
 Refused for: [`zip_regression`](examples/zip-regression.md).
 
-Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
 
 Reported kinds:
 
@@ -886,7 +886,25 @@ encoder_decl
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
-**`marginalize:ungrouped-over-plate:state`**
+**`marginalize:no-log-weight:cls`**
+
+Refused for: `steps/marginalize_step`.
+
+Renders on: `bugs`, `church`, `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:no-log-weight:cls
+```
+
+`gen` on `steps/marginalize_step` reports:
+
+```text
+`marginalize cls` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
+```
+
+**`marginalize:no-log-weight:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
 
@@ -895,13 +913,31 @@ Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 Reported kinds:
 
 ```text
-marginalize:ungrouped-over-plate:state
+marginalize:no-log-weight:state
 ```
 
 `gen` on `hmm` reports:
 
 ```text
-`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density therefore accumulates the body's rows and reduces over the latent once, and Gen.jl scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+`marginalize state` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
+```
+
+**`marginalize:no-log-weight:z`**
+
+Refused for: [`lda`](examples/lda.md), [`zip_regression`](examples/zip-regression.md).
+
+Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:no-log-weight:z
+```
+
+`gen` on `lda` reports:
+
+```text
+`marginalize z` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
 ```
 
 ### jags

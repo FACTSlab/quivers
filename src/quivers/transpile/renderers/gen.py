@@ -99,7 +99,6 @@ from quivers.transpile.ir import (
     is_real_vector,
 )
 from quivers.transpile.renderers._base import (
-    refuse_ungrouped_row_marginalize,
     BlockKind,
     RendererBase,
     SchemaFragment,
@@ -1613,7 +1612,9 @@ class GenRenderer(RendererBase):
         zero-inflation indicator pinned to 0 gates its rate to that
         boundary on every row.
         """
-        refuse_ungrouped_row_marginalize("qvr-gen", node)
+        raise UnsupportedConstruct(
+            "qvr-gen", [f"marginalize:no-log-weight:{node.latent}"],
+        )
         explicit = self.explicit_latent_scope(node)
         for inner in explicit:
             self._emit_node(ctx, inner)

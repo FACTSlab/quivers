@@ -195,12 +195,24 @@ for _scan_example in (
 #    own, which gives every row a draw the source never declares, so
 #    they refuse rather than emit a different measure.
 for _ungrouped_backend in (
-    "bugs", "church", "edward2", "gen", "jags", "pymc", "turing",
+    "bugs", "church", "edward2", "jags", "pymc", "turing",
 ):
     if _ungrouped_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_ungrouped_backend, "hmm")] = (
             "marginalize:ungrouped-over-plate"
         )
+
+
+# 7. `gen` refuses every `marginalize`: its `@gen` DSL has no way to
+#    add a free log-density term to a trace, so it can only emit the
+#    latent as a draw, which denotes a measure on a larger space than
+#    the block means.
+for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
+    for _syntax_backend in _SYNTAX_CHECKS:
+        if _syntax_backend == "gen":
+            _EXPECTED_UNSUPPORTED[("gen", _gen_marginalize_model)] = (
+                "marginalize:"
+            )
 
 
 @pytest.mark.parametrize(
