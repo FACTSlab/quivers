@@ -194,7 +194,9 @@ for _scan_example in (
 #    rows and reduces once. These four targets reduce each row on its
 #    own, which gives every row a draw the source never declares, so
 #    they refuse rather than emit a different measure.
-for _ungrouped_backend in ("bugs", "edward2", "jags", "pymc"):
+for _ungrouped_backend in (
+    "bugs", "church", "edward2", "gen", "jags", "pymc", "turing",
+):
     if _ungrouped_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_ungrouped_backend, "hmm")] = (
             "marginalize:ungrouped-over-plate"
