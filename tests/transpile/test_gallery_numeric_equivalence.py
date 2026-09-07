@@ -820,67 +820,19 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # whose spread is constant to within `adaptive_atol` belongs outside
 # the registry; nothing else does.
 _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    # Cells whose transpile succeeds and whose container cannot score
-    # the result. Each row carries the error that container actually
-    # returned on the six-point set, re-measured rather than
-    # inherited: a rationale that outlives its defect is worse than no
-    # rationale, because it reads as a reason to leave the cell alone.
+    # `numpyro` on zip_regression waits on its probe image, not on the
+    # emission. The image pins numpyro 0.15.3, whose
+    # `Poisson(rate=0).log_prob(0)` returns `nan` where the density is
+    # `log 1 = 0`, and a zero rate is exactly what the off atom of a
+    # zero-inflated model carries. The Dockerfile now pins a release
+    # where that is fixed, so this row goes with the rebuild.
     #
-    # `gen` cannot score a marginalized latent at all.
-    # `Gen.assess` requires every traced address to be constrained,
-    # and the address a `marginalize` block enumerates is by
-    # construction not: hmm reports `KeyError: key :state not found`,
-    # lda and zip_regression `KeyError: key (:z, 1) not found`. The
-    # renderer would have to emit the reduced measure as a bare
-    # log-weight rather than as a traced choice, which Gen expresses
-    # through `Gen.project` on a selection rather than through
-    # `assess`.
-    # `turing` mis-types the row it gathers out of a matrix.
-    # hmm hands `Categorical` a `Vector{Float64}` where the
-    # constructor resolved to a `SubArray` view of the emission
-    # matrix (`MethodError: Cannot convert ...`), and lda indexes a
-    # scalar as though it were the per-word topic weight vector
-    # (`BoundsError: attempt to access Float64 at index [2]`). Both
-    # are gather-shape defects in the renderer rather than engine
-    # limits.
-    # `stan` on hmm is the one row here where the two sides compute
-    # different densities, and the evidence says the reference is the
-    # one out of step with the language.
-    #
-    # `marginalize state <- Categorical(initial_row)` carries no
-    # index and no `over =` clause, so it declares one latent, and
-    # the twelve observations of the enclosed `observe obs : Step`
-    # are conditioned on that one draw. `docs/semantics/programs.md`
-    # §2.6 realises the pushforward "by log-sum-exp on the
-    # accumulated log-likelihood": accumulate the body over its
-    # plate, then reduce over the latent, which is
-    # `log sum_k pi(k) prod_n p(obs_n | k)`. §2.7's grouped form
-    # reduces per group `g` and agrees. That is what Stan emits.
-    #
-    # The reference reduces inside the plate instead, giving each row
-    # its own draw: `sum_n log sum_k pi(k) p(obs_n | k)`. The two are
-    # -32.060161 and -33.584302 at the ground-truth point, and their
-    # difference of 1.524126 nats is exactly the diff the cell
-    # reports there; the spread across the point set is 2.19, and the
-    # per-point difference changes sign, which is why no constant
-    # absorbs it.
-    #
-    # Every other live backend matches the reference, so making Stan
-    # match too would be a one-line change and would propagate the
-    # reading the semantics does not describe. Which side moves is a
-    # question about what an ungrouped `marginalize` over a plated
-    # `observe` means, and it is settled in the compiler and the
-    # reference rather than in a renderer.
-    # `stan` and `numpyro` on zip_regression: numpyro returns `nan`
-    # at every point, its `Poisson` computing `log(rate) * value`
-    # where the reference uses an `xlogy` form that is defined at a
-    # zero rate, which is exactly what a zero-inflated model produces.
+    # That the emission is right was measured rather than assumed:
+    # the emitted source run under `numpyro.infer.util.log_density`
+    # against a current numpyro, with the probe's own reshaped
+    # payload, returns -651.68915 where the reference is
+    # -651.6888427734375.
     ('numpyro', 'zip_regression'),
-    # `webppl` on lda returns a null density, which is how
-    # `JSON.stringify` renders a `NaN` accumulated into the
-    # log-weight. The emission itself is well formed and its
-    # Dirichlet concentrations reach WebPPL as vectors, so the defect
-    # is numerical rather than structural.
 })
 
 
