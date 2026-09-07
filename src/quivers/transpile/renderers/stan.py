@@ -74,15 +74,17 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprIndex,
     LetExprList,
     LetExprNode,
+    LetExprBinOp,
+    LetExprLiteral,
     LetExprVar,
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
 from quivers.transpile.family_meta import (
+    marginalize_support,
     FAMILY_META,
     FamilyMeta,
-    finite_enumerable_at_call_site,
 )
 from quivers.transpile.ir import (
     ConstraintSpec,
@@ -281,6 +283,7 @@ class StanRenderer(RendererBase):
         # `lps_<latent>` accumulators per marginalize call site,
         # used to thread per-group log-sums through scope observes.
         self._marginalize_var: str | None = None
+        self._marginalize_family: str | None = None
         self._marginalize_latent_card: int | None = None
         self._marginalize_group_idx: tuple[str, ...] = ()
         # True while the active marginalize keys its accumulator by
@@ -346,6 +349,7 @@ class StanRenderer(RendererBase):
         }
         self._marginalize_stack = ()
         self._marginalize_var = None
+        self._marginalize_family = None
         self._marginalize_latent_card = None
         self._marginalize_group_idx = ()
         self._marginalize_per_row = False
@@ -1726,9 +1730,18 @@ class StanRenderer(RendererBase):
         `lps_<latent>` accumulator, per-`k` log-pmf contributions,
         then `target += log_sum_exp(lps[...])`.
 
-        Continuous latents (ContinuousBernoulli, Beta, ...) cannot be
-        enumerated; Stan's HMC samples them jointly with the model's
-        other parameters. The renderer treats the marginalize like a
+        Whether a latent is enumerated is decided by the support the
+        family *declares for a marginalize head*, not by the
+        constraint its draws live in. A relaxation family carries a
+        hard support there (`ContinuousBernoulli` declares the two
+        atoms of the Bernoulli it relaxes), and the compiler
+        enumerates it, so reading the unit-interval constraint instead
+        would declare a live latent where the reference integrates and
+        score a measure on a larger space.
+
+        Latents whose family declares no finite support (Beta, ...)
+        cannot be enumerated; Stan's HMC samples them jointly with the
+        model's other parameters. The renderer treats the marginalize like a
         sample step plus inline scope: the latent becomes a Stan
         parameter with the appropriate constrained type, the latent's
         draw renders as a `target += <family>_lpdf(...)` increment,
@@ -1747,9 +1760,16 @@ class StanRenderer(RendererBase):
                 [f"family:unknown:{node.family}"],
             )
         latent_sup = node.constraint.to_constraint()
-        if _is_continuous_support(latent_sup):
+        # `finite_enumerable_at_call_site` answers the plate question,
+        # whether the marginalize index sizes the family's own
+        # support; `marginalize_support` answers the integration one.
+        # A relaxation family replicates along its index and is still
+        # integrable over its two atoms, so the latter is what decides
+        # between enumerating and declaring a live latent.
+        integrable = marginalize_support(meta) is not None
+        if not integrable and _is_continuous_support(latent_sup):
             return self._marginalize_continuous(ctx, node, meta)
-        if not finite_enumerable_at_call_site(meta, node.args):
+        if not integrable:
             raise UnsupportedConstruct(
                 "qvr-stan",
                 [f"marginalize:non-finite-support:{node.family}"],
@@ -1814,11 +1834,13 @@ class StanRenderer(RendererBase):
         #    inner-loop that accumulates per-k contributions into
         #    `lps[<accumulator index>, k]`.
         prev_marg_var = self._marginalize_var
+        prev_marg_family = self._marginalize_family
         prev_marg_card = self._marginalize_latent_card
         prev_group_idx = self._marginalize_group_idx
         prev_per_row = self._marginalize_per_row
         prev_stack = self._marginalize_stack
         self._marginalize_var = lps_name
+        self._marginalize_family = node.family
         self._marginalize_latent_card = latent_card
         self._marginalize_group_idx = acc_loop_names
         self._marginalize_per_row = per_row
@@ -1830,6 +1852,7 @@ class StanRenderer(RendererBase):
                 )
         finally:
             self._marginalize_var = prev_marg_var
+            self._marginalize_family = prev_marg_family
             self._marginalize_latent_card = prev_marg_card
             self._marginalize_group_idx = prev_group_idx
             self._marginalize_per_row = prev_per_row
@@ -2433,8 +2456,17 @@ class StanRenderer(RendererBase):
         `[0, 1]`; the true K comes from the actual call-site arg
         shape.
         """
-        del ctx, meta
-        # First, inspect the args for a definitive cardinality.
+        del ctx
+        # A family that declares its own marginalize support says how
+        # many atoms it has, whatever its draws' constraint looks
+        # like. A relaxation family is the case that needs it: its
+        # `probs` argument is one probability per row rather than a
+        # simplex over the support, so reading the arg's shape would
+        # report the row count where the support has two atoms.
+        declared = marginalize_support(meta)
+        if declared is not None and declared.atoms == "binary":
+            return declared.size
+        # Otherwise inspect the args for a definitive cardinality.
         if node.args:
             first = node.args[0]
             if isinstance(first, IRArgRef):
@@ -2595,17 +2627,47 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(op, "assignment_op")
         ctx.sb.constraint(op, "literal-value", "=")
         ctx.sb.edge(asn, op, "child_of")
-        # RHS: <stan_name>_lpmf(k | latent_args with z->k)
+        # RHS: <stan_name>_lpmf(<atom> | latent_args with z-><atom>)
+        #
+        # A relaxation family weights its two atoms by the discrete
+        # family it relaxes, which is what it declares in its
+        # marginalize support: `ContinuousBernoulli` carries the
+        # Bernoulli's `[log(1 - p), log p]`, not its own continuous
+        # density, and its atoms are 0 and 1 rather than the loop's 1
+        # and 2.
+        declared = marginalize_support(latent_meta)
+        binary_atoms = declared is not None and declared.atoms == "binary"
+        if binary_atoms and declared.weight_family is not None:
+            weight_meta = FAMILY_META.get(declared.weight_family)
+            weight_name = (
+                weight_meta.target_names.get("stan")
+                if weight_meta is not None
+                else None
+            ) or stan_name
+        else:
+            weight_name = stan_name
         de = self._fresh(ctx, "ide")
         ctx.sb.vertex(de, "distr_expression")
         fn_id = self._fresh(ctx, "ifid")
         ctx.sb.vertex(fn_id, "identifier")
-        ctx.sb.constraint(fn_id, "literal-value", f"{stan_name}_lpmf")
+        ctx.sb.constraint(fn_id, "literal-value", f"{weight_name}_lpmf")
         ctx.sb.edge(de, fn_id, "name")
         dal = self._fresh(ctx, "idal")
         ctx.sb.vertex(dal, "distr_argument_list")
-        # First arg: k
-        k_ve = self._variable_expression(ctx, "k")
+        # First arg: the atom this iteration scores.
+        if binary_atoms:
+            k_ve = render_let_expr_stan(
+                _StanLetCtx(
+                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
+                ),
+                LetExprBinOp(
+                    op="-",
+                    left=LetExprVar(name="k"),
+                    right=LetExprLiteral(value=1.0),
+                ),
+            )
+        else:
+            k_ve = self._variable_expression(ctx, "k")
         ctx.sb.edge(dal, k_ve, "child_of")
         # Subsequent: the latent's args, with refs to per-group
         # parameter arrays indexed by the group loop variable.
@@ -2909,6 +2971,58 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(v, "literal-value", repr(float(value)))
         return v
 
+    def _index_outer_plated_refs(
+        self, expr: LetExprNode, row_name: str
+    ) -> LetExprNode:
+        """Index a scope-local `let`'s references to outer plated
+        arrays by the row the scope is iterating.
+
+        The body of a `marginalize` is emitted inside a loop over the
+        block's rows, so a name the program bound over that same plate
+        (`let rate = exp(ar + br * x)`, one entry per response) reads
+        as one entry there rather than as the whole array. Inlining
+        the `let` verbatim would hand Stan an `array[] real` where the
+        density wants a `real`, which it rejects at compile time.
+        """
+        if isinstance(expr, LetExprVar):
+            declared = self._declared_shapes.get(expr.name)
+            if declared is None:
+                return expr
+            _, plate = declared
+            if not plate.batch_dims:
+                return expr
+            return LetExprIndex(
+                array=LetExprVar(name=expr.name),
+                indices=(LetExprVar(name=row_name),),
+            )
+        if isinstance(expr, LetExprBinOp):
+            return LetExprBinOp(
+                op=expr.op,
+                left=self._index_outer_plated_refs(expr.left, row_name),
+                right=self._index_outer_plated_refs(expr.right, row_name),
+            )
+        return expr
+
+    def _latent_atom_expr(self) -> LetExprNode:
+        """The value the latent takes on iteration `k` of the scope.
+
+        Stan counts from one, and for a family whose marginalize index
+        *is* its support that is the value: `categorical_lpmf(k | ...)`
+        reads class `k`. A relaxation family's atoms are the two
+        numbers 0 and 1, which the body multiplies and adds like any
+        other value, so there the atom is `k - 1`. Substituting the
+        loop variable itself would score the block at 1 and 2.
+        """
+        meta = FAMILY_META.get(self._marginalize_family or "")
+        declared = marginalize_support(meta) if meta is not None else None
+        if declared is not None and declared.atoms == "binary":
+            return LetExprBinOp(
+                op="-",
+                left=LetExprVar(name="k"),
+                right=LetExprLiteral(value=1.0),
+            )
+        return LetExprVar(name="k")
+
     def _render_ref(
         self, ctx: _RenderCtx, arg: IRArgRef
     ) -> SchemaFragment:
@@ -2922,13 +3036,24 @@ class StanRenderer(RendererBase):
             expr = self._marginalize_let_subs[arg.name]
             latent = self._current_latent_name()
             if latent is not None:
-                k_ref = LetExprVar(name="k")
+                k_ref = self._latent_atom_expr()
                 expr = _substitute_let_expr(
                     expr,
                     latent,
                     index_value=k_ref,
                     scalar_value=k_ref,
                 )
+                row_names = (
+                    self._observe_scope_loop_names(
+                        self._marginalize_stack[-1].batch_dims
+                    )
+                    if self._marginalize_stack
+                    else ()
+                )
+                if row_names:
+                    expr = self._index_outer_plated_refs(
+                        expr, row_names[-1]
+                    )
             return render_let_expr_stan(
                 _StanLetCtx(
                     ctx.sb, lambda p: self._fresh(ctx, p), self._cards
