@@ -240,21 +240,36 @@ _NO_EXPORTED_PROGRAM: dict[str, str] = {
 # whose exported value cannot yet be compared, each with the single
 # defect that blocks it and the measurement the container produced.
 #
-# **Currently empty**: every cell whose probe run completes, 250 of
-# them at the last measurement, has its exported value compared at
-# every point and elementwise, and the widest of the 250 sits at 0.77
-# of the round-off budget. No cell fails on its export alone: where a
-# cell does not report an export it also does not report a joint, so
-# the density tier records it and this registry has nothing to hold.
-# The registry stays because the alternative to an empty
-# registry is a `pytest.skip` reached by a bare `except`, which is how
-# a tier stops asserting anything without anyone noticing;
+# One row. Every other cell whose probe run completes has its
+# exported value compared at every point and elementwise, and the
+# widest sits at 0.77 of the round-off budget. A cell reaches this
+# registry only when its density is scored and its export is not,
+# which is why the alternative, a `pytest.skip` reached by a bare
+# `except`, is not used: that is how a tier stops asserting anything
+# without anyone noticing, and
 # `test_export_skip_registry_is_disjoint_from_the_gallery_skips`
-# keeps any future row honest.
+# keeps each row honest.
 #
-# Closure path for a row added later: fix the named defect,
-# re-measure the cell, drop the row.
-_SKIP_EXPORT_INCOMPATIBLE: dict[tuple[str, str], str] = {}
+# Closure path: fix the named defect, re-measure the cell, drop the
+# row.
+_SKIP_EXPORT_INCOMPATIBLE: dict[tuple[str, str], str] = {
+    ("stan", "zip_regression"): (
+        "the export tier evaluates `generated quantities` through a "
+        "one-draw `fixed_param` run, and Stan validates the initial "
+        "value's gradient before it writes that draw. The block "
+        "enumerates the two atoms of the Bernoulli its "
+        "`ContinuousBernoulli` relaxes, and the off atom scores "
+        "`poisson_lpmf(y | 0)`, which is `-inf` wherever `y > 0`: "
+        "correct, and what the reference computes, but its derivative "
+        "is `0 * inf`, so the gradient is not finite and the run is "
+        "rejected before sampling. The density tier is unaffected, "
+        "since `log_prob` needs no gradient, and it scores this cell "
+        "against the reference at every point. Closing this wants the "
+        "off atom's rate emitted as a literal zero rather than as a "
+        "product with the response's rate, which is a constant whose "
+        "derivative is zero."
+    ),
+}
 
 
 def _cell_skip_reason(backend: str, example: str) -> str | None:
