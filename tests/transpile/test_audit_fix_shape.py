@@ -234,24 +234,38 @@ def test_zip_scope_let_propagates_the_plate_upstream() -> None:
         assert [d.name for d in node.plate.batch_dims] == ["Resp"], name
 
 
-def test_zip_stan_declares_gated_rate_as_a_response_array() -> None:
-    """Stan declares every ZIP transformed parameter over 400 responses."""
+def test_zip_stan_declares_the_rate_as_a_response_array() -> None:
+    """Stan declares every ZIP transformed parameter over 400 responses.
+
+    `gated_rate` is not among them. It is the scope-local `let` of a
+    `marginalize` block, so it exists once per atom rather than once
+    per response, and the enumeration inlines it at each atom instead
+    of declaring an array the block would have to index.
+    """
     emitted = _nospace(_emit("zip_regression", "stan"))
-    for name in ("ar", "br", "rate", "gated_rate"):
+    for name in ("ar", "br", "rate"):
         assert f"array[400]real{name};" in emitted, name
-    assert "gated_rate[m_Resp]=z[m_Resp]*rate[m_Resp];" in emitted
+    assert "array[400]realgated_rate;" not in emitted
 
 
 def test_zip_stan_indexes_the_rate_inside_the_response_loop() -> None:
-    """The Poisson likelihood reads the per-response gated rate.
+    """The Poisson likelihood reads the per-response rate at each atom.
 
-    Stan scores the draw with an explicit `target += poisson_lpmf(...)`
-    increment; the `~` spelling drops the `- lgamma(y + 1)` term, which
-    is data-dependent and part of the QVR measure.
+    The block enumerates the two atoms of the Bernoulli its
+    `ContinuousBernoulli` relaxes, so the gated rate is the atom's
+    value times the response's rate, and Stan counts from one where
+    the atoms are 0 and 1. The likelihood is scored with an explicit
+    `poisson_lpmf` increment; the `~` spelling drops the
+    `- lgamma(y + 1)` term, which is data-dependent and part of the
+    QVR measure.
     """
     emitted = _nospace(_emit("zip_regression", "stan"))
-    assert "target+=poisson_lpmf(y[m_Resp]|gated_rate[m_Resp]);" in emitted
+    assert (
+        "lps_z[n_Resp,k]+=poisson_lpmf(y[n_Resp]|(k-1)*rate[n_Resp]);"
+        in emitted
+    )
     assert "y[m_Resp]~poisson(" not in emitted
+    assert "y[n_Resp]~poisson(" not in emitted
 
 
 # ---------------------------------------------------------------------------
