@@ -870,6 +870,8 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # `test_backend_offset_matches_registry` stays red for this cell
     # until the renderer emits it.
     ('jags', 'lda'): _derived(half_sites=0, dropped_sites=0),
+    ('turing', 'lda'): _derived(half_sites=0, dropped_sites=0),
+    ('webppl', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('bugs', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('edward2', 'lda'): _derived(half_sites=0, dropped_sites=0),
     ('numpyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
@@ -1041,6 +1043,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # offset: the rendered source carries no lift constant on any of
     # the 400 rows. `bugs` is absent because its cell raises in
     # transpile, its renderer carrying no path to the family at all.
+    ('stan', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('edward2', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('jags', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
     ('pymc', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
