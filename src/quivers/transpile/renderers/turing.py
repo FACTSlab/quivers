@@ -2091,15 +2091,14 @@ def _class_axis_slice(
     """How to slice atom ``k`` off a probability tensor's class axis.
 
     Returns the number of leading `:` axes for a dense array, or
-    `None` when the value is a nested container of per-row simplices
-    and the slice has to map `getindex` over it. A `Categorical` atom
-    set reads its weights off the innermost axis of the probability
-    argument, and which of the two shapes that axis sits in follows
-    from the referenced name's declared plate: `initial_row` is one
-    simplex sliced as `w[k]`; a `theta` declared over a `Doc` batch is
-    a dense `Doc`-by-`Topic` matrix sliced as `w[:, k]`; the same
-    `theta` gathered through a fibration is a vector of simplex rows
-    sliced as `getindex.(w, k)`.
+    A `Categorical` atom set reads its weights off the innermost axis
+    of the probability argument, and where that axis sits follows from
+    the referenced name's declared plate: `initial_row` is one simplex
+    sliced as `w[k]`, and a `theta` declared over a `Doc` batch is a
+    dense `Doc`-by-`Topic` matrix sliced as `w[:, k]`. A `theta`
+    gathered through a fibration is the same dense shape, one row per
+    gathered index, because the gather slices the rows out rather than
+    viewing them.
     """
     if not isinstance(probs, IRArgRef):
         raise UnsupportedConstruct(
@@ -2129,7 +2128,8 @@ def _class_axis_slice(
             ],
         )
     if probs.indices:
-        return None
+        # One row per gathered index, and the class axis behind it.
+        return 1
     return len(plate.batch_dims)
 
 
@@ -2239,14 +2239,20 @@ def _ref_to_julia(
         else:
             rendered_indices.append(_arg_to_julia(ctx, idx))
     if parent_event_dim > 0:
-        # `phi` is a matrix-shaped distribution sample; index its rows.
-        eachrow = _call(
+        # `phi` is a matrix-shaped distribution sample; take its rows.
+        #
+        # `phi[k, :]` rather than `eachrow(phi)[k]`, because the two
+        # differ in more than spelling: the slice copies and the view
+        # does not. A `Categorical` built from a row *view* is
+        # parameterised by the view's type, and Distributions.jl then
+        # cannot store the normalised `Vector` it computes back into
+        # it. The copy costs one row and the constructor accepts it.
+        return _index_expr(
             sb,
             counter,
-            _identifier(sb, counter, "eachrow"),
-            (base,),
+            base,
+            (*rendered_indices, _colon(sb, counter)),
         )
-        return _index_expr(sb, counter, eachrow, tuple(rendered_indices))
     return _index_expr(sb, counter, base, tuple(rendered_indices))
 
 
@@ -2575,15 +2581,24 @@ def _mark_arg_refs_batch_shaped(
     `ctx.batch_shaped_names`, recursively descending into the
     deterministic's RHS so a chain
     ``observe y <- Normal(mu, 0.3); let mu = a + b * x_design``
-    marks `mu` AND `x_design` (the un-plated input whose use under a
-    plated observe's `loc` implies a per-element value)."""
+    marks `mu` AND `x_design`.
+
+    An input is marked only when it carries a batch plate of its own.
+    Its use under a plated site does not make it per-element: a scalar
+    program parameter (`program lda(alpha : Real, ...)`) reaches a
+    plated `Dirichlet(alpha)` as one number shared by every row, and
+    indexing it by the row would read `alpha[2]` off a `Float64`."""
     if isinstance(arg, IRArgRef):
         name = arg.name
         if name in dets and name not in ctx.batch_shaped_names:
             ctx.batch_shaped_names.add(name)
             for ref in _let_expr_var_refs(dets[name].expr):
                 _mark_name_batch_shaped(ref, ctx, dets)
-        elif name in ctx.input_plates and name not in ctx.batch_shaped_names:
+        elif (
+            ctx.input_plates.get(name) is not None
+            and ctx.input_plates[name].batch_dims
+            and name not in ctx.batch_shaped_names
+        ):
             ctx.batch_shaped_names.add(name)
         for idx in arg.indices:
             _mark_arg_refs_batch_shaped(idx, ctx, dets)
@@ -2614,7 +2629,10 @@ def _mark_name_batch_shaped(
         ctx.batch_shaped_names.add(name)
         for ref in _let_expr_var_refs(dets[name].expr):
             _mark_name_batch_shaped(ref, ctx, dets)
-    elif name in ctx.input_plates:
+    elif (
+        ctx.input_plates.get(name) is not None
+        and ctx.input_plates[name].batch_dims
+    ):
         ctx.batch_shaped_names.add(name)
 
 

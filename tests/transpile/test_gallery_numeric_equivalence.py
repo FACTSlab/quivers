@@ -843,7 +843,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # (`BoundsError: attempt to access Float64 at index [2]`). Both
     # are gather-shape defects in the renderer rather than engine
     # limits.
-    ('turing', 'lda'),
     # `stan` on hmm is the one row here where the two sides compute
     # different densities, and the evidence says the reference is the
     # one out of step with the language.
