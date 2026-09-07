@@ -1208,16 +1208,28 @@ class WebPPLRenderer(RendererBase):
                 ],
             )
         log_probs = f"{prefix}_w"
-        self._emit_var_decl(
-            ctx,
-            self._body_vid,
-            log_probs,
-            self._call(
+        if isinstance(probs, IRArgRef) and probs.indices:
+            # A grouped block reads its prior through a fibration, so
+            # the weights are one row of the grouping plate per
+            # observation. JavaScript subscripts an array with a
+            # single integer and yields `undefined` for an array of
+            # them, so the gather is a map and the logarithm is taken
+            # inside it.
+            weight_vid = self._call(
+                ctx,
+                self._ident(ctx, "_qvr_gather_log"),
+                (
+                    self._ident(ctx, probs.name),
+                    self._render_arg(ctx, probs.indices[0]),
+                ),
+            )
+        else:
+            weight_vid = self._call(
                 ctx,
                 self._ident(ctx, "log"),
                 (self._render_arg(ctx, probs),),
-            ),
-        )
+            )
+        self._emit_var_decl(ctx, self._body_vid, log_probs, weight_vid)
         names: list[str] = []
         for position in range(len(atoms)):
             name = f"{prefix}_w_{position}"
