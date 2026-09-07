@@ -876,7 +876,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # where the reference uses an `xlogy` form that is defined at a
     # zero rate, which is exactly what a zero-inflated model produces.
     ('numpyro', 'zip_regression'),
-    ('stan', 'zip_regression'),
     # `webppl` on lda returns a null density, which is how
     # `JSON.stringify` renders a `NaN` accumulated into the
     # log-weight. The emission itself is well formed and its
