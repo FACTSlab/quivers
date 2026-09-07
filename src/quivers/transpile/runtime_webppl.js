@@ -192,6 +192,15 @@ var _qvr_take_last = function(x, k) {
   }
   return x[k];
 };
+var _qvr_gather_log = function(rows, idx) {
+  // Gather one row of `rows` per entry of `idx` and take its
+  // elementwise logarithm. A grouped `marginalize` reads its per-row
+  // prior through a fibration, so the weights are the grouping
+  // plate's rows selected once per observation. JavaScript indexes an
+  // array with one integer and yields `undefined` for an array of
+  // them, so the gather is a map rather than a subscript.
+  return map(function(i) { return log(rows[i]); }, idx);
+};
 var _qvr_concat = function(rows, i) {
   // Concatenate `rows` (an array of arrays) from index `i` onward.
   // WebPPL's `reduce` is a right fold, which would reverse the

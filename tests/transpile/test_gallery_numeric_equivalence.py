@@ -882,7 +882,6 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
     # log-weight. The emission itself is well formed and its
     # Dirichlet concentrations reach WebPPL as vectors, so the defect
     # is numerical rather than structural.
-    ('webppl', 'lda'),
 })
 
 
