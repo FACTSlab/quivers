@@ -1,12 +1,12 @@
 """Per-backend structural-assertion helpers.
 
 A transpile output's panproto schema must satisfy a backend-specific
-shape contract that goes beyond "parses with the tree-sitter grammar."
+shape contract in addition to parsing with the tree-sitter grammar.
 The helpers here walk an emitted
 [`panproto.Schema`][panproto.Schema] and assert presence, counts,
-nesting, and field-edge wiring of specific vertices. They catch
-silent regressions like empty blocks, missing tilde statements, or
-duplicated `with pymc.Model()` instantiations.
+nesting, and field-edge wiring of specific vertices, including empty
+blocks, missing tilde statements, and duplicated
+`with pymc.Model()` instantiations.
 
 The assertion vocabulary is grammar-agnostic; each backend supplies
 the vertex kinds and field labels it cares about. Common idioms:

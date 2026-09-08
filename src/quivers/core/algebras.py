@@ -708,14 +708,13 @@ class CustomBilinearForm(BilinearForm):
     operations.
 
     Use for composition rules whose ``tensor_op`` is **not**
-    associative — for example signed-dot-product or top-k
+    associative — for instance signed-dot-product or top-k
     truncating rules. Callers must pin an association order
     explicitly when chaining; the runtime doesn't promise that
     ``(f >> g) >> h == f >> (g >> h)``.
 
-    No associativity smoke test runs (the construction is honest
-    about non-associativity); a non-associative op would just
-    fail the check anyway.
+    No associativity smoke test runs because the operation may be
+    non-associative.
 
     Parameters
     ----------
@@ -1179,8 +1178,8 @@ class LogProbAlgebra(Algebra):
 
     Tensor is real addition (probability multiplication in log-
     space) and join is `torch.logsumexp` (probability
-    summation in log-space). Pairs naturally with float32
-    numerics for hierarchical-Bayes log-likelihood pipelines.
+    summation in log-space). It supports float32 numerics for
+    hierarchical-Bayes log-likelihood pipelines.
 
         ⊗ = +,   ⋁ = logsumexp,   ⋀ = min,
         I = 0 (log 1), ⊥ = -∞ (log 0).

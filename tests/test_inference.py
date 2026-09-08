@@ -1,4 +1,4 @@
-"""Comprehensive tests for the inference layer and DSL features.
+"""Tests for the inference layer and DSL features.
 
 Tests all the new features we've built:
 1. Inference layer (trace, conditioning, guide, ELBO, SVI, predictive)

@@ -177,7 +177,7 @@ Whenever you're unsure which guide handles a model shape, look at
 
 ## Next
 
-[Chapter 7](07-categorical.md) (optional reading) peeks under the hood at the categorical machinery: algebras, change-of-base, enriched composition. Useful if you want to extend the library or understand the type-error messages fluently. If you're happy with the DSL surface, you can stop here.
+[Chapter 7](07-categorical.md) (optional reading) describes the categorical machinery behind algebras, change-of-base, and enriched composition. It supplies the background needed to extend the library or interpret its algebra type errors. The DSL track otherwise ends here.
 
 
 ## References

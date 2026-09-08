@@ -14,7 +14,7 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 4. **[Mixtures and discrete latents](qvr/04-marginalize.md)**. Finite mixtures and HMM-shaped models via the `marginalize` block: QVR's typed-scope marginalization, the feature that distinguishes it most from Pyro/NumPyro.
 5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and the deduction surface for chart-shaped models. State-space models and HMMs.
 6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over eleven concrete guide classes, seven objectives, two MCMC kernels, and two hybrid approaches. Which combination matches which model shape.
-7. **[Under the hood: the categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* What QVR is doing underneath: algebras as enrichment algebras, `>>` as enriched composition, change-of-base as a functor. Useful when you want to extend the library or read the type errors fluently.
+7. **[The categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* Algebras as enrichment algebras, `>>` as enriched composition, and change-of-base as a functor. This chapter supplies the background needed to extend the library or interpret its algebra type errors.
 8. **[Diagnostics and model comparison](qvr/08-diagnostics-and-comparison.md)**. ArviZ end-to-end: `to_datatree`, convergence diagnostics, posterior-predictive checks, PSIS-LOO model comparison.
 
 You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand.

@@ -12,7 +12,7 @@ success, 1 on any error.
 Flags:
 
 - `--json`: emit a single JSON document on stdout containing the
-  full diagnostic list. Suitable for CI / pre-commit hooks.
+  full diagnostic list, as expected by CI and pre-commit hooks.
 
 Diagnostic codes:
 
@@ -52,8 +52,8 @@ Flags:
 
 Directory arguments are walked recursively; individual `.qvr`
 files may also be supplied. The migration tooling is built on the
-in-tree panproto VCS at `grammars/qvr/vcs/`, so adding a new
-release is purely additive to the migrations package.
+in-tree panproto VCS at `grammars/qvr/vcs/`. A new release adds a
+migration without changing the earlier migration steps.
 
 ## `qvr repl [FILE]`
 

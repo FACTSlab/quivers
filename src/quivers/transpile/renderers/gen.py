@@ -1589,28 +1589,8 @@ class GenRenderer(RendererBase):
     def _emit_marginalize(
         self, ctx: _RenderCtx, node: IRMarginalize
     ) -> None:
-        """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to an explicit draw of the latent plus the scope inline.
-
-        This is the *draw*, not the integral, so the emitted program
-        denotes a measure on the product of the latent's support with
-        the scope's rather than the marginal the QVR reference scores.
-        Closing that needs a log-weight carrier Gen's `@gen` DSL does
-        not have: `Gen.assess` requires every traced address to be
-        constrained, so an extra `@trace` cannot carry the reduced
-        density, and folding the reduction into the observed site's
-        own distribution needs a `Gen.Distribution` whose `logpdf`
-        returns a precomputed value. That belongs in
-        [`runtime_gen.jl`][quivers.transpile.runtime_gen] beside the
-        existing grafts.
-
-        `Gen.HomogeneousMixture` is the one built-in that carries a
-        finite mixture, and it does not cover the gallery: its
-        component densities go through the base distribution's own
-        `Gen.logpdf`, and `Gen.logpdf(poisson, 0, 0.0)` is `NaN` where
-        the reference scores the point mass at 0 exactly. A
-        zero-inflation indicator pinned to 0 gates its rate to that
-        boundary on every row.
+        """Reject `IRMarginalize` because Gen's `@gen` DSL has no supported carrier for
+        the reduced log density.
         """
         raise UnsupportedConstruct(
             "qvr-gen", [f"marginalize:no-log-weight:{node.latent}"],

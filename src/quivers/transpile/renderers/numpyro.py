@@ -1,41 +1,8 @@
-"""NumPyro renderer: [`IRProgram`][quivers.transpile.ir.IRProgram] to
-Python source under the `python` tree-sitter grammar.
+"""Render transpilation IR as a NumPyro model function.
 
-The output is a single ``def model(<inputs>): ...`` function whose body
-emits each [`IRSample`][quivers.transpile.ir.IRSample] /
-[`IRObserve`][quivers.transpile.ir.IRObserve] inside a stack of
-``with numpyro.plate(<axis>, <size>):`` context managers (one per
-batch dim of the step's
-[`Plate`][quivers.transpile.ir.Plate]). Distributions live under
-``numpyro.distributions.<Family>`` and are emitted as keyword calls
-keyed on each family's torch ``arg_constraints`` name (e.g.
-``numpyro.distributions.Normal(loc=mu, scale=sigma)``); per-backend
-renames declared in
-[`FAMILY_META[family].arg_aliases["numpyro"]`][quivers.transpile.family_meta.FAMILY_META]
-are applied before emission.
-
-Marginalize lowering: [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-is integrated out rather than drawn. The renderer scores one copy of
-the scope per atom of the latent's finite support (see
-[`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]),
-reduces the per-atom log-densities with `logsumexp`, and adds the
-result to the model's log-density through ``numpyro.factor``. No site
-is declared for the latent, so the emitted program denotes the measure
-the QVR reference integrates rather than the larger product measure a
-live draw would denote.
-
-`declare` is a no-op outside ``"function_body"`` because NumPyro has
-no declaration block: every variable is introduced by its
-``numpyro.sample`` call. Function-body declarations (the model's
-parameter list) are handled by the renderer's `render` override that
-threads the [`IRDataInput`][quivers.transpile.ir.IRDataInput] list into
-the ``def model(...)`` parameter list.
-
-`broadcast(value, target_shape)` emits ``jnp.full((K,), value)`` for
-1D shapes and ``jnp.full((R, C), value)`` for 2D shapes; the renderer
-fully-qualifies ``jnp`` so the emitted source is import-aware (the
-function header carries ``import jax.numpy as jnp`` plus
-``import numpyro`` plus ``import numpyro.distributions``).
+Samples and observations use ``numpyro.sample`` inside nested plates.
+Finite marginalizations score each atom and add their ``logsumexp``
+with ``numpyro.factor``. Array broadcasts use ``jax.numpy.full``.
 """
 
 from __future__ import annotations
@@ -1900,7 +1867,7 @@ def _classify_bindings(
     rank-0: an empty plate plus a scalar-support constraint for the
     stochastic / input bindings, and an empty plate whose let-expression
     is not a vector-producing list / factor construct for the
-    deterministic ones. A let-bound scalar literal therefore lands in
+    deterministic ones. A let-bound scalar literal thus lands in
     `scalar_refs` exactly like a free scalar input, so the NumPyro
     broadcast fires on both.
     """

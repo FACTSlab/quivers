@@ -1,52 +1,9 @@
-"""[`WebPPLRenderer`][quivers.transpile.renderers.webppl.WebPPLRenderer]: IR to WebPPL source.
+"""Render transpilation IR as a WebPPL model function.
 
-The renderer subclasses
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase] and
-implements the four dispatch points (`declare`, `sample`,
-`marginalize`, `broadcast`) plus the two arg helpers (`render_list`,
-`render_matrix`). Distribution names live in
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]'s
-`target_names["webppl"]`; no per-renderer family table. Support
-classification dispatches on the predicates exported from
-[`ir.py`][quivers.transpile.ir]; the renderer dispatches purely on
-support predicates and FAMILY_META lookups.
-
-The WebPPL-specific layout decisions:
-
-* Program shape: a single
-  `var model = function(<inputs>) { ... };` declaration. The
-  function parameters are the IR's
-  [`IRDataInput`][quivers.transpile.ir.IRDataInput] names in
-  declaration order; the body's statements come from the IR body.
-* `declare` is a no-op: WebPPL's `var <name> = sample(...);`
-  binding is constructed by `sample` directly.
-* Sample-step plate loops: per batch dim, a `repeat(N, function() {
-  return sample(<dist>); })` when no arg uses the per-element
-  index, or `mapIndexed(function(m, _) { return sample(<dist
-  using m>); }, repeat(N, function() { return 0; }))` when at
-  least one arg refers to a name whose binding plate shares the
-  surrounding batch dim.
-* Observe: when a `via` fibration is present, the renderer threads
-  the per-observe loop variable through every reference whose
-  binding plate matches the fibration's group plate. The emit
-  shape is `mapIndexed(function(n, <obs>_n) { observe(<dist>,
-  <obs>_n); }, <obs>)`.
-* Marginalize: WebPPL has no native enumeration; the inherited
-  [`explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-  helper lowers
-  [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to an
-  explicit `IRSample(latent)` plus the scope body inline. The
-  scope-body renderer then runs each scope node through the
-  ordinary `sample` dispatch.
-* Broadcast: `repeat(K, function() { return <value>; })` per
-  target-shape entry, nested for higher rank.
-* List / matrix args: `[<e0>, <e1>, ...]` for list; nested JS
-  arrays for matrix.
-* `IRArgFamilyRef`: WebPPL has no generic truncation idiom; the
-  renderer resolves the referenced morphism's `init_family` clause
-  and emits the inner distribution call inline.
-* Every emitted statement carries the WebPPL terminating `;` per
-  the JavaScript convention.
+Sites use ``sample`` or ``observe`` inside ``repeat`` or ``mapIndexed``
+plate forms. Finite marginalizations score each atom and add their
+reduced density with ``factor``. Broadcasts use nested ``repeat``
+calls, and wrapper families inline their referenced distribution.
 """
 
 from __future__ import annotations
@@ -2046,7 +2003,7 @@ class WebPPLRenderer(RendererBase):
         The array an index-carrying `mapIndexed` walks when the
         elements themselves are unread: `mapIndexed` takes an array,
         not a count, and WebPPL's `repeat` builds one by calling its
-        second argument, which must therefore be a function rather
+        second argument, which must thus be a function rather
         than the constant it returns.
         """
         body = self._fresh(ctx, "zbody")

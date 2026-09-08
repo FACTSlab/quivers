@@ -1,56 +1,14 @@
-"""Negative controls for the transpile equivalence check.
+"""Mutation tests for numeric-equivalence sensitivity.
 
-The gallery equivalence tier
-([`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence])
-asserts that a transpiled program's log-density differs from the QVR
-reference by a point-independent constant, per Theorem 4.1 of
-[docs/semantics/transpile-correctness.md](../../docs/semantics/transpile-correctness.md).
-A green run of that tier is evidence of nothing on its own. The check
-has twice decayed into a tautology while staying green: first when it
-scored a single point, where the spread of one difference is
-identically zero; then when one example's point set carried
-byte-identical observed data, which restores the same vacuity for any
-backend that drops a data-dependent term. Both times the tier passed
-and proved nothing.
+Each catalogue entry rewrites emitted source for a passing gallery
+cell so the target program denotes a different measure. The mutated
+source must remain valid in its backend, and its log-density difference
+from QVR must exceed both the equivalence tolerance and the mutation
+minimum spread.
 
-This module supplies the missing half of the argument. For an
-explicitly enumerated grid of `(example, backend)` cells the gallery
-tier currently passes, it takes the **emitted backend program**,
-rewrites it into a program denoting a different measure, and asserts
-the equivalence check **fails** on the mutant. The catalogue of
-rewrites lives in
-[`tests.transpile._mutations`][tests.transpile._mutations] and is
-grounded in defects this codebase shipped: a family's arguments
-transposed, a sampling operator dropping data-only summands, a
-marginalize block lowered to a live draw, a continuous value
-truncated to an integer, a gather reading one index off.
-
-Three test families run here:
-
-1. **Rejection.** Every catalogue mutant must produce a spread above
-   the equivalence tolerance, and above a pinned per-mutation floor.
-   The floor is what makes this a decay alarm rather than a one-off
-   demonstration: a mutant whose spread collapses toward the
-   tolerance because the point set stopped moving still clears
-   `spread > atol` for a while, and the floor trips first.
-2. **Acceptance.** A rewrite that shifts the log-density by a
-   constant must pass. Without it, every rejection above would be
-   satisfied by a check that fails on everything.
-3. **Blind spots.** Rewrites the check provably does *not* reject,
-   pinned as measured facts. Each is a defect the constant-spread
-   contract cannot see: a support constraint erased, a truncation
-   dropped, an exported value negated. Asserting they stay invisible
-   keeps the registry honest, and each entry states what a check able
-   to catch it would have to look at instead.
-
-Runtime: each mutant costs one container invocation, so the grid is a
-deterministic, hand-picked subset rather than the full cross-product
-of catalogue and backends. Every backend that ships a probe image
-carries at least four mutations, and every defect class is exercised
-on at least four backends. Nothing here is sampled; a randomised
-subset would make the suite's measured sensitivity a different number
-on every run, and a mutation that stopped being rejected could hide
-behind a run that never selected it.
+The tests verify exact rewrite occurrence counts, catalogue coverage,
+and acceptance of the unmodified baseline. This distinguishes a weak
+point set from a syntax or probe failure.
 """
 
 from __future__ import annotations
@@ -282,7 +240,7 @@ def _spread(reference: list[float], target: list[float]) -> float:
     [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
     bounds, recomputed here because the sensitivity suite needs the
     number itself (to report a margin and to compare it against a
-    pinned floor), not only the pass / fail verdict. Every test that
+    pinned floor) in addition to the pass/fail verdict. Every test that
     uses it also calls the real helper, so a divergence between the
     two surfaces rather than hiding.
     """
@@ -342,7 +300,7 @@ def test_mutated_cell_is_one_the_gallery_tier_checks(
     A negative control is evidence only about a check that actually
     runs on that cell. If the gallery tier starts skipping a cell the
     catalogue mutates (a new probe-shape gap, a newly pinned
-    `UnsupportedConstruct`) then the mutant proves nothing about the
+    `UnsupportedConstruct`), then the mutant does not test the
     live suite, and this test says so rather than letting the
     rejection test pass on a cell nobody checks.
     """
@@ -439,7 +397,7 @@ def test_tightest_catalogue_margin_is_declared() -> None:
     is the mutation this suite declares as its sensitivity limit.
 
     Reporting a suite's sensitivity means reporting its *worst* case.
-    A catalogue full of 100-nat mutants proves only that a gross
+    A catalogue full of 100-nat mutants detects only a gross
     defect is caught; the number that matters is the smallest spread
     any modelled defect produces, because that is where the check
     stops being able to tell a wrong program from a right one. Adding
@@ -514,7 +472,7 @@ def test_mutant_is_rejected(
        helper does raise on the mutant's vectors, so the rejection is
        the live check's verdict and not this module's arithmetic.
     3. The observed spread exceeds the mutation's pinned
-       `min_spread`. This is the decay alarm: a point set that loses
+       `min_spread`. This sensitivity floor detects a point set that loses
        its variation shrinks every mutant's spread long before any of
        them drops under the tolerance, and the floor trips first.
     """

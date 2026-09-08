@@ -1,51 +1,9 @@
-"""Morphism / let-binding resolution shared by every transpile
-backend.
+"""Resolve distribution references for transpilation.
 
-A ``sample x <- morphism_or_let_name`` step's ``morphism`` slot may
-refer to one of three things:
-
-1. A distribution family name (e.g. ``Beta``) — the existing
-   ``_FAMILIES`` map carries the target name.
-2. A declared ``morphism`` whose ``~ Family(args)`` init clause
-   names the underlying distribution.
-3. A ``let`` binding whose RHS is itself a morphism reference (the
-   common shape is a pure alias or a Kleisli composition).
-
-The resolver here turns case 2 into the equivalent of case 1 by
-unfolding the declared morphism's `init_family`. Case 3 is unfolded
-recursively: a let binding to a bare identifier resolves to whatever
-that identifier resolves to; composite expressions raise
-[`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
-with a clear message naming the composition operator.
-
-A morphism that draws its parameters from a network
-(``[param_source=<kind>]``) has no wire form at all: the weights are
-model-internal and appear in neither the emitted source nor any sample
-site. `build_morphism_table` rejects it over the whole module, in
-every one of the three positions it can be consumed from:
-
-1. The *site* position, a draw step's morphism slot.
-2. The *value* position, the right-hand side of a let / score
-   binding or a draw step's argument list, which is where flattening
-   a ``scan(...)`` cell or a ``define``d chain leaves the morphism's
-   name.
-3. The *composite* position, a leaf of a ``define``d composition (or
-   of a morphism's own ``~ <expr>`` init) that a draw step consumes
-   without the pre-lower expansion having flattened it.
-
-Rejecting over the module rather than per step matters because the
-boundary is a property of the program, not of the order in which a
-lowering pass happens to visit its steps: a module that consumes such
-a morphism anywhere cannot be transpiled at all, and it should say so
-before any step-by-step machinery reports a downstream symptom
-instead. `resolve_step_dist` keeps its own site-position raise for
-direct callers that resolve a single step without building the table.
-
-The output is a [`ResolvedDist`][quivers.transpile._resolve.ResolvedDist]
-record carrying ``family`` (the canonical QVR family name) and
-``args`` (the tuple of literal-or-variable arguments). Callers feed
-``family`` into their backend-specific ``_FAMILIES`` table and emit
-the call with ``args``.
+A draw may name a family, a declared morphism, or a let alias. This
+module resolves those forms to canonical family names and arguments.
+It also rejects consumed parameter-source morphisms because their
+learned weights are absent from the QVR wire representation.
 """
 
 from __future__ import annotations
@@ -566,41 +524,13 @@ def _reject_param_source_consumed(
 ) -> None:
     """Reject a module that consumes a parameter-source morphism.
 
-    A morphism declared ``[param_source=<kind>]`` computes its
-    distribution parameters with a network whose weights are
-    model-internal: they appear in neither the emitted source nor any
-    sample site, so no target can reconstruct what the morphism
-    computes. That makes the boundary a property of the whole module,
-    and this walk enforces it there rather than leaving it to whichever
-    pass happens to touch the offending name first.
-
-    Three positions consume such a morphism, and each fails
-    differently if left alone:
-
-    1. *Site*: the morphism slot of a draw step. Reaching this
-       through
-       [`resolve_step_dist`][quivers.transpile._resolve.resolve_step_dist]
-       raises correctly, but only once lowering walks as far as that
-       step; an unrelated defect in an earlier step reports first and
-       hides the real boundary behind a downstream symptom.
-    2. *Value*: a let / score right-hand side or a draw step's
-       argument list, which is where `expand_composite_lets` leaves the
-       name after flattening a ``scan(...)`` cell or a ``define``d
-       chain. Nothing emits the declaration's family there, and the
-       name reaches the target as a free input the host is expected to
-       supply, so every backend reports a missing argument instead of
-       a boundary.
-    3. *Composite*: a leaf of a ``define``d composition (or of a
-       morphism's own ``~ <expr>`` init) that a draw step consumes and
-       the expansion pass did not flatten. The name then occurs in no
-       program step at all.
-
-    The walk is seeded from program steps only and closed transitively
-    over the ``define`` table and over morphism init expressions, so a
-    morphism that is merely declared, or that appears in a ``define``
-    no program draws from, is left alone. Seeds are visited in program
-    order and each closure in sorted order, so the reported morphism is
-    deterministic.
+    Parameter-source morphisms depend on model weights that are absent from
+    emitted source and sample sites. This check follows their use from program
+    steps through composite definitions and morphism initializers. It rejects
+    uses as a draw distribution, value expression, argument, or reachable
+    composite leaf. Unused declarations and definitions unreachable from a
+    program step are permitted. Traversal follows program order with sorted
+    closures, making the reported morphism deterministic.
     """
     lets = build_let_table(module)
     for stmt in module.statements:

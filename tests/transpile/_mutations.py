@@ -1,22 +1,17 @@
 """Semantic mutation catalogue for the equivalence sensitivity suite.
 
-A transpile correctness check is only as good as the set of wrong
-programs it rejects. This module holds that set: for a small,
-explicitly enumerated grid of `(example, backend)` cells that the
-gallery equivalence tier currently passes, it records precise
-rewrites of the *emitted backend source* that turn the correct
-program into one denoting a different measure.
+This module records source rewrites that make a passing
+``(example, backend)`` cell denote a different measure. The grid is
+small and explicit.
 
-Every rewrite is a literal-text substitution with a pinned
-occurrence count. Two properties follow, and both matter:
+Every rewrite is a literal-text substitution with an exact
+occurrence count:
 
 1. The mutant is a **valid program in the target language**, so the
    backend's own probe evaluates it and the harness compares two
    real log-density vectors rather than an exception.
-2. The mutation is **anchored to text the renderer actually emits**,
-   so a renderer change that moves the anchor fails loudly with a
-   maintenance message rather than silently mutating nothing and
-   reporting a mutant the check "rejected".
+2. The mutation is anchored to renderer output. If the anchor moves,
+   the test reports the missing substitution.
 
 The defect classes are drawn from failures this codebase actually
 shipped (a family's shape and scale arguments transposed; a sampling
@@ -27,13 +22,10 @@ standard perturbations of a probabilistic program: a prior term
 removed, a parameter-dependent normalizer removed, a parameter
 scaled, a nearby family substituted.
 
-Each [`Mutation`][tests.transpile._mutations.Mutation] also pins a
-`min_spread` floor measured on the current point set. The floor is
-what turns the catalogue into a decay alarm: a mutant whose spread
-merely exceeds the equivalence tolerance still passes the reject
-test while the point set quietly loses its variation, so the floor
-asserts the mutant stays as loud as it was when the catalogue was
-built.
+Each [`Mutation`][tests.transpile._mutations.Mutation] records a
+`min_spread` measured on the current point set. This floor detects a
+loss of sensitivity even while the mutation remains above the
+equivalence tolerance.
 """
 
 from __future__ import annotations
@@ -44,11 +36,9 @@ import didactic.api as dx
 class SourceRewrite(dx.Model):
     """One literal-text substitution against an emitted program.
 
-    `occurrences` is the exact number of times `old` must appear in
-    the source. Pinning it is not defensive bookkeeping: an anchor
-    that matches a prior *and* a likelihood, or two priors that
-    happen to share a spelling, mutates more of the program than the
-    catalogue claims and reports a defect class it is not testing.
+    `occurrences` is the exact number of times `old` must appear. An
+    anchor that also matches another prior or a likelihood would
+    change more of the program than the catalogue declares.
     """
 
     old: str
@@ -1425,7 +1415,7 @@ MARGINALIZE_MUTATION = Mutation(
 
 class EnumerationMarker(dx.Model):
     """A target that lowers `marginalize` to an explicit enumeration,
-    paired with the token in its emit that proves it."""
+    paired with the token that identifies it in emitted source."""
 
     backend: str
     marker: str

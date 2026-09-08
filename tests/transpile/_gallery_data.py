@@ -1,41 +1,15 @@
-"""Extract synthetic-data snippets from `docs/examples/*.md`.
+"""Load synthetic data from the gallery documentation.
 
-Each gallery example carries a fenced ```python code block under a
-`### Generating synthetic data` heading. The snippet seeds torch,
-loads the QVR program, samples ground-truth parameters, forward-
-generates observations, and builds an `observations` dict the
-runtime consumes at trace time.
+Each example may contain a Python block under ``Generating synthetic
+data``. [`load_gallery_data`][tests.transpile._gallery_data.load_gallery_data]
+executes that block in an isolated namespace, de-aliases structural
+subscripts from row order, and returns observations, latent values,
+and scalar template parameters. Missing or failing blocks return
+``None``.
 
-This module exposes [`load_gallery_data`][tests.transpile._gallery_data.load_gallery_data]
-which:
-
-1. Locates the matching `.md` for a QVR source file.
-2. Extracts the `### Generating synthetic data` Python block.
-3. Executes it in an isolated namespace (with `torch` pre-imported).
-4. Relabels the rows of every plate that carries a structural
-   subscript, so no subscript coincides with the row counter (see
-   [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order]).
-   A row relabeling leaves the joint exactly invariant, since the
-   density is a product over the plate's rows.
-5. Returns the resulting `observations` mapping, the ground-truth
-   value of every latent sample site (a representative point in
-   latent space for the numeric-equivalence test), and the scalar
-   type-parameters the snippet instantiated a parametric program
-   template at.
-
-The extraction is fail-soft: examples whose data-gen block is
-absent or whose snippet raises return None, and the caller skips
-the cell with a clear reason.
-
-Alongside the data it also owns the *isolation* of the out-of-process
-measurements the gallery tiers run against that data:
-[`probe_scratch`][tests.transpile._gallery_data.probe_scratch] hands
-out the bind-mounted directory a container reads its inputs from, and
-[`probe_script_digests`][tests.transpile._gallery_data.probe_script_digests]
-records the identity of the probe sources the harness copies into it.
-Both exist because a measurement that shares either with anything else
-stops being a measurement of the cell under test; see `probe_scratch`
-for what sharing actually costs.
+The module also creates per-run container scratch directories and
+records probe-script digests so concurrent or mid-session changes do
+not mix probe inputs.
 """
 
 from __future__ import annotations
@@ -164,46 +138,14 @@ def sweep_abandoned_probe_roots(parent: Path | None = None) -> list[Path]:
 
 
 def probe_scratch(label: str) -> Path:
-    """A freshly-created, empty, process-private directory for one
-    out-of-process probe run.
+    """Create an empty, process-private directory for one probe run.
 
-    Every caller of [`run_probe`][tests.transpile._docker.run_probe]
-    must route its `scratch` through here, and must call it again for
-    each run rather than reusing the path it got back.
-
-    Why a fixed path is not merely untidy
-    -------------------------------------
-
-    `run_probe` writes the container's *inputs* (`source.<ext>`,
-    `points.json`, `shapes.json`, `dtypes.json`, `probe.py`,
-    `_reshape.py`, `_reshape.jl`) into the directory, launches the
-    container against it, and reads the container's `result.json` back
-    out. A path derived from the cell alone, `/tmp/<prefix>_<model>_<backend>`,
-    is therefore a rendezvous point that is shared by
-
-    1. every earlier run of the same cell, whose artefacts the writer
-       does not remove: a compiled Stan binary, a container-written
-       `__pycache__`, a `shapes.json` a later caller may not overwrite
-       because it passed `None`;
-    2. every *concurrent* process running that cell, including one on a
-       different checkout of the tree, which may write a different
-       point set into `points.json` between this process's write and
-       its container's read, or leave a `result.json` this process then
-       reads as its own answer.
-
-    Neither corruption announces itself. The container still runs, the
-    probe still returns finite log-densities, and the harness attributes
-    the resulting mismatch to the *model*. Worse, the corruption is
-    shared: a foreign point set in a scratch is not a property of any
-    one backend, so the same wrong number lands on every backend of that
-    model at once and reads as a genuine, model-specific finding rather
-    than as a harness fault.
-
-    The directory returned here is created fresh by
-    [`tempfile.mkdtemp`][tempfile.mkdtemp], so it is empty, is not the
-    path any other call returned, and cannot be guessed by another
-    process. `label` only makes the path legible while a run is in
-    flight; it carries no uniqueness, and repeating it is fine.
+    Callers must request a new directory for every
+    [`run_probe`][tests.transpile._docker.run_probe] invocation. A
+    reused path may retain compiled artifacts or allow concurrent
+    processes to overwrite ``points.json`` and ``result.json``.
+    ``tempfile.mkdtemp`` supplies uniqueness; `label` is descriptive
+    only.
 
     Parameters
     ----------
@@ -254,9 +196,8 @@ def probe_scratch_root() -> Path | None:
     """The per-process scratch root, or None before the first
     [`probe_scratch`][tests.transpile._gallery_data.probe_scratch] call.
 
-    Exposed so a test can assert the root differs between processes,
-    which is the property a fixed `/tmp/<prefix>_<cell>` path violates
-    and the one that keeps two concurrent runs from trading inputs.
+    Tests use this value to check that processes do not share probe
+    inputs.
     """
     return _PROBE_SCRATCH_ROOT
 
@@ -266,20 +207,8 @@ def probe_script_digests() -> dict[str, str]:
     [`PROBE_SCRIPT_DIR`][tests.transpile._gallery_data.PROBE_SCRIPT_DIR],
     keyed by file name.
 
-    `run_probe` copies these into the container at launch, so they are
-    read from the working tree once per cell rather than once per
-    session. An edit that lands mid-session therefore splits the run:
-    cells measured before it used one helper and cells measured after
-    it used another, with no record of which.
-
-    `_reshape.py` makes that split maximally deceptive. It is the one
-    file every Python-side probe imports, so a change to how it inflates
-    a flat point payload back into the shapes the target declares moves
-    the data *every* backend scores, and the resulting failure lands on
-    all of them at once for whichever model was in flight.
-
-    Compare a baseline captured at import against a fresh call to detect
-    it; see
+    `run_probe` copies these files at launch. Comparing a baseline with
+    a later call detects probe changes during a test session; see
     [`assert_probe_scripts_unchanged`][tests.transpile._gallery_data.assert_probe_scripts_unchanged].
     """
     return {
@@ -301,20 +230,14 @@ def assert_probe_scripts_unchanged(
         mapping captured earlier, conventionally at module import.
     names
         Restrict the comparison to these file names. A cell copies only
-        its own backend entrypoint and the two reshape helpers into its
-        container, so those are the only files whose movement can
-        change what *that* cell measured; an edit to some other
-        backend's entrypoint is a fault of the cells that copied it,
-        and each of those reports it for itself. Passing None compares
-        the whole directory.
+        its backend entrypoint and the two reshape helpers. Passing
+        None compares the whole directory.
 
     Raises
     ------
     RuntimeError
         When any file in scope was added, removed, or rewritten. The
-        message names the files, because the interesting question is
-        which cells the edit contaminated, and that is answered by
-        which helper moved.
+        message names the changed files.
     """
     current = probe_script_digests()
     candidates = set(baseline) | set(current)
@@ -475,9 +398,8 @@ Real, K : FinSet)`), so it has no runtime value to send."""
 
 def _qvr_observe_names(source_qvr: Path) -> list[str]:
     """Extract every `observe <name>` binder from the QVR source.
-    Surface read rather than full parse; the regex is conservative
-    (matches the `observe IDENT` prefix of an observe step), so it
-    intentionally returns nothing on a source it can't recognise.
+    The conservative regex matches the ``observe IDENT`` prefix and
+    returns no match for an unrecognized form.
     """
     try:
         text = source_qvr.read_text(encoding="utf-8")
@@ -575,12 +497,11 @@ def _scalar_program_arguments(
     """Concrete values the snippet instantiated the exported
     parametric program at, keyed by type-parameter name.
 
-    Reads the snippet's own syntax rather than the compiled program:
-    template instantiation bakes the arguments into the resulting
+    Template instantiation bakes the arguments into the resulting
     [`MonadicProgram`][quivers.continuous.programs.MonadicProgram]'s
     families and leaves no record of them (`model._params` is None for
     an instantiated template), so the invocation site is the only place
-    the values still exist under their declared names.
+    the snippet is the remaining source of the declared names.
     """
     if not declared:
         return {}
@@ -717,35 +638,17 @@ def _dealias_row_order(
 ) -> tuple[
     dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor | None
 ]:
-    """Relabel the rows of every plate that carries a structural
-    subscript, so no subscript coincides with the row counter.
+    """Relabel plates whose structural subscript matches row order.
 
-    A subscript cannot be perturbed (stepping it gathers a different
-    parameter row rather than moving the data), so it is frozen at
-    every point of the evaluation set. That freezing is safe only if
-    the subscript is not *recoverable from the row position*: a design
-    written as `torch.arange(D).repeat(N)` equals `i % D` at every
-    row, so a renderer that discards the supplied vector and recomputes
-    the subscript from its own loop counter emits an identical density
-    at every point, and the constant-spread check absorbs the defect
-    into its additive constant. The same holds for
-    `repeat_interleave` (`i // K`) and for a bare `arange` (`i`).
+    Structural subscripts remain fixed across evaluation points. A
+    renderer could thus replace ``arange(D).repeat(N)`` with ``i % D``
+    without changing the measured density. A deterministic row
+    permutation separates the supplied subscript from the row counter
+    while preserving the joint, which is a product over rows.
 
-    Permuting the rows of the plate closes that hole without moving a
-    single coordinate of the support. The density is a product over
-    the plate's rows, so relabeling the rows leaves the joint exactly
-    invariant, which is why the de-aliased design still reproduces
-    every pinned reference joint. What it destroys is the coincidence:
-    no rule over the row counter reproduces the permuted design, so a
-    renderer that fails to read it pairs each response with the wrong
-    parameter row, and the resulting discrepancy moves with the
-    responses and the latents rather than holding constant.
-
-    Every array of the plate moves together (the subscripts, the
-    covariates, the responses, and the program-input rows), because a
-    row relabeling is only measure-preserving when it is applied to the
-    whole row. Arrays of other widths, and the per-plate latents in
-    `params`, are untouched.
+    All arrays with the plate width move together, including program
+    inputs. Arrays of other widths and plate-level latent parameters
+    are unchanged.
     """
     subscripts = _structural_subscript_names(observations, observe_names)
     if not subscripts:
@@ -1309,55 +1212,29 @@ the joint stays well inside the region where every backend's
 log-density is numerically well behaved."""
 
 PERTURBATION_SCALE = _PERTURBATION_SCALE
-"""The base scale, published so a caller that wants to *vary* the
-excursion has a named origin to vary it from.
+"""Published base scale for point-set perturbations.
 
-The magnitude is a coverage parameter, not a cosmetic one. Every
-displacement the point set makes is proportional to it, so a defect
-whose per-point discrepancy is nonlinear in the point contributes a
-spread that grows superlinearly in the scale: a discrepancy quadratic
-in the displacement is nine times louder at three times the scale.
-A defect of that shape can therefore sit under tolerance at one
-excursion and be rejected outright at a wider one, which is why
+A quadratic discrepancy grows by a factor of nine when the scale is
+tripled. The validation tests therefore compare this scale with
 [`WIDE_PERTURBATION_SCALE`][tests.transpile._gallery_data.WIDE_PERTURBATION_SCALE]
-exists and why the strength suite measures the check at both."""
+to measure sensitivity to excursion size."""
 
 WIDE_PERTURBATION_SCALE = 0.6
 """A deliberately wider excursion, three times
 [`PERTURBATION_SCALE`][tests.transpile._gallery_data.PERTURBATION_SCALE].
 
-The base scale is the excursion at which every gallery cell draws its
-whole point set in support on the first attempt: the redraw ladder
-never fires there, at any seed swept. Widening it changes that, and
-three is where the change is still marginal. At three times the base,
-exactly one cell needs a halving (a response bounded on the unit
-interval, whose wider draw can land numerically on a boundary) and it
-recovers on that single halving; larger multiples pull further cells
-into the ladder.
-
-A rescued draw is the reason nothing here trusts the scale it asked
-for. The ladder returns a point set that travelled *less* than the
-caller requested, and it does so silently, so the excursion a set
-actually achieved is read back off its points by
+At the base scale, current gallery cells remain in support without a
+redraw. At three times that scale, one bounded-response cell needs one
+halving. Because a redraw reduces the realized excursion,
 [`point_excursion`][tests.transpile._gallery_data.point_excursion] and
-every claim made about the wider set is gated on that measurement."""
+the validation tests measure the resulting point set directly."""
 
 GALLERY_SEEDS: tuple[int, ...] = (0, 1, 2, 3)
 """Seeds the strength sweep draws independent point sets at.
 
-One seed gives one sample of an infinite support, so a defect confined
-to a region that sample never visits is invisible, and a sensitivity
-claim proved at that seed is a claim about one draw rather than about
-the perturbation design. Sweeping several seeds turns the claim into
-one about the design: a coordinate whose planted defect is rejected at
-every seed is rejected because the perturber moves it far enough, not
-because one draw happened to land well.
-
-Four is a compromise the sweep has to earn on cost, since every seed
-re-scores the reference joint at every point of every example. It is
-deliberately a *fixed* tuple rather than a random draw: a sweep whose
-membership moved run to run would turn a genuine regression into an
-intermittent one."""
+The fixed tuple makes sensitivity checks reproducible while covering
+more than one draw. Each additional seed re-scores every example and
+point."""
 
 _INTEGER_STEP_FRACTION = 0.25
 """Fraction of a count vector's mean magnitude used as the standard
@@ -1413,7 +1290,7 @@ def _resolve_support(
     [`ContinuousMorphism.support`][quivers.continuous.morphisms.ContinuousMorphism.support]
     default is `real`, so a wrapper that does not forward the inner
     constraint reports `real` for a positively-supported family. The
-    walk therefore descends into `.family` whenever the current level
+    walk thus descends into `.family` whenever the current level
     reports the `real` default and an inner family exists, and returns
     the first non-default constraint it finds.
     """
@@ -1506,31 +1383,12 @@ def _perturb_integer(
     lower: float,
     upper: float,
 ) -> torch.Tensor:
-    """Move an integer-valued tensor by a small integer delta.
+    """Move an integer tensor within its inferred admissible window.
 
-    The step is clamped into a window, and which window applies turns
-    on whether the value **attests a range of its own**.
-
-    1. A value whose entries span more than one integer attests that
-       range: the fixture's own forward simulation reached every value
-       between its minimum and its maximum, so the window is the
-       intersection of that range with the declared bounds. This is
-       what keeps a count observation in support when the declared
-       constraint is looser than the model's real alphabet: a
-       categorical emission declares `IntegerGreaterThan(0)` while the
-       emission row has finite width, so an unbounded upward step
-       would index past the row and send the joint to `-inf`.
-    2. A value whose entries are all equal, a scalar most of all,
-       attests nothing. Intersecting with its own degenerate range
-       would pin it to the one value it holds and freeze the
-       coordinate at every point of the evaluation set, which is not a
-       conservative reading of an unseen support but an unconditional
-       refusal to exercise the coordinate. The declared bounds
-       therefore govern on their own whenever they are finite, since a
-       finite declared interval is itself an attestation of where the
-       value may go.
-    3. A value that attests no range under bounds that are not both
-       finite has nothing to bound an upward step with, and stays put.
+    A tensor with multiple values uses the intersection of its
+    attested range and the declared bounds. A constant tensor uses
+    finite declared bounds. If neither case provides a finite range,
+    the tensor remains fixed.
     """
     if work.numel() == 0:
         return work
@@ -1561,38 +1419,12 @@ def _nudge_frozen_integer(
     low: float,
     high: float,
 ) -> torch.Tensor:
-    """Step one entry of an integer draw that came back unmoved.
+    """Move one entry when rounding and clamping leave a draw unchanged.
 
-    A count perturbation rounds a real step to an integer one and then
-    clamps it into the value's window, and both stages can annihilate
-    the whole draw. A sparse count vector is where they conspire: an
-    entry sitting at the bottom of its window only moves on a step that
-    rounds *upward*, an entry at the top only on one that rounds down,
-    and a step drawn at a scale comparable to a single count rounds to
-    zero about a third of the time. On a nine-entry vector of small
-    counts the three effects together leave the entire vector at ground
-    truth often enough to hit within a handful of seeds.
-
-    What that costs is a whole point of the evaluation set. A
-    data-perturbed point whose data did not move is byte-identical to
-    the ground-truth point, so the six-point schedule silently becomes
-    a five-point one, and the mode the schedule was covering twice is
-    covered once. Nothing reports it: the per-coordinate coverage check
-    still sees the coordinate move at the *other* data point, and the
-    spread statistic simply has one fewer distinct point to work with.
-
-    The step taken here is the smallest one that restores the point:
-    a single count, on the entry whose drawn noise was largest in
-    magnitude, in the direction that noise pointed, falling back to the
-    opposite direction and then to the next entry when the window has
-    no room. It consumes no randomness of its own, so a draw that was
-    not frozen is bit-identical with or without this pass and the
-    generator state every later point sees is unchanged.
-
-    Returns `work` unchanged only when no entry has anywhere to go,
-    which means the window admits the one value the vector already
-    holds; the point-set strength check then reports that coordinate as
-    unexercised rather than absorbing it.
+    The selected entry has the largest absolute noise. It moves one
+    count in the noise direction, then the opposite direction if the
+    first step is outside ``[low, high]``. The function consumes no
+    additional randomness and returns `work` if no entry can move.
     """
     flat = work.flatten().clone()
     flat_noise = noise.flatten()
@@ -1743,64 +1575,16 @@ def _data_section_support(
     observe_names: frozenset[str],
     count_floor: float,
 ) -> constraints.Constraint | None:
-    """Constraint inferred for an observations-dict entry that answers
-    to no compiled stochastic site.
+    """Infer a constraint for data without a compiled stochastic site.
 
-    Two shapes of entry reach this helper. The first is a covariate the
-    program reads through a `let` or a plate subscript, for which no
-    declared family fixes a constraint. The second is a genuine
-    `observe` binder the compiled program buries inside a closure: a
-    grouped `marginalize` folds its body's observe into a single score
-    callable (`observe w : Word <- Categorical(phi[z]) [via=word_idx]`
-    becomes one `_grouped_ll_z_0` let plus a `_marg_z` score), so
-    [`site_supports`][tests.transpile._gallery_data.site_supports]
-    reports nothing for `w` even though `w` is the model's only
-    observation.
-
-    Resolution splits on which of the two kinds the entry is, and the
-    covariate case then splits on the entry's **dtype** and **rank**:
-
-    1. A covariate carried in a floating-point tensor is a real
-       coordinate of the data and moves additively, whatever values it
-       happens to hold. A time index, an exposure, a design covariate:
-       each enters the density through arithmetic, so a value with no
-       fractional part is a real coordinate that landed on an integer,
-       not an index. Freezing it would leave the equivalence check
-       blind to every backend error that is a function of that
-       covariate alone, since such an error is constant across a point
-       set that never moves it.
-    2. A covariate carried in an integer **vector** is a structural
-       subscript: it names a row of a parameter plate rather than a
-       point of the support, so stepping it would gather different
-       parameters rather than move the data. It stays put, and
-       [`_dealias_row_order`][tests.transpile._gallery_data._dealias_row_order]
-       is what keeps a frozen subscript from aliasing the row counter.
-    3. A covariate carried in an integer **scalar** cannot be a
-       subscript, because a subscript has to index a plate and so has
-       to have one entry per row. It is a count parameter of an
-       observation family, and its value enters the density through
-       that family's normaliser: the Beta-Binomial's
-       `lgamma(total + 1)` terms move with it exactly as the response
-       does. It is therefore inside the support Theorem 4.1 quantifies
-       over and has to move, within the window
-       `[count_floor, 2 * value - count_floor]`. That window is the
-       widest interval centred on the attested ground truth whose
-       lower end is
-       [`_observed_count_floor`][tests.transpile._gallery_data._observed_count_floor],
-       the largest count the fixture scores; a fixture whose count
-       parameter already sits at that floor has no room to move and
-       the entry stays put, which the point-set strength check then
-       reports as an unexercised coordinate rather than absorbing.
-    4. An **observe binder** carrying a fractional part is
-       unconstrained real and moves additively.
-    5. An integer-valued **observe binder** takes an integer step
-       inside its own attested range. The attested range is the
-       conservative reading of a declared support the harness cannot
-       see: every value in `[min, max]` is a point the model's own
-       forward simulation reached or bracketed, so the alphabet of a
-       categorical emission and the range of a count observation are
-       both respected without the harness having to reconstruct the
-       family's parameters.
+    Such entries are either covariates or ``observe`` binders folded
+    into a grouped-marginalize closure. Floating covariates and
+    fractional observations use real support. Integer vectors used as
+    covariates are structural subscripts and remain fixed. Integer
+    scalar covariates vary within ``[count_floor, 2 * value -
+    count_floor]``. Integer observations vary within their attested
+    ``[min, max]`` range. A singleton or empty range has no inferred
+    perturbation.
     """
     if value.numel() == 0:
         return None
@@ -1878,16 +1662,10 @@ def observations_for_point(
     [`points_from_dataset`][tests.transpile._gallery_data.points_from_dataset]
     list.
 
-    The probe's `observations` keyword takes precedence over the flat
-    per-point payload, because it is the only channel that preserves
-    the multi-axis shapes flattening discards. That precedence makes it
-    mandatory here: passing `dataset.observations` unchanged alongside
-    a perturbed point would silently score the QVR side at the
-    ground-truth data while the backend scored the perturbed data, and
-    the resulting mismatch would look like a backend bug. Each entry is
-    therefore inflated back from the point (from `data`, or from
-    `params` for a name the point carries as a latent) into the
-    reference tensor's shape and dtype.
+    The probe's `observations` keyword preserves multi-axis shapes and
+    takes precedence over the flat payload. Each entry is rebuilt from
+    `data`, or from `params` when the point carries it as a latent, with
+    the reference tensor's shape and dtype.
     """
     out: dict[str, torch.Tensor] = {}
     for name, reference in dataset.observations.items():
@@ -1912,7 +1690,7 @@ def observations_for_point(
 
 
 def observed_data_names(dataset: GalleryDataset) -> frozenset[str]:
-    """Names a point carries as genuinely *observed* data.
+    """Names a point carries as *observed* data.
 
     Three kinds of entry live in a point's `data` section, and only one
     of them is data the model conditions on:
@@ -1957,11 +1735,8 @@ def varying_observation_names(
     [`observed_data_names`][tests.transpile._gallery_data.observed_data_names]
     whose value actually differs somewhere in `points`.
 
-    This is the observable form of "the data really moved", and it is
-    strictly stronger than watching the joint move: a latents-only
-    perturbation moves the joint while leaving every observation at
-    ground truth, which is exactly the blind spot that lets a backend
-    drop a data-dependent term and still hold a constant offset.
+    This distinguishes data variation from a joint that moved only
+    because its latent values changed.
     """
     moved: set[str] = set()
     for name in observed_data_names(dataset):
@@ -2016,16 +1791,14 @@ def points_from_dataset(
 ) -> list[Point]:
     """Build a deterministic multi-point evaluation set for `dataset`.
 
-    Point 0 is the captured ground truth. Every later point perturbs
-    the latents, the observed data, or both, following the schedule
+    Point 0 is the captured ground truth. Later points perturb the
+    latents, observed data, or both, following the schedule
     [`perturbation_labels`][tests.transpile._gallery_data.perturbation_labels]
     reports for the same length. Each value moves inside its own
-    support: a positive scale moves multiplicatively, a bounded value
-    moves in logit space, a simplex row is renormalised, a Cholesky
-    factor keeps its triangular / positive-diagonal shape, and an
-    integer count takes an integer step clamped to the attested range,
-    and a scalar count parameter steps inside the window its family's
-    support leaves it above the largest count the fixture scores.
+    support. Positive scales move multiplicatively, bounded values in
+    logit space, simplex rows are renormalized, and structured matrices
+    retain their constraints. Integer values remain in their inferred
+    ranges.
     A structural subscript, the one entry kind that names a parameter
     row rather than a point of the support, stays at ground truth; its
     row order is de-aliased at load time instead, by
@@ -2038,31 +1811,25 @@ def points_from_dataset(
     n_points
         Total points to return, ground truth included. The default of
         6 gives two latents-only, two data-only, and one joint
-        perturbation, which is enough for the constant-spread check to
-        separate a prior-scoring bug from a dropped data term.
+        perturbation.
     seed
         Seed of a local [`torch.Generator`][torch.Generator]. The
         global RNG is never touched, so the point set is reproducible
         run to run and independent of whatever the example's
         synthetic-data snippet seeded.
 
-        The default of 0 is what keeps CI reproducible, but it is one
-        draw from an infinite support, and a check proved at one draw
-        is a check about that draw. Sweeping
+        The default is 0. Sweeping
         [`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS]
         through
         [`points_across_seeds`][tests.transpile._gallery_data.points_across_seeds]
-        is how a sensitivity claim is made about the perturbation
-        design instead.
+        checks the perturbation design across independent draws.
     scale
         Excursion magnitude, in the natural unconstrained coordinate of
         each value's support, before the redraw ladder halves it. The
         default is
         [`PERTURBATION_SCALE`][tests.transpile._gallery_data.PERTURBATION_SCALE];
         [`WIDE_PERTURBATION_SCALE`][tests.transpile._gallery_data.WIDE_PERTURBATION_SCALE]
-        is the wider excursion the strength suite measures the check's
-        sensitivity at, since a per-point discrepancy that is nonlinear
-        in the point grows superlinearly in this number.
+        is the wider excursion used by the strength tests.
 
     Returns
     -------
@@ -2074,10 +1841,6 @@ def points_from_dataset(
     AssertionError
         When a perturbed point still scores a non-finite QVR joint
         after `_MAX_REDRAWS` attempts at successively halved scales.
-        A perturbation that cannot be brought back into support is a
-        constraint this module models wrongly, not a tolerable point
-        to drop: dropping it would shift every later index and
-        silently weaken the check.
     """
     labels = perturbation_labels(n_points)
     ground_truth = point_from_dataset(dataset)
@@ -2165,19 +1928,11 @@ def points_across_seeds(
 ) -> dict[int, list[Point]]:
     """Independent point sets for `dataset`, one per entry of `seeds`.
 
-    The seeds index *independent draws of the same perturbation
-    design*, not variations of it: every set runs the same schedule
+    Each seed draws from the same perturbation design: every set uses
+    the same schedule
     [`perturbation_labels`][tests.transpile._gallery_data.perturbation_labels]
     reports, at the same scale, under the same support constraints,
-    and differs only in where in each site's support the draw landed.
-
-    That is what makes a claim proved across the returned sets a claim
-    about the design. A single set is one finite sample of an infinite
-    support: a coordinate it moves by a hair, or a region it never
-    visits, is a blind spot no aggregate statistic over that set can
-    reveal, because the statistic is computed from the same sample.
-    Re-proving the claim on independent draws is the cheapest way to
-    tell a property of the perturber from an accident of one draw.
+    and differs only in the sampled support points.
 
     Parameters
     ----------
@@ -2200,9 +1955,7 @@ def points_across_seeds(
     Raises
     ------
     ValueError
-        When `seeds` is empty, which would return a sweep that proves
-        nothing while reading as a sweep that passed, or repeats a
-        seed, which would report one draw as two independent ones.
+        When `seeds` is empty or contains a duplicate.
     """
     ordered = list(seeds)
     if not ordered:
@@ -2233,20 +1986,9 @@ def point_displacements(points: Sequence[Point]) -> list[float]:
     """Euclidean distance of each point from point 0, measured in the
     flat wire coordinate both evaluators are driven with.
 
-    This is the observable magnitude of the excursion, and it is what
-    the perturbation *scale* only nominally controls: the redraw ladder
-    halves the scale whenever a draw leaves the support, so a caller
-    that asked for a wide excursion may have been handed a narrow one.
-    Reading the displacement back off the points is the only way to
-    know which happened.
-
-    Its use is to characterise a defect by how its discrepancy grows.
-    A defect linear in the displacement contributes a spread
-    proportional to the scale; one quadratic in it contributes a spread
-    proportional to the square, so it can hide under tolerance at one
-    excursion and be rejected at a wider one. Both point sections
-    contribute, since a discrepancy may grow in the latents, in the
-    data, or in both.
+    This measures the realized excursion after the redraw ladder may
+    have reduced the requested scale. Both parameter and data sections
+    contribute.
 
     Every coordinate the point carries under a name point 0 also
     carries is included; a name present at only one of the two is
@@ -2280,10 +2022,7 @@ def point_excursion(points: Sequence[Point]) -> float:
     """Largest distance any point of the set travels from the ground
     truth, in the flat wire coordinate.
 
-    The single number that answers "how far did this point set
-    actually go", as opposed to how far its `scale` argument asked it
-    to go. Returns 0.0 for a set of one point, which is exactly the
-    degenerate set whose spread statistic is identically zero.
+    Returns 0.0 for an empty or single-point set.
     """
     displacements = point_displacements(points)
     return max(displacements) if displacements else 0.0

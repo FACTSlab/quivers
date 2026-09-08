@@ -136,7 +136,7 @@ def test_autonormal_funnel_captures_negative_bias() -> None:
     prior mean of zero) but under-estimates the magnitude. The
     mean-field Gaussian cannot reach the deep apex of the funnel, so
     it recovers only a fraction of the analytical mean. This documents
-    the known mean-field failure on funnel-shaped posteriors —
+    the known mean-field failure on funnel-shaped posteriors. This is
     analogous to the ``test_autonormal_fails_to_recover_correlation``
     capture for the correlated-regression case.
     """

@@ -5,13 +5,13 @@ BUGS-family distributions share the JAGS surface for the
 QVR-supported subset (`dnorm`, `dbern`, `dbeta`, `dgamma`, ...).
 There is no canonical BUGS Python runtime; the practical interpreter
 is `multibugs` or `OpenBUGS`, neither of which exposes a
-programmable log-density to Python. The probe therefore delegates
+programmable log-density to Python. The probe thus delegates
 to the JAGS interpreter on the BUGS-syntax source: JAGS accepts
 straight-BUGS programs by design (it was built as a free
 implementation of the BUGS language). When `jags` and `pyjags` are
 available, this probe loads the BUGS source through them and reads
-the joint log-density via the deviance monitor — the same path the
-JAGS probe takes.
+the joint log-density through the same deviance-monitor path as the
+JAGS probe.
 
 Available iff `pyjags` is importable and the `jags` binary is on
 PATH. If either is missing, `available()` returns False.

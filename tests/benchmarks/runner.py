@@ -1,8 +1,6 @@
-"""Algorithm × problem runner for the synthetic benchmark suite.
+"""Run the synthetic benchmark grid by algorithm and problem.
 
-Produces ``docs/developer/inference-benchmarks.md`` — the public
-record of which inference algorithms recover which posteriors
-under deterministic seeded data.
+The report is written to ``docs/developer/inference-benchmarks.md``.
 
 Each cell of the grid runs one ``(algorithm, problem)`` pair and
 reports:
@@ -20,8 +18,7 @@ Invoked from CI or interactively::
 
     python -m tests.benchmarks.runner
 
-The runner respects seeds and is deterministic given the same
-torch / numpy versions.
+Results are deterministic for fixed seeds and torch/NumPy versions.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 # `quivers.data`
 
-Dataframe-side surface: schema inference, observation packing, and
-DSL composition helpers. Accepts pandas, polars, or any other
+Schema inference, observation packing, and DSL composition for tabular
+data. The package accepts pandas, polars, and other
 [Narwhals](https://narwhals-dev.github.io/narwhals/)-compatible
-backend via the `IntoDataFrame` shim.
+backends via the `IntoDataFrame` shim.
 
 ::: quivers.data

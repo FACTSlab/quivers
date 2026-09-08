@@ -1,6 +1,6 @@
-# 7. Under the hood: the categorical surface
+# 7. The categorical surface
 
-You can use QVR productively without category theory; the previous six chapters demonstrate that. But the library was built on a specific categorical foundation, and at some point you'll see a type error like `Source algebra 'ProductFuzzyAlgebra' does not match this morphism's algebra 'Real'` or a method called `change_base` and want to know what's going on. This chapter is a tour of the categorical machinery, oriented towards the four constructs that surface in the type system: *objects*, *morphisms*, *algebras*, and *change-of-base*.
+Four categorical constructs appear directly in QVR's type system: *objects*, *morphisms*, *algebras*, and *change-of-base*. They determine why a composition may raise `Source algebra 'ProductFuzzyAlgebra' does not match this morphism's algebra 'Real'` and what a call to `change_base` changes. This chapter gives their categorical interpretation.
 
 This is optional reading. Skip it if the DSL is doing what you need.
 

@@ -1,34 +1,9 @@
-"""PyMC renderer: lower the transpile IR to a PyMC `build_model` function.
+"""Render transpilation IR as a PyMC model builder.
 
-PyMC declarations are constructor calls inside a
-`with pymc.Model(coords={...}) as model:` block. There is no separate
-data block; data inputs become parameters of a wrapping `build_model`
-function. Each [`IRSample`][quivers.transpile.ir.IRSample] /
-[`IRObserve`][quivers.transpile.ir.IRObserve] becomes one
-`pymc.<Family>("name", **args, dims=(...), observed=<obs>)` call.
-
-The dispatch points:
-
-* `declare` is a no-op for PyMC: the declaration is the constructor
-  call itself, emitted in `sample`. Data inputs land in the function
-  signature; coords carry the per-axis cardinality.
-* `sample` emits `name = pymc.<Family>("name", **args, dims=(...),
-  observed=<obs>)`. Argument names come from `arg_names`; the per-
-  backend `arg_aliases` map renames them
-  ([`FamilyMeta.arg_aliases`][quivers.transpile.family_meta.FamilyMeta]).
-* `marginalize` integrates the latent out into a `pymc.Mixture` over
-  the atoms of its finite support, one component distribution per
-  atom, observed at the scope's own observation.
-* `broadcast` emits `np.full((K,), x)` for 1D, `np.full((R, C), x)`
-  for 2D target shapes.
-
-`render_list` / `render_matrix` emit `np.array([...])` /
-`np.array([[...], [...]])` for list and matrix literal args.
-
-`IRArgFamilyRef` rendering handles wrappers: `Truncated` emits
-`pymc.<base>.dist(...)`; `Mixture` emits `pymc.<base>.dist(...)` inside
-the `comp_dists` keyword. The renderer reads the referenced morphism's
-`init_family` clause from `ctx.morphisms`.
+Samples and observations become PyMC distribution constructors inside
+a ``Model`` context. Finite marginalizations become ``pymc.Mixture``
+observations, and exported values become ``pymc.Deterministic``
+variables.
 """
 
 from __future__ import annotations
@@ -321,35 +296,13 @@ class PyMCRenderer(RendererBase):
     def _emit_export(
         self, ctx: _PyMCCtx, names: tuple[str, ...]
     ) -> None:
-        """Expose each returned name as `pymc.Deterministic`.
+        """Expose returned names as `pymc.Deterministic` values.
 
-        `build_model` hands back the `pymc.Model` itself, so a PyMC
-        program's exported value cannot ride on the builder's own
-        `return`. The target's surface for "this quantity is part of
-        what the model reports" is
-        [`pymc.Deterministic`][pymc.Deterministic], the same construct
-        the renderer already uses for a shifted observation, and a
-        downstream user reads it off `model.named_vars` (or off the
-        posterior trace, where PyMC records every deterministic
-        alongside the free variables).
-
-        The alias is `<name>_value` rather than `<name>`: a returned
-        name is usually already bound, as a sampled site, an observed
-        site, or a let-binding, and PyMC rejects a second model
-        variable under a name it has. The suffix matches the Stan
-        renderer's generated-quantity spelling, so the two targets
-        expose the export under the same name.
-
-        The value goes through
-        [`pymc.math.as_tensor`][pymc.math.as_tensor] because the three
-        kinds of returnable name reach this point as three different
-        Python objects: a sampled site is a `TensorVariable`, a
-        let-binding is a `TensorVariable` expression, and an observed
-        site is the raw array the builder's keyword argument carries,
-        since the observed constructor call is emitted unassigned.
-        `pymc.Deterministic` accepts only the first two, so the
-        conversion is what lets an observed export be exposed at all,
-        and it is the identity on the other two.
+        `build_model` returns the model itself, so exports are registered as
+        named deterministic variables. The ``_value`` suffix avoids collisions
+        with sampled, observed, or let-bound names and matches the Stan export
+        spelling. `pymc.math.as_tensor` converts raw observed arrays while
+        leaving symbolic tensor expressions usable by `pymc.Deterministic`.
         """
         py = ctx.py
         for name in names:
@@ -380,7 +333,7 @@ class PyMCRenderer(RendererBase):
         block: BlockKind,
     ) -> SchemaFragment:
         """PyMC declarations ARE the constructor calls (emitted in
-        `sample`). `declare` is therefore a no-op; the caller's emit
+        `sample`). `declare` is thus a no-op; the caller's emit
         handles both declaration and assignment in one node."""
         del ctx, name, constraint, plate, block
         return ""

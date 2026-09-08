@@ -135,44 +135,11 @@ class TraceHandler(EffectHandler):
     def total_log_joint(self, batch_size: int, device: torch.device) -> torch.Tensor:
         """Sum every site's ``log_prob`` into the joint density.
 
-        Sample and observe sites contribute their log-density; let
-        bindings contribute the zero tensor the interpreter set on
-        their message; score steps (compiled marginalize bodies)
-        contribute their callable's return value, which the
-        interpreter installed as the message's log-prob.
-
-        Every site contributes its whole log-density exactly once. The
-        invariant the accumulator holds is
-        ``total.sum() == sum(site.log_prob.sum())``, and it is the
-        invariant a plain ``+`` over the sites does *not* hold: ``+``
-        broadcasts, and broadcasting a scalar site against a site
-        carrying a lane axis of length ``n`` replicates the scalar
-        ``n`` times. A sequence model whose recurrent site scores one
-        lane per scored row and whose emission site reduces its plate
-        to a scalar returned the emission likelihood times the row
-        count under that reading, which is the per-lane broadcast this
-        method exists to rule out.
-
-        The joint's shape is therefore the *narrowest* shape the sites
-        agree on rather than their broadcast: axis by axis, the
-        smallest extent any site carries there. A site wider than that
-        along an axis is summed over it (with ``keepdim``, so the
-        remaining extent is 1 and the later addition broadcasts
-        without replicating), which is the reduction a lane axis calls
-        for. A replica-batched model whose every site carries the same
-        leading ``(batch,)`` axis has that axis as its own narrowest
-        extent, so nothing is reduced and the per-replica joint comes
-        back intact.
-
-        A site whose log-density is identically zero takes no part in
-        choosing that shape. It cannot be replicated into a wrong
-        answer, so its shape carries no information about which axes
-        are lanes, and letting it vote would collapse the joint of an
-        ordinary batched model the moment the program gained a ``let``
-        binding (whose log-prob is the interpreter's scalar zero). It
-        is still added, reduced like any other site, so the sum stays
-        a sum over every recorded site and keeps whatever gradient the
-        zero carries.
+        The accumulator uses the narrowest right-aligned shape shared
+        by the nonzero site contributions. Wider axes are summed before
+        addition so broadcasting cannot duplicate scalar terms. Zero
+        contributions do not determine the target shape but are still
+        added.
 
         Parameters
         ----------

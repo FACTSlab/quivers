@@ -128,31 +128,16 @@ class _JlEmitCtx(Protocol):
 
 
 class JuliaShapes:
-    """The array-shape environment the Julia emission paths consult.
+    """Track array shapes used by Julia renderers.
 
-    Three slots drive the array-aware emission paths:
+    `name_event_rank` records event-axis counts, and `name_array_rank` records
+    total array ranks. `batch_rank` locates event axes within the enclosing
+    binding. These values determine whether reductions target event axes and
+    whether row gathers need trailing ``:`` slices.
 
-    * `name_event_rank` maps every IR-bound name to
-      ``len(plate.event_dims)``. A call to an axis-reducing primitive
-      whose argument has positive inferred event rank collapses the
-      innermost axes rather than the whole array.
-    * `name_array_rank` maps every IR-bound name to its full Julia
-      array rank, ``len(plate.batch_dims) + len(plate.event_dims)``.
-      A subscript that supplies fewer indices than that rank is a row
-      gather and needs an explicit trailing ``:`` per residual axis.
-    * `batch_rank` is the number of leading batch axes of the
-      enclosing binding, which fixes the absolute position of the
-      innermost axis an event-axis reduction collapses.
-
-    `nested_names` carries the bindings the renderer materialises as a
-    tower of `vector_expression` literals rather than a dense array. A
-    subscript into one of those is a chain of single-index reads,
-    `t[i][j]`, where a dense array takes the flat `t[i, j]`.
-
-    The default is the shape environment of a standalone expression:
-    no name carries a declared plate, so every leaf is scalar-ranked,
-    every subscript is dense and complete, and no binding is a nested
-    tower. Rendering an IR body passes the real tables instead.
+    `nested_names` identifies bindings emitted as nested vector literals, whose
+    indices are chained as ``t[i][j]`` rather than emitted as ``t[i, j]``.
+    Defaults describe a standalone scalar expression with no declared plates.
     """
 
     name_event_rank: dict[str, int]
@@ -1508,7 +1493,7 @@ def nested_tower_names(ir: IRProgram) -> frozenset[str]:
     one level per binder, because the Julia grammar's dense
     `matrix_expression` separates its columns with whitespace alone
     and a synthesised schema carries no interstitial text to place it.
-    A subscript into such a name therefore reads one axis at a time.
+    A subscript into such a name thus reads one axis at a time.
     """
     out: set[str] = set()
     _walk_for_towers(ir.body, out)

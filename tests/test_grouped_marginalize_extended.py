@@ -3,9 +3,8 @@ nesting, product fibrations, reductions, body vectorisation,
 continuous latents in scope, and end-to-end SVI with a
 continuous guide.
 
-Each section verifies one of the surface features the grouped
-``marginalize`` block exposes. Failures here are surface-form /
-semantic regressions, not just runtime-primitive regressions.
+Each section checks a surface or semantic property of the grouped
+``marginalize`` block.
 """
 
 from __future__ import annotations

@@ -1,12 +1,8 @@
 """Diagnostic-quality regression tests for the QVR front end.
 
-The parser and compiler must fail loudly and precisely: malformed
-source raises ``ParseError`` or ``CompileError`` pointing at the
-offending token's line and column, and well-formed numeric literals
-survive the parse with their values intact. Each case here pins one
-diagnostic contract, so a regression in any of them means the front
-end has started dropping tokens, recovering silently, or reporting
-the wrong location.
+Malformed source must raise ``ParseError`` or ``CompileError`` with
+the offending token's line and column. Well-formed numeric literals
+must retain their values. Each case checks one diagnostic contract.
 
 Coverage:
 

@@ -198,32 +198,15 @@ def beta_binomial_log_pmf(
     args: tuple[IRArg, ...],
     arg_names: tuple[str, ...],
 ) -> LetExprNode:
-    """Build ``log BetaBinomial(<variate>; n, a, b)`` in closed form.
+    """Build the closed-form beta-binomial log pmf.
 
-    Neither the BUGS function library nor the JAGS modules a stock
-    engine loads (``basemod``, ``bugs``, ``dic``) ships a
-    beta-binomial distribution: JAGS carries one only in the optional
-    ``mix`` module, and OpenBUGS / WinBUGS carry none at all. The
-    density is nonetheless an ordinary expression in ``loggam`` and
-    ``logfact``, both of which the ``bugs`` module supplies, so the
-    renderer writes it out rather than naming a distribution the
-    engine may not have.
-
-    Writing ``B`` for the beta function, the pmf is
-
-        p(y; n, a, b) = C(n, y) * B(a + y, b + n - y) / B(a, b),
-
-    and expanding both the binomial coefficient and each beta function
-    into log-gammas gives
+    BUGS lacks this distribution, and JAGS provides it only in the optional
+    ``mix`` module. The returned expression uses base-library ``loggam`` and
+    ``logfact`` functions::
 
         logfact(n) - logfact(y) - logfact(n - y)
         + loggam(a + y) + loggam(b + n - y) - loggam(a + b + n)
-        - loggam(a) - loggam(b) + loggam(a + b),
-
-    which is exactly the term this returns. It is the family's own
-    log-density, not a surrogate for it: the latent conversion rate is
-    integrated out analytically, so no auxiliary node enters the model
-    and the joint the engine scores is the marginal QVR names.
+        - loggam(a) - loggam(b) + loggam(a + b)
     """
     by_name = dict(zip(arg_names, args, strict=False))
     missing = [
@@ -284,32 +267,14 @@ def kumaraswamy_log_pdf(
     args: tuple[IRArg, ...],
     arg_names: tuple[str, ...],
 ) -> LetExprNode:
-    """Build ``log Kumaraswamy(<variate>; a, b)`` in closed form.
+    """Build the closed-form Kumaraswamy log density.
 
-    Neither the BUGS distribution catalogue nor the JAGS modules a
-    stock engine loads (``basemod``, ``bugs``, ``dic``) carries a
-    Kumaraswamy. The density is nonetheless elementary: with shape
-    parameters ``a`` (``concentration1``) and ``b``
-    (``concentration0``) the pdf on ``(0, 1)`` is
-
-        p(y; a, b) = a * b * y^(a - 1) * (1 - y^a)^(b - 1),
-
-    whose logarithm
+    For shapes ``a`` and ``b`` on ``(0, 1)``, the returned expression is::
 
         log(a) + log(b) + (a - 1) * log(y) + (b - 1) * log(1 - y^a)
 
-    is what this returns. Every symbol in it (``log``, ``pow``) is a
-    base-library function on both engines, so the closed form needs no
-    optional module and no user-defined function, which is what makes
-    the zeros trick reachable for a family neither language names.
-
-    It is the family's own density rather than a surrogate: no
-    auxiliary node enters the model, so the joint the engine scores is
-    the one QVR names, up to the trick's additive lift.
-
-    The exponent ``y^a`` is spelled ``pow(y, a)`` rather than with an
-    infix operator because ``pow`` is the spelling both the BUGS
-    function library and the JAGS base module share.
+    It uses only BUGS and JAGS base-library functions. The power ``y^a`` is
+    emitted as ``pow(y, a)``, the spelling shared by both engines.
     """
     by_name = dict(zip(arg_names, args, strict=False))
     missing = [
@@ -378,55 +343,17 @@ def continuous_bernoulli_log_pdf(
     args: tuple[IRArg, ...],
     arg_names: tuple[str, ...],
 ) -> LetExprNode:
-    """Build ``log ContinuousBernoulli(<variate>; lambda)`` in closed
-    form.
+    """Build the closed-form continuous-Bernoulli log density.
 
-    No BUGS distribution catalogue and no JAGS module carries the
-    continuous Bernoulli, and no reparameterisation reaches it: it is
-    the exponentially-tilted uniform on ``(0, 1)``, whose normaliser
-    is a transcendental function of the tilt rather than a constant a
-    named family absorbs. The density is nonetheless elementary. With
-    tilt ``lambda`` (``probs``) the pdf on ``(0, 1)`` is
+    For tilt ``lambda`` on ``(0, 1)``, the density has normalizer::
 
-        p(x; lambda) = C(lambda) * lambda^x * (1 - lambda)^(1 - x),
+        C(lambda) = (log(1 - lambda) - log(lambda)) / (1 - 2 * lambda).
 
-    with normaliser
-
-        C(lambda) = 2 * artanh(1 - 2 lambda) / (1 - 2 lambda).
-
-    Substituting ``d = 1 - 2 lambda`` into
-    ``artanh(d) = log((1 + d) / (1 - d)) / 2`` turns ``(1 + d)`` into
-    ``2 (1 - lambda)`` and ``(1 - d)`` into ``2 lambda``, so the
-    factors of two cancel and
-
-        C(lambda) = (log(1 - lambda) - log(lambda)) / d.
-
-    Numerator and denominator change sign together at
-    ``lambda = 1/2``, so the ratio is positive throughout and equals
-    the ratio of the two absolute values, which is what lets the log
-    split into the difference of two logarithms of ``abs(...)``. The
-    term this returns is therefore
-
-        x * log(lambda) + (1 - x) * log(1 - lambda)
-        + log(abs(log(1 - m) - log(m))) - log(abs(d_safe)),
-
-    where ``d_safe`` is ``d`` displaced off the singular point and
-    ``m = (1 - d_safe) / 2`` is the tilt that displacement names (see
-    [`_CONT_BERNOULLI_STABLE_HALF_WIDTH`][quivers.transpile.renderers._bugs_helpers._CONT_BERNOULLI_STABLE_HALF_WIDTH]).
-    The displacement is zero, and the two logarithms read the site's
-    own tilt, at every ``lambda`` outside a window of half-width
-    ``1e-6`` around one half. The tilted factors ``x * log(lambda)``
-    and ``(1 - x) * log(1 - lambda)`` read the tilt itself
-    everywhere: they carry no singularity to step around.
-
-    Every symbol in the result (``log``, ``abs``, ``step``) is a
-    base-library function on both engines, so the closed form needs no
-    optional module and no user-defined function, which is what makes
-    the zeros trick reachable for a family neither language names.
-
-    It is the family's own density rather than a surrogate: no
-    auxiliary node enters the model, so the joint the engine scores is
-    the one QVR names, up to the zeros trick's additive lift.
+    The returned expression splits the log absolute ratio into two logarithms.
+    Within ``1e-6`` of one half, it displaces the denominator from zero and
+    evaluates the normalizer at the corresponding displaced tilt. The tilted
+    terms continue to use the original value. The expression requires only
+    ``log``, ``abs``, and ``step`` from the BUGS and JAGS base libraries.
     """
     by_name = dict(zip(arg_names, args, strict=False))
     if "probs" not in by_name:
@@ -686,31 +613,16 @@ def render_let_expr_bugs(
     decl_plates: dict[str, Plate] | None = None,
     row_index: str | None = None,
 ) -> str:
-    """Build a BUGS / JAGS expression schema for ``expr`` in ``ctx``.
+    """Build a BUGS or JAGS expression schema and return its root vertex.
 
-    Returns the root vertex id. Recurses into nested
-    [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode] values.
-    Raises [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
-    when the construct has no representation in the BUGS / JAGS
-    family (``LetExprString``, ``LetExprLambda``, ``LetExprMethodCall``,
-    or a [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor]
-    whose binders reference an axis of unknown static cardinality).
+    Recurses through nested `LetExprNode` values. Raises
+    `UnsupportedConstruct` for strings, lambdas, method calls, or factors whose
+    binder axes have unknown cardinality.
 
-    `decl_plates` maps every bound name to its declared
-    [`Plate`][quivers.transpile.ir.Plate], which is what tells the
-    index emitter how many axes a subscript leaves unconsumed: a
-    gather of a matrix row (`Z_mat[item_idx]` against a 32-by-2
-    declaration) needs the trailing full-axis slice spelled out,
-    because BUGS / JAGS read a single subscript on a rank-2 node as a
-    rank error rather than a row. Omitting it renders the expression
-    with no declared shapes in scope, which is the right reading for
-    an expression that sits in no program.
-
-    `row_index` names the loop variable of the binding's codomain
-    axis when the caller wraps the relation in a `for` loop. A
-    [`LetExprAffineMap`][quivers.transpile.ir.LetExprAffineMap]
-    contracts one row of its weight per iteration and needs that
-    name; every other construct ignores it.
+    `decl_plates` supplies declared shapes so indexed matrix rows retain their
+    trailing full-axis slice. `row_index` names the loop variable used when a
+    `LetExprAffineMap` contracts one parameter-map row; other expressions ignore
+    it.
     """
     return _render(_LetEnv(ctx, decl_plates or {}, row_index), expr)
 
@@ -844,29 +756,13 @@ def _emit_paren(ctx: _BugsLetCtx, inner: str, inner_kind: str) -> str:
 
 
 def _emit_binop(ctx: _LetEnv, expr: LetExprBinOp) -> str:
-    """Emit a `binary_expression` with `left`/`right` field edges.
+    """Emit a `binary_expression` with left and right field edges.
 
-    BUGS / JAGS `binary_expression` discriminates the operator via the
-    grammar's CHOICE alternative; the panproto walker picks the alt
-    from the `field:operator` + `chose-alt-fingerprint` pair.
-
-    Neither language lifts an infix operator over an axis: `a * b` on
-    two vector nodes is a rank error, not the elementwise product QVR
-    denotes. The one axis-carrying product both languages do express
-    *as an expression* is the contraction `inprod(a, b)`, which
-    [`_emit_reduction_or_call`][quivers.transpile.renderers._bugs_helpers._emit_reduction_or_call]
-    recognises before reaching here; any other axis-carrying operand
-    pair raises.
-
-    The raise is a statement about this emission path, and the message
-    says so rather than claiming the languages cannot express the
-    value at all. An elementwise result does exist in both, as a named
-    array built one index at a time inside a loop of its own
-    (`for (i in 1:N) { z[i] <- a[i] + b[i] }`). What the helper
-    renders is a single expression, with no relation of its own to
-    hang such a loop from, so reaching that form would take a
-    different lowering of the whole binding rather than a different
-    expression here.
+    The grammar's operator choice is selected by its field and alternative
+    fingerprint. BUGS and JAGS do not lift infix operators over array axes.
+    `_emit_reduction_or_call` handles supported contractions through `inprod`;
+    other axis-carrying operand pairs raise. Elementwise array operations must
+    instead be lowered as indexed assignments in a loop.
     """
     left_rank = axis_rank(ctx.decl_plates, expr.left)
     right_rank = axis_rank(ctx.decl_plates, expr.right)
@@ -1255,7 +1151,7 @@ def _emit_index_slot(ctx: _LetEnv, idx: LetExprNode) -> str:
     QVR subscripts count from zero; BUGS and JAGS count from one. A
     subscript the source spells as an integer literal (a factor
     binder already substituted to its integer coordinate, or a
-    literal the model wrote itself) is therefore emitted one higher.
+    literal the model wrote itself) is thus emitted one higher.
     A subscript that names a variable is left alone: a loop variable
     already runs `1:N`, and an index-valued covariate arrives from
     the host already lifted to one-based.
@@ -2114,33 +2010,14 @@ def categorical_mixture(
     node: IRMarginalize,
     decl_plates: dict[str, Plate],
 ) -> CategoricalMixture | None:
-    """Recognise `node` as a collapsible categorical mixture, or
-    return `None` when it is some other marginalize.
+    """Recognize a categorical mixture that BUGS can collapse to `dcat`.
 
-    BUGS carries no statement that adds a free log-density term to
-    the joint at an observation site, so the general `logsumexp`
-    reduction over a latent's atoms has no closed emission: the zeros
-    trick that would write one needs a data-bound carrier the BUGS
-    language cannot declare (it has no `data { ... }` block). One
-    shape does close, and this is the recogniser for it: summing a
-    categorical row matrix against mixing weights gives a categorical
-    on the same alphabet, which `dcat` scores natively and exactly.
-
-    The shape recognised is
-
-        marginalize <l> <- Categorical(<weights>) [over=<batch>]
-            observe <y> <- Categorical(<rows>[<l>])
-
-    with `<weights>` declared over the latent's own batch axes and one
-    event axis (the atoms), `<rows>` declared over one batch axis (the
-    same atoms) and one event axis (the alphabet), and `<y>` a scalar
-    draw (no event axis of its own) the emitted `dcat` can score.
-
-    `None` is the honest answer for every other marginalize rather
-    than a raise: the collapse is one emission among the renderer's
-    marginalize emissions, and the caller decides what the rest take.
-    A shape BUGS cannot express at all still reports itself, from the
-    family lookup the general lowering runs into.
+    The recognized form marginalizes a categorical latent, indexes a matrix of
+    categorical rows by that latent, and observes a scalar categorical value.
+    The mixing weights carry the latent's batch and atom axes; the row matrix
+    carries the atom and output-alphabet axes. Their weighted sum is a
+    categorical probability vector. Returns `None` for other marginalization
+    shapes.
     """
     if node.family != "Categorical":
         return None
@@ -2339,33 +2216,14 @@ def marginal_scope_density(
     args: tuple[LetExprNode, ...],
     arg_names: tuple[str, ...],
 ) -> MarginalScopeDensity:
-    """Write the scope's density at one atom out in closed form.
+    """Build a closed-form BUGS or JAGS density for one marginal atom.
 
-    Neither language exposes a distribution's density as a callable,
-    so the three families a gallery `marginalize` scope observes are
-    written out directly. Each is the family's own density, not a
-    surrogate: no auxiliary node enters the model, and the sum over
-    atoms the caller builds from these terms is the integral QVR's
-    `marginalize` denotes.
-
-    * `Categorical(probs)` at a one-based host index `v` is the
-      lookup `probs[v]`. The observed datum lands in *subscript*
-      position, which is the only way a BUGS / JAGS model can say
-      that an integer input is an index.
-    * `Poisson(mu)` at a count `y` is
-      ``exp(-mu - logfact(y)) * pow(mu, y)``. The `pow` factor
-      carries the ``mu^y`` term rather than the algebraically equal
-      ``exp(y * log(mu))`` because a zero-inflation atom pins `mu` to
-      zero exactly, where `log(mu)` is undefined while
-      ``pow(0, 0) = 1`` and ``pow(0, y) = 0`` are the point mass the
-      atom denotes.
-    * `Normal(mu, sigma)` at `y` is the Gaussian kernel over its
-      normaliser, written the same way the mixture emit writes a
-      component.
-
-    Every other family raises: a scope this module cannot write out
-    has no emission, and a live draw in its place would denote a
-    measure on a strictly larger space than the reference integrates.
+    Supported scope families are `Categorical`, `Poisson`, and `Normal`.
+    Categorical density indexes the probability vector with the one-based host
+    outcome. Poisson density uses ``pow(mu, y)`` so zero-rate atoms retain
+    ``pow(0, 0) = 1`` without evaluating ``log(0)``. Normal density uses the
+    Gaussian kernel and normalizer. Other families raise
+    `UnsupportedConstruct`.
     """
     by_name = dict(zip(arg_names, args, strict=False))
 

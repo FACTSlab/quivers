@@ -1,54 +1,8 @@
-"""AST preprocessing: expand composite-let bindings into sample chains
-and flatten MarginalizeStep / ScoreStep / LetStep scopes into plain
-sample / observe / assignment sequences.
+"""Normalize program ASTs before IR lowering.
 
-The pass operates at the Module level: it rebuilds every
-`program_decl` in place. Three rewrites fire:
-
-1. **Composite let**: `let chain = prior >> likelihood` binds a
-   Kleisli composition. A single `sample x <- chain` step rewrites
-   into a chain of atomic steps whose shape depends on each leaf's
-   declaration:
-
-   * A morphism with a family init clause becomes a `SampleStep`
-     drawing from that family. A bare `~ Family` declaration reads
-     its parameters off the morphism's own parameter map, so the
-     step's argument list is the conditioning row that map is
-     applied to: the previous chain output, or nothing at all at
-     the head of the chain, where the row is the chain's own input.
-     A declaration that writes its parameters (`~ Family(args)`)
-     denotes a constant kernel and keeps those arguments.
-   * A morphism with no init clause (a deterministic parameter
-     table such as an embedding lookup or a learned linear layer)
-     becomes a `LetStep` whose RHS is a function call against the
-     morphism name applied to the previous chain output. The
-     morphism name flows through as a free identifier the host
-     supplies.
-   * An `ExprScan(cell)` leaf becomes a `LetStep` whose RHS is
-     `scan(cell, prev)`. `scan` and the cell name are both free
-     identifiers the host wires.
-   * Parallel branches under `ExprFan` / `ExprTensorProduct`
-     emit one step per branch sharing the same upstream input;
-     a final tuple-bundling `LetStep` aggregates the branch
-     tails into a list so a downstream consumer can index into
-     the merged result.
-
-   Aliases (`let a = b`) and nested composite-let identifiers
-   resolve transitively, so `let backbone = ... >> compose_alias`
-   expands the alias in place.
-
-2. **MarginalizeStep** / **ScoreStep** / **LetStep**: passthrough
-   apart from expanding composite-let references inside a
-   marginalize scope. A marginalize step's axis roles are not
-   expressible as a `SampleStep`: its `[over=...]` names the
-   grouping (batch) axes while its `: T` index names either the
-   enumerated support or, for a non-enumerable latent, a
-   replication axis. Lowering resolves those roles against the
-   family metadata, so the step reaches each renderer intact as an
-   [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]. Backends
-   that sample discrete latents natively rewrite it to a sample
-   plus inline scope through `RendererBase.explicit_latent_scope`,
-   which reuses the lowered plate.
+The pass expands sampled composite bindings into atomic sample and let
+steps. It preserves marginalize blocks for the lowering stage while
+expanding composite references inside their scopes.
 """
 
 from __future__ import annotations
@@ -761,7 +715,7 @@ def _derive_chain_args(
     from that row (``docs/semantics/morphisms.md`` §2.1), and the row
     is what the runtime assembles from the list before applying the
     morphism.
-    A chained kernel therefore conditions on the upstream step's
+    A chained kernel thus conditions on the upstream step's
     output, and an absent list conditions on the chain's own input,
     which is exactly the pair of draws
     [`SampledComposition`][quivers.continuous.morphisms.SampledComposition]

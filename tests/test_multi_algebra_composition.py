@@ -122,7 +122,7 @@ def test_change_base_to_max_plus_via_log() -> None:
 def test_change_base_rejects_wrong_source_algebra() -> None:
     """A homomorphism's source must match the morphism's algebra;
     applying ``LOG_PROB_HOM`` (which expects ``ProductFuzzyAlgebra``) to
-    a morphism declared over Markov raises a clear error."""
+    a morphism declared over Markov raises an algebra-specific error."""
     A = FinSet(name="A", cardinality=2)
     B = FinSet(name="B", cardinality=2)
     data = torch.tensor([[0.5, 0.5], [0.5, 0.5]])

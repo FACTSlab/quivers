@@ -1,45 +1,13 @@
-"""Sub-Giry measure algebra: the compositional vocabulary for
-distributions.
+"""Sub-Giry measures and their primitive transformations.
 
-A `Measure` is an unnormalised positive measure on a Borel space.
-Probability distributions are the special case where the total
-mass is one; sub-probability measures arise naturally from
-restriction and from likelihood scoring. The runtime tracks the
-log of the total mass (the "log-normaliser") symbolically and
-only renormalises at the observe / sample boundary.
+A `Measure` is an unnormalized positive measure on a Borel space. Probability
+measures have total mass one; restrictions and likelihood scores may produce
+sub-probability measures. The runtime tracks total mass as a log normalizer and
+normalizes at sample or observation boundaries.
 
-The seven primitive constructions are:
-
-* [`PointMass(x)`][quivers.continuous.measure.PointMass] —
-  Dirac measure at `x`, the unit $\\eta$ of the Giry monad.
-* [`Restrict(D, low, high)`][quivers.continuous.measure.Restrict] —
-  restriction of `D` to a measurable subset, the sub-Giry monad's
-  natural operation. Does not renormalise.
-* [`Pushforward(D, b)`][quivers.continuous.measure.Pushforward] —
-  pushforward through a `Bijector`, the functoriality of the
-  Giry monad on measurable isomorphisms.
-* [`Mixture(weights, components)`][quivers.continuous.measure.Mixture] —
-  n-ary convex combination, the unique algebra structure on the
-  Giry monad's Eilenberg-Moore category.
-* [`Independent(D, n)`][quivers.continuous.measure.Independent] —
-  declare the last `n` batch dims as event dims (the strong
-  monoidal product of independent copies).
-* [`Normalize(D)`][quivers.continuous.measure.Normalize] —
-  rescale a sub-measure to a probability measure, lifting from
-  the sub-Giry to the Giry monad. Only defined where the total
-  mass is strictly positive.
-
-Categorical sources:
-
-* [Giry 1982](https://doi.org/10.1007/BFb0092872) — the probability monad.
-* [Panangaden 1999](https://doi.org/10.1016/S1571-0661(05)80602-4) —
-  sub-probability monad.
-* [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) —
-  disintegration and Bayesian inversion via string diagrams.
-* [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239) — Markov categories.
-* [Di Lavore, Roman, Sobocinski 2025](https://arxiv.org/abs/2502.03477) —
-  partial Markov categories; the foundation for treating
-  truncation, conditioning, and rescaling as one partial morphism.
+The module provides point masses, restriction, pushforward through a bijector,
+finite mixtures, event-dimension declarations with `Independent`, and
+normalization of positive-mass sub-measures.
 """
 
 from __future__ import annotations

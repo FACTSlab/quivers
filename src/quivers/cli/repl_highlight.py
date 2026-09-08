@@ -321,7 +321,7 @@ def to_rich_text(
     """Build a `rich.text.Text` from the highlighted source.
 
     Imported lazily so importing [`quivers.cli.repl_highlight`][quivers.cli.repl_highlight] does
-    not pull rich in for callers that just want raw spans.
+    not pull rich in for callers that need only raw spans.
 
     If ``link_action`` is set (e.g. ``"info"``), identifiers that the
     grammar or env classified as something meaningful (type / function

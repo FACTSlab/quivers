@@ -1,17 +1,16 @@
-"""MkDocs hook that registers the QVR Pygments lexer at build time.
+"""Register the QVR Pygments lexer during MkDocs builds.
 
-Self-contained: does not import from the quivers package so it
-works without ``pip install`` and without torch.
+The hook does not import ``quivers``, so documentation builds do not
+require an installed package or torch.
 
 Monkey-patches ``pygments.lexers.get_lexer_by_name`` to intercept
 the ``qvr`` alias and return our lexer directly. Also patches the
 copies of ``get_lexer_by_name`` that ``markdown.extensions.codehilite``
 and ``pymdownx.highlight`` capture at import time.
 
-The lexer is a regex-based approximation. The authoritative
-lexer (``quivers.dsl.pygments_lexer.QvrLexer``) drives on the
-in-tree tree-sitter grammar but requires building a shared
-library, which is too heavy for a docs build pipeline.
+The regex lexer approximates
+``quivers.dsl.pygments_lexer.QvrLexer`` without building the
+tree-sitter shared library.
 """
 
 import pygments.lexers

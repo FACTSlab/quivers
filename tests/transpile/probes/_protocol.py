@@ -11,14 +11,11 @@ QVR reference probe and each available target probe; the
 [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
 helper then enforces the constant-spread contract.
 
-A probe reports two independent things about a program, because a
-QVR program declared `prog : A -> B` denotes a Markov kernel from `A`
-to `B` and a joint density does not determine one. The first is
-`log p(theta, y)`, the measure over `(latents, observations)`. The
-second is the program's **exported value**: what its `return` clause
-carries into `B`. Two programs can share the first and differ in the
-second, so a renderer validated on log-density alone is validated on
-half its obligation, and
+A QVR program declared `prog : A -> B` denotes a Markov kernel, which
+is not determined by a joint density alone. A probe thus reports
+`log p(theta, y)`, the measure over `(latents, observations)`, and the
+program's exported value, which its `return` clause carries into `B`.
+Two programs may share the density but return different values;
 [`test_export_equivalence`][tests.transpile.test_export_equivalence]
 is the tier that holds the other half.
 
@@ -28,9 +25,8 @@ program's return-variable names, in declaration order, to
 that finds the file reads the exported value out of its target's own
 return surface (a model function's `return`, a Stan
 `generated quantities` alias, the second element of `Gen.assess`) and
-reports one entry per name per point. A probe that cannot produce one
-raises rather than reporting a shorter vector, because a silently
-missing export is exactly the defect the tier exists to catch.
+reports one entry per name per point. A probe raises if it cannot
+produce every requested export.
 
 Probes that need an out-of-process runtime (Stan via cmdstanpy,
 Julia via PyJulia, etc.) launch a Docker container per call when

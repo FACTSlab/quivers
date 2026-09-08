@@ -1,6 +1,6 @@
 # Tutorial 2: Stochastic Relations
 
-In this tutorial, you will work with the [FinStoch](https://ncatlab.org/nlab/show/FinStoch) category: [Markov kernels](https://en.wikipedia.org/wiki/Markov_kernel) on finite sets. These are stochastic morphisms whose entries represent conditional probabilities. You will compose kernels, condition on observations, and compute probabilities and expectations.
+The [FinStoch](https://ncatlab.org/nlab/show/FinStoch) category has finite sets as objects and [Markov kernels](https://en.wikipedia.org/wiki/Markov_kernel) as morphisms. Their entries are conditional probabilities. This chapter constructs and composes kernels, conditions them on observations, and queries probabilities and expectations.
 
 ## Concepts
 

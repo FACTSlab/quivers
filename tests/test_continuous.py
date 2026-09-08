@@ -1,4 +1,4 @@
-"""Comprehensive tests for the continuous morphism layer."""
+"""Tests for the continuous morphism layer."""
 
 from __future__ import annotations
 import pytest

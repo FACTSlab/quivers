@@ -1173,39 +1173,12 @@ class StanRenderer(RendererBase):
         arg_names: tuple[str, ...],
         plate: Plate,
     ) -> SchemaFragment:
-        """Emit the explicit log-sum-exp form of a `MixtureNormal` site.
+        """Emit a `MixtureNormal` site with `log_sum_exp`.
 
-        Stan ships no mixture distribution, but a finite mixture is an
-        ordinary expression in its language: the per-row density
-        `sum_k w_k N(y; mu_k, sigma_k)` is `log_sum_exp` over a
-        `vector[K]` of weighted component log-densities, which is the
-        idiom the Stan manual gives for finite mixtures and the same
-        closed form the QVR likelihood scores. The emitted block is
-
-        ```stan
-        {
-          array[N] vector[K] lps_<name>;
-          for (m in 1:N) {
-            for (k in 1:K) {
-              lps_<name>[m, k] = log(w[k])
-                + normal_lpdf(<name>[m] | mu[k], sigma[k]);
-            }
-          }
-          for (m in 1:N) {
-            target += log_sum_exp(lps_<name>[m]);
-          }
-        }
-        ```
-
-        The accumulator declaration, the seeding loop nest and the
-        reduction reuse the marginalize machinery, so the mixture and
-        the enumerated-latent lowering compute their reductions the
-        same way.
-
-        A residual event axis on the site would ask each row to carry
-        a vector-valued mixture, which the scalar `normal_lpdf`
-        component cannot express, so it raises rather than emitting a
-        differently-shaped density.
+        For each row, the renderer fills a component vector with
+        ``log(w[k]) + normal_lpdf(y | mu[k], sigma[k])`` and adds its
+        `log_sum_exp` to the target density. Residual event axes raise because
+        this path supports scalar Normal components.
         """
         if plate.event_dims:
             raise UnsupportedConstruct(
@@ -1725,35 +1698,14 @@ class StanRenderer(RendererBase):
         ctx: _RenderCtx,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Emit the marginalize-over-latent construct.
+        """Emit a marginalized latent.
 
-        Discrete latents (Bernoulli, Categorical, OrderedLogistic,
-        ...) compile to Stan's `log_sum_exp` enumeration: per-group
-        `lps_<latent>` accumulator, per-`k` log-pmf contributions,
-        then `target += log_sum_exp(lps[...])`.
-
-        Whether a latent is enumerated is decided by the support the
-        family *declares for a marginalize head*, not by the
-        constraint its draws live in. A relaxation family carries a
-        hard support there (`ContinuousBernoulli` declares the two
-        atoms of the Bernoulli it relaxes), and the compiler
-        enumerates it, so reading the unit-interval constraint instead
-        would declare a live latent where the reference integrates and
-        score a measure on a larger space.
-
-        Latents whose family declares no finite support (Beta, ...)
-        cannot be enumerated; Stan's HMC samples them jointly with the
-        model's other parameters. The renderer treats the marginalize like a
-        sample step plus inline scope: the latent becomes a Stan
-        parameter with the appropriate constrained type, the latent's
-        draw renders as a `target += <family>_lpdf(...)` increment,
-        and the
-        scope body's deterministic / observe nodes pass through the
-        normal dispatch path with the latent name visible as a
-        parameter reference. The joint log-density Stan computes is
-        ``log p(z | theta) + log p(y | z, theta)``; HMC's NUTS sampler
-        handles the joint and the latent posterior emerges by
-        marginalisation of the sampled draws.
+        Families with declared finite marginal support are enumerated with a
+        `log_sum_exp` reduction. This includes relaxation families whose
+        marginal heads declare discrete atoms. Families without finite support
+        become constrained Stan parameters: the renderer adds their prior
+        density and emits the scope with that parameter in context. Stan then
+        samples the resulting joint model.
         """
         meta = FAMILY_META.get(node.family)
         if meta is None:

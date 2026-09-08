@@ -17,8 +17,7 @@ class MaskHandler(EffectHandler):
     """Multiply every site's ``log_prob`` by a fixed mask tensor.
 
     The mask is broadcast against the site's log-density. A boolean
-    mask acts as an element-wise switch; a float mask acts as an
-    element-wise scale. Sites of every kind (sample, observe,
+    mask switches entries; a float mask scales them. Sites of every kind (sample, observe,
     score) are affected; let bindings already carry zero log-prob
     and are unchanged.
 

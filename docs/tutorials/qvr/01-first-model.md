@@ -1,6 +1,6 @@
 # 1. Your first model
 
-We'll write Bayesian linear regression in QVR end-to-end: define the model, generate some synthetic data, fit it with variational inference, and inspect the posterior. By the end of the chapter you'll have run a complete QVR workflow, and you'll know where to look for the analogues of every step you're used to from another PPL.
+This chapter develops a Bayesian linear regression in QVR: it defines the model, generates synthetic data, fits the model with variational inference, and inspects the posterior. Each stage is paired with its analogue in another probabilistic-programming language.
 
 If you're coming from Stan, PyMC, NumPyro, or Pyro, the punchline is: QVR puts a typed signature on each model, runs a compiler pass before any tensor evaluation, and exposes the same SVI / NUTS surface you already know. The categorical machinery underneath the DSL stays invisible until chapter 7.
 

@@ -24,31 +24,17 @@ class UnsupportedConstruct(Exception):
     Attributes
     ----------
     target
-        The backend name (e.g., ``"qvr-stan"``).
+        Backend name, such as ``"qvr-stan"``.
     kinds
-        The unsupported QVR construct kinds, sorted, deduplicated.
-        Each kind is a structured identifier (``"family:Wishart"``,
-        ``"node:IRScore"``, ``"declare:vector:event-rank:0"``, ...)
-        consumers can match programmatically.
+        Sorted, deduplicated construct identifiers suitable for programmatic
+        matching.
     declarations
-        The top-level declarations the refusal is about, when it is
-        about declarations, so the message can name them the way the
-        user wrote them and point at their lines.
+        Affected top-level declarations, when applicable.
     module_has_program
-        Whether the refused module declares a probabilistic program at
-        all. A module that does not is refused for a further reason
-        the message states.
+        Whether the refused module declares a probabilistic program.
 
-    Notes
-    -----
-    The exception's `str` is the user-facing message: it translates
-    the structured `kinds` list into a plain-English account of what
-    the user wrote, where, why the target cannot take it, and what to
-    write instead. The structured `kinds` list is preserved as the
-    `kinds` attribute for programmatic dispatch (test harnesses, error
-    handlers, downstream tooling); see
-    [`quivers.transpile._diagnostics`][quivers.transpile._diagnostics]
-    for the grammar a kind follows.
+    The exception message describes the unsupported constructs and possible
+    replacements. The structured identifiers remain available in ``kinds``.
     """
 
     def __init__(

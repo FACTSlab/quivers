@@ -59,7 +59,7 @@ class _ExpandAndLower(dx.Mapping[Module, IRProgram]):
     The production `transpile()` calls `expand_composite_lets(...,
     target=backend)` before `Lower().forward(...)`; the lens-law
     tests compose the same pair so the law applies to the full
-    target-specific frontend, not just the target-independent
+    target-specific frontend, including the target-independent
     `Lower` step.
     """
 

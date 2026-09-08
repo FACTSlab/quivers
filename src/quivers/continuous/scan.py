@@ -329,16 +329,8 @@ class ScanMorphism(ContinuousMorphism):
         observed final state: for :math:`t < T` the state is the cell's
         image of the base measure's origin, and :math:`h_T` is ``y``.
 
-        The origin is the reparameterization's centre, not a draw:
-        [`push_base`][quivers.continuous.morphisms.ContinuousMorphism.push_base]
-        at zero coordinates is a pure function of the input, so the
-        prefix is the same tensor under every global RNG state, on
-        every call, and an independent implementation of the same cell
-        reproduces it from the family's own location parameters. It is
-        also the prefix that carries no information the data did not
-        supply: a location-scale cell puts it at its conditional mean,
-        and a cell reparameterized through an inverse CDF puts it at
-        its conditional median.
+        Prefix states use ``push_base`` at zero coordinates; the final
+        state is ``y``. The resulting trajectory is deterministic.
 
         Parameters
         ----------
@@ -395,75 +387,23 @@ class ScanMorphism(ContinuousMorphism):
             \\prod_{t<T} p(h_t \\mid x_t, h_{t-1})
             \\, dh_{1:T-1}.
 
-        No closed form covers that integral for a cell that draws fresh
-        per-step noise, and integrating it numerically is not a second
-        route to it, for three reasons that are properties of the
-        integrand rather than of any particular rule. First, the
-        integrand is a Gaussian whose scale the cell itself predicts,
-        so its mass concentrates on a set a feasible node budget does
-        not resolve and the value tracks the budget instead of
-        converging within it. Second, the recurrence amplifies: a
-        perturbation of the state grows by roughly an order of
-        magnitude per step, so the log-sum-exp is carried by one node
-        whose identity turns on differences far below the working
-        precision, and an independent implementation of the identical
-        map reports a different number. Third, a nested rule costs one
-        point set per factor at every evaluation, which puts gradient
-        based inference on a sequence model out of reach.
-
-        What this returns instead is the *trajectory's* joint density,
-        which is exact and needs no rule at all: the states
-        [`reference_trajectory`][quivers.continuous.scan.ScanMorphism.reference_trajectory]
-        names are bound as if they were sites of their own, and
-        [`log_joint`][quivers.continuous.scan.ScanMorphism.log_joint]
-        scores every transition along them,
+        The implementation scores the fixed trajectory returned by
+        ``reference_trajectory`` with ``log_joint``:
 
         .. math::
 
             \\sum_{t=1}^{T} \\log p(h_t \\mid x_t, h_{t-1}),
             \\qquad h_T = y .
 
-        Every factor the source declares is scored once, the observed
-        state enters through the last of them, and the value is a pure
-        function of ``(x, y)`` and the cell's parameters, so it is
-        bitwise reproducible across global RNG states.
+        Floating-point reassociation in the recurrent prefix may be
+        amplified by later transitions. Numerical comparisons should
+        use the same cell implementation.
 
-        Reproducible, but not well conditioned. The prefix is a
-        recurrence, so it amplifies: a cell whose predicted scale is
-        small compared to the distance between the prefix's last state
-        and ``y`` puts the last term's sensitivity at
-        :math:`(y - \\mu) / \\sigma^2` per coordinate, and a
-        perturbation of the prefix at the level of floating-point
-        re-association arrives there multiplied by seven steps of the
-        cell's Jacobian. A reconstruction that spells the cell's affine
-        maps differently (``x @ W.T + b`` rather than the
-        ``torch.nn.functional.linear`` the parameter source calls)
-        therefore does not agree to round-off. What the value needs to
-        be compared against is the same map, not merely the same
-        formula.
+        This is the joint density of the fixed trajectory, not the
+        marginal density of its endpoint.
 
-        It is a density of the trajectory, not the marginal of its
-        endpoint, and the two differ by the prefix the integral above
-        would have removed. What makes the trajectory the right object
-        to score is that the prefix is where a recurrent model keeps
-        its structure: a joint that omits it carries none of the
-        transition density the source declares, which is the whole of
-        the model apart from its emission.
-
-        A cell that denotes a program rather than a family has no
-        conditional density at all
-        ([`has_conditional_density`][quivers.continuous.morphisms.ContinuousMorphism.has_conditional_density]
-        says so), and its transitions cannot be scored this way: the
-        density of one step at a state marginalizes that step's own
-        internal draws, so the step is exactly the problem the whole
-        recurrence poses, one position smaller. Such a scan keeps the
-        deterministic-recurrence reading, under which the trajectory is
-        a function of the cell's weight latents, those latents are
-        scored on their own ``sample`` steps, and the state itself
-        carries a Dirac's zero. That zero is a modelling convention and
-        understates a stochastic cell's joint by its whole recurrent
-        structure; the route out is to expose the cell's per-step draws
-        as sites, not to integrate them.
+        If the cell has no conditional density, this method returns a
+        zero contribution.
 
         Parameters
         ----------

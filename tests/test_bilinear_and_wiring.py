@@ -85,8 +85,8 @@ def test_bilinear_form_non_associative_in_practice() -> None:
 
 
 def test_bilinear_form_skips_associativity_check() -> None:
-    """A clearly non-associative op constructs without error —
-    BilinearForm makes no associativity promise."""
+    """A non-associative op constructs because BilinearForm makes no
+    associativity promise."""
     bf = CustomBilinearForm("SignedDot", _signed_dot, _sum_reduce)
     assert bf.name == "SignedDot"
 

@@ -1,37 +1,12 @@
-"""Runtime helpers grafted into emitted PyMC programs.
+"""Runtime distributions included in emitted PyMC programs.
 
-PyMC ships no continuous-Bernoulli distribution, so the renderer
-grafts the [`ContinuousBernoulli`][quivers.transpile.runtime_pymc.ContinuousBernoulli]
-wrapper below into the emitted module. The wrapper builds a
-[`pymc.CustomDist`][pymc.CustomDist] whose log-density is the exact
-continuous-Bernoulli density (including its parameter-dependent
-normalising constant), so the emitted program's joint log-density
-matches the QVR model's `torch.distributions.ContinuousBernoulli`
-term.
+`ContinuousBernoulli` defines the normalized continuous-Bernoulli log density
+through `pymc.CustomDist`. `LKJCholesky` supplies a density and sampler for
+correlation Cholesky factors without the standard-deviation prior carried by
+`pymc.LKJCholeskyCov`.
 
-PyMC also ships no distribution over correlation Cholesky factors
-alone: [`pymc.LKJCholeskyCov`][pymc.LKJCholeskyCov] multiplies in a
-standard-deviation prior the QVR model does not have, and
-[`pymc.LKJCorr`][pymc.LKJCorr] carries the LKJ density of the
-correlation matrix rather than of its Cholesky factor, so it omits the
-factorisation Jacobian. The
-[`LKJCholesky`][quivers.transpile.runtime_pymc.LKJCholesky] wrapper
-below therefore supplies both halves directly: the exact
-`torch.distributions.LKJCholesky` log-density, evaluated on the
-Cholesky factor and normalised, and a matching forward sampler. The
-sampler is the C-vine method of Lewandowski, Kurowicka, and Joe, which
-draws the canonical partial correlations from Beta laws and maps them
-through the partial-correlation recursion straight to the Cholesky
-factor, so its off-diagonal correlation marginals follow the LKJ law
-and stay exchangeable across off-diagonals. PyMC's own onion sampler
-for `pymc.LKJCorr` is not reused: it produces off-diagonal marginals
-that do not match the LKJ law.
-
-The renderer parses this file through panproto's Python tree-sitter
-grammar at module-load time and copies each top-level
-`function_definition` subtree into the per-render schema, so the
-emitted source carries a real function definition rather than a
-string of source or an `exec`.
+The renderer parses these definitions with its Python grammar and copies their
+function-definition subtrees into emitted source.
 """
 
 from __future__ import annotations

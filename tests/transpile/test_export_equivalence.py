@@ -1,79 +1,15 @@
-"""Tier-4 export equivalence on the documentation gallery.
+"""Compare QVR return values with transpiled program exports.
 
-A QVR program declared `prog : A -> B` denotes a Markov kernel from
-`A` to `B`. Its meaning is a measure on the object it **returns**, not
-merely a joint density over `(latents, observations)`. The two are
-independent pieces of information: two programs can carry the
-identical joint and push forward differently, so a renderer that
-computes the right density and returns the wrong thing denotes the
-wrong kernel while every log-density check passes.
+Log-density agreement does not determine a program return value.
+For gallery programs with a `return` clause, this tier evaluates the
+QVR program and each supported backend at the same points, then
+compares returned values recursively by name, shape, and numeric value.
 
-[`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence]
-validates the joint alone, and its blindness to the return clause is
-not a conjecture: `tests/transpile/_mutations.py` pins
-`exported_value_negated` as a measured
-[`BlindSpot`][tests.transpile._mutations.BlindSpot] on both Stan and
-NumPyro, where negating the exported value leaves the constant-spread
-statistic exactly where the unmutated emit puts it: 2.564e-05 on Stan
-and 2.270e-05 on NumPyro, identical to the last printed digit on both
-sides of the rewrite. Every backend shares that blind spot, because
-the joint is what the tier reads and the export never enters it.
-
-This module closes the gap. For every `(backend, example)` cell the
-gallery tier scores numerically, it compares the backend's exported
-value against the QVR reference's, elementwise, at **every** point of
-the multi-point set.
-
-Why the comparison is well-posed, and where it would not be. At a
-clamped point every latent is pinned to its ground truth, so a
-deterministic export is a function of the point and nothing else, and
-the two sides can be compared exactly up to float round-off. An
-export that was itself an unclamped random site would be two
-independent draws on the two sides, and comparing those would pass or
-fail by chance; that case is excluded by construction rather than
-tolerated.
-[`test_export_reference_is_deterministic`][tests.transpile.test_export_equivalence.test_export_reference_is_deterministic]
-asserts the exclusion for every example, by re-tracing the reference
-under two distinct global RNG seeds and requiring the exported value
-to agree **bit for bit**, and the in-container probes each refuse to
-report an export the point did not pin.
-
-Why the comparison is not vacuous. Elementwise equality of two
-concrete vectors cannot be satisfied by an evaluator that computes
-nothing, but it *could* be satisfied by a backend returning a frozen
-constant if the reference itself never moved.
-[`test_export_reference_varies_across_points`][tests.transpile.test_export_equivalence.test_export_reference_varies_across_points]
-removes that: the reference export must take at least two distinct
-values across the point set.
-
-What the check rejects, measured rather than claimed. The mutation
-tier at the bottom of this module negates an export, returns a
-different site, drops the export entirely, and permutes a vector
-export, on the emitted source of every target that has an export
-surface, and requires each mutant to be rejected with a pinned margin
-over the tolerance. Each rewrite is anchored to text the renderer
-actually emits and its occurrence count is pinned, so a renderer
-change that moves the anchor fails loudly instead of silently
-mutating nothing.
-
-Per-target export surfaces, all ten of them, each read through the
-target's own construct rather than by looking the name up in a trace:
-
-| target | surface |
-| --- | --- |
-| numpyro, pyro, edward2 | the model function's `return` |
-| turing | the `@model` return, under `condition` |
-| gen | the second element of `Gen.assess` |
-| webppl | the `model` function's `return` |
-| stan | a `generated quantities` alias `<name>_value` |
-| pymc | `pymc.Deterministic("<name>_value", ...)` |
-| jags, bugs | a deterministic relation `<name>_value <- <name>` |
-
-The last three targets have no program-level return: Stan, PyMC, and
-the BUGS family each expose a quantity by naming it, so the renderer
-emits the alias and the probe reads that alias. Dropping it is a
-detected defect on those targets exactly as dropping a `return` is on
-the other seven.
+Each backend exposes returns through its native surface: model
+function returns, Stan generated quantities, BUGS/JAGS monitored
+aliases, or Gen assessed returns. The tests also check that declared
+return names and probe payloads have matching arity and that return
+mutations are detected independently of log density.
 """
 
 from __future__ import annotations
@@ -386,7 +322,7 @@ def _bitwise_equal(left: torch.Tensor, right: torch.Tensor) -> bool:
     distinct subnormals equal to zero. Determinism of an exported
     value is exact or it is absent, so the comparison is on bytes.
 
-    The `clone` is what makes the `view` total: a tensor sliced out of
+    The `clone` permits the `view`: a tensor sliced out of
     a larger buffer carries a storage offset, and reinterpreting the
     dtype of such a view is rejected unless the offset happens to
     divide evenly into the target element size.
@@ -785,7 +721,7 @@ def test_gallery_backend_export_matches_qvr(
     every point of the multi-point set and elementwise.
 
     This is the tier's central assertion. It says the emitted program
-    denotes the same *kernel* as the QVR program, not only the same
+    denotes the same kernel as the QVR program, including the same
     joint: the density comparison fixes the measure over
     `(latents, observations)`, and this fixes the value the kernel
     carries into its codomain.

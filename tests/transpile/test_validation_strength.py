@@ -1,88 +1,23 @@
-"""Pin the strength of the transpile equivalence check itself.
+"""Tests for the sensitivity of the transpile equivalence check.
 
-Theorem 4.1 of
-[docs/semantics/transpile-correctness.md](../../docs/semantics/transpile-correctness.md)
-says a transpiled program is correct when its log-density agrees with
-the QVR reference measure at **every** point of the model's support,
-up to an additive constant that does not depend on the point. The
-gallery suite turns that into an operational check: evaluate both
-sides on a point set, subtract the mean difference, and require the
-residual spread to sit under a tight tolerance.
+The operational check evaluates QVR and backend log densities on a
+finite point set, subtracts their mean difference, and bounds the
+remaining spread. This module checks the parts of that approximation
+that can weaken independently:
 
-That operationalisation has four independent failure surfaces, and
-the first two have already fired in this repository:
+1. tolerance constants and the adaptive-tolerance ceiling;
+2. point count and deterministic defaults;
+3. coordinate variation across several fixed seeds;
+4. finite, varying QVR reference values;
+5. rejection of a planted defect on every non-exempt coordinate;
+6. the added sensitivity of a wider excursion to nonlinear defects;
+7. the spread statistic on sequences with known behavior.
 
-1. **The tolerance can drift.** Widening the atol until a failing
-   fixture goes green converts a detected measure-inequivalence back
-   into a pass.
-2. **The point set can collapse.** The spread of a difference
-   sequence is a statement about *variation*. A one-point set has
-   spread identically zero whatever the two evaluators computed, and
-   a set whose data section is byte-identical throughout is the same
-   vacuity restricted to the data coordinates: a backend that drops a
-   data-dependent summand holds a perfectly constant offset as the
-   latents move and passes.
-3. **The point set can be lucky.** Six points drawn at one seed are
-   one finite sample of an infinite support, so a claim proved on
-   them is a claim about that draw. A coordinate the draw happened to
-   move a long way looks well covered; the same coordinate at another
-   seed may move by a hair, and nothing in the aggregate statistics of
-   the first draw says which of the two the perturber generally does.
-   This is the **seed-locality gap**: sensitivity established at one
-   seed is not sensitivity of the design.
-4. **The excursion can be too short.** Every displacement is
-   proportional to the perturbation scale, so a defect whose per-point
-   discrepancy is *nonlinear* in the point contributes a spread that
-   grows superlinearly in that scale. A discrepancy quadratic in the
-   displacement is roughly nine times louder at three times the scale,
-   which means a real defect can sit under tolerance at one excursion
-   and be rejected outright at a wider one. This is the
-   **excursion-magnitude gap**, and unlike the first three it is not
-   closed by adding points at the same scale.
-
-Each of the first two decays left a green test that proved nothing.
-The principle this module enforces is that a check is not validated
-until what it rejects has been demonstrated, that the demonstration is
-made by the suite on every run rather than by hand once, and that it
-is made across independent draws rather than at one. The tests below
-therefore assert the *properties that give the equivalence assertion
-its teeth*, not the equivalence itself:
-
-1. `test_tolerance_constants_are_pinned` and
-   `test_adaptive_atol_stays_under_ceiling` pin the tolerance model.
-2. `test_gallery_point_set_size_is_pinned`,
-   `test_single_point_comparison_is_vacuous`,
-   `test_min_points_rejects_a_collapsed_point_set`, and
-   `test_point_set_defaults_are_pinned` pin the point count and the
-   draw the gallery takes by default.
-3. `test_seed_sweep_draws_independent_point_sets`,
-   `test_seed_sweep_is_independent_for_every_cell`,
-   `test_no_point_collapses_onto_the_ground_truth`, and
-   `test_every_quantified_coordinate_varies` pin per-coordinate
-   coverage of the dimensions Theorem 4.1 quantifies over, and pin
-   that the sweep's draws are distinct and its points do not collapse,
-   at every swept seed. The first fixes that the builder answers to
-   its seed at all; the second fixes that it answers on every cell,
-   which is what keeps a claim proved once from being reported as
-   proved four times.
-4. `test_reference_joint_is_in_support_and_varies` pins that every
-   point is in the support and that the reference measure genuinely
-   moves, at every swept seed.
-5. `test_point_set_exposes_a_planted_coordinate_defect` pins that a
-   defect confined to any single coordinate is rejected, at every
-   swept seed, which is the claim the seed-locality gap otherwise
-   leaves as a statement about seed 0.
-6. `test_wider_excursion_detects_a_nonlinear_defect` and
-   `test_wide_excursion_gain_covers_the_corpus` measure the
-   excursion-magnitude gap: they exhibit, per cell, a defect quadratic
-   in the displacement that the default excursion provably cannot
-   detect and the wider one provably does, they check that the wider
-   set gains strictly more against that nonlinear shape than against a
-   linear control, and they keep the conditional those claims are made
-   under from decaying into a vacuous one.
-7. The `test_spread_*` family pins the behaviour of the spread
-   statistic on synthetic difference sequences of known magnitude,
-   which is the direct measurement of what the assertion rejects.
+The coordinate checks cover latent sites and observed arrays. Frozen
+structural coordinates require entries in
+`_UNPERTURBABLE_COORDINATES`. The excursion tests measure realized
+point distances because support-preserving redraws may reduce the
+requested scale.
 """
 
 from __future__ import annotations
@@ -381,15 +316,10 @@ reason is how a registry of arguments decays into a list of names."""
 
 
 class _EvaluatedPointSet(dx.Model):
-    """One gallery example's point set, at one seed and one excursion,
-    together with its reference log-densities.
+    """Cached point set and reference densities for one example, seed, and scale.
 
-    Held in a module-level cache so the per-example tests below share
-    one QVR evaluation pass. Every input is deterministic (the point
-    builder seeds its own generator and never touches the global RNG),
-    so the cached values are reproducible run to run, and the cache key
-    carries the seed and the scale because two draws of the same
-    example are different point sets that must not be confused for one.
+    The cache key includes all three inputs. Point generation uses a local
+    deterministic RNG, so cached and uncached evaluations agree.
     """
 
     stem: str
@@ -417,13 +347,7 @@ def _gallery_cells() -> list[pathlib.Path]:
 
 
 def _seeded_cells() -> list[tuple[pathlib.Path, int]]:
-    """Every (example, seed) pair the per-cell claims are proved on.
-
-    The cross product is the whole point: a claim proved at one seed is
-    a claim about one draw, and pytest reporting the pairs separately
-    is what makes a seed-specific failure legible as one rather than as
-    a flake in the example.
-    """
+    """Return every `(example, seed)` pair used by per-cell checks."""
     return [
         (example, seed)
         for example in _gallery_cells()
@@ -562,14 +486,10 @@ def _diff_pair(
 
 
 def _spread(values: Sequence[float]) -> float:
-    """The statistic `assert_log_density_match` compares against the
-    tolerance: the largest deviation of a sequence from its own mean.
+    """Compute the maximum deviation of a sequence from its mean.
 
-    Recomputed here rather than imported so this module can *predict*
-    what the assertion will do to a sequence it constructs, which is
-    what lets the nonlinear-defect test calibrate a defect to sit just
-    inside the accept region rather than discovering after the fact
-    where it landed.
+    This mirrors the statistic used by `assert_log_density_match` and lets
+    the tests calibrate synthetic defects analytically.
     """
     if not values:
         raise ValueError("the spread of an empty sequence is undefined")
@@ -583,27 +503,11 @@ def _spread(values: Sequence[float]) -> float:
 
 
 def test_tolerance_constants_are_pinned() -> None:
-    """The three constants of the tolerance model hold their derived
-    values.
+    """Check the three derived constants in the tolerance model.
 
-    Each is a claim about floating-point behaviour, not a knob:
-
-    * `_DEFAULT_ATOL = 5e-4` is the floor, roughly an order of
-      magnitude above the worst cross-backend agreement measured on a
-      60-observation fixture and two orders below the cheapest
-      semantic discrepancy a real bug produces.
-    * `_PER_OBS_ROUNDOFF_ESTIMATE = 5e-16` is the measured float64
-      round-off one observation-site `log_prob` contributes, which is
-      why the estimator grows linearly in the observation count.
-    * `_TOLERANCE_HEADROOM = 100.0` is the multiplier that absorbs
-      benign last-ULP disagreements between two algebraically equal
-      formulations of the same density.
-
-    Changing any of them requires re-deriving the round-off argument
-    from theory and updating the pinned mirror deliberately. Adjusting
-    a number until a failing fixture passes is the decay this test
-    exists to block: it converts a detected measure-inequivalence into
-    a green run.
+    `_DEFAULT_ATOL` is 5e-4, `_PER_OBS_ROUNDOFF_ESTIMATE` is 5e-16,
+    and `_TOLERANCE_HEADROOM` is 100. Changes require updating the
+    independently recorded values in this module.
     """
     assert _equivalence._DEFAULT_ATOL == _PINNED_DEFAULT_ATOL, (
         f"`_DEFAULT_ATOL` moved to "
@@ -634,23 +538,11 @@ def test_tolerance_constants_are_pinned() -> None:
 
 
 def test_adaptive_atol_stays_under_ceiling() -> None:
-    """The adaptive estimator cannot hand a realistic fixture a loose
-    tolerance.
+    """Bound adaptive tolerances for realistic observation counts.
 
-    `adaptive_atol` returns `max(floor, n_obs * condition_number *
-    round_off * headroom)`. At `condition_number = 1` the round-off
-    term is `n_obs * 5e-14`, so it only reaches the 5e-4 floor once
-    `n_obs` passes 1e10, which no fixture will. The estimator must
-    therefore evaluate to exactly the floor across the whole realistic
-    range, stay monotone, and never fall below the floor even for
-    degenerate inputs.
-
-    The ceiling matters because Theorem 4.1 is only testable while the
-    tolerance sits far below the smallest discrepancy a semantic bug
-    produces. A swapped distribution argument moves the log-density by
-    at least 1e-2 nats per point on the gallery's parameter ranges, so
-    a tolerance within an order of magnitude of that would make a real
-    bug and a rounding difference indistinguishable.
+    At unit conditioning, the round-off term remains below the 5e-4 floor
+    through the tested range. Returned tolerances must equal the floor, be
+    monotone, and stay below the 1e-3 ceiling.
     """
     assert _ADAPTIVE_ATOL_CEILING >= _PINNED_DEFAULT_ATOL, (
         "the ceiling must sit at or above the floor, otherwise it "
@@ -708,17 +600,10 @@ def test_adaptive_atol_stays_under_ceiling() -> None:
 
 
 def test_gallery_point_set_size_is_pinned() -> None:
-    """The gallery evaluates at least six points, covering each
-    perturbation mode.
+    """Require at least six gallery points.
 
-    The constant-spread contract is a statement about how the
-    difference varies across points, so the point count is the
-    resolution of the check. Six is the smallest count that gives two
-    latents-only, two data-only, and one joint perturbation, which is
-    what lets a broken constancy localise to the section that moved
-    rather than to "some point". A default that quietly dropped back
-    toward one would restore the vacuity the multi-point set was built
-    to remove.
+    Six points cover two latent-only, two data-only, and one joint
+    perturbation in addition to the ground truth.
     """
     default = inspect.signature(
         _gallery_data.points_from_dataset,
@@ -766,25 +651,7 @@ def test_gallery_point_set_size_is_pinned() -> None:
 
 
 def test_point_set_defaults_are_pinned() -> None:
-    """The draw every gallery caller takes is the reproducible one, and
-    the sweep that covers the support is wide enough to be a sweep.
-
-    Two claims, and they pull against each other, which is why both are
-    pinned. The *default* seed has to be fixed: every equivalence cell
-    in the suite takes it, and a default drawn from the clock would
-    make a genuine regression appear and disappear between runs. The
-    *sweep* has to be plural: a per-cell sensitivity claim proved at
-    the default seed alone is a claim about one finite sample of an
-    infinite support, and the coordinate it happened to move a long way
-    tells us nothing about the coordinate it happened to move by a
-    hair.
-
-    The scale default is pinned for the same reason the tolerance
-    constants are. It is the excursion every displacement in the suite
-    is proportional to, so lowering it shortens every point set at once
-    and weakens every cell in a way no single cell's failure would
-    localise.
-    """
+    """Check the reproducible seed, point count, scale, and seed sweep."""
     parameters = inspect.signature(
         _gallery_data.points_from_dataset,
     ).parameters
@@ -839,16 +706,10 @@ def test_point_set_defaults_are_pinned() -> None:
 
 
 def test_single_point_comparison_is_vacuous() -> None:
-    """A one-point comparison accepts an arbitrarily wrong backend.
+    """Show that a one-point constant-spread comparison always passes.
 
-    This is the failure mode that let a Stan renderer which dropped
-    data-dependent terms through: with `n == 1` the mean of the
-    difference sequence is the difference itself, so
-    `max_i |d_i - mean(d)|` is exactly zero whatever the two
-    evaluators computed. The demonstration is kept in the suite rather
-    than in a commit message because it is the reason every gallery
-    call site passes `min_points=2`, and a reader who does not see the
-    vacuity has no way to know why that argument is load-bearing.
+    With one difference, subtracting its mean produces zero regardless of
+    the two input values.
     """
     qvr, target = _diff_pair([1.0e6])
     constant = _equivalence.assert_log_density_match(
@@ -862,15 +723,7 @@ def test_single_point_comparison_is_vacuous() -> None:
 
 
 def test_min_points_rejects_a_collapsed_point_set() -> None:
-    """`assert_log_density_match` refuses a point sequence shorter than
-    two when the caller declares it needs variation.
-
-    The gallery equivalence cell passes `min_points=2`, so a point set
-    that ever collapses fails loudly instead of passing
-    unconditionally. The same one-point input that
-    `test_single_point_comparison_is_vacuous` shows sailing through at
-    the default must be rejected here.
-    """
+    """Reject a one-point comparison when `min_points=2`."""
     qvr, target = _diff_pair([1.0e6])
     with pytest.raises(AssertionError) as exc_info:
         _equivalence.assert_log_density_match(
@@ -930,19 +783,10 @@ def _point_signature(point: Point) -> tuple[
 
 
 def test_seed_sweep_draws_independent_point_sets() -> None:
-    """The sweep draws genuinely different point sets, and drawing the
-    same seed twice reproduces one exactly.
+    """Reproduce equal seeds and distinguish different seeds.
 
-    Both halves are load-bearing and they pull in opposite directions.
-    Reproducibility is what lets a failure at one seed be re-run and
-    debugged rather than chased; independence is the whole reason to
-    sweep, since a sweep whose members coincide reports one draw as
-    several and overstates its own coverage by exactly the factor it
-    claims to have gained.
-
-    The independence claim is made on the *perturbed* points only. Point
-    0 is the captured ground truth and is the same at every seed by
-    construction: it is the fixture, not a draw.
+    The comparison excludes point 0, which is the fixed ground truth in
+    every set.
     """
     cells = _gallery_cells()
     assert cells, (
@@ -1006,37 +850,10 @@ def test_seed_sweep_draws_independent_point_sets() -> None:
 def test_seed_sweep_is_independent_for_every_cell(
     example: pathlib.Path,
 ) -> None:
-    """No cell's swept draws coincide, so the coverage the sweep
-    claims is the coverage it has.
+    """Require distinct swept point sets for every gallery cell.
 
-    `test_seed_sweep_draws_independent_point_sets` establishes that the
-    builder responds to its seed at all, and it does so on one example.
-    That is the right scope for the mechanism and the wrong scope for
-    the claim. Independence is a property of how each *coordinate kind*
-    consumes randomness, and the corpus spans several: a real coordinate
-    moves by a Gaussian step and is essentially certain to differ
-    between draws, whereas an integer coordinate rounds its step and
-    then clamps it into an attested window, so a count with a narrow
-    window has only a handful of admissible values and two seeds landing
-    on the same one is an ordinary event rather than a coincidence. A
-    cell built entirely from such coordinates could return the same
-    point set at every seed while the one example the mechanism test
-    watches goes on differing.
-
-    What that would cost is the sweep's whole premise. Every per-cell
-    claim in this module is proved once per seed, so a cell whose four
-    draws coincide is a cell whose claims were proved once and reported
-    four times, and the seed-locality gap those claims exist to close
-    would be closed only on paper. Nothing in the aggregate output says
-    so: four identical draws pass every assertion four times over.
-
-    One duplicate is admissible, and it is derived rather than
-    registered, on exactly the argument
-    `test_no_point_collapses_onto_the_ground_truth` makes: a
-    latents-only point of a program that declares no latent sample site
-    has an empty section to perturb, so it is the ground truth at every
-    seed and no draw could separate it from another. The sweep of such a
-    cell is independent in the coordinates it has.
+    Latent-only points for programs without latent sites may coincide by
+    construction; other duplicate draws are rejected.
     """
     sets = {
         seed: _evaluate(example, seed=seed).points
@@ -1082,34 +899,10 @@ def test_seed_sweep_is_independent_for_every_cell(
 def test_no_point_collapses_onto_the_ground_truth(
     example: pathlib.Path, seed: int,
 ) -> None:
-    """Every perturbed point is a distinct point, at every swept seed.
+    """Require each scheduled perturbation to differ from ground truth.
 
-    The schedule promises six points covering the latents-only,
-    data-only and joint modes twice, twice and once. A perturbed point
-    that comes back byte-identical to the ground truth quietly breaks
-    that promise: the set is a five-point set, the mode it belonged to
-    is covered once rather than twice, and nothing in the aggregate
-    statistics says so. The per-coordinate coverage check does not
-    catch it either, because the coordinate still moves at the *other*
-    point of the same mode.
-
-    The failure is real and seed-dependent. An integer perturbation
-    rounds a real step to a whole count and then clamps it into the
-    value's window, and on a sparse vector of small counts both stages
-    can annihilate every entry of the draw at once: entries at the
-    bottom of the window only move upward, entries at the top only
-    downward, and a step comparable to one count rounds to zero about a
-    third of the time. Nothing about the default seed makes that
-    impossible; it simply does not happen there, which is precisely why
-    the claim has to be made across seeds.
-
-    One duplicate is admissible, and the exemption is derived rather
-    than registered: a latents-only point of a program that declares no
-    latent sample site has an empty section to perturb, so it *is* the
-    ground truth and no perturber could make it otherwise. Such a
-    program is a likelihood with no free parameters of its own, and the
-    equivalence check for it is a claim about the data coordinates
-    alone.
+    A latent-only point may coincide when the program declares no latent
+    site. This exemption is derived from the compiled program.
     """
     evaluated = _evaluate(example, seed=seed)
     points = evaluated.points
@@ -1143,45 +936,11 @@ def test_no_point_collapses_onto_the_ground_truth(
 def test_every_quantified_coordinate_varies(
     example: pathlib.Path, seed: int,
 ) -> None:
-    """Every coordinate Theorem 4.1 quantifies over actually moves
-    across the point set, at every swept seed.
+    """Vary every latent and observed coordinate across each point set.
 
-    The theorem quantifies over the whole support, so the operational
-    check inherits a coverage obligation the aggregate statistics hide:
-    a point set that never moves a given coordinate proves nothing
-    about that coordinate. The joint can move a great deal while one
-    observation array stays byte-identical throughout, and against
-    such a set any backend error that is a function of that array
-    alone is absorbed into the constant `c`. That is not a
-    hypothetical: a data section frozen at ground truth is precisely
-    what makes a dropped data-dependent summand invisible.
-
-    Two families of coordinate are checked, and each must take at
-    least two distinct values across the set:
-
-    1. Every latent sample site of the compiled program. A site the
-       point set never pins is worse than one it never moves, so a
-       missing site fails here too.
-    2. Every observed data array the point carries.
-
-    A coordinate that is genuinely outside the quantified space, a
-    plate subscript fixed by the experimental design, needs an entry
-    in `_UNPERTURBABLE_COORDINATES` stating the argument. The registry
-    is checked in three directions: an unexplained frozen coordinate
-    fails, a registered coordinate that has started moving fails as a
-    stale claim, and an entry whose `kind` the point builder's own
-    classifier does not confirm fails as a misfiled one. None of the
-    three may be settled by editing the assertion.
-
-    The seed sweep is what makes "moves" a property of the perturber
-    rather than of one draw. A coordinate whose step can round to zero,
-    an integer count near the edge of its attested window most of all,
-    may move at the default seed and freeze at another, and a
-    single-seed check would call that covered. The registry is
-    correspondingly a claim at *every* seed: a coordinate exempted as
-    structural must be frozen in all of them, since a subscript that
-    starts moving at one seed is a subscript the perturber is now
-    stepping.
+    Frozen structural subscripts require a matching entry in
+    `_UNPERTURBABLE_COORDINATES`. The registry is checked for missing,
+    stale, and misclassified entries at every seed.
     """
     evaluated = _evaluate(example, seed=seed)
     dataset = evaluated.dataset
@@ -1283,39 +1042,11 @@ def test_every_quantified_coordinate_varies(
 def test_point_set_exposes_a_planted_coordinate_defect(
     example: pathlib.Path, seed: int,
 ) -> None:
-    """Each example's own point set provably rejects a defect confined
-    to any single coordinate, at every swept seed.
+    """Reject a defect attached to each non-exempt coordinate.
 
-    Counting distinct values shows a coordinate *moved*; this test
-    shows the movement is enough to be *detected*, and it shows it on
-    the real point set rather than on an abstract sequence. For every
-    non-exempt coordinate the test plants the shape of the historical
-    bug: a per-point term of the documented smallest-bug magnitude
-    that fires exactly on the points where that coordinate left its
-    ground-truth value, added on top of a legitimate additive constant
-    standing in for a Jacobian or normaliser difference. A dropped
-    data-dependent summand has precisely this shape, constant wherever
-    the perturbation did not reach it.
-
-    The assertion must reject every one of those planted sequences
-    while the constant alone is tolerated. A coordinate whose planted
-    defect slips through is a coordinate the equivalence cell cannot
-    police, whatever its distinct-value count says, so the sensitivity
-    of the point set is measured here on every run instead of being
-    established once by hand.
-
-    Repeating the measurement at every seed of
-    [`GALLERY_SEEDS`][tests.transpile._gallery_data.GALLERY_SEEDS] is
-    what makes the result a statement about the perturbation design.
-    Proved at one seed it says only that *this draw* moved every
-    coordinate onto a point where the planted term fires on some points
-    and not others; the shape of the defect is defined by where the
-    coordinate left its ground truth, so a draw that moved a
-    coordinate at every single point would leave the planted term
-    constant and absorbed. Independent draws are the cheapest way to
-    tell that hazard from a design that avoids it, and a failure at one
-    seed only is a real defect in the point builder rather than a flake
-    in the example.
+    The planted term activates where that coordinate differs from ground
+    truth. A constant offset alone remains accepted. The check repeats at
+    every gallery seed.
     """
     evaluated = _evaluate(example, seed=seed)
     points = evaluated.points
@@ -1383,17 +1114,7 @@ def test_point_set_exposes_a_planted_coordinate_defect(
 
 
 def test_unperturbable_registry_is_well_formed() -> None:
-    """Every exemption names a live example and carries a written
-    argument.
-
-    The registry is the only sanctioned way to hold a coordinate
-    fixed, which makes it the obvious place for the check to decay: an
-    entry with a one-word reason, or an entry for an example that no
-    longer exists, silently widens the exempt set. Requiring a real
-    argument of substantial length keeps each exemption reviewable,
-    and requiring the example to exist keeps the registry describing
-    the corpus it is exempting.
-    """
+    """Require every frozen-coordinate exemption to name a live example and reason."""
     stems = {example.stem for example in _gallery_data.gallery_examples_with_data()}
     seen: set[tuple[str, str]] = set()
     for entry in _UNPERTURBABLE_COORDINATES:
@@ -1428,29 +1149,10 @@ def test_unperturbable_registry_is_well_formed() -> None:
 def test_reference_joint_is_in_support_and_varies(
     example: pathlib.Path, seed: int,
 ) -> None:
-    """Every point scores a finite reference joint, and the joint
-    genuinely varies across the set, at every swept seed.
+    """Require finite and varying QVR joints at every swept seed.
 
-    Theorem 4.1 quantifies over points *of the support*, so a
-    perturbation that steps outside it is not a witness of anything:
-    both evaluators return `-inf`, their difference is `nan`, and a
-    check that compared them would be testing a floating-point
-    convention rather than a measure. Finiteness at every point is
-    what makes the set admissible.
-
-    Variation is what makes it informative. The check requires the
-    joint's range across the set to clear the equivalence tolerance by
-    two orders of magnitude: a set whose reference measure moves by
-    less than the tolerance cannot separate a correct backend from a
-    wrong one, because every discrepancy such a perturbation could
-    expose is smaller than the noise the assertion already forgives.
-
-    Both properties are claims about the perturbation design, so both
-    are made at every swept seed. Admissibility especially: the redraw
-    ladder rescues a draw that leaves the support by halving its scale,
-    and a design that needs the ladder at one seed in four is a design
-    whose excursion is set too close to the boundary of the support,
-    which no single-seed run would show.
+    The joint range must exceed the equivalence tolerance by the recorded
+    margin.
     """
     evaluated = _evaluate(example, seed=seed)
     labels = _gallery_data.perturbation_labels(len(evaluated.points))
@@ -1523,7 +1225,7 @@ def _linear_defect(points: Sequence[Point]) -> list[float]:
     and wrong in proportion to how far the evaluation strays. Widening
     the excursion buys detection against it too, which is exactly why
     it is the control. Showing that a wider point set rejects a
-    *quadratic* defect proves nothing on its own about the excursion
+    *quadratic* defect alone does not establish that the excursion
     being a coverage parameter, since a longer excursion makes every
     defect that vanishes at the ground truth louder. The claim only
     has content if the wider set gains *more* against the nonlinear
@@ -1541,7 +1243,7 @@ def _detection_threshold(
     A defect contributing `c * profile[i]` at point `i` has spread
     `c * spread(profile)`, since the spread statistic is positively
     homogeneous, and the assertion rejects once that exceeds `atol`.
-    The threshold is therefore `atol / spread(profile)` exactly, with
+The threshold is thus `atol / spread(profile)` exactly, with
     no search required, and it is the quantity that answers what a
     point set can *detect* rather than how loudly it complains about
     one defect that was planted.

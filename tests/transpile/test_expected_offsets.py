@@ -1,175 +1,16 @@
-"""Named-constant equivalence: the offset a backend is *entitled* to.
+"""Expected log-density offsets between QVR and backend probes.
 
-Theorem 4.1 of
-[docs/semantics/transpile-correctness](../../docs/semantics/transpile-correctness/index.md)
-declares a transpiled program correct when its log-density agrees with
-the QVR reference measure up to an additive constant that does not
-depend on the evaluation point. The gallery suite enforces exactly that
-statement through
-[`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]:
-it subtracts the mean of the pointwise differences and bounds the
-residual spread.
+The equivalence relation permits one point-independent additive
+constant. This module records those constants for supported gallery
+cells and checks them separately from the residual-spread test. It
+also verifies that offset registries cover live cells, that cached
+probe results are isolated by inputs and harness identity, and that
+changes to probe scripts or points cannot reuse stale measurements.
 
-That statement has a soft spot, which this module closes. Quantifying
-existentially over the constant ("there exists some `c`") makes any
-systematically wrong but point-independent term invisible. A renderer
-that drops a whole prior factor whose value happens not to move with
-the point, that double-counts a normalizer, or that scores a `Beta` as
-a `Kumaraswamy` at coincidentally matched moments, all shift `c` and
-leave the spread untouched. The suite would stay green while the
-emitted program denoted a different measure. This module therefore
-replaces the existential with a **named-constant criterion** (NCC):
-for each `(backend, example)` cell the expected offset is derived in
-closed form ahead of the measurement, pinned in
-[`_EXPECTED_OFFSET`][tests.transpile.test_expected_offsets._EXPECTED_OFFSET],
-and asserted as an equality rather than as a mere constancy.
-
-Derivation
-----------
-
-Write `c(T, M) = mean_i (log p_QVR(z_i) - log p_T(z_i))` over the
-gallery point set for target `T` and example `M`. A positive `c` means
-the backend scores *lower* than the reference, so it dropped a term.
-The question the registry answers is which terms each target is
-entitled to drop.
-
-**1. Normalizers of the target's own scoring API.** Every backend in
-the Docker matrix is probed through an API that returns a fully
-normalized joint. Stan is probed with
-`cmdstanpy.CmdStanModel.log_prob(..., jacobian=False)`, so its value
-is the constrained-space `target` accumulator with the
-change-of-variables term removed, and the Stan renderer emits
-`target += <family>_lpdf(<variate> | <args>);` increments rather than
-`~` sampling statements, which is the form that retains every
-normalizing constant Stan would otherwise be free to drop. NumPyro,
-Pyro, PyMC, Edward2, Turing and Gen are probed through
-`log_density` / `log_prob_sum` / `compile_logp` / `logjoint` /
-`assess`, each documented to return normalized per-site densities.
-JAGS and BUGS are scored through the JAGS graph, and WebPPL through
-each distribution object's `score` method. Thus no target is entitled
-to a constant on this account, and the API contributes zero.
-
-**2. Truncation renormalizers of composed folded families.** This is
-the one term that is genuinely dropped, and it is dropped by exactly
-the targets that lack a native folded family. QVR's `HalfCauchy(gamma)`,
-`HalfNormal(sigma)` and `HalfStudentT(df, scale)` are the folded
-densities
-
-    f_half(v) = 2 * f_base(v)    for v >= 0,
-
-so `log f_half = log 2 + log f_base` at every point of the support.
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] records how
-each target spells each family, and the renderer may rewrite that
-spelling at the site; the two together give the effective spelling:
-
-* `numpyro`, `pyro`, `pymc` name the native `HalfCauchy` /
-  `HalfNormal` / `HalfStudentT` class, which carries the factor of two.
-  `numpyro` and `pyro` ship no `HalfStudentT`, so both graft one, in
-  each case a fold of the symmetric base that scores the `log 2`.
-* `edward2` names the native `HalfCauchy` and `HalfNormal`, but TFP has
-  no `HalfStudentT` and `renderers/edward2.py` rewrites that site to
-  the bare `edward2.StudentT(df, 0, scale)`, dropping `log 2` per site
-  while `FAMILY_META` still reads `edward2 -> "HalfStudentT"`.
-* `turing` composes `truncated(Cauchy(0, gamma), 0, Inf)`, and
-  Distributions.jl's `truncated` divides by `1 - F(0) = 1/2`, which
-  restores the same `log 2`.
-* `bugs` and `jags` emit the symmetric base (`dt(0, tau, 1)`,
-  `dnorm(0, tau)`) with a one-sided truncation suffix, and JAGS
-  renormalizes over the truncation interval.
-* `stan` emits the **symmetric base density alone** for all three
-  (`cauchy_lpdf`, `normal_lpdf`, `student_t_lpdf`), with the
-  non-negativity carried by a `real<lower=0>` declaration rather than
-  by a renormalization. Each such site scores `log 2` below the
-  reference.
-* `gen` and `webppl` do the same for `HalfCauchy` and `HalfNormal`
-  (`Gen.cauchy`, `Cauchy({...})`), but resolve `HalfStudentT` to a
-  grafted runtime helper (`half_student_t`, `HalfStudentT`) whose
-  scorer adds `log 2` explicitly, so they keep the renormalizer for
-  that family alone. `turing` grafts the same helper.
-
-The drop is therefore a property of the pair `(target, family)`, not of
-the target alone, which is what
-[`_DROPS_HALF_NORMALIZER`][tests.transpile.test_expected_offsets._DROPS_HALF_NORMALIZER]
-records.
-
-`log 2` does not depend on the parameter point or on the data, so the
-drop is legitimate under Theorem 4.1. It is also *countable*: the
-number of scalar folded-density factors of a given family a program
-contains is a syntactic property of its QVR source, namely the sum,
-over every `sample` / `observe` step naming that family, of the product
-of the cardinalities of the axes attached to that step, counting steps
-nested in a `marginalize` scope as well. Hence
-
-    c(T, M) = sum_f drops_half(T, f) * n_f(M) * log 2,
-
-with `drops_half(T, f) = 1` when `T` spells `f` as its bare symmetric
-base and `0` otherwise.
-
-**3. The zeros-trick carrier constant on the BUGS / JAGS engines.**
-Neither engine has a `target +=` statement, so a family whose density
-they cannot name is added to the joint through the zeros trick: the
-renderer writes the density out in closed form and scores a host-bound
-`zeros[n] = 0` against a Poisson whose rate is that density negated.
-Because `log P(X = 0; lambda) = -lambda`, the relation contributes
-exactly the closed form back. A rate must be positive, though, and the
-negated log-density is not, so the idiom conventionally lifts the rate
-by a constant `C` chosen to dominate the density over the whole
-support, which subtracts `C` from the joint at every row it scores:
-
-    zeros[n] ~ dpois(C - log f(y_n))   contributes   log f(y_n) - C.
-
-`C` is a fixed literal of the renderer rather than a function of the
-point, so the drop is legitimate under Theorem 4.1 and countable the
-same way the folded-family factors are, over the `observe` steps
-naming a family the target lowers this way. The three zeros-trick
-families are not treated alike:
-[`renderers/jags.py`][quivers.transpile.renderers.jags] lifts the rate
-by `1e6` for `MixtureNormal` and `Kumaraswamy`, whose closed forms are
-densities and so exceed one where the density does, and emits the bare
-`-(<term>)` for `BetaBinomial`, whose closed form is negative over the
-fixtures' support and so needs no lift.
-[`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
-records which pairs carry the constant, and
-`test_zeros_trick_table_agrees_with_the_emit` reads both the
-membership and the value of `C` back off the emitted program rather
-than taking either on trust.
-
-**4. Everything else is zero.** Argument aliasing (`loc -> mu`,
-`concentration -> a`) and parameterization substitution (BUGS and JAGS
-precision `tau = 1/sigma^2`) are algebraic identities on the density,
-not on a normalizer, so they contribute nothing. Plate expansion,
-`filldist` / `arraydist`, `sample_shape`, and per-index `for` loops
-all denote the same product measure. Change-of-variables terms are
-either absent (identity `Psi` on every non-Stan target) or removed by
-the probe (`jacobian=False`).
-
-Validation legs
----------------
-
-The pinned numbers rest on two independent legs, neither of which is
-the other's restatement.
-
-1. `test_registry_offset_matches_the_closed_form_derivation` recomputes
-   `sum_f drops_half(T, f) * n_f(M) * log 2 + sum_f lifts(T, f) *
-   m_f(M) * C` from the example's `.qvr`
-   source, in process and without Docker, and requires the registry to
-   equal it exactly. A registry entry cannot be quietly retuned to
-   whatever a container returned; it has to agree with a count taken
-   off the program text.
-2. `test_backend_offset_matches_registry` measures the offset in the
-   pinned runtime and requires it to match the registry within the
-   suite's equivalence tolerance. The tolerance floor is `5e-4`,
-   roughly 1400 times smaller than a single dropped `log 2`, so one
-   unaccounted truncation renormalizer, one missing prior factor, or
-   any other point-independent term above a milli-nat fails the cell.
-
-Unexplained offsets are never absorbed. An entry may be registered as
-[`Unexplained`][tests.transpile.test_expected_offsets.Unexplained] to
-record a measurement the derivation does not account for, and
-`test_no_unexplained_offsets_are_registered` then fails until the cell
-appears in
-[`_ACKNOWLEDGED_UNEXPLAINED`][tests.transpile.test_expected_offsets._ACKNOWLEDGED_UNEXPLAINED],
-whose sole purpose is to make such an admission loud.
+Offsets are evaluated on deterministic multi-point sets. A shifted
+backend vector must move the fitted constant by the same amount while
+leaving its spread unchanged. Mutations that change the density by a
+nonconstant term must still fail the equivalence check.
 """
 
 from __future__ import annotations
@@ -1167,7 +1008,7 @@ def _axis_names(step: SampleStep | ObserveStep) -> tuple[str, ...]:
     A folded family is scored elementwise, so the folding factor of two
     applies once per coordinate whether the coordinate sits on a batch
     axis (`sample s : Coef <- HalfCauchy(1.0)`) or on an event axis
-    (`[over=...]`). Both therefore multiply the factor count. When an
+(`[over=...]`). Both thus multiply the factor count. When an
     `[over=..., iid_over=...]` clause is present it is authoritative and
     the bare index is not counted again, since the index axis reappears
     inside `iid_over`.
@@ -1535,7 +1376,7 @@ def _points_key(points: list[Point]) -> str:
     """Content digest of a point set, over the wire payload itself.
 
     Digesting the serialised `params` / `data` rather than object
-    identity is what makes the key mean "the same numbers": two runs
+    identity makes the key refer to the same numbers: two runs
     that rebuild equal points hit the cache, and any coordinate that
     moved misses it.
     """
@@ -1742,7 +1583,7 @@ def test_drop_table_agrees_with_the_family_registry() -> None:
     emits as the bare `edward2.StudentT`, so a derivation off the table
     would name zero for a cell that drops `log 2` at every site and the
     constant-spread check would never notice. Each override is
-    therefore held against the emitted program rather than taken on
+thus held against the emitted program rather than taken on
     trust.
     """
     symmetric_bases = {
@@ -1828,7 +1669,7 @@ def test_every_live_cell_has_a_registered_offset(
     only for constant spread, which is the existential statement this
     module exists to strengthen. Growing the coverage of
     [`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence]
-    therefore fails this test until the new cell's offset is derived
+thus fails this test until the new cell's offset is derived
     and registered, and new coverage cannot bypass the named-constant
     criterion by arriving unannounced.
     """
@@ -2305,7 +2146,7 @@ def test_the_probe_script_guard_names_the_helper_that_moved() -> None:
     The guard is what turns "someone edited the harness mid-run" from an
     unattributable row of failures into a named session fault, so it has
     to be shown firing rather than assumed to. All three mutations are
-    exercised because the interesting edit is not only a rewrite: a
+    exercised because the edit includes more than a rewrite: a
     helper that appears or disappears changes what the container
     imports just as much.
     """

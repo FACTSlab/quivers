@@ -1,61 +1,10 @@
-"""Static transpile-only metadata for the registered distribution families.
+"""Transpilation metadata for registered distribution families.
 
-The torch distribution class supplies `arg_constraints`, `.support`,
-`event_shape`, `batch_shape`, and the natural parameterisation;
-[`FamilyMeta`][quivers.transpile.family_meta.FamilyMeta] carries
-only the transpile-specific facts that torch doesn't publish:
-
-* `qvr_name`: the DSL-facing family name.
-* `distribution_class`: the underlying
-  [`torch.distributions.Distribution`][torch.distributions.Distribution]
-  subclass. The transpile layer reads `arg_constraints`, `support`,
-  and `event_shape` from this class.
-* `quivers_class`: the
-  [`ContinuousMorphism`][quivers.continuous.morphisms.ContinuousMorphism]
-  subclass used by the inference layer for runtime ``log_prob`` and
-  ``rsample`` evaluation. ``None`` for wrapper or aggregate families
-  whose runtime morphism is built from a referenced inner morphism
-  rather than constructed directly.
-* `target_names`: per-backend distribution-name mapping. The single
-  source of truth for backend-to-distribution-name resolution. No
-  per-renderer `_FAMILIES` dict.
-* `arg_aliases`: per-backend per-arg renames. Most families have
-  empty `arg_aliases`. Renderers that apply parameterisation-converting
-  arithmetic (BUGS Normal mean/scale to mean/precision) key the
-  arithmetic on the alias's target name.
-
-Families without a direct
-[`torch.distributions`][torch.distributions] class (`BetaBinomial`,
-`OrderedLogistic`, `OrderedProbit`, `Logistic`, `HalfStudentT`,
-plus the wrappers `Truncated`, `Mixture`, `Independent`,
-`Transformed`, `LKJCorrelationFactor`, `Horseshoe`, `GP`,
-`InverseWishart`, `MatrixNormal`, `LogitNormal`,
-`TruncatedNormal`) get minimal `Distribution` subclasses defined
-in this module, carrying the right `arg_constraints` and `support`
-so the lower pipeline can introspect them.
-
-Two related but distinct questions about a `marginalize` latent are
-answered here, and conflating them produces a measure mismatch:
-
-* `finite_enumerable_at_call_site` is the *plate* question: does the
-  latent's declared index axis name the family's own support, so the
-  reduction sums over it, or is it a replication axis that allocates
-  one latent per index? It is a per-call predicate (not a per-family
-  flag), dispatching on the family name and the IR-form of the args.
-  Bernoulli, Categorical, OrderedLogistic, and OrderedProbit name
-  their support with the index; Binomial does only when its
-  `total_count` is a literal `IRArgNumber`.
-* `marginalize_support` is the *integration* question: which atom set
-  does the reduction actually integrate the latent over, and what
-  weights each atom. This table is the transpile-side mirror of the
-  atom sets [`Compiler`][quivers.dsl.compiler.Compiler] enumerates,
-  so both sides of the equivalence compute the same measure.
-
-The two answers differ for the Bernoulli relaxations. A
-`marginalize z : Resp <- ContinuousBernoulli(pi)` allocates one `z`
-per response (the index replicates, so `finite_enumerable_at_call_site`
-is False) and integrates each of those over the two atoms 0 and 1
-(`marginalize_support` is a binary atom set).
+``FamilyMeta`` records target names, argument aliases, runtime classes,
+and event ranks not supplied uniformly by PyTorch. This module also
+defines the finite atom sets and weights used to lower ``marginalize``
+blocks. Minimal distribution classes expose constraints for families
+without a direct ``torch.distributions`` class.
 """
 
 from __future__ import annotations
@@ -1652,25 +1601,14 @@ def finite_enumerable_at_call_site(
 
 
 class ClassIndexOutcome(dx.Model):
-    """How a family whose value is an index into its own alphabet
-    relates that alphabet to one of its arguments.
+    """Describe how an index-valued family's arguments determine its alphabet.
 
-    A `Categorical` draw is not a number on a numeric scale but a
-    subscript into the family's ``K`` classes, so the value's support
-    is ``0, ..., K - 1`` and every target that declares an integer
-    range needs that ``K``. Where ``K`` comes from is a positional
-    question: it is the family's *codomain*, the per-row value space
-    a declared morphism names, never the plate the draw is replicated
-    over. This table records the second, weaker reading, the one a
-    call site can still supply when no morphism is declared: which
-    argument carries the alphabet, and how its trailing extent
-    relates to ``K``.
-
-    `alphabet_args` names the argument positions that carry it, in
-    preference order (`Categorical` is parameterised by `probs` or
-    equivalently by `logits`). `extent_offset` is added to that
-    argument's trailing extent to get ``K``: zero for a probability
-    vector, one for the ``K - 1`` cutpoints of an ordered family.
+    `alphabet_args` lists, in preference order, arguments whose trailing extent
+    determines the class count. For instance, `Categorical` may use `probs` or
+    `logits`. Adding `extent_offset` to that extent gives the alphabet size:
+    probability vectors use zero, while an ordered family's `K - 1` cutpoints
+    use one. A declared morphism's codomain remains the primary source of the
+    value-space size.
     """
 
     alphabet_args: tuple[str, ...]

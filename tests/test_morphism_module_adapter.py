@@ -86,7 +86,7 @@ def test_as_torch_module_attaches_morphism_for_recovery() -> None:
 
 
 def test_as_torch_module_rejects_non_morphism_non_module() -> None:
-    """The adapter raises a clear error for an input that's
+    """The adapter raises a type-specific error for an input that is
     neither an :class:`nn.Module` nor a :class:`Morphism`."""
     with pytest.raises(TypeError, match="cannot adapt"):
         as_torch_module("not a morphism")

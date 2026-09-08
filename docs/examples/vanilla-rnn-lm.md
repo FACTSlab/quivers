@@ -2,7 +2,7 @@
 
 ## Overview
 
-The simplest recurrent language model in the gallery: a single Bayesian [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) [`cell`](../api/continuous/morphisms.md) `: Embedded * Hidden -> Hidden` updates the hidden state from the current input and the previous state, and a `Categorical` [`lm_head`](../api/continuous/families.md) projects the per-position hidden state onto the vocabulary so the program can `observe` the next-token target. The model exercises the [`scan`](../guides/dsl-declarations.md#scan-temporal-recurrence) combinator for threading state across a sequence and the minimal end-to-end LM wiring in the DSL.
+This recurrent language model uses a [`rnn_cell`](../guides/dsl-programs-and-lets.md) program to update the hidden state from the current embedded token and the previous state. [`scan(rnn_cell)`](../guides/dsl-declarations.md#scan-temporal-recurrence) threads that state across a sequence, and a `Categorical` [`lm_head`](../api/continuous/families.md) maps each hidden state to the vocabulary for the next-token observation.
 
 ## QVR source
 
@@ -65,7 +65,7 @@ export vanilla_rnn_lm
 
 ## Walkthrough
 
-Tokens are embedded into the 64-dimensional `Embedded` space, then `scan(rnn_cell)` threads a 128-dimensional hidden state across the sequence: at each step `rnn_cell` consumes the concatenated `(x_t, h_{t-1})`, draws the squashed pre-activation from `cell`, and returns the state rescaled onto $(-1, 1)$. Writing the recurrence as a program rather than as a single morphism is what makes each step a declared site, so the transition a backend emits is the transition the source states. Because `tanh(u) = 2\,\sigma(2u) - 1` and a `LogitNormal` draw is a sigmoid of a Gaussian pre-activation, the affine `let` recovers exactly the tanh update a vanilla RNN is defined by, with the cell's single weight matrix supplied by the linear parameter map its arrow already carries. The terminal hidden state $h_T$ summarizes the whole prefix; the `Categorical` [`lm_head`](../api/continuous/families.md) maps it to a Categorical distribution over the 256-symbol vocabulary, and the program's `observe next_token` step conditions on the next-token target tensor.
+Tokens are embedded into the 64-dimensional `Embedded` space, after which `scan(rnn_cell)` threads a 128-dimensional hidden state across the sequence. At each step, `rnn_cell` consumes `(x_t, h_{t-1})`, draws `s_t` from the `LogitNormal` cell, and returns $h_t = 2s_t - 1$ on $(-1, 1)$. The program form exposes this draw as a declared site. Since $2\sigma(u)-1=\tanh(u/2)$, the affine `let` is a scaled tanh transform of a Gaussian pre-activation; unlike a deterministic vanilla-RNN update, it retains the `LogitNormal` family's learned scale. The terminal state $h_T$ summarizes the prefix, and the `Categorical` [`lm_head`](../api/continuous/families.md) maps it to a distribution over the 256-symbol vocabulary for `observe next_token`.
 
 The two `FinSet` objects play different roles, and the positions they appear in are what fix them. `Resp : FinSet 32` sits in the observe step's index slot, so it is the plate: 32 scored rows, one next-token target per context. `Token : FinSet 256` sits in `lm_head`'s codomain and in the program's own codomain, so it is the value space: the 256 outcomes a draw ranges over, and the space the returned `next_token` lives in.
 
@@ -159,7 +159,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### NUTS posterior
 
-The proper Bayesian model has both the parameters $\theta$ and the per-token hidden state $h$ as latents: $p(\theta, h \mid x, y) \propto p(\theta) \, p(h \mid x, \theta) \, p(y \mid h, \theta)$. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) declares Normal priors on every learnable parameter and accepts an `additional_latents` mapping that lifts the intermediate `sample h` site as a NUTS variable with a placeholder Normal prior; the score step substitutes both into the inner program and cancels the placeholder, leaving the lifted log-density equal to the true joint $\log p(\theta) + \log p_{\text{inner}}(h, y \mid x, \theta)$. The log-density is deterministic given the full $(\theta, h)$ state, so the chain targets the exact posterior with no MC noise across leapfrog steps.
+The lifted Bayesian model treats both the parameters $\theta$ and the per-token hidden state $h$ as latents: $p(\theta, h \mid x, y) \propto p(\theta) \, p(h \mid x, \theta) \, p(y \mid h, \theta)$. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) declares Normal priors on every learnable parameter and accepts an `additional_latents` mapping that lifts the intermediate `sample h` site as a NUTS variable with a placeholder Normal prior. The score step substitutes both into the inner program and cancels the placeholder, leaving $\log p(\theta) + \log p_{\text{inner}}(h, y \mid x, \theta)$. Given the full $(\theta, h)$ state, this log density is deterministic and introduces no Monte Carlo estimate during leapfrog steps.
 
 ```python
 import torch

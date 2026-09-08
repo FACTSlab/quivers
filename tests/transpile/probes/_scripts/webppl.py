@@ -1,15 +1,15 @@
 """In-container WebPPL probe.
 
-The node container has the `webppl` CLI on PATH. This Python driver
-takes the rendered model source, transforms each `sample(<dist>)`,
+The container has the `webppl` CLI on PATH. This driver transforms
+each `sample(<dist>)`,
 `observe(<dist>, <val>)` and `factor(<weight>)` call into a plain
 JavaScript expression that accumulates a term into a running
 `globalStore.lp`, then runs the program with `webppl` and parses the
 printed log-density JSON.
 
-Why a source rewrite: WebPPL's `sample` / `observe` / `factor`
-primitives are CPS-transformed inside the interpreter and only have
-meaning inside an inference algorithm. To compute a joint
+WebPPL's `sample`, `observe`, and `factor` primitives are
+CPS-transformed and only have meaning inside an inference algorithm.
+To compute a joint
 log-density at a clamped (params, data) point we lift the call into
 plain JS that uses each distribution object's `score(value)` method
 directly. The renderer's emission shape is structured enough that a
@@ -30,21 +30,19 @@ whose discrete latent the renderer integrates out emits its reduced
 log-weight as `factor(<weight>)`, which the probe accumulates
 directly.
 
-A plated draw the probe failed to lift would stay live: WebPPL would
-redraw it at run time, dropping its prior term and making the
-returned log-density non-deterministic. That is a wrong finite number
-rather than an error, so after rewriting the probe asserts that no
+A plated draw left unmodified would be redrawn at run time and omit
+its prior contribution. After rewriting, the probe asserts that no
 `sample(`, `observe(` or `factor(` token survives inside the model
 function.
 
-Scoring a distribution declared by the transpiler's runtime prelude
-needs one extra step. WebPPL's CPS transform compiles a member call
+Scoring a distribution declared by the runtime prelude needs one
+extra step. WebPPL's CPS transform compiles a member call
 (`dist.score(v)`) as a plain JavaScript call, which reaches a
 CPS-rewritten function with the wrong arity and yields a trampoline
-thunk instead of a number. Binding the method to an identifier first
-routes the call back through the transform. Built-in distributions
-are the mirror image: their `score` is native JavaScript that rejects
-the CPS argument list. The probe therefore reads the prelude's
+thunk instead of a number. Binding the method to an identifier routes
+the call through the transform. Built-in distributions instead use a
+native JavaScript `score` method that rejects the CPS argument list.
+The probe reads the prelude's
 top-level `var <Name> = function (params) {` declarations and picks
 the calling convention per family.
 

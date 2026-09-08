@@ -1,6 +1,6 @@
 """Tests for :class:`quivers.inference.registry.LatentRegistry`.
 
-The registry is the single source of truth for per-site
+The registry records the per-site
 introspection (support, dims, plate-vs-scalar, bijector
 composition); every variational guide and MCMC kernel consumes
 it. Bugs in the registry propagate everywhere, so the test

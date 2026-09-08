@@ -1,41 +1,9 @@
-"""Turn a refusal's structured `kinds` list into prose the person who
-wrote the QVR program can act on.
+"""Format structured transpilation refusals as actionable messages.
 
-Every refusal in `quivers.transpile` raises
-[`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct] with a
-list of *kinds*. A kind is a machine-matchable identifier that consumers
-(the construct-matrix test, the CLI, downstream tooling) dispatch on. It
-is not a message. This module is the one place that turns kinds into
-messages.
-
-The kind grammar
-----------------
-
-    kind        ::= head ( ":" segment )* [ ": " explanation ]
-    head        ::= a registered dispatch key, no spaces
-    segment     ::= a name / number / token the refusal is about, no spaces
-    explanation ::= free prose, written at the raise site
-
-The head selects a renderer below. The segments carry the construct's
-own name, so the message can say `cell` rather than `IRArgFamilyRef`.
-The optional explanation starts at the first colon-*space* in the kind:
-segments never contain a space, so the split is unambiguous. A raise
-site writes an explanation when it knows something about the target
-language the shared renderer cannot know (BUGS having no free
-log-density statement, Stan having no method dispatch); the renderer
-then contributes only the headline and lets the explanation carry the
-reason.
-
-Four things a refusal has to say, and where each comes from:
-
-1. **What** was refused, named as the user wrote it. The segments.
-2. **Where**, when the construct carries a line. The segments, or the
-   [`RefusedDeclaration`][quivers.transpile._diagnostics.RefusedDeclaration]
-   records `unsupported_for` collects off the AST.
-3. **Why this target cannot take it**, in the target language's own
-   terms. The renderer plus the raise-site explanation.
-4. **What to do instead**, or a plain statement that the construct has
-   no form in that language.
+A refusal kind contains a dispatch head, structured segments, and an
+optional explanation after the first colon-space. This module maps that
+structure to user-facing prose while preserving the original kinds for
+programmatic consumers.
 """
 
 from __future__ import annotations
@@ -558,8 +526,8 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
     if not detail:
         return (
             f"{_has_no(backend, f'`{family}` distribution')}: the "
-            f"family registry maps no {_language(backend)} "
-            f"distribution to it. Pick a family this target supports, "
+            f"family registry contains no matching target distribution. "
+            f"Pick a family this target supports, "
             f"or write the density you want as an explicit `score` "
             f"step."
         )
@@ -1069,7 +1037,7 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"`marginalize {latent}` carries no index and no `over =` "
             f"clause, so it declares one latent and every row of the "
             f"plated `observe` inside it is conditioned on that single "
-            f"draw. Its density therefore accumulates the body's rows "
+            f"draw. Its density thus accumulates the body's rows "
             f"and reduces over the latent once, and "
             f"{_language(backend)} scores the rows the other way "
             f"round, giving each its own draw. That is a different "

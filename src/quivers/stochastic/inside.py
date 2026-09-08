@@ -260,26 +260,10 @@ class InsideAlgorithm(nn.Module):
 def _masked_logsumexp(scores: torch.Tensor, dim: int) -> torch.Tensor:
     """``logsumexp`` whose empty rows carry no gradient.
 
-    A chart entry that no derivation reaches scores :math:`-\\infty`.
-    Reducing a row of such entries with `torch.logsumexp` gives the
-    right value, :math:`-\\infty`, but a gradient of
-    :math:`\\exp(-\\infty - (-\\infty))`, which evaluates to ``nan``.
-    That ``nan`` reaches every rule weight the row was built from, and
-    multiplying it by an upstream gradient of zero does not clear it,
-    so a single unreachable category at a single span poisons the
-    whole parameter vector on the first optimizer step.
-
-    The reduction runs instead over a copy whose :math:`-\\infty`
-    entries are replaced by the dtype's most negative finite value,
-    which leaves the value and the gradient of every reachable entry
-    bit-identical (the replaced entries still underflow to a weight
-    of exactly zero) while keeping the backward pass finite. The
-    all-unreachable rows are then restored to :math:`-\\infty` through
-    a `torch.where`, whose backward routes zero, not ``nan``, to the
-    branch it did not select.
-
-    ``nan`` inputs are left alone: they mark a genuine upstream
-    breakage and masking them would hide it.
+    Replace negative infinities with the dtype floor during reduction,
+    then restore all-empty rows to negative infinity. This avoids NaN
+    gradients for unreachable chart entries. Existing NaN inputs are
+    unchanged.
 
     Parameters
     ----------

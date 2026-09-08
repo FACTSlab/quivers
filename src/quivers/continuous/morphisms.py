@@ -1,41 +1,10 @@
-"""Continuous morphisms: Markov kernels on continuous and mixed spaces.
+"""Markov kernels on discrete, continuous, and mixed spaces.
 
-A ContinuousMorphism represents a conditional probability distribution
-p(y | x) where x and y may live in either discrete (FinSet) or
-continuous (ContinuousSpace) spaces. The morphism is defined by two
-operations:
-
-    log_prob(x, y) — log-density/probability of y given x
-    rsample(x)     — reparameterized samples from p(· | x)
-
-Composition samples ancestrally. Its density marginalizes a discrete
-intermediate exactly, by finite summation:
-
-    (g . f)(x, z) = sum_y f(x, y) g(y, z)
-
-A continuous intermediate is not marginalized. The chain is scored
-along its canonical path instead: every stochastic factor's
-intermediate is bound to the image of its base measure's origin, each
-factor is scored once along that path, and the supplied value scores
-the last of them. That is exact where the integral would have been
-approximate, and it is a pure function of the endpoints where a
-quadrature would have made it a function of the node count as well.
-No branch draws samples, so a composite density is the same number on
-every call and under every global RNG state.
-
-This module provides:
-
-    ContinuousMorphism         — abstract base with >> and @ operators
-    SampledComposition         — f >> g via ancestral sampling
-    ProductContinuousMorphism  — f @ g (independent product)
-    DiscreteAsContinuous       — wrap a discrete Morphism as continuous
-
-Convention for input shapes
----------------------------
-- Discrete domain (SetObject): x is LongTensor of shape (batch,)
-- Continuous domain (ContinuousSpace): x is FloatTensor of shape (batch, dim)
-- Discrete codomain: y is LongTensor of shape (batch,)
-- Continuous codomain: y is FloatTensor of shape (batch, dim)
+``ContinuousMorphism`` defines ``log_prob`` and ``rsample``. The ``>>``
+operator composes kernels and ``@`` forms their independent product.
+Discrete intermediates are marginalized by finite summation. Continuous
+intermediates are scored along the deterministic reference path described
+by ``SampledComposition.log_prob``.
 """
 
 from __future__ import annotations
@@ -77,11 +46,7 @@ def dimension_probe(x: torch.Tensor) -> torch.Tensor:
 
     A morphism's
     [`base_dimension`][quivers.continuous.morphisms.ContinuousMorphism.base_dimension]
-    depends on the *shape* of its input, never on how many rows it
-    carries: the count is a product of trailing event extents. Asking
-    for it on one row therefore returns the same integer as asking on
-    all of them, and it does so without running a whole chain's
-    forward pass at the width of a point set.
+    depends on trailing event extents, not the number of rows.
     """
     return x[:1]
 
@@ -102,17 +67,10 @@ def sobol_normal_points(
 ) -> torch.Tensor:
     """A deterministic standard-normal point set of shape ``(n, dimension)``.
 
-    An unscrambled Sobol point set on :math:`[0, 1)^{d}` pushed
-    through the standard-normal quantile function. The construction
-    consumes no random state, so it returns the same tensor bit for
-    bit under any global RNG state, and its equidistribution gives
-    integration error :math:`O(n^{-1}(\\log n)^{d})` for an integrand
-    of bounded Hardy-Krause variation, against the
-    :math:`O(n^{-1/2})` of a random draw.
-
-    The Sobol origin is skipped, because the quantile function
-    diverges there, and ``count`` is rounded up to the power of two
-    the sequence's equidistribution is balanced at.
+    Push an unscrambled Sobol point set through the standard-normal
+    quantile function. The result is deterministic. The implementation
+    skips the Sobol origin, clamps quantile inputs away from 0 and 1,
+    and rounds ``count`` up to a power of two.
 
     Parameters
     ----------
@@ -227,13 +185,9 @@ def chain_marginal_quadrature(
 ) -> tuple[torch.Tensor, torch.Tensor] | None:
     """A deterministic rule for the law a whole chain induces on its end.
 
-    One point set of dimension ``sum(chain_dimensions(...))`` pushed
-    through every factor in turn, giving ``n`` nodes for the chain's
-    terminal object no matter how long the chain is. Marginalizing
-    factor by factor instead would multiply the node count at each
-    link, which is both exponentially expensive and a worse rule at
-    equal cost: the nested construction spends its budget resolving
-    the first intermediate and re-uses one point set for the rest.
+    Push one point set of dimension ``sum(chain_dimensions(...))``
+    through every factor. The rule returns ``n`` terminal nodes without
+    multiplying the node count at each link.
 
     Parameters
     ----------
@@ -514,36 +468,10 @@ class ContinuousMorphism(nn.Module, ABC):
             \\;\\approx\\;
             \\sum_i \\exp(\\log w_i) \\, \\varphi(y_i)
 
-        with ``nodes`` of shape ``(n, batch, *event)`` and
-        ``log_weights`` of shape ``(n,)``. The rule must be a
-        *function of* ``x`` alone: it consumes no random state, so two
-        calls under different global RNG states return identical
-        tensors bit for bit. That is the property a reference density
-        needs, and a seeded sampler does not have it, since seeding
-        fixes which sample you get without making the result a
-        quadrature.
-
-        The default rule reads the morphism's reparameterization. A
-        degenerate kernel integrates exactly, with the single node at
-        its
-        [`point_mass_value`][quivers.continuous.morphisms.ContinuousMorphism.point_mass_value]
-        carrying unit weight. A kernel reporting a
-        [`base_dimension`][quivers.continuous.morphisms.ContinuousMorphism.base_dimension]
-        gets the equally-weighted Sobol point set of
-        [`sobol_normal_points`][quivers.continuous.morphisms.sobol_normal_points]
-        pushed through
-        [`push_base`][quivers.continuous.morphisms.ContinuousMorphism.push_base];
-        that value approximates the integral rather than computing it,
-        and the exact treatment of a stochastic intermediate is to
-        expose it as a trace site. Everything else returns ``None``,
-        and a caller that needs a rule raises on ``None`` rather than
-        substituting a sampler.
-
-        A composite density does not ask for this rule.
-        [`SampledComposition.log_prob`][quivers.continuous.morphisms.SampledComposition.log_prob]
-        scores its chain's canonical path, which is exact; the rule
-        stays available to a caller that genuinely wants to integrate
-        against this kernel and is willing to own the approximation.
+        Point masses return one unit-weight node. Reparameterized
+        kernels return equally weighted Sobol nodes produced by
+        ``push_base``. Kernels without either representation return
+        ``None``. This method does not consume random state.
 
         Parameters
         ----------
@@ -684,27 +612,10 @@ class MarginalizedFactor(ContinuousMorphism):
 class SampledComposition(ContinuousMorphism):
     """Composition of morphisms via ancestral sampling.
 
-    Given f: X -> Y and g: Y -> Z, the composition g . f satisfies:
-
-        (g . f)(x, z) = integral f(x, y) g(y, z) dy
-
-    That integral is what
-    [`log_prob`][quivers.continuous.morphisms.SampledComposition.log_prob]
-    evaluates when Y is discrete: a finite sum over Y's elements,
-    exact. A degenerate ``left`` collapses it to a single evaluation,
-    also exact.
-
-    When Y is continuous and ``left`` is stochastic the integral has
-    no closed form, and
-    `_log_prob_reference_path`
-    scores the chain's canonical path rather than approximating it:
-    the intermediate is bound to the image of ``left``'s base-measure
-    origin and every factor is scored once along the resulting path.
-    That is the density of the path rather than the marginal of its
-    endpoint, and it is exact, rule-free and reproducible where the
-    marginal's approximations are none of the three.
-
-    For rsample: draw y ~ f(x, .), then draw z ~ g(y, .).
+    ``rsample`` draws from ``left`` and then ``right``. ``log_prob``
+    sums over a discrete intermediate. For a stochastic continuous
+    intermediate it scores the deterministic reference path, not the
+    endpoint marginal.
 
     Parameters
     ----------
@@ -767,11 +678,7 @@ class SampledComposition(ContinuousMorphism):
         """Thread the coordinates through the chain, factor by factor.
 
         Each factor consumes its own contiguous block of ``base``, so
-        no two factors share a coordinate and the composite map is the
-        honest pushforward of one point set through the whole chain
-        rather than a per-factor rule glued together by index. That is
-        what keeps a rule built on this map from resolving the same
-        directions twice while leaving others unexplored.
+        no two factors share a coordinate.
         """
         dimensions = chain_dimensions(self.factors, x)
         if dimensions is None:
@@ -889,24 +796,10 @@ class SampledComposition(ContinuousMorphism):
     ) -> torch.Tensor:
         """Score every factor along the chain's canonical path.
 
-        The chain's marginal at ``z`` integrates each continuous
-        intermediate, and no closed form covers that integral once a
-        factor is a genuinely stochastic kernel. A deterministic
-        quadrature approximates it, and the approximation is a
-        property of the rule rather than of the model: the value moves
-        by thousands of nats when the node count changes, because one
-        point set of a fixed size has to resolve a Gaussian whose
-        scale a later factor predicts, in as many dimensions as the
-        whole prefix places coordinates. A density no two rules agree
-        on is not a density anything can be compared against.
-
-        What this evaluates instead is exact, and needs no rule. The
-        chain's intermediates are bound to the images of the base
-        measure's origin, one per stochastic factor, which is what
-        [`push_base`][quivers.continuous.morphisms.ContinuousMorphism.push_base]
-        at zero coordinates returns; every factor is then scored once
-        along that path, and the supplied ``z`` scores the last of
-        them:
+        For a stochastic continuous intermediate, this method does not
+        evaluate the endpoint marginal. It binds each prefix
+        intermediate to ``push_base`` at zero coordinates and scores
+        every factor once:
 
         .. math::
 
@@ -914,20 +807,9 @@ class SampledComposition(ContinuousMorphism):
             + \\log p_n(z \\mid y_{n-1}),
             \\qquad y_k = T_{y_{k-1}}(0).
 
-        The origin is a fixed point of the reparameterization, not a
-        draw, so the whole value is a pure function of ``(x, z)`` and
-        the factors' parameters: bitwise identical under every global
-        RNG state and under every node count, because there is no node
-        count left. A degenerate factor contributes no density and
-        passes its point mass along, exactly as the marginal treats
-        it, so a chain whose intermediates are all deterministic
-        scores the same number either way.
-
-        This is the density of the *path*, not the marginal of its
-        endpoint. The two differ by the intermediates the integral
-        would have removed, and the path is the object worth scoring:
-        a joint that drops the prefix carries none of the structure
-        the chain's own factors declare.
+        The result is deterministic and represents the path joint, not
+        the marginal density of ``z``. Degenerate factors pass their
+        point mass forward without adding a density term.
 
         Parameters
         ----------
@@ -944,12 +826,8 @@ class SampledComposition(ContinuousMorphism):
         Raises
         ------
         ValueError
-            When a stochastic prefix factor declares no
-            reparameterization (so the path has no canonical
-            intermediate) or no conditional density (so the step
-            cannot be scored). Either way the intermediate has to be
-            bound to a draw step of its own before the joint can score
-            it exactly.
+            If a stochastic prefix factor cannot provide or score a
+            reference intermediate.
         """
         factors = self.factors
         prefix = factors[:-1]

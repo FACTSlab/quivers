@@ -1,6 +1,6 @@
 # Tutorial 8: Analysis Pipelines
 
-In this tutorial, you will fit a regression to data with one line, inspect the QVR program the formula compiles to, run an SVI fit of a hierarchical model, do NUTS sampling for a Bernoulli regression, then compare two models with PSIS-LOO and run a posterior-predictive check, all on synthetic data.
+The formula surface compiles a regression specification and a dataframe into a QVR program. This chapter inspects that program, fits hierarchical and Bernoulli regressions with SVI and NUTS, compares models with PSIS-LOO, and runs a posterior-predictive check on synthetic data.
 
 ## Concepts
 

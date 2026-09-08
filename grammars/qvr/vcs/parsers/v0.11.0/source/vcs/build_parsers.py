@@ -6,10 +6,8 @@ this script:
 
 1. Materialises the tag's ``grammars/qvr/`` subtree into
    ``grammars/qvr/vcs/parsers/<tag>/source/`` (a fresh copy each run).
-2. Regenerates ``parser.c`` from the tag's ``grammar.js`` using the
-   ``tree-sitter`` CLI (the checked-in ``src/parser.c`` is not
-   reused; running the CLI guarantees the parser matches the
-   grammar even when the tag's checked-in artefacts are stale).
+2. Regenerates ``parser.c`` from the tag's ``grammar.js`` with the
+   ``tree-sitter`` CLI instead of using the checked-in parser.
 3. Compiles ``parser.c`` together with any ``src/scanner.c`` into
    ``grammars/qvr/vcs/parsers/<tag>/qvr.dylib`` (or ``.so`` on
    Linux) via the platform C compiler.

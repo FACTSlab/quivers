@@ -1266,26 +1266,9 @@ class _BetaBinomial(D.Distribution):
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         """``log p(value; n, a, b)`` via the closed-form Beta-Binomial pmf.
 
-        Two numeric decisions carry this method.
-
-        The result dtype promotes over *every* input, floored at the
-        default floating dtype. The support is the non-negative
-        integers, so ``value`` and ``total_count`` routinely arrive
-        integer-typed while the concentrations are real, and demoting
-        either side to the other's dtype loses the argument it was
-        given: carrying ``a``, ``b`` down to an integer count
-        rescores the density at ``floor(a), floor(b)``, and a
-        concentration in :math:`(0, 1)` floors to zero, whose
-        ``lgamma`` is infinite, so the row scores :math:`-\\infty`.
-
-        The terms themselves accumulate in ``float64`` regardless.
-        The pmf is a difference of ``lgamma`` values that grow with
-        the trial count while their sum stays :math:`O(1)`: at
-        ``n = 200`` the summands are near :math:`10^{3}` and the
-        result near :math:`-2`, so ``float32`` cancellation eats
-        roughly four decimal digits of the density. Every backend is
-        validated against this number, and an error of that size sits
-        at the scale of the equivalence tolerance itself.
+        The calculation promotes all inputs to a floating result dtype
+        and evaluates the ``lgamma`` terms in ``float64`` to limit
+        cancellation at large trial counts.
         """
         dtype = torch.promote_types(
             torch.promote_types(
@@ -1808,33 +1791,9 @@ def _make_operator_distribution(
 def _param_row_width(vtype: AnySpace, event_rank: int) -> int:
     """Width one row of ``vtype`` occupies in the stacked parameters.
 
-    An inline distribution reads its parameters row by row: the
-    leading axis of every parameter is the batch axis the family
-    broadcasts over, and the recorded width is what a single row
-    contributes to the stacked parameter tensor.
-
-    A plate variable is where that width parts company with the
-    space's flat dimension, and the family's declared event rank for
-    the position settles which reading applies.
-
-    At rank 0 the position is a per-row scalar and the plate axis is
-    the batch axis, so the width is the plate's per-row width.
-    ``sample mu : Arm <- Normal(0, 1)`` declares ``|Arm|``
-    independent rows of width one flattened into a single
-    :math:`\\mathbb{R}^{|Arm|}` codomain; consumed as the location of
-    ``observe y : Arm <- Normal(mu, 1)`` it supplies one scalar per
-    row, not an ``|Arm|``-wide event vector. Recording the flat width
-    there slices ``|Arm|`` columns out of a one-column-per-row block,
-    which either scores the outer product of the plate against itself
-    (a silently inflated density) or leaves a later parameter empty.
-
-    At rank 1 or higher the position is an event vector and the plate
-    supplies its coordinates, one per row: the per-component locations
-    of a ``MixtureNormal`` are exactly a plate over the components. The
-    width there is the flat dimension.
-
-    A discrete space carries no parameter width of its own; an index
-    variable enters through a gather and contributes one column.
+    Rank-zero Euclidean parameters use the space's per-row width.
+    Higher-rank parameters use its flat dimension. Other spaces default
+    to one column.
     """
     if event_rank == 0 and isinstance(vtype, Euclidean):
         return vtype.row_width

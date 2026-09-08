@@ -103,27 +103,14 @@ def _autoscaled_prior_args(
     args: tuple[str | float, ...],
     column: "np.ndarray",
 ) -> tuple[str | float, ...]:
-    """Rescale a default coefficient prior to the column it multiplies.
+    """Rescale a default coefficient prior for its predictor column.
 
-    A prior stated on the coefficient alone is a statement about the
-    coefficient's *contribution*, which is what the response actually
-    sees: the column enters the linear predictor as ``beta * column``,
-    so ``beta ~ Normal(0, s)`` asserts a contribution of scale
-    ``s * rms(column)``. The same nominal prior therefore means
-    something different for every column.
-
-    That bites hardest on an orthonormal basis. ``poly(x, k)`` returns
-    columns of norm one, whose entries are of order ``1 / sqrt(N)``, so
-    a fixed ``Normal(0, 5)`` asserts a contribution near zero and the
-    fit obliges: the noise scale rises to the marginal spread of the
-    response and the coefficients never leave the prior.
-
-    Dividing the scale by the column's RMS states the prior in
-    contribution space instead, which is what the nominal value reads
-    as and what makes it mean the same thing across columns. The
-    coefficients stay on their own column's scale, so nothing has to be
-    transformed back afterwards. This is the autoscaling convention
-    `rstanarm` applies by default.
+    For a term ``beta * column``, a coefficient scale ``s`` induces contribution
+    scale ``s * rms(column)``. If the prior family has a final positional scale
+    argument, this function divides that argument by the column RMS. It leaves
+    unsupported families, nonnumeric scales, and columns with nonpositive or
+    nonfinite RMS unchanged. This follows the default autoscaling convention
+    used by `rstanarm`.
     """
     if family_name not in _SCALE_LAST_PRIOR_FAMILIES or not args:
         return args
@@ -391,7 +378,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
     """Translate a `Formula` to a QVR `Module` AST.
 
     A typed `didactic.api.Lens` whose complement is a
-    `FormulaData` carrier: just the fields of the source
+    `FormulaData` carrier containing the fields of the source
     `Formula` that are *not* recoverable from the emitted
     `Module`. The per-row data arrays, the original (pre-
     `_qvr_name`) identifiers, the per-column ``term`` / ``name``

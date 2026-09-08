@@ -85,7 +85,7 @@ def test_semigroupoid_compose_works() -> None:
 
 
 def test_associativity_smoke_check_rejects_bad_op() -> None:
-    """A clearly-non-associative op (subtraction) trips the check."""
+    """Subtraction trips the associativity check."""
 
     def sub(a, b):
         return a - b

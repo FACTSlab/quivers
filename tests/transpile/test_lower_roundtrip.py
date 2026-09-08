@@ -15,8 +15,7 @@ do not declare a program (deduction-only files such as
 `ccg.qvr`) are skipped at collection time. Gallery files that
 exercise composition constructs the lowering does not yet handle
 (`scan`, `fan`, kernel composite-let chains) are reported as
-`xfail` with the precise `UnsupportedConstruct` kind so the gate
-stays loud.
+`xfail` with the reported `UnsupportedConstruct` kind.
 """
 
 from __future__ import annotations

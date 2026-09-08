@@ -37,10 +37,9 @@ Empirical cross-backend agreement at this scale:
 * bayes_linear_regression (60 Normal obs with let-derived mu):
   NumPyro vs QVR ~2.1e-4.
 
-5e-4 sits about an order above the empirical 60-obs floor and far
-below the smallest semantic discrepancy a real bug would produce
-(parameter swap = at least 0.01 nat per point on a non-trivial
-range; family swap = orders of magnitude more). Prefer the
+5e-4 is about twice the largest empirical discrepancy listed above
+and below the 0.01-nat per-point discrepancy used by the validation
+tests. Prefer the
 adaptive estimator
 [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol]
 over this floor when the observed-data count is known."""
@@ -105,19 +104,15 @@ def adaptive_atol(
     Notes
     -----
     The adaptive estimator is monotone in ``n_obs`` and
-    ``condition_number`` -- larger fixtures get larger tolerances,
-    so the spread-bug detection threshold doesn't shrink as
-    coverage grows. The estimator never returns a value smaller
+    ``condition_number``. The estimator never returns a value smaller
     than the floor; passing ``condition_number=0`` (degenerate)
     falls through to the floor.
 
-    A real bug (parameter swap, family swap, factor structure
-    error) produces a non-constant spread of at least 1e-2 per
-    point on the gallery's parameter ranges, three orders of
-    magnitude above any tolerance this estimator can return for
-    real-world fixtures (a 1000-obs ill-conditioned MVN at
-    condition_number=1e10 still returns 5e-1 nats, which is two
-    orders below the 1e-2 per-point bug-detection threshold).
+    For well-conditioned fixtures up to 100,000 observations, the
+    estimator remains at the 5e-4 floor checked in
+    ``test_adaptive_atol_stays_under_ceiling``. A non-unit condition
+    number may raise the tolerance above that floor and requires a
+    fixture-specific numerical justification.
     """
     if n_obs <= 0:
         return _DEFAULT_ATOL
@@ -161,9 +156,8 @@ def assert_log_density_match(
         [`perturbation_labels`][tests.transpile._gallery_data.perturbation_labels]
         of a gallery point list). When supplied, the failure message
         names the perturbation carried by the worst point and the full
-        per-point difference table, so a broken constancy localises to
-        the section that moved -- latents, data, or both -- instead of
-        reporting only that some point disagreed.
+        per-point difference table, so a broken constancy identifies
+        whether the latents, data, or both moved.
     min_points
         Smallest point count at which the caller considers this check
         meaningful. The constant-spread contract is a statement about
@@ -171,8 +165,8 @@ def assert_log_density_match(
         satisfies it identically: ``max_i |d_i − mean(d)|`` is exactly
         0 when ``n == 1``, whatever the two evaluators computed. A
         caller whose contract needs real variation passes
-        ``min_points=2`` (or higher) and gets a loud failure instead of
-        a vacuous pass if its point set ever collapses. Defaults to 1
+        ``min_points=2`` (or higher) to reject a collapsed point set.
+        Defaults to 1
         for callers that legitimately compare a fixed single point.
 
     Returns

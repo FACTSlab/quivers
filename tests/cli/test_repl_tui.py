@@ -424,7 +424,7 @@ def test_scope_tree_deduction_rules_carry_paths():
 
 def test_scope_tree_category_headings_have_no_data(lda_session):
     """Category nodes (objects / programs / ...) must not be
-    clickable — their ``data`` is ``None``."""
+    clickable because their ``data`` is ``None``."""
     root = _build_fake_tree(lda_session)
     # Direct children of root are category headings.
     for child in root.children:

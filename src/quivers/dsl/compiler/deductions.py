@@ -210,7 +210,7 @@ def _bindings_key(bindings: dict) -> str:
 
     `nn.ParameterDict` keys must be valid Python identifiers (no
     dots, no spaces) under PyTorch's parameter-name validator; we
-    therefore canonicalise the binding map to a sorted, JSON-flavoured
+    thus canonicalise the binding map to a sorted, JSON-flavoured
     string and replace structural punctuation with underscore
     sequences. The function is total over any hashable, JSON-stable
     binding values the runtime emits (atoms as `("atom", "S")`,

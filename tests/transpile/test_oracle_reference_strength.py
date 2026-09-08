@@ -1,94 +1,27 @@
-"""Independent verification of the QVR reference oracle itself.
+"""Verify QVR reference log densities independently.
 
-Every numeric claim the transpile tier makes is a claim *relative to
-the QVR oracle*. Theorem 4.1 of
-[docs/semantics/transpile-correctness.md](../../docs/semantics/transpile-correctness.md)
-asks only that `log p_QVR - log p_backend` be the same constant at
-every point, so the backend comparison is invariant to adding a
-constant to the oracle and, at a point set where the oracle and the
-backend read the *same* wrong value, invariant to far more than that.
-The oracle therefore cannot be validated by the thing it validates.
+Backend equivalence is measured relative to the QVR oracle, so that
+comparison cannot also validate the oracle. Every pinned gallery
+example must instead have one of two witnesses:
 
-Two independent witnesses cover the pinned registry, and
-[`test_every_pinned_example_has_an_independent_witness`][tests.transpile.test_oracle_reference_strength.test_every_pinned_example_has_an_independent_witness]
-asserts the cover is total:
+1. A live backend container re-evaluates the model at every point.
+2. This module reconstructs the joint with raw
+   `torch.distributions` calls when no backend cell is available.
 
-1. **Container witness.** An example with at least one live
-   `(backend, example)` cell in
-   [`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence]
-   has its oracle re-derived by a foreign runtime (Stan's own
-   `log_prob`, NumPyro's `log_joint`, JAGS's node scores) at every
-   point of the set.
-2. **Raw-torch witness, this module.** Eight examples have *no* live
-   cell at all: `bnn`, `continuous_hmm`, `linear_gaussian_ssm`,
-   `mixture_model`, `parametric_pooling`, `pmf`,
-   `tensor_contraction`, `tree_categorical`. Every backend either
-   raises a pinned `UnsupportedConstruct` or sits in
-   `_SKIP_PROBE_INCOMPATIBLE`. Nothing outside this module ever
-   compares their oracle against an independent computation, so this
-   module rebuilds each joint from the `.qvr` source and the `.md`
-   synthetic-data snippet in raw `torch.distributions` and asserts
-   the match **per site** and **per point**.
+The raw-torch reconstructions compare every stochastic site log-density
+as well as the joint, preventing compensating site errors from
+canceling. They follow the oracle constrained-space convention, sum
+over plates, and use `logsumexp` for marginalized discrete latents. A
+mutation catalogue checks that each reconstruction rejects specified
+statistical defects by a measured margin.
 
-Per site rather than per joint on purpose. Matching only the total
-lets two errors cancel: a prior term inflated by the same amount a
-likelihood term is deflated reproduces the joint exactly. The trace
-exposes `Trace.sites[name].log_prob`, so the reconstruction is
-compared summand by summand, and a site the reconstruction does not
-model must score exactly zero in the trace (the deterministic `let`
-bindings, whose value is a function of already-scored sites).
-
-Conventions the reconstruction follows, matching the oracle's:
-
-- **Constrained space, no unconstraining Jacobian.** A positive scale
-  is scored by its own density at its own value; no `log |dtheta/dz|`
-  term is added.
-- **Sum, never mean, over a plate.** The joint is a product over the
-  plate index, so its log is a sum.
-- **Discrete-marginalized latents integrated by `logsumexp`.**
-  `mixture_model`'s per-row component assignment is integrated in
-  closed form, not sampled.
-
-What the reconstruction *rejects* is measured, not asserted.
-[`test_reconstruction_rejects_mutant`][tests.transpile.test_oracle_reference_strength.test_reconstruction_rejects_mutant]
-runs a catalogue of named statistical defects through the same code
-path (a plate averaged instead of summed, a mixture collapsed to one
-component, a location and a log-scale head transposed, a Jacobian
-added, a wiring that conditions the emission on the previous state,
-a soft sum-to-zero factor dropped) and requires each to move the
-joint past a pinned floor. A defect that stops being rejected trips
-the floor before it trips the tolerance.
-
-Eight gallery examples ship synthetic data and carry no pin at all,
-and this module holds their exemptions to the same standard rather
-than to their own prose. All eight are sequence models binding a
-latent to a `SampledComposition`, and each must be shown to report a
-joint that no pin could hold: either the value moves when the
-composition's quadrature node count changes, so what the oracle
-returns is the rule's approximation rather than the model's density,
-or the composite site scores exactly zero at every value it is given,
-so the joint is missing the prior on the only latent the program
-declares. Which of the two holds is declared per example and
-re-measured on every run. An example that stops exhibiting either has
-a density worth pinning and loses its exemption instead of keeping an
-unpinned joint forever.
-
-The second exemption ground, a `.qvr` that declares no probabilistic
-program at all, is currently claimed by nobody. An empty category is
-a claim in its own right rather than an absence of work, so it is
-declared empty in
-[`_DECLARED_STRUCTURAL_EXEMPT`][tests.transpile.test_oracle_reference_strength._DECLARED_STRUCTURAL_EXEMPT]
-and checked over the examples that *could* claim it: the four whose
-source parses to no `ProgramDecl`. Each is required to land on one
-side of the line for a stated reason. `pmf` and `tensor_contraction`
-score a joint regardless, since their `.md` snippet wraps the
-compiled composition in a `MonadicProgram`, so both carry a pin and a
-reconstruction here; `schema_chart_parser` and `term_autoencoder`
-leave `load_gallery_data` with nothing to build, so the numeric tier
-never reaches them and neither registry may name them. A check
-parametrized over the exempt set alone would have gone quiet the
-moment that set emptied, which is exactly when it has the most to
-say.
+Examples without a pin are classified separately. Some compositions
+produce a reproducible quadrature approximation without an independent
+witness; others assign zero density to a composition-bound latent. The
+tests re-measure those grounds and check program-free examples against
+the structural exemption registry. They also verify that flat
+plate-shaped terms do not duplicate scalar site contributions during
+joint reduction.
 """
 
 from __future__ import annotations
@@ -415,7 +348,7 @@ def _mlp3_linear(
     feed-forward chain stays below the pin tolerance. A reconstruction
     that scores a chain of many factors calls what the parameter
     source itself calls, so that what the value is compared against is
-    the same map and not merely the same formula.
+    the same implemented map.
     """
     layer = F.linear(
         x, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
@@ -463,42 +396,17 @@ def _reconstruct_deep_markov(
     weights: dict[str, Tensor],
     variant: str,
 ) -> dict[str, Tensor]:
-    """`deep_markov.qvr`:
+    """Reconstruct the path density declared by `deep_markov.qvr`.
 
-        sample s_new <- transition_cell
-        observe o    <- emission(s_new)
+    The transition and emission sites are two-factor Normal chains. The
+    reconstruction follows each chain through the base-measure image,
+    scores all four factors, and sums over the 32-row plate. Compile-time
+    MLP weights are taken from the compiled model; wiring, layer order,
+    head splits, and densities are rebuilt.
 
-    with `transition_cell = trans_mlp_1 >> trans_mlp_2` and
-    `emission = emit_mlp_1 >> emit_mlp_2`. Each site is therefore a
-    two-factor chain whose factors both carry a conditional density,
-    so both are scored along the canonical path: the first factor's
-    intermediate is bound to the image of the base measure's origin,
-    which for a Normal factor is its own location, and the site's
-    value enters through the second.
-
-    `object Driver : Real 4`, `object State : Real 8`,
-    `object Hidden : Real 32`, `object Obs : Real 4`, so the
-    transition reads a 12-column `(driver, state)` row and both
-    inner factors emit a 64-column `(loc, log_scale)` pair over
-    `Hidden`. The eight MLPs' weights are compile-time draws with no
-    spelling in the source and are taken as given; the layer order,
-    the head splits, the four densities and the sum over the 32-row
-    plate are rebuilt.
-
-    Only the two mutants that drop a whole term are catalogued, and
-    that is a measurement rather than an oversight. A prefix factor is
-    scored at its own location, so it contributes its normalizer and
-    nothing else, and defects in the *shape* of the map reach the
-    joint only through that normalizer: dropping every `tanh` in the
-    transition moves it by 0.086 nats, reading a zero state into the
-    emission by 0.85, and ignoring the observation head's log-scale
-    columns by 3.5. Each is above the pin tolerance and far below the
-    4000-tolerance grip the mutant catalogue declares, so cataloguing
-    them would lower that floor while claiming to raise coverage.
-    What the numbers say is that the path density is much less
-    sensitive to a chain's nonlinear structure than the marginal it
-    stands in for would be, which bears on what a pin over it can be
-    trusted to certify.
+    Only whole-term removals appear in the mutant catalogue. The other
+    measured variants move this path density by less than the catalogue
+    floor, even though they remain above the pin tolerance.
     """
     x_input = dataset.x_input
     if x_input is None:
@@ -573,7 +481,7 @@ def _reconstruct_vae(
     which for a Normal factor is its own location, and the observed
     `Y` enters through the last factor. A factor scored at its own
     location contributes its normalizer alone, and writing that out
-    is what makes this an independent statement of the path density
+    makes this an independent statement of the path density
     rather than a call back into the object under test.
 
     The affine weights are compile-time draws with no spelling in the
@@ -1706,7 +1614,7 @@ def _live_backend_cells(example: str) -> list[str]:
     A backend is live for an example when the gallery tier neither
     pins its transpile as a raise nor parks the cell in a skip
     registry: exactly the cells that reach
-    `assert_log_density_match` and therefore re-derive the oracle in a
+`assert_log_density_match` and thus re-derive the oracle in a
     foreign runtime.
     """
     return sorted(
@@ -1768,20 +1676,11 @@ def test_reconstruction_registry_is_well_formed() -> None:
 
 
 def test_every_pinned_example_has_an_independent_witness() -> None:
-    """No pinned reference rests on the oracle's own word.
+    """Require an independent witness for every pinned reference.
 
-    Each entry of `_QVR_REFERENCE_JOINT` must be re-derived either by
-    a live backend container or by a reconstruction in this module.
-    The failing direction that matters is an example losing its last
-    live cell: its pin then has no witness at all, and without this
-    test that loss is invisible, because the gallery tier turns the
-    cell into a `pytest.skip` and stays green.
-
-    The second assertion guards the opposite drift. If every
-    reconstructed example acquired a live backend cell, this module
-    would be duplicating the containers rather than covering the gap
-    they leave, and its coverage claim would need re-aiming at
-    whatever the zero-cell set had become.
+    A pin must be re-derived by a live backend cell or by a raw-torch
+    reconstruction in this module. Reconstructed examples must also still
+    occupy the no-live-backend gap they were added to cover.
     """
     pinned = sorted(_gallery_tier._QVR_REFERENCE_JOINT)
     unwitnessed = [
@@ -1826,20 +1725,10 @@ def test_every_pinned_example_has_an_independent_witness() -> None:
 def test_reconstruction_matches_the_oracle_per_site(
     cell: tuple[str, int],
 ) -> None:
-    """The raw-torch reconstruction reproduces the oracle summand by
-    summand, at this point.
+    """Match the oracle at every reconstructed site and point.
 
-    Per site, not per joint. A joint-only comparison is satisfied by
-    any pair of compensating errors: a prior term inflated by exactly
-    what a likelihood term loses reproduces the total and hides both.
-    Comparing each `Trace.sites[name].log_prob` against its
-    independently-derived counterpart removes that degree of freedom.
-
-    A site the reconstruction does not model must score exactly zero
-    in the trace. Those are the deterministic `let` bindings, whose
-    values are functions of already-scored sites and which contribute
-    no density; requiring the zero rather than ignoring the site keeps
-    a newly-scoring step from slipping past unmodelled.
+    Per-site comparison prevents compensating errors from canceling in the
+    joint. Unmodeled deterministic bindings must contribute exactly zero.
     """
     example, index = cell
     fixture = _fixture(example)
@@ -1903,15 +1792,7 @@ def test_reconstruction_matches_the_oracle_per_site(
 def test_reconstruction_matches_the_pinned_reference(
     example: str,
 ) -> None:
-    """The pinned `_QVR_REFERENCE_JOINT` row is re-derived from raw
-    `torch.distributions` at every point.
-
-    This is the test that makes the pin reproducible. Before it, the
-    registry's claim of independent verification rested on a one-time
-    manual act with nothing in the tree that re-ran it, so a pinned
-    number and the reconstruction that once justified it could drift
-    apart silently. The numbers are now re-derived on every run.
-    """
+    """Re-derive each pinned joint from raw torch distributions."""
     reference = _gallery_tier._QVR_REFERENCE_JOINT[example]
     fixture = _fixture(example)
     labels = _gallery_data.perturbation_labels(len(fixture.points))
@@ -1939,18 +1820,11 @@ def test_reconstruction_matches_the_pinned_reference(
     "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
 )
 def test_zero_scoring_sites_are_zero_by_identity(example: str) -> None:
-    """A site that contributes exactly zero does so because its family
-    is flat, not because this fixture's value happens to sit at a zero.
+    """Verify that Beta(1, 1) sites score zero across their support.
 
-    The distinction matters for
-    [`test_dropping_any_scored_site_is_rejected`][tests.transpile.test_oracle_reference_strength.test_dropping_any_scored_site_is_rejected],
-    which cannot detect the removal of a zero term. `tree_categorical`
-    draws three `Beta(1, 1)` splits, whose log-density is
-    `-log B(1, 1) = 0` for **every** value in `(0, 1)`; dropping such a
-    term changes nothing because the term is nothing. Re-checking the
-    density across the unit interval turns that from an observation
-    about this fixture into a statement about the family, so the
-    undetectable case is accounted for rather than merely unnoticed.
+    These flat sites cannot be detected by removing their zero-valued
+    contribution from the joint, so the family identity is checked
+    directly at several values.
     """
     fixture = _fixture(example)
     zero_sites = sorted({
@@ -2018,24 +1892,11 @@ that a term shrinking toward the tolerance trips here first."""
     "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
 )
 def test_dropping_any_scored_site_is_rejected(example: str) -> None:
-    """Removing any single non-flat term moves the joint past the pin
-    tolerance at some point of the set.
+    """Require every non-flat site to affect the joint at some point.
 
-    The mechanical half of the sensitivity argument, and the one that
-    scales with the registry: whatever sites an example grows, each
-    one has to carry weight the comparison can see somewhere. At
-    *some* point rather than at every point, because a term can
-    legitimately vanish where the fixture sits at its zero:
-    `parametric_pooling`'s soft sum-to-zero `score` is 7.1e-13 at the
-    ground truth, where the snippet centres the group effects exactly,
-    and 10.9 nats once the latents move. Demanding visibility at every
-    point would make that site look undetectable and force it out of
-    the check; demanding it somewhere is the property the per-point
-    pin actually delivers.
-
-    The measured minimum is reported so a term drifting toward zero
-    surfaces as a shrinking margin rather than as a silent loss of
-    coverage.
+    A term may vanish at one point, so visibility is required somewhere
+    in the evaluation set. The reported minimum records the sensitivity
+    margin.
     """
     fixture = _fixture(example)
     labels = _gallery_data.perturbation_labels(len(fixture.points))
@@ -2090,23 +1951,11 @@ def test_dropping_any_scored_site_is_rejected(example: str) -> None:
     "mutant", _MUTANTS, ids=lambda m: m.ident,
 )
 def test_reconstruction_rejects_mutant(mutant: _Mutant) -> None:
-    """Each catalogued defect moves the joint past the pin tolerance
-    and past its own pinned floor.
+    """Reject each catalogued defect above its recorded margin.
 
-    Rejection alone would be a weak claim: a comparison that failed on
-    everything would satisfy it, and
-    [`test_reconstruction_matches_the_oracle_per_site`][tests.transpile.test_oracle_reference_strength.test_reconstruction_matches_the_oracle_per_site]
-    is the other side of that argument, accepting the faithful
-    reconstruction at the same tolerance. The floor is what makes this
-    a decay alarm: a mutant whose margin collapsed because the fixture
-    stopped exercising the term would still clear
-    `margin > atol` for a long while, and the floor trips first.
-
-    A defect is required to be visible at **some** point, not at every
-    point. `parametric_pooling`'s dropped `score` factor is exactly
-    zero at the ground truth, where the snippet centres the group
-    effects; only the perturbed points reject it, which is precisely
-    why the pin runs at every point.
+    The faithful reconstruction is accepted at the same tolerance. A
+    defect need only be visible at one point because some terms vanish at
+    the ground truth.
     """
     fixture = _fixture(mutant.example)
     labels = _gallery_data.perturbation_labels(len(fixture.points))
@@ -2158,17 +2007,7 @@ realistic defect quietly stops being covered."""
 
 
 def test_tightest_mutant_rejection_is_declared_and_holds() -> None:
-    """The catalogue's narrowest rejection stays above its declared
-    floor.
-
-    The per-mutant floors bound each defect against its own past
-    measurement. This bounds the *catalogue*: it names the single
-    weakest link and fails when that link weakens, which is the number
-    a reader should be quoted when asking how strong the reconstruction
-    check is. Reporting the strongest rejection instead would be
-    meaningless, since any check that fires at all fires hardest
-    somewhere.
-    """
+    """Keep the smallest mutant margin above its declared floor."""
     ratios: list[tuple[float, str]] = []
     for mutant in _MUTANTS:
         fixture = _fixture(mutant.example)
@@ -2198,14 +2037,7 @@ def test_tightest_mutant_rejection_is_declared_and_holds() -> None:
 
 
 def test_mutant_catalogue_covers_every_reconstruction() -> None:
-    """Every reconstruction carries at least three catalogued defects,
-    and every catalogued defect names a live reconstruction.
-
-    Without the first half, adding an example to `_RECONSTRUCTIONS`
-    would extend the coverage claim without extending the evidence for
-    it: the new reconstruction would be asserted correct and never
-    shown to be able to fail.
-    """
+    """Require at least three live mutations for each reconstruction."""
     covered: dict[str, list[str]] = {}
     for mutant in _MUTANTS:
         covered.setdefault(mutant.example, []).append(mutant.variant)
@@ -2251,14 +2083,7 @@ def test_mutant_catalogue_covers_every_reconstruction() -> None:
     "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
 )
 def test_reconstruction_rejects_an_unknown_variant(example: str) -> None:
-    """A variant name the reconstruction does not branch on raises.
-
-    Without this, a typo in the catalogue would score the *faithful*
-    reconstruction, and the rejection test would report the mutant as
-    failing with margin zero rather than as unrecognised. Raising
-    turns a mistyped defect into a named error instead of a confusing
-    numeric one.
-    """
+    """Raise for mutation variants that a reconstruction does not define."""
     with pytest.raises(AssertionError, match="unknown variant"):
         _reconstruct(example, 0, "no_such_defect")
 
@@ -2267,15 +2092,7 @@ def test_reconstruction_rejects_an_unknown_variant(example: str) -> None:
     "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
 )
 def test_pin_comparison_boundary_is_the_tolerance(example: str) -> None:
-    """The accept / reject boundary of the reference pin sits exactly
-    at `reference_pin_atol`, in both directions.
-
-    The tolerance is only a real constraint if a deviation just above
-    it fails and one just below it passes. Asserting both pins the
-    boundary as a property rather than leaving it to be inferred from
-    a comparison operator, so a later `<=` quietly becoming a relative
-    band is caught here.
-    """
+    """Check acceptance below and rejection above `reference_pin_atol`."""
     fixture = _fixture(example)
     for index, joint in enumerate(fixture.joints):
         atol = _gallery_tier.reference_pin_atol(joint)
@@ -2299,16 +2116,7 @@ def test_pin_comparison_boundary_is_the_tolerance(example: str) -> None:
 
 
 def test_reference_pin_is_never_looser_than_the_equivalence_check() -> None:
-    """`reference_pin_atol` is bounded by the tolerance the backend
-    comparison runs at, everywhere in the pinned registry.
-
-    This is the property that makes the pin a defence rather than a
-    formality. A constant oracle error is invisible to Theorem 4.1's
-    quotient, so the pin is the only check that can see it; a pin
-    looser than the equivalence tolerance would let an error through
-    that is large enough to matter to every backend comparison
-    downstream of it.
-    """
+    """Bound each reference-pin tolerance by its equivalence tolerance."""
     ceiling = _equivalence.adaptive_atol(n_obs=0)
     loose: list[str] = []
     for example, values in sorted(
@@ -2388,27 +2196,11 @@ def _program_free_examples() -> tuple[str, ...]:
 
 
 def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
-    """Every exemption from the reference pin falls to one of the two
-    checks below, and none escapes both.
+    """Partition every reference-pin exemption into a checked category.
 
-    `_REFERENCE_PIN_EXEMPT` is the only way an example that ships
-    synthetic data can carry no pin, so it is the registry a future
-    hole would grow in. Partitioning it, and asserting the partition
-    is total, means an exemption of a third kind cannot be added
-    without also adding the evidence for it.
-
-    The two categories are held to that standard differently, because
-    one of them is currently empty. An empty category cannot be
-    covered by a check parametrized over its members, which would
-    collect nothing and report nothing; so the structural category is
-    pinned against
-    [`_DECLARED_STRUCTURAL_EXEMPT`][tests.transpile.test_oracle_reference_strength._DECLARED_STRUCTURAL_EXEMPT]
-    by equality, and the check below runs over the examples that
-    *could* claim it rather than over the ones that do. The
-    non-deterministic category needs neither device: its membership is
-    pinned example by example by `_UNWITNESSABLE_JOINT` and
-    `_FLAT_COMPOSITE_LATENT`, so it cannot empty without those
-    emptying first, and an assertion that it has not is enough.
+    The structural category is compared with its declared empty registry;
+    the composition categories are checked by their per-example
+    registries.
     """
     exempt = set(_gallery_tier._REFERENCE_PIN_EXEMPT)
     structural = set(_exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED))
@@ -2467,29 +2259,11 @@ def test_reference_pin_exemptions_are_each_covered_by_a_check() -> None:
     ids=lambda name: name,
 )
 def test_program_free_examples_are_exempt_or_pinned(example: str) -> None:
-    """An example whose `.qvr` declares no probabilistic program is
-    either structurally exempt, or pinned, or outside the numeric tier
-    entirely, and which of the three is measured rather than assumed.
+    """Classify every source without a `ProgramDecl`.
 
-    This is the check that stands behind an empty
-    `_DECLARED_STRUCTURAL_EXEMPT`. Parametrizing it over the exempt
-    set would make it collect nothing the moment that set emptied, and
-    a check that runs over nothing cannot report that the emptiness is
-    correct. Parametrizing it over the *candidates* keeps the
-    discriminator running on real examples whatever the registry says:
-    a `.qvr` with no `ProgramDecl` is the necessary condition for the
-    exemption, and what settles it is whether anything else supplies a
-    program.
-
-    Something else usually does. A `.md` synthetic-data snippet is
-    free to assemble a `MonadicProgram` in Python around the compiled
-    composition, and one that does gives the oracle a joint to score
-    at every point of the set whatever the `.qvr` text declares. Both
-    algebra-level examples take that route, so both are pinned rather
-    than exempt, and the branch below requires exactly that of them.
-    An example that builds nothing is claimed by neither registry: a
-    pin over a program that does not exist would be a row nothing
-    could ever re-derive.
+    An example may be structurally exempt, may acquire a program from its
+    synthetic-data snippet and be pinned, or may fall outside the numeric
+    tier because no program is built.
     """
     programs = _declared_programs(example)
     exempt = example in _exempt_by(_gallery_tier._SKIP_DATASET_LOAD_FAILED)
@@ -2825,16 +2599,7 @@ def _shifted_point(point: Point, name: str, offset: float) -> Point:
 
 
 def test_composition_exemption_grounds_partition_the_registry() -> None:
-    """Every composition exemption has exactly one measured ground.
-
-    The two checks below are the evidence for the two grounds, and
-    they are only evidence for the *registry* if between them they
-    cover it exactly once. An example in neither would keep an
-    unpinned joint with nothing establishing why; an example in both
-    would mean one of the two measurements is not measuring what it
-    claims, since a joint that moves with the node count is not a
-    joint whose composite site scores zero.
-    """
+    """Assign each composition exemption exactly one measured ground."""
     declared = set(_exempt_by(_gallery_tier._SKIP_QVR_INCOMPATIBLE))
     rule_dependent = set(_UNWITNESSABLE_JOINT)
     flat = set(_FLAT_COMPOSITE_LATENT)
@@ -2879,23 +2644,10 @@ def test_composition_exemption_grounds_partition_the_registry() -> None:
 def test_unwitnessable_exempt_examples_have_no_independent_source(
     example: str,
 ) -> None:
-    """An example exempt for want of a witness really has none.
+    """Confirm that unwitnessed exemptions lack a live backend or reconstruction.
 
-    These three score a joint a pin could hold: every factor of the
-    composition carries a conditional density and is scored once
-    along the canonical path, the value is bitwise reproducible
-    across global RNG states, and it moves with the point set. What
-    they lack is anything outside the oracle that reproduces it.
-    Theorem 4.1's constant-spread quotient cannot see a
-    point-independent oracle error, so a pin whose only source is the
-    oracle would be a transcript of whatever the oracle printed, and
-    the registry would read as certification.
-
-    Two ways to acquire a witness, and this fails when either
-    arrives. A backend cell going live re-derives the joint in a
-    foreign runtime; a reconstruction in this module re-derives it
-    from the source. Neither exists here today, and an exemption that
-    outlives its ground is the failure this is built to produce.
+    These programs produce reproducible, point-varying path densities, but
+    no independent implementation currently re-derives those values.
     """
     live = _live_backend_cells(example)
     assert not live, (
@@ -2970,25 +2722,11 @@ def _scan_factor_log_prob(
 def test_flat_latent_exempt_examples_carry_no_density_for_it(
     example: str,
 ) -> None:
-    """An example exempt on flat-latent grounds really scores its
-    composition-bound latent at zero, for every value it is given.
+    """Confirm that each flat composition-bound latent scores zero.
 
-    Zero at the fixture's own values would prove nothing: a density
-    can pass through zero. The check therefore reads the site across
-    the whole point set, whose entries move the latent, and then moves
-    it again by
-    [`_FLATNESS_PROBE_SHIFT`][tests.transpile.test_oracle_reference_strength._FLATNESS_PROBE_SHIFT]
-    and reads it once more, requiring the same exact zero while the
-    rest of the joint moves by nats. The downstream movement is what
-    makes the zero a statement about the family rather than about
-    reachability: the shifted value demonstrably enters the
-    computation, and the kernel that is supposed to score it returns
-    nothing.
-
-    That is the whole exemption. The program declares one latent, the
-    oracle's joint contains no factor for it, and a pin over such a
-    number would certify a likelihood while claiming to certify a
-    joint density.
+    The check varies the latent across the point set and by an additional
+    fixed shift while requiring other joint terms to move. This separates
+    a flat site density from a zero reached at one value.
     """
     name = _FLAT_COMPOSITE_LATENT[example]
     fixture = _fixture(example)
@@ -3085,17 +2823,7 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
 
 
 def test_plate_inflation_registry_refines_the_flat_latent_ground() -> None:
-    """The inflation registry covers the flat-latent ground exactly.
-
-    `_PLATE_INFLATED_EMISSION` is evidence about
-    `_FLAT_COMPOSITE_LATENT`, not a ground of its own, so it is only
-    evidence if the two registries name the same examples. An example
-    in the flat-latent ground and not here would keep an exemption
-    whose consequence for the equivalence tier is unmeasured, which is
-    the measurement that says un-exempting it would produce a failing
-    cell rather than a green one. An example here and not there would
-    be claiming a defect nothing else in this module establishes.
-    """
+    """Require the plate-inflation registry to match flat-latent exemptions."""
     flat = set(_FLAT_COMPOSITE_LATENT)
     inflated = set(_PLATE_INFLATED_EMISSION)
 
@@ -3137,25 +2865,10 @@ def test_plate_inflation_registry_refines_the_flat_latent_ground() -> None:
 def test_flat_latent_exempt_examples_sum_each_site_once(
     example: str,
 ) -> None:
-    """The joint adds each site's density once, not once per row.
+    """Require the joint to add each site density once.
 
-    A flat composite latent contributes a plate-shaped tensor of
-    zeros while the emission site contributes a scalar. Adding those
-    with a plain `+` broadcasts the scalar across the plate, and the
-    reduction then returns `rows` copies of the emission likelihood:
-    a joint wrong by `(rows - 1)` times a term the perturbation
-    schedule moves, which is not the additive constant Theorem 4.1's
-    quotient absorbs.
-
-    `total_log_joint` reduces each lane to the narrowest
-    right-aligned shape the density-carrying sites agree on, so the
-    zeros no longer widen the sum. These three examples are where the
-    widening was largest, so they are where it is measured: the joint
-    must equal the sum of its own per-site densities, to round-off.
-
-    This is an invariant rather than an exemption. Should the
-    recurrent density ever be scored, this check keeps its meaning,
-    while the flat-latent ground beside it would not.
+    Plate-shaped zero terms must not broadcast a scalar emission density
+    across the plate before reduction.
     """
     fixture = _fixture(example)
     labels = _gallery_data.perturbation_labels(len(fixture.points))

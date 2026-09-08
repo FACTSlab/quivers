@@ -144,7 +144,7 @@ def _ensure_docker_environment() -> None:
     start (no silent per-test skips).
 
     Set `QUIVERS_SKIP_DOCKER=1` to opt out (only for environments
-    where you genuinely cannot run Docker tests, e.g. a pure
+where Docker tests cannot run, such as a pure
     documentation build). Tests that need Docker will then raise
     a configuration error rather than skip silently.
     """
@@ -183,7 +183,7 @@ def pytest_collection_modifyitems(
     Environment shortfalls (binary missing from PATH, probe runtime
     not installed) become `strict=False` xfails so the gap is visible
     in the test report rather than absorbed into the skip pile. The
-    Docker daemon and probe images are guaranteed available by the
+Docker daemon and probe images are checked by the
     session-scope `_ensure_docker_environment` autouse fixture, so
     the `requires_docker` / `requires_image` markers reduce to a
     declaration-of-intent here and don't introduce per-test skips.

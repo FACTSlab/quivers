@@ -1,30 +1,15 @@
 """Mutation tests for the IR-to-renderer contract.
 
-For each known-good (fixture, backend) cell, mutate the lowered
-[`IRProgram`][quivers.transpile.ir.IRProgram] in a way that flips a
-semantic field (family name, arg order, plate batch_dims, observed
-flag, sample/observe swap, etc.) and assert that the renderer either:
+For supported fixture/backend cells, each mutation changes a semantic
+field in the lowered [`IRProgram`][quivers.transpile.ir.IRProgram],
+such as a family name, argument order, plate dimension, observed flag,
+or body node. The renderer must either reject the mutated IR with
+[`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct] or
+emit bytes different from the baseline. Byte-identical output means
+the renderer did not use the changed field.
 
-* raises [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
-  (the mutation produces an unrepresentable shape, which the
-  renderer must refuse rather than emit silently), OR
-* emits source bytes that, when re-parsed through the target's
-  syntax check, differ from the unmutated baseline.
-
-If the mutated emit is **byte-identical** to the unmutated emit, the
-renderer is ignoring the mutated field; that's a real bug because the
-field carries semantics the user can observe (a Beta(2,5) call where
-the user wrote Beta(5,2) is not the same model).
-
-The assertion catches: silent field-drop in a walker, accidental
-hard-coding of an arg index, copy-paste between similar code paths
-that scrambles the dispatch, an unused-attr import that hides a real
-read.
-
-Run only against backends with no Docker dependency (target's emit is
-the test surface). The numeric-equivalence tier covers the cross-
-backend correctness contract; this tier covers the
-field-by-field IR-renderer interface.
+These tests exercise the IR/rendering boundary without Docker. Numeric
+backend equivalence is tested separately.
 """
 
 from __future__ import annotations

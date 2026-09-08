@@ -1,61 +1,10 @@
-"""`BUGSRenderer`: lower the transpile IR to BUGS source.
+"""Render transpilation IR as a BUGS model block.
 
-BUGS programs have a single `model { ... }` block containing
-stochastic (`~`), deterministic (`<-`), and `for (i in 1:N) { ... }`
-relations. BUGS has no separate data / parameters blocks: every
-variable that appears on the LHS of `~` is implicitly declared by
-that relation; every variable that appears only on the RHS or only
-in an LHS index list is an exogenous data input the caller supplies
-through the BUGS data list.
-
-The renderer follows the structural protocol of
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase]:
-
-* [`declare`][quivers.transpile.renderers.bugs.BUGSRenderer.declare]
-  is a no-op outside the `data` block; BUGS declarations are
-  implicit. Data-block declarations are also no-op: BUGS reads
-  data from the calling environment's data list.
-* [`sample`][quivers.transpile.renderers.bugs.BUGSRenderer.sample]
-  emits one nested `for (m_<axis> in 1:N_<axis>)` per batch dim of
-  the plate, with a `<lhs>[m_0, m_1, ..., 1:E_0, 1:E_1, ...]` LHS
-  and the family's distribution call on the RHS, indexing every
-  arg whose plate overlaps the surrounding batch dims.
-* [`marginalize`][quivers.transpile.renderers.bugs.BUGSRenderer.marginalize]
-  collapses [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-  into the single `dcat` row its atoms sum to whenever the scope is
-  one scalar categorical observation of a latent-picked row. BUGS
-  carries no statement that adds a free log-density term to the
-  joint, so that mixture identity is the only integration the
-  language writes directly; every other scope takes the
-  explicit-latent lowering, `<l> ~ d<family>(...)` followed by the
-  scope inline, which is the marginalize emit BUGS's own contract
-  names.
-* [`broadcast`][quivers.transpile.renderers.bugs.BUGSRenderer.broadcast]
-  fills a helper array: BUGS has no repetition builtin and no
-  implicit scalar-to-vector coercion, but `for (i in 1:K) { v[i] <- s }`
-  is core BUGS and `v[1:K]` is an ordinary vector parent.
-
-`FAMILY_META[family].target_names["bugs"]` supplies the BUGS
-distribution name (`"dnorm"`, `"ddirch"`, ...). Per-family argument
-renames live in `FAMILY_META[family].arg_aliases["bugs"]`; when a
-rename targets a parameterisation that needs arithmetic conversion
-(BUGS `tau = 1/(scale * scale)` for Normal's `scale -> tau`), the
-[`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.bugs._ALIAS_TRANSFORMS]
-table on the renderer keys the transform on the renamed target name
-and the renderer wraps the arg in an
-[`IRArgTransform`][quivers.transpile.renderers._base.IRArgTransform]
-before emitting `1 / (scale * scale)`.
-
-[`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef] arguments
-(wrapper families like `Truncated`) render via the
-`d<family>(args) T(lower, upper)` truncation idiom: the renderer
-inlines the referenced morphism's `~ Family(args)` clause as the
-distribution call and appends a `truncation` child to the
-`stochastic_relation` carrying `(lower, upper)`. The `bugs` backend
-executes through the JAGS engine (the probe image installs the
-`jags` binary and pyjags), so it emits JAGS's renormalized
-`T(lower, upper)` suffix rather than the `I(lower, upper)` censoring
-form, which JAGS rejects on any latent-parent node.
+Variables are declared by stochastic or deterministic relations, with
+batch axes emitted as nested loops. The renderer collapses supported
+categorical mixtures to ``dcat`` and uses an explicit latent for other
+marginalization scopes. Family names and argument conversions come
+from ``FAMILY_META``.
 """
 
 from __future__ import annotations
@@ -529,7 +478,7 @@ class BUGSRenderer(RendererBase):
         The BUGS language has no `return`: a model block declares
         relations and the inference engine reports whatever the caller
         monitors. The construct that carries "this quantity is part of
-        what the model reports" is therefore a deterministic relation
+        what the model reports" is thus a deterministic relation
         under a name of its own, `<name>_value <- <name>`, which is
         the same idiom the Stan renderer uses for its
         `generated quantities` alias and the PyMC renderer for its
@@ -651,26 +600,13 @@ class BUGSRenderer(RendererBase):
     ) -> SchemaFragment:
         """Render a scalar-to-vector broadcast as a filled helper array.
 
-        BUGS has no `rep`-style repetition builtin and no implicit
-        scalar-to-vector coercion, but a `for (i in 1:K) { v[i] <- s }`
-        relation is core BUGS, and the resulting `v[1:K]` is an
-        ordinary vector parent. A scalar concentration over a `K`-atom
-        Dirichlet event axis therefore emits one such fill loop plus
-        the slice `<helper>[1:K]`, which denotes exactly the symmetric
-        measure the QVR `[over=K]` clause names.
+        BUGS has neither scalar-to-vector coercion nor a repetition function, so
+        the renderer emits an indexed fill loop and references its resulting
+        slice. Helpers are reused for identical scalar and extent pairs.
 
-        The helper is emitted once per distinct `(scalar, K)` pair and
-        reused, so a program that repeats the same literal at several
-        slots carries one array rather than one per slot. BUGS
-        relations are declarative, so the fill loop may follow its
-        consumer in source order.
-
-        Only a plate-free scalar can be hoisted into a loop this way:
-        the fill relation lives outside every enclosing plate loop, so
-        a value whose emission depends on a surrounding loop variable
-        would silently lose that dependence. Such a value, and any
-        target rank other than one, raises rather than emitting a
-        relation whose measure differs from the source's.
+        Only plate-free scalars can be hoisted outside enclosing plate loops.
+        Values that depend on loop indices and broadcasts to ranks other than
+        one raise `UnsupportedConstruct`.
         """
         bctx = _as_bugs_ctx(ctx)
         if len(target_shape) != 1:
@@ -994,32 +930,12 @@ class BUGSRenderer(RendererBase):
         )
 
     def _emit_marginalize_node(self, ctx: _BugsCtx, node: IRMarginalize) -> None:
-        """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        as the collapsed `dcat` row its atoms sum to when the scope is a
-        categorical mixture, and as the explicit latent draw otherwise.
+        """Emit a BUGS marginalization.
 
-        BUGS carries no statement that adds a free log-density term to
-        the joint, so the general `logsumexp` reduction has no direct
-        emission: the zeros trick that writes one needs a data-bound
-        carrier the BUGS language cannot declare (it has no
-        `data { ... }` block). The general lowering is therefore the
-        explicit-latent rewrite BUGS's own marginalize contract names,
-        `<l> ~ d<family>(...)` followed by the scope inline, which
-        declares the latent the engine samples natively; a latent
-        family with no BUGS distribution reports itself from the
-        family lookup that lowering runs into rather than from here.
-
-        The mixture of categoricals needs no free term. Summing a
-        row-stochastic matrix against mixing weights,
-
-            p(y = v) = sum_k weights[k] * rows[k, v],
-
-        is itself a categorical measure on the observation's alphabet,
-        which `dcat` scores natively and exactly, so
-        [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
-        recognises that shape and
-        [`_emit_collapsed_mixture`][quivers.transpile.renderers.bugs.BUGSRenderer._emit_collapsed_mixture]
-        writes the integral itself, with no latent site declared.
+        A categorical mixture recognized by `categorical_mixture` is collapsed
+        to a `dcat` row. Other supported cases become an explicit latent draw
+        followed by the scope because BUGS cannot add a free log-density term
+        without a data-bound zeros-trick carrier.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
         mixture = categorical_mixture(node, ctx.decl_plates)
@@ -1035,34 +951,14 @@ class BUGSRenderer(RendererBase):
         node: IRMarginalize,
         mixture: CategoricalMixture,
     ) -> None:
-        """Emit the integrated density of a marginalized categorical
-        latent as one collapsed `dcat` row.
+        """Emit a marginalized categorical latent as a collapsed `dcat` row.
 
-        Three relations carry it, all of them under the *observation's*
-        plate rather than the latent's:
-
-        1. the mixture itself, one row per observed cell,
-
-               <mix>[i_<mix>, <cell>] <- inprod(<weights>, <rows>[1:K, i_<mix>])
-
-           with the alphabet axis leading so the row is addressable by
-           the observed symbol;
-        2. the integrated density at the symbol the cell actually
-           carries, `<dens>[<cell>] <- <mix>[<y>[<cell>], <cell>]`;
-        3. the observation itself, `<y>[<cell>] ~ dcat(<mix>[1:V, <cell>])`.
-
-        Relation 2 is what makes the observation's *index* role
-        explicit. `dcat`'s outcome is a subscript of its probability
-        vector: BUGS counts array positions from 1, so a categorical
-        outcome is a 1-based index, and the emitted source says so the
-        only way BUGS lets it, by subscripting with it. Nothing in the
-        language can rebase the datum itself (there is no expression
-        form on the left of `~`, and position 0 does not exist), so
-        the convention is part of the host contract this renderer
-        already keeps for every other integer index it emits. Relation
-        2 cannot feed relation 3 -- a row built from `<y>` and then
-        scored by `<y>` would cycle the graph -- which is why the
-        density stands beside the draw rather than inside it.
+        Under the observation plate, the renderer computes the weighted
+        categorical row, indexes that row at the observed outcome for the
+        exported density, and scores the outcome with `dcat`. BUGS uses
+        one-based categorical outcomes as probability-vector indices. The
+        density relation remains separate from the draw to avoid a dependency
+        cycle through the observed value.
         """
         observe = mixture.observe
         name = self._fresh_mixture_name(ctx, node.latent)
@@ -1768,7 +1664,7 @@ class BUGSRenderer(RendererBase):
         precision_matrix=Omega).log_prob(x)`` and not the
         ``covariance_matrix=Omega`` reading (-2.486405). Emitting the
         QVR ``covariance_matrix`` slot straight into that position
-        therefore scores a different Gaussian at every point.
+        thus scores a different Gaussian at every point.
 
         A site that already names ``precision_matrix`` passes through
         untouched, which is the door the GP block comes through: it
