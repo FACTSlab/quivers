@@ -500,6 +500,7 @@ def _get_family_registry() -> dict[str, type]:
         "ZeroInflatedPoisson": "ConditionalZeroInflatedPoisson",
         "HurdlePoisson": "ConditionalHurdlePoisson",
         "MixtureNormal": "ConditionalMixtureNormal",
+        "ZeroOneInflatedBeta": "ConditionalZeroOneInflatedBeta",
     }
     for qvr_name, wrapper_name in wrapper_only.items():
         if qvr_name in out:

@@ -212,8 +212,81 @@ class MixtureNormal(Distribution):
         return self._mixture.sample(sample_shape)
 
 
+class ZeroOneInflatedBeta(Distribution):
+    """Zero-one inflated beta (Ospina & Ferrari 2010 / brms ZOIB).
+
+    Mixture of point masses at 0 and 1 with a continuous Beta on (0, 1):
+
+    * ``P(y = 0) = zoi * (1 - coi)``
+    * ``P(y = 1) = zoi * coi``
+    * ``P(y ∈ (0, 1)) = (1 - zoi) · Beta(μ·φ, (1-μ)·φ)``
+
+    Parameters follow the mean-precision Beta reparameterisation and the
+    brms ``zoi`` / ``coi`` inflation probabilities (all on the unit
+    interval). Formula frontend emits
+    ``ZeroOneInflatedBeta(mu, phi, zoi, coi)``.
+    """
+
+    arg_constraints = {
+        "mu": _constraints.unit_interval,
+        "phi": _constraints.positive,
+        "zoi": _constraints.unit_interval,
+        "coi": _constraints.unit_interval,
+    }
+    support = _constraints.unit_interval
+    has_rsample = False
+
+    def __init__(
+        self,
+        mu: Tensor,
+        phi: Tensor,
+        zoi: Tensor,
+        coi: Tensor,
+        validate_args: bool | None = None,
+    ) -> None:
+        self.mu = mu
+        self.phi = phi
+        self.zoi = zoi
+        self.coi = coi
+        batch_shape = torch.broadcast_shapes(mu.shape, phi.shape, zoi.shape, coi.shape)
+        super().__init__(
+            batch_shape=batch_shape,
+            event_shape=torch.Size(),
+            validate_args=validate_args,
+        )
+
+    def _beta(self) -> torch.distributions.Beta:
+        mu = self.mu.clamp(1e-6, 1.0 - 1e-6)
+        phi = self.phi.clamp_min(1e-6)
+        return torch.distributions.Beta(mu * phi, (1.0 - mu) * phi)
+
+    def log_prob(self, value: Tensor) -> Tensor:
+        zoi = self.zoi.clamp(1e-6, 1.0 - 1e-6)
+        coi = self.coi.clamp(1e-6, 1.0 - 1e-6)
+        # Exact boundary atoms (censoring / rounding produce exact 0/1).
+        is_zero = value <= 0.0
+        is_one = value >= 1.0
+        lp_zero = torch.log(zoi * (1.0 - coi))
+        lp_one = torch.log(zoi * coi)
+        y_mid = value.clamp(1e-6, 1.0 - 1e-6)
+        lp_mid = torch.log1p(-zoi) + self._beta().log_prob(y_mid)
+        return torch.where(is_zero, lp_zero, torch.where(is_one, lp_one, lp_mid))
+
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
+        shape = sample_shape + self.batch_shape
+        u = torch.rand(shape, device=self.mu.device, dtype=self.mu.dtype)
+        zoi = self.zoi.expand(shape)
+        coi = self.coi.expand(shape)
+        at_boundary = u < zoi
+        u2 = torch.rand(shape, device=self.mu.device, dtype=self.mu.dtype)
+        boundary = torch.where(u2 < coi, torch.ones_like(u2), torch.zeros_like(u2))
+        mid = self._beta().sample(sample_shape)
+        return torch.where(at_boundary, boundary, mid)
+
+
 __all__ = [
     "HurdlePoisson",
     "MixtureNormal",
     "ZeroInflatedPoisson",
+    "ZeroOneInflatedBeta",
 ]

@@ -23,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **A refusal's target name is not read as a diagnostic detail.** Church, Gen and Edward2 each spelled "the family registry holds no symbol for this target" in their own way, and the renderer read the trailing target name as a detail about the failure, reporting `church cannot emit a HalfStudentT draw (church)`. JAGS reported an unknown wrapped family with the inner family's name in the outer slot, so the message named the wrapper as wrapping nothing.
 - **WebPPL's `Categorical` carries the support it requires.** WebPPL ranges over the values it is handed and has no default for them, so every `Categorical` emission was rejected outright. The support is now derived from the probability vector at the call site, which makes it the right length wherever the vector came from.
 - **A `param_source` refusal states the reason it refused.** The message read that the target `can` reconstruct the parameter the network computes, which is the opposite of the reason for the refusal, and the width-mismatch case now names the program, the site, the family, the argument and both widths rather than describing the shape of the problem in general.
+## [0.17.0] - 2026-07-22
+
+### Added
+
+- **A zero-one-inflated beta family for proportions that pile up at their endpoints.** Rates, shares, and probabilities are frequently recorded with exact zeros and exact ones, which a beta likelihood cannot represent: its density vanishes at both endpoints, so the boundary observations either have to be nudged inward or dropped. `ZeroOneInflatedBeta(mu, phi, zoi, coi)` mixes point masses at 0 and 1 with a beta on the open interval, taking `zoi` as the probability that an observation is an endpoint at all and `coi` as the probability that such an endpoint is 1. The continuous part uses the mean-precision parameterisation, so `mu` remains the mean of the beta component and `phi` its precision. The formula frontend names it `zero_one_inflated_beta`, with a logit link on the mean and on both inflation probabilities and a log link on the precision.
 
 ## [0.16.0] - 2026-07-15
 

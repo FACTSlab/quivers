@@ -26,6 +26,7 @@ from quivers.continuous import (
     HurdlePoisson,
     MixtureNormal,
     ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
 )
 from quivers.dsl import loads
 from quivers.dsl.compiler._prelude import _get_family_registry
@@ -158,5 +159,73 @@ def test_conditional_classes_registered() -> None:
         "ZeroInflatedPoisson",
         "HurdlePoisson",
         "MixtureNormal",
+        "ZeroOneInflatedBeta",
     ):
         assert name in registry, f"missing {name!r} in family registry"
+
+
+# ---------------------------------------------------------------------------
+# ZeroOneInflatedBeta
+# ---------------------------------------------------------------------------
+
+
+def _zoib_params() -> tuple[torch.Tensor, ...]:
+    return (
+        torch.tensor(0.6),
+        torch.tensor(4.0),
+        torch.tensor(0.3),
+        torch.tensor(0.25),
+    )
+
+
+def test_zoib_endpoint_masses_match_closed_form() -> None:
+    """The two point masses are `zoi (1 - coi)` at 0 and `zoi coi` at 1."""
+    mu, phi, zoi, coi = _zoib_params()
+    dist = ZeroOneInflatedBeta(mu, phi, zoi, coi)
+    assert math.isclose(
+        float(dist.log_prob(torch.tensor(0.0))),
+        math.log(0.3 * 0.75),
+        rel_tol=1e-6,
+    )
+    assert math.isclose(
+        float(dist.log_prob(torch.tensor(1.0))),
+        math.log(0.3 * 0.25),
+        rel_tol=1e-6,
+    )
+
+
+def test_zoib_interior_matches_scaled_beta() -> None:
+    """Inside the open interval the density is the beta component
+    scaled by the probability `1 - zoi` of not landing on an endpoint,
+    under the mean-precision parameterisation."""
+    mu, phi, zoi, coi = _zoib_params()
+    dist = ZeroOneInflatedBeta(mu, phi, zoi, coi)
+    y = torch.tensor(0.4)
+    beta = torch.distributions.Beta(mu * phi, (1.0 - mu) * phi)
+    expected = math.log(1.0 - float(zoi)) + float(beta.log_prob(y))
+    assert math.isclose(float(dist.log_prob(y)), expected, rel_tol=1e-6)
+
+
+def test_zoib_normalises_to_one() -> None:
+    """The two masses plus the integral over the open interval is 1, so
+    the mixture is a probability distribution rather than merely a
+    positive weighting."""
+    mu, phi, zoi, coi = _zoib_params()
+    dist = ZeroOneInflatedBeta(mu, phi, zoi, coi)
+    grid = torch.linspace(1e-6, 1.0 - 1e-6, 200_001, dtype=torch.float64)
+    interior = float(torch.trapz(torch.exp(dist.log_prob(grid)), grid))
+    endpoints = float(zoi) * (1.0 - float(coi)) + float(zoi) * float(coi)
+    assert math.isclose(endpoints + interior, 1.0, abs_tol=1e-4)
+
+
+def test_zoib_broadcasts_over_a_batch() -> None:
+    """Batched parameters score a batch of observations elementwise."""
+    dist = ZeroOneInflatedBeta(
+        torch.tensor([0.2, 0.6, 0.8]),
+        torch.tensor([3.0, 4.0, 9.0]),
+        torch.tensor([0.1, 0.3, 0.5]),
+        torch.tensor([0.5, 0.25, 0.75]),
+    )
+    lp = dist.log_prob(torch.tensor([0.0, 0.4, 1.0]))
+    assert lp.shape == (3,)
+    assert bool(torch.isfinite(lp).all())
