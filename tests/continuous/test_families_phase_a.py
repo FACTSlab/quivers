@@ -15,7 +15,6 @@ Each test asserts:
 
 from __future__ import annotations
 
-import math
 
 import pytest
 import torch
@@ -314,5 +313,8 @@ def test_family_meta_carries_all_thirteen_phase_a_entries() -> None:
 
 
 def test_family_meta_total_count_unchanged() -> None:
-    # 33 existing + 13 Phase A + 5 Phase B tier 1 = 51.
-    assert len(FAMILY_META) == 51
+    # A registered family is one a target can be asked to emit, so
+    # the count is pinned: a family arriving without its per-target
+    # names, or leaving, changes what `transpile` accepts, and this
+    # is where that shows up.
+    assert len(FAMILY_META) == 52

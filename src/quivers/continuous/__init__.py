@@ -128,6 +128,7 @@ from quivers.continuous.families import (
     ConditionalHalfStudentT,
     ConditionalZeroInflatedPoisson,
     ConditionalHurdlePoisson,
+    ConditionalZeroOneInflatedBeta,
     ConditionalMixtureNormal,
 )
 from quivers.continuous.ordered import (
@@ -155,6 +156,7 @@ from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
     MixtureNormal,
     ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
 )
 from quivers.continuous.param_source import (
     AttentionSource,
@@ -270,6 +272,7 @@ __all__ = [
     "ConditionalOrderedProbit",
     "ConditionalZeroInflatedPoisson",
     "ConditionalHurdlePoisson",
+    "ConditionalZeroOneInflatedBeta",
     "ConditionalMixtureNormal",
     # monadic programs
     "MonadicProgram",
@@ -286,6 +289,8 @@ __all__ = [
     "HurdlePoisson",
     "MixtureNormal",
     "ZeroInflatedPoisson",
+    "ZeroOneInflatedBeta",
+    # parameter sources
     "ParamSource",
     "LinearSource",
     "MLPSource",
