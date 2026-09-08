@@ -7,10 +7,8 @@ shape sees `jnp.array(value).shape` match what the model expects.
 When `/io/export_names.json` is present the probe also reports the
 program's exported value at each point. NumPyro's export surface is
 the model function's own `return`, so the probe substitutes every
-latent with the point's clamped value and calls the model: the value
-that comes back is exactly what a downstream NumPyro user would get,
-and a renderer that returns the wrong quantity (or none at all) is
-visible here and nowhere in the log-density.
+latent with the point's value and calls the model. This checks the
+return channel separately from the log-density.
 """
 import json
 import pathlib
@@ -39,11 +37,10 @@ def _arr(value):
 def _returned(model, data_kw, param_dict):
     """The model's return value with every latent clamped.
 
-    `substitute` pins each latent to the point's value; `seed` is
+    `substitute` fixes each latent to the point's value; `seed` is
     still required because NumPyro raises on an unseeded `sample`
     even when every site is substituted. The clamps make the draw
-    irrelevant: nothing the generator produces reaches the return
-    value.
+    irrelevant to the returned value.
     """
     clamped = seed(
         substitute(model, param_dict), jax.random.PRNGKey(0),

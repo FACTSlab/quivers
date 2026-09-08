@@ -12,7 +12,7 @@ Constrained-space evaluation rationale:
 the unconstrained (transformed) space and adds the inverse-transform
 Jacobian by default; the QVR reference computes log-densities in the
 constrained space (the natural support, e.g. ``[0, 1]`` for
-``Beta``) without a Jacobian term. The probe therefore sums
+``Beta``) without a Jacobian term. The probe thus sums
 [`pymc.logp`][pymc.logp] over every free and observed RV directly,
 substituting each free RV with its constrained-space value from
 ``Point.params`` and each observed RV with its data from

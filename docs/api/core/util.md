@@ -1,5 +1,5 @@
 # Utilities
 
-Helper functions and internal utilities for core module operations.
+Internal helpers for the core modules.
 
 ::: quivers.core._util

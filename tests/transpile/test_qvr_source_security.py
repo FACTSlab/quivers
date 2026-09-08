@@ -185,7 +185,7 @@ export extreme
 @pytest.mark.parametrize("backend", _BACKENDS_FOR_SECURITY)
 def test_long_identifier_does_not_overflow_buffer(backend: str) -> None:
     """A 10000-character identifier must either parse + transpile or
-    raise a clean error. It must not crash the renderer, the
+    raise a handled error. It must not crash the renderer, the
     pretty-printer, or the schema builder.
     """
     long_name = "x" * 10000
@@ -275,7 +275,7 @@ def test_string_literal_does_not_escape_target_quotes(
     The QVR grammar reads string-literal bodies as escape-passthrough
     (a QVR ``"foo\\"bar"`` parses to the literal 7-character value
     ``foo\\"bar`` with the backslash retained, rather than decoding
-    the escape). The renderer's contract is therefore: take the raw
+the escape). The renderer's contract is thus: take the raw
     parsed bytes and wrap them in target-language quoting that
     preserves every byte. A naive ``f'"{value}"'`` interpolation
     would let a payload containing a target-quote character break
@@ -361,7 +361,7 @@ def _label_string_value(module: object) -> str:
 def test_axis_size_overflow_rejected(backend: str) -> None:
     """An `object Obs : FinSet <huge>` declaration must either parse
     + transpile within the integer-overflow envelope, or raise a
-    clean error. A value at the C `int` boundary (2^31 - 1) is a
+    handled error. A value at the C `int` boundary (2^31 - 1) is a
     realistic-but-dangerous input.
     """
     for size in ("2147483647", "9223372036854775807"):

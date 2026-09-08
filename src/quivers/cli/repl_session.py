@@ -572,7 +572,7 @@ class ReplSession:
         depends on the parameter list:
 
         - Bare-identifier params (``P(q₁, …, qₖ) : τ₁ -> τ₂``) project
-          components of the domain. The kernel's signature is just
+          components of the domain. The kernel's signature is
           ``τ₁ -> τ₂``; the q_i are syntactic conveniences, not
           additional arguments, so they do not appear in the type.
         - Typed params (``alpha : Real``, ``X : Object``,
@@ -2380,7 +2380,7 @@ def _site_value_space(step: Any) -> str | None:
 def _site_signature(name: str, step: Any) -> str:
     """GHCi-style ``name :: type`` for a sample / observe / marginalize
     step. ``type`` is ``index -> value-space`` when both are known,
-    or just ``value-space`` when the step has no index.
+    or ``value-space`` when the step has no index.
     Falls back to the family call (``Dirichlet(alpha)``) when the
     value-space can't be read off the options.
     """

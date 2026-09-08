@@ -353,8 +353,7 @@ def _widths(source) -> list[int]:
 
 @pytest.mark.parametrize("family", ["Normal", "Beta", "Gamma", "LogitNormal"])
 def test_param_source_reaches_every_family(family: str) -> None:
-    """Not just `Normal`: the option has to build the source whatever
-    the family."""
+    """Build the selected parameter source for each supported family."""
     assert isinstance(_source_of("[param_source=mlp]", family), MLPSource)
     assert isinstance(_source_of("[param_source=linear]", family), LinearSource)
 

@@ -1,4 +1,4 @@
-"""Forward sampling of yields from a weighted deduction system.
+"""Sample fixed-length yields from a weighted deduction system.
 
 `sample_corpus` draws length-fixed token sequences from the
 length-conditional distribution induced by the chart's weights:
@@ -9,13 +9,9 @@ length-conditional distribution induced by the chart's weights:
     \\;=\\; \\frac{Z(s; \\mathbf{w})}
                  {\\sum_{s' \\text{ of length } L} Z(s'; \\mathbf{w})}.
 
-It enumerates every length-:math:`L` sequence over the
-deduction's surface vocabulary, evaluates :math:`\\log Z(s;
-\\mathbf{w})` for each via the chart, softmaxes the log-weights,
-and draws a multinomial. The procedure is *exact* (the chart
-already marginalises over the derivation forest); the
-:math:`|V|^L` enumeration cost is the fundamental cost of forward
-sampling from a globally-normalised chart-defined distribution.
+The sampler enumerates all :math:`|V|^L` sequences, evaluates each chart
+partition score, normalizes those scores, and draws from the resulting
+distribution. The chart marginalizes the derivation forest for each sequence.
 """
 
 from __future__ import annotations

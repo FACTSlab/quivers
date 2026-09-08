@@ -1,39 +1,9 @@
-"""JAGS renderer: [`IRProgram`][quivers.transpile.ir.IRProgram] to JAGS
-source under the ``jags`` tree-sitter grammar.
+"""Render transpilation IR as JAGS source.
 
-The JAGS surface mirrors BUGS for the probabilistic-core subset QVR
-targets: a single top-level ``model { ... }`` block whose children are
-``~`` stochastic relations and ``<-`` deterministic relations, nested
-under ``for (m_<axis> in 1:N_<axis>) { ... }`` loops to express plate
-structure. JAGS-specific family names (``ddirich`` for Dirichlet,
-``dgen.gamma`` for generalised Gamma, etc.) and arithmetic-converting
-parameterisation renames (Normal ``scale`` -> ``tau = 1/(scale*scale)``
-via the [`IRArgTransform`][quivers.transpile.renderers._base.IRArgTransform]
-mechanism) come from
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META].
-
-The renderer:
-
-* Treats every IR declaration as a no-op (JAGS variables are declared
-  implicitly by their first ``~`` / ``<-`` binding; data inputs ride
-  on an external ``.data`` file the host supplies).
-* Lowers [`IRSample`][quivers.transpile.ir.IRSample] and
-  [`IRObserve`][quivers.transpile.ir.IRObserve] to per-batch-axis
-  ``for (m_<axis> in 1:N_<axis>) { <name>[m_<axis>] ~ d<family>(args) }``
-  nests.
-* Lowers [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to the
-  weighted sum over the latent's finite support
-  ([`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]),
-  declaring no latent site and adding the sum's logarithm to the joint
-  through the zeros trick.
-* Refuses to emit a scalar broadcast to a vector / matrix arg or a
-  bare list / matrix literal, raising
-  [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
-  with a typed kind tag (callers pre-bind vector data via a let-decl
-  before transpiling).
-* Appends ``T(L, U)`` truncation idiom when an
-  [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef] resolves to
-  a ``Truncated(...)`` wrapper.
+Samples and observations become relations inside plate loops. Finite
+marginalizations are emitted as weighted density sums through the
+zeros trick. Family names and argument conversions come from
+``FAMILY_META``.
 """
 
 from __future__ import annotations
@@ -507,40 +477,18 @@ class JAGSRenderer(RendererBase):
     def _emit_marginal_reduction(
         self, ctx: _JAGSCtx, node: IRMarginalize
     ) -> None:
-        """Emit `log sum_a w_a f_a(y)` for one marginalized latent,
-        one row per cell of the scope's observed plate.
+        """Emit one marginalized latent as a rowwise log weighted sum.
 
-        The scope reduces to a run of deterministic bindings and a
-        single observed site
-        ([`marginalize_body`][quivers.transpile.renderers._python_helpers.marginalize_body]),
-        and
-        [`marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
-        hands back one copy of that scope per atom with the latent
-        pinned to the atom's value. Each copy becomes one term:
+        `marginalize_body` separates deterministic bindings from the observed
+        site, and `marginal_atoms` pins the latent at each support atom.
+        Deterministic bindings are inlined so each atom can use its own copy.
+        `marginal_scope_density` supplies the observed density, while
+        `marginal_weight_probs` gathers grouped weights through the observation
+        fibration.
 
-        * the bindings are *inlined* rather than emitted, because a
-          BUGS / JAGS name may be defined once and every atom would
-          otherwise want the same names for its own copy;
-        * the observed site's density is written out in closed form by
-          [`marginal_scope_density`][quivers.transpile.renderers._bugs_helpers.marginal_scope_density];
-        * the weight comes from
-          [`marginal_weight_probs`][quivers.transpile.renderers._python_helpers.marginal_weight_probs],
-          which gathers a per-group weight tensor through the
-          observation's `via` fibration and leaves a shared one alone.
-
-        The row runs over the *observation's* plate, not the latent's:
-        the reference replicates the latent per observed cell, so each
-        cell carries its own mixture. Every reference in the emitted
-        expression is re-indexed against that plate's loop variables
-        by the ordinary deterministic path, which is why the weight
-        and the density are built as let-expressions over declared
-        names rather than as pre-indexed text.
-
-        The lift the zeros trick usually pays is dropped when every
-        atom's density is a mass function: the mixture is then at most
-        one, so its negated logarithm is already a valid Poisson rate
-        and the emitted program scores the reference measure with no
-        additive constant at all.
+        Rows follow the observation plate. When all atom densities are mass
+        functions, the mixture is at most one and its negative log can be used
+        as the zeros-trick Poisson rate without an additive lift.
         """
         raw = marginalize_body(
             node.scope, latent=node.latent, target=self.target
@@ -665,7 +613,7 @@ class JAGSRenderer(RendererBase):
         JAGS has no scalar-to-vector broadcast operator, but its base
         function library provides ``rep(x, times)``, which returns a
         length-``times`` vector filled with ``x``. A scalar
-        concentration over a ``K``-atom Dirichlet event axis therefore
+        concentration over a ``K``-atom Dirichlet event axis thus
         emits ``rep(<scalar>, K)``: a valid vector parent whose repeated
         entries reproduce the symmetric-Dirichlet measure the QVR
         ``[over=K]`` clause denotes.
@@ -899,7 +847,7 @@ class JAGSRenderer(RendererBase):
         The BUGS language has no `return`: a model block declares
         relations and the inference engine reports whatever the caller
         monitors. The construct that carries "this quantity is part of
-        what the model reports" is therefore a deterministic relation
+        what the model reports" is thus a deterministic relation
         under a name of its own, `<name>_value <- <name>`, which is
         the same idiom the Stan renderer uses for its
         `generated quantities` alias and the PyMC renderer for its
@@ -1203,7 +1151,7 @@ class JAGSRenderer(RendererBase):
         precision_matrix=Omega).log_prob(x)`` and not the
         ``covariance_matrix=Omega`` reading (-2.486405). Emitting the
         QVR ``covariance_matrix`` slot straight into that position
-        therefore scores a different Gaussian at every point.
+        thus scores a different Gaussian at every point.
 
         A site that already names ``precision_matrix`` passes through
         untouched. A site naming ``covariance_matrix`` gains a
@@ -2393,33 +2341,13 @@ class JAGSRenderer(RendererBase):
     def _emit_zeros_trick_latent(
         self, ctx: _JAGSCtx, node: IRSample
     ) -> None:
-        """Emit a latent draw from a family JAGS cannot name.
+        """Emit a latent from a family without a native JAGS distribution.
 
-        The zeros trick adds a density term to the joint without
-        declaring a node, which is the whole emission an *observed*
-        site needs and exactly half of what a *latent* site needs: the
-        drawn name has to be a node the engine can sample and every
-        downstream relation can read. The missing half is a draw from
-        the uniform measure on the family's own support, which
-        [`_ZEROS_TRICK_LATENT_CARRIER`][quivers.transpile.renderers.jags._ZEROS_TRICK_LATENT_CARRIER]
-        names. For the two unit-interval families that is
-        `dunif(0, 1)`, whose log density is identically zero over
-        `(0, 1)`, so the pair
-
-        ```
-        z[n] ~ dunif(0, 1)
-        phi_z[n] <- C - <log f(z[n])>
-        zeros_z[n] ~ dpois(phi_z[n])
-        ```
-
-        contributes `log f(z[n]) - C` and nothing else. The carrier is
-        a genuine parent of `z` rather than a re-scoring of it, so the
-        graph stays acyclic: `z -> phi_z -> zeros_z` is a chain.
-
-        Both relations run over the latent's *declared* plate, which is
-        the axis every reference the density row reads is re-indexed
-        against: the row has to reach `z` and the site's arguments, and
-        those resolve by declared axis name.
+        The latent is drawn from a uniform carrier on its support. A zeros-trick
+        relation then adds the requested log density. For unit-interval families
+        the carrier is ``dunif(0, 1)``, whose log density is zero on the support.
+        Both relations follow the latent's declared plate so site arguments and
+        the sampled value use the same indices.
         """
         carrier = _ZEROS_TRICK_LATENT_CARRIER.get(node.family)
         if carrier is None:
@@ -2514,33 +2442,11 @@ class JAGSRenderer(RendererBase):
     ) -> None:
         """Emit a `MixtureNormal` observation through the zeros trick.
 
-        JAGS ships no mixture distribution and no `target +=`
-        increment, but it ships every piece a finite mixture needs. The
-        per-row density
-
-            p(y_n) = sum_k w_k * N(y_n; mu_k, sigma_k)
-
-        is an ordinary JAGS arithmetic expression once the component
-        count is known, and the canonical way to add its logarithm to
-        the joint is the zeros trick: with `zeros_<name>[n]` observed
-        at 0, `zeros_<name>[n] ~ dpois(phi_<name>[n])` contributes
-        `-phi_<name>[n]`, so setting
-
-            phi_<name>[n] <- C - log(p(y_n))
-
-        adds `log p(y_n) - C` per row. The `C` per row is an additive
-        constant on the joint, which Theorem 4.1's quotient absorbs.
-
-        The trick needs `zeros_<name>` to be *data*, and JAGS binds
-        data from inside the model source through its `data { ... }`
-        transformation block, so the emit declares the carrier there
-        rather than asking the host for a vector the QVR wire format
-        does not carry.
-
-        A residual event axis on the site would ask each row to carry a
-        vector-valued mixture, which the scalar closed form cannot
-        express, so it raises rather than emitting a
-        differently-shaped density.
+        For each row, the renderer computes the weighted sum of Normal component
+        densities. An observed zero from ``dpois(C - log(p))`` contributes
+        ``log(p) - C`` to the joint. The zero carrier is declared in JAGS's data
+        transformation block. Residual event axes raise because this emission
+        supports only scalar mixtures.
         """
         if plate.event_dims:
             raise UnsupportedConstruct(
@@ -2589,59 +2495,12 @@ class JAGSRenderer(RendererBase):
     ) -> None:
         """Emit a `BetaBinomial` observation through the zeros trick.
 
-        A stock JAGS engine loads `basemod`, `bugs`, and `dic`, and
-        none of the three registers a beta-binomial: JAGS carries one
-        only in the optional `mix` module, so naming a distribution
-        here would compile on some installations and fail with
-        ``Unknown distribution`` on others. The density itself needs
-        nothing optional. `loggam` and `logfact` both live in the
-        `bugs` module, so
-        [`beta_binomial_log_pmf`][quivers.transpile.renderers._bugs_helpers.beta_binomial_log_pmf]
-        writes the marginal out in closed form and the zeros trick adds
-        it to the joint: with `zeros_<name>[n]` bound to 0 in the
-        `data { ... }` block, `zeros_<name>[n] ~ dpois(phi_<name>[n])`
-        contributes `-phi_<name>[n]`, so
-
-            phi_<name>[n] <- -log p(y_n)
-
-        adds exactly `log p(y_n)` per row, with no additive constant
-        at all.
-
-        The zeros trick usually carries a large positive offset `C`,
-        emitted as `phi <- C - <term>`, because the Poisson rate has to
-        stay in support and a general score term is unbounded above.
-        [`_emit_score`][quivers.transpile.renderers.jags.JAGSRenderer._emit_score]
-        and
-        [`_emit_mixture_normal`][quivers.transpile.renderers.jags.JAGSRenderer._emit_mixture_normal]
-        both need it: a user score expression is arbitrary, and a
-        Gaussian mixture's log-*density* exceeds zero wherever the
-        mixture concentrates. A beta-binomial is a *mass* function, so
-        `p(y_n) <= 1` and `-log p(y_n) >= 0` at every parameter value
-        in the support, with equality only for a point mass. The rate
-        is therefore in support without an offset, and dropping it
-        makes the emitted program denote the reference measure on the
-        nose rather than up to a constant Theorem 4.1's quotient has to
-        absorb: the cell's named constant is the folded-family
-        derivation's value and nothing else. (The residual pointwise
-        spread is unchanged at roughly `6e-6`, so the `1e6`-scale
-        cancellation was not what bounded the agreement; the offset had
-        to go because it was an unentitled constant, not because it was
-        imprecise.)
-
-        The emitted relation reads `phi_<name>[n] <- -(<term>)`, whose
-        text runs the two operators together as `<--`. Both the JAGS
-        lexer and the tree-sitter grammar take the longest match, so
-        that is the assignment arrow followed by a unary minus.
-
-        The emitted term is the beta-binomial's own marginal, with the
-        latent rate integrated out analytically, rather than the
-        `p ~ dbeta(a, b); y ~ dbin(p, n)` compound: the compound adds a
-        latent node per row and so scores a different joint over a
-        larger space.
-
-        A residual event axis on the site would ask each row to carry a
-        vector of counts, which the scalar closed form cannot express,
-        so it raises rather than emitting a differently-shaped density.
+        Stock JAGS does not load the optional ``mix`` module, so
+        `beta_binomial_log_pmf` emits the mass function with base-library
+        ``loggam`` and ``logfact`` functions. Because a log mass is at most zero,
+        its negation is a valid Poisson rate and requires no additive lift. The
+        emitted latent conversion rate is integrated out analytically. Residual
+        event axes raise because this path scores scalar counts.
         """
         if plate.event_dims:
             raise UnsupportedConstruct(
@@ -2678,27 +2537,10 @@ class JAGSRenderer(RendererBase):
     ) -> None:
         """Emit a `Kumaraswamy` observation through the zeros trick.
 
-        JAGS names no Kumaraswamy in any module a stock engine loads,
-        and the family is not one a reparameterisation reaches: it is
-        not a Beta, and the `1 - (1 - u)^(1/b)` inverse-CDF identity
-        that generates it needs a transform of a sampled node, which
-        the model language applies to a *logical* node and so cannot
-        attach a likelihood to.
-        [`kumaraswamy_log_pdf`][quivers.transpile.renderers._bugs_helpers.kumaraswamy_log_pdf]
-        writes the density out instead, in `log` and `pow` alone, and
-        [`_emit_zeros_trick_row`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_row]
-        adds it to the joint.
-
-        The rate carries the lift: a Kumaraswamy is a density on
-        `(0, 1)` rather than a mass function, so its log form exceeds
-        zero wherever the density does (which the fixture's shapes
-        reach), and an unlifted `-log f(y_n)` would ask `dpois` for a
-        negative rate.
-
-        A residual event axis on the site would ask each row to carry
-        a vector-valued response, which the scalar closed form cannot
-        express, so it raises rather than emitting a
-        differently-shaped density.
+        `kumaraswamy_log_pdf` supplies the closed-form density because stock JAGS
+        has no corresponding distribution. The Poisson rate includes an
+        additive lift because a continuous log density may exceed zero.
+        Residual event axes raise because this path scores scalar responses.
         """
         if plate.event_dims:
             raise UnsupportedConstruct(
@@ -2749,32 +2591,12 @@ class JAGSRenderer(RendererBase):
         row_plate: Plate,
         lifted: bool,
     ) -> None:
-        """Add `log_density` to the joint, one row per plate index.
+        """Add a rowwise log density to the joint with the zeros trick.
 
-        The three relations the trick needs, in the order the engine
-        reads them:
-
-        ```
-        data { zeros_<name>[n] <- 0 }
-        phi_<name>[n]  <- C - <log_density>     (lifted families)
-        phi_<name>[n]  <- -(<log_density>)      (unlifted families)
-        zeros_<name>[n] ~ dpois(phi_<name>[n])
-        ```
-
-        `log P(X = 0; lambda) = -lambda` makes the last relation
-        contribute `-phi_<name>[n]`, which is `<log_density>` back,
-        less the lift where one is carried. `lifted` decides which of
-        the two forms the row takes: a term bounded above by zero (the
-        log of a mass function, or of a mixture of them) needs no lift,
-        and paying one anyway would charge the emitted program a
-        constant it does not owe.
-
-        Both helper names are made unique against every name already
-        declared, because they are derived from a name the *source*
-        chose: a program that itself binds `phi_<name>` would otherwise
-        have that binding silently redefined, which JAGS reports as a
-        duplicate relation at best and scores as the wrong model at
-        worst.
+        An observed zero from ``dpois(phi)`` contributes ``-phi``. For lifted
+        densities, ``phi = C - log_density``; otherwise
+        ``phi = -log_density``. Helper names are fresh relative to source
+        declarations to avoid duplicate relations.
         """
         zeros_name = self._fresh_helper_name(ctx, f"zeros_{name}")
         phi_name = self._fresh_helper_name(ctx, f"phi_{name}")
@@ -3540,7 +3362,7 @@ def _classify_bindings(
     rank-0: an empty plate plus a scalar-support constraint for the
     stochastic / input bindings, and an empty plate whose let-expression
     is not a vector-producing list / factor construct for the
-    deterministic ones. A let-bound scalar therefore lands in
+    deterministic ones. A let-bound scalar thus lands in
     `scalar_refs` exactly like a free scalar input, so the JAGS
     ``rep(<scalar>, K)`` broadcast fires on both.
     """

@@ -1,5 +1,7 @@
 # Typeclass Theories (panproto mirror)
 
-`ThFunctor`, `ThApplicative`, `ThMonad`, `ThAlternative`, `ThMonadPlus`, `ThMonadTrans`, `ThFoldable`, `ThTraversable`, panproto-theory record-stubs for each typeclass.
+Panproto theory-record stubs for the typeclasses: `ThFunctor`,
+`ThApplicative`, `ThMonad`, `ThAlternative`, `ThMonadPlus`,
+`ThMonadTrans`, `ThFoldable`, and `ThTraversable`.
 
 ::: quivers.monadic.theories

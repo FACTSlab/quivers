@@ -455,7 +455,7 @@ class VectorisedObserve(ContinuousMorphism):
         natural way to write N scalar responses against a ``d = 1``
         codomain is ``(N,)``, and subtracting that from an ``(N, 1)``
         mean broadcasts to ``(N, N)``. Because the score is then summed,
-        the result is a finite number that is simply wrong, so the axis
+        the result is finite but incorrect, so the axis
         is restored here.
 
         An inline family is the other layout and is left alone: its

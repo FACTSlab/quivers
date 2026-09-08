@@ -142,8 +142,8 @@ def test_svi_runs_on_grouped_marginalize_model() -> None:
 
 def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     """The gradient of the loss with respect to the guide's
-    mu_shift variational parameters must be non-zero and finite —
-    proving the marginalize block doesn't break the autograd chain."""
+    mu_shift variational parameters must be non-zero and finite,
+    showing that the marginalize block preserves the autograd chain."""
     src = _two_class_mixture_model()
     model = loads(textwrap.dedent(src)).morphism
     guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
@@ -173,10 +173,9 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     marginalize block; checks that the recovered ``probs`` are
     close to the true proportions.
 
-    Tolerance is loose because mean-field VI on a mixture has
-    well-known bias toward the more populous component — but the
-    direction of the recovery (more populous component gets larger
-    weight) should be unambiguous."""
+    Tolerance is loose because mean-field VI on a mixture is biased
+    toward the more populous component. The test checks only that this
+    component receives the larger weight."""
     src = """
     composition log_prob [level=algebra]
 

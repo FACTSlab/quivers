@@ -1,6 +1,6 @@
 # 5. Sequence models
 
-Sequences turn up everywhere: time series, text, RNN-shaped models, hidden Markov models, state-space models. The QVR surface has three constructs aimed at sequence-shaped problems:
+QVR has three constructs for sequence-shaped problems such as time series, text, recurrent networks, hidden Markov models, and state-space models:
 
 - **Plate-draws** for IID-along-an-index data (chapter 3 used this for `theta : School <- Normal(...)`).
 - **`scan`** for sequential evaluation: a per-step cell function fold-applied along the sequence dimension.

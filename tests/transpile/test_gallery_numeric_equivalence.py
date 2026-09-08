@@ -1,69 +1,16 @@
-"""Tier-4 numeric equivalence on the documentation gallery.
+"""Numeric equivalence checks for gallery programs.
 
-For every `docs/examples/source/<example>.qvr` that ships a `###
-Generating synthetic data` block in its sibling `.md`, this test:
+For each gallery example with synthetic data, the test builds a
+support-preserving multi-point set and evaluates the QVR reference and
+each available backend probe. Supported cells must agree up to a
+point-independent additive constant under
+[`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
+Known unsupported constructs and probe limitations are recorded in
+explicit registries.
 
-1. Extracts and executes the data-gen snippet to recover an
-   `observations` dict plus every captured `true_*` ground-truth
-   parameter value.
-2. Builds a multi-point
-   [`Point`][tests.transpile.probes._protocol.Point] set via
-   [`points_from_dataset`][tests.transpile._gallery_data.points_from_dataset]:
-   the ground truth first, then deterministic in-support
-   perturbations of the latents, of the observed data, and of both.
-3. Runs the in-process
-   [`QvrProbe`][tests.transpile.probes.qvr.QvrProbe] to compute
-   `log p_QVR(θ, y) = sum_i log f_i(...)` at every point.
-4. For every backend whose Docker image is locally built, runs the
-   target's native log-density probe inside the container over the
-   same point set and asserts constant-spread equivalence
-   (`max_i | δ_i − mean δ | < atol`) per Theorem 4.1 of
-   [docs/semantics/transpile-correctness.md](../../docs/semantics/transpile-correctness.md).
-
-The point set is what gives the constant-spread assertion its teeth.
-Evaluated at one point the spread is identically zero, so the check
-passes whatever the backend computed. Varying the latents catches a
-mis-scored prior; varying the *data* catches a backend that drops a
-data-dependent term while keeping a stable offset as the latents move
-(a Stan `~` sampling statement discards data-only summands, for
-instance). Both must vary before the assertion means anything.
-
-Each cell resolves to one of three pre-declared outcomes:
-
-1. `(backend, example) in _EXPECTED_TRANSPILE_RAISES`: the
-   pipeline MUST `pytest.raises(UnsupportedConstruct)` with the
-   pinned kind-prefix.
-2. Cell falls in one of the three `_SKIP_*` registries: a known
-   environmental gap (missing data block, QVR-probe incompatibility,
-   backend probe script lacking shape registration for arbitrary
-   gallery datasets). `pytest.skip` with the diagnostic.
-3. Neither: the pipeline MUST emit non-empty bytes, the QVR probe
-   MUST evaluate to a finite log-density, and the in-container
-   probe MUST return a vector whose constant-spread offset from
-   the QVR reference is below the equivalence tolerance.
-
-When neither Docker images nor backend Python runtimes are
-available (the typical local-dev state), the test still exercises
-the QVR-side trace: every gallery example whose `.md` ships data
-gets a verified `log p_QVR` value, which is the strongest in-process
-correctness signal we can produce without target runtimes.
-
-The constant-spread contract is blind by construction to a
-*point-independent* error in the reference itself: adding the same
-constant to every `log p_QVR` leaves every difference `δ_i` shifted
-by that constant and every spread unchanged. The oracle therefore
-carries a second, independent obligation, and this module holds it:
-[`_QVR_REFERENCE_JOINT`][tests.transpile.test_gallery_numeric_equivalence._QVR_REFERENCE_JOINT]
-pins the reference joint at **every** point of the set, the pin is
-**mandatory** for every example that scores a joint (an example
-without one is an assertion failure, never a silent pass), and the
-pin tolerance is
-[`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol],
-which is never looser than the equivalence tolerance it underwrites.
-The pinned numbers themselves are re-derived from raw
-`torch.distributions` by
-[`test_oracle_reference_strength`][tests.transpile.test_oracle_reference_strength]
-for every example the backend tier cannot reach.
+The suite checks registry coverage, point-set variation, reference
+values, probe isolation, and pairwise backend transitivity. Container
+cells are skipped when their image is unavailable.
 """
 
 from __future__ import annotations
@@ -851,7 +798,7 @@ def test_gallery_reference_pin_registry_is_total() -> None:
     independently agree the example has no reference, not taken on its
     word: an exempt example must appear in `_SKIP_DATASET_LOAD_FAILED`
     (no dataset at all) or in `_SKIP_QVR_INCOMPATIBLE` (no
-    deterministic joint). An exemption whose gap has closed therefore
+deterministic joint). An exemption whose gap has closed thus
     fails rather than quietly suppressing a pin the example could now
     carry.
     """
@@ -925,7 +872,7 @@ def test_gallery_qvr_reference_pin_holds_at_every_point(
     example: pathlib.Path,
 ) -> None:
     """The QVR reference reproduces its pinned value at **every**
-    point of the set, not only at the ground truth.
+    point of the set as well as at the ground truth.
 
     A ground-truth-only pin and the constant-spread check have
     complementary blind spots that overlap exactly on the class of
@@ -933,7 +880,7 @@ def test_gallery_qvr_reference_pin_holds_at_every_point(
     offset but says nothing about points 1..5. The spread check sees a
     varying offset but is invariant to a constant one. An oracle error
     that is *zero at the ground truth and constant across the
-    perturbed points* therefore passes both: the pin holds where it
+perturbed points* thus passes both: the pin holds where it
     looks, and the spread is unchanged because the same wrong value
     feeds both sides of every difference. Pinning per point removes
     that overlap, because a per-point pin is violated by any error
@@ -1135,7 +1082,7 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
        throughout. Against such a set a backend that drops a
        data-dependent term keeps a perfectly constant offset and the
        equivalence assertion is vacuous. An example whose data
-       genuinely cannot move states so in `_NO_PERTURBABLE_OBSERVATION`
+cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
        and has the frozen data section asserted rather than assumed.
     """
     if example.stem in _SKIP_DATASET_LOAD_FAILED:

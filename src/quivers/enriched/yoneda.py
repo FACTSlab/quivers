@@ -98,7 +98,7 @@ def representable_profunctor(
     This is the Yoneda image of A: the profunctor from A to A
     given by the identity (hom from A to itself).
 
-    For a single-object view, this is just the identity morphism
+    For a single-object view, this is the identity morphism
     viewed as a profunctor A ↛ A.
 
     Parameters
@@ -151,7 +151,7 @@ def yoneda_embedding(
     """Apply the Yoneda embedding to a morphism.
 
     Given f: A → B, the Yoneda embedding produces a profunctor
-    morphism y(f): y(A) → y(B), which is just the profunctor
+    morphism y(f): y(A) → y(B), which is the profunctor
     view of f.
 
     This is equivalent to Profunctor.from_morphism but makes
@@ -264,8 +264,8 @@ def yoneda_density(
 
         f(a, b) = ∫^x C(a, x) ⊗ f(x, b) = ⋁_x δ(a,x) ⊗ f(x, b)
 
-    which is just the statement that composing with the identity
-    gives back f. This function computes the coend and verifies it.
+    which states that composing with the identity gives back f.
+    This function computes the coend and verifies it.
 
     Parameters
     ----------

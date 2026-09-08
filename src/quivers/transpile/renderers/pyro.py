@@ -1,38 +1,9 @@
-"""Pyro renderer: [`IRProgram`][quivers.transpile.ir.IRProgram] to a
-Python source [`panproto.Schema`][panproto.Schema].
+"""Render transpilation IR as a Pyro model function.
 
-Pyro is the PyTorch sibling of NumPyro. The rendered shape is one
-`def model(<params>, <observed>=None): ...` function whose body
-wraps every sampled / observed draw in `with pyro.plate(<name>,
-<size>):` blocks (one per batch dim) and emits the call as
-`pyro.sample("<name>", pyro.distributions.<Family>(<args>)[,
-obs=<obs>])`. The renderer mirrors the NumPyro renderer with `torch`
-substituted for `jnp` and `pyro` substituted for `numpyro`.
-
-The dispatch points implement the contract documented on
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase]:
-
-* `declare`: outside `"function_body"` is a no-op; the function
-  signature picks up data inputs and observed names from the IR's
-  `inputs` / `IRObserve` nodes during `render`.
-* `sample`: wraps the `pyro.sample(...)` call in nested
-  `with pyro.plate(<name>, <size>):` blocks per `plate.batch_dims`.
-* `marginalize`: integrates the latent out, scoring one copy of the
-  scope per atom of its finite support and adding the `logsumexp`
-  reduction to the model's log-density with `pyro.factor`.
-* `broadcast`: emits `torch.full((K,), <value>)` for a 1D target
-  shape and `torch.full((R, C), <value>)` for 2D.
-* `render_list`: emits `torch.tensor([e0, e1, ...])`.
-* `render_matrix`: emits `torch.tensor([[...], [...]])`.
-* `IRArgFamilyRef`: resolves the morphism's `~ Family(...)` init
-  clause and dispatches under `pyro.distributions.<TruncatedFamily>`
-  per the wrapper.
-
-Per-family distribution names come from
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]'s
-`target_names["pyro"]`; keyword arg names come from the IR node's
-`arg_names`. Family-specific branching is reserved to the registry
-lookup, never to per-family equality tests in renderer code.
+Samples and observations use ``pyro.sample`` inside nested plates.
+Finite marginalizations score each atom and add their ``logsumexp``
+with ``pyro.factor``. Family names and argument aliases come from
+``FAMILY_META``.
 """
 
 from __future__ import annotations

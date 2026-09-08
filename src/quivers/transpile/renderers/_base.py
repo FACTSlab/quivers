@@ -1,40 +1,9 @@
-"""`RendererBase`: shared machinery for every transpile renderer.
+"""Shared machinery for transpilation renderers.
 
-Each backend's renderer is a [`Renderer`][quivers.transpile.renderers._base.Renderer]:
-a class with one public method `render(ir: IRProgram) -> panproto.Schema`
-and four private dispatch points (`declare`, `sample`, `marginalize`,
-`broadcast`). `RendererBase` provides:
-
-* The IR-walk dispatch: a default `render` implementation that walks
-  the [`IRProgram`][quivers.transpile.ir.IRProgram] body and routes
-  each [`IRNode`][quivers.transpile.ir.IRNode] to the right dispatch
-  point.
-* Index-substitution helpers: rewrite an
-  [`IRArgRef`][quivers.transpile.ir.IRArgRef] indexed against the
-  surrounding plate's `batch_dims` so a renderer's sample / observe
-  emission gets `name[m_0, m_1, ...]` form for the LHS and indexed
-  args.
-* The marginalize lowering: `marginal_atoms` expands an
-  [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] into the
-  per-atom branches whose weighted `logsumexp` *is* the integrated
-  density, and `substitute_latent` pins the latent to one atom
-  throughout a scope. `explicit_latent_scope` is the unintegrated
-  draw rewrite, kept for the backends that still spell `marginalize`
-  as a live sample site.
-* `ir_uses_family`: the runtime-helper graft predicate, covering the
-  latent draw of a marginalize as well as its scope.
-* `assert_no_dangling_refs` / `assert_no_lists`: structural
-  invariants every renderer checks before emission.
-* `assert_no_dropped_param_map`: the width invariant every renderer
-  checks before emission. A site whose scalar family parameter is a
-  reference of a different width than the site is scoring the
-  conditioning value where the declared morphism's parameter map
-  belongs, and the map is not in the IR to emit.
-
-The `_RenderCtx` dataclass is the renderer-internal carrier for
-the panproto `SchemaBuilder`, fresh-id counter, and resolved
-morphism / define tables; it's the only `@dataclasses.dataclass` in
-the transpile layer (the IR uses `dx.Model` exclusively).
+``RendererBase`` dispatches IR nodes, substitutes plate indices, lowers
+finite marginalizations to weighted atom reductions, and checks
+structural invariants before emission. Concrete renderers implement
+declaration, sampling, marginalization, and broadcast forms.
 """
 
 from __future__ import annotations
@@ -515,31 +484,15 @@ class RendererBase(abc.ABC):
         *,
         support_size: int | None = None,
     ) -> tuple[IRMarginalAtom, ...]:
-        """Expand an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        into the atoms whose weighted reduction is the integrated
-        density.
+        """Expand an `IRMarginalize` node into weighted atoms.
 
-        Every returned [`IRMarginalAtom`][quivers.transpile.renderers._base.IRMarginalAtom]
-        carries a copy of `node.scope` with the latent pinned to that
-        atom, so the scope contains no reference to the latent name
-        and declares no latent site. The renderer accumulates each
-        atom's scope log-density alongside the atom's own weight, then
-        reduces across atoms with `node.reduction` and adds the result
-        to the target's log-density.
+        Each returned `IRMarginalAtom` pins the latent within a copy of
+        `node.scope`. The renderer combines each atom's weight with its scope
+        log density and reduces the result with `node.reduction`.
 
-        `support_size` supplies the class count for a `"class_index"`
-        atom set, whose width is the trailing extent of the
-        probability argument and therefore a fact about the call site
-        rather than the family. Pass it whenever the renderer can
-        resolve the declared shape of that argument; a `"binary"` atom
-        set ignores it.
-
-        Raises `UnsupportedConstruct` with a `marginalize:` kind when
-        the family carries no agreed marginal or the class count
-        cannot be resolved. Emitting a live draw in either case would
-        denote a measure on a strictly larger space than the QVR
-        reference integrates, so there is no correct code to fall
-        back to.
+        `support_size` gives the class count for a ``"class_index"` atom set;
+        binary atom sets ignore it. Raises `UnsupportedConstruct` when the
+        family has no supported marginal or the class count is unresolved.
         """
         meta = FAMILY_META.get(node.family)
         if meta is None:
@@ -609,7 +562,7 @@ class RendererBase(abc.ABC):
         scope's, where
         [`marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
         denotes the integral of that product over the latent. The
-        emitted program therefore declares a latent site the QVR
+        emitted program thus declares a latent site the QVR
         reference has integrated away, and scoring it at any single
         coordinate differs from the marginal by an amount that moves
         with the data. Backends measured against the QVR reference
@@ -1268,43 +1221,17 @@ class _BindingExtents(dx.Model):
 
 
 def assert_no_dropped_param_map(ir: IRProgram, target: str) -> None:
-    """Raise when a site scores a scalar family parameter against a
-    reference of a different width.
+    """Reject scalar family arguments whose reference width cannot match the site.
 
-    A Kleisli morphism declared `morphism f : X -> Y ~ Family` between
-    objects of different width carries a parameter map: the runtime
-    gives it a [`LinearSource`][quivers.continuous.param_source.LinearSource]
-    from `X` to the family's parameter heads on `Y`, and every
-    per-element parameter the site scores against is a row of that
-    map's output rather than the conditioning value itself. The map's
-    weights are drawn when the module compiles. They appear in no
-    sample site and in no line of the QVR text, so a target has
-    nothing to reconstruct them from, and a program emitted without
-    them binds an `X`-wide value to a `Y`-wide site: a different
-    measure, on a space of a different dimension.
+    A declared conditional kernel may carry a learned parameter map from its
+    domain to its family heads. Those learned weights do not occur in emitted
+    source or sample sites. The IR must thus not reduce such a map to a bare
+    reference with a different static width.
 
-    The check reads that residue off the IR. For every scalar-valued
-    argument (see `_scalar_valued_arg`) given as a bare reference to a
-    statically-sized binding, the referenced width and the site's
-    width have to agree unless one of them is a single number, which
-    broadcasts. Three positions are outside the invariant and are
-    skipped rather than asserted on:
-
-    - an *indexed* reference (`phi[z]`), whose width is the width of
-      the slice the index selects, not of the array it indexes;
-    - an argument of a mixture call, which the component axis widens
-      (see `_mixes_over_components`);
-    - a reference read through an
-      [`IRObserve.via`][quivers.transpile.ir.IRObserve] fibration,
-      which gathers a group-plate value onto a row plate and so
-      relates the two widths through the fibration rather than by
-      equality.
-
-    A family whose argument ranks are not statically readable (see
-    `_family_arg_constraints`) has no scalar-valued argument as far as
-    this check can tell, so its call is passed over. The check is a
-    guard on emitted output, not a classifier: it declines to judge
-    what it cannot read rather than guessing a rank.
+    Scalar arguments may broadcast from width one. Indexed references, mixture
+    arguments, and values gathered through an observation fibration are
+    excluded because their effective widths follow other rules. Families whose
+    argument ranks are unavailable are also skipped.
     """
     extents = _BindingExtents()
     for inp in ir.inputs:

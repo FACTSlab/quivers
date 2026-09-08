@@ -752,7 +752,7 @@ class _DeclarationsMixin:
         Declarations are compiled in source order, so a name is in
         scope only from the line after it is introduced. Without this
         hint a forward reference reads as a missing declaration, which
-        sends the author looking for a name that is in fact right
+        sends the author looking for a name that is already
         there, further down the file.
         """
         pending: list[str] = []

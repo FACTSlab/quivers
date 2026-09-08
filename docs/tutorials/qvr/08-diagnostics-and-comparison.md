@@ -1,6 +1,6 @@
 # 8. Diagnostics, posterior-predictive checks, and model comparison
 
-Fitting a model is half the workflow. The other half is asking whether the fit converged, whether the model can reproduce the observed data, and whether one model is preferable to another. Quivers delegates all of these to [ArviZ](https://python.arviz.org/) through a thin adapter at [`quivers.diagnostics`](../../api/diagnostics/index.md). This chapter walks the full diagnostic pipeline on a regression you've already seen in chapter 1.
+Model assessment asks whether a fit converged, whether the fitted model reproduces the observed data, and how its predictive accuracy compares with another model's. Quivers exposes these checks through [ArviZ](https://python.arviz.org/) via [`quivers.diagnostics`](../../api/diagnostics/index.md). This chapter applies that diagnostic pipeline to the regression from chapter 1.
 
 ## The DataTree bridge
 

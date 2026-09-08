@@ -12,8 +12,8 @@ Every primitive must satisfy three invariants:
    receive non-zero finite gradients when the chain is trained
    against a smooth target.
 
-These tests are correctness gates — a flow primitive that fails
-any of them is silently incorrect when stacked inside a guide.
+Together these properties cover the transform behavior used by a
+guide.
 """
 
 from __future__ import annotations

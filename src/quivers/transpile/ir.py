@@ -94,35 +94,16 @@ class LetAffineSource(dx.Model):
 
 
 class LetExprAffineMap(LetExprNode):
-    """One head's block of a parameter map's ``W x + b``.
+    """Represent one head of a parameter map's ``W x + b`` operation.
 
-    The expression denotes the length-`rows` vector
+    For ``i`` in ``0 .. rows - 1``, the expression computes::
 
-    ```
-    y[i] = sum_j weight[row_offset + i, j] * x[j] + bias[row_offset + i]
-    ```
+        y[i] = sum_j weight[row_offset + i, j] * x[j] + bias[row_offset + i]
 
-    for `i` in `0 .. rows - 1`, where `x` is the concatenation of
-    `sources` in order, followed by `transform`:
-
-    * ``identity``: `y` is the value.
-    * ``exp``: the value is ``exp(y)`` coordinatewise.
-
-    `weight` is a `rows_total x columns` array whose `rows_total` is
-    `rows` times the number of heads the family reads, and whose
-    `columns` is the total width of `sources`; `bias` is the matching
-    `rows_total` vector. `row_offset` is this head's first row.
-
-    Every index above is **zero-based**, QVR's own origin. A
-    one-based target rebases the row block when it emits: Stan's
-    inclusive slice, for instance, spans ``row_offset + 1`` to
-    ``row_offset + rows``.
-
-    Renderers spell the contraction in their own language: Stan and
-    Julia a `matrix * vector`, the array-shaped Python backends a
-    matmul, JAGS and BUGS a loop over the codomain axis with `inprod`
-    per row. The node carries no unrolled arithmetic, so its size is
-    independent of either width.
+    where ``x`` concatenates `sources` in order. The `transform` is either
+    ``identity`` or coordinatewise ``exp``. Indices are zero-based; renderers
+    rebase them for one-based targets. The node stores the contraction rather
+    than unrolled arithmetic.
     """
 
     weight: LetExprNode
@@ -880,7 +861,7 @@ class IRProgram(dx.Model):
     `cards` carries the static cardinalities of every QVR object
     used in the program, keyed by object name. Renderers consult
     it when an expression-level construct binds over a finite-set
-    axis by name (`LetExprFactor` binders, for example) and the
+    axis by name (`LetExprFactor` binders, for instance) and the
     static size is required to unroll the construct.
     """
 

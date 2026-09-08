@@ -1,6 +1,6 @@
 # `quivers.formulas` fit entry point
 
-User-facing `fit` entry, `formula_to_qvr` source emit, and the
-`BayesianFit` result wrapper.
+The user-facing `fit` entry point, the `formula_to_qvr` source emitter,
+and the `BayesianFit` result wrapper.
 
 ::: quivers.formulas._fit

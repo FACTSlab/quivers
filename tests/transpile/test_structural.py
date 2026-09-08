@@ -1,7 +1,7 @@
 """Tier 1: per-backend structural assertions on emitted schemas.
 
-Beyond the existing `test_roundtrip.py` (which only proves the
-emitted bytes re-parse), these assertions walk the emitted
+In addition to the syntax check in `test_roundtrip.py`, these
+assertions walk the emitted
 `panproto.Schema` and verify backend-specific shape contracts:
 correct block ordering, exact-count distribution calls, name-field
 edge wiring, identifier text on every literal.

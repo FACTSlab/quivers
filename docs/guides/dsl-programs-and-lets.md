@@ -348,7 +348,7 @@ kernel](https://en.wikipedia.org/wiki/Dirac_delta_function).
 ### Primitive reference
 
 Reductions and shape-preserving operations on the last axis default
-to `dim=-1`, the natural choice for per-row operations in `V-Cat`
+to `dim=-1`, the convention for per-row operations in `V-Cat`
 morphisms; for contractions over a specific named axis, use the
 typed [contraction declaration](dsl-contractions.md).
 

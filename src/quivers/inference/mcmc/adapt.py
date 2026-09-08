@@ -35,8 +35,7 @@ class DualAveraging:
 
     Algorithm parameters follow Hoffman-Gelman 2014 (Algorithm 6):
     :math:`\\gamma = 0.05`, :math:`t_0 = 10`, :math:`\\kappa = 0.75`.
-    These are the defaults Stan uses; they're robust across a wide
-    range of problems and rarely need tuning.
+    These are the defaults used by Stan.
 
     Parameters
     ----------

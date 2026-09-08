@@ -1,6 +1,6 @@
 # Tutorial 4: Fuzzy Logic Factorization
 
-This tutorial demonstrates how to use quivers to factorize a fuzzy relation into a composition of learnable morphisms under the product fuzzy logic [algebra](https://ncatlab.org/nlab/show/algebra). This is matrix factorization where the algebra is not standard linear algebra but probabilistic [fuzzy logic](https://en.wikipedia.org/wiki/Fuzzy_logic): product is fuzzy AND and summation is fuzzy OR.
+Fuzzy factorization approximates an observed relation by composing learnable morphisms under the product-fuzzy [algebra](https://ncatlab.org/nlab/show/algebra). It replaces ordinary matrix multiplication with probabilistic [fuzzy logic](https://en.wikipedia.org/wiki/Fuzzy_logic): product is fuzzy AND and noisy-OR is fuzzy OR.
 
 ## Background
 
@@ -75,7 +75,7 @@ model = Program(h)
 
 ## Training
 
-`Program` provides a [`bce_loss`](../../api/program.md) method that computes binary cross-entropy between the materialized composition and a target tensor. Since both the model output and target are fuzzy membership values in $[0, 1]$, BCE is a natural choice:
+`Program` provides a [`bce_loss`](../../api/program.md) method that computes binary cross-entropy between the materialized composition and a target tensor. The loss compares the model output and target as fuzzy membership values in $[0, 1]$:
 
 ```python
 optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
@@ -125,7 +125,7 @@ Standard (real-valued) matrix factorization uses addition to aggregate contribut
 - In standard factorization: latent contributions *add up*
 - In fuzzy factorization: latent contributions provide *independent chances*
 
-The noisy-OR interpretation is natural for modeling scenarios where each latent feature provides an independent "reason" for a relation to hold, and the overall relation holds if *any* reason applies. This is useful for:
+The noisy-OR interpretation applies when each latent feature provides an independent "reason" for a relation to hold and any one reason is sufficient. Applications include:
 
 - **Knowledge base completion**: an entity pair is related if any latent pattern supports it
 - **Recommendation**: a user likes an item if any latent preference dimension matches

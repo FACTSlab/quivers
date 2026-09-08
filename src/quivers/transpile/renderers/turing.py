@@ -1694,60 +1694,20 @@ def _dist_expr(
     dotted: bool = False,
     event_dims: tuple[Dim, ...] = (),
 ) -> str:
-    """Build the Distributions.jl expression denoting one draw from
-    `family`, given its already-rendered arguments.
+    """Build a Distributions.jl expression for one family call.
 
-    Most families lower to a direct `<target_dist>(<args>)` call. Six
-    need a *structural* rewrite, because the Distributions.jl surface
-    is not a renaming of the QVR one but a different call shape:
+    Most families map directly to a constructor. Structural rewrites handle:
 
-    * `HalfNormal(sigma)` -> `truncated(Normal(0, sigma), 0, Inf)`
-    * `HalfCauchy(gamma)` -> `truncated(Cauchy(0, gamma), 0, Inf)`
-    * `HalfStudentT(df, scale)` ->
-      `truncated(scale * TDist(df), 0, Inf)` (the base is the
-      standardised `TDist` scaled into a location-zero
-      `AffineDistribution`, since Distributions.jl has no
-      two-parameter symmetric Student-t to truncate directly)
-    * `TruncatedNormal(loc, scale, low, high)` ->
-      `truncated(Normal(loc, scale), low, high)`
-    * `StudentT(df, loc, scale)` -> `loc + scale * TDist(df)`
-      (Distributions.jl `TDist` is standardised and one-parameter; the
-      affine form recovers the location-scale density)
-    * `LKJCholesky(concentration)` ->
-      `LKJCholesky(<dim>, concentration)` (the matrix dimension is a
-      mandatory leading argument, recovered from the site's own event
-      axis)
+    - `HalfNormal(sigma)` as ``truncated(Normal(0, sigma), 0, Inf)``;
+    - `HalfCauchy(gamma)` as ``truncated(Cauchy(0, gamma), 0, Inf)``;
+    - `HalfStudentT(df, scale)` as
+      ``truncated(scale * TDist(df), 0, Inf)``;
+    - `TruncatedNormal` as a truncated `Normal`;
+    - location-scale `StudentT` as ``loc + scale * TDist(df)``; and
+    - `LKJCholesky` with its event dimension as a leading argument.
 
-    Three further rewrites are *value-level*: they replace a rendered
-    argument and leave the call shape alone. Those live in
-    [`_transform_rhs_args`][quivers.transpile.renderers.turing._transform_rhs_args]
-    and are applied here, after any structural rewrite, so both kinds
-    compose in one place.
-
-    Both kinds must reach every emission path. The renderer builds a
-    distribution expression in four situations: the plain /
-    `filldist` call, the broadcast `Family.(args)` observe (with and
-    without a `via` fibration), the `arraydist` comprehension body,
-    and the per-atom `logpdf.` of a marginalize scope. A rewrite
-    present on some of them silently emits a different measure on the
-    rest, so routing every one through this single function is what
-    keeps them from drifting. The failure is not a misspelling but a
-    wrong call: `truncated.(sigma)`, which is what the broadcast
-    observe emitted while the half-truncated composition lived on the
-    scalar path alone, names no method at all, and no text
-    expectation pinned to the scalar path would have caught it.
-
-    `dotted` selects the broadcasting form of every call and operator
-    the composition builds, so a per-row `HalfNormal(sigma_vec)`
-    observe reads `truncated.(Normal.(0, sigma_vec), 0, Inf)` and
-    scores each row against its own scale.
-
-    The three folded families share one identity, and the rewrite is
-    what makes Turing honour it. A fold of a density symmetric about
-    zero onto the non-negative half-line is `2 * f(v)` there, and
-    `truncated(d, 0, Inf)` divides by `1 - F(0) = 1/2`, so the
-    Distributions.jl renormalizer *is* the folding factor: no site
-    pays a `log 2` the QVR reference charges.
+    `_transform_rhs_args` applies value-level argument rewrites. The `dotted`
+    flag broadcasts every call and operator produced by these transformations.
     """
     call = _broadcast_call if dotted else _call
     binary = _dotted_binary if dotted else _binary_expr

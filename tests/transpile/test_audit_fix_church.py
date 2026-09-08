@@ -452,7 +452,7 @@ def _church_qvr_diffs(
 @_needs_scheme
 def test_executed_halfnormal_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The HalfNormal emit runs in Scheme and its executed joint tracks
-    the QVR reference at every clamped positive point -- proving the
+    the QVR reference at every clamped positive point, which checks the
     variadic-arithmetic fix restored the Gaussian draw and the
     ``(half (gaussian 0 scale))`` fold scores correctly."""
     points = [Point(params={"theta": v}, data={}) for v in (0.2, 0.7, 1.5, 3.0)]
@@ -540,7 +540,7 @@ def test_executed_beta_regression_matches_qvr(tmp_path: pathlib.Path) -> None:
     ``via``-gathered ``out_idx`` index, a sigmoid link, and a Beta
     likelihood. Its executed joint tracks the QVR reference to a
     constant across the ground-truth point and two latent
-    perturbations, proving the deterministic-let broadcast, the gather
+    perturbations, checking the deterministic-let broadcast, the gather
     index, and the Beta parameterisation all score correctly under
     execution."""
     fixture = _GALLERY / "beta_regression.qvr"

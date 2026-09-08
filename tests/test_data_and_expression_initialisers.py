@@ -80,7 +80,7 @@ def test_from_data_without_data_dict_errors() -> None:
 
 def test_from_data_shape_mismatch_with_declared_types_errors() -> None:
     """A data tensor whose shape doesn't match the declared
-    domain/codomain shapes must be rejected with a clear error."""
+    domain/codomain shapes must be rejected with a shape-specific error."""
     from quivers.dsl.compiler import CompileError
 
     src = """

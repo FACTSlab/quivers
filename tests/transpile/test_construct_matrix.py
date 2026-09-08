@@ -19,7 +19,7 @@ test asserts one of three pre-declared outcomes:
 3. **Render**: not in either bucket; the pipeline MUST emit
    non-empty bytes.
 
-Every cell is therefore a positive assertion — no xfail-on-exception
+Thus every cell is a positive assertion, with no xfail-on-exception
 dispatch.
 """
 

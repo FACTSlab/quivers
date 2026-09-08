@@ -1,17 +1,8 @@
-"""Warmup-then-HMC composite sampler.
+"""Run variational warmup before HMC or NUTS.
 
-Pareto-dominates plain HMC on posteriors whose prior init places
-chains far from the typical set, as arises with constrained-support
-hierarchical priors. The composite runs SVI to convergence on a
-chosen variational guide, then initializes the HMC / NUTS chain at
-the guide's posterior mean and adapts the mass matrix to the
-guide's posterior covariance, so HMC's warmup is given a
-substantial head-start instead of starting from scratch.
-
-This is a two-phase orchestrator: it owns no kernel state of its
-own, just a guide, an MCMC kernel, and a driver. The two phases are
-`fit_guide` (vanilla SVI) and `run_mcmc` (the warmup-
-seeded MCMC chain); `run` calls both in sequence.
+The orchestrator fits a guide with SVI, initializes the Markov chain from the
+guide, adapts the mass matrix from its covariance, and runs the configured MCMC
+driver.
 """
 
 from __future__ import annotations

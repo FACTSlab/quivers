@@ -7,11 +7,9 @@ Covers the three surfaces in :mod:`quivers.deduction`:
 * :func:`nuts_program_from_deduction` — NUTS over the lexicon and
   rule-binding log-weights under Normal priors.
 
-Each test verifies the *contract*, not a brittle numeric value: the
-loss decreases under Adam, the sampler returns finite-weight
-yields under the fitted parameters, and NUTS' posterior
-log-density rises during warmup with positive acceptance and no
-divergences.
+The tests check decreasing Adam loss, finite-weight samples, and a
+NUTS posterior whose log-density rises during warmup with positive
+acceptance and no divergences.
 """
 
 from __future__ import annotations

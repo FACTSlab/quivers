@@ -1,6 +1,6 @@
 # Tutorial 3: Probabilistic Programs
 
-In this tutorial, you will construct probabilistic programs that mix discrete and continuous random variables. You will build [`MonadicProgram`](../../api/continuous/programs.md) instances by hand using the Python API, create conditional distribution families, and sample from programs.
+[`MonadicProgram`](../../api/continuous/programs.md) represents a probabilistic computation as an ordered sequence of typed sampling, observation, marginalization, and deterministic-binding steps. This chapter constructs programs with discrete and continuous random variables, applies conditional distribution families, and samples from the resulting model.
 
 For a Stan/PyMC reader: a [`MonadicProgram`](../../api/continuous/programs.md) is the Python-API analogue of the QVR DSL's `program` block. You construct it as a list of steps (`bind`, `let`, `observe`, `marginalize`), each step typed by the space its result lives in. The runtime provides `rsample` for draws and `log_joint` for trace-based joint scoring. `MonadicProgram.log_prob` is intentionally unavailable because marginalizing arbitrary intermediate latents is intractable in general.
 

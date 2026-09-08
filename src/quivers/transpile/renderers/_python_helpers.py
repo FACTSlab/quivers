@@ -355,7 +355,7 @@ def with_statement(
 
     When ``alias`` is set, the ``with_item``'s value field points at
     the as_pattern (which itself owns the expression via its child_of
-    edge and the target via its alias field). Crucially, the
+    edge and the target via its alias field). The
     expression is referenced exactly ONCE in the schema graph; routing
     it under both the with_item's value field and the as_pattern's
     child_of edge would cause `emit_pretty` to traverse it twice and
@@ -1457,8 +1457,8 @@ def marginal_atom_axis(
     """Negative axis along which one atom's distribution arguments
     stack into the batched component distribution.
 
-    The atom axis is the innermost *batch* axis, so it sits just
-    inside whatever trailing axes the family's arguments carry as
+    The atom axis is the innermost *batch* axis, preceding whatever
+    trailing axes the family's arguments carry as
     their own event shape: a `Poisson` rate is scalar-per-row and
     stacks at ``-1``, a `Categorical` probability vector carries the
     class axis and stacks at ``-2``. The trailing rank comes from the

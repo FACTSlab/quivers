@@ -1,10 +1,9 @@
 """Regenerate :file:`highlights.scm` from the current grammar.
 
-The QVR tree-sitter grammar is the single source of truth for surface
-syntax. This script reads :file:`grammars/qvr/src/grammar.json`, walks
+This script reads :file:`grammars/qvr/src/grammar.json`, walks
 each rule's terminal strings, and emits a deterministic
 :file:`highlights.scm` consumed by every tree-sitter-driven
-highlighter (nvim-treesitter, Helix, Zed, Emacs treesit, ...).
+highlighter.
 
 Run after any edit to :file:`grammars/qvr/grammar.js`:
 

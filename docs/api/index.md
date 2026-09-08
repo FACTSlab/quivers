@@ -1,10 +1,12 @@
 # API Reference
 
-This section documents the public API by subpackage. Module pages draw their classes, functions, and properties from the source docstrings.
+This reference groups the public API by subpackage. Module pages obtain
+class, function, and property documentation from the source docstrings.
 
 ## Core Package
 
-The `core` package defines the categorical objects, algebras, morphisms, and tensor operations used by the other packages.
+The `core` package defines the categorical objects, algebras,
+morphisms, and tensor operations shared by the other packages.
 
 - **Objects**: Finite and enumerated sets, products, coproducts, free monoids, and free residuated universes
 - **Algebras**: Enrichment algebras for $\mathcal{V}$-enriched composition (the eleven built-in cases plus duals and user-defined extensions)
@@ -15,7 +17,8 @@ The `core` package defines the categorical objects, algebras, morphisms, and ten
 
 ## Categorical Package
 
-The `categorical` package implements the library's functors, natural transformations, adjunctions, and monoidal structures.
+The `categorical` package contains functors, natural transformations,
+adjunctions, and monoidal structures.
 
 - **Functors**: Mappings between categories preserving structure
 - **Natural Transformations**: Morphisms between functors
@@ -26,8 +29,9 @@ The `categorical` package implements the library's functors, natural transformat
 
 ## Monadic Package
 
-A typeclass hierarchy plus concrete monad instances, comonads,
-algebras, distributive laws, transformers, and algebraic effects.
+The `monadic` package contains the typeclass hierarchy, concrete monad
+instances, comonads, algebras, distributive laws, transformers, and
+algebraic effects.
 
 - **Typeclass Hierarchy**: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans` ABCs
 - **Stdlib Effect Instances**: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`
@@ -40,14 +44,16 @@ algebras, distributive laws, transformers, and algebraic effects.
 
 ## Arrows Package
 
-Hughes-style arrow tower (parallel to the monad-side hierarchy).
+The `arrows` package contains the Hughes-style hierarchy parallel to
+the monad hierarchy.
 
 - **Typeclass Hierarchy**: `Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`
 - **Arrow Theories**: panproto-theory mirrors
 
 ## Enriched Package
 
-The `enriched` package implements constructions for categories enriched over a selected algebra.
+The `enriched` package contains constructions for categories enriched
+over a selected algebra.
 
 - **Ends & Coends**: End and coend computations in enriched categories
 - **Kan Extensions**: Left and right Kan extensions
@@ -59,7 +65,8 @@ The `enriched` package implements constructions for categories enriched over a s
 
 ## Stochastic Package
 
-The `stochastic` package provides stochastic morphisms, finite distribution families, and weighted deduction systems.
+The `stochastic` package contains stochastic morphisms, finite
+distribution families, and weighted deduction systems.
 
 - **Morphisms**: Stochastic relations and kernels
 - **Families**: Parametric families of distributions
@@ -70,7 +77,8 @@ The `stochastic` package provides stochastic morphisms, finite distribution fami
 
 ## Continuous Package
 
-The `continuous` package defines continuous spaces, distribution families, parameter sources, and continuous morphisms.
+The `continuous` package defines continuous spaces, distribution
+families, parameter sources, and continuous morphisms.
 
 - **Spaces**: Typed carriers and support constraints for continuous values
 - **Morphisms**: Operational kernels with log-density and sampling methods
@@ -81,7 +89,9 @@ The `continuous` package defines continuous spaces, distribution families, param
 
 ## DSL Package
 
-The `dsl` package implements the QVR domain-specific language for quivers. Parsing is delegated to panproto via the `qvr` tree-sitter grammar; AST nodes and value types are didactic Models.
+The `dsl` package implements the QVR language. Panproto parses the
+`qvr` tree-sitter grammar, while didactic Models represent AST nodes
+and value types.
 
 - **Parser**: panproto-driven parser walker (`parse`, `parse_file`, `ParseError`)
 - **AST Nodes**: didactic Model definitions for every syntactic node
@@ -91,7 +101,8 @@ The `dsl` package implements the QVR domain-specific language for quivers. Parsi
 
 ## Inference Package
 
-The `inference` package provides variational inference, MCMC, and posterior-predictive sampling.
+The `inference` package contains variational inference, MCMC, and
+posterior-predictive sampling.
 
 - **Trace**: Program trace data structures
 - **Conditioning**: Conditioning and observations

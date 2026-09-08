@@ -1,6 +1,6 @@
 # Tutorial 5: Variational Inference
 
-In this tutorial, you will fit a probabilistic program to observed data using variational inference. You will set up a model, condition it on observations, create a variational guide, define an ELBO loss, run a training loop with SVI, and use Predictive for posterior sampling.
+Variational inference fits a tractable guide to a program's posterior. This chapter defines and conditions a model, constructs a guide and ELBO objective, optimizes them with SVI, and draws posterior samples with `Predictive`.
 
 The pipeline:
 
@@ -360,7 +360,7 @@ You have:
 - Used Predictive for posterior sampling
 - Distinguished conditioned forward draws from posterior draws
 
-This workflow applies to any quivers probabilistic program, from simple Gaussian models to complex linguistic models like PDS.
+The same trace–guide–objective–SVI sequence applies to other quivers probabilistic programs; the model's sites and support constraints determine the appropriate guide.
 
 ## Next
 

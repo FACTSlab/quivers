@@ -275,7 +275,7 @@ def contract(
 
         result = contract(my_rule, arg1, arg2, kernel)
 
-    reads more naturally than the method-call form.
+    is an alternative to the method-call form.
     """
     return rule.apply(*tensors)
 

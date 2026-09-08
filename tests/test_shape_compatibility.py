@@ -8,7 +8,7 @@ Covers:
   and reshaped automatically.
 * ``Morphism.refactor`` switches between flat and product views
   while preserving the underlying tensor data.
-* Domain / codomain numel mismatches still raise a clear error.
+* Domain/codomain element-count mismatches raise a shape error.
 """
 
 from __future__ import annotations

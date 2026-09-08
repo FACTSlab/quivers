@@ -1,4 +1,4 @@
-"""Comprehensive tests for the let-expression call surface.
+"""Tests for the let-expression call surface.
 
 Covers:
 

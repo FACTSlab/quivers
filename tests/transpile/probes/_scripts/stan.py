@@ -20,8 +20,8 @@ A `simplex`-typed parameter needs one more marshalling step. Stan
 unconstrains a constrained-space input through
 `stan::math::simplex_free`, which rejects a row that misses summing
 to one by more than its own constraint tolerance, and the wire form
-carries each row as float32-rounded doubles. Every simplex-declared
-name is therefore rescaled by its own row sum before it reaches
+carries each row as float32-rounded doubles. Each simplex row is
+rescaled by its sum before it reaches
 cmdstanpy, and a row too far from one to be float32 rounding raises
 instead.
 
@@ -101,7 +101,7 @@ def _one_based_outcome_names(
     does the point payload; Stan's `categorical_lpmf` counts its
     outcomes from one, and the renderer declares the receiving data
     array as `int <lower = 1 , upper = K>` to say so. The wire form
-    therefore has to be lifted by one before it reaches cmdstanpy,
+thus has to be lifted by one before it reaches cmdstanpy,
     the same marshalling
     [`shift_index_inputs`][tests.transpile.probes._scripts._reshape.shift_index_inputs]
     performs for a zero-based covariate the model subscripts.

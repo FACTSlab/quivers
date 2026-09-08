@@ -1,9 +1,7 @@
-"""MkDocs hook that mirrors the repo-root ``CHANGELOG.md`` into
-``docs/developer/changelog.md`` at build time.
+"""Copy the repository ``CHANGELOG.md`` into the MkDocs tree.
 
-The repo-root CHANGELOG is the single source of truth. This hook
-copies it into the docs tree before MkDocs collects files, so the
-docs site never lags behind a freshly tagged release.
+MkDocs reads ``docs/developer/changelog.md``; the repository-root
+file remains the maintained version.
 """
 
 from __future__ import annotations

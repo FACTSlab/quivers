@@ -1,12 +1,11 @@
 """QVR reference [`LogDensityProbe`][tests.transpile.probes._protocol.LogDensityProbe].
 
-Computes ``log p(theta, y)`` at each test point by walking the QVR
+Computes ``log p(theta, y)`` at each test point by tracing the QVR
 [`MonadicProgram`][quivers.continuous.programs.MonadicProgram] with
 [`trace`][quivers.inference.trace.trace], clamping every site to the
 corresponding entry in ``Point.params`` / ``Point.data``. The
-resulting [`Trace.log_joint`][quivers.inference.trace.Trace] is the
-sum of log-densities across every stochastic site, exactly the
-joint log-density the numeric-equivalence test asserts on.
+resulting [`Trace.log_joint`][quivers.inference.trace.Trace] sums the
+log-density across stochastic sites.
 
 Every reference evaluation passes two independent guards before its
 value is returned:
@@ -22,15 +21,9 @@ value is returned:
    each under a freshly-seeded global torch RNG, and every joint (and
    every per-site log-density summand) must agree bit for bit.
 
-The second guard subsumes the first as a *guarantee* and does not
-replace it as a *diagnostic*. `Trace.latent_sites` enumerates only
-sites recorded in `Trace.sites`, so a latent living inside a
-`SampledComposition` (an RNN scan cell, an attention chain, a
-decoder marginalisation) is invisible to it: the structural guard
-passes while the joint is still redrawn on every call. Bitwise
-equality across distinct RNG states has no such blind spot, because
-a resampled quantity anywhere in the computation moves the bits it
-feeds.
+The structural guard names an unclamped recorded site. The behavioral
+guard also detects randomness inside a `SampledComposition`, whose
+internal latents do not appear in `Trace.sites`.
 
 This probe is always available: it does not need an external
 runtime, just the in-process QVR machinery.
@@ -88,11 +81,8 @@ class QvrProbe:
 
         Each point is traced once per entry of
         [`DETERMINISM_SEEDS`][tests.transpile.probes.qvr.DETERMINISM_SEEDS]
-        and both guards run before the value is recorded, so a
-        non-deterministic joint can never leave this method as a
-        measurement. The caller's global torch RNG state is restored
-        on exit, which makes the probe RNG-neutral: evaluating it
-        cannot shift any draw the surrounding test makes.
+        and both guards run before the value is recorded. The caller's
+        global torch RNG state is restored on exit.
 
         Parameters
         ----------
@@ -200,13 +190,11 @@ def reference_traces(
 ) -> list[Trace]:
     """Trace `monadic` at `pt` once per entry of `seeds`, unjudged.
 
-    Each trace runs under a freshly-seeded global torch RNG, and the
-    caller's RNG state is restored before returning, so the sweep
-    perturbs nothing outside this call. The traces come back
-    unexamined: judging them is
+    Each trace runs under a newly seeded global torch RNG, and the
+    caller's RNG state is restored before returning. This function
+    does not compare the traces; that is
     [`assert_reference_joint_deterministic`][tests.transpile.probes.qvr.assert_reference_joint_deterministic]'s
-    job, and separating the two lets a caller measure the disagreement
-    itself rather than only learn that some guard raised.
+    job.
 
     Parameters
     ----------
@@ -259,25 +247,16 @@ def reference_traces(
 
 
 def assert_all_latents_clamped(tr: Trace, fixture_name: str) -> None:
-    """Fail loudly when the point leaves a free latent site unclamped.
+    """Raise when the point leaves a recorded latent site unclamped.
 
     A reference joint is only meaningful when every unobserved,
     non-deterministic sample site is pinned to its ground-truth
-    value. Any such site the point does not clamp is resampled fresh
-    on each call, so [`trace`][quivers.inference.trace.trace] returns
-    a different (and wrong) joint every evaluation while still passing
-    a finiteness check. The guard reads
+    value. An unclamped site is resampled on each call. The guard reads
     [`Trace.latent_sites`][quivers.effects.trace_types.Trace], which
     excludes both observed sites (clamped to data) and deterministic
     sites (let bindings, score / marginalize bodies), so it fires
-    only on genuinely-resampled latents and never on a legitimately
-    marginalized or observed site.
-
-    This is the *diagnostic* half of the determinism contract: it
-    names the site whose ground truth is missing. It is not the
-    guarantee, because `Trace.latent_sites` sees only sites recorded
-    in `Trace.sites`, and a latent internal to a `SampledComposition`
-    is recorded nowhere. Such a program passes here and is caught by
+    only recorded, unobserved latent sites. Randomness internal to a
+    `SampledComposition` is instead detected by
     [`assert_reference_joint_deterministic`][tests.transpile.probes.qvr.assert_reference_joint_deterministic].
     """
     free = sorted(tr.latent_sites)
@@ -311,17 +290,12 @@ def assert_reference_joint_deterministic(
     quantity inside the computation was redrawn and the "reference"
     is a sample rather than a density.
 
-    Comparison is on raw bytes rather than on a tolerance. A
-    tolerance would be a second, silent threshold sitting underneath
-    the equivalence tolerance the transpile tier actually asserts on,
-    and a resampled latent whose effect happens to land inside it
-    would pass. Determinism is exact or it is absent.
+    Comparison is on raw bytes because this check concerns exact
+    reproducibility, not numerical equivalence.
 
     Per-site `log_prob` is compared alongside the joint because the
-    joint is their sum: two redrawn summands can cancel at one point
-    and not at another, so summing first would let a real
-    nondeterminism hide behind an accidental cancellation. Site
-    *values* are deliberately not compared. A marginalized or
+    joint is their sum and moving summands may cancel. Site values are
+    not compared. A marginalized or
     enumerated site (`hmm`'s `state`, `zip_regression`'s `z`) records
     a drawn representative value while its `log_prob` carries the
     reduction over the whole support, so its value moves with the
@@ -379,9 +353,7 @@ def assert_reference_joint_deterministic(
 def _sites_with_moving_log_prob(first: Trace, second: Trace) -> list[str]:
     """Names whose recorded log-density is not bit-identical across two traces.
 
-    A name present in one trace and absent from the other counts as
-    moving: a control-flow path taken under one generator state and
-    not the other is nondeterminism of the sharpest kind.
+    A name present in only one trace also counts as moving.
     """
     moving: set[str] = set()
     for name, site in first.sites.items():
@@ -413,7 +385,7 @@ def _bitwise_equal(left: torch.Tensor, right: torch.Tensor) -> bool:
 def _raw_bytes(tensor: torch.Tensor) -> torch.Tensor:
     """Flat `uint8` reinterpretation of `tensor`'s storage.
 
-    The `clone` is what makes the `view` total: a tensor sliced out
+    The `clone` permits the `view`: a tensor sliced out
     of a larger buffer carries a storage offset, and reinterpreting
     the dtype of such a view is rejected unless the offset happens to
     divide evenly into the target element size.
@@ -429,8 +401,8 @@ def _compile_to_monadic(source: bytes, fixture_name: str) -> MonadicProgram:
     A `Program` wrapping a `MonadicProgram` exposes the morphism via
     `_morphism`. A `Program` whose export is a parametric template
     (the `Program(None)` shape with a `templates` dict) has no root
-    morphism; the probe rejects it with a user-shaped error pointing
-    the caller at the in-process template-instantiation idiom.
+    morphism; the error asks the caller to pass an instantiated
+    template.
     A `Program` with no exported morphism at all (a module that only
     declares signatures, encoders, decoders, losses, deductions) is
     rejected likewise; the gallery-numeric tier is only meaningful

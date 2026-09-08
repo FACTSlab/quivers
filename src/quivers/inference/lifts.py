@@ -162,144 +162,41 @@ def bayesian_lift_parameters(
     additional_latents: dict[str, tuple[int, ...]] | None = None,
     latent_placeholder_scale: float = 10.0,
 ) -> tuple[MonadicProgram, torch.Tensor, dict[str, torch.Tensor]]:
-    """Lift every learnable parameter of ``inner_model`` into a
-    Normal-prior sample site, and optionally lift named latent
-    sites of the inner program into NUTS-sampleable variables.
+    """Lift model parameters and selected latents into sample sites.
 
-    Mathematics
-    -----------
-    Let :math:`\\theta` denote the inner model's learnable
-    parameters and :math:`\\mathbf{z}` an optional collection of
-    intermediate latents named in ``additional_latents``. The
-    target joint posterior is
+    Each learnable parameter receives an independent
+    :math:`\\mathcal{N}(0, \\sigma_\\theta^2)` prior. Entries in
+    ``additional_latents`` receive placeholder Normal priors. The score term
+    subtracts those placeholder log densities from ``inner_model.log_joint``,
+    so they cancel pointwise; ``latent_placeholder_scale`` affects
+    initialization and adaptation, not the represented density.
 
-    .. math::
-        p(\\theta, \\mathbf{z} \\mid x, y) \\;\\propto\\;
-        p(\\theta) \\, p_{\\mathrm{inner}}(\\mathbf{z}, y \\mid x, \\theta).
-
-    The lifted program declares
-
-    * one Normal sample site
-      :math:`\\theta_i \\sim \\mathcal{N}(0, \\sigma_\\theta^2)` per
-      parameter (``prior_scale``);
-    * one Normal sample site per latent in
-      ``additional_latents`` with a *placeholder* scale
-      :math:`\\sigma_z` (``latent_placeholder_scale``); and
-    * one score step that, after substituting :math:`\\theta`
-      into the inner's parameter slots, computes
-
-      .. math::
-          \\log p_{\\mathrm{inner}}(\\mathbf{z}, y \\mid x, \\theta)
-          \\;-\\; \\sum_{z \\in \\text{latents}} \\log \\mathcal{N}(z; 0, \\sigma_z^2).
-
-    The placeholder priors on :math:`\\mathbf{z}` cancel exactly,
-    so the lifted log-density equals
-    :math:`\\log p(\\theta) + \\log p_{\\mathrm{inner}}(\\mathbf{z}, y \\mid x, \\theta)`
-    pointwise. NUTS therefore samples
-    :math:`(\\theta, \\mathbf{z})` from the exact joint posterior,
-    and the log-density is deterministic given the full state
-    (no MC noise across leapfrog steps).
-
-    Methodological notes
-    --------------------
-    *Why a Normal prior on parameters?*
-
-    1. **Maximum entropy.** Among all distributions on
-       :math:`\\mathbb{R}^n` with finite variance,
-       :math:`\\mathcal{N}(0, \\sigma_\\theta^2)` is the
-       maximum-entropy choice. Among priors that admit any second
-       moment at all, it is the least informative.
-    2. **Equivalence to weight decay.** A
-       :math:`\\mathcal{N}(0, \\sigma_\\theta^2)` prior is the MAP
-       equivalent of L2 regularization with coefficient
-       :math:`1/(2\\sigma_\\theta^2)`. Standard frequentist weight
-       decay and gradient-descent training inherit a direct
-       Bayesian reading under this prior.
-    3. **Computational fit with NUTS.** The unconstrained support
-       :math:`\\mathbb{R}^n` matches NUTS's native state space, so
-       no bijector is needed between latent and prior support.
-       The log-density is smooth everywhere, so leapfrog dynamics
-       are well-behaved.
-
-    *Assumptions the user must respect.*
-
-    1. **Parameters must be unconstrained reals.** If a learnable
-       represents a variance, rate, probability, or simplex
-       component, a Normal prior is mathematically invalid (it
-       places mass on the forbidden region). Models must use the
-       unconstrained parameterization (log-scale, logit-p,
-       log-rate, soft-max logits, etc.). In QVR's standard model
-       definitions, distribution families are parameterized in
-       this way and `torch.nn.Parameter`\\ s are
-       unconstrained reals.
-    2. **The default ``prior_scale=1.0`` assumes O(1) parameter
-       magnitude.** This is consistent with typical neural-network
-       initialization schemes (Xavier, Kaiming). Override
-       ``prior_scale`` for models with very different expected
-       parameter magnitudes.
-    3. **A Normal prior is generic, not informed.** The lift is a
-       one-size-fits-all wrapper. Users with substantive domain
-       knowledge about :math:`\\theta` should write a ``program``
-       block with explicit ``sample`` priors instead of relying on
-       the lift.
-
-    *Why a placeholder Normal on lifted latents?*
-
-    The placeholder prior on each
-    :math:`\\mathbf{z}_i \\sim \\mathcal{N}(0, \\sigma_z^2)` is
-    *algebraically irrelevant* by construction: the lifted
-    sample-site prior and the placeholder cancellation in the
-    score step sum to zero pointwise. The target distribution NUTS
-    samples is the true joint posterior regardless of
-    :math:`\\sigma_z`. A placeholder exists at all because NUTS's
-    `LatentRegistry` enumerates dimensions from declared
-    sample sites; each site needs a base measure to define the
-    unconstrained support and to seed mass-matrix and step-size
-    adaptation during warmup. Normal is the standard choice for an
-    unconstrained latent.
-
-    :math:`\\sigma_z` affects *mixing efficiency*, not
-    *correctness*. A placeholder scale mismatched to the true
-    posterior scale of :math:`\\mathbf{z}` lengthens warmup (the
-    mass matrix has to adapt further) without biasing the chain.
-    The default ``latent_placeholder_scale=10.0`` is large enough
-    that initial NUTS proposals span a meaningful neighbourhood of
-    zero, small enough that they do not immediately diverge.
+    Learnable parameters must use unconstrained real coordinates. Use explicit
+    priors when an independent zero-centered Normal does not represent the
+    intended parameter prior.
 
     Parameters
     ----------
     inner_model : nn.Module
         Module exposing ``log_joint(x, observations) -> Tensor``.
-    x, observations : tensor, dict
-        Passed straight through to the inner's ``log_joint``. When
-        ``additional_latents`` is supplied, ``observations`` must
-        not contain those keys; they are supplied per NUTS
-        evaluation from the env.
+    x : torch.Tensor
+        Input passed to ``inner_model.log_joint``.
+    observations : dict[str, torch.Tensor]
+        Observations passed to ``inner_model.log_joint``. Names listed in
+        ``additional_latents`` must not also occur here.
     prior_scale : float
-        :math:`\\sigma_\\theta`. Standard deviation of the Normal
-        prior on each parameter site.
+        Standard deviation of each parameter prior.
     site_prefix : str
-        Stem of each parameter sample-site's name.
+        Prefix for parameter sample-site names.
     additional_latents : dict[str, tuple[int, ...]] | None
-        Mapping from intermediate-latent site name (a key the
-        inner's ``log_joint`` expects in its observations dict)
-        to the latent's tensor shape (without the batch dim).
-        When ``None`` (the default), the lift is parameter-only
-        and ``inner.log_joint`` must accept ``observations`` as
-        passed in.
+        Latent names and tensor shapes, excluding any batch dimension.
     latent_placeholder_scale : float
-        :math:`\\sigma_z`. Standard deviation of the placeholder
-        Normal prior on each lifted latent. Any positive value
-        works (it cancels exactly in the score step); a moderate
-        value keeps NUTS's initial proposal magnitudes in a
-        reasonable range.
+        Standard deviation of each placeholder latent prior.
 
     Returns
     -------
-    (model, x_, observations_)
-        The lifted ``MonadicProgram`` and the placeholder
-        input / empty observation dict the inference layer feeds
-        it.
+    tuple[MonadicProgram, torch.Tensor, dict[str, torch.Tensor]]
+        Lifted program, placeholder input, and empty observation mapping.
     """
     if not hasattr(inner_model, "log_joint"):
         raise ValueError(

@@ -198,7 +198,7 @@ def test_nested_indices_inner_index_is_index_slot_stan() -> None:
     `indices` tuple, but the helper resets `in_index_slot` on
     descent into the inner's `array` child and re-sets it on
     descent into the inner's `indices` tuple. The bare `v` ends
-    up in `subj[...]`'s index slot and therefore picks the
+up in `subj[...]`'s index slot and thus picks the
     1-indexed value."""
     expr = LetExprIndex(
         array=LetExprVar(name="arr"),

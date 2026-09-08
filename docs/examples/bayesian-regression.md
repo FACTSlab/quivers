@@ -145,15 +145,15 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 A probabilistic program is a Kleisli morphism $A \to TB$ in the probability monad, where $T$ maps a set to its space of distributions. The `<-` bind operator is Kleisli composition: running $f : A \to TB$ and then $g : B \to TC$ yields $(g \circ_K f) : A \to TC$. In this example, the prior (sampling $\beta_0$, $\beta_1$, $\sigma$) composes with the likelihood ($\mathrm{Normal}(\mu, \sigma)$) via monadic bind, producing a joint distribution over parameters and observations. The `observe` statement then conditions this joint distribution, computing the posterior $P(\theta \mid y) \propto P(y \mid \theta) \cdot P(\theta)$ by Bayes' rule. Inference algorithms (VI, MCMC) are computational methods for evaluating the resulting integrals.
 
-## Connections to Graphical Models
+## Graphical-model view
 
 A probabilistic program is a procedural encoding of a graphical model. Each `<-` statement is a node; each `observe` statement is an observed variable. In this example: $\beta_0$, $\beta_1$, and $\sigma$ are root nodes (no parents), $\mu$ is computed from $\beta_0$, $\beta_1$, and $x$, and $y$ depends on $\mu$ and $\sigma$.
 
-Quivers abstracts over inference algorithms, so the same model specification works with VI, MCMC, or other methods.
+The same model specification can be fitted with SVI, HMC, or NUTS.
 
-## Extensions and Advanced Usage
+## Extensions
 
-For multi-dimensional regression, add predictor variables and coefficients. For hierarchical models, nest probabilistic programs (samples from one become parameters of another). For Bayesian nonparametrics, place a [`GP`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) prior over the regression function. A Bayesian linear regression program can serve as a component in a larger hierarchical model or be extended with non-linear transformations and richer likelihood models.
+Additional predictor variables and coefficients give a multivariable regression. Parametric program templates and plated group effects give hierarchical variants. A [`GP`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) prior on the regression function gives a nonparametric variant.
 
 ## See also
 

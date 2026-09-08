@@ -20,7 +20,7 @@ The two halves share one term language, so the prover's items are literally the 
 #      ``Lam`` is listed in the ``binders`` block, so the compiler
 #      treats its first argument as a bound variable and
 #      alpha-renames it to a fresh canonical symbol per term
-#      construction. Structural equality on the chart is therefore
+#      construction. Structural equality on the chart is thus
 #      alpha-equivalence on the surface.
 #
 #   2. An entailment prover closes the resulting claims under
@@ -39,7 +39,7 @@ The two halves share one term language, so the prover's items are literally the 
 # arguments; the chart would simply carry the unreduced redex
 # forever, and no prover rule could see through it.
 #
-# The grammar therefore builds the sentence LF in normal form
+# The grammar thus builds the sentence LF in normal form
 # directly, in the generalised-quantifier style of
 # [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139):
 # a determiner denotes a relation between two sets, written here
@@ -126,10 +126,10 @@ deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=12]
 deduction Prover : Term -> Term [semiring=LogProb, depth=12]
     atoms Claim, Every, Some, Nonempty, App, Var
     binders Lam
-    # Barbara: every P is Q, every Q is R, therefore every P is R.
+    # Barbara: every P is Q, every Q is R, thus every P is R.
     # Valid with no existence assumption.
     rule barbara : Claim(Every(P, Q)), Claim(Every(Q, R)) |- Claim(Every(P, R)) #[learnable]
-    # Darii: some P is Q, every Q is R, therefore some P is R.
+    # Darii: some P is Q, every Q is R, thus some P is R.
     # Valid; the existential premise carries the witness.
     rule darii : Claim(Some(P, Q)), Claim(Every(Q, R)) |- Claim(Some(P, R)) #[learnable]
     # Subalternation, licensed only by an explicit non-emptiness

@@ -1,5 +1,5 @@
 # Parser
 
-Parsing of QVR domain-specific language syntax.
+Parsing QVR source into AST nodes.
 
 ::: quivers.dsl.parser

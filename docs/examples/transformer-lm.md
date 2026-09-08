@@ -159,7 +159,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### HMC posterior
 
-The proper Bayesian model has both the parameters $\theta$ and the per-position latent $h$ as random variables: $p(\theta, h \mid x, y) \propto p(\theta) \, p(h \mid x, \theta) \, p(y \mid h, \theta)$. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts both: Normal priors on every `nn.Parameter`, plus the intermediate `h` site exposed through `additional_latents`. The lifted log-density is deterministic given the full $(\theta, h)$ state. The transformer's full `log_joint` walks every step in the stack, so NUTS's tree expansion is prohibitively expensive at this lifted dimension; we use [`HMCKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.HMCKernel) with a single leapfrog step to keep the run tractable while preserving the same target distribution.
+The lifted Bayesian model treats both the parameters $\theta$ and the per-position latent $h$ as random variables: $p(\theta, h \mid x, y) \propto p(\theta) \, p(h \mid x, \theta) \, p(y \mid h, \theta)$. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) assigns Normal priors to every `nn.Parameter` and exposes the intermediate `h` site through `additional_latents`. The lifted log density is deterministic given the full $(\theta, h)$ state. Because the transformer's `log_joint` walks every step in the stack, NUTS tree expansion is expensive at this dimension; the example uses [`HMCKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.HMCKernel) with one leapfrog step while retaining the same target distribution.
 
 ```python
 import torch

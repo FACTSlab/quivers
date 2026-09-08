@@ -84,7 +84,7 @@ class Diagram(dx.Model):
     For weighted colimits, this is a collection of morphisms
     D(j): A_j → X for each index j (cocone-shaped).
 
-    In the simplest case (discrete diagram), this is just a tuple of
+    In the discrete case, this is a tuple of
     objects with no connecting morphisms.
 
     Attributes

@@ -100,7 +100,7 @@ def _lookup_arg(
 
 
 class _StepSpec:
-    """Metadata for a single draw step (not a module, just a record).
+    """Metadata record for a single draw step.
 
     Parameters
     ----------

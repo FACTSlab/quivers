@@ -1,93 +1,21 @@
-"""Tier-4 guarantee: the QVR reference oracle is bitwise deterministic.
+"""Tests for deterministic QVR reference log densities.
 
-The numeric-equivalence tier compares a transpiled backend program
-against the in-process QVR oracle and asserts that the difference
-`qvr_i - backend_i` is the same constant across the point set. That
-contract presupposes a fact it never checks: that `qvr_i` is a
-*number*, reproducible on demand, rather than one draw from an
-estimator of the joint. Against a resampled reference the comparison
-measures Monte-Carlo noise and its verdict is an accident of the
-generator state.
-
+The numeric-equivalence tests assume that each QVR reference value is
+reproducible, not a draw from an estimator. The structural
 [`assert_all_latents_clamped`][tests.transpile.probes.qvr.assert_all_latents_clamped]
-was the only thing standing behind that presupposition, and it cannot
-carry it. The guard reads
-[`Trace.latent_sites`][quivers.effects.trace_types.Trace], which
-enumerates the entries of `Trace.sites`, and a latent internal to a
-`SampledComposition` is recorded at no site: an RNN scan cell's
-per-step gates, a decoder's attention chain, every intermediate a
-composition integrates over without opening a site. Let any of those
-be integrated by drawing rather than by a rule, and the guard reports
-"no free latents" on a joint that is being redrawn on every call.
-That is a structural proxy standing in for a behavioural property,
-and the proxy does not hold.
+check can name unclamped recorded sites, but it cannot see latents
+inside a `SampledComposition`. This module tests determinism directly
+by tracing each program under several fixed RNG seeds and comparing the
+joint and every recorded log-density summand bit for bit.
 
-This module tests the property itself. Determinism is invariance of
-the computation to the generator state, so the oracle is evaluated
-once per entry of a fixed multi-seed sweep, each run under a freshly
-seeded global torch RNG, and every joint (with every per-site
-log-density summand feeding it) is required to agree bit for bit.
-A hidden latent breaks that equality wherever it lives and whatever
-it is called, because a redrawn quantity moves the bits it feeds.
-
-Five things are asserted, in the order a reader needs them:
-
-1. **The guarantee.** Every gallery example that scores a joint is
-   bitwise deterministic at *every* point of the multi-point set, not
-   merely at ground truth. The distinction is load-bearing: a latent
-   can be clamped by the ground-truth payload and left free by a
-   perturbed one, and the equivalence tier evaluates all six.
-2. **The blind spot, measured.** Every example in
-   `_SKIP_QVR_INCOMPATIBLE` draws a latent from a
-   `SampledComposition` whose intermediates are recorded at no site,
-   which is precisely the shape `Trace.latent_sites` cannot see.
-   Their joints are nonetheless bit-identical across the sweep at
-   every point, because the composition integrates those
-   intermediates against a deterministic rule rather than by drawing
-   them. This tier asserts that measurement instead of the prose the
-   registry carries: one of the eight starting to redraw fails here.
-   Passing here is not a route out of `_SKIP_QVR_INCOMPATIBLE`,
-   though, and the assertion is deliberately narrow for that reason.
-   Determinism says the oracle returns a number rather than a draw;
-   it says nothing about whether the number is the model's density.
-   What keeps the eight exempt is measured against the density, in
-   `test_oracle_reference_strength.py`: five report a value the
-   quadrature rule chose, and three report a likelihood counted once
-   per plate row with no factor at all for the latent the program
-   declares. Both defects are perfectly reproducible, which is
-   precisely why this tier cannot see them.
-3. **The contrast.** The structural guard passing where the
-   behavioural guard rejects is the whole reason the behavioural one
-   is worth its cost, and no gallery example exhibits that gap any
-   more (item 2 is the measurement that says so). The contrast is
-   therefore drawn against a program built for the purpose: a
-   two-step `MonadicProgram` whose likelihood marginalises an
-   internal latent by *drawing* it instead of integrating it against
-   a rule, which is the defect class the guard exists to catch. Both
-   of its recorded sites are clamped, so the structural guard is
-   silent; its joint moves by nats between two seeds, so the
-   behavioural guard fires. Running both over the same pair of
-   traces, produced by the same tracing machinery the gallery uses,
-   is what makes the contrast evidence rather than assertion.
-4. **The strength.** Each way the guard could be weakened back into
-   something that reads the same and asserts less is pinned by the
-   case it would start admitting: a one-ULP drift (which a tolerance
-   accepts), a summand that moves while the joint stands still (which
-   a joint-only comparison accepts), and a site recorded under one
-   seed alone (which a comparison over shared names accepts).
-5. **The guard-rails.** A determinism sweep degenerates the moment
-   its seed set stops containing two distinct seeds, so the sweep
-   rejects such a request rather than passing vacuously; and the
-   probe restores the caller's RNG state, so nothing it seeds can
-   leak into a neighbouring test.
-
-Comparison is on raw bytes throughout. A tolerance here would be a
-second, quieter threshold under the equivalence tolerance the tier
-actually asserts on, and a resampled latent whose effect happened to
-land inside it would pass unnoticed. Bytes also settle the two edge
-cases float equality gets wrong in opposite directions: two `nan`
-results with the same payload agree, and two floats a tolerance would
-merge do not.
+The gallery tests run this comparison at every evaluation point,
+including programs whose compositions contain unrecorded intermediate
+latents. A constructed program supplies the positive control: its
+recorded sites are clamped, but an internal latent is sampled during
+`log_prob`, so the structural check accepts it and the behavioral check
+rejects it. Additional cases cover a one-ULP difference, cancellation
+between moving summands, seed-dependent site presence, identical NaN
+payloads, degenerate seed sets, and restoration of the caller RNG state.
 """
 
 from __future__ import annotations
@@ -190,7 +118,7 @@ class _DrawnMarginal(ContinuousMorphism):
     of `u`, which is the estimator shape the structural guard cannot
     see: `u` is internal to the kernel, so it is recorded at no site,
     appears in no `Trace.latent_sites`, and can be clamped by no
-    point. Every call therefore returns a different number for the
+point. Every call thus returns a different number for the
     same arguments.
 
     A plain `ContinuousMorphism` subclass rather than a `dx.Model`: it
@@ -443,28 +371,13 @@ def test_gallery_reference_joint_is_bitwise_deterministic(
 def test_composition_marginalised_models_are_bitwise_deterministic(
     example: pathlib.Path,
 ) -> None:
-    """A latent drawn from a composition still scores to a fixed number.
+    """Composition-bound latent models produce seed-invariant joints.
 
-    These eight are the hardest cases the guard has: the quantities
-    their joints integrate over are internal to a `SampledComposition`
-    and are recorded at no site, so no point can clamp them and
-    `assert_all_latents_clamped` has nothing to look at. Whether the
-    joint is a number or a draw is decided entirely by how the
-    composition performs that integral, which is exactly the question
-    a structural check cannot reach and this one can.
-
-    The answer is measured here rather than taken from
-    `_SKIP_QVR_INCOMPATIBLE`'s prose, at every point of the set and
-    across the full seed sweep, per site as well as per joint. An
-    example whose composition starts drawing its intermediates fails
-    here, which is what makes this the tier's live statement about the
-    eight rather than a transcription of the registry.
-
-    The probe is exercised alongside the raw sweep, and its reported
-    float is required to match the swept joint bit for bit. The two
-    run over *different* seed sets, so the agreement says something
-    the sweep alone does not: the value is a property of the program
-    and not of whichever seeds happened to be asked for.
+    These examples contain intermediate latents not recorded as trace
+    sites. The test compares every point and site contribution across the
+    seed sweep, then checks that `QvrProbe` returns the same bits under a
+    different seed set. This establishes reproducibility, not correctness
+    of the resulting density.
     """
     points = _points(example)
     labels = _gallery_data.perturbation_labels(len(points))
@@ -552,37 +465,13 @@ def _constructed_traces() -> list[Trace]:
 
 
 def test_structural_guard_passes_where_behavioural_guard_rejects() -> None:
-    """The two guards disagree on a program built to make them disagree,
-    and that gap is the whole reason the behavioural one exists.
+    """The behavioral guard rejects randomness below recorded sites.
 
-    Every site
-    [`trace`][quivers.inference.trace.trace] records for
-    [`_drawn_marginal_program`][tests.transpile.test_oracle_determinism._drawn_marginal_program]
-    is clamped by the point, so `Trace.latent_sites` is empty and
-    [`assert_all_latents_clamped`][tests.transpile.probes.qvr.assert_all_latents_clamped]
-    reports a clean joint. Its likelihood integrates an internal
-    latent by drawing it, and that latent is recorded at no site, so
-    the joint moves by nats between two seeds and
-    [`assert_reference_joint_deterministic`][tests.transpile.probes.qvr.assert_reference_joint_deterministic]
-    rejects it. Running both guards over the *same* pair of traces is
-    what makes the contrast evidence rather than assertion: nothing
-    about the inputs differs between the silent guard and the firing
-    one.
-
-    The program is constructed rather than drawn from the gallery
-    because no gallery example has this shape any longer;
-    [`test_composition_marginalised_models_are_bitwise_deterministic`][tests.transpile.test_oracle_determinism.test_composition_marginalised_models_are_bitwise_deterministic]
-    is the measurement that establishes it, and would fail the moment
-    a gallery example reacquired it. What is constructed is one
-    kernel; the program,
-    the trace, the site records, and both guards are the same
-    machinery the gallery runs through.
-
-    The rejection is required to come from the *joint*, not merely
-    from a moving summand, and the prior site is required to hold
-    still. Together those say the disagreement is localised in the
-    kernel that draws, rather than being a program that is unstable
-    everywhere and would reject under any guard at all.
+    The constructed program clamps every recorded site but samples an
+    internal latent during likelihood evaluation. The structural guard
+    thus finds no free site, while the joint differs across seeds.
+    The prior contribution remains fixed and the rejection comes from the
+    drawing kernel.
     """
     traces = _constructed_traces()
     first, second = traces[0], traces[1]
@@ -653,16 +542,11 @@ def test_structural_guard_passes_where_behavioural_guard_rejects() -> None:
 
 
 def test_constructed_contrast_is_a_function_of_the_generator_state() -> None:
-    """The constructed program's disagreement is about the seed alone.
+    """The constructed joint is a deterministic function of RNG state.
 
-    A program that returned a fresh number on every call for reasons
-    *other* than the generator state (a clock, an address, an
-    uninitialised buffer) would also make the behavioural guard fire,
-    and would make it fire for a reason the guard does not claim to
-    detect. Tracing the same seed pair twice and requiring both runs
-    to reproduce their own joints bit for bit rules that out: the
-    program is a deterministic function of the seed, and the contrast
-    above is a statement about two different seeds.
+    Re-running the same seed pair must reproduce both joints bit for bit,
+    which excludes clocks, addresses, and uninitialized state as causes of
+    the cross-seed difference.
     """
     first_pass = _constructed_traces()
     second_pass = _constructed_traces()
@@ -706,15 +590,11 @@ def _trace_with(joint: float, site_log_prob: float) -> Trace:
 
 
 def test_structural_guard_admits_a_trace_the_behavioural_guard_rejects() -> None:
-    """A hand-built pair pins the contrast at the function level.
+    """A moving joint can occur with no recorded free latent.
 
-    The gallery contrast above depends on two examples staying the way
-    they are; this one depends on nothing. Two traces record the same
-    single site, clamped and observed, so `Trace.latent_sites` is
-    empty and the structural guard is silent. Their joints differ, so
-    the behavioural guard rejects. That is exactly the failure mode
-    `Trace.latent_sites` cannot see: a quantity that moves without
-    being recorded at any site.
+    Both hand-built traces contain the same clamped observed site, so
+`Trace.latent_sites` is empty. Their different joints are rejected by
+    the behavioral guard.
     """
     first = _trace_with(joint=-1.5, site_log_prob=-1.5)
     second = _trace_with(joint=-2.25, site_log_prob=-2.25)
@@ -737,14 +617,10 @@ def test_structural_guard_admits_a_trace_the_behavioural_guard_rejects() -> None
 
 
 def test_behavioural_guard_rejects_a_joint_moving_under_frozen_sites() -> None:
-    """A joint can move while every recorded summand stands still.
+    """Reject a moving joint even when recorded site terms are fixed.
 
-    `log_joint` carries contributions a `SampledComposition`'s
-    marginalisation makes without opening a site, so per-site
-    comparison alone would miss them. The guard compares the joint as
-    well, and says so: with no moving site to name it points the
-    reader at the composition rather than at a `sample` binder that
-    does not exist.
+    Composition-level contributions may enter `log_joint` without a trace
+    site, so the guard compares the joint as well as site log densities.
     """
     first = _trace_with(joint=-10.0, site_log_prob=-4.0)
     second = _trace_with(joint=-11.5, site_log_prob=-4.0)
@@ -762,24 +638,10 @@ def test_behavioural_guard_rejects_a_joint_moving_under_frozen_sites() -> None:
 
 
 def test_behavioural_guard_rejects_a_one_ulp_difference() -> None:
-    """The comparison is bitwise, and a tolerance would not do.
+    """Reject a one-ULP difference between seed-conditioned joints.
 
-    This is the mutation the guard has to survive to stay a
-    determinism check: replacing the byte comparison with
-    `torch.allclose` (or any tolerance at all) reads as the same
-    assertion, passes every other test in this module, and quietly
-    admits a resampled latent whose effect happens to be small. The
-    two joints here differ by a single unit in the last place, so the
-    tolerance version accepts and the byte version rejects, and the
-    test asserts both halves of that so the contrast cannot be read as
-    an accident.
-
-    A one-ULP drift is not a rounding artefact to be forgiven. The
-    reference is traced from identical inputs under two generator
-    states; identical inputs through a deterministic computation
-    return identical bits. Any movement at all means randomness
-    entered, and a latent that moves the joint by one ULP at this
-    point is free to move it by nats at the next.
+    The determinism check compares bytes. `torch.allclose` accepts this
+    pair, while the byte comparison detects the changed result.
     """
     joint = torch.tensor([-3.75])
     neighbour = torch.nextafter(joint, torch.zeros_like(joint))
@@ -819,15 +681,10 @@ def test_behavioural_guard_rejects_a_one_ulp_difference() -> None:
 
 
 def test_behavioural_guard_rejects_a_moving_site_under_a_frozen_joint() -> None:
-    """A summand may move while the joint stands still, and that counts.
+    """Reject moving site terms even when their sum is fixed.
 
-    Two redrawn per-site densities can cancel to the same total: the
-    joint is their sum, and a sum is blind to a pair of equal and
-    opposite shifts. Comparing the joint alone would therefore accept
-    a program whose sites are being resampled, and it would accept it
-    only at the points where the cancellation happens to hold. The
-    guard compares every summand as well, so this pair is rejected and
-    the moving site is named.
+    Equal and opposite site changes can leave `log_joint` unchanged, so
+    the guard compares each recorded contribution.
     """
     first = _trace_with(joint=-3.75, site_log_prob=-1.0)
     second = _trace_with(joint=-3.75, site_log_prob=-2.0)
@@ -850,14 +707,10 @@ def test_behavioural_guard_rejects_a_moving_site_under_a_frozen_joint() -> None:
 
 
 def test_behavioural_guard_rejects_a_site_recorded_under_only_one_seed() -> None:
-    """A site that exists under one generator state and not the other.
+    """Reject seed-dependent trace-site presence.
 
-    This is nondeterminism of the sharpest kind: the program took a
-    different control-flow path, so the two "references" are densities
-    of different models. Neither a joint comparison nor a summand
-    comparison restricted to shared names would see it, because there
-    is no shared name to compare, so the guard treats presence itself
-    as a moving quantity.
+    A site present under only one seed indicates seed-dependent control
+    flow and cannot be found by comparing shared names alone.
     """
     first = Trace(
         sites={"y": _observed_site("y", -1.0)},
@@ -884,21 +737,10 @@ def test_behavioural_guard_rejects_a_site_recorded_under_only_one_seed() -> None
 
 
 def test_behavioural_guard_reads_bytes_rather_than_float_equality() -> None:
-    """Two `nan` joints with the same payload are in agreement.
+    """Treat identical NaN payloads as bitwise reproducible.
 
-    The guard answers one question, "did this computation reproduce
-    itself", and a computation that produced the same bits twice did.
-    Whether those bits are a usable density is a different contract,
-    asserted where the equivalence tier requires each reported
-    log-density to be finite; folding the two together here would make
-    a determinism failure and a degenerate-density failure
-    indistinguishable in the message.
-
-    The test also pins the implementation choice underneath that
-    answer: `torch.equal` calls this pair unequal, because IEEE says
-    `nan != nan`, so an implementation built on float equality would
-    raise a determinism failure at a program that is perfectly
-    reproducible.
+    `torch.equal` treats NaNs as unequal. The guard instead compares raw
+    bytes; finiteness is checked by the numeric-equivalence tier.
     """
     payload = torch.tensor([float("nan")])
     assert not torch.equal(payload, payload.clone()), (
@@ -931,17 +773,7 @@ def test_behavioural_guard_reads_bytes_rather_than_float_equality() -> None:
 def test_seed_sets_can_observe_a_disagreement(
     label: str, seeds: tuple[int, ...],
 ) -> None:
-    """Both seed sets carry at least two pairwise-distinct seeds.
-
-    Every determinism assertion in this module and in the probe path
-    is a comparison across generator states, so a seed set that
-    shrinks to one entry, or whose entries coincide, turns all of them
-    into tautologies that nothing else in the suite would notice.
-    `reference_traces` refuses such a set at call time; this pins the
-    constants themselves, so the degeneracy is caught at collection
-    rather than as a confusing raise from deep inside a gallery
-    parametrisation.
-    """
+    """Require each determinism seed set to contain distinct entries."""
     assert len(seeds) >= 2, (
         f"{label} holds {len(seeds)} seed(s); a single trace has "
         f"nothing to disagree with, so every determinism assertion "
@@ -955,12 +787,7 @@ def test_seed_sets_can_observe_a_disagreement(
 
 
 def test_behavioural_guard_accepts_a_bit_identical_pair() -> None:
-    """The guard is not a blanket rejection.
-
-    A determinism check that raised on every input would pass every
-    positive control in this module while proving nothing, so the
-    accepting case is asserted as explicitly as the rejecting ones.
-    """
+    """Accept traces whose joint and site contributions match bitwise."""
     first = _trace_with(joint=-3.75, site_log_prob=-3.75)
     second = _trace_with(joint=-3.75, site_log_prob=-3.75)
     assert_reference_joint_deterministic(
@@ -977,15 +804,7 @@ def test_behavioural_guard_accepts_a_bit_identical_pair() -> None:
     ],
 )
 def test_sweep_rejects_a_degenerate_seed_set(seeds: tuple[int, ...]) -> None:
-    """A sweep that cannot observe a disagreement is refused, not run.
-
-    One seed gives one trace and nothing to compare it against; a
-    repeated seed compares a computation against itself under the same
-    generator state, which a non-deterministic program passes just as
-    easily as a deterministic one. Both shapes would turn every
-    assertion in this module into a tautology, so the sweep raises
-    instead of returning traces that cannot disagree.
-    """
+    """Reject empty, singleton, and repeated-seed sweeps."""
     example = _scored_examples()[0]
     dataset = _dataset(example)
     assert dataset.monadic is not None
@@ -1003,16 +822,10 @@ def test_sweep_rejects_a_degenerate_seed_set(seeds: tuple[int, ...]) -> None:
 
 
 def test_probe_evaluation_leaves_the_global_rng_state_untouched() -> None:
-    """Seeding inside the guard cannot leak into a neighbouring test.
+    """Restore the caller RNG state after probe evaluation.
 
-    The determinism sweep seeds the global torch RNG, which is shared
-    process-wide. Were the state left where the sweep put it, every
-    draw a later test made would depend on how many probe evaluations
-    ran before it, and this module would have traded an oracle bug for
-    a suite-wide reproducibility bug. The probe therefore restores the
-    caller's state, and the property is asserted twice: the state
-    bytes come back unchanged, and the next draw is the draw the
-    caller would have got with no probe call in between.
+    The state bytes and the next draw must match a control execution with
+    no intervening probe call.
     """
     example = next(
         candidate
@@ -1065,15 +878,7 @@ def test_probe_evaluation_leaves_the_global_rng_state_untouched() -> None:
 def test_probe_log_density_is_invariant_to_the_ambient_rng(
     example: pathlib.Path,
 ) -> None:
-    """The number the probe reports does not depend on the caller's seed.
-
-    This is the determinism guarantee restated at the surface the
-    equivalence tier consumes. It is asserted on the returned Python
-    float, bit for bit through `float.hex`, because that float is what
-    the constant-spread difference is computed from: an oracle whose
-    reported value shifted with the ambient generator state would make
-    `qvr_i - backend_i` depend on test ordering.
-    """
+    """Return the same log density under different caller RNG states."""
     dataset = _dataset(example)
     point = _points(example)[0]
     probe = QvrProbe()

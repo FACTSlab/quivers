@@ -1,38 +1,9 @@
-"""`Lower`: structural mapping from a QVR program to the transpile IR.
+"""Lower compiled QVR programs to the target-independent transpilation IR.
 
-`Lower` is a [`didactic.api.Mapping`][didactic.api.Mapping] from a
-parsed [`Module`][quivers.dsl.ast_nodes.Module] to an
-[`IRProgram`][quivers.transpile.ir.IRProgram]. It is target-
-independent: no backend is imported here. Every renderer downstream
-consumes the same IR and the same
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] registry.
-
-The forward pass:
-
-1. Runs the existing
-   [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
-   preprocessor.
-2. Builds the morphism / let / object-cardinality tables.
-3. Picks the active
-   [`ProgramDecl`][quivers.dsl.ast_nodes.declarations.ProgramDecl]
-   (the export target if any, else the last one).
-4. For each program step resolves the morphism slot via
-   [`resolve_step_dist`][quivers.transpile.backends._resolve.resolve_step_dist],
-   looks up the family in
-   [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], builds
-   a sentinel parameter set, reads `arg_constraints` and `support`,
-   matches the user's args against the constraints, and constructs
-   the appropriate IR node.
-5. Discovers exogenous identifiers (the `Real N` factors of the
-   program's declared domain; free names in let / score bodies and
-   bracket-indexed args; `via=` fibrations; scalar program
-   parameters) and emits
-   [`IRDataInput`][quivers.transpile.ir.IRDataInput] entries.
-
-Sentinel construction and property-form `arg_constraints` resolution
-are handled by `_make_sentinel` and `_resolve_arg_constraints`. The
-sentinel is the only place in the transpile layer that materialises
-torch tensors; renderers never do.
+Lowering expands composite bindings, resolves declarations and family
+metadata, constructs IR nodes for program steps, and records exogenous
+inputs. Renderers consume this shared IR and do not materialize PyTorch
+tensors.
 """
 
 from __future__ import annotations
@@ -1051,32 +1022,15 @@ class Lower(dx.Mapping[Module, IRProgram]):
         plate: Plate,
         ctx: _LowerCtx,
     ) -> _ParamMap | None:
-        """The parameter map a step's morphism carries, or None.
+        """Return the parameter map carried by a step's morphism, if applicable.
 
-        Four conditions have to hold together, and each says
-        something the emission would otherwise get wrong:
-
-        1. The step draws from a *declared kernel morphism*. A draw
-           from a family (`sample x <- Normal(0, 1)`) names its own
-           parameters and has no map.
-        2. The declaration's init clause is the bare ``~ Family``
-           form and the option block populates no argument slot of
-           that family. A declaration that writes its parameters
-           (``~ Cauchy(0, 1)``, ``[scale=0.5] ~ Normal``) means them,
-           and the emission honours them.
-        3. The family is in
-           [`_CONDITIONAL_HEADS`][quivers.transpile.lower._CONDITIONAL_HEADS],
-           so how the runtime reads its arguments off the map is
-           known rather than guessed.
-        4. The codomain is a named ``Real`` object and the site's
-           plate is exactly that object's width. The map produces one
-           row per coordinate of the codomain; a site plated any
-           other way is not scoring that row.
-
-        The first three return None (the step keeps the arguments it
-        had); the fourth raises, because a mapped family whose head
-        shape cannot be read is a gap in this pass rather than a step
-        outside its scope.
+        A map applies only when the step uses a declared kernel whose initializer
+        is a bare ``~ Family``, no option supplies a family argument, the family
+        occurs in `_CONDITIONAL_HEADS`, and the site's plate matches the named
+        real codomain's width. The first three failures return `None` because
+        the step retains its explicit arguments. An unreadable or mismatched
+        mapped head raises because it cannot be emitted with the intended
+        shape.
         """
         decl = ctx.morphisms.get(morphism_name)
         if decl is None:

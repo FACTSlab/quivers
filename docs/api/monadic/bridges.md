@@ -1,5 +1,6 @@
 # Monad ↔ Arrow Bridges
 
-`Kleisli`, `ArrowMonad`, plus the `kleisli` / `arrow_monad` helpers connecting the two typeclass towers.
+`Kleisli` and `ArrowMonad`, together with the `kleisli` and
+`arrow_monad` helpers that connect the two typeclass hierarchies.
 
 ::: quivers.monadic.bridges

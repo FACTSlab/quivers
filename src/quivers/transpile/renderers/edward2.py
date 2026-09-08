@@ -1471,36 +1471,15 @@ class Edward2Renderer(RendererBase):
         *,
         carried: tuple[str, ...] | None,
     ) -> str | None:
-        """Build the ``sample_shape=[D0, D1, ...]`` keyword payload
-        for an Edward2 RV constructor.
+        """Build the ``sample_shape=[D0, D1, ...]`` argument for Edward2.
 
-        Combines ``plate.batch_dims`` (iid axes) with the residual
-        ``plate.event_dims`` that exceed the family's natural
-        [`FamilyMeta.event_rank`][quivers.transpile.family_meta.FamilyMeta].
-        A scalar family (`event_rank=0`) folds every plate event dim
-        into the sample shape, so `Normal(0, 1) [over=LatentDim,
-        iid_over=Item]` renders `sample_shape=[Item, LatentDim]`; a
-        vector family (`event_rank=1`) folds only the dims beyond its
-        natural axis; a matrix family (`event_rank=2`) only those
-        beyond the last two.
+        The sample shape combines batch dimensions with event dimensions beyond
+        the family's natural event rank. Axes already carried by distribution
+        arguments are removed because TensorFlow Probability includes their
+        broadcast batch shape in the random variable's value shape.
 
-        A TFP random variable's value shape is
-        ``sample_shape + batch_shape + event_shape``, and the
-        ``batch_shape`` is whatever the constructor's arguments
-        already broadcast to. `carried` names the trailing plate axes
-        the arguments supply on their own, as returned by
-        [`_carried_batch_keys`][]; those axes must be dropped from the
-        payload or the RV is replicated once per plate index and every
-        index scores the whole plate. `Normal(loc=h_mean, scale=s)`
-        with `h_mean` shaped by the Step axis therefore renders with
-        no ``sample_shape`` at all, while `Normal(0, 1) over Step`
-        keeps ``sample_shape=[Step]``.
-
-        Returns ``None`` when nothing is left to declare (Edward2 omits
-        the keyword in that case). Raises when the arguments carry axes
-        the plate does not account for, or when their shape cannot be
-        determined: emitting either the padded or the stripped payload
-        would silently misscore the site.
+        Returns `None` when no dimensions remain. Raises when carried axes are
+        absent from the declared plate or cannot be resolved.
         """
         meta = FAMILY_META.get(family)
         natural = meta.event_rank if meta is not None else 0

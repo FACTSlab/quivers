@@ -1,38 +1,18 @@
-"""Measure what every backend does with every QVR program, and write
-the measurement out as `docs/transpile-support.md`.
+"""Measure backend support and generate `docs/transpile-support.md`.
 
-The published support page is not a hand-maintained list. This module
-runs the real entry point, [`transpile`][quivers.transpile.transpile],
-once per (program, backend) cell over two corpora:
+The measurement calls [`transpile`][quivers.transpile.transpile] for
+each backend over two corpora: the gallery programs under
+`docs/examples/source/` and the single-construct fixtures under
+`tests/transpile/fixtures/`. Each cell records either emitted source or
+an [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+with its structured kinds and runtime message. Other exceptions
+propagate with the cell name.
 
-- **gallery programs**: every `.qvr` file under
-  `docs/examples/source/`, the programs the documentation gallery
-  walks a reader through;
-- **construct fixtures**: every `.qvr` file under
-  `tests/transpile/fixtures/{statements, steps, let_expressions,
-  options, axes}`, one minimal program per surface construct.
-
-Each cell records one of two outcomes: the call returned target source
-bytes, or it raised
-[`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]. A
-refusal is recorded with the exception's structured `kinds` list and
-its user-facing message *as the runtime produced it at measurement
-time*, so the page and the runtime cannot disagree about why a program
-was refused. Any other exception is a defect in the pipeline rather
-than a documented limit; it propagates with the cell named instead of
-being written down as though it were a refusal.
-
-Refusals are grouped by **construct label** rather than by program: a
-label is the identifier-shaped prefix of a reported kind
-(`family:LKJCholesky`, `let-expr:LetExprLambda`, `param-source:mlp`),
-which is what a reader asking "is this feature of my model supported"
-is looking for. Two programs that trip the same construct land in one
-group even when their messages name different sites.
-
-Run `python -m tests.transpile.support_matrix` to rewrite the page.
-`--check` compares the committed page against a fresh measurement
-without writing, which is what
-`tests/transpile/test_support_matrix_docs.py` asserts.
+The page groups refusals by the identifier prefix of each reported
+kind, such as `family:LKJCholesky` or `param-source:mlp`. Run
+`python -m tests.transpile.support_matrix` to regenerate it. The
+`--check` option compares the committed page with a fresh measurement
+without writing.
 """
 
 from __future__ import annotations
@@ -131,8 +111,7 @@ def _kinds(cell: Cell) -> tuple[str, ...]:
 
 
 def _label(key: ProgramKey) -> str:
-    """Row label for a program: its stem, category-qualified for a
-    construct fixture (whose stems are only unique within a category)."""
+    """Return the stem, qualified by category for construct fixtures."""
     group, category, name = key
     if group == "gallery":
         return name
@@ -220,9 +199,8 @@ def _measure_program(
 def measure() -> list[Cell]:
     """Transpile every program in both corpora to every backend.
 
-    Each source is parsed once and its `Module` reused across
-    backends: `transpile` treats the module as read-only, and parsing
-    dominates a cell's cost.
+    Each source is parsed once and its read-only `Module` is reused
+    across backends because parsing dominates the cost of a cell.
     """
     backends = available_targets()
     cells: list[Cell] = []
@@ -257,8 +235,7 @@ def measure() -> list[Cell]:
 def _by_program(cells: list[Cell]) -> dict[ProgramKey, dict[str, Cell]]:
     """Index the measurement as `program -> backend -> cell`.
 
-    Insertion order is the corpus order `measure` walked, so iterating
-    the result reproduces the page's row order.
+    Insertion order follows corpus order and thus determines page order.
     """
     indexed: dict[ProgramKey, dict[str, Cell]] = {}
     for cell in cells:
@@ -274,12 +251,8 @@ def _backends(cells: list[Cell]) -> list[str]:
 def _leading_identifier_path(kind: str) -> str:
     """The identifier-shaped prefix of one reported kind.
 
-    A kind is a colon-separated identifier path whose tail may carry a
-    prose explanation (`family:Kumaraswamy:no-free-density-term: the
-    density is elementary in ...`). This keeps the leading segments
-    that are still identifiers and drops the prose. A kind that is
-    prose from its first segment has no such prefix and yields the
-    empty string.
+    Keep leading colon-separated identifiers and discard a prose tail.
+    A kind beginning with prose yields the empty string.
     """
     kept: list[str] = []
     for segment in kind.split(":"):
@@ -290,16 +263,10 @@ def _leading_identifier_path(kind: str) -> str:
 
 
 def construct_labels(kinds: tuple[str, ...]) -> tuple[str, ...]:
-    """The construct labels a refusal's `kinds` name.
+    """Return stable construct labels for a refusal's reported kinds.
 
-    Labels are short enough to head a section and stable enough to
-    group two programs that trip the same construct while their
-    messages name different sites.
-
-    A refusal reporting nothing but prose names no construct at all,
-    leaving a reader nothing to match on programmatically. That is a
-    defect in the refusal rather than a documented limit, so it raises
-    here instead of being published as an anonymous gap.
+    Raise when every kind begins with prose because such a refusal has
+    no programmatically matchable construct.
     """
     labels = {
         path
@@ -409,11 +376,7 @@ def _quote(message: str) -> list[str]:
 def _group_by_label(
     entries: list[tuple[ProgramKey, tuple[str, ...]]],
 ) -> dict[tuple[str, ...], list[ProgramKey]]:
-    """Bucket `(program, reported kinds)` pairs by construct label.
-
-    Buckets and their contents are sorted, so the emitted page is a
-    function of the measurement alone.
-    """
+    """Group program/kind pairs by construct label in stable order."""
     grouped: dict[tuple[str, ...], list[ProgramKey]] = {}
     for key, kinds in entries:
         grouped.setdefault(construct_labels(kinds), []).append(key)
@@ -429,13 +392,10 @@ def _reported_kinds_note(
     keys: list[ProgramKey],
     reported: dict[ProgramKey, tuple[str, ...]],
 ) -> list[str]:
-    """The kinds a group reported, for callers matching on them.
+    """Render the structured kinds that callers can match.
 
-    Fenced rather than inline: a kind's tail is free text that may
-    itself contain backticks, and it often carries the sharpest
-    statement of the limit. Entries that are prose from their first
-    segment are left out, since they only repeat the quoted message
-    and offer nothing to match on.
+    Use a fence because prose tails may contain backticks. Omit entries
+    that begin with prose and have no matchable prefix.
     """
     kinds = sorted(
         {
@@ -449,12 +409,10 @@ def _reported_kinds_note(
 
 
 def _universal_gaps(cells: list[Cell]) -> list[str]:
-    """Section: the constructs every backend refuses, and why.
+    """Render constructs refused by every backend and their reasons.
 
-    A program no backend renders is a language-level gap: the QVR
-    surface writes something no target has a form for. Only the kinds
-    every backend agreed on are attributed to the gap, since a kind
-    one backend alone reported is that backend's own limit.
+    Attribute only kinds shared by all backends to a language-level
+    gap; backend-specific kinds remain target limits.
     """
     backends = _backends(cells)
     programs = _by_program(cells)

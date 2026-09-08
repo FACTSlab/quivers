@@ -696,7 +696,7 @@ otherwise a TextArea action.
 > work you have to configure your emulator to send them; for iTerm2
 > map them to `\x1b[13;5u` (the CSI-u "modifyOtherKeys" encoding),
 > for Windows Terminal use the same string. Wezterm, Kitty, and
-> Alacritty forward them out of the box.
+> Alacritty forward them by default.
 
 ### Tab completion
 

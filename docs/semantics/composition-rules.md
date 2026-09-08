@@ -20,7 +20,7 @@ We organize composition rules into a hierarchy of progressively stronger structu
 
 **Definition (semigroupoid).** A *[semigroupoid](https://en.wikipedia.org/wiki/Semigroupoid)* is a composition rule whose inner tensor is associative, $a \otimes (b \otimes c) = (a \otimes b) \otimes c$. The associativity of $\otimes$ is precisely what makes the induced composition operation $\mathbin{>\!>}$ associative as a partial operation on hom-objects.
 
-**Definition (algebra).** A *algebra* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
+**Definition (algebra).** An *algebra* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
 
 The implementation reflects this hierarchy as a class lattice in which `BilinearForm` and `Semigroupoid` are siblings under `CompositionRule` and `Algebra` extends `Semigroupoid`:
 

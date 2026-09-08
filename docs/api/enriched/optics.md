@@ -1,5 +1,5 @@
 # Optics
 
-Optics, lenses, and related structures from enriched category theory.
+Optics and lenses in enriched category theory.
 
 ::: quivers.enriched.optics
