@@ -819,21 +819,17 @@ _NO_PERTURBABLE_OBSERVATION: dict[str, str] = {}
 # the cell with the six-point set, drop it from this registry. A cell
 # whose spread is constant to within `adaptive_atol` belongs outside
 # the registry; nothing else does.
-_SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset({
-    # `numpyro` on zip_regression waits on its probe image, not on the
-    # emission. The image pins numpyro 0.15.3, whose
-    # `Poisson(rate=0).log_prob(0)` returns `nan` where the density is
-    # `log 1 = 0`, and a zero rate is exactly what the off atom of a
-    # zero-inflated model carries. The Dockerfile now pins a release
-    # where that is fixed, so this row goes with the rebuild.
-    #
-    # That the emission is right was measured rather than assumed:
-    # the emitted source run under `numpyro.infer.util.log_density`
-    # against a current numpyro, with the probe's own reshaped
-    # payload, returns -651.68915 where the reference is
-    # -651.6888427734375.
-    ('numpyro', 'zip_regression'),
-})
+#: Cells whose transpile succeeds and whose container cannot score
+#: the result.
+#:
+#: **Currently empty.** Every gallery cell that transpiles is scored
+#: against the reference by its backend's container. A row here is a
+#: cell asserting nothing, so each one carries the error that
+#: container actually returned, re-measured rather than inherited: a
+#: rationale that outlives its defect reads as a reason to leave the
+#: cell alone, which is how a tier stops asserting anything without
+#: anyone noticing.
+_SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset()
 
 
 def test_gallery_reference_pin_registry_is_total() -> None:

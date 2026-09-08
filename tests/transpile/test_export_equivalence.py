@@ -252,24 +252,7 @@ _NO_EXPORTED_PROGRAM: dict[str, str] = {
 #
 # Closure path: fix the named defect, re-measure the cell, drop the
 # row.
-_SKIP_EXPORT_INCOMPATIBLE: dict[tuple[str, str], str] = {
-    ("stan", "zip_regression"): (
-        "the export tier evaluates `generated quantities` through a "
-        "one-draw `fixed_param` run, and Stan validates the initial "
-        "value's gradient before it writes that draw. The block "
-        "enumerates the two atoms of the Bernoulli its "
-        "`ContinuousBernoulli` relaxes, and the off atom scores "
-        "`poisson_lpmf(y | 0)`, which is `-inf` wherever `y > 0`: "
-        "correct, and what the reference computes, but its derivative "
-        "is `0 * inf`, so the gradient is not finite and the run is "
-        "rejected before sampling. The density tier is unaffected, "
-        "since `log_prob` needs no gradient, and it scores this cell "
-        "against the reference at every point. Closing this wants the "
-        "off atom's rate emitted as a literal zero rather than as a "
-        "product with the response's rate, which is a constant whose "
-        "derivative is zero."
-    ),
-}
+_SKIP_EXPORT_INCOMPATIBLE: dict[tuple[str, str], str] = {}
 
 
 def _cell_skip_reason(backend: str, example: str) -> str | None:

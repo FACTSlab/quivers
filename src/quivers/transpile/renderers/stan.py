@@ -284,6 +284,7 @@ class StanRenderer(RendererBase):
         # used to thread per-group log-sums through scope observes.
         self._marginalize_var: str | None = None
         self._marginalize_family: str | None = None
+        self._marginalize_atom: float | None = None
         self._marginalize_latent_card: int | None = None
         self._marginalize_group_idx: tuple[str, ...] = ()
         # True while the active marginalize keys its accumulator by
@@ -350,6 +351,7 @@ class StanRenderer(RendererBase):
         self._marginalize_stack = ()
         self._marginalize_var = None
         self._marginalize_family = None
+        self._marginalize_atom = None
         self._marginalize_latent_card = None
         self._marginalize_group_idx = ()
         self._marginalize_per_row = False
@@ -2109,9 +2111,20 @@ class StanRenderer(RendererBase):
         current = self._wrap_in_for_loops(
             ctx, scope_block, node.plate.batch_dims, loop_names
         )
-        # Inner loop over k in 1:K.
-        k_name = "k"
+        # Inner loop over k in 1:K, or one statement per atom when
+        # the atoms are numbers the body computes with. A relaxation
+        # family's off atom is a zero, and folding it out of the
+        # body's arithmetic is only possible once it is a literal
+        # rather than an expression in the loop variable.
         latent_card = self._marginalize_latent_card or 0
+        meta = FAMILY_META.get(parent.family)
+        declared = marginalize_support(meta) if meta is not None else None
+        if declared is not None and declared.atoms == "binary":
+            self._emit_unrolled_scope_observe(
+                ctx, current, node, parent, loop_names, latent_card,
+            )
+            return
+        k_name = "k"
         k_loop = self._fresh(ctx, "kfs")
         ctx.sb.vertex(k_loop, "for_statement")
         ctx.sb.edge(current, k_loop, "child_of")
@@ -2155,6 +2168,69 @@ class StanRenderer(RendererBase):
             k_name,
         )
         ctx.sb.edge(asn, lpdf_call, "child_of")
+
+    def _emit_unrolled_scope_observe(
+        self,
+        ctx: _RenderCtx,
+        current: str,
+        node: IRObserve,
+        parent: IRMarginalize,
+        loop_names: tuple[str, ...],
+        latent_card: int,
+    ) -> None:
+        """One accumulation per atom, with the atom as a literal.
+
+        The looped form writes the latent as an expression in the loop
+        variable, which leaves the body's arithmetic depending on it:
+        `poisson_lpmf(y | (k - 1) * rate)` reads as a rate the
+        parameters reach even at the atom where it is zero, so its
+        derivative there is `0 * inf` and Stan rejects every initial
+        value. Unrolled, the off atom's rate folds to a constant and
+        the model samples.
+        """
+        meta = FAMILY_META.get(node.family)
+        stan_name = (
+            meta.target_names.get("stan") if meta is not None else None
+        )
+        if stan_name is None:
+            raise UnsupportedConstruct(
+                "qvr-stan", [f"family:no-stan-target:{node.family}"],
+            )
+        lpdf_name = self._log_density_name(node.family, stan_name)
+        lps_name = self._marginalize_var or ""
+        group_idx_exprs = self._marginalize_group_index_exprs(
+            node, parent, loop_names
+        )
+        previous_atom = self._marginalize_atom
+        try:
+            for position in range(latent_card):
+                self._marginalize_atom = float(position)
+                asn = self._fresh(ctx, "uasn")
+                ctx.sb.vertex(asn, "assignment_statement")
+                ctx.sb.edge(current, asn, "child_of")
+                lhs_vid = self._build_indexed_lhs(
+                    ctx, lps_name, (*group_idx_exprs, str(position + 1)),
+                )
+                ctx.sb.edge(asn, lhs_vid, "child_of")
+                op = self._fresh(ctx, "uaop")
+                ctx.sb.vertex(op, "assignment_op")
+                ctx.sb.constraint(op, "literal-value", "+=")
+                ctx.sb.edge(asn, op, "child_of")
+                ctx.sb.edge(
+                    asn,
+                    self._build_lpdf_call(
+                        ctx,
+                        lpdf_name,
+                        node.name,
+                        node.plate.batch_dims,
+                        loop_names,
+                        node.args,
+                        str(position),
+                    ),
+                    "child_of",
+                )
+        finally:
+            self._marginalize_atom = previous_atom
 
     def _emit_marginalize_scope_sample(
         self,
@@ -3013,6 +3089,11 @@ class StanRenderer(RendererBase):
         other value, so there the atom is `k - 1`. Substituting the
         loop variable itself would score the block at 1 and 2.
         """
+        if self._marginalize_atom is not None:
+            # The scope is unrolled at this atom, so the latent is the
+            # number the atom stands for rather than an expression in
+            # the loop variable.
+            return LetExprLiteral(value=self._marginalize_atom)
         meta = FAMILY_META.get(self._marginalize_family or "")
         declared = marginalize_support(meta) if meta is not None else None
         if declared is not None and declared.atoms == "binary":
@@ -3022,6 +3103,32 @@ class StanRenderer(RendererBase):
                 right=LetExprLiteral(value=1.0),
             )
         return LetExprVar(name="k")
+
+    def _fold_constant_products(self, expr: LetExprNode) -> LetExprNode:
+        """Fold `0 * x` to `0` and `1 * x` to `x`.
+
+        An unrolled atom substitutes a literal into the scope's `let`,
+        and the off atom of a relaxation family makes that literal a
+        zero: `gated_rate = z * rate` becomes `0 * rate`. Left
+        standing, that reads as a value which is zero but which the
+        parameters still reach, so the density's derivative at it is
+        `0 * inf` wherever the observed count is positive, and Stan
+        rejects every initial value it tries. Folded, the rate is a
+        constant the gradient does not run through, which is what the
+        model means: the off state of a zero-inflated count carries no
+        rate at all.
+        """
+        if not isinstance(expr, LetExprBinOp):
+            return expr
+        left = self._fold_constant_products(expr.left)
+        right = self._fold_constant_products(expr.right)
+        if expr.op == "*":
+            for a, b in ((left, right), (right, left)):
+                if isinstance(a, LetExprLiteral) and a.value == 0.0:
+                    return LetExprLiteral(value=0.0)
+                if isinstance(a, LetExprLiteral) and a.value == 1.0:
+                    return b
+        return LetExprBinOp(op=expr.op, left=left, right=right)
 
     def _render_ref(
         self, ctx: _RenderCtx, arg: IRArgRef
@@ -3054,6 +3161,7 @@ class StanRenderer(RendererBase):
                     expr = self._index_outer_plated_refs(
                         expr, row_names[-1]
                     )
+                expr = self._fold_constant_products(expr)
             return render_let_expr_stan(
                 _StanLetCtx(
                     ctx.sb, lambda p: self._fresh(ctx, p), self._cards

@@ -252,18 +252,24 @@ def test_zip_stan_indexes_the_rate_inside_the_response_loop() -> None:
     """The Poisson likelihood reads the per-response rate at each atom.
 
     The block enumerates the two atoms of the Bernoulli its
-    `ContinuousBernoulli` relaxes, so the gated rate is the atom's
-    value times the response's rate, and Stan counts from one where
-    the atoms are 0 and 1. The likelihood is scored with an explicit
-    `poisson_lpmf` increment; the `~` spelling drops the
-    `- lgamma(y + 1)` term, which is data-dependent and part of the
-    QVR measure.
+    `ContinuousBernoulli` relaxes, and the scope is unrolled so each
+    atom is a literal. That is what lets the off atom's rate fold to a
+    constant zero: written as `(k - 1) * rate[n]` the rate is one the
+    parameters still reach, so its derivative where the count is
+    positive is `0 * inf` and Stan rejects every initial value it
+    tries, which no amount of re-initialising fixes.
+
+    The likelihood is scored with an explicit `poisson_lpmf`
+    increment; the `~` spelling drops the `- lgamma(y + 1)` term,
+    which is data-dependent and part of the QVR measure.
     """
     emitted = _nospace(_emit("zip_regression", "stan"))
+    assert "lps_z[n_Resp,1]+=poisson_lpmf(y[n_Resp]|0);" in emitted
     assert (
-        "lps_z[n_Resp,k]+=poisson_lpmf(y[n_Resp]|(k-1)*rate[n_Resp]);"
+        "lps_z[n_Resp,2]+=poisson_lpmf(y[n_Resp]|rate[n_Resp]);"
         in emitted
     )
+    assert "(k-1)*rate[n_Resp]" not in emitted
     assert "y[m_Resp]~poisson(" not in emitted
     assert "y[n_Resp]~poisson(" not in emitted
 
