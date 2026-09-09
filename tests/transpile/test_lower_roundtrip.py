@@ -83,6 +83,36 @@ def _gallery_paths() -> list[pathlib.Path]:
 GALLERY = _gallery_paths()
 
 
+#: Gallery examples the lowering refuses, and the kind each reports.
+#:
+#: A refusal is pinned rather than dispatched on: an example that
+#: raises where the test only knows "something raised" asserts
+#: nothing, and a gap that closes goes unnoticed. Pinned, a closed gap
+#: fails here and asks to be lowered for real, and a refusal that
+#: changes kind fails rather than passing under the old reason.
+#:
+#: `program:absent` covers the modules that declare no probabilistic
+#: program at all: a schema, a term signature, a composition rule. The
+#: rest name a construct the lowering has no form for, and each is the
+#: same kind the renderers report for it.
+_EXPECTED_LOWER_REFUSAL: dict[str, str] = {
+    "bidirectional_rnn_lm": "scan:no-lowering",
+    "bnn": "param-source:mlp",
+    "deep_markov": "param-source:mlp",
+    "gru_lm": "scan:no-lowering",
+    "lstm_lm": "scan:no-lowering",
+    "parametric_pooling": "family:school_effects",
+    "pmf": "program:absent",
+    "schema_chart_parser": "program:absent",
+    "seq2seq": "param-source:mlp",
+    "tensor_contraction": "program:absent",
+    "term_autoencoder": "program:absent",
+    "transformer_lm": "param-source:mlp",
+    "vae": "param-source:mlp",
+    "vanilla_rnn_lm": "scan:no-lowering",
+}
+
+
 @pytest.mark.parametrize(
     "path", GALLERY, ids=[p.stem for p in GALLERY]
 )
@@ -91,13 +121,20 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     src = path.read_text()
     module = parse(src)
     program = _pick_program(module)
-    try:
-        ir = Lower().forward(module)
-    except UnsupportedConstruct as exc:
-        pytest.xfail(
-            f"lowering not yet supported for {path.name}: "
-            f"{exc.kinds[0] if exc.kinds else exc}"
+    expected = _EXPECTED_LOWER_REFUSAL.get(path.stem)
+    if expected is not None:
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            Lower().forward(module)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith(expected) for k in kinds), (
+            f"{path.stem}: lowering was expected to refuse with a "
+            f"{expected!r} kind and reported {list(kinds)!r}. If the "
+            f"gap closed, drop the row so the example is lowered and "
+            f"its invariants checked; if a different gap fired, that "
+            f"is the thing to look at."
         )
+        return
+    ir = Lower().forward(module)
 
     # Structural invariants on the IR shape.
     assert isinstance(ir, IRProgram)
