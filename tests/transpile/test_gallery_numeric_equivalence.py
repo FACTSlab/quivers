@@ -899,11 +899,25 @@ perturbed points* thus passes both: the pin holds where it
             f"file fails to load; populate / drop from "
             f"`_SKIP_DATASET_LOAD_FAILED`."
         )
-    if example.stem in _SKIP_QVR_INCOMPATIBLE:
-        pytest.skip(
-            f"{example.stem!r}: in-process QVR trace cannot evaluate "
-            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
+    exempt_reason = _REFERENCE_PIN_EXEMPT.get(example.stem)
+    if exempt_reason is not None:
+        # No pin to hold, so what is asserted is that the exemption is
+        # the registry's and not this test's: an example may sit here
+        # only with a recorded reason, and
+        # `test_gallery_reference_pin_registry_is_total` requires that
+        # reason to name a registry which independently agrees. A
+        # silent skip would let an example lose its ground and still
+        # pass.
+        assert example.stem not in _QVR_REFERENCE_JOINT, (
+            f"{example.stem!r} carries both a pinned reference joint "
+            f"and a row in `_REFERENCE_PIN_EXEMPT`. One of the two is "
+            f"stale: pin it or exempt it, not both."
         )
+        assert exempt_reason.strip(), (
+            f"{example.stem!r} is exempt from the reference pin with "
+            f"an empty reason, which records nothing anyone can check."
+        )
+        return
 
     reference = _QVR_REFERENCE_JOINT.get(example.stem)
     assert reference is not None, (
@@ -978,11 +992,6 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
             f"file fails to load; populate / drop from "
             f"`_SKIP_DATASET_LOAD_FAILED`."
         )
-    if example.stem in _SKIP_QVR_INCOMPATIBLE:
-        pytest.skip(
-            f"{example.stem!r}: in-process QVR trace cannot evaluate "
-            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
-        )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
@@ -1023,6 +1032,16 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     # check, and it is mandatory: an example that reaches this line has
     # a joint, so a missing entry is a hole in the guarantee and fails
     # here rather than reverting to the finiteness-only check.
+    exempt_reason = _REFERENCE_PIN_EXEMPT.get(example.stem)
+    if exempt_reason is not None:
+        # The example carries a recorded reason for having no pin, and
+        # `test_gallery_reference_pin_registry_is_total` holds that
+        # reason to a registry that independently agrees. What this
+        # tier still asserts is its own invariant, which needs no pin:
+        # the joint is a finite real number. Skipping instead would
+        # drop that too, and a joint that turned non-finite is exactly
+        # the failure this line exists to catch.
+        return
     reference = _QVR_REFERENCE_JOINT.get(example.stem)
     assert reference is not None, (
         f"{example.stem!r}: scores a finite QVR joint ({lp!r}) but has "
@@ -1090,11 +1109,6 @@ cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
             f"{example.stem!r}: synthetic-data snippet in the `.md` "
             f"file fails to load; populate / drop from "
             f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
-    if example.stem in _SKIP_QVR_INCOMPATIBLE:
-        pytest.skip(
-            f"{example.stem!r}: in-process QVR trace cannot evaluate "
-            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
         )
 
     dataset = _gallery_data.load_gallery_data(example)

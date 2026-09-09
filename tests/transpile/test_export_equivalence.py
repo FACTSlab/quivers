@@ -727,6 +727,21 @@ def test_gallery_backend_export_matches_qvr(
     carries into its codomain.
     """
     stem = example.stem
+    expected_raise = _gallery_tier._EXPECTED_TRANSPILE_RAISES.get(
+        (backend, stem)
+    )
+    if expected_raise is not None:
+        module = parse(example.read_text())
+        with pytest.raises(UnsupportedConstruct) as exc_info:
+            transpile(module, target=backend)
+        kinds = exc_info.value.kinds
+        assert any(k.startswith(expected_raise) for k in kinds), (
+            f"{backend!r} on {stem!r}: expected the transpile to "
+            f"refuse with a {expected_raise!r} kind and it reported "
+            f"{list(kinds)!r}. Update the entry in "
+            f"`_EXPECTED_TRANSPILE_RAISES`, or find the gap that fired."
+        )
+        return
     skip_reason = _cell_skip_reason(backend, stem)
     if skip_reason is not None:
         pytest.skip(f"{backend!r} on {stem!r}: {skip_reason}.")

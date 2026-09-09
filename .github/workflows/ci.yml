@@ -38,6 +38,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # The Church runtime's arity shims are checked by running them
+      # through a real Scheme. Without the interpreter that check
+      # skips, and a skipped check is a silent gap.
+      - run: sudo apt-get update && sudo apt-get install -y chezscheme
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
       - run: python -m pytest tests/ -x -q
 
