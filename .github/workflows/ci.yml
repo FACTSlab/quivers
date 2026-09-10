@@ -41,10 +41,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      # The Church runtime's arity shims are checked by running them
-      # through a real Scheme. Without the interpreter that check
-      # skips, and a skipped check is a silent gap.
-      - run: sudo apt-get update && sudo apt-get install -y chezscheme
+      # `tests/transpile/test_external_syntax.py` checks each emitted
+      # program against the real parser for its language, and every
+      # such check that finds no binary on PATH reports a gap rather
+      # than a pass. The four toolchains it needs are installed here:
+      # Scheme for the Church runtime's arity shims, JAGS for the JAGS
+      # and BUGS model files, `stanc` for Stan, and Julia for Turing
+      # and Gen.
+      - run: sudo apt-get update && sudo apt-get install -y chezscheme jags
+      - name: Install stanc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/stanc" \
+            https://github.com/stan-dev/stanc3/releases/download/v2.39.0/linux-stanc
+          sudo install -m 0755 "$RUNNER_TEMP/stanc" /usr/local/bin/stanc
+          stanc --version
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.11"
       # `test_audit_fix_pymc` imports pymc to check the emission
       # against the library's own API rather than against a
       # transcript of it, so the library has to be here: without
