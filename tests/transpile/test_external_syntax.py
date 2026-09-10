@@ -29,8 +29,10 @@ The check is syntax-only (no execution). Per backend:
 
 from __future__ import annotations
 
+import pathlib
 import shutil
 import subprocess
+import tempfile
 
 import pytest
 
@@ -110,13 +112,19 @@ def test_webppl_external_syntax() -> None:
     syntax without executing.
     """
     source = transpile(parse(_BETA_BERNOULLI), target="webppl")
-    # `node --check` reads from a file, not stdin; use process
-    # substitution via stdin trick.
-    rc, out, err = _run_syntax_check(
-        "node",
-        ["node", "--check", "/dev/stdin"],
-        input_bytes=source,
-    )
+    # `node --check` opens its argument as a file. Handed
+    # `/dev/stdin` it resolves that through `/proc/<pid>/fd/0`, which
+    # is a pipe when the source arrives on stdin, and a pipe is not
+    # something it can open: the check fails with ENOENT before it has
+    # read a byte of JavaScript. The source goes to a real file.
+    with tempfile.TemporaryDirectory() as tmp:
+        script = pathlib.Path(tmp) / "emitted.js"
+        script.write_bytes(source)
+        rc, out, err = _run_syntax_check(
+            "node",
+            ["node", "--check", str(script)],
+            input_bytes=b"",
+        )
     assert rc == 0, (
         f"node --check exited {rc}: stdout={out!r} stderr={err!r}\n"
         f"source:\n{source.decode()}"
