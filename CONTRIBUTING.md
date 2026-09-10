@@ -38,6 +38,73 @@ python -m pytest tests/ -k test_name        # run specific tests
 python -m pytest tests/path/to/test_file.py # run specific file
 ```
 
+### Test tiers
+
+The suite splits in two, along the line that governs its runtime. Most
+tests read and write text and finish in microseconds. A few thousand
+drive a real probabilistic programming language inside a Docker
+container to compare its log density against the reference, and those
+carry nearly all of the wall clock. The latter are marked `probe`:
+
+```bash
+python -m pytest tests/ -m "not probe"   # everything cheap
+python -m pytest tests/ -m probe         # the container-backed cells
+```
+
+The marker is applied by module, from the registry in
+`tests/transpile/conftest.py`, and audited against the source: a module
+that calls `run_probe` without appearing there fails
+`test_probe_marker_registry.py`, so a new probe module cannot land in
+the cheap tier by omission.
+
+Probe cells need Docker. The session fixture starts the daemon and
+builds any missing images rather than skipping, since a skipped check
+is a silent gap. Set `QUIVERS_SKIP_DOCKER=1` to opt out, which is
+appropriate when running only `-m "not probe"`.
+
+### Running tests in parallel
+
+Both tiers are parallel-safe: probe scratch directories are unique per
+call, containers are anonymous, and the image build is serialised
+across workers by a file lock.
+
+```bash
+python -m pytest tests/ -m "not probe" -n auto --dist loadfile
+python -m pytest tests/ -m probe -n auto
+```
+
+`--dist loadfile` is the right mode for the cheap tier. Its tests are
+individually far shorter than the cost of handing one to a worker, so
+distributing whole files wins where distributing single tests loses.
+
+To divide the probe tier across machines, `pytest-split` takes a share:
+
+```bash
+python -m pytest tests/ -m probe --splits 4 --group 1
+```
+
+### Caching probe measurements
+
+A probe pays for a language runtime rather than for the container.
+Loading Turing into a fresh Julia session costs seconds, while the
+container itself starts in a fraction of one, and many cells measure
+the same density and then assert different things about it. Point
+`QUIVERS_PROBE_CACHE` at a directory to memoise those measurements:
+
+```bash
+QUIVERS_PROBE_CACHE=.probe-cache python -m pytest tests/ -m probe
+```
+
+The key covers the image ID, the emitted source, the points, the shape
+and dtype tables, and the probe script together with its reshape
+helpers, all hashed by content. Keying on the image ID rather than the
+tag is what makes a rebuilt image miss instead of answering from
+before it changed.
+
+Caching is off unless the variable is set. A memoised measurement is
+only as sound as its key, so a run that gates a release should execute
+every container for real.
+
 ## Project Structure
 
 ```

@@ -31,23 +31,22 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pyright src/quivers
 
-  test:
+  # Fast tier. Everything that does not launch a probe container, which
+  # is most of the suite by count and a small share of its runtime. This
+  # is the job a pull request waits on.
+  fast:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      # `tests/transpile/test_external_syntax.py` checks each emitted
-      # program against the real parser for its language, and every
-      # such check that finds no binary on PATH reports a gap rather
-      # than a pass. The four toolchains it needs are installed here:
-      # Scheme for the Church runtime's arity shims, JAGS for the JAGS
-      # and BUGS model files, `stanc` for Stan, and Julia for Turing
-      # and Gen.
+          python-version: "3.14"
+      # `tests/transpile/test_external_syntax.py` and the gallery
+      # compile sweep check each emitted program against the real
+      # parser for its language, and a check that finds no binary
+      # reports a gap rather than a pass. Scheme covers the Church
+      # runtime's arity shims, JAGS the JAGS and BUGS model files,
+      # `stanc` Stan, and Julia both Turing and Gen.
       - run: sudo apt-get update && sudo apt-get install -y chezscheme jags
       - name: Install stanc
         run: |
@@ -63,10 +62,35 @@ jobs:
       # transcript of it, so the library has to be here: without
       # it the module fails to import and the whole job errors.
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
-      # The transpile suite refuses to skip on a missing probe image
-      # and builds all nine instead, which is most of this job's
-      # runtime. They change only when their Dockerfiles do, so the
-      # built images are cached against a hash of that directory and
+      # No probe container runs here, so the image build is skipped
+      # outright rather than paid for and left unused.
+      # `--dist loadfile` rather than the default per-test scheduling.
+      # Most of this tier is thousands of sub-millisecond text checks,
+      # and handing those out individually costs more than running
+      # them; whole files are the unit worth distributing.
+      - run: python -m pytest tests/ -q -m "not probe" -n auto --dist loadfile
+        env:
+          QUIVERS_SKIP_DOCKER: "1"
+
+  # Release tier. The probe cells, which drive eleven real PPLs in
+  # containers and carry nearly all of the suite's wall clock. Sharded
+  # across runners: the shards are independent, so the wall clock is the
+  # slowest shard rather than the sum.
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
+      # The suite refuses to skip on a missing probe image and builds
+      # all nine instead. They change only when their Dockerfiles do, so
+      # the built images are cached against a hash of that directory and
       # loaded back in one archive: `docker save` over all nine shares
       # the base layers between them rather than storing each whole.
       - name: Restore probe images
@@ -78,10 +102,31 @@ jobs:
       - name: Load probe images
         if: steps.probe-images.outputs.cache-hit == 'true'
         run: gunzip -c ~/.cache/qvr-probe-images/images.tar.gz | docker load
-      # No `-x`: one failure used to hide every test behind it,
-      # so a run bought one diagnosis and left the rest
-      # unexercised. The run reports all of them.
-      - run: python -m pytest tests/ -q
+      # Memoised probe measurements, keyed on the image ID, the emitted
+      # source, the points and the probe scripts. Restored from the
+      # newest run that shares the prefix and saved under a key unique
+      # to this one, since the contents grow as cells run and a fixed
+      # key would never be updated.
+      - name: Restore probe measurements
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qvr-probe-measurements
+          key: qvr-probe-cache-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            qvr-probe-cache-${{ matrix.shard }}-
+      # No `-x`: one failure used to hide every test behind it, so a run
+      # bought one diagnosis and left the rest unexercised.
+      # Two levels of parallelism, because they solve different
+      # problems. `--splits` divides the cells across runners, and
+      # `-n auto` keeps each runner's cores busy within its share.
+      # xdist's default scheduler hands out work as workers free up, so
+      # one slow cell does not stall the others in the same shard.
+      - name: Run probe shard
+        run: |
+          python -m pytest tests/ -q -m probe -n auto \
+            --splits 4 --group ${{ matrix.shard }}
+        env:
+          QUIVERS_PROBE_CACHE: ~/.cache/qvr-probe-measurements
       - name: Save probe images
         if: always() && steps.probe-images.outputs.cache-hit != 'true'
         run: |
@@ -93,7 +138,7 @@ jobs:
           fi
 
   # The default addopts deselect `slow`, so the gallery sweep and the
-  # recovery benchmarks never run in the `test` job. They gate here
+  # recovery benchmarks never run in the tiers above. They gate here
   # instead: an example whose prose or code stops matching the library
   # fails CI rather than rotting unnoticed.
   slow:

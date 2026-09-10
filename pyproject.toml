@@ -41,6 +41,8 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "pytest-xdist>=3.6",
+    "pytest-split>=0.9",
     "ruff>=0.15,<0.16",
     "pyright",
     "numpy",
@@ -112,6 +114,7 @@ testpaths = ["tests"]
 # `pytest -m slow tests/` or `pytest --runslow tests/`.
 markers = [
     "slow: deselected by default; run with `-m slow` or `--runslow`.",
+    "probe: launches a probe container; deselected on the fast tier.",
 ]
 addopts = "-m 'not slow'"
 
