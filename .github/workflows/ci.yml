@@ -50,10 +50,34 @@ jobs:
       # transcript of it, so the library has to be here: without
       # it the module fails to import and the whole job errors.
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
+      # The transpile suite refuses to skip on a missing probe image
+      # and builds all nine instead, which is most of this job's
+      # runtime. They change only when their Dockerfiles do, so the
+      # built images are cached against a hash of that directory and
+      # loaded back in one archive: `docker save` over all nine shares
+      # the base layers between them rather than storing each whole.
+      - name: Restore probe images
+        id: probe-images
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/qvr-probe-images
+          key: qvr-probe-images-${{ hashFiles('tests/transpile/docker/**') }}
+      - name: Load probe images
+        if: steps.probe-images.outputs.cache-hit == 'true'
+        run: gunzip -c ~/.cache/qvr-probe-images/images.tar.gz | docker load
       # No `-x`: one failure used to hide every test behind it,
-      # and with the probe images built in-job each rediscovery
-      # costs an hour and a half. The run reports all of them.
+      # so a run bought one diagnosis and left the rest
+      # unexercised. The run reports all of them.
       - run: python -m pytest tests/ -q
+      - name: Save probe images
+        if: always() && steps.probe-images.outputs.cache-hit != 'true'
+        run: |
+          images=$(docker images --format '{{ .Repository }}:{{ .Tag }}' | grep '^panproto-test-' || true)
+          if [ -n "$images" ]; then
+            mkdir -p ~/.cache/qvr-probe-images
+            # shellcheck disable=SC2086
+            docker save $images | gzip -1 > ~/.cache/qvr-probe-images/images.tar.gz
+          fi
 
   # The default addopts deselect `slow`, so the gallery sweep and the
   # recovery benchmarks never run in the `test` job. They gate here
