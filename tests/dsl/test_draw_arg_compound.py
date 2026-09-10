@@ -145,11 +145,7 @@ def test_simplex_literal_sum_warning():
     """
     module = _parse(src)
     diags = validate_family_arg_shapes(module)
-    sim = [
-        d
-        for d in diags
-        if d.code == "family-arg-shape" and d.severity == "warning"
-    ]
+    sim = [d for d in diags if d.code == "family-arg-shape" and d.severity == "warning"]
     assert sim, f"expected simplex-sum warning, got {diags!r}"
 
 
@@ -163,6 +159,5 @@ def test_simplex_literal_valid_no_warning():
     module = _parse(src)
     diags = validate_family_arg_shapes(module)
     assert all(
-        d.code != "family-arg-shape" or d.severity != "warning"
-        for d in diags
+        d.code != "family-arg-shape" or d.severity != "warning" for d in diags
     ), f"unexpected warning: {diags!r}"

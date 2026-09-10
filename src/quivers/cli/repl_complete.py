@@ -85,7 +85,7 @@ def _transpile_target_completions(prefix: str) -> list[Completion]:
     head = ":transpile "
     if not prefix.startswith(head):
         return []
-    typed = prefix[len(head):]
+    typed = prefix[len(head) :]
     from quivers.transpile import available_targets
 
     out: list[Completion] = []

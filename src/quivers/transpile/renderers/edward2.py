@@ -223,9 +223,7 @@ class Edward2Renderer(RendererBase):
         # register a second, unobserved site on the trace). TFP is a
         # hard dependency of Edward2, so the emitted module imports it
         # directly when a marginalize is present.
-        if _ir_has_marginalize(ir.body) or ir_uses_family(
-            ir.body, "MixtureNormal"
-        ):
+        if _ir_has_marginalize(ir.body) or ir_uses_family(ir.body, "MixtureNormal"):
             self._emit_tfp_import(py)
         body_vid = py.v(py.fresh("body"), "block")
         param_names = tuple(inp.name for inp in ir.inputs)
@@ -313,9 +311,7 @@ class Edward2Renderer(RendererBase):
                 assignment(py, lhs_name=node.name, rhs=rhs),
                 "child_of",
             )
-            bindings[node.name] = _Binding(
-                constraint=node.constraint, plate=node.plate
-            )
+            bindings[node.name] = _Binding(constraint=node.constraint, plate=node.plate)
             return
         if isinstance(node, IRObserve):
             rhs = self._dist_call(
@@ -343,9 +339,7 @@ class Edward2Renderer(RendererBase):
                 assignment(py, lhs_name=node.name, rhs=rhs),
                 "child_of",
             )
-            bindings[node.name] = _Binding(
-                constraint=node.constraint, plate=node.plate
-            )
+            bindings[node.name] = _Binding(constraint=node.constraint, plate=node.plate)
             return
         if isinstance(node, IRDeterministic):
             asn = py.v(py.fresh("asn"), "assignment")
@@ -353,24 +347,18 @@ class Edward2Renderer(RendererBase):
             py.e(asn, lhs, "left")
             py.e(asn, render_deterministic_python(py, node), "right")
             py.e(body_vid, asn, "child_of")
-            bindings[node.name] = _Binding(
-                constraint=node.constraint, plate=node.plate
-            )
+            bindings[node.name] = _Binding(constraint=node.constraint, plate=node.plate)
             return
         if isinstance(node, IRScore):
             self._emit_score_node(py, body_vid, node)
             return
         if isinstance(node, IRMarginalize):
-            self._emit_marginalize(
-                py, body_vid, node, input_specs, bindings
-            )
+            self._emit_marginalize(py, body_vid, node, input_specs, bindings)
             return
         if isinstance(node, IRReturn):
             self._emit_return_statement(py, body_vid, node.names)
             return
-        raise UnsupportedConstruct(
-            _BACKEND_KEY, [f"node:{type(node).__name__}"]
-        )
+        raise UnsupportedConstruct(_BACKEND_KEY, [f"node:{type(node).__name__}"])
 
     def _emit_gp_block(
         self,
@@ -392,9 +380,7 @@ class Edward2Renderer(RendererBase):
         Parens wrap the diff and squared-length-scale subexpressions
         so the Python pretty-printer keeps operator precedence.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 _BACKEND_KEY,
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -403,10 +389,7 @@ class Edward2Renderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 _BACKEND_KEY,
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -428,29 +411,36 @@ class Edward2Renderer(RendererBase):
         # __gp_cov_<name> = tf.exp(-0.5 * (diff)*(diff) / (ls*ls))
         #                    + jitter * tf.eye(N)
         x_col = _python_method_call(
-            py, identifier(py, x), "reshape",
+            py,
+            identifier(py, x),
+            "reshape",
             (
                 _python_unary_minus(py, number_literal(py, 1)),
                 number_literal(py, 1),
             ),
         )
         x_row = _python_method_call(
-            py, identifier(py, x), "reshape",
+            py,
+            identifier(py, x),
+            "reshape",
             (
                 number_literal(py, 1),
                 _python_unary_minus(py, number_literal(py, 1)),
             ),
         )
         diff = _python_paren(
-            py, _python_binary_op(py, "-", x_col, x_row),
+            py,
+            _python_binary_op(py, "-", x_col, x_row),
         )
         diff_sq = _python_paren(
-            py, _python_binary_op(py, "*", diff, diff),
+            py,
+            _python_binary_op(py, "*", diff, diff),
         )
         ls_sq = _python_paren(
             py,
             _python_binary_op(
-                py, "*",
+                py,
+                "*",
                 number_literal(py, ls),
                 number_literal(py, ls),
             ),
@@ -469,10 +459,16 @@ class Edward2Renderer(RendererBase):
             positional=(number_literal(py, n),),
         )
         jitter_term = _python_binary_op(
-            py, "*", number_literal(py, jitter), eye_call,
+            py,
+            "*",
+            number_literal(py, jitter),
+            eye_call,
         )
         cov_rhs = _python_binary_op(
-            py, "+", kernel_call, jitter_term,
+            py,
+            "+",
+            kernel_call,
+            jitter_term,
         )
         py.e(
             body_vid,
@@ -485,7 +481,8 @@ class Edward2Renderer(RendererBase):
         mvn_call = call(
             py,
             attribute(
-                py, ("edward2", "MultivariateNormalFullCovariance"),
+                py,
+                ("edward2", "MultivariateNormalFullCovariance"),
             ),
             keyword=(
                 ("loc", identifier(py, mean_name)),
@@ -499,9 +496,7 @@ class Edward2Renderer(RendererBase):
             "child_of",
         )
 
-    def _emit_score_node(
-        self, py: PyCtx, body_vid: str, node: IRScore
-    ) -> None:
+    def _emit_score_node(self, py: PyCtx, body_vid: str, node: IRScore) -> None:
         """Bind ``<name> = <expr>``.
 
         Edward2 has no top-level factor primitive; the canonical idiom
@@ -644,9 +639,7 @@ class Edward2Renderer(RendererBase):
         one observed variable, not three.
         """
         refuse_ungrouped_row_marginalize("qvr-edward2", node)
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         observe = raw.observe
         if observe.family in _NO_GENERIC_COMPONENT_FAMILIES:
             raise UnsupportedConstruct(
@@ -659,9 +652,7 @@ class Edward2Renderer(RendererBase):
             )
         atoms = self.marginal_atoms(
             node,
-            support_size=marginal_support_size(
-                node, name_plates=py.name_plates
-            ),
+            support_size=marginal_support_size(node, name_plates=py.name_plates),
         )
         meta = self._lookup_meta(observe.family)
         expected_event = _event_shape(
@@ -701,9 +692,7 @@ class Edward2Renderer(RendererBase):
                     "child_of",
                 )
                 per_arg[slot].append(held)
-        axis = marginal_atom_axis(
-            observe.family, observe.arg_names, target=self.target
-        )
+        axis = marginal_atom_axis(observe.family, observe.arg_names, target=self.target)
         stacked: list[IRArg] = []
         for slot, held_names in enumerate(per_arg):
             stacked_name = f"{prefix}_a{slot}"
@@ -736,9 +725,7 @@ class Edward2Renderer(RendererBase):
         mixing = call(
             py,
             attribute(py, ("tfp", "distributions", "Categorical")),
-            keyword=(
-                ("probs", self._marginal_weights(py, node, raw, atoms)),
-            ),
+            keyword=(("probs", self._marginal_weights(py, node, raw, atoms)),),
         )
         py.e(
             body_vid,
@@ -1066,9 +1053,7 @@ class Edward2Renderer(RendererBase):
         ``sample_shape`` rather than being split against a carried
         argument axis.
         """
-        weights, loc, scale = mixture_normal_components(
-            _BACKEND_KEY, args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components(_BACKEND_KEY, args, arg_names)
         expected_event = _event_shape(plate)
 
         def rendered(arg: IRArg, position: int) -> str:
@@ -1199,10 +1184,7 @@ class Edward2Renderer(RendererBase):
         if len(args) != 3:
             raise UnsupportedConstruct(
                 _BACKEND_KEY,
-                [
-                    "family:MatrixNormal:expected "
-                    "(loc, row_covariance, col_covariance)"
-                ],
+                ["family:MatrixNormal:expected (loc, row_covariance, col_covariance)"],
             )
         callee = attribute(py, ("edward2", dist_class))
         meta = self._lookup_meta("MatrixNormal")
@@ -1258,13 +1240,23 @@ class Edward2Renderer(RendererBase):
         """
         if isinstance(arg, IRArgNumber):
             return self._maybe_broadcast_scalar(
-                py, arg, expected_arg_event, arg_position, meta,
-                input_specs, bindings,
+                py,
+                arg,
+                expected_arg_event,
+                arg_position,
+                meta,
+                input_specs,
+                bindings,
             )
         if isinstance(arg, IRArgRef):
             return self._maybe_broadcast_ref(
-                py, arg, expected_arg_event, arg_position, meta,
-                input_specs, bindings,
+                py,
+                arg,
+                expected_arg_event,
+                arg_position,
+                meta,
+                input_specs,
+                bindings,
             )
         if isinstance(arg, IRArgBroadcast):
             return self._broadcast(
@@ -1276,9 +1268,7 @@ class Edward2Renderer(RendererBase):
             return self._render_matrix(py, arg, input_specs, bindings)
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref(py, arg, input_specs, bindings)
-        raise UnsupportedConstruct(
-            _BACKEND_KEY, [f"arg:{type(arg).__name__}"]
-        )
+        raise UnsupportedConstruct(_BACKEND_KEY, [f"arg:{type(arg).__name__}"])
 
     def _maybe_broadcast_scalar(
         self,
@@ -1339,9 +1329,7 @@ class Edward2Renderer(RendererBase):
             return number_literal(py, idx.value)
         if isinstance(idx, IRArgRef):
             return self._ref_expr(py, idx)
-        raise UnsupportedConstruct(
-            _BACKEND_KEY, [f"index:{type(idx).__name__}"]
-        )
+        raise UnsupportedConstruct(_BACKEND_KEY, [f"index:{type(idx).__name__}"])
 
     def _render_list(
         self,
@@ -1353,8 +1341,7 @@ class Edward2Renderer(RendererBase):
         """Render ``[e0, e1, ...]`` as a Python list (TF accepts it)."""
         lst = py.v(py.fresh("list"), "list")
         for el in arg.elements:
-            py.e(lst, self._render_arg_atom(py, el, input_specs, bindings),
-                 "child_of")
+            py.e(lst, self._render_arg_atom(py, el, input_specs, bindings), "child_of")
         return lst
 
     def _render_matrix(
@@ -1367,8 +1354,7 @@ class Edward2Renderer(RendererBase):
         """Render ``[[...], [...]]`` as nested Python lists."""
         outer = py.v(py.fresh("list"), "list")
         for row in arg.rows:
-            py.e(outer, self._render_list(py, row, input_specs, bindings),
-                 "child_of")
+            py.e(outer, self._render_list(py, row, input_specs, bindings), "child_of")
         return outer
 
     def _render_arg_atom(
@@ -1389,12 +1375,8 @@ class Edward2Renderer(RendererBase):
         if isinstance(el, IRArgMatrix):
             return self._render_matrix(py, el, input_specs, bindings)
         if isinstance(el, IRArgBroadcast):
-            return self._broadcast(
-                py, el.value, el.target_shape, input_specs, bindings
-            )
-        raise UnsupportedConstruct(
-            _BACKEND_KEY, [f"arg-atom:{type(el).__name__}"]
-        )
+            return self._broadcast(py, el.value, el.target_shape, input_specs, bindings)
+        raise UnsupportedConstruct(_BACKEND_KEY, [f"arg-atom:{type(el).__name__}"])
 
     def _render_family_ref(
         self,
@@ -1450,9 +1432,7 @@ class Edward2Renderer(RendererBase):
         elif isinstance(value, IRArgRef):
             value_vid = self._ref_expr(py, value)
         else:
-            value_vid = self._render_arg_atom(
-                py, value, input_specs, bindings
-            )
+            value_vid = self._render_arg_atom(py, value, input_specs, bindings)
         return call(
             py,
             attribute(py, ("tf", "fill")),
@@ -1485,7 +1465,8 @@ class Edward2Renderer(RendererBase):
         natural = meta.event_rank if meta is not None else 0
         residual_event = (
             plate.event_dims[: len(plate.event_dims) - natural]
-            if natural else plate.event_dims
+            if natural
+            else plate.event_dims
         )
         dims = (*plate.batch_dims, *residual_event)
         if not dims:
@@ -1572,9 +1553,7 @@ class Edward2Renderer(RendererBase):
             extents = (_static_key(len(arg.rows)), _static_key(columns))
             return _drop_event_axes(extents, arg_event_rank)
         if isinstance(arg, IRArgList):
-            return _drop_event_axes(
-                (_static_key(len(arg.elements)),), arg_event_rank
-            )
+            return _drop_event_axes((_static_key(len(arg.elements)),), arg_event_rank)
         if isinstance(arg, IRArgRef):
             if arg.indices:
                 return None
@@ -1750,9 +1729,7 @@ def _dim_key(dim: Dim) -> str:
         return _static_key(dim.size)
     if isinstance(dim, DimDynamic):
         return f"dynamic:{dim.size_name}"
-    raise UnsupportedConstruct(
-        _BACKEND_KEY, [f"dim:{type(dim).__name__}"]
-    )
+    raise UnsupportedConstruct(_BACKEND_KEY, [f"dim:{type(dim).__name__}"])
 
 
 def _static_key(size: int) -> str:
@@ -1760,9 +1737,7 @@ def _static_key(size: int) -> str:
     return f"static:{size}"
 
 
-def _drop_event_axes(
-    extents: tuple[str, ...], event_rank: int
-) -> tuple[str, ...]:
+def _drop_event_axes(extents: tuple[str, ...], event_rank: int) -> tuple[str, ...]:
     """Strip the trailing `event_rank` axes from `extents`, leaving the
     batch axes the argument broadcasts over."""
     return extents[: max(0, len(extents) - event_rank)]
@@ -1802,9 +1777,7 @@ def _dim_expr(py: PyCtx, dim: Dim) -> str:
         return number_literal(py, float(dim.size))
     if isinstance(dim, DimDynamic):
         return identifier(py, dim.size_name)
-    raise UnsupportedConstruct(
-        _BACKEND_KEY, [f"dim:{type(dim).__name__}"]
-    )
+    raise UnsupportedConstruct(_BACKEND_KEY, [f"dim:{type(dim).__name__}"])
 
 
 _SCALAR_CONSTRAINT_CLASSES: tuple[type, ...] = (

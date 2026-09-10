@@ -53,8 +53,7 @@ def test_unsupported_raises(
         module = parse(src)
     except Exception as exc:  # noqa: BLE001
         pytest.fail(
-            f"fixture {name!r} did not parse cleanly: "
-            f"{type(exc).__name__}: {exc}"
+            f"fixture {name!r} did not parse cleanly: {type(exc).__name__}: {exc}"
         )
     with pytest.raises(UnsupportedConstruct) as exc_info:
         # `unsupported_for` enforces the public support-tier contract
@@ -62,9 +61,7 @@ def test_unsupported_raises(
         # pipeline does not re-check the tier, so the rejection
         # boundary is the same documented helper the production
         # surface re-exports.
-        unsupported_for(
-            f"qvr-{target}", module, allow=_SUPPORT_TIER[target]
-        )
+        unsupported_for(f"qvr-{target}", module, allow=_SUPPORT_TIER[target])
         transpile(module, target=target)
     assert expected_kinds.issubset(set(exc_info.value.kinds)), (
         f"expected {expected_kinds}, got {exc_info.value.kinds}"

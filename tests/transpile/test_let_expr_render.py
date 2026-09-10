@@ -51,8 +51,16 @@ from quivers.transpile.renderers._python_helpers import _MATH_BUILTIN_NAMES
 import pytest
 
 _ALL_TARGETS = (
-    "stan", "gen", "turing", "pyro", "numpyro", "pymc", "edward2",
-    "jags", "bugs", "webppl",
+    "stan",
+    "gen",
+    "turing",
+    "pyro",
+    "numpyro",
+    "pymc",
+    "edward2",
+    "jags",
+    "bugs",
+    "webppl",
 )
 _PYTHON_TARGETS = ("pyro", "numpyro", "pymc", "edward2")
 
@@ -71,7 +79,9 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
         for name in samples
     )
     draws += (
-        SampleStep(vars=("sigma",), morphism="Uniform", args=(_scalar(0.0), _scalar(1.0))),
+        SampleStep(
+            vars=("sigma",), morphism="Uniform", args=(_scalar(0.0), _scalar(1.0))
+        ),
         LetStep(name="m", value=let_value),
         ObserveStep(
             vars=("y",),
@@ -80,18 +90,24 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
             index=_RESP,
         ),
     )
-    return Module(statements=(
-        ObjectDecl(
-            names=("Resp",),
-            init=TypeFromExpr(
-                expr=DiscreteConstructor(constructor="FinSet", args=("100",))
+    return Module(
+        statements=(
+            ObjectDecl(
+                names=("Resp",),
+                init=TypeFromExpr(
+                    expr=DiscreteConstructor(constructor="FinSet", args=("100",))
+                ),
             ),
-        ),
-        ProgramDecl(
-            name="model", domain=_RESP, codomain=_RESP, draws=draws, return_vars=("y",)
-        ),
-        ExportDecl(expr=ExprIdent(name="model")),
-    ))
+            ProgramDecl(
+                name="model",
+                domain=_RESP,
+                codomain=_RESP,
+                draws=draws,
+                return_vars=("y",),
+            ),
+            ExportDecl(expr=ExprIdent(name="model")),
+        )
+    )
 
 
 def _m_line(target: str, module: Module) -> str:

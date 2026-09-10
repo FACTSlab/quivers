@@ -539,9 +539,7 @@ def event_dim_of(c: Constraint) -> int:
     return int(getattr(c, "event_dim", 0))
 
 
-def event_shape_of(
-    c: Constraint, base_event: tuple[int, ...]
-) -> tuple[int, ...]:
+def event_shape_of(c: Constraint, base_event: tuple[int, ...]) -> tuple[int, ...]:
     """Lift an event shape from a base shape under the constraint.
 
     For a scalar constraint returns `base_event` unchanged. For an
@@ -687,7 +685,9 @@ class StructuredDataArg(StructuredArgSpec):
     arg_name: str
     axis_indices: tuple[int, ...]
     constraint_kind: Literal[
-        "real_matrix", "real_vector", "positive_definite",
+        "real_matrix",
+        "real_vector",
+        "positive_definite",
     ]
     kind: Literal["data"] = "data"
 

@@ -356,9 +356,7 @@ class ChurchRenderer(RendererBase):
         [`_denotes_whole_row`][quivers.transpile.renderers.church._denotes_whole_row].
         """
         expr = node.expr
-        lift = bool(node.plate.batch_dims) and not _denotes_whole_row(
-            expr, node.plate
-        )
+        lift = bool(node.plate.batch_dims) and not _denotes_whole_row(expr, node.plate)
         if lift:
             loop_name = _loop_name(node.plate)
             assert loop_name is not None

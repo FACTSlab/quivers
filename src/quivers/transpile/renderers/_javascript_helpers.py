@@ -276,9 +276,7 @@ def _emit_arguments(
     return vid, "arguments"
 
 
-def _emit_affine_map(
-    ctx: _JsLetCtx, expr: LetExprAffineMap
-) -> tuple[str, str]:
+def _emit_affine_map(ctx: _JsLetCtx, expr: LetExprAffineMap) -> tuple[str, str]:
     """Emit one head's row block of ``W x + b`` as a call to the
     runtime's `_qvr_affine`.
 

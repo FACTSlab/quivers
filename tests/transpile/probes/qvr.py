@@ -123,8 +123,13 @@ class QvrProbe:
             inherently multi-axis.
         """
         del scratch  # in-process; no scratch files needed
-        program_monadic = monadic if monadic is not None else _compile_to_monadic(
-            source, fixture_name,
+        program_monadic = (
+            monadic
+            if monadic is not None
+            else _compile_to_monadic(
+                source,
+                fixture_name,
+            )
         )
 
         log_densities: list[float] = []
@@ -137,14 +142,13 @@ class QvrProbe:
             )
             tr = traces[0]
             if tr.log_joint is None:
-                msg = (
-                    f"qvr probe on {fixture_name!r}: trace returned "
-                    f"None log_joint"
-                )
+                msg = f"qvr probe on {fixture_name!r}: trace returned None log_joint"
                 raise RuntimeError(msg)
             assert_all_latents_clamped(tr, fixture_name)
             assert_reference_joint_deterministic(
-                traces, fixture_name, DETERMINISM_SEEDS,
+                traces,
+                fixture_name,
+                DETERMINISM_SEEDS,
             )
             log_densities.append(float(tr.log_joint.sum().item()))
 
@@ -157,7 +161,8 @@ class QvrProbe:
 
 
 def clamping_observations(
-    pt: Point, observations: dict[str, torch.Tensor] | None = None,
+    pt: Point,
+    observations: dict[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     """Build the dict [`trace`][quivers.inference.trace.trace] clamps with.
 
@@ -478,7 +483,8 @@ def _x_input(
             )
         value = pt.params[pname]
         chunk = torch.tensor(
-            [float(value)] if isinstance(value, (int, float))
+            [float(value)]
+            if isinstance(value, (int, float))
             else [float(v) for v in value],
             dtype=torch.get_default_dtype(),
         )

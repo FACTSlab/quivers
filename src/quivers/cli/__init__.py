@@ -174,8 +174,7 @@ def main() -> int:
         "-o",
         "--output",
         default=None,
-        help="Write the single-target output to this path "
-        "instead of stdout.",
+        help="Write the single-target output to this path instead of stdout.",
     )
     transpile_sub.add_argument(
         "-d",

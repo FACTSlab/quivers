@@ -148,9 +148,7 @@ def chain_dimensions(
         if dimension is None:
             return None
         dimensions.append(dimension)
-        zeros = torch.zeros(
-            probe.shape[0], dimension, device=probe.device, dtype=dtype
-        )
+        zeros = torch.zeros(probe.shape[0], dimension, device=probe.device, dtype=dtype)
         probe = factor.push_base(probe, zeros)
     return dimensions
 

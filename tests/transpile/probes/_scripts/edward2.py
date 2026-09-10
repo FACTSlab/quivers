@@ -22,6 +22,7 @@ conditioned second trace: every latent is pinned there, which makes
 the returned quantity a deterministic function of the point rather
 than of whatever the RV happened to draw.
 """
+
 import json
 import pathlib
 
@@ -157,7 +158,8 @@ def main() -> None:
         # matching the pymc probe's hard error on a free RV with no
         # supplied value.
         unclamped = sorted(
-            name for name in recorded
+            name
+            for name in recorded
             if name not in safe_overrides and name not in direct_scores
         )
         if unclamped:
@@ -178,9 +180,7 @@ def main() -> None:
                     tf.reduce_sum(rv.distribution.log_prob(direct_scores[name]))
                 )
             else:
-                log_terms.append(
-                    tf.reduce_sum(rv.distribution.log_prob(rv.value))
-                )
+                log_terms.append(tf.reduce_sum(rv.distribution.log_prob(rv.value)))
         total = tf.add_n(log_terms)
         log_densities.append(float(total.numpy()))
 

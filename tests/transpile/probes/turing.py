@@ -29,6 +29,7 @@ class TuringProbe:
             return False
         try:
             from juliacall import Main as jl
+
             jl.seval("using Turing")
         except Exception:  # noqa: BLE001
             return False
@@ -61,9 +62,7 @@ class TuringProbe:
             # one positional arg per observed variable.
             args = tuple(pt.data[name] for name in sorted(pt.data))
             model_instance = model_factory(*args)
-            theta = jl.NamedTuple(**{
-                k: _wrap(jl, v) for k, v in pt.params.items()
-            })
+            theta = jl.NamedTuple(**{k: _wrap(jl, v) for k, v in pt.params.items()})
             lp = jl.Turing.logjoint(model_instance, theta)
             log_densities.append(float(lp))
 

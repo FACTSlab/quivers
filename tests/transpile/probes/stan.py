@@ -30,9 +30,10 @@ class StanProbe:
         if importlib.util.find_spec("cmdstanpy") is None:
             return False
         import cmdstanpy
+
         try:
             cmdstanpy.cmdstan_path()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             return False
         return True
 

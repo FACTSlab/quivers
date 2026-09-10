@@ -123,10 +123,10 @@ class ContinuousBernoulli(numpyro.distributions.Distribution):
     _lims = (0.499, 0.501)
 
     def __init__(self, probs, *, validate_args=None):
-        self.probs = jnp.clip(jnp.asarray(probs, dtype=jnp.result_type(float)), 1e-6, 1.0 - 1e-6)
-        super().__init__(
-            batch_shape=jnp.shape(self.probs), validate_args=validate_args
+        self.probs = jnp.clip(
+            jnp.asarray(probs, dtype=jnp.result_type(float)), 1e-6, 1.0 - 1e-6
         )
+        super().__init__(batch_shape=jnp.shape(self.probs), validate_args=validate_args)
 
     def _outside_unstable_region(self):
         return (self.probs <= self._lims[0]) | (self.probs > self._lims[1])
@@ -199,9 +199,7 @@ class FisherSnedecor(numpyro.distributions.Distribution):
     def __init__(self, df1, df2, *, validate_args=None):
         self.df1 = jnp.asarray(df1, dtype=jnp.result_type(float))
         self.df2 = jnp.asarray(df2, dtype=jnp.result_type(float))
-        batch_shape = jnp.broadcast_shapes(
-            jnp.shape(self.df1), jnp.shape(self.df2)
-        )
+        batch_shape = jnp.broadcast_shapes(jnp.shape(self.df1), jnp.shape(self.df2))
         super().__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def log_prob(self, value):
@@ -257,9 +255,7 @@ class OneHotCategorical(numpyro.distributions.Distribution):
         return jnp.eye(self.event_shape[0])[idx]
 
     def log_prob(self, value):
-        return jnp.sum(
-            jss.xlogy(value, self.probs), axis=-1
-        )
+        return jnp.sum(jss.xlogy(value, self.probs), axis=-1)
 
 
 class OrderedProbit(numpyro.distributions.CategoricalProbs):

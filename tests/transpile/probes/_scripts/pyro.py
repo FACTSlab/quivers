@@ -11,6 +11,7 @@ return under the `_RETURN` node of the same trace the log-density
 comes from, so the export is read off Pyro's own return surface
 without a second evaluation.
 """
+
 import json
 import pathlib
 
@@ -46,12 +47,8 @@ def main() -> None:
     exports = []
     for pt in points:
         reshaped = reshape_point(pt, shapes, dtypes)
-        data_kw = {
-            k: _tensor(v) for k, v in reshaped.get("data", {}).items()
-        }
-        param_dict = {
-            k: _tensor(v) for k, v in reshaped.get("params", {}).items()
-        }
+        data_kw = {k: _tensor(v) for k, v in reshaped.get("data", {}).items()}
+        param_dict = {k: _tensor(v) for k, v in reshaped.get("params", {}).items()}
         conditioned = pyro.condition(model, data=param_dict)
         traced = pyro.poutine.trace(conditioned).get_trace(**data_kw)
         log_densities.append(float(traced.log_prob_sum()))
@@ -63,9 +60,7 @@ def main() -> None:
                     "node, so the program's exported value cannot be "
                     "read; the emitted model returns nothing."
                 )
-            exports.append(
-                export_payload(export_names, return_node["value"])
-            )
+            exports.append(export_payload(export_names, return_node["value"]))
 
     result = {"log_densities": log_densities}
     if export_names:

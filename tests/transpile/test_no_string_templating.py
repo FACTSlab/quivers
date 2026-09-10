@@ -42,9 +42,7 @@ def test_no_string_template_imports() -> None:
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name in _FORBIDDEN_MODULES:
-                        bad.append(
-                            f"{path}:{node.lineno}: imports {alias.name!r}"
-                        )
+                        bad.append(f"{path}:{node.lineno}: imports {alias.name!r}")
     assert not bad, "\n".join(bad)
 
 

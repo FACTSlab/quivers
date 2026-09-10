@@ -116,13 +116,8 @@ def test_lkj_correlation_factor_prepends_matrix_dimension() -> None:
 def test_half_student_t_grafts_folded_studentt_helper() -> None:
     """NumPyro has no ``HalfStudentT``; it is emitted as a grafted
     ``FoldedDistribution`` subclass and called by bare name."""
-    out = _numpyro_file(
-        "docs/examples/source/half_student_t_hierarchical.qvr"
-    )
-    assert (
-        "class HalfStudentT(numpyro.distributions.FoldedDistribution):"
-        in out
-    )
+    out = _numpyro_file("docs/examples/source/half_student_t_hierarchical.qvr")
+    assert "class HalfStudentT(numpyro.distributions.FoldedDistribution):" in out
     assert "HalfStudentT(df=3,scale=1)" in out
     assert "numpyro.distributions.HalfStudentT(" not in out
 
@@ -131,10 +126,7 @@ def test_logit_normal_grafts_sigmoid_transform_helper() -> None:
     """NumPyro has no ``LogitNormal``; it is emitted as a grafted
     sigmoid-of-Normal ``TransformedDistribution`` subclass."""
     out = _numpyro_file("tests/transpile/fixtures/families/logitnormal.qvr")
-    assert (
-        "class LogitNormal(numpyro.distributions.TransformedDistribution):"
-        in out
-    )
+    assert "class LogitNormal(numpyro.distributions.TransformedDistribution):" in out
     assert "SigmoidTransform()" in out
     assert "LogitNormal(loc=0,scale=1)" in out
     assert "numpyro.distributions.LogitNormal(" not in out
@@ -144,13 +136,8 @@ def test_continuous_bernoulli_grafts_full_distribution_helper() -> None:
     """NumPyro has no ``ContinuousBernoulli``; a full Distribution with
     the parameter-dependent log-normaliser is grafted, and the helper's
     ``jax.scipy.special`` dependency is imported."""
-    out = _numpyro_file(
-        "tests/transpile/fixtures/families/continuousbernoulli.qvr"
-    )
-    assert (
-        "class ContinuousBernoulli(numpyro.distributions.Distribution):"
-        in out
-    )
+    out = _numpyro_file("tests/transpile/fixtures/families/continuousbernoulli.qvr")
+    assert "class ContinuousBernoulli(numpyro.distributions.Distribution):" in out
     assert "import jax.scipy.special as jss" in out
     assert "ContinuousBernoulli(probs=0.5)" in out
     assert "numpyro.distributions.ContinuousBernoulli(" not in out
@@ -159,12 +146,8 @@ def test_continuous_bernoulli_grafts_full_distribution_helper() -> None:
 def test_fisher_snedecor_grafts_full_distribution_helper() -> None:
     """NumPyro has no ``FisherSnedecor``; a full Distribution with the
     log-Beta normaliser is grafted."""
-    out = _numpyro_file(
-        "tests/transpile/fixtures/families/fishersnedecor.qvr"
-    )
-    assert (
-        "class FisherSnedecor(numpyro.distributions.Distribution):" in out
-    )
+    out = _numpyro_file("tests/transpile/fixtures/families/fishersnedecor.qvr")
+    assert "class FisherSnedecor(numpyro.distributions.Distribution):" in out
     assert "import jax.scipy.special as jss" in out
     assert "FisherSnedecor(df1=5,df2=5)" in out
     assert "numpyro.distributions.FisherSnedecor(" not in out
@@ -180,10 +163,7 @@ def test_logistic_normal_grafts_stick_breaking_helper() -> None:
         "    return x\n"
         "export p"
     )
-    assert (
-        "class LogisticNormal(numpyro.distributions.TransformedDistribution):"
-        in out
-    )
+    assert "class LogisticNormal(numpyro.distributions.TransformedDistribution):" in out
     assert "StickBreakingTransform()" in out
     assert "LogisticNormal(loc=loc,scale=scale)" in out
     assert "numpyro.distributions.LogisticNormal(" not in out
@@ -199,9 +179,7 @@ def test_one_hot_categorical_grafts_full_distribution_helper() -> None:
         "    return x\n"
         "export p"
     )
-    assert (
-        "class OneHotCategorical(numpyro.distributions.Distribution):" in out
-    )
+    assert "class OneHotCategorical(numpyro.distributions.Distribution):" in out
     assert "OneHotCategorical(probs=probs)" in out
     assert "numpyro.distributions.OneHotCategorical(" not in out
 
@@ -216,9 +194,7 @@ def test_ordered_probit_grafts_categorical_probs_helper() -> None:
         "    return x\n"
         "export p"
     )
-    assert (
-        "class OrderedProbit(numpyro.distributions.CategoricalProbs):" in out
-    )
+    assert "class OrderedProbit(numpyro.distributions.CategoricalProbs):" in out
     assert "OrderedProbit(eta=eta,cutpoints=cutpoints)" in out
     assert "numpyro.distributions.OrderedProbit(" not in out
 

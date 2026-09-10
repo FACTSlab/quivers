@@ -38,6 +38,7 @@ because ``inits`` and ``params`` are the same dict.
 
 Copied into the container at run time by the test harness.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,9 +66,7 @@ if TYPE_CHECKING:
 # A `simplex[K]` declaration, with or without an enclosing
 # `array[N]`. The size expression is whatever Stan admits there (a
 # literal, a data variable), so the name is all this pattern needs.
-_SIMPLEX_DECL_RE = re.compile(
-    r"\bsimplex\s*\[[^\]]*\]\s*([A-Za-z_][A-Za-z0-9_]*)"
-)
+_SIMPLEX_DECL_RE = re.compile(r"\bsimplex\s*\[[^\]]*\]\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 # An `int` data declaration carrying both a lower bound of one and an
 # upper bound: `array [200] int <lower = 1 , upper = 200> w;`. That
@@ -93,29 +92,30 @@ _SIMPLEX_SUM_TOLERANCE = 1e-5
 
 
 def _one_based_outcome_names(
-    source_text: str, dtypes: dict[str, str],
+    source_text: str,
+    dtypes: dict[str, str],
 ) -> set[str]:
     """Names the emitted model declares on a one-based support.
 
-    A QVR `Categorical` observation carries codes in `0..K-1`, and so
-    does the point payload; Stan's `categorical_lpmf` counts its
-    outcomes from one, and the renderer declares the receiving data
-    array as `int <lower = 1 , upper = K>` to say so. The wire form
-thus has to be lifted by one before it reaches cmdstanpy,
-    the same marshalling
-    [`shift_index_inputs`][tests.transpile.probes._scripts._reshape.shift_index_inputs]
-    performs for a zero-based covariate the model subscripts.
+        A QVR `Categorical` observation carries codes in `0..K-1`, and so
+        does the point payload; Stan's `categorical_lpmf` counts its
+        outcomes from one, and the renderer declares the receiving data
+        array as `int <lower = 1 , upper = K>` to say so. The wire form
+    thus has to be lifted by one before it reaches cmdstanpy,
+        the same marshalling
+        [`shift_index_inputs`][tests.transpile.probes._scripts._reshape.shift_index_inputs]
+        performs for a zero-based covariate the model subscripts.
 
-    Reading the declaration rather than guessing from the value keeps
-    a count observation (`int <lower = 0>`) and a Bernoulli response
-    (`int <lower = 0 , upper = 1>`) untouched: neither is declared on
-    a one-based support, and neither is an index.
+        Reading the declaration rather than guessing from the value keeps
+        a count observation (`int <lower = 0>`) and a Bernoulli response
+        (`int <lower = 0 , upper = 1>`) untouched: neither is declared on
+        a one-based support, and neither is an index.
 
-    The dtype table gates the lift, exactly as it gates
-    [`index_input_names`][tests.transpile.probes._scripts._reshape.index_input_names]:
-    a caller that ships no `/io/dtypes.json` is one that already hands
-    the probe values in the target's own convention, and shifting them
-    again would move every code off by one.
+        The dtype table gates the lift, exactly as it gates
+        [`index_input_names`][tests.transpile.probes._scripts._reshape.index_input_names]:
+        a caller that ships no `/io/dtypes.json` is one that already hands
+        the probe values in the target's own convention, and shifting them
+        again would move every code off by one.
     """
     return {
         name
@@ -130,7 +130,8 @@ def _simplex_parameter_names(source_text: str) -> set[str]:
 
 
 def _renormalise_rows(
-    name: str, value: list[NestedNumber],
+    name: str,
+    value: list[NestedNumber],
 ) -> list[NestedNumber]:
     """Scale every innermost row of ``value`` to sum to exactly one.
 
@@ -170,7 +171,8 @@ def _renormalise_rows(
 
 
 def _renormalise_simplex_params(
-    params: PointSection, simplex_names: set[str],
+    params: PointSection,
+    simplex_names: set[str],
 ) -> PointSection:
     """Return ``params`` with every simplex-typed entry rescaled."""
     return {
@@ -242,9 +244,8 @@ def main() -> None:
     # one; every zero-based covariate the model subscripts and every
     # outcome the model declares on a one-based support must be lifted
     # before it reaches cmdstanpy.
-    index_names = (
-        index_input_names(source_text, dtypes)
-        | _one_based_outcome_names(source_text, dtypes)
+    index_names = index_input_names(source_text, dtypes) | _one_based_outcome_names(
+        source_text, dtypes
     )
     simplex_names = _simplex_parameter_names(source_text)
 
@@ -253,10 +254,12 @@ def main() -> None:
     exports = []
     for pt in points:
         reshaped = shift_index_inputs(
-            reshape_point(pt, shapes, dtypes), index_names,
+            reshape_point(pt, shapes, dtypes),
+            index_names,
         )
         params = _renormalise_simplex_params(
-            reshaped.get("params", {}), simplex_names,
+            reshaped.get("params", {}),
+            simplex_names,
         )
         data = reshaped.get("data", {})
         # `jacobian=False` returns the constrained-space log
@@ -268,14 +271,10 @@ def main() -> None:
         # avoids a theta-dependent Jacobian term that would
         # otherwise leak into the spread and violate the
         # constant-spread contract.
-        lp_df = model.log_prob(
-            params=params, data=data, jacobian=False
-        )
+        lp_df = model.log_prob(params=params, data=data, jacobian=False)
         log_densities.append(float(lp_df["lp__"].iloc[0]))
         if export_names:
-            exports.append(
-                _generated_quantities(model, params, data, export_names)
-            )
+            exports.append(_generated_quantities(model, params, data, export_names))
 
     result = {"log_densities": log_densities}
     if export_names:

@@ -1362,8 +1362,7 @@ def _filter_kwargs_for(cls: type, kwargs: dict) -> dict:
     """
     sig = inspect.signature(cls.__init__)
     accepts_var_kw = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD
-        for p in sig.parameters.values()
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
     )
     if accepts_var_kw:
         return kwargs

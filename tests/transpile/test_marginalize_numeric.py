@@ -154,9 +154,7 @@ def _analytic_beta_bernoulli_mix(
     num_groups = int(idx.max().item()) + 1
 
     lp = D.Dirichlet(torch.ones(2, dtype=_DOUBLE)).log_prob(probs)
-    lp = lp + D.Dirichlet(
-        torch.full((2,), 2.0, dtype=_DOUBLE)
-    ).log_prob(theta)
+    lp = lp + D.Dirichlet(torch.full((2,), 2.0, dtype=_DOUBLE)).log_prob(theta)
 
     per_row_per_class = D.Bernoulli(probs=theta).log_prob(y.unsqueeze(-1))
     grouped = torch.zeros((num_groups, 2), dtype=_DOUBLE)
@@ -341,7 +339,9 @@ def _stan_points(qvr_points: list[Point]) -> list[Point]:
     return shifted
 
 
-def _coerce(value: float | int | list[float] | list[int], *, integer: bool) -> torch.Tensor:
+def _coerce(
+    value: float | int | list[float] | list[int], *, integer: bool
+) -> torch.Tensor:
     """Coerce a host-supplied value to the natural tensor shape for the QVR trace.
 
     Scalars land as 0-D tensors (so a `factor c : Cls in <expr>` body
@@ -405,9 +405,7 @@ def _qvr_log_densities(
             x = torch.zeros(1, 1, dtype=_DOUBLE)
             tr = trace(monadic, x, observations=obs_dict)
             if tr.log_joint is None:
-                raise RuntimeError(
-                    f"qvr trace on {fixture_name!r}: log_joint is None"
-                )
+                raise RuntimeError(f"qvr trace on {fixture_name!r}: log_joint is None")
             log_densities.append(float(tr.log_joint.item()))
     finally:
         torch.set_default_dtype(prior)
@@ -425,12 +423,8 @@ def _target_log_densities(
     image, ext, script_name = _BACKENDS[backend]
     if not _docker.image_available(image):
         return None
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
-    points_json = [
-        {"params": pt.params, "data": pt.data} for pt in points
-    ]
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
+    points_json = [{"params": pt.params, "data": pt.data} for pt in points]
     raw = _docker.run_probe(
         image=image,
         script=script_path,
@@ -538,5 +532,3 @@ def test_stan_emits_log_sum_exp(fixture_name: str) -> None:
             f"stan emit for {fixture_name!r} does not contain "
             f"`log_sum_exp` -- marginalize was not enumerated:\n{emit}"
         )
-
-

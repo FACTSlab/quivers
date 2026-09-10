@@ -39,9 +39,7 @@ from tests.transpile.probes._protocol import Point
 from tests.transpile.probes.qvr import QvrProbe
 
 
-_GALLERY_DOCS = (
-    Path(__file__).resolve().parents[2] / "docs" / "examples"
-)
+_GALLERY_DOCS = Path(__file__).resolve().parents[2] / "docs" / "examples"
 _GALLERY_SOURCE = _GALLERY_DOCS / "source"
 
 PROBE_SCRIPT_DIR = Path(__file__).resolve().parent / "probes" / "_scripts"
@@ -129,7 +127,7 @@ def sweep_abandoned_probe_roots(parent: Path | None = None) -> list[Path]:
             # would make the directory its own anyway.
             shutil.rmtree(entry, ignore_errors=True)
             swept.append(entry)
-        except (OverflowError, PermissionError):
+        except OverflowError, PermissionError:
             # Out of pid range, or owned by another user whose live
             # process this one may not signal. Either way the root is
             # not established as abandoned, so it stays.
@@ -219,7 +217,8 @@ def probe_script_digests() -> dict[str, str]:
 
 
 def assert_probe_scripts_unchanged(
-    baseline: dict[str, str], names: frozenset[str] | None = None,
+    baseline: dict[str, str],
+    names: frozenset[str] | None = None,
 ) -> None:
     """Fail when the probe sources moved since `baseline` was taken.
 
@@ -244,9 +243,7 @@ def assert_probe_scripts_unchanged(
     if names is not None:
         candidates &= names
     moved = sorted(
-        name
-        for name in candidates
-        if baseline.get(name) != current.get(name)
+        name for name in candidates if baseline.get(name) != current.get(name)
     )
     if not moved:
         return
@@ -461,7 +458,10 @@ def _exported_type_parameters(
 
 
 def _literal_argument(
-    node: ast.expr, program: str, param: str, md: Path,
+    node: ast.expr,
+    program: str,
+    param: str,
+    md: Path,
 ) -> float:
     """Value of one literal argument of a template invocation.
 
@@ -492,7 +492,9 @@ def _literal_argument(
 
 
 def _scalar_program_arguments(
-    snippet: str, md: Path, declared: dict[str, tuple[tuple[str, str], ...]],
+    snippet: str,
+    md: Path,
+    declared: dict[str, tuple[tuple[str, str], ...]],
 ) -> dict[str, float]:
     """Concrete values the snippet instantiated the exported
     parametric program at, keyed by type-parameter name.
@@ -515,19 +517,23 @@ def _scalar_program_arguments(
         params = declared.get(func.attr)
         if params is None:
             continue
-        scalar = {
-            name for name, kind in params if kind == _SCALAR_PARAM_TYPE
-        }
+        scalar = {name for name, kind in params if kind == _SCALAR_PARAM_TYPE}
         bound: dict[str, float] = {}
         for (name, _kind), positional in zip(params, node.args):
             if name in scalar:
                 bound[name] = _literal_argument(
-                    positional, func.attr, name, md,
+                    positional,
+                    func.attr,
+                    name,
+                    md,
                 )
         for keyword in node.keywords:
             if keyword.arg in scalar:
                 bound[keyword.arg] = _literal_argument(
-                    keyword.value, func.attr, keyword.arg, md,
+                    keyword.value,
+                    func.attr,
+                    keyword.arg,
+                    md,
                 )
         missing = sorted(scalar - set(bound))
         if missing:
@@ -542,7 +548,8 @@ def _scalar_program_arguments(
 
 
 def _sample_site_names(
-    source_qvr: Path, monadic: MonadicProgram | None,
+    source_qvr: Path,
+    monadic: MonadicProgram | None,
 ) -> list[str]:
     """Return the program's actual latent sample-site names.
 
@@ -576,9 +583,7 @@ def _is_tensor_like(value: object) -> bool:
     if isinstance(value, torch.Tensor):
         return True
     if isinstance(value, (list, tuple)) and value:
-        return all(
-            isinstance(x, (int, float, list, tuple)) for x in value
-        )
+        return all(isinstance(x, (int, float, list, tuple)) for x in value)
     return False
 
 
@@ -591,7 +596,9 @@ exhaust that case rather than papering over it."""
 
 
 def _row_permutation(
-    stem: str, length: int, attempt: int,
+    stem: str,
+    length: int,
+    attempt: int,
 ) -> torch.Tensor:
     """A deterministic permutation of `length` row positions.
 
@@ -604,7 +611,7 @@ def _row_permutation(
         f"{stem}:{length}:{attempt}".encode("utf-8"),
     ).digest()[:8]
     generator = torch.Generator()
-    generator.manual_seed(int.from_bytes(digest, "big") % (2 ** 63))
+    generator.manual_seed(int.from_bytes(digest, "big") % (2**63))
     return torch.randperm(length, generator=generator)
 
 
@@ -635,9 +642,7 @@ def _dealias_row_order(
     x_input: torch.Tensor | None,
     observe_names: frozenset[str],
     stem: str,
-) -> tuple[
-    dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor | None
-]:
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], torch.Tensor | None]:
     """Relabel plates whose structural subscript matches row order.
 
     Structural subscripts remain fixed across evaluation points. A
@@ -656,9 +661,7 @@ def _dealias_row_order(
     dealiased = dict(observations)
     moved_params = dict(params)
     moved_input = x_input
-    for length in sorted(
-        {int(observations[name].shape[0]) for name in subscripts}
-    ):
+    for length in sorted({int(observations[name].shape[0]) for name in subscripts}):
         rows = sorted(
             name
             for name, value in observations.items()
@@ -695,7 +698,8 @@ def _dealias_row_order(
 
 
 def _observations_from_namespace(
-    source_qvr: Path, ns: dict[str, object],
+    source_qvr: Path,
+    ns: dict[str, object],
 ) -> dict[str, object]:
     """Build an observations dict by matching the QVR program's
     `observe <name>` binders against tensors in `ns` by name.
@@ -787,7 +791,7 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
         else:
             try:
                 obs_tensors[k] = torch.as_tensor(v, dtype=torch.float64)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
 
     # Compiled MonadicProgram. Templates compile to `Program(None)`
@@ -825,7 +829,7 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
         if isinstance(value, (list, tuple)):
             try:
                 return torch.as_tensor(value, dtype=torch.float64)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
         return None
 
@@ -863,7 +867,9 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
         params[site] = obs_tensors[site].detach().to(dtype=torch.float64)
 
     scalar_params = _scalar_program_arguments(
-        snippet, md, _exported_type_parameters(source_qvr),
+        snippet,
+        md,
+        _exported_type_parameters(source_qvr),
     )
     collisions = sorted(
         frozenset(scalar_params) & (frozenset(params) | frozenset(obs_tensors))
@@ -890,7 +896,11 @@ def load_gallery_data(source_qvr: Path) -> GalleryDataset | None:
 
     observe_names = frozenset(_qvr_observe_names(source_qvr))
     obs_tensors, params, x_input = _dealias_row_order(
-        obs_tensors, params, x_input, observe_names, source_qvr.stem,
+        obs_tensors,
+        params,
+        x_input,
+        observe_names,
+        source_qvr.stem,
     )
 
     single_row = _program_is_plateless(source_qvr)
@@ -936,7 +946,9 @@ def _program_is_plateless(source_qvr: Path) -> bool:
     """
     text = source_qvr.read_text(encoding="utf-8")
     steps = re.findall(
-        r"^\s*(?:sample|observe)\s+[\w$, ]+?(\s*:\s*\w+)?\s*<-", text, re.M,
+        r"^\s*(?:sample|observe)\s+[\w$, ]+?(\s*:\s*\w+)?\s*<-",
+        text,
+        re.M,
     )
     return bool(steps) and not any(index for index in steps)
 
@@ -959,7 +971,8 @@ def _first_row(value: torch.Tensor) -> torch.Tensor:
 
 
 def _compiled_param_wires(
-    source_qvr: Path, monadic: MonadicProgram | None,
+    source_qvr: Path,
+    monadic: MonadicProgram | None,
 ) -> dict[str, torch.Tensor]:
     """The linear parameter maps the emitted program reads as inputs.
 
@@ -986,7 +999,9 @@ def _compiled_param_wires(
         return {}
     text = source_qvr.read_text(encoding="utf-8")
     draws = re.findall(
-        r"^\s*(?:sample|observe)\s+(\w+)[^<]*<-\s*(\w+)", text, re.M,
+        r"^\s*(?:sample|observe)\s+(\w+)[^<]*<-\s*(\w+)",
+        text,
+        re.M,
     )
     named = dict(monadic.named_parameters())
     wires: dict[str, torch.Tensor] = {}
@@ -1001,7 +1016,8 @@ def _compiled_param_wires(
 
 
 def _domain_wires(
-    source_qvr: Path, x_input: torch.Tensor | None,
+    source_qvr: Path,
+    x_input: torch.Tensor | None,
 ) -> dict[str, torch.Tensor]:
     """The program's own domain, split into the inputs it declares.
 
@@ -1023,14 +1039,18 @@ def _domain_wires(
     text = source_qvr.read_text(encoding="utf-8")
     widths: dict[str, int] = {}
     for names, width in re.findall(
-        r"^object\s+([\w, ]+?)\s*:\s*Real\s+(\d+)", text, re.M,
+        r"^object\s+([\w, ]+?)\s*:\s*Real\s+(\d+)",
+        text,
+        re.M,
     ):
         for name in names.split(","):
             widths[name.strip()] = int(width)
     exported = set(re.findall(r"^export\s+(\w+)", text, re.M))
     signature = None
     for name, domain in re.findall(
-        r"^program\s+(\w+)[^:\n]*:\s*([^\n]+?)\s*->", text, re.M,
+        r"^program\s+(\w+)[^:\n]*:\s*([^\n]+?)\s*->",
+        text,
+        re.M,
     ):
         if signature is None or name in exported:
             signature = (name, domain)
@@ -1097,7 +1117,9 @@ def point_from_dataset(dataset: GalleryDataset) -> Point:
     and `data` is the section each probe script binds to the model's
     formal arguments."""
     return _point_from_tensors(
-        dataset.params, dataset.observations, dataset.scalar_params,
+        dataset.params,
+        dataset.observations,
+        dataset.scalar_params,
         dataset.param_wires,
     )
 
@@ -1121,14 +1143,12 @@ def _point_from_tensors(
     compiled parameter map is an input of the emitted program, so the
     section that binds model arguments is where it belongs.
     """
+
     def _flatten(t: torch.Tensor) -> list[float]:
         return t.detach().to(dtype=torch.float64).flatten().tolist()
+
     flat_params = {k: _flatten(v) for k, v in params.items()}
-    flat_data = {
-        k: _flatten(v)
-        for k, v in observations.items()
-        if k not in params
-    }
+    flat_data = {k: _flatten(v) for k, v in observations.items() if k not in params}
     squeezed_params: dict[str, float | int | list[float] | list[int]] = {
         k: (v[0] if len(v) == 1 else v) for k, v in flat_params.items()
     }
@@ -1271,9 +1291,7 @@ def perturbation_labels(n_points: int = 6) -> list[str]:
     labels through the point set.
     """
     if n_points <= 0:
-        raise ValueError(
-            f"n_points must be positive, got {n_points!r}"
-        )
+        raise ValueError(f"n_points must be positive, got {n_points!r}")
     return [PERTURB_GROUND_TRUTH] + [
         _PERTURBATION_CYCLE[(i - 1) % len(_PERTURBATION_CYCLE)]
         for i in range(1, n_points)
@@ -1393,7 +1411,8 @@ def _perturb_integer(
     if work.numel() == 0:
         return work
     magnitude = max(
-        1.0, _INTEGER_STEP_FRACTION * float(work.abs().mean().item()),
+        1.0,
+        _INTEGER_STEP_FRACTION * float(work.abs().mean().item()),
     )
     moved = torch.round(work + torch.round(noise * magnitude))
     attested_low = float(work.min().item())
@@ -1441,7 +1460,9 @@ def _nudge_frozen_integer(
 
 
 def _perturb_lower_cholesky(
-    work: torch.Tensor, noise: torch.Tensor, scale: float,
+    work: torch.Tensor,
+    noise: torch.Tensor,
+    scale: float,
 ) -> torch.Tensor:
     """Perturb a lower-triangular factor with positive diagonal.
 
@@ -1476,7 +1497,9 @@ def _perturb_by_support(
     support = _base_constraint(support)
     work = value.detach().to(dtype=torch.float64)
     noise = torch.randn(
-        work.shape, generator=generator, dtype=torch.float64,
+        work.shape,
+        generator=generator,
+        dtype=torch.float64,
     )
     moved: torch.Tensor
     if isinstance(support, type(constraints.simplex)):
@@ -1484,33 +1507,45 @@ def _perturb_by_support(
         moved = torch.softmax(logits, dim=-1)
     elif isinstance(support, type(constraints.boolean)):
         uniform = torch.rand(
-            work.shape, generator=generator, dtype=torch.float64,
+            work.shape,
+            generator=generator,
+            dtype=torch.float64,
         )
         moved = torch.where(
-            uniform < _BOOLEAN_FLIP_PROBABILITY, 1.0 - work, work,
+            uniform < _BOOLEAN_FLIP_PROBABILITY,
+            1.0 - work,
+            work,
         )
     elif isinstance(support, constraints.integer_interval):
         moved = _perturb_integer(
-            work, noise,
-            float(support.lower_bound), float(support.upper_bound),
+            work,
+            noise,
+            float(support.lower_bound),
+            float(support.upper_bound),
         )
     elif isinstance(support, type(constraints.nonnegative_integer)):
         moved = _perturb_integer(
-            work, noise, float(support.lower_bound), math.inf,
+            work,
+            noise,
+            float(support.lower_bound),
+            math.inf,
         )
     elif isinstance(
-        support, (constraints.interval, constraints.half_open_interval),
+        support,
+        (constraints.interval, constraints.half_open_interval),
     ):
         lower = float(support.lower_bound)
         upper = float(support.upper_bound)
         width = upper - lower
         unit = ((work - lower) / width).clamp(
-            _SUPPORT_EPS, 1.0 - _SUPPORT_EPS,
+            _SUPPORT_EPS,
+            1.0 - _SUPPORT_EPS,
         )
         logit = torch.log(unit) - torch.log1p(-unit)
         moved = lower + width * torch.sigmoid(logit + scale * noise)
     elif isinstance(
-        support, (constraints.greater_than, constraints.greater_than_eq),
+        support,
+        (constraints.greater_than, constraints.greater_than_eq),
     ):
         lower = float(support.lower_bound)
         moved = lower + (work - lower).clamp_min(
@@ -1541,7 +1576,8 @@ def _perturb_by_support(
 
 
 def _observed_count_floor(
-    section: dict[str, torch.Tensor], observe_names: frozenset[str],
+    section: dict[str, torch.Tensor],
+    observe_names: frozenset[str],
 ) -> float:
     """Smallest value a scalar count parameter of `section` may take.
 
@@ -1562,7 +1598,8 @@ def _observed_count_floor(
         if name not in observe_names or value.numel() == 0:
             continue
         if value.dtype.is_floating_point and not torch.equal(
-            value, value.round(),
+            value,
+            value.round(),
         ):
             continue
         floor = max(floor, float(value.max().item()))
@@ -1598,10 +1635,12 @@ def _data_section_support(
         if ceiling <= count_floor:
             return None
         return constraints.integer_interval(
-            int(count_floor), int(ceiling),
+            int(count_floor),
+            int(ceiling),
         )
     if value.dtype.is_floating_point and not torch.equal(
-        value, value.round(),
+        value,
+        value.round(),
     ):
         return constraints.real
     lower = int(value.min().item())
@@ -1632,9 +1671,7 @@ def _perturb_section(
     """
     out: dict[str, torch.Tensor] = {}
     count_floor = (
-        _observed_count_floor(section, observe_names)
-        if infer_from_value
-        else 0.0
+        _observed_count_floor(section, observe_names) if infer_from_value else 0.0
     )
     for name, value in section.items():
         if name in exclude:
@@ -1643,7 +1680,10 @@ def _perturb_section(
         support = supports.get(name)
         if support is None and infer_from_value:
             support = _data_section_support(
-                name, value, observe_names, count_floor,
+                name,
+                value,
+                observe_names,
+                count_floor,
             )
         if support is None:
             out[name] = value
@@ -1654,7 +1694,8 @@ def _perturb_section(
 
 
 def observations_for_point(
-    dataset: GalleryDataset, point: Point,
+    dataset: GalleryDataset,
+    point: Point,
 ) -> dict[str, torch.Tensor]:
     """Rebuild the pre-shaped observation dict the in-process
     [`QvrProbe`][tests.transpile.probes.qvr.QvrProbe] clamps with, for
@@ -1724,12 +1765,14 @@ def structural_subscript_names(dataset: GalleryDataset) -> frozenset[str]:
     so none of the three is reported here.
     """
     return _structural_subscript_names(
-        dataset.observations, dataset.observe_names,
+        dataset.observations,
+        dataset.observe_names,
     )
 
 
 def varying_observation_names(
-    dataset: GalleryDataset, points: list[Point],
+    dataset: GalleryDataset,
+    points: list[Point],
 ) -> frozenset[str]:
     """The
     [`observed_data_names`][tests.transpile._gallery_data.observed_data_names]
@@ -1740,11 +1783,7 @@ def varying_observation_names(
     """
     moved: set[str] = set()
     for name in observed_data_names(dataset):
-        seen = {
-            _wire_key(point.data[name])
-            for point in points
-            if name in point.data
-        }
+        seen = {_wire_key(point.data[name]) for point in points if name in point.data}
         if len(seen) > 1:
             moved.add(name)
     return frozenset(moved)
@@ -1761,14 +1800,14 @@ def _wire_key(
 
 
 def _qvr_log_density(
-    dataset: GalleryDataset, point: Point, fixture: str,
+    dataset: GalleryDataset,
+    point: Point,
+    fixture: str,
 ) -> float:
     """Joint log-density of the compiled program at one point."""
     monadic = dataset.monadic
     if monadic is None:
-        raise RuntimeError(
-            f"{fixture!r}: no compiled MonadicProgram to score"
-        )
+        raise RuntimeError(f"{fixture!r}: no compiled MonadicProgram to score")
     result = QvrProbe().evaluate(
         b"",
         fixture,
@@ -1871,17 +1910,18 @@ def points_from_dataset(
     # snippet also clamps for its SVI demo. The latent spelling is
     # canonical, so the data pass leaves it alone and the latent pass
     # owns it.
-    shared_names = frozenset(dataset.params) & frozenset(
-        dataset.observations
-    )
+    shared_names = frozenset(dataset.params) & frozenset(dataset.observations)
 
     for index in range(1, n_points):
         mode = labels[index]
         for attempt in range(_MAX_REDRAWS):
-            attempt_scale = scale * (0.5 ** attempt)
+            attempt_scale = scale * (0.5**attempt)
             params = (
                 _perturb_section(
-                    dataset.params, supports, generator, attempt_scale,
+                    dataset.params,
+                    supports,
+                    generator,
+                    attempt_scale,
                     infer_from_value=False,
                 )
                 if mode in (PERTURB_LATENTS, PERTURB_BOTH)
@@ -1889,7 +1929,9 @@ def points_from_dataset(
             )
             observations = (
                 _perturb_section(
-                    dataset.observations, supports, generator,
+                    dataset.observations,
+                    supports,
+                    generator,
                     attempt_scale,
                     infer_from_value=True,
                     observe_names=dataset.observe_names,
@@ -1899,7 +1941,9 @@ def points_from_dataset(
                 else dict(dataset.observations)
             )
             candidate = _point_from_tensors(
-                params, observations, dataset.scalar_params,
+                params,
+                observations,
+                dataset.scalar_params,
                 dataset.param_wires,
             )
             if not validate:
@@ -1964,9 +2008,7 @@ def points_across_seeds(
             "return an empty sweep that vacuously satisfies every "
             "claim made over it. Pass at least one seed."
         )
-    duplicates = sorted(
-        {seed for seed in ordered if ordered.count(seed) > 1}
-    )
+    duplicates = sorted({seed for seed in ordered if ordered.count(seed) > 1})
     if duplicates:
         raise ValueError(
             f"points_across_seeds was given repeated seed(s) "
@@ -1976,7 +2018,10 @@ def points_across_seeds(
         )
     return {
         seed: points_from_dataset(
-            dataset, n_points=n_points, seed=seed, scale=scale,
+            dataset,
+            n_points=n_points,
+            seed=seed,
+            scale=scale,
         )
         for seed in ordered
     }
@@ -2002,7 +2047,8 @@ def point_displacements(points: Sequence[Point]) -> list[float]:
     for point in points:
         total = 0.0
         for section, base in (
-            (point.params, origin.params), (point.data, origin.data),
+            (point.params, origin.params),
+            (point.data, origin.data),
         ):
             for name, value in section.items():
                 if name not in base:
@@ -2011,9 +2057,7 @@ def point_displacements(points: Sequence[Point]) -> list[float]:
                 there = _wire_key(base[name])
                 if len(here) != len(there):
                     continue
-                total += sum(
-                    (a - b) ** 2 for a, b in zip(here, there)
-                )
+                total += sum((a - b) ** 2 for a, b in zip(here, there))
         out.append(math.sqrt(total))
     return out
 

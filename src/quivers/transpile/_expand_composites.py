@@ -89,7 +89,9 @@ class _ParallelLeaf(_ChainElem):
 
 
 def expand_composite_lets(
-    module: Module, *, target: str | None = None,
+    module: Module,
+    *,
+    target: str | None = None,
 ) -> Module:
     """Rewrite `program_decl` bodies so composite-let sample steps
     become equivalent chains of atomic sample steps.
@@ -162,7 +164,9 @@ def _expand_draws(
     for step in draws:
         if isinstance(step, MarginalizeStep):
             scope_expanded = _expand_draws(
-                step.scope, morphisms=morphisms, lets=lets,
+                step.scope,
+                morphisms=morphisms,
+                lets=lets,
             )
             if scope_expanded is step.scope:
                 out.append(step)
@@ -172,13 +176,17 @@ def _expand_draws(
             continue
         if isinstance(step, (SampleStep, ObserveStep)):
             chain = _resolve_to_chain(
-                step.morphism, morphisms=morphisms, lets=lets,
+                step.morphism,
+                morphisms=morphisms,
+                lets=lets,
             )
             if chain is not None:
                 any_changed = True
                 expanded, counter = _expand_step(
-                    step, chain,
-                    morphisms=morphisms, counter=counter,
+                    step,
+                    chain,
+                    morphisms=morphisms,
+                    counter=counter,
                 )
                 out.extend(expanded)
                 continue
@@ -213,12 +221,13 @@ def _resolve_to_chain(
         )
     if isinstance(
         expr,
-        (ExprCompose, ExprTensorProduct, ExprFan,
-         ExprScan, ExprStack, ExprRepeat),
+        (ExprCompose, ExprTensorProduct, ExprFan, ExprScan, ExprStack, ExprRepeat),
     ):
         return _flatten_compose(
             expr,
-            morphisms=morphisms, lets=lets, seen=(*_seen, name),
+            morphisms=morphisms,
+            lets=lets,
+            seen=(*_seen, name),
         )
     return None
 
@@ -265,8 +274,11 @@ def _flatten_compose(
             return walk(e.left) and walk(e.right)
         if isinstance(e, ExprIdent):
             return _resolve_ident_leaf(
-                e.name, morphisms=morphisms, lets=lets,
-                seen=seen, out=out,
+                e.name,
+                morphisms=morphisms,
+                lets=lets,
+                seen=seen,
+                out=out,
             )
         if isinstance(e, ExprStack):
             inner = _expr_to_name(e.expr)
@@ -274,8 +286,11 @@ def _flatten_compose(
                 return False
             for _ in range(e.count):
                 if not _resolve_ident_leaf(
-                    inner, morphisms=morphisms, lets=lets,
-                    seen=seen, out=out,
+                    inner,
+                    morphisms=morphisms,
+                    lets=lets,
+                    seen=seen,
+                    out=out,
                 ):
                     return False
             return True
@@ -285,8 +300,11 @@ def _flatten_compose(
                 return False
             for _ in range(e.count):
                 if not _resolve_ident_leaf(
-                    inner, morphisms=morphisms, lets=lets,
-                    seen=seen, out=out,
+                    inner,
+                    morphisms=morphisms,
+                    lets=lets,
+                    seen=seen,
+                    out=out,
                 ):
                     return False
             return True
@@ -295,8 +313,11 @@ def _flatten_compose(
             for sub in e.exprs:
                 sub_out: list[_ChainElem] = []
                 if not _walk_into(
-                    sub, sub_out,
-                    morphisms=morphisms, lets=lets, seen=seen,
+                    sub,
+                    sub_out,
+                    morphisms=morphisms,
+                    lets=lets,
+                    seen=seen,
                 ):
                     return False
                 branches.append(tuple(sub_out))
@@ -306,18 +327,26 @@ def _flatten_compose(
             left_out: list[_ChainElem] = []
             right_out: list[_ChainElem] = []
             if not _walk_into(
-                e.left, left_out,
-                morphisms=morphisms, lets=lets, seen=seen,
+                e.left,
+                left_out,
+                morphisms=morphisms,
+                lets=lets,
+                seen=seen,
             ):
                 return False
             if not _walk_into(
-                e.right, right_out,
-                morphisms=morphisms, lets=lets, seen=seen,
+                e.right,
+                right_out,
+                morphisms=morphisms,
+                lets=lets,
+                seen=seen,
             ):
                 return False
-            out.append(_ParallelLeaf(
-                branches=(tuple(left_out), tuple(right_out)),
-            ))
+            out.append(
+                _ParallelLeaf(
+                    branches=(tuple(left_out), tuple(right_out)),
+                )
+            )
             return True
         if isinstance(e, ExprScan):
             cell_name = _expr_to_name(e.expr)
@@ -354,8 +383,11 @@ def _walk_into(
         return True
     if isinstance(e, ExprIdent):
         return _resolve_ident_leaf(
-            e.name, morphisms=morphisms, lets=lets,
-            seen=seen, out=out,
+            e.name,
+            morphisms=morphisms,
+            lets=lets,
+            seen=seen,
+            out=out,
         )
     return False
 
@@ -386,7 +418,10 @@ def _resolve_ident_leaf(
         return True
     if name in lets:
         sub = _resolve_to_chain(
-            name, morphisms=morphisms, lets=lets, _seen=seen,
+            name,
+            morphisms=morphisms,
+            lets=lets,
+            _seen=seen,
         )
         if sub is not None:
             out.extend(sub)
@@ -395,8 +430,10 @@ def _resolve_ident_leaf(
         if isinstance(inner, ExprIdent):
             return _resolve_ident_leaf(
                 inner.name,
-                morphisms=morphisms, lets=lets,
-                seen=(*seen, name), out=out,
+                morphisms=morphisms,
+                lets=lets,
+                seen=(*seen, name),
+                out=out,
             )
         return False
     out.append(_DeterministicLeaf(name=name))
@@ -448,8 +485,10 @@ def _expand_step(
     if len(chain) < 1:
         return [step], counter
     base_name = (
-        step.vars[0] if isinstance(step, SampleStep) and step.vars
-        else step.vars[0] if isinstance(step, ObserveStep) and step.vars
+        step.vars[0]
+        if isinstance(step, SampleStep) and step.vars
+        else step.vars[0]
+        if isinstance(step, ObserveStep) and step.vars
         else "tmp"
     )
     if len(chain) == 1 and isinstance(chain[0], _StochasticLeaf):
@@ -457,28 +496,32 @@ def _expand_step(
         if elem.name == step.morphism:
             return [step], counter
         if isinstance(step, ObserveStep):
-            return [ObserveStep(
+            return [
+                ObserveStep(
+                    vars=(base_name,),
+                    morphism=elem.name,
+                    args=step.args,
+                    index=step.index,
+                    axes=step.axes,
+                    via=step.via,
+                    via_axes=step.via_axes,
+                    options=step.options,
+                    line=step.line,
+                    col=step.col,
+                )
+            ], counter
+        return [
+            SampleStep(
                 vars=(base_name,),
                 morphism=elem.name,
                 args=step.args,
                 index=step.index,
                 axes=step.axes,
-                via=step.via,
-                via_axes=step.via_axes,
                 options=step.options,
                 line=step.line,
                 col=step.col,
-            )], counter
-        return [SampleStep(
-            vars=(base_name,),
-            morphism=elem.name,
-            args=step.args,
-            index=step.index,
-            axes=step.axes,
-            options=step.options,
-            line=step.line,
-            col=step.col,
-        )], counter
+            )
+        ], counter
 
     out: list[ProgramStep] = []
     prev_var: str | None = None
@@ -523,59 +566,61 @@ def _emit_chain_elem(
             morphisms=morphisms,
         )
         if is_last and isinstance(original, ObserveStep):
-            return [ObserveStep(
+            return [
+                ObserveStep(
+                    vars=(terminal_var,),
+                    morphism=elem.name,
+                    args=args,
+                    index=original.index,
+                    axes=original.axes,
+                    via=original.via,
+                    via_axes=original.via_axes,
+                    options=original.options,
+                    line=original.line,
+                    col=original.col,
+                )
+            ], counter
+        sample_options = (
+            original.options if (is_last and isinstance(original, SampleStep)) else ()
+        )
+        sample_axes = (
+            original.axes if (is_last and isinstance(original, SampleStep)) else None
+        )
+        sample_index = (
+            original.index if (is_last and isinstance(original, SampleStep)) else None
+        )
+        return [
+            SampleStep(
                 vars=(terminal_var,),
                 morphism=elem.name,
                 args=args,
-                index=original.index,
-                axes=original.axes,
-                via=original.via,
-                via_axes=original.via_axes,
-                options=original.options,
+                index=sample_index,
+                axes=sample_axes,
+                options=sample_options,
                 line=original.line,
                 col=original.col,
-            )], counter
-        sample_options = (
-            original.options
-            if (is_last and isinstance(original, SampleStep))
-            else ()
-        )
-        sample_axes = (
-            original.axes
-            if (is_last and isinstance(original, SampleStep))
-            else None
-        )
-        sample_index = (
-            original.index
-            if (is_last and isinstance(original, SampleStep))
-            else None
-        )
-        return [SampleStep(
-            vars=(terminal_var,),
-            morphism=elem.name,
-            args=args,
-            index=sample_index,
-            axes=sample_axes,
-            options=sample_options,
-            line=original.line,
-            col=original.col,
-        )], counter
+            )
+        ], counter
     if isinstance(elem, _DeterministicLeaf):
         rhs = _function_call_expr(elem.name, prev_var)
-        return [LetStep(
-            name=terminal_var,
-            value=rhs,
-            line=original.line,
-            col=original.col,
-        )], counter
+        return [
+            LetStep(
+                name=terminal_var,
+                value=rhs,
+                line=original.line,
+                col=original.col,
+            )
+        ], counter
     if isinstance(elem, _ScanLeaf):
         rhs = _scan_call_expr(elem.name, prev_var)
-        return [LetStep(
-            name=terminal_var,
-            value=rhs,
-            line=original.line,
-            col=original.col,
-        )], counter
+        return [
+            LetStep(
+                name=terminal_var,
+                value=rhs,
+                line=original.line,
+                col=original.col,
+            )
+        ], counter
     if isinstance(elem, _ParallelLeaf):
         return _emit_parallel(
             elem=elem,
@@ -586,8 +631,7 @@ def _emit_chain_elem(
             counter=counter,
         )
     raise AssertionError(
-        f"_emit_chain_elem: unhandled chain-elem variant "
-        f"{type(elem).__name__!r}"
+        f"_emit_chain_elem: unhandled chain-elem variant {type(elem).__name__!r}"
     )
 
 
@@ -633,21 +677,25 @@ def _emit_parallel(
             continue
         branch_tails.append(branch_prev)
     if not branch_tails:
-        out.append(LetStep(
+        out.append(
+            LetStep(
+                name=terminal_var,
+                value=LetExprCall(func="tuple", args=()),
+                line=original.line,
+                col=original.col,
+            )
+        )
+        return out, counter
+    out.append(
+        LetStep(
             name=terminal_var,
-            value=LetExprCall(func="tuple", args=()),
+            value=LetExprList(
+                items=tuple(LetExprVar(name=t) for t in branch_tails),
+            ),
             line=original.line,
             col=original.col,
-        ))
-        return out, counter
-    out.append(LetStep(
-        name=terminal_var,
-        value=LetExprList(
-            items=tuple(LetExprVar(name=t) for t in branch_tails),
-        ),
-        line=original.line,
-        col=original.col,
-    ))
+        )
+    )
     return out, counter
 
 
@@ -696,9 +744,7 @@ def _scan_call_expr(cell_name: str, prev_var: str | None) -> LetExprNode:
     the parameters the chain declares. This refuses instead.
     """
     del prev_var
-    raise UnsupportedConstruct(
-        "qvr-expand", [f"scan:no-lowering:{cell_name}"]
-    )
+    raise UnsupportedConstruct("qvr-expand", [f"scan:no-lowering:{cell_name}"])
 
 
 def _derive_chain_args(

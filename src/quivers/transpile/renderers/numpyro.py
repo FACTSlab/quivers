@@ -301,14 +301,10 @@ class NumPyroRenderer(RendererBase):
                 ["marginalize:no-enclosing-body"],
             )
         py = npctx.py
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         atoms = self.marginal_atoms(
             node,
-            support_size=marginal_support_size(
-                node, name_plates=py.name_plates
-            ),
+            support_size=marginal_support_size(node, name_plates=py.name_plates),
         )
         prefix = f"__marg_{node.latent}"
         term_names: list[str] = []
@@ -444,29 +440,21 @@ class NumPyroRenderer(RendererBase):
         probs_vid = self._render_arg(ctx, probs)
         family = atoms[0].weight_family
         if family == "Categorical":
-            return call(
-                py, attribute(py, ("jnp", "log")), positional=(probs_vid,)
-            )
+            return call(py, attribute(py, ("jnp", "log")), positional=(probs_vid,))
         if family == "Bernoulli":
             complement = call(
                 py,
                 attribute(py, ("jnp", "log1p")),
-                positional=(
-                    _python_unary_minus(py, self._render_arg(ctx, probs)),
-                ),
+                positional=(_python_unary_minus(py, self._render_arg(ctx, probs)),),
             )
-            positive = call(
-                py, attribute(py, ("jnp", "log")), positional=(probs_vid,)
-            )
+            positive = call(py, attribute(py, ("jnp", "log")), positional=(probs_vid,))
             return self._stack_last_axis(py, (complement, positive))
         raise UnsupportedConstruct(
             "qvr-numpyro",
             [f"marginalize:weight-family:{family}"],
         )
 
-    def _stack_last_axis(
-        self, py: PyCtx, items: tuple[str, ...]
-    ) -> str:
+    def _stack_last_axis(self, py: PyCtx, items: tuple[str, ...]) -> str:
         """Emit ``jnp.stack([...], axis=-1)``."""
         return call(
             py,
@@ -512,9 +500,7 @@ class NumPyroRenderer(RendererBase):
     # Per-renderer rendering helpers
     # ------------------------------------------------------------------
 
-    def render_list(
-        self, ctx: _NumPyroCtx, arg: IRArgList
-    ) -> SchemaFragment:
+    def render_list(self, ctx: _NumPyroCtx, arg: IRArgList) -> SchemaFragment:
         """Emit ``jnp.array([e0, e1, ...])`` for an
         [`IRArgList`][quivers.transpile.ir.IRArgList]."""
         py = ctx.py
@@ -527,9 +513,7 @@ class NumPyroRenderer(RendererBase):
             positional=(lst,),
         )
 
-    def render_matrix(
-        self, ctx: _NumPyroCtx, arg: IRArgMatrix
-    ) -> SchemaFragment:
+    def render_matrix(self, ctx: _NumPyroCtx, arg: IRArgMatrix) -> SchemaFragment:
         """Emit ``jnp.array([[...], [...]])`` for an
         [`IRArgMatrix`][quivers.transpile.ir.IRArgMatrix]."""
         py = ctx.py
@@ -561,9 +545,7 @@ class NumPyroRenderer(RendererBase):
         for chain, alias in sorted(py.required_imports):
             self._emit_aliased_import(py, chain, alias)
 
-    def _emit_plain_import(
-        self, py: PyCtx, chain: tuple[str, ...]
-    ) -> None:
+    def _emit_plain_import(self, py: PyCtx, chain: tuple[str, ...]) -> None:
         """Emit ``import <a>.<b>.<c>``."""
         stmt = py.v(py.fresh("imp"), "import_statement")
         name = self._dotted_name(py, chain)
@@ -581,9 +563,7 @@ class NumPyroRenderer(RendererBase):
         py.e(stmt, aliased, "name")
         py.e("mod", stmt, "child_of")
 
-    def _dotted_name(
-        self, py: PyCtx, chain: tuple[str, ...]
-    ) -> str:
+    def _dotted_name(self, py: PyCtx, chain: tuple[str, ...]) -> str:
         """Build a ``dotted_name`` vertex from the chain segments."""
         dn = py.v(py.fresh("dn"), "dotted_name")
         for seg in chain:
@@ -786,14 +766,16 @@ class NumPyroRenderer(RendererBase):
         # __gp_cov_<name> = jnp.exp(-0.5 * (diff * diff) / (ls * ls)) + jitter * jnp.eye(N)
         # where diff = x.reshape(-1, 1) - x.reshape(1, -1)
         x_col = _python_method_call(
-            py, identifier(py, x), "reshape",
-            (_python_unary_minus(py, number_literal(py, 1)),
-             number_literal(py, 1)),
+            py,
+            identifier(py, x),
+            "reshape",
+            (_python_unary_minus(py, number_literal(py, 1)), number_literal(py, 1)),
         )
         x_row = _python_method_call(
-            py, identifier(py, x), "reshape",
-            (number_literal(py, 1),
-             _python_unary_minus(py, number_literal(py, 1))),
+            py,
+            identifier(py, x),
+            "reshape",
+            (number_literal(py, 1), _python_unary_minus(py, number_literal(py, 1))),
         )
         diff = _python_paren(
             py,
@@ -806,7 +788,8 @@ class NumPyroRenderer(RendererBase):
         ls_sq = _python_paren(
             py,
             _python_binary_op(
-                py, "*",
+                py,
+                "*",
                 number_literal(py, ls),
                 number_literal(py, ls),
             ),
@@ -825,10 +808,16 @@ class NumPyroRenderer(RendererBase):
             positional=(number_literal(py, n),),
         )
         jitter_term = _python_binary_op(
-            py, "*", number_literal(py, jitter), eye_call,
+            py,
+            "*",
+            number_literal(py, jitter),
+            eye_call,
         )
         cov_rhs = _python_binary_op(
-            py, "+", kernel_call, jitter_term,
+            py,
+            "+",
+            kernel_call,
+            jitter_term,
         )
         cov_asn = self._assignment_statement(py, cov_name, cov_rhs)
         py.e(body_vid, cov_asn, "child_of")
@@ -850,7 +839,9 @@ class NumPyroRenderer(RendererBase):
             positional=(string_literal(py, node.name), mvn_call),
         )
         sample_stmt = self._assignment_statement(
-            py, node.name, sample_call,
+            py,
+            node.name,
+            sample_call,
         )
         py.e(body_vid, sample_stmt, "child_of")
 
@@ -1027,12 +1018,8 @@ class NumPyroRenderer(RendererBase):
     ) -> str:
         """Build ``numpyro.sample("<name>", <dist>, [obs=<obs>])``."""
         py = ctx.py
-        dist_call = self._distribution_call(
-            ctx, family, args, arg_names, plate
-        )
-        dist_call = self._wrap_event_dims(
-            ctx, dist_call, family, plate.event_dims
-        )
+        dist_call = self._distribution_call(ctx, family, args, arg_names, plate)
+        dist_call = self._wrap_event_dims(ctx, dist_call, family, plate.event_dims)
         sample_callee = attribute(py, ("numpyro", "sample"))
         positional = (string_literal(py, name), dist_call)
         keyword: tuple[tuple[str, str], ...] = ()
@@ -1071,9 +1058,7 @@ class NumPyroRenderer(RendererBase):
             return dist_call
         meta = FAMILY_META.get(family)
         natural = meta.event_rank if meta is not None else 0
-        residual = (
-            event_dims[: len(event_dims) - natural] if natural else event_dims
-        )
+        residual = event_dims[: len(event_dims) - natural] if natural else event_dims
         if not residual:
             return dist_call
         py = ctx.py
@@ -1146,9 +1131,7 @@ class NumPyroRenderer(RendererBase):
             )
 
         # Wrapper-family inline emission for Truncated(base, lo, hi).
-        wrapper_call = self._maybe_wrapper_call(
-            ctx, family, args, arg_names
-        )
+        wrapper_call = self._maybe_wrapper_call(ctx, family, args, arg_names)
         if wrapper_call is not None:
             return wrapper_call
 
@@ -1157,21 +1140,19 @@ class NumPyroRenderer(RendererBase):
         if family == "MatrixNormal":
             return self._matrix_normal_call(ctx, meta, args, arg_names)
         if family in _NUMPYRO_MATRIX_DIMENSION_FAMILIES:
-            return self._matrix_dimension_call(
-                ctx, meta, args, arg_names, plate
-            )
+            return self._matrix_dimension_call(ctx, meta, args, arg_names, plate)
         if family in _NUMPYRO_RUNTIME_HELPER_FAMILIES:
             return self._runtime_helper_call(ctx, meta, args, arg_names)
         if family == "MixtureNormal":
             return self._mixture_same_family_call(ctx, meta, args, arg_names)
 
         target_name = meta.target_names[_BACKEND]
-        callee = attribute(
-            py, ("numpyro", "distributions", target_name)
-        )
+        callee = attribute(py, ("numpyro", "distributions", target_name))
         aliases = meta.arg_aliases.get(_BACKEND, {})
         cls_constraints = getattr(
-            meta.distribution_class, "arg_constraints", {},
+            meta.distribution_class,
+            "arg_constraints",
+            {},
         )
         if not isinstance(cls_constraints, dict):
             cls_constraints = {}
@@ -1224,9 +1205,7 @@ class NumPyroRenderer(RendererBase):
         """
         expected = cls_constraints.get(arg_name)
         expected_event_dim = (
-            expected.event_dim
-            if isinstance(expected, c._IndependentConstraint)
-            else 0
+            expected.event_dim if isinstance(expected, c._IndependentConstraint) else 0
         )
         if expected_event_dim < 1:
             # Scalar-parameter slot (loc, scale, rate, probs-as-simplex,
@@ -1246,9 +1225,7 @@ class NumPyroRenderer(RendererBase):
             # shape at the selected position.
             return arg
         if arg.name in ctx.scalar_refs:
-            target = self._static_event_shape(
-                plate, expected_event_dim, arg_name
-            )
+            target = self._static_event_shape(plate, expected_event_dim, arg_name)
             return IRArgBroadcast(value=arg, target_shape=target)
         if arg.name in ctx.bound_refs:
             # The referenced binding already carries a vector / matrix
@@ -1304,10 +1281,7 @@ class NumPyroRenderer(RendererBase):
             else:
                 raise UnsupportedConstruct(
                     "qvr-numpyro",
-                    [
-                        f"broadcast:{arg_name}:event-dim-kind:"
-                        f"{type(dim).__name__}"
-                    ],
+                    [f"broadcast:{arg_name}:event-dim-kind:{type(dim).__name__}"],
                 )
         return tuple(sizes)
 
@@ -1339,16 +1313,10 @@ class NumPyroRenderer(RendererBase):
         probs_vid = self._render_arg(ctx, probs)
         one = number_literal(py, 1)
         # mean = total_count * probs / (1 - probs)
-        one_minus_p = _python_paren(
-            py, _python_binary_op(py, "-", one, probs_vid)
-        )
-        numerator = _python_paren(
-            py, _python_binary_op(py, "*", total_vid, probs_vid)
-        )
+        one_minus_p = _python_paren(py, _python_binary_op(py, "-", one, probs_vid))
+        numerator = _python_paren(py, _python_binary_op(py, "*", total_vid, probs_vid))
         mean_expr = _python_binary_op(py, "/", numerator, one_minus_p)
-        callee = attribute(
-            py, ("numpyro", "distributions", "NegativeBinomial2")
-        )
+        callee = attribute(py, ("numpyro", "distributions", "NegativeBinomial2"))
         return call(
             py,
             callee,
@@ -1417,9 +1385,7 @@ class NumPyroRenderer(RendererBase):
         aliases = meta.arg_aliases.get(_BACKEND, {})
         keyword: list[tuple[str, str]] = []
         for arg, name in zip(args, arg_names, strict=False):
-            keyword.append(
-                (aliases.get(name, name), self._render_arg(ctx, arg))
-            )
+            keyword.append((aliases.get(name, name), self._render_arg(ctx, arg)))
         return call(
             py,
             callee,
@@ -1433,19 +1399,13 @@ class NumPyroRenderer(RendererBase):
         if not plate.event_dims:
             raise UnsupportedConstruct(
                 "qvr-numpyro",
-                [
-                    "family:"
-                    f"{meta.qvr_name}:missing-event-dimension"
-                ],
+                [f"family:{meta.qvr_name}:missing-event-dimension"],
             )
         first = plate.event_dims[0]
         if not isinstance(first, DimStatic):
             raise UnsupportedConstruct(
                 "qvr-numpyro",
-                [
-                    "family:"
-                    f"{meta.qvr_name}:non-static-event-dimension"
-                ],
+                [f"family:{meta.qvr_name}:non-static-event-dimension"],
             )
         return int(first.size)
 
@@ -1486,9 +1446,7 @@ class NumPyroRenderer(RendererBase):
         likelihood scores rather than an approximation of it.
         """
         py = ctx.py
-        weights, loc, scale = mixture_normal_components(
-            _BACKEND, args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components(_BACKEND, args, arg_names)
         mixing = call(
             py,
             attribute(py, ("numpyro", "distributions", "Categorical")),
@@ -1539,8 +1497,10 @@ class NumPyroRenderer(RendererBase):
         if decl is None or decl.init_family is None:
             # Fall back to TruncatedDistribution(<base_ref>, low, high).
             return self._truncated_distribution_call(
-                ctx, base_ref=identifier(py, base.name),
-                args=args[1:], arg_names=arg_names[1:],
+                ctx,
+                base_ref=identifier(py, base.name),
+                args=args[1:],
+                arg_names=arg_names[1:],
             )
         inner_family = decl.init_family.family
         inner_meta = FAMILY_META.get(inner_family)
@@ -1561,9 +1521,7 @@ class NumPyroRenderer(RendererBase):
                 base_decl=decl,
                 inner_arg_names=tuple(
                     inner_meta.distribution_class.arg_constraints.keys()
-                    if isinstance(
-                        inner_meta.distribution_class.arg_constraints, dict
-                    )
+                    if isinstance(inner_meta.distribution_class.arg_constraints, dict)
                     else ()
                 ),
                 rest_args=args[1:],
@@ -1573,8 +1531,10 @@ class NumPyroRenderer(RendererBase):
         # it as the first positional arg to TruncatedDistribution.
         inner_call = self._inner_morphism_call(ctx, decl)
         return self._truncated_distribution_call(
-            ctx, base_ref=inner_call,
-            args=args[1:], arg_names=arg_names[1:],
+            ctx,
+            base_ref=inner_call,
+            args=args[1:],
+            arg_names=arg_names[1:],
         )
 
     def _truncated_specialised_call(
@@ -1591,9 +1551,7 @@ class NumPyroRenderer(RendererBase):
         low=lo, high=hi)`` for inner families that NumPyro publishes
         a specialised truncated wrapper for."""
         py = ctx.py
-        callee = attribute(
-            py, ("numpyro", "distributions", target)
-        )
+        callee = attribute(py, ("numpyro", "distributions", target))
         base_args = base_decl.init_family.args or ()
         keyword: list[tuple[str, str]] = []
         for arg, name in zip(base_args, inner_arg_names, strict=False):
@@ -1615,13 +1573,9 @@ class NumPyroRenderer(RendererBase):
             names = tuple(cls_attr.keys())
         else:
             names = ()
-        callee = attribute(
-            py, ("numpyro", "distributions", target)
-        )
+        callee = attribute(py, ("numpyro", "distributions", target))
         keyword: list[tuple[str, str]] = []
-        for arg, name in zip(
-            decl.init_family.args or (), names, strict=False
-        ):
+        for arg, name in zip(decl.init_family.args or (), names, strict=False):
             keyword.append((name, arg_expr(py, arg)))
         return call(py, callee, keyword=tuple(keyword))
 
@@ -1636,9 +1590,7 @@ class NumPyroRenderer(RendererBase):
         """``numpyro.distributions.TruncatedDistribution(<base>, low=lo,
         high=hi)``."""
         py = ctx.py
-        callee = attribute(
-            py, ("numpyro", "distributions", "TruncatedDistribution")
-        )
+        callee = attribute(py, ("numpyro", "distributions", "TruncatedDistribution"))
         keyword: list[tuple[str, str]] = []
         for arg, name in zip(args, arg_names, strict=False):
             keyword.append((name, self._render_arg(ctx, arg)))
@@ -1649,9 +1601,7 @@ class NumPyroRenderer(RendererBase):
             keyword=tuple(keyword),
         )
 
-    def _render_arg(
-        self, ctx: _NumPyroCtx, arg: IRArg
-    ) -> str:
+    def _render_arg(self, ctx: _NumPyroCtx, arg: IRArg) -> str:
         """Render one IR arg to a Python expression vertex."""
         py = ctx.py
         if isinstance(arg, IRArgNumber):
@@ -1676,9 +1626,7 @@ class NumPyroRenderer(RendererBase):
             [f"arg:unknown:{type(arg).__name__}"],
         )
 
-    def _render_indexed_ref(
-        self, ctx: _NumPyroCtx, arg: IRArgRef
-    ) -> str:
+    def _render_indexed_ref(self, ctx: _NumPyroCtx, arg: IRArgRef) -> str:
         """Render ``name[i0][i1]...`` as nested ``subscript`` vertices."""
         py = ctx.py
         current = identifier(py, arg.name)
@@ -1689,9 +1637,7 @@ class NumPyroRenderer(RendererBase):
             current = subs
         return current
 
-    def _render_shape_tuple(
-        self, py: PyCtx, shape: tuple[int, ...]
-    ) -> str:
+    def _render_shape_tuple(self, py: PyCtx, shape: tuple[int, ...]) -> str:
         """Emit ``(K,)`` for a 1-tuple or ``(R, C)`` for a 2-tuple.
 
         Tree-sitter Python's `tuple` node carries the punctuation via
@@ -1739,18 +1685,14 @@ class NumPyroRenderer(RendererBase):
         py.e(es, expr, "child_of")
         return es
 
-    def _assignment_statement(
-        self, py: PyCtx, lhs_name: str, rhs: str
-    ) -> str:
+    def _assignment_statement(self, py: PyCtx, lhs_name: str, rhs: str) -> str:
         """``<lhs_name> = <rhs>``."""
         asn = py.v(py.fresh("asn"), "assignment")
         py.e(asn, identifier(py, lhs_name), "left")
         py.e(asn, rhs, "right")
         return asn
 
-    def _deterministic_statement(
-        self, ctx: _NumPyroCtx, node: IRDeterministic
-    ) -> str:
+    def _deterministic_statement(self, ctx: _NumPyroCtx, node: IRDeterministic) -> str:
         """``<name> = <expr>`` for an
         [`IRDeterministic`][quivers.transpile.ir.IRDeterministic]
         let-binding."""
@@ -1758,9 +1700,7 @@ class NumPyroRenderer(RendererBase):
         rhs = render_deterministic_python(py, node)
         return self._assignment_statement(py, node.name, rhs)
 
-    def _score_statement(
-        self, ctx: _NumPyroCtx, body_vid: str, node: IRScore
-    ) -> None:
+    def _score_statement(self, ctx: _NumPyroCtx, body_vid: str, node: IRScore) -> None:
         """``<name> = <expr>``; ``numpyro.factor("<name>", <name>)``."""
         py = ctx.py
         rhs = render_let_expr_python(py, node.expr)
@@ -1874,13 +1814,9 @@ def _classify_bindings(
     scalar: set[str] = set()
     bound: set[str] = set()
 
-    def _record_stochastic(
-        name: str, plate: Plate, constraint: ConstraintSpec
-    ) -> None:
+    def _record_stochastic(name: str, plate: Plate, constraint: ConstraintSpec) -> None:
         bound.add(name)
-        if _is_scalar_shape(plate) and (
-            event_dim_of(constraint.to_constraint()) == 0
-        ):
+        if _is_scalar_shape(plate) and (event_dim_of(constraint.to_constraint()) == 0):
             scalar.add(name)
 
     def _visit(nodes: tuple[IRNode, ...]) -> None:
@@ -1894,9 +1830,7 @@ def _classify_bindings(
                 ):
                     scalar.add(node.name)
             elif isinstance(node, IRMarginalize):
-                _record_stochastic(
-                    node.latent, node.plate, node.constraint
-                )
+                _record_stochastic(node.latent, node.plate, node.constraint)
                 _visit(node.scope)
 
     _visit(ir.inputs)
@@ -1932,9 +1866,7 @@ _RUNTIME_NUMPYRO_PATH = (
 )
 
 
-def _class_definition_name(
-    schema: panproto.Schema, class_vid: str
-) -> str | None:
+def _class_definition_name(schema: panproto.Schema, class_vid: str) -> str | None:
     """The literal name of a `class_definition` vertex, or `None`."""
     for edge in schema.edges:
         if edge.src == class_vid and edge.kind == "name":
@@ -1955,9 +1887,7 @@ def _class_definition_name(
     return None
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, root: str
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, root: str) -> set[str]:
     """Every vertex id reachable from `root` via outgoing edges."""
     seen: set[str] = {root}
     frontier: list[str] = [root]
@@ -2003,10 +1933,7 @@ def _load_runtime_numpyro_helpers() -> tuple[
             "the renderer expects it as the source of truth for the "
             "embedded NumPyro runtime helpers."
         )
-    subtrees = {
-        name: _subtree_vertex_ids(schema, root)
-        for name, root in roots.items()
-    }
+    subtrees = {name: _subtree_vertex_ids(schema, root) for name, root in roots.items()}
     return schema, roots, subtrees
 
 

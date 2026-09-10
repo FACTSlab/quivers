@@ -54,18 +54,10 @@ _KNOWN_COMPOSITION_GAPS: dict[tuple[str, str], str] = {
     ("normal_inverse_gamma", "church"): (
         "family:InverseGamma:church (Church has no InverseGamma)"
     ),
-    ("normal_inverse_gamma", "gen"): (
-        "family:InverseGamma: no Gen.jl target name"
-    ),
-    ("normal_inverse_gamma", "jags"): (
-        "family:no-target-name:InverseGamma"
-    ),
-    ("normal_inverse_gamma", "webppl"): (
-        "family:no-webppl-target:InverseGamma"
-    ),
-    ("truncated_normal_recovery", "church"): (
-        "family:TruncatedNormal:church"
-    ),
+    ("normal_inverse_gamma", "gen"): ("family:InverseGamma: no Gen.jl target name"),
+    ("normal_inverse_gamma", "jags"): ("family:no-target-name:InverseGamma"),
+    ("normal_inverse_gamma", "webppl"): ("family:no-webppl-target:InverseGamma"),
+    ("truncated_normal_recovery", "church"): ("family:TruncatedNormal:church"),
     ("truncated_normal_recovery", "webppl"): (
         "family:no-webppl-target:TruncatedNormal"
     ),
@@ -76,13 +68,9 @@ def _composition_fixtures() -> list[_load.Fixture]:
     return _load.load_compositions()
 
 
-@pytest.mark.parametrize(
-    "fixture", _composition_fixtures(), ids=lambda f: f.name
-)
+@pytest.mark.parametrize("fixture", _composition_fixtures(), ids=lambda f: f.name)
 @pytest.mark.parametrize("backend", _BACKENDS)
-def test_composition_backend_cell(
-    fixture: _load.Fixture, backend: str
-) -> None:
+def test_composition_backend_cell(fixture: _load.Fixture, backend: str) -> None:
     """Strict expectation per cell.
 
     Cells in `_KNOWN_COMPOSITION_GAPS` MUST raise with a

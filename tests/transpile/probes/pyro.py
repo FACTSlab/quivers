@@ -25,8 +25,7 @@ class PyroProbe:
 
     def available(self) -> bool:
         return all(
-            importlib.util.find_spec(mod) is not None
-            for mod in ("pyro", "torch")
+            importlib.util.find_spec(mod) is not None for mod in ("pyro", "torch")
         )
 
     def evaluate(

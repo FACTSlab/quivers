@@ -37,10 +37,17 @@ def _transpile_to_schema(target: str, source: str) -> panproto.Schema:
     """Transpile QVR source to bytes then re-parse to a Schema."""
     out_bytes = transpile(parse(source), target=target)
     grammar_map = {
-        "stan": "stan", "numpyro": "python", "pyro": "python",
-        "pymc": "python", "edward2": "python", "church": "scheme",
-        "webppl": "javascript", "turing": "julia", "gen": "julia",
-        "bugs": "bugs", "jags": "jags",
+        "stan": "stan",
+        "numpyro": "python",
+        "pyro": "python",
+        "pymc": "python",
+        "edward2": "python",
+        "church": "scheme",
+        "webppl": "javascript",
+        "turing": "julia",
+        "gen": "julia",
+        "bugs": "bugs",
+        "jags": "jags",
     }
     reg = panproto.AstParserRegistry()
     return reg.parse_with_protocol(grammar_map[target], out_bytes, f"out.{target}")
@@ -72,9 +79,8 @@ def _stan_density_names(schema: panproto.Schema) -> list[str]:
     enclosing `target_statement` carries as its only child.
     """
     return sorted(
-        _structural.literal_value(
-            schema, _structural.field_target(schema, d, "name")
-        ) or ""
+        _structural.literal_value(schema, _structural.field_target(schema, d, "name"))
+        or ""
         for d in _structural.vertex_ids_of_kind(schema, "distr_expression")
     )
 
@@ -87,15 +93,12 @@ def test_stan_beta_bernoulli_block_layout() -> None:
     blocks = _structural.children_of(schema, program)
     block_kinds = [_structural.vertex_kind(schema, b) for b in blocks]
     for required in ("data", "parameters", "model"):
-        assert required in block_kinds, (
-            f"missing `{required}` block; got {block_kinds}"
-        )
+        assert required in block_kinds, f"missing `{required}` block; got {block_kinds}"
 
-    [model_id] = [
-        b for b in blocks if _structural.vertex_kind(schema, b) == "model"
-    ]
+    [model_id] = [b for b in blocks if _structural.vertex_kind(schema, b) == "model"]
     stmts = [
-        c for c in _structural.children_of(schema, model_id)
+        c
+        for c in _structural.children_of(schema, model_id)
         if _structural.vertex_kind(schema, c) == "target_statement"
     ]
     assert len(stmts) == 2, (
@@ -111,13 +114,15 @@ def test_stan_beta_bernoulli_block_layout() -> None:
     densities: list[str] = []
     for stmt in stmts:
         [distr] = [
-            d for d in _structural.children_of(schema, stmt)
+            d
+            for d in _structural.children_of(schema, stmt)
             if _structural.vertex_kind(schema, d) == "distr_expression"
         ]
         densities.append(
             _structural.literal_value(
                 schema, _structural.field_target(schema, distr, "name")
-            ) or ""
+            )
+            or ""
         )
     densities.sort()
     assert densities == _STAN_DENSITY_NAMES, (
@@ -164,7 +169,9 @@ def test_pymc_emits_single_model_instantiation() -> None:
     """
     schema = _transpile_to_schema("pymc", _BETA_BERNOULLI)
     model_calls = [
-        v.id for v in schema.vertices if v.kind == "call"
+        v.id
+        for v in schema.vertices
+        if v.kind == "call"
         and _structural._call_is_attribute(schema, v.id, ("pymc", "Model"))
     ]
     assert len(model_calls) == 1, (
@@ -193,7 +200,8 @@ def test_turing_halfnormal_emits_truncated_with_lower_bound() -> None:
     canonical practice is `truncated(Normal(0, σ), 0, Inf)`."""
     schema = _transpile_to_schema("turing", _TURING_HALFNORMAL)
     truncated_calls = [
-        v.id for v in schema.vertices
+        v.id
+        for v in schema.vertices
         if v.kind == "call_expression"
         and _julia_call_is_named(schema, v.id, "truncated")
     ]
@@ -201,7 +209,8 @@ def test_turing_halfnormal_emits_truncated_with_lower_bound() -> None:
     vertex_kinds = {v.id: v.kind for v in schema.vertices}
     for call_id in truncated_calls:
         arg_lists = [
-            e.tgt for e in schema.outgoing_edges(call_id)
+            e.tgt
+            for e in schema.outgoing_edges(call_id)
             if vertex_kinds.get(e.tgt) == "argument_list"
         ]
         assert arg_lists, f"truncated call {call_id!r} has no argument_list"
@@ -212,17 +221,13 @@ def test_turing_halfnormal_emits_truncated_with_lower_bound() -> None:
         )
 
 
-def _julia_call_is_named(
-    schema: panproto.Schema, call_id: str, name: str
-) -> bool:
+def _julia_call_is_named(schema: panproto.Schema, call_id: str, name: str) -> bool:
     """A Julia `call_expression` whose callee is an identifier with
     the given literal-value. Julia's tree-sitter grammar emits the
     callee as the first un-named child rather than a `function`-field
     edge (which is the Python convention)."""
     for edge in schema.outgoing_edges(call_id):
-        tgt = next(
-            (v for v in schema.vertices if v.id == edge.tgt), None
-        )
+        tgt = next((v for v in schema.vertices if v.id == edge.tgt), None)
         if tgt is None or tgt.kind != "identifier":
             continue
         if _structural.literal_value(schema, edge.tgt) == name:

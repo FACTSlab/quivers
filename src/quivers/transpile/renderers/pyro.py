@@ -184,7 +184,10 @@ class PyroRenderer(RendererBase):
                 pctx,
                 lhs_name=idx_name,
                 rhs=_python_method_call(
-                    pctx, identifier(pctx, idx_name), "long", (),
+                    pctx,
+                    identifier(pctx, idx_name),
+                    "long",
+                    (),
                 ),
             )
             pctx.e(pctx.body, coerce, "child_of")
@@ -221,13 +224,12 @@ class PyroRenderer(RendererBase):
         if isinstance(node, IRDataInput):
             # Function signature carries the data input; nothing in
             # the body.
-            self.declare(
-                ctx, node.name, node.constraint, node.plate, block="data"
-            )
+            self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             return
         if isinstance(node, IRSample):
             self._emit_sample_or_observe(
-                pctx, ctx,
+                pctx,
+                ctx,
                 name=node.name,
                 family=node.family,
                 args=node.args,
@@ -238,7 +240,8 @@ class PyroRenderer(RendererBase):
             return
         if isinstance(node, IRObserve):
             self._emit_sample_or_observe(
-                pctx, ctx,
+                pctx,
+                ctx,
                 name=node.name,
                 family=node.family,
                 args=node.args,
@@ -342,10 +345,7 @@ class PyroRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 "qvr-pyro",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -367,14 +367,18 @@ class PyroRenderer(RendererBase):
         # __gp_cov_<name> = torch.exp(-0.5 * (diff * diff) / (ls * ls))
         #                    + jitter * torch.eye(N)
         x_col = _python_method_call(
-            pctx, identifier(pctx, x), "reshape",
+            pctx,
+            identifier(pctx, x),
+            "reshape",
             (
                 _python_unary_minus(pctx, number_literal(pctx, 1)),
                 number_literal(pctx, 1),
             ),
         )
         x_row = _python_method_call(
-            pctx, identifier(pctx, x), "reshape",
+            pctx,
+            identifier(pctx, x),
+            "reshape",
             (
                 number_literal(pctx, 1),
                 _python_unary_minus(pctx, number_literal(pctx, 1)),
@@ -391,7 +395,8 @@ class PyroRenderer(RendererBase):
         ls_sq = _python_paren(
             pctx,
             _python_binary_op(
-                pctx, "*",
+                pctx,
+                "*",
                 number_literal(pctx, ls),
                 number_literal(pctx, ls),
             ),
@@ -410,10 +415,16 @@ class PyroRenderer(RendererBase):
             positional=(number_literal(pctx, n),),
         )
         jitter_term = _python_binary_op(
-            pctx, "*", number_literal(pctx, jitter), eye_call,
+            pctx,
+            "*",
+            number_literal(pctx, jitter),
+            eye_call,
         )
         cov_rhs = _python_binary_op(
-            pctx, "+", kernel_call, jitter_term,
+            pctx,
+            "+",
+            kernel_call,
+            jitter_term,
         )
         pctx.e(
             pctx.body,
@@ -439,7 +450,9 @@ class PyroRenderer(RendererBase):
             positional=(string_literal(pctx, name), mvn_call),
         )
         sample_asn = assignment(
-            pctx, lhs_name=name, rhs=sample_call,
+            pctx,
+            lhs_name=name,
+            rhs=sample_call,
         )
         pctx.e(pctx.body, sample_asn, "child_of")
 
@@ -460,7 +473,10 @@ class PyroRenderer(RendererBase):
         `name` for latents)."""
         if family == "GP":
             self._emit_gp_block(
-                pctx, name=name, args=args, observed=observed,
+                pctx,
+                name=name,
+                args=args,
+                observed=observed,
             )
             return
         sample_call = self._build_sample_call(
@@ -603,9 +619,7 @@ class PyroRenderer(RendererBase):
                 [f"family:{family}"],
             )
         if family == "MixtureNormal":
-            return self._mixture_same_family_call(
-                pctx, dist_class, args, arg_names
-            )
+            return self._mixture_same_family_call(pctx, dist_class, args, arg_names)
         aliases = {
             **meta.arg_aliases.get(_TARGET, {}),
             **_PYRO_KEYWORD_BINDINGS.get(family, {}),
@@ -621,12 +635,14 @@ class PyroRenderer(RendererBase):
         if dist_class in _RUNTIME_PYRO_HELPER_ROOTS:
             dist_callee = identifier(pctx, dist_class)
         else:
-            dist_callee = attribute(
-                pctx, ("pyro", "distributions", dist_class)
-            )
+            dist_callee = attribute(pctx, ("pyro", "distributions", dist_class))
         dist_args = self._build_dist_args(
-            pctx, meta=meta, args=args, arg_names=arg_names,
-            aliases=aliases, plate=plate,
+            pctx,
+            meta=meta,
+            args=args,
+            arg_names=arg_names,
+            aliases=aliases,
+            plate=plate,
         )
         positional = dist_args.positional
         # The Cholesky-LKJ families take the correlation-matrix
@@ -676,18 +692,12 @@ class PyroRenderer(RendererBase):
         The component axis is the mixture's own, never a plate axis, so
         the call takes no `.expand(...).to_event(...)` lift.
         """
-        weights, loc, scale = mixture_normal_components(
-            _TARGET, args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components(_TARGET, args, arg_names)
         meta = FAMILY_META["MixtureNormal"]
         mixing = call(
             pctx,
             attribute(pctx, ("pyro", "distributions", "Categorical")),
-            positional=(
-                self._lower_arg(
-                    pctx, weights, meta=meta, arg_name="weights"
-                ),
-            ),
+            positional=(self._lower_arg(pctx, weights, meta=meta, arg_name="weights"),),
         )
         component = call(
             pctx,
@@ -725,9 +735,7 @@ class PyroRenderer(RendererBase):
             return dist_call
         meta = FAMILY_META.get(family)
         natural = meta.event_rank if meta is not None else 0
-        residual = (
-            event_dims[: len(event_dims) - natural] if natural else event_dims
-        )
+        residual = event_dims[: len(event_dims) - natural] if natural else event_dims
         if not residual:
             return dist_call
         list_vid = pctx.v(pctx.fresh("list"), "list")
@@ -735,7 +743,9 @@ class PyroRenderer(RendererBase):
             pctx.e(list_vid, self._dim_size_vid(pctx, dim), "child_of")
         expand_vid = _python_method_call(pctx, dist_call, "expand", (list_vid,))
         return _python_method_call(
-            pctx, expand_vid, "to_event",
+            pctx,
+            expand_vid,
+            "to_event",
             (number_literal(pctx, len(residual)),),
         )
 
@@ -783,14 +793,10 @@ class PyroRenderer(RendererBase):
             # drives marginalize through `_dispatch_pyro_node`.
             return ""
         del ctx
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         atoms = self.marginal_atoms(
             node,
-            support_size=marginal_support_size(
-                node, name_plates=pctx.name_plates
-            ),
+            support_size=marginal_support_size(node, name_plates=pctx.name_plates),
         )
         prefix = f"__marg_{node.latent}"
         term_names: list[str] = []
@@ -923,11 +929,7 @@ class PyroRenderer(RendererBase):
             complement = call(
                 pctx,
                 attribute(pctx, ("torch", "log1p")),
-                positional=(
-                    _python_unary_minus(
-                        pctx, self._arg_to_vid(pctx, probs)
-                    ),
-                ),
+                positional=(_python_unary_minus(pctx, self._arg_to_vid(pctx, probs)),),
             )
             positive = call(
                 pctx,
@@ -1045,15 +1047,11 @@ class PyroRenderer(RendererBase):
         for ir_arg, arg_name in zip(args, arg_names, strict=False):
             target = None
             if plate is not None:
-                target = _scalar_broadcast_for_arg(
-                    meta, ir_arg, arg_name, plate
-                )
+                target = _scalar_broadcast_for_arg(meta, ir_arg, arg_name, plate)
             if target is not None:
                 vid = self._broadcast(pctx, ir_arg, target)
             else:
-                vid = self._lower_arg(
-                    pctx, ir_arg, meta=meta, arg_name=arg_name
-                )
+                vid = self._lower_arg(pctx, ir_arg, meta=meta, arg_name=arg_name)
             if arg_name in aliases:
                 keyword.append((aliases[arg_name], vid))
             else:
@@ -1129,9 +1127,7 @@ class PyroRenderer(RendererBase):
         high=2)`).
         """
         morph = pctx.morphisms.get(arg.name)
-        if morph is None or not isinstance(
-            morph.init_family, MorphismInitFamily
-        ):
+        if morph is None or not isinstance(morph.init_family, MorphismInitFamily):
             raise UnsupportedConstruct(
                 f"qvr-{_TARGET}",
                 [f"family-ref:unresolved:{arg.name}"],
@@ -1190,9 +1186,7 @@ class PyroRenderer(RendererBase):
 
     # ----- score / return -----
 
-    def _emit_score_pyro(
-        self, pctx: _PyroCtx, node: IRScore
-    ) -> None:
+    def _emit_score_pyro(self, pctx: _PyroCtx, node: IRScore) -> None:
         """`<name> = <expr>; pyro.factor("<name>", <name>)`.
 
         Pyro-local emitter; never goes through the
@@ -1218,9 +1212,7 @@ class PyroRenderer(RendererBase):
         )
         pctx.e(pctx.body, factor_call, "child_of")
 
-    def _emit_return_pyro(
-        self, pctx: _PyroCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_return_pyro(self, pctx: _PyroCtx, names: tuple[str, ...]) -> None:
         """Emit `return <var>` / `return <a>, <b>, ...`.
 
         Pyro-local emitter; see
@@ -1448,8 +1440,13 @@ def _arg_ref_vid(pctx: _PyroCtx, arg: IRArgRef) -> str:
     for idx in arg.indices:
         s = pctx.v(pctx.fresh("subs"), "subscript")
         pctx.e(s, base, "value")
-        pctx.e(s, _arg_ref_vid(pctx, idx) if isinstance(idx, IRArgRef)
-               else _inner_index_vid(pctx, idx), "subscript")
+        pctx.e(
+            s,
+            _arg_ref_vid(pctx, idx)
+            if isinstance(idx, IRArgRef)
+            else _inner_index_vid(pctx, idx),
+            "subscript",
+        )
         base = s
     return base
 
@@ -1539,9 +1536,7 @@ def _scalar_broadcast_for_arg(
             return None
         return _shape_from_axis_indices(axis_indices, plate)
     constraints = getattr(meta.distribution_class, "arg_constraints", {})
-    expected = constraints.get(arg_name) if isinstance(
-        constraints, dict
-    ) else None
+    expected = constraints.get(arg_name) if isinstance(constraints, dict) else None
     if expected is None:
         return None
     event_dim = int(getattr(expected, "event_dim", 0))
@@ -1550,9 +1545,7 @@ def _scalar_broadcast_for_arg(
     return _shape_from_axis_indices(tuple(range(event_dim)), plate)
 
 
-def _structured_axis_indices(
-    meta: FamilyMeta, arg_name: str
-) -> tuple[int, ...] | None:
+def _structured_axis_indices(meta: FamilyMeta, arg_name: str) -> tuple[int, ...] | None:
     """The `axis_indices` of the family's structured-lowering
     [`StructuredDataArg`][quivers.transpile.ir.StructuredDataArg] whose
     `arg_name` matches, or `None` when the family declares no
@@ -1588,10 +1581,12 @@ def _shape_from_axis_indices(
 #: argument (`LKJCorrCholesky(d, eta)`, `LKJ(d, eta)`). The QVR init
 #: clause carries only the concentration, so the renderer prepends the
 #: dimension read off the sample's first event axis.
-_PYRO_LEADING_DIM_FAMILIES = frozenset({
-    "LKJCholesky",
-    "LKJCorrelationFactor",
-})
+_PYRO_LEADING_DIM_FAMILIES = frozenset(
+    {
+        "LKJCholesky",
+        "LKJCorrelationFactor",
+    }
+)
 
 
 #: Families whose Pyro constructor binds the QVR positional slots in a
@@ -1628,14 +1623,10 @@ _PYRO_FIXED_LEADING_ARGS: dict[str, float] = {
 }
 
 
-_RUNTIME_PYRO_PATH = (
-    pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"
-)
+_RUNTIME_PYRO_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"
 
 
-def _class_definition_name(
-    schema: panproto.Schema, class_vid: str
-) -> str | None:
+def _class_definition_name(schema: panproto.Schema, class_vid: str) -> str | None:
     """The literal name of a `class_definition` vertex, or `None`."""
     for edge in schema.edges:
         if edge.src == class_vid and edge.kind == "name":
@@ -1656,9 +1647,7 @@ def _class_definition_name(
     return None
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, root: str
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, root: str) -> set[str]:
     """Return every vertex id reachable from `root` via outgoing
     edges of `schema`."""
     seen: set[str] = {root}
@@ -1706,10 +1695,7 @@ def _load_runtime_pyro_helpers() -> tuple[
             "the renderer expects it as the source of truth for the "
             "embedded Pyro runtime helpers."
         )
-    subtrees = {
-        name: _subtree_vertex_ids(schema, root)
-        for name, root in roots.items()
-    }
+    subtrees = {name: _subtree_vertex_ids(schema, root) for name, root in roots.items()}
     return schema, roots, subtrees
 
 
@@ -1768,9 +1754,7 @@ def _emit_runtime_helper(pctx: _PyroCtx, class_name: str) -> None:
     for old in subtree:
         new = pctx.fresh("rh")
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         pctx.v(new, kind)
         for cstr in src_schema.constraints_for(old):
             pctx.constraint(new, cstr.sort, cstr.value)

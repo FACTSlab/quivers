@@ -61,9 +61,7 @@ from quivers.transpile.lower import (
 )
 
 
-_GALLERY_DIR = pathlib.Path(__file__).resolve().parents[2] / (
-    "docs/examples/source"
-)
+_GALLERY_DIR = pathlib.Path(__file__).resolve().parents[2] / ("docs/examples/source")
 
 
 def _gallery_paths() -> list[pathlib.Path]:
@@ -113,9 +111,7 @@ _EXPECTED_LOWER_REFUSAL: dict[str, str] = {
 }
 
 
-@pytest.mark.parametrize(
-    "path", GALLERY, ids=[p.stem for p in GALLERY]
-)
+@pytest.mark.parametrize("path", GALLERY, ids=[p.stem for p in GALLERY])
 def test_lower_roundtrip(path: pathlib.Path) -> None:
     """Lower the gallery example and verify the structural invariants."""
     src = path.read_text()
@@ -146,7 +142,8 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     # IR's `inputs` plus the bound names in the body.
     expanded = expand_composite_lets(module, target="stan")
     expanded_program = next(
-        s for s in expanded.statements
+        s
+        for s in expanded.statements
         if isinstance(s, ProgramDecl) and s.name == program.name
     )
     source_free = _source_free_names(expanded_program)
@@ -274,9 +271,7 @@ def _param_map_head_bindings(
     return out
 
 
-def _unread_bindings(
-    body: tuple[IRNode, ...], names: set[str]
-) -> set[str]:
+def _unread_bindings(body: tuple[IRNode, ...], names: set[str]) -> set[str]:
     """Which of `names` nothing in the body reads."""
     return set(names) - _names_read(body)
 
@@ -345,7 +340,6 @@ def _expected_body_step_count(program: ProgramDecl) -> int:
         else:
             count += 1
     return count
-
 
 
 def _pick_program(module) -> ProgramDecl:

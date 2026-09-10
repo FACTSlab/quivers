@@ -133,9 +133,7 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     # undeclared node. The boundary is the BUGS *language*, not the
     # engine: the `panproto-test-bugs` image runs JAGS, which is why
     # the sibling `jags` cell is live and scores the same model.
-    ("bugs", "beta_binomial_ab_test"): (
-        "family:BetaBinomial:no-bugs-distribution"
-    ),
+    ("bugs", "beta_binomial_ab_test"): ("family:BetaBinomial:no-bugs-distribution"),
     # gru_lm and lstm_lm build their gate arguments with `+` between
     # two `Hidden`-wide operands. The BUGS model language has no
     # elementwise vector arithmetic: only the contracted product
@@ -159,9 +157,7 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # as a draw, and that denotes a measure on the product of the latent's
 # support with the block's rather than the integral the block means.
 for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
-    _EXPECTED_TRANSPILE_RAISES[("gen", _gen_marginalize_model)] = (
-        "marginalize:"
-    )
+    _EXPECTED_TRANSPILE_RAISES[("gen", _gen_marginalize_model)] = "marginalize:"
 
 # The four targets that reduce an ungrouped `marginalize` row by row
 # refuse it rather than emit it. An ungrouped block shares one latent
@@ -174,7 +170,12 @@ for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
 # built to agree with it. `stan`, `numpyro`, `pyro` and `webppl` emit
 # the accumulated order and score the corrected reference.
 for _ungrouped_backend in (
-    "bugs", "church", "edward2", "jags", "pymc", "turing",
+    "bugs",
+    "church",
+    "edward2",
+    "jags",
+    "pymc",
+    "turing",
 ):
     _EXPECTED_TRANSPILE_RAISES[(_ungrouped_backend, "hmm")] = (
         "marginalize:ungrouped-over-plate"
@@ -192,9 +193,7 @@ for _scan_model in (
     "vanilla_rnn_lm",
 ):
     for _scan_backend in _BACKENDS_WITH_IMAGES:
-        _EXPECTED_TRANSPILE_RAISES[(_scan_backend, _scan_model)] = (
-            "scan:no-lowering"
-        )
+        _EXPECTED_TRANSPILE_RAISES[(_scan_backend, _scan_model)] = "scan:no-lowering"
 
 for _neural_model in (
     "bnn",
@@ -285,13 +284,15 @@ _SKIP_DATASET_LOAD_FAILED: frozenset[str] = frozenset()
 # measured against the density rather than against the generator.
 # Pinning these needs the composition's integral made a rule whose
 # value has converged, and its inner latents exposed as sites.
-_SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset({
-    "bidirectional_rnn_lm",
-    "gru_lm",
-    "lstm_lm",
-    "transformer_lm",
-    "vanilla_rnn_lm",
-})
+_SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset(
+    {
+        "bidirectional_rnn_lm",
+        "gru_lm",
+        "lstm_lm",
+        "transformer_lm",
+        "vanilla_rnn_lm",
+    }
+)
 
 # ----------------------------------------------------------------------
 # The reference pin.
@@ -737,9 +738,11 @@ def reference_pin_atol(reference: float) -> float:
     `1e-3 * |reference| + 2e-2` relative band it replaces.
     """
     ulp_bound = _REFERENCE_PIN_ULP_BUDGET * max(
-        _float32_ulp(reference), _float32_ulp(1.0),
+        _float32_ulp(reference),
+        _float32_ulp(1.0),
     )
     return min(_equivalence.adaptive_atol(n_obs=0), ulp_bound)
+
 
 # Gallery examples that genuinely carry no perturbable observation, so
 # their point set moves the latents alone. Each entry states why the
@@ -781,26 +784,26 @@ _SKIP_PROBE_INCOMPATIBLE: frozenset[tuple[str, str]] = frozenset()
 
 def test_gallery_reference_pin_registry_is_total() -> None:
     """Every gallery example is either pinned or justifiably exempt,
-    and neither registry may carry a row the gallery does not.
+        and neither registry may carry a row the gallery does not.
 
-    This is the test that makes the pin a guarantee rather than an
-    opt-in. The failure mode it exists to prevent is silent: a
-    `dict.get` that returns `None` and a guard that skips the
-    assertion turn a deleted row, or a newly-added example, into a
-    check that passes while asserting nothing about the value it was
-    written to protect. Requiring the two registries to *partition*
-    the gallery makes both directions loud. Deleting a row fails here.
-    Adding an example without deriving its reference fails here.
-    Retiring an example without dropping its row fails here too, so a
-    stale pin cannot sit in the registry looking like coverage.
+        This is the test that makes the pin a guarantee rather than an
+        opt-in. The failure mode it exists to prevent is silent: a
+        `dict.get` that returns `None` and a guard that skips the
+        assertion turn a deleted row, or a newly-added example, into a
+        check that passes while asserting nothing about the value it was
+        written to protect. Requiring the two registries to *partition*
+        the gallery makes both directions loud. Deleting a row fails here.
+        Adding an example without deriving its reference fails here.
+        Retiring an example without dropping its row fails here too, so a
+        stale pin cannot sit in the registry looking like coverage.
 
-    The exemption side is checked against the registries that
-    independently agree the example has no reference, not taken on its
-    word: an exempt example must appear in `_SKIP_DATASET_LOAD_FAILED`
-    (no dataset at all) or in `_SKIP_QVR_INCOMPATIBLE` (no
-deterministic joint). An exemption whose gap has closed thus
-    fails rather than quietly suppressing a pin the example could now
-    carry.
+        The exemption side is checked against the registries that
+        independently agree the example has no reference, not taken on its
+        word: an exempt example must appear in `_SKIP_DATASET_LOAD_FAILED`
+        (no dataset at all) or in `_SKIP_QVR_INCOMPATIBLE` (no
+    deterministic joint). An exemption whose gap has closed thus
+        fails rather than quietly suppressing a pin the example could now
+        carry.
     """
     gallery = {example.stem for example in _gallery_cells()}
     pinned = set(_QVR_REFERENCE_JOINT)
@@ -852,10 +855,7 @@ deterministic joint). An exemption whose gap has closed thus
             f"reason. An exemption without a stated cause is an "
             f"unexplained hole in the guarantee."
         )
-        assert (
-            stem in _SKIP_DATASET_LOAD_FAILED
-            or stem in _SKIP_QVR_INCOMPATIBLE
-        ), (
+        assert stem in _SKIP_DATASET_LOAD_FAILED or stem in _SKIP_QVR_INCOMPATIBLE, (
             f"{stem!r}: claims exemption from the reference pin "
             f"({reason}) but is in neither `_SKIP_DATASET_LOAD_FAILED` "
             f"nor `_SKIP_QVR_INCOMPATIBLE`, so the gallery tier does "
@@ -865,33 +865,31 @@ deterministic joint). An exemption whose gap has closed thus
         )
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
 def test_gallery_qvr_reference_pin_holds_at_every_point(
     example: pathlib.Path,
 ) -> None:
     """The QVR reference reproduces its pinned value at **every**
-    point of the set as well as at the ground truth.
+        point of the set as well as at the ground truth.
 
-    A ground-truth-only pin and the constant-spread check have
-    complementary blind spots that overlap exactly on the class of
-    error that matters most here. The pin at point 0 sees a constant
-    offset but says nothing about points 1..5. The spread check sees a
-    varying offset but is invariant to a constant one. An oracle error
-    that is *zero at the ground truth and constant across the
-perturbed points* thus passes both: the pin holds where it
-    looks, and the spread is unchanged because the same wrong value
-    feeds both sides of every difference. Pinning per point removes
-    that overlap, because a per-point pin is violated by any error
-    that moves at all.
+        A ground-truth-only pin and the constant-spread check have
+        complementary blind spots that overlap exactly on the class of
+        error that matters most here. The pin at point 0 sees a constant
+        offset but says nothing about points 1..5. The spread check sees a
+        varying offset but is invariant to a constant one. An oracle error
+        that is *zero at the ground truth and constant across the
+    perturbed points* thus passes both: the pin holds where it
+        looks, and the spread is unchanged because the same wrong value
+        feeds both sides of every difference. Pinning per point removes
+        that overlap, because a per-point pin is violated by any error
+        that moves at all.
 
-    The concrete shape of that error class in this codebase is a
-    data-dependent term the oracle drops. The dropped term is zero at
-    the ground truth for a fixture whose ground truth sits at the
-    term's zero (a centred residual, a sum-to-zero score, a
-    log-normaliser that cancels at the generating parameters) and
-    non-zero once the data moves.
+        The concrete shape of that error class in this codebase is a
+        data-dependent term the oracle drops. The dropped term is zero at
+        the ground truth for a fixture whose ground truth sits at the
+        term's zero (a centred residual, a sum-to-zero score, a
+        log-normaliser that cancels at the generating parameters) and
+        non-zero once the data moves.
     """
     if example.stem in _SKIP_DATASET_LOAD_FAILED:
         pytest.skip(
@@ -953,7 +951,8 @@ perturbed points* thus passes both: the pin holds where it
             monadic=dataset.monadic,
             x_input=dataset.x_input,
             observations=_gallery_data.observations_for_point(
-                dataset, point,
+                dataset,
+                point,
             ),
         ).log_densities[0]
         expected = reference[index]
@@ -970,9 +969,7 @@ perturbed points* thus passes both: the pin holds where it
         )
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
 def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     """The QVR-side log-density at the ground-truth (θ_true, y)
     point evaluates to a finite real number.
@@ -1067,42 +1064,40 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
 def test_gallery_multipoint_set_is_in_support_and_varies(
     example: pathlib.Path,
 ) -> None:
     """The multi-point set stays in support and actually moves.
 
-    Three properties make
-    [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
-    a real test rather than a tautology, and each is asserted here so
-    a regression surfaces without needing a Docker image:
+        Three properties make
+        [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
+        a real test rather than a tautology, and each is asserted here so
+        a regression surfaces without needing a Docker image:
 
-    1. Every point scores a **finite** QVR joint. A perturbation that
-       steps outside the support sends both evaluators to `-inf`, and
-       two `-inf` values differ by `nan` rather than by a constant, so
-       the comparison would be meaningless.
-    2. The joint **varies** across the set. A point set that collapses
-       to repeats of the ground truth restores the single-point
-       vacuity the multi-point check exists to remove: the spread of a
-       constant difference sequence is zero whatever the backend
-       computed. Variation in the joint is the observable form of
-       "the latents or the data really moved", and it holds for every
-       gallery shape, including examples that capture no latents (only
-       the data moves) and examples whose data is entirely
-       integer-valued covariates (only the latents move).
-    3. The **observed data** varies across the set. This is strictly
-       stronger than (2) and it is the property the constant-spread
-       contract actually needs: a latents-only perturbation moves the
-       joint while leaving every observation at ground truth, so (2)
-       passes on a point set whose data section is byte-identical
-       throughout. Against such a set a backend that drops a
-       data-dependent term keeps a perfectly constant offset and the
-       equivalence assertion is vacuous. An example whose data
-cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
-       and has the frozen data section asserted rather than assumed.
+        1. Every point scores a **finite** QVR joint. A perturbation that
+           steps outside the support sends both evaluators to `-inf`, and
+           two `-inf` values differ by `nan` rather than by a constant, so
+           the comparison would be meaningless.
+        2. The joint **varies** across the set. A point set that collapses
+           to repeats of the ground truth restores the single-point
+           vacuity the multi-point check exists to remove: the spread of a
+           constant difference sequence is zero whatever the backend
+           computed. Variation in the joint is the observable form of
+           "the latents or the data really moved", and it holds for every
+           gallery shape, including examples that capture no latents (only
+           the data moves) and examples whose data is entirely
+           integer-valued covariates (only the latents move).
+        3. The **observed data** varies across the set. This is strictly
+           stronger than (2) and it is the property the constant-spread
+           contract actually needs: a latents-only perturbation moves the
+           joint while leaving every observation at ground truth, so (2)
+           passes on a point set whose data section is byte-identical
+           throughout. Against such a set a backend that drops a
+           data-dependent term keeps a perfectly constant offset and the
+           equivalence assertion is vacuous. An example whose data
+    cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
+           and has the frozen data section asserted rather than assumed.
     """
     if example.stem in _SKIP_DATASET_LOAD_FAILED:
         pytest.skip(
@@ -1139,7 +1134,8 @@ cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
                 monadic=dataset.monadic,
                 x_input=dataset.x_input,
                 observations=_gallery_data.observations_for_point(
-                    dataset, point,
+                    dataset,
+                    point,
                 ),
             ).log_densities
         )
@@ -1187,9 +1183,7 @@ cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
         )
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_cells(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
 @pytest.mark.parametrize("backend", sorted(_BACKENDS_WITH_IMAGES))
 def test_gallery_backend_logdensity_matches_qvr(
     example: pathlib.Path, backend: str
@@ -1282,23 +1276,19 @@ def test_gallery_backend_logdensity_matches_qvr(
                 monadic=dataset.monadic,
                 x_input=dataset.x_input,
                 observations=_gallery_data.observations_for_point(
-                    dataset, point,
+                    dataset,
+                    point,
                 ),
             ).log_densities
         )
 
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
     raw_result = _docker.run_probe(
         image=image,
         script=script_path,
         source=emitted,
         source_ext=ext,
-        points=[
-            {"params": point.params, "data": point.data}
-            for point in points
-        ],
+        points=[{"params": point.params, "data": point.data} for point in points],
         scratch=scratch,
         shapes=_shapes_from_dataset(dataset),
         dtypes=_dtypes_from_dataset(dataset),
@@ -1326,6 +1316,7 @@ def _shapes_from_dataset(
     and `_reshape.reshape_value` reads the empty shape as a no-op
     after the dtype cast.
     """
+
     def _emitted_shape(value: torch.Tensor) -> list[int]:
         """The shape the emitted program declares for this name.
 
@@ -1391,8 +1382,12 @@ def _dtypes_from_dataset(
        family instead.
     """
     integer_dtypes = (
-        torch.int8, torch.int16, torch.int32, torch.int64,
-        torch.uint8, torch.bool,
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+        torch.uint8,
+        torch.bool,
     )
     supports = _gallery_data.site_supports(dataset)
     out: dict[str, str] = {}
@@ -1401,14 +1396,13 @@ def _dtypes_from_dataset(
             support = supports.get(name)
             if support is not None:
                 out[name] = (
-                    "int"
-                    if _gallery_data.is_discrete_support(support)
-                    else "float"
+                    "int" if _gallery_data.is_discrete_support(support) else "float"
                 )
             elif tensor.dtype in integer_dtypes:
                 out[name] = "int"
             elif tensor.numel() > 0 and torch.equal(
-                tensor, tensor.round(),
+                tensor,
+                tensor.round(),
             ):
                 out[name] = "int"
             else:

@@ -67,9 +67,7 @@ def _find_marginalize(body: tuple[IRNode, ...]) -> IRMarginalize:
 
 def _find_let(body: tuple[IRNode, ...], name: str) -> IRDeterministic:
     """Return the `IRDeterministic` bound to `name` in `body`."""
-    found = [
-        n for n in body if isinstance(n, IRDeterministic) and n.name == name
-    ]
+    found = [n for n in body if isinstance(n, IRDeterministic) and n.name == name]
     assert len(found) == 1, f"expected one let named {name!r}"
     return found[0]
 
@@ -152,9 +150,7 @@ def test_lda_pymc_mixes_over_topics_with_document_weights() -> None:
     """
     emitted = _nospace(_emit("lda", "pymc"))
     for atom in range(3):
-        assert (
-            f"__marg_z_{atom}=pymc.Categorical.dist(p=phi[{atom}])" in emitted
-        ), atom
+        assert f"__marg_z_{atom}=pymc.Categorical.dist(p=phi[{atom}])" in emitted, atom
     assert (
         'pymc.Mixture("w",w=theta[word_idx],'
         "comp_dists=[__marg_z_0,__marg_z_1,__marg_z_2],observed=w)" in emitted
@@ -191,9 +187,7 @@ def test_lda_stan_enumerates_topics_per_word() -> None:
     """
     emitted = _nospace(_emit("lda", "stan"))
     assert "array[200]vector[3]lps_z=rep_array(rep_vector(0,3),200);" in emitted
-    assert (
-        "lps_z[n_Token,k]=categorical_lpmf(k|theta[word_idx[n_Token]]);"
-    ) in emitted
+    assert ("lps_z[n_Token,k]=categorical_lpmf(k|theta[word_idx[n_Token]]);") in emitted
     assert "lps_z[n_Token,k]+=categorical_lpmf(w[n_Token]|phi[k]);" in emitted
     assert "target+=log_sum_exp(lps_z[n_Token]);" in emitted
 
@@ -265,10 +259,7 @@ def test_zip_stan_indexes_the_rate_inside_the_response_loop() -> None:
     """
     emitted = _nospace(_emit("zip_regression", "stan"))
     assert "lps_z[n_Resp,1]+=poisson_lpmf(y[n_Resp]|0);" in emitted
-    assert (
-        "lps_z[n_Resp,2]+=poisson_lpmf(y[n_Resp]|rate[n_Resp]);"
-        in emitted
-    )
+    assert "lps_z[n_Resp,2]+=poisson_lpmf(y[n_Resp]|rate[n_Resp]);" in emitted
     assert "(k-1)*rate[n_Resp]" not in emitted
     assert "y[m_Resp]~poisson(" not in emitted
     assert "y[n_Resp]~poisson(" not in emitted

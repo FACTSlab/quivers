@@ -241,7 +241,10 @@ def call(
 
 
 def python_binary_op(
-    ctx: PyCtx, op: str, left: str, right: str,
+    ctx: PyCtx,
+    op: str,
+    left: str,
+    right: str,
 ) -> str:
     """Build a ``binary_operator`` vertex carrying ``op`` as the
     field:operator constraint.
@@ -428,16 +431,54 @@ def _tfnn(name: str) -> _CallEntry:
 #: Element-wise ``torch`` primitives that live at the top level with the
 #: same name a user writes; verified against the installed ``torch``.
 _TORCH_TOPLEVEL: tuple[str, ...] = (
-    "exp", "expm1", "log", "log1p", "log2", "log10", "sqrt", "rsqrt",
-    "square", "abs", "sign", "reciprocal", "sin", "cos", "tan", "asin",
-    "acos", "atan", "sinh", "cosh", "asinh", "acosh", "atanh", "floor",
-    "ceil", "round", "trunc", "erf", "erfc", "erfinv", "lgamma", "digamma",
-    "tanh", "sigmoid", "neg",
+    "exp",
+    "expm1",
+    "log",
+    "log1p",
+    "log2",
+    "log10",
+    "sqrt",
+    "rsqrt",
+    "square",
+    "abs",
+    "sign",
+    "reciprocal",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "sinh",
+    "cosh",
+    "asinh",
+    "acosh",
+    "atanh",
+    "floor",
+    "ceil",
+    "round",
+    "trunc",
+    "erf",
+    "erfc",
+    "erfinv",
+    "lgamma",
+    "digamma",
+    "tanh",
+    "sigmoid",
+    "neg",
 )
 #: Activations that live under ``torch.nn.functional``.
 _TORCH_FUNCTIONAL: tuple[str, ...] = (
-    "relu", "relu6", "elu", "selu", "gelu", "silu", "mish", "softplus",
-    "logsigmoid", "softsign",
+    "relu",
+    "relu6",
+    "elu",
+    "selu",
+    "gelu",
+    "silu",
+    "mish",
+    "softplus",
+    "logsigmoid",
+    "softsign",
 )
 
 #: ``target -> {builtin name -> lowering}``. A builtin absent from a
@@ -449,9 +490,7 @@ _TORCH_FUNCTIONAL: tuple[str, ...] = (
 #: inferred event rank, the emit routes to the target's array-aware
 #: aggregator (mapped in ``_LET_CALL_SYMBOLS`` below) and appends the
 #: reduction-axis keyword. A scalar argument keeps the Python builtin.
-_AXIS_REDUCING_CALLS: frozenset[str] = frozenset(
-    {"sum", "mean", "prod", "max", "min"}
-)
+_AXIS_REDUCING_CALLS: frozenset[str] = frozenset({"sum", "mean", "prod", "max", "min"})
 
 #: Per-target keyword name for the reduction axis. NumPy / JAX / PyMC /
 #: TensorFlow spell it ``axis``; PyTorch spells it ``dim``.
@@ -476,56 +515,127 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         # positive-event-rank argument. ``max`` / ``min`` route to
         # ``amax`` / ``amin`` (the reductions that return a bare tensor
         # rather than a ``(values, indices)`` namedtuple).
-        "sum": _torch_reduce("sum"), "mean": _torch_reduce("mean"),
-        "prod": _torch_reduce("prod"), "max": _torch_reduce("amax"),
+        "sum": _torch_reduce("sum"),
+        "mean": _torch_reduce("mean"),
+        "prod": _torch_reduce("prod"),
+        "max": _torch_reduce("amax"),
         "min": _torch_reduce("amin"),
     },
     "numpyro": {
-        "exp": _jnp("exp"), "expm1": _jnp("expm1"), "log": _jnp("log"),
-        "log1p": _jnp("log1p"), "log2": _jnp("log2"), "log10": _jnp("log10"),
-        "sqrt": _jnp("sqrt"), "square": _jnp("square"), "abs": _jnp("abs"),
-        "sign": _jnp("sign"), "reciprocal": _jnp("reciprocal"),
-        "sin": _jnp("sin"), "cos": _jnp("cos"), "tan": _jnp("tan"),
-        "asin": _jnp("arcsin"), "acos": _jnp("arccos"), "atan": _jnp("arctan"),
-        "sinh": _jnp("sinh"), "cosh": _jnp("cosh"), "asinh": _jnp("arcsinh"),
-        "acosh": _jnp("arccosh"), "atanh": _jnp("arctanh"),
-        "floor": _jnp("floor"), "ceil": _jnp("ceil"), "round": _jnp("round"),
-        "trunc": _jnp("trunc"), "tanh": _jnp("tanh"), "neg": _jnp("negative"),
-        "erf": _jsp("erf"), "erfc": _jsp("erfc"), "erfinv": _jsp("erfinv"),
-        "lgamma": _jsp("gammaln"), "digamma": _jsp("digamma"),
-        "sigmoid": _jnn("sigmoid"), "relu": _jnn("relu"), "elu": _jnn("elu"),
-        "selu": _jnn("selu"), "gelu": _jnn("gelu"), "silu": _jnn("silu"),
-        "softplus": _jnn("softplus"), "logsigmoid": _jnn("log_sigmoid"),
+        "exp": _jnp("exp"),
+        "expm1": _jnp("expm1"),
+        "log": _jnp("log"),
+        "log1p": _jnp("log1p"),
+        "log2": _jnp("log2"),
+        "log10": _jnp("log10"),
+        "sqrt": _jnp("sqrt"),
+        "square": _jnp("square"),
+        "abs": _jnp("abs"),
+        "sign": _jnp("sign"),
+        "reciprocal": _jnp("reciprocal"),
+        "sin": _jnp("sin"),
+        "cos": _jnp("cos"),
+        "tan": _jnp("tan"),
+        "asin": _jnp("arcsin"),
+        "acos": _jnp("arccos"),
+        "atan": _jnp("arctan"),
+        "sinh": _jnp("sinh"),
+        "cosh": _jnp("cosh"),
+        "asinh": _jnp("arcsinh"),
+        "acosh": _jnp("arccosh"),
+        "atanh": _jnp("arctanh"),
+        "floor": _jnp("floor"),
+        "ceil": _jnp("ceil"),
+        "round": _jnp("round"),
+        "trunc": _jnp("trunc"),
+        "tanh": _jnp("tanh"),
+        "neg": _jnp("negative"),
+        "erf": _jsp("erf"),
+        "erfc": _jsp("erfc"),
+        "erfinv": _jsp("erfinv"),
+        "lgamma": _jsp("gammaln"),
+        "digamma": _jsp("digamma"),
+        "sigmoid": _jnn("sigmoid"),
+        "relu": _jnn("relu"),
+        "elu": _jnn("elu"),
+        "selu": _jnn("selu"),
+        "gelu": _jnn("gelu"),
+        "silu": _jnn("silu"),
+        "softplus": _jnn("softplus"),
+        "logsigmoid": _jnn("log_sigmoid"),
         "softsign": _jnn("soft_sign"),
-        "sum": _jnp("sum"), "mean": _jnp("mean"), "prod": _jnp("prod"),
-        "max": _jnp("max"), "min": _jnp("min"),
+        "sum": _jnp("sum"),
+        "mean": _jnp("mean"),
+        "prod": _jnp("prod"),
+        "max": _jnp("max"),
+        "min": _jnp("min"),
     },
     "pymc": {
-        "exp": _pmath("exp"), "expm1": _pmath("expm1"), "log": _pmath("log"),
-        "log1p": _pmath("log1p"), "log2": _pmath("log2"), "sqrt": _pmath("sqrt"),
-        "abs": _pmath("abs"), "sin": _pmath("sin"), "cos": _pmath("cos"),
-        "tan": _pmath("tan"), "sinh": _pmath("sinh"), "cosh": _pmath("cosh"),
-        "tanh": _pmath("tanh"), "floor": _pmath("floor"), "ceil": _pmath("ceil"),
-        "erf": _pmath("erf"), "erfc": _pmath("erfc"), "erfinv": _pmath("erfinv"),
+        "exp": _pmath("exp"),
+        "expm1": _pmath("expm1"),
+        "log": _pmath("log"),
+        "log1p": _pmath("log1p"),
+        "log2": _pmath("log2"),
+        "sqrt": _pmath("sqrt"),
+        "abs": _pmath("abs"),
+        "sin": _pmath("sin"),
+        "cos": _pmath("cos"),
+        "tan": _pmath("tan"),
+        "sinh": _pmath("sinh"),
+        "cosh": _pmath("cosh"),
+        "tanh": _pmath("tanh"),
+        "floor": _pmath("floor"),
+        "ceil": _pmath("ceil"),
+        "erf": _pmath("erf"),
+        "erfc": _pmath("erfc"),
+        "erfinv": _pmath("erfinv"),
         "sigmoid": _pmath("sigmoid"),
-        "sum": _pmath("sum"), "mean": _pmath("mean"), "prod": _pmath("prod"),
-        "max": _pmath("max"), "min": _pmath("min"),
+        "sum": _pmath("sum"),
+        "mean": _pmath("mean"),
+        "prod": _pmath("prod"),
+        "max": _pmath("max"),
+        "min": _pmath("min"),
     },
     "edward2": {
-        "exp": _tfmath("exp"), "expm1": _tfmath("expm1"), "log": _tfmath("log"),
-        "log1p": _tfmath("log1p"), "sqrt": _tfmath("sqrt"), "rsqrt": _tfmath("rsqrt"),
-        "square": _tfmath("square"), "abs": _tfmath("abs"), "sign": _tfmath("sign"),
-        "reciprocal": _tfmath("reciprocal"), "sin": _tfmath("sin"),
-        "cos": _tfmath("cos"), "tan": _tfmath("tan"), "asin": _tfmath("asin"),
-        "acos": _tfmath("acos"), "atan": _tfmath("atan"), "sinh": _tfmath("sinh"),
-        "cosh": _tfmath("cosh"), "asinh": _tfmath("asinh"), "acosh": _tfmath("acosh"),
-        "atanh": _tfmath("atanh"), "floor": _tfmath("floor"), "ceil": _tfmath("ceil"),
-        "round": _tfmath("round"), "tanh": _tfmath("tanh"), "sigmoid": _tfmath("sigmoid"),
-        "erf": _tfmath("erf"), "erfc": _tfmath("erfc"), "erfinv": _tfmath("erfinv"),
-        "lgamma": _tfmath("lgamma"), "digamma": _tfmath("digamma"),
-        "neg": _tfmath("negative"), "logsigmoid": _tfmath("log_sigmoid"),
-        "relu": _tfnn("relu"), "elu": _tfnn("elu"), "selu": _tfnn("selu"),
-        "gelu": _tfnn("gelu"), "silu": _tfnn("silu"), "softplus": _tfnn("softplus"),
+        "exp": _tfmath("exp"),
+        "expm1": _tfmath("expm1"),
+        "log": _tfmath("log"),
+        "log1p": _tfmath("log1p"),
+        "sqrt": _tfmath("sqrt"),
+        "rsqrt": _tfmath("rsqrt"),
+        "square": _tfmath("square"),
+        "abs": _tfmath("abs"),
+        "sign": _tfmath("sign"),
+        "reciprocal": _tfmath("reciprocal"),
+        "sin": _tfmath("sin"),
+        "cos": _tfmath("cos"),
+        "tan": _tfmath("tan"),
+        "asin": _tfmath("asin"),
+        "acos": _tfmath("acos"),
+        "atan": _tfmath("atan"),
+        "sinh": _tfmath("sinh"),
+        "cosh": _tfmath("cosh"),
+        "asinh": _tfmath("asinh"),
+        "acosh": _tfmath("acosh"),
+        "atanh": _tfmath("atanh"),
+        "floor": _tfmath("floor"),
+        "ceil": _tfmath("ceil"),
+        "round": _tfmath("round"),
+        "tanh": _tfmath("tanh"),
+        "sigmoid": _tfmath("sigmoid"),
+        "erf": _tfmath("erf"),
+        "erfc": _tfmath("erfc"),
+        "erfinv": _tfmath("erfinv"),
+        "lgamma": _tfmath("lgamma"),
+        "digamma": _tfmath("digamma"),
+        "neg": _tfmath("negative"),
+        "logsigmoid": _tfmath("log_sigmoid"),
+        "relu": _tfnn("relu"),
+        "elu": _tfnn("elu"),
+        "selu": _tfnn("selu"),
+        "gelu": _tfnn("gelu"),
+        "silu": _tfnn("silu"),
+        "softplus": _tfnn("softplus"),
         "softsign": _tfnn("softsign"),
         "sum": (("tf", "reduce_sum"), None),
         "mean": (("tf", "reduce_mean"), None),
@@ -541,20 +651,96 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
 #: torch dispatch table). Kept as a literal so this schema-building helper
 #: stays decoupled from the torch execution path; a drift guard in the test
 #: suite asserts it matches the compiler's table.
-_MATH_BUILTIN_NAMES: frozenset[str] = frozenset({
-    "relu", "relu6", "leaky_relu", "prelu", "rrelu", "elu", "selu", "celu",
-    "gelu", "silu", "swish", "mish", "hardtanh", "hardshrink", "hardsigmoid",
-    "hardswish", "softplus", "softshrink", "softsign", "softmax",
-    "log_softmax", "softmin", "tanh", "tanhshrink", "sigmoid", "logsigmoid",
-    "threshold", "glu", "normalize", "exp", "expm1", "log", "log1p", "log2",
-    "log10", "sqrt", "rsqrt", "square", "abs", "neg", "sign", "reciprocal",
-    "clamp", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh",
-    "asinh", "acosh", "atanh", "floor", "ceil", "round", "trunc", "erf",
-    "erfc", "erfinv", "lgamma", "digamma", "sum", "mean", "var", "std",
-    "min", "max", "argmin", "argmax", "prod", "amax", "amin", "logsumexp",
-    "norm", "cumsum", "cumprod", "cummax", "cummin", "flip", "sort",
-    "dropout", "alpha_dropout", "layer_norm", "rms_norm",
-})
+_MATH_BUILTIN_NAMES: frozenset[str] = frozenset(
+    {
+        "relu",
+        "relu6",
+        "leaky_relu",
+        "prelu",
+        "rrelu",
+        "elu",
+        "selu",
+        "celu",
+        "gelu",
+        "silu",
+        "swish",
+        "mish",
+        "hardtanh",
+        "hardshrink",
+        "hardsigmoid",
+        "hardswish",
+        "softplus",
+        "softshrink",
+        "softsign",
+        "softmax",
+        "log_softmax",
+        "softmin",
+        "tanh",
+        "tanhshrink",
+        "sigmoid",
+        "logsigmoid",
+        "threshold",
+        "glu",
+        "normalize",
+        "exp",
+        "expm1",
+        "log",
+        "log1p",
+        "log2",
+        "log10",
+        "sqrt",
+        "rsqrt",
+        "square",
+        "abs",
+        "neg",
+        "sign",
+        "reciprocal",
+        "clamp",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "sinh",
+        "cosh",
+        "asinh",
+        "acosh",
+        "atanh",
+        "floor",
+        "ceil",
+        "round",
+        "trunc",
+        "erf",
+        "erfc",
+        "erfinv",
+        "lgamma",
+        "digamma",
+        "sum",
+        "mean",
+        "var",
+        "std",
+        "min",
+        "max",
+        "argmin",
+        "argmax",
+        "prod",
+        "amax",
+        "amin",
+        "logsumexp",
+        "norm",
+        "cumsum",
+        "cumprod",
+        "cummax",
+        "cummin",
+        "flip",
+        "sort",
+        "dropout",
+        "alpha_dropout",
+        "layer_norm",
+        "rms_norm",
+    }
+)
 
 
 def _resolve_python_call(ctx: PyCtx, func: str) -> str:
@@ -803,9 +989,7 @@ def render_let_expr_python(
         return _render_factor_python(ctx, expr)
     raise UnsupportedConstruct(
         "qvr-python-helper",
-        [
-            f"let-expr:{type(expr).__name__}: unhandled node kind"
-        ],
+        [f"let-expr:{type(expr).__name__}: unhandled node kind"],
     )
 
 
@@ -863,9 +1047,7 @@ def _render_conditioning_row_python(
                 f"conditioning row carries no factors"
             ],
         )
-    rendered = tuple(
-        render_let_expr_python(ctx, source.value) for source in sources
-    )
+    rendered = tuple(render_let_expr_python(ctx, source.value) for source in sources)
     if len(rendered) == 1:
         return rendered[0]
     entry = _PY_CONCAT_SYMBOLS.get(ctx.target)
@@ -885,9 +1067,7 @@ def _render_conditioning_row_python(
     return call(ctx, attribute(ctx, segments), positional=positional)
 
 
-def _render_affine_map_python(
-    ctx: PyCtx, expr: LetExprAffineMap
-) -> str:
+def _render_affine_map_python(ctx: PyCtx, expr: LetExprAffineMap) -> str:
     """Render one head's row block of ``W x + b`` as a matmul.
 
     Most Python array backends spell the contraction ``@``; a target
@@ -913,15 +1093,11 @@ def _render_affine_map_python(
     product = (
         python_binary_op(ctx, "@", weight, row)
         if matvec is None
-        else call(
-            ctx, attribute(ctx, matvec), positional=(weight, row)
-        )
+        else call(ctx, attribute(ctx, matvec), positional=(weight, row))
     )
     total = python_binary_op(ctx, "+", product, bias)
     if expr.transform == "exp":
-        return call(
-            ctx, _resolve_python_call(ctx, "exp"), positional=(total,)
-        )
+        return call(ctx, _resolve_python_call(ctx, "exp"), positional=(total,))
     return total
 
 
@@ -1003,9 +1179,7 @@ def name_event_rank_map(ir: IRProgram) -> dict[str, int]:
     return out
 
 
-def _walk_for_name_ranks(
-    body: tuple[IRNode, ...], out: dict[str, int]
-) -> None:
+def _walk_for_name_ranks(body: tuple[IRNode, ...], out: dict[str, int]) -> None:
     for node in body:
         if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
             out[node.name] = len(node.plate.event_dims)
@@ -1033,9 +1207,7 @@ def name_plate_map(ir: IRProgram) -> dict[str, Plate]:
     return out
 
 
-def _walk_for_name_plates(
-    body: tuple[IRNode, ...], out: dict[str, Plate]
-) -> None:
+def _walk_for_name_plates(body: tuple[IRNode, ...], out: dict[str, Plate]) -> None:
     for node in body:
         if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
             out[node.name] = node.plate
@@ -1057,9 +1229,7 @@ def factor_tower_names(ir: IRProgram) -> frozenset[str]:
     return frozenset(out)
 
 
-def _walk_for_factor_towers(
-    body: tuple[IRNode, ...], out: set[str]
-) -> None:
+def _walk_for_factor_towers(body: tuple[IRNode, ...], out: set[str]) -> None:
     for node in body:
         if isinstance(node, IRDeterministic):
             if isinstance(node.expr, LetExprFactor):
@@ -1192,15 +1362,11 @@ def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:
                 ],
             )
         ordered = sorted(expr.cases, key=lambda c: c.label)
-        items = tuple(
-            render_let_expr_python(ctx, c.value) for c in ordered
-        )
+        items = tuple(render_let_expr_python(ctx, c.value) for c in ordered)
         return _emit_python_list(ctx, items)
     if expr.body is not None and not expr.cases:
         sizes = tuple(_card_for(ctx, b) for b in expr.binders)
-        return _build_nested_python(
-            ctx, expr.binders, sizes, expr.body, ()
-        )
+        return _build_nested_python(ctx, expr.binders, sizes, expr.body, ())
     raise UnsupportedConstruct(
         "qvr-python-helper",
         [
@@ -1265,9 +1431,7 @@ def _build_nested_python(
         return render_let_expr_python(ctx, subst)
     level = len(fixed)
     items = tuple(
-        _build_nested_python(
-            ctx, binders, sizes, body, fixed + (i,)
-        )
+        _build_nested_python(ctx, binders, sizes, body, fixed + (i,))
         for i in range(sizes[level])
     )
     return _emit_python_list(ctx, items)
@@ -1356,9 +1520,7 @@ def marginalize_body(
                 f"carries no observed site to weight the atoms against"
             ],
         )
-    return MarginalizeBody(
-        deterministics=tuple(deterministics), observe=observe
-    )
+    return MarginalizeBody(deterministics=tuple(deterministics), observe=observe)
 
 
 def marginal_support_size(
@@ -1440,10 +1602,7 @@ def marginal_weight_probs(
             ],
         )
     weight_plate = name_plates.get(probs.name)
-    if (
-        weight_plate is None
-        or weight_plate.batch_dims != node.plate.batch_dims
-    ):
+    if weight_plate is None or weight_plate.batch_dims != node.plate.batch_dims:
         return probs
     return IRArgRef(
         name=probs.name,
@@ -1451,9 +1610,7 @@ def marginal_weight_probs(
     )
 
 
-def marginal_atom_axis(
-    family: str, arg_names: tuple[str, ...], *, target: str
-) -> int:
+def marginal_atom_axis(family: str, arg_names: tuple[str, ...], *, target: str) -> int:
     """Negative axis along which one atom's distribution arguments
     stack into the batched component distribution.
 

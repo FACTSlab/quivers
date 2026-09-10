@@ -134,9 +134,7 @@ EMITTED_KINDS: tuple[str, ...] = tuple(
 
 @pytest.mark.parametrize("kind", EMITTED_KINDS)
 @pytest.mark.parametrize("target", TARGETS)
-def test_every_emitted_kind_renders_an_explanation(
-    target: str, kind: str
-) -> None:
+def test_every_emitted_kind_renders_an_explanation(target: str, kind: str) -> None:
     """No emitted kind falls through to the report-a-bug fallback."""
     message = user_facing_message(target, (kind,))
     assert UNEXPLAINED not in message, (
@@ -150,9 +148,7 @@ def test_every_emitted_kind_renders_an_explanation(
 
 @pytest.mark.parametrize("kind", EMITTED_KINDS)
 @pytest.mark.parametrize("target", TARGETS)
-def test_every_explanation_frames_the_tag_as_prose(
-    target: str, kind: str
-) -> None:
+def test_every_explanation_frames_the_tag_as_prose(target: str, kind: str) -> None:
     """A message is prose about the tag, never the tag echoed back.
 
     Some kinds carry their own detail after a structured head, so a

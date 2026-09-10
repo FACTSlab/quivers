@@ -180,8 +180,7 @@ class PyMCRenderer(RendererBase):
         # Graft runtime helpers for families PyMC does not ship, once,
         # as top-level definitions preceding `build_model`.
         if any(
-            _ir_uses_family(ir.body, family)
-            for family in _PYMC_RUNTIME_HELPER_FAMILIES
+            _ir_uses_family(ir.body, family) for family in _PYMC_RUNTIME_HELPER_FAMILIES
         ):
             _graft_runtime_pymc_helpers(py)
 
@@ -195,8 +194,10 @@ class PyMCRenderer(RendererBase):
         # `def build_model(<data_inputs>=None): <fn_body>`.
         param_names = tuple(inp.name for inp in ir.inputs)
         fn = function_def(
-            py, name="build_model",
-            default_params=param_names, body_vid=fn_body,
+            py,
+            name="build_model",
+            default_params=param_names,
+            body_vid=fn_body,
         )
         py.e("mod", fn, "child_of")
 
@@ -249,21 +250,22 @@ class PyMCRenderer(RendererBase):
         callee = attribute(py, ("np", "arange"))
         if isinstance(dim, DimStatic):
             return call(
-                py, callee,
+                py,
+                callee,
                 positional=(number_literal(py, float(dim.size)),),
             )
         if isinstance(dim, DimDynamic):
             return call(
-                py, callee, positional=(identifier(py, dim.size_name),),
+                py,
+                callee,
+                positional=(identifier(py, dim.size_name),),
             )
         msg = f"unknown Dim kind: {type(dim).__name__}"
         raise UnsupportedConstruct(self.target, [msg])
 
     # ----- per-node dispatch (PyMC walks over with-body) ----
 
-    def _dispatch_pymc(
-        self, ctx: _PyMCCtx, node: IRNode
-    ) -> None:
+    def _dispatch_pymc(self, ctx: _PyMCCtx, node: IRNode) -> None:
         if isinstance(node, IRDataInput):
             # Data inputs are function parameters, declared in
             # `function_def`. No additional emit inside the with-body.
@@ -289,13 +291,9 @@ class PyMCRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
             return
-        raise UnsupportedConstruct(
-            self.target, [f"node:{type(node).__name__}"]
-        )
+        raise UnsupportedConstruct(self.target, [f"node:{type(node).__name__}"])
 
-    def _emit_export(
-        self, ctx: _PyMCCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_export(self, ctx: _PyMCCtx, names: tuple[str, ...]) -> None:
         """Expose returned names as `pymc.Deterministic` values.
 
         `build_model` returns the model itself, so exports are registered as
@@ -307,7 +305,8 @@ class PyMCRenderer(RendererBase):
         py = ctx.py
         for name in names:
             det = call(
-                py, attribute(py, ("pymc", "Deterministic")),
+                py,
+                attribute(py, ("pymc", "Deterministic")),
                 positional=(
                     string_literal(py, f"{name}_value"),
                     call(
@@ -361,9 +360,7 @@ class PyMCRenderer(RendererBase):
         Python pretty-printer keeps precedence intact around the
         nested binary_operator children.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 self.target,
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -372,10 +369,7 @@ class PyMCRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 self.target,
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         py = ctx.py
         n = kernel_arg.grid_size
@@ -399,29 +393,36 @@ class PyMCRenderer(RendererBase):
         # x_col = pt.reshape(x, (-1, 1)), x_row = pt.reshape(x, (1, -1))
         # PyTensor accepts `x.reshape((-1, 1))` syntax.
         x_col = _python_method_call(
-            py, identifier(py, x), "reshape",
+            py,
+            identifier(py, x),
+            "reshape",
             (
                 _python_unary_minus(py, number_literal(py, 1)),
                 number_literal(py, 1),
             ),
         )
         x_row = _python_method_call(
-            py, identifier(py, x), "reshape",
+            py,
+            identifier(py, x),
+            "reshape",
             (
                 number_literal(py, 1),
                 _python_unary_minus(py, number_literal(py, 1)),
             ),
         )
         diff = _python_paren(
-            py, _python_binary_op(py, "-", x_col, x_row),
+            py,
+            _python_binary_op(py, "-", x_col, x_row),
         )
         diff_sq = _python_paren(
-            py, _python_binary_op(py, "*", diff, diff),
+            py,
+            _python_binary_op(py, "*", diff, diff),
         )
         ls_sq = _python_paren(
             py,
             _python_binary_op(
-                py, "*",
+                py,
+                "*",
                 number_literal(py, ls),
                 number_literal(py, ls),
             ),
@@ -440,10 +441,16 @@ class PyMCRenderer(RendererBase):
             positional=(number_literal(py, n),),
         )
         jitter_term = _python_binary_op(
-            py, "*", number_literal(py, jitter), eye_call,
+            py,
+            "*",
+            number_literal(py, jitter),
+            eye_call,
         )
         cov_rhs = _python_binary_op(
-            py, "+", kernel_call, jitter_term,
+            py,
+            "+",
+            kernel_call,
+            jitter_term,
         )
         py.e(
             ctx.with_body,
@@ -480,15 +487,15 @@ class PyMCRenderer(RendererBase):
             return
         if node.family == "LKJCholesky":
             self._emit_lkj_cholesky(
-                ctx, node, observed_name=observed_name,
+                ctx,
+                node,
+                observed_name=observed_name,
             )
             return
         meta = _resolve_meta(node.family, self.target)
         dist_class = meta.target_names.get("pymc")
         if dist_class is None:
-            raise UnsupportedConstruct(
-                self.target, [f"family:{node.family}"]
-            )
+            raise UnsupportedConstruct(self.target, [f"family:{node.family}"])
 
         # A family PyMC does not ship (`ContinuousBernoulli`) resolves
         # to a grafted runtime helper called by bare name; the graft
@@ -504,7 +511,9 @@ class PyMCRenderer(RendererBase):
         # arg_constraints for this family (read class-level only;
         # property-form parameterisations land in a future pass).
         cls_constraints = getattr(
-            meta.distribution_class, "arg_constraints", {},
+            meta.distribution_class,
+            "arg_constraints",
+            {},
         )
         if not isinstance(cls_constraints, dict):
             cls_constraints = {}
@@ -527,7 +536,10 @@ class PyMCRenderer(RendererBase):
                 rendered = _python_paren(
                     ctx.py,
                     _python_binary_op(
-                        ctx.py, "-", number_literal(ctx.py, 1.0), rendered,
+                        ctx.py,
+                        "-",
+                        number_literal(ctx.py, 1.0),
+                        rendered,
                     ),
                 )
             keyword.append((renamed, rendered))
@@ -542,8 +554,10 @@ class PyMCRenderer(RendererBase):
             keyword.append(("observed", identifier(ctx.py, observed_name)))
 
         rhs = call(
-            ctx.py, callee,
-            positional=positional, keyword=tuple(keyword),
+            ctx.py,
+            callee,
+            positional=positional,
+            keyword=tuple(keyword),
         )
 
         if observed_name is None:
@@ -591,7 +605,8 @@ class PyMCRenderer(RendererBase):
             if dims_tuple is not None:
                 geom_keyword.append(("dims", dims_tuple))
             geom = call(
-                py, callee,
+                py,
+                callee,
                 positional=(string_literal(py, f"{node.name}__geom"),),
                 keyword=tuple(geom_keyword),
             )
@@ -600,14 +615,18 @@ class PyMCRenderer(RendererBase):
             # no parenthesis (a parenthesized_expression renders empty
             # in positional position under the Python pretty printer).
             shifted = _python_binary_op(
-                py, "-", geom, number_literal(py, 1.0),
+                py,
+                "-",
+                geom,
+                number_literal(py, 1.0),
             )
             det_keyword: list[tuple[str, str]] = []
             det_dims = self._dims_tuple(py, node.plate)
             if det_dims is not None:
                 det_keyword.append(("dims", det_dims))
             det = call(
-                py, attribute(py, ("pymc", "Deterministic")),
+                py,
+                attribute(py, ("pymc", "Deterministic")),
                 positional=(string_literal(py, node.name), shifted),
                 keyword=tuple(det_keyword),
             )
@@ -621,12 +640,16 @@ class PyMCRenderer(RendererBase):
         observed_expr = _python_paren(
             py,
             _python_binary_op(
-                py, "+", identifier(py, observed_name), number_literal(py, 1.0),
+                py,
+                "+",
+                identifier(py, observed_name),
+                number_literal(py, 1.0),
             ),
         )
         obs_keyword.append(("observed", observed_expr))
         rhs = call(
-            py, callee,
+            py,
+            callee,
             positional=(string_literal(py, node.name),),
             keyword=tuple(obs_keyword),
         )
@@ -735,17 +758,14 @@ class PyMCRenderer(RendererBase):
         # Build the target shape from the surrounding plate's
         # event_dims (the broadcast target for a vector/matrix arg).
         event = tuple(
-            dim.size for dim in plate.event_dims
-            if isinstance(dim, DimStatic)
+            dim.size for dim in plate.event_dims if isinstance(dim, DimStatic)
         )
         if not event or len(event) < expected.event_dim:
             return arg
         target_shape = event[: expected.event_dim]
         return IRArgBroadcast(value=arg, target_shape=target_shape)
 
-    def _input_for(
-        self, name: str, ir: IRProgram
-    ) -> IRDataInput | None:
+    def _input_for(self, name: str, ir: IRProgram) -> IRDataInput | None:
         for inp in ir.inputs:
             if inp.name == name:
                 return inp
@@ -787,9 +807,7 @@ class PyMCRenderer(RendererBase):
         del ctx, node
         return ""
 
-    def _emit_marginalize(
-        self, ctx: _PyMCCtx, node: IRMarginalize
-    ) -> None:
+    def _emit_marginalize(self, ctx: _PyMCCtx, node: IRMarginalize) -> None:
         """Integrate the latent out into a [`pymc.Mixture`][pymc.Mixture]
         over the atoms of its finite support.
 
@@ -818,14 +836,10 @@ class PyMCRenderer(RendererBase):
         """
         refuse_ungrouped_row_marginalize("qvr-pymc", node)
         py = ctx.py
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         atoms = self.marginal_atoms(
             node,
-            support_size=marginal_support_size(
-                node, name_plates=py.name_plates
-            ),
+            support_size=marginal_support_size(node, name_plates=py.name_plates),
         )
         prefix = f"__marg_{node.latent}"
         component_names: list[str] = []
@@ -856,10 +870,7 @@ class PyMCRenderer(RendererBase):
                     "comp_dists",
                     python_list(
                         py,
-                        tuple(
-                            identifier(py, name)
-                            for name in component_names
-                        ),
+                        tuple(identifier(py, name) for name in component_names),
                     ),
                 ),
                 ("observed", identifier(py, raw.observe.name)),
@@ -869,32 +880,26 @@ class PyMCRenderer(RendererBase):
         py.e(stmt, mixture, "child_of")
         py.e(ctx.with_body, stmt, "child_of")
 
-    def _component_dist(
-        self, ctx: _PyMCCtx, observe: IRObserve
-    ) -> str:
+    def _component_dist(self, ctx: _PyMCCtx, observe: IRObserve) -> str:
         """Build the unregistered ``pymc.<Family>.dist(**args)`` an
         atom contributes to the mixture."""
         meta = _resolve_meta(observe.family, self.target)
         dist_class = meta.target_names.get("pymc")
         if dist_class is None:
-            raise UnsupportedConstruct(
-                self.target, [f"family:{observe.family}"]
-            )
+            raise UnsupportedConstruct(self.target, [f"family:{observe.family}"])
         helper = _PYMC_RUNTIME_HELPER_FAMILIES.get(observe.family)
         chain = (helper, "dist") if helper else ("pymc", dist_class, "dist")
-        complement_args = _PYMC_COMPLEMENT_ARGS.get(
-            observe.family, frozenset()
-        )
+        complement_args = _PYMC_COMPLEMENT_ARGS.get(observe.family, frozenset())
         cls_constraints = getattr(
-            meta.distribution_class, "arg_constraints", {},
+            meta.distribution_class,
+            "arg_constraints",
+            {},
         )
         if not isinstance(cls_constraints, dict):
             cls_constraints = {}
         aliases = _merged_aliases(meta)
         keyword: list[tuple[str, str]] = []
-        for arg, arg_name in zip(
-            observe.args, observe.arg_names, strict=True
-        ):
+        for arg, arg_name in zip(observe.args, observe.arg_names, strict=True):
             arg_to_emit = self._maybe_broadcast_ref(
                 arg,
                 arg_name=arg_name,
@@ -907,7 +912,10 @@ class PyMCRenderer(RendererBase):
                 rendered = _python_paren(
                     ctx.py,
                     _python_binary_op(
-                        ctx.py, "-", number_literal(ctx.py, 1.0), rendered,
+                        ctx.py,
+                        "-",
+                        number_literal(ctx.py, 1.0),
+                        rendered,
                     ),
                 )
             keyword.append((aliases.get(arg_name, arg_name), rendered))
@@ -997,7 +1005,8 @@ class PyMCRenderer(RendererBase):
     ) -> str:
         if len(target_shape) not in (1, 2):
             raise UnsupportedConstruct(
-                self.target, [f"broadcast:rank-{len(target_shape)}"],
+                self.target,
+                [f"broadcast:rank-{len(target_shape)}"],
             )
         shape_tuple = bag.py.v(bag.py.fresh("tup"), "tuple")
         for n in target_shape:
@@ -1022,7 +1031,9 @@ class PyMCRenderer(RendererBase):
             else self._render_arg(bag, value)
         )
         return call(
-            bag.py, callee, positional=(shape_tuple, fill),
+            bag.py,
+            callee,
+            positional=(shape_tuple, fill),
         )
 
     # ----- arg rendering: dispatch on IRArg variant -----
@@ -1042,9 +1053,7 @@ class PyMCRenderer(RendererBase):
             return self._render_family_ref(ctx, arg)
         if isinstance(arg, IRArgTransform):
             return self._render_transform(ctx, arg)
-        raise UnsupportedConstruct(
-            self.target, [f"arg:{type(arg).__name__}"]
-        )
+        raise UnsupportedConstruct(self.target, [f"arg:{type(arg).__name__}"])
 
     def _render_ref(self, ctx: _PyMCCtx, ref: IRArgRef) -> str:
         """Emit `name` or `name[i0][i1]...` as a subscript chain."""
@@ -1062,7 +1071,8 @@ class PyMCRenderer(RendererBase):
         for e in lst.elements:
             ctx.py.e(list_v, self._render_arg(ctx, e), "child_of")
         return call(
-            ctx.py, attribute(ctx.py, ("np", "array")),
+            ctx.py,
+            attribute(ctx.py, ("np", "array")),
             positional=(list_v,),
         )
 
@@ -1075,13 +1085,12 @@ class PyMCRenderer(RendererBase):
                 ctx.py.e(inner, self._render_arg(ctx, e), "child_of")
             ctx.py.e(outer, inner, "child_of")
         return call(
-            ctx.py, attribute(ctx.py, ("np", "array")),
+            ctx.py,
+            attribute(ctx.py, ("np", "array")),
             positional=(outer,),
         )
 
-    def _render_family_ref(
-        self, ctx: _PyMCCtx, ref: IRArgFamilyRef
-    ) -> str:
+    def _render_family_ref(self, ctx: _PyMCCtx, ref: IRArgFamilyRef) -> str:
         """Emit `pymc.<base>.dist(<base_args>)` for a referenced
         morphism whose `init_family` clause names a base distribution.
 
@@ -1098,10 +1107,7 @@ class PyMCRenderer(RendererBase):
         if init is None:
             raise UnsupportedConstruct(
                 self.target,
-                [
-                    f"family_ref:{ref.name}: morphism has no "
-                    f"`~ Family(...)` init clause"
-                ],
+                [f"family_ref:{ref.name}: morphism has no `~ Family(...)` init clause"],
             )
         base_meta = _resolve_meta(init.family, self.target)
         base_dist_class = base_meta.target_names.get("pymc")
@@ -1112,14 +1118,11 @@ class PyMCRenderer(RendererBase):
             )
         dist_attr = attribute(ctx.py, ("pymc", base_dist_class, "dist"))
         positional = tuple(
-            arg_expr(ctx.py, _draw_arg_to_wire(a))
-            for a in (init.args or ())
+            arg_expr(ctx.py, _draw_arg_to_wire(a)) for a in (init.args or ())
         )
         return call(ctx.py, dist_attr, positional=positional)
 
-    def _render_transform(
-        self, ctx: _PyMCCtx, t: IRArgTransform
-    ) -> str:
+    def _render_transform(self, ctx: _PyMCCtx, t: IRArgTransform) -> str:
         """Renderer-applied arithmetic transform on an arg.
 
         PyMC's [`Potential`][pymc.Potential] does not currently use
@@ -1138,32 +1141,28 @@ class PyMCRenderer(RendererBase):
             return _bin_op(ctx.py, one, "/", square)
         if t.transform == "log":
             return call(
-                ctx.py, attribute(ctx.py, ("np", "log")),
+                ctx.py,
+                attribute(ctx.py, ("np", "log")),
                 positional=(inner,),
             )
         if t.transform == "exp":
             return call(
-                ctx.py, attribute(ctx.py, ("np", "exp")),
+                ctx.py,
+                attribute(ctx.py, ("np", "exp")),
                 positional=(inner,),
             )
-        raise UnsupportedConstruct(
-            self.target, [f"transform:{t.transform}"]
-        )
+        raise UnsupportedConstruct(self.target, [f"transform:{t.transform}"])
 
     # ----- deterministic / score -----
 
-    def _emit_deterministic(
-        self, ctx: _PyMCCtx, node: IRDeterministic
-    ) -> None:
+    def _emit_deterministic(self, ctx: _PyMCCtx, node: IRDeterministic) -> None:
         """Emit `<name> = <expr>` for a let-bound deterministic
         computation."""
         rhs = render_deterministic_python(ctx.py, node)
         stmt = assignment(ctx.py, lhs_name=node.name, rhs=rhs)
         ctx.py.e(ctx.with_body, stmt, "child_of")
 
-    def _emit_score_step(
-        self, ctx: _PyMCCtx, node: IRScore
-    ) -> None:
+    def _emit_score_step(self, ctx: _PyMCCtx, node: IRScore) -> None:
         """Emit `<name> = <expr>` then `pymc.Potential("<name>",
         <name>)` for a score step.
 
@@ -1174,7 +1173,8 @@ class PyMCRenderer(RendererBase):
         stmt = assignment(ctx.py, lhs_name=node.name, rhs=rhs)
         ctx.py.e(ctx.with_body, stmt, "child_of")
         factor_call = call(
-            ctx.py, attribute(ctx.py, ("pymc", "Potential")),
+            ctx.py,
+            attribute(ctx.py, ("pymc", "Potential")),
             positional=(
                 string_literal(ctx.py, node.name),
                 identifier(ctx.py, node.name),
@@ -1223,7 +1223,11 @@ class _PyMCCtx:
     lookups)."""
 
     def __init__(
-        self, *, ctx: _RenderCtx, py: PyCtx, ir: IRProgram,
+        self,
+        *,
+        ctx: _RenderCtx,
+        py: PyCtx,
+        ir: IRProgram,
     ) -> None:
         self.ctx = ctx
         self.py = py
@@ -1315,9 +1319,7 @@ def _unary_op(py: PyCtx, op: str, operand: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-_RUNTIME_PYMC_PATH = (
-    pathlib.Path(__file__).resolve().parent.parent / "runtime_pymc.py"
-)
+_RUNTIME_PYMC_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_pymc.py"
 
 
 def _load_runtime_pymc_helpers() -> tuple[panproto.Schema, tuple[str, ...]]:
@@ -1337,9 +1339,7 @@ def _load_runtime_pymc_helpers() -> tuple[panproto.Schema, tuple[str, ...]]:
         _RUNTIME_PYMC_PATH.read_bytes(),
         str(_RUNTIME_PYMC_PATH),
     )
-    module_id = next(
-        (v.id for v in schema.vertices if v.kind == "module"), None
-    )
+    module_id = next((v.id for v in schema.vertices if v.kind == "module"), None)
     if module_id is None:
         raise RuntimeError(
             f"no module root parsed from {_RUNTIME_PYMC_PATH}; the "
@@ -1363,9 +1363,7 @@ def _load_runtime_pymc_helpers() -> tuple[panproto.Schema, tuple[str, ...]]:
     return schema, roots
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, root: str
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, root: str) -> set[str]:
     """Return every vertex id reachable from `root` via outgoing
     edges of `schema`."""
     seen: set[str] = {root}
@@ -1382,17 +1380,13 @@ def _subtree_vertex_ids(
 _RUNTIME_PYMC_SCHEMA, _RUNTIME_PYMC_ROOTS = _load_runtime_pymc_helpers()
 _RUNTIME_PYMC_REACHABLE: set[str] = set()
 for _root in _RUNTIME_PYMC_ROOTS:
-    _RUNTIME_PYMC_REACHABLE |= _subtree_vertex_ids(
-        _RUNTIME_PYMC_SCHEMA, _root
-    )
+    _RUNTIME_PYMC_REACHABLE |= _subtree_vertex_ids(_RUNTIME_PYMC_SCHEMA, _root)
 
 #: The grafted vertices in the parsed schema's own vertex order, so a
 #: render assigns fresh ids, and the pretty printer emits the helper
 #: definitions, in a fixed sequence.
 _RUNTIME_PYMC_SUBTREE: tuple[str, ...] = tuple(
-    v.id
-    for v in _RUNTIME_PYMC_SCHEMA.vertices
-    if v.id in _RUNTIME_PYMC_REACHABLE
+    v.id for v in _RUNTIME_PYMC_SCHEMA.vertices if v.id in _RUNTIME_PYMC_REACHABLE
 )
 
 
@@ -1404,9 +1398,7 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     for node in body:
         if isinstance(node, (IRSample, IRObserve)) and node.family == family:
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
-        ):
+        if isinstance(node, IRMarginalize) and _ir_uses_family(node.scope, family):
             return True
     return False
 
@@ -1424,9 +1416,7 @@ def _graft_runtime_pymc_helpers(py: PyCtx) -> None:
     for old in _RUNTIME_PYMC_SUBTREE:
         new = py.fresh("rt")
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         py.v(new, kind)
         for cstr in src_schema.constraints_for(old):
             py.constraint(new, cstr.sort, cstr.value)
@@ -1452,7 +1442,9 @@ class _PyMCWalker(SchemaTransform):
         morphisms = build_morphism_table(module)
         lets = build_let_table(module)
         return renderer.render_with_tables(
-            ir, morphisms=morphisms, lets=lets,
+            ir,
+            morphisms=morphisms,
+            lets=lets,
         )
 
 

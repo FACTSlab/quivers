@@ -44,9 +44,7 @@ class BugsProbe:
     ) -> ProbeResult:
         # JAGS accepts the BUGS-language source as-is; reuse the
         # JAGS probe's compile + sample-at-init path.
-        result = self._jags.evaluate(
-            source, fixture_name, points, scratch=scratch
-        )
+        result = self._jags.evaluate(source, fixture_name, points, scratch=scratch)
         return ProbeResult(
             backend=self.backend,
             fixture=fixture_name,

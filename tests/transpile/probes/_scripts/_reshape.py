@@ -33,6 +33,7 @@ one entry per name per point under the result's `exports` key. The
 file's absence means the caller did not ask for the export channel,
 and the probe reports only log-densities.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,41 +67,36 @@ if TYPE_CHECKING:
         libraries nor a bare `object` annotation.
         """
 
-        def tolist(self) -> NestedNumber:
-            ...
+        def tolist(self) -> NestedNumber: ...
 
     ExportValue = NestedNumber | ArrayLike | tuple["ExportValue", ...]
 
 
-def load_tables(io: pathlib.Path) -> tuple[
-    dict[str, list[int]], dict[str, str],
+def load_tables(
+    io: pathlib.Path,
+) -> tuple[
+    dict[str, list[int]],
+    dict[str, str],
 ]:
     """Read `/io/shapes.json` and `/io/dtypes.json`. Each absent
     file resolves to an empty dict so the helper is a no-op in
     legacy probe runs that don't ship the tables."""
     shapes_path = io / "shapes.json"
     dtypes_path = io / "dtypes.json"
-    shapes = (
-        json.loads(shapes_path.read_text())
-        if shapes_path.exists() else {}
-    )
-    dtypes = (
-        json.loads(dtypes_path.read_text())
-        if dtypes_path.exists() else {}
-    )
+    shapes = json.loads(shapes_path.read_text()) if shapes_path.exists() else {}
+    dtypes = json.loads(dtypes_path.read_text()) if dtypes_path.exists() else {}
     return shapes, dtypes
 
 
 def _flat_to_nested(
-    flat: Sequence[Number], shape: list[int],
+    flat: Sequence[Number],
+    shape: list[int],
 ) -> NestedNumber:
     """Reshape a flat row-major list into a nested list with the
     given shape. Returns the scalar element when `shape == []`."""
     if not shape:
         if len(flat) != 1:
-            raise ValueError(
-                f"scalar shape but len(flat)={len(flat)}"
-            )
+            raise ValueError(f"scalar shape but len(flat)={len(flat)}")
         return flat[0]
     expected = 1
     for d in shape:
@@ -114,7 +110,7 @@ def _flat_to_nested(
         return list(flat)
     stride = expected // shape[0]
     return [
-        _flat_to_nested(flat[i * stride:(i + 1) * stride], shape[1:])
+        _flat_to_nested(flat[i * stride : (i + 1) * stride], shape[1:])
         for i in range(shape[0])
     ]
 
@@ -140,7 +136,8 @@ def reshape_value(
             value = _flat_to_nested([value], shapes[name])
         elif isinstance(value, list):
             value = _flat_to_nested(
-                cast("Sequence[Number]", value), shapes[name],
+                cast("Sequence[Number]", value),
+                shapes[name],
             )
     if name in dtypes:
         value = _cast_leaves(value, dtypes[name])
@@ -177,7 +174,8 @@ def reshape_point(
 #: whitespace, or any single other character. The alternation is
 #: ordered so an identifier wins over the catch-all.
 _SUBSCRIPT_TOKEN_RE = re.compile(
-    r"[A-Za-z_][A-Za-z0-9_]*|[\[\](){},]|\s+|.", re.DOTALL,
+    r"[A-Za-z_][A-Za-z0-9_]*|[\[\](){},]|\s+|.",
+    re.DOTALL,
 )
 
 #: Delimiters that open a nesting level, mapped to their closer.
@@ -185,7 +183,8 @@ _OPENERS = {"[": "]", "(": ")", "{": "}"}
 
 
 def index_input_names(
-    source: str, dtypes: dict[str, str],
+    source: str,
+    dtypes: dict[str, str],
 ) -> set[str]:
     """Names the emitted source uses as array subscripts.
 
@@ -219,9 +218,7 @@ def index_input_names(
     as ``tally``, Bernoulli 0/1 responses) are left untouched: they are
     outcomes, not offsets.
     """
-    candidates = {
-        name for name, dtype in dtypes.items() if dtype == "int"
-    }
+    candidates = {name for name, dtype in dtypes.items() if dtype == "int"}
     if not candidates:
         return set()
     names: set[str] = set()
@@ -253,7 +250,9 @@ def _offset_leaves(value: NestedNumber, offset: int) -> NestedNumber:
 
 
 def shift_index_inputs(
-    point: Point, names: set[str], offset: int = 1,
+    point: Point,
+    names: set[str],
+    offset: int = 1,
 ) -> Point:
     """Return ``point`` with every ``names`` entry's leaves shifted.
 
@@ -264,9 +263,7 @@ def shift_index_inputs(
     out: Point = {}
     for section in ("params", "data"):
         out[section] = {
-            name: (
-                _offset_leaves(value, offset) if name in names else value
-            )
+            name: (_offset_leaves(value, offset) if name in names else value)
             for name, value in point.get(section, {}).items()
         }
     return out
@@ -329,7 +326,8 @@ def as_nested(value: ExportValue) -> NestedNumber:
 
 
 def export_payload(
-    names: list[str], returned: ExportValue | None,
+    names: list[str],
+    returned: ExportValue | None,
 ) -> list[NestedNumber]:
     """Split one model return value into one entry per export name.
 

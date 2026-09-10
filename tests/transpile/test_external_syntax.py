@@ -82,8 +82,7 @@ def test_stan_external_syntax() -> None:
         "stanc", ["stanc", "--info", "-"], input_bytes=source
     )
     assert rc == 0, (
-        f"stanc exited {rc}: stdout={out!r} stderr={err!r}\n"
-        f"source:\n{source.decode()}"
+        f"stanc exited {rc}: stdout={out!r} stderr={err!r}\nsource:\n{source.decode()}"
     )
 
 
@@ -137,7 +136,10 @@ def test_julia_external_syntax(backend: str) -> None:
     rc, out, err = _run_syntax_check(
         "julia",
         [
-            "julia", "--startup-file=no", "--quiet", "-e",
+            "julia",
+            "--startup-file=no",
+            "--quiet",
+            "-e",
             "src = read(stdin, String); Meta.parse(src; raise=true)",
         ],
         input_bytes=source,
@@ -162,9 +164,7 @@ def test_jags_external_syntax(backend: str, tmp_path) -> None:
     model_path = tmp_path / f"model.{backend}"
     model_path.write_bytes(source)
     script_path = tmp_path / "check.cmd"
-    script_path.write_text(
-        f'model in "{model_path}"\nexit\n'
-    )
+    script_path.write_text(f'model in "{model_path}"\nexit\n')
     rc, out, err = _run_syntax_check(
         "jags",
         ["jags", str(script_path)],
@@ -174,6 +174,5 @@ def test_jags_external_syntax(backend: str, tmp_path) -> None:
     # failure; check stderr for ERROR rather than relying on exit
     # codes (JAGS exits 0 even on parse errors in some builds).
     assert "ERROR" not in err and "Error" not in err, (
-        f"{backend!r} jags compile failed: stderr={err!r}\n"
-        f"source:\n{source.decode()}"
+        f"{backend!r} jags compile failed: stderr={err!r}\nsource:\n{source.decode()}"
     )

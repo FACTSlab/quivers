@@ -53,6 +53,7 @@ result and prints it alongside the log-density. The rewrite has
 already clamped every draw, which makes that value a deterministic
 function of the point.
 """
+
 from __future__ import annotations
 
 import json
@@ -118,9 +119,7 @@ def _find_matching(source: str, open_idx: int) -> int:
                     continue
                 i += 1
         i += 1
-    raise ValueError(
-        f"unbalanced parenthesis starting at index {open_idx}"
-    )
+    raise ValueError(f"unbalanced parenthesis starting at index {open_idx}")
 
 
 def _split_top_level_comma(text: str) -> tuple[str, str]:
@@ -149,17 +148,13 @@ def _split_top_level_comma(text: str) -> tuple[str, str]:
                     continue
                 i += 1
         elif ch == "," and depth == 0:
-            return text[:i].strip(), text[i + 1:].strip()
+            return text[:i].strip(), text[i + 1 :].strip()
         i += 1
     raise ValueError(f"no top-level comma in {text!r}")
 
 
-_SAMPLE_DECL_RE = re.compile(
-    r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sample\s*\("
-)
-_REPEAT_DECL_RE = re.compile(
-    r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*repeat\s*\("
-)
+_SAMPLE_DECL_RE = re.compile(r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*sample\s*\(")
+_REPEAT_DECL_RE = re.compile(r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*repeat\s*\(")
 _MAPINDEXED_DECL_RE = re.compile(
     r"\bvar\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*mapIndexed\s*\("
 )
@@ -170,9 +165,7 @@ _FACTOR_RE = re.compile(r"\bfactor\s*\(")
 # body is a single `return <draw>`, where `<draw>` is either a
 # `sample(<dist>)` call or a further `repeat(...)` over a nested
 # residual axis.
-_IID_CALLBACK_HEAD_RE = re.compile(
-    r"\Afunction\s*\(\s*\)\s*\{\s*return\s+"
-)
+_IID_CALLBACK_HEAD_RE = re.compile(r"\Afunction\s*\(\s*\)\s*\{\s*return\s+")
 # The two body shapes a lifted iid callback may take, matched at the
 # start of the callback body.
 _SAMPLE_CALL_RE = re.compile(r"\Asample\s*\(")
@@ -269,7 +262,9 @@ def _coerce_value(dist_expr: str, value_expr: str) -> str:
 
 
 def _score_expr(
-    dist_expr: str, value_expr: str, grafted: frozenset[str],
+    dist_expr: str,
+    value_expr: str,
+    grafted: frozenset[str],
 ) -> str:
     """Build the JavaScript expression scoring ``value_expr`` under
     ``dist_expr``, picking the calling convention the family needs."""
@@ -302,7 +297,10 @@ def _clamped_bind(name: str, score_term: str) -> str:
 
 
 def _iid_body_score(
-    body: str, element: str, depth: int, grafted: frozenset[str],
+    body: str,
+    element: str,
+    depth: int,
+    grafted: frozenset[str],
 ) -> str | None:
     """Score the body of a lifted `repeat` callback at ``element``.
 
@@ -320,15 +318,16 @@ def _iid_body_score(
     """
     stripped = body.lstrip()
     for call_re, kind in (
-        (_SAMPLE_CALL_RE, "sample"), (_REPEAT_CALL_RE, "repeat"),
+        (_SAMPLE_CALL_RE, "sample"),
+        (_REPEAT_CALL_RE, "repeat"),
     ):
         head = call_re.match(stripped)
         if head is None:
             continue
         open_paren = head.end() - 1
         close_paren = _find_matching(stripped, open_paren)
-        args = stripped[open_paren + 1:close_paren]
-        tail = stripped[close_paren + 1:]
+        args = stripped[open_paren + 1 : close_paren]
+        tail = stripped[close_paren + 1 :]
         if _CALLBACK_TAIL_RE.match(tail) is None:
             msg = (
                 f"webppl probe: a `repeat(...)` callback returns "
@@ -344,7 +343,10 @@ def _iid_body_score(
 
 
 def _iid_plate_score(
-    args: str, base: str, depth: int, grafted: frozenset[str],
+    args: str,
+    base: str,
+    depth: int,
+    grafted: frozenset[str],
 ) -> str | None:
     """Score one `repeat(<n>, <callback>)` axis of a clamped latent.
 
@@ -361,19 +363,20 @@ def _iid_plate_score(
         return None
     index = f"{_PLATE_INDEX_VAR}{depth}"
     inner = _iid_body_score(
-        callback[head.end():], f"{base}[{index}]", depth + 1, grafted,
+        callback[head.end() :],
+        f"{base}[{index}]",
+        depth + 1,
+        grafted,
     )
     if inner is None:
         return None
-    return (
-        f"sum(mapN(function ({index}) {{\n"
-        f"    return {inner};\n"
-        f"  }}, {n_expr}))"
-    )
+    return f"sum(mapN(function ({index}) {{\n    return {inner};\n  }}, {n_expr}))"
 
 
 def _lift_iid_plate(
-    name: str, args: str, grafted: frozenset[str],
+    name: str,
+    args: str,
+    grafted: frozenset[str],
 ) -> str | None:
     """Lift ``repeat(<n>, function () { return <draw>; })``.
 
@@ -388,7 +391,9 @@ def _lift_iid_plate(
 
 
 def _lift_indexed_plate(
-    name: str, args: str, grafted: frozenset[str],
+    name: str,
+    args: str,
+    grafted: frozenset[str],
 ) -> str | None:
     """Lift ``mapIndexed(function (<i>, <j>) { return sample(<dist>);
     }, <plate>)``.
@@ -405,8 +410,8 @@ def _lift_indexed_plate(
     index_var, element_var = head.group(1), head.group(2)
     open_paren = head.end() - 1
     close_paren = _find_matching(callback, open_paren)
-    dist_expr = callback[open_paren + 1:close_paren].strip()
-    tail = callback[close_paren + 1:]
+    dist_expr = callback[open_paren + 1 : close_paren].strip()
+    tail = callback[close_paren + 1 :]
     if _CALLBACK_TAIL_RE.match(tail) is None:
         msg = (
             f"webppl probe: `var {name} = mapIndexed(...)` draws a "
@@ -425,7 +430,8 @@ def _lift_indexed_plate(
 
 
 def _rewrite_plated_samples(
-    source: str, grafted: frozenset[str],
+    source: str,
+    grafted: frozenset[str],
 ) -> str:
     """Replace every plated draw with a clamped bind plus a summed
     score accumulation over the plate."""
@@ -441,11 +447,11 @@ def _rewrite_plated_samples(
                 continue
             open_paren = match.end() - 1
             close_paren = _find_matching(source, open_paren)
-            args = source[open_paren + 1:close_paren]
+            args = source[open_paren + 1 : close_paren]
             replacement = lift(match.group(1), args, grafted)
             if replacement is None:
                 continue
-            out.append(source[cursor:match.start()])
+            out.append(source[cursor : match.start()])
             out.append(replacement)
             cursor = _statement_end(source, close_paren)
         out.append(source[cursor:])
@@ -468,14 +474,12 @@ def _rewrite_sample(source: str, grafted: frozenset[str]) -> str:
     out: list[str] = []
     cursor = 0
     for match in _SAMPLE_DECL_RE.finditer(source):
-        out.append(source[cursor:match.start()])
+        out.append(source[cursor : match.start()])
         name = match.group(1)
         open_paren = match.end() - 1
         close_paren = _find_matching(source, open_paren)
-        dist_expr = source[open_paren + 1:close_paren].strip()
-        out.append(
-            _clamped_bind(name, _score_expr(dist_expr, name, grafted))
-        )
+        dist_expr = source[open_paren + 1 : close_paren].strip()
+        out.append(_clamped_bind(name, _score_expr(dist_expr, name, grafted)))
         cursor = _statement_end(source, close_paren)
     out.append(source[cursor:])
     return "".join(out)
@@ -490,10 +494,10 @@ def _rewrite_observe(source: str, grafted: frozenset[str]) -> str:
     out: list[str] = []
     cursor = 0
     for match in _OBSERVE_RE.finditer(source):
-        out.append(source[cursor:match.start()])
+        out.append(source[cursor : match.start()])
         open_paren = match.end() - 1
         close_paren = _find_matching(source, open_paren)
-        inner = source[open_paren + 1:close_paren]
+        inner = source[open_paren + 1 : close_paren]
         dist_expr, value_expr = _split_top_level_comma(inner)
         out.append(
             "globalStore.lp = globalStore.lp + "
@@ -522,21 +526,17 @@ def _rewrite_factor(source: str) -> str:
     out: list[str] = []
     cursor = 0
     for match in _FACTOR_RE.finditer(source):
-        out.append(source[cursor:match.start()])
+        out.append(source[cursor : match.start()])
         open_paren = match.end() - 1
         close_paren = _find_matching(source, open_paren)
-        weight_expr = source[open_paren + 1:close_paren].strip()
-        out.append(
-            f"globalStore.lp = globalStore.lp + ({weight_expr});"
-        )
+        weight_expr = source[open_paren + 1 : close_paren].strip()
+        out.append(f"globalStore.lp = globalStore.lp + ({weight_expr});")
         cursor = _statement_end(source, close_paren)
     out.append(source[cursor:])
     return "".join(out)
 
 
-_MODEL_FN_RE = re.compile(
-    r"\bvar\s+model\s*=\s*function\s*\(([^)]*)\)"
-)
+_MODEL_FN_RE = re.compile(r"\bvar\s+model\s*=\s*function\s*\(([^)]*)\)")
 _LIVE_PRIMITIVE_RE = re.compile(r"\b(sample|observe|factor)\s*\(")
 
 
@@ -555,7 +555,7 @@ def _assert_fully_lifted(rewritten: str) -> None:
     match = _MODEL_FN_RE.search(rewritten)
     if match is None:
         raise ValueError("no `var model = function (...)` declaration found")
-    body = rewritten[match.start():]
+    body = rewritten[match.start() :]
     live = _LIVE_PRIMITIVE_RE.search(body)
     if live is None:
         return
@@ -563,7 +563,7 @@ def _assert_fully_lifted(rewritten: str) -> None:
     msg = (
         f"webppl probe: `{live.group(1)}(` survived the rewrite, so "
         f"that site would be redrawn at run time instead of scored at "
-        f"the point's value. context:\n{body[start:live.end() + 200]}"
+        f"the point's value. context:\n{body[start : live.end() + 200]}"
     )
     raise ValueError(msg)
 
@@ -622,8 +622,7 @@ def _build_driver(
     _assert_fully_lifted(rewritten)
     param_names = _model_parameter_names(rendered)
     data_decls = "\n".join(
-        f"var {name} = {_json_literal(data.get(name))};"
-        for name in param_names
+        f"var {name} = {_json_literal(data.get(name))};" for name in param_names
     )
     call_args = ", ".join(param_names)
     clamped_literal = _json_literal(params)
@@ -647,8 +646,7 @@ def main() -> None:
 
     if _WEBPPL_BIN is None:
         raise RuntimeError(
-            "webppl probe: no `webppl` executable on PATH inside the "
-            "container"
+            "webppl probe: no `webppl` executable on PATH inside the container"
         )
 
     export_names = load_export_names(io)

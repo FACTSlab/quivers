@@ -151,7 +151,7 @@ export nested
         try:
             module = parse(src)
             transpile(module, target=backend)
-        except (ParseError, UnsupportedConstruct, RecursionError):
+        except ParseError, UnsupportedConstruct, RecursionError:
             return  # Graceful failure; the input was rejected
     finally:
         sys.setrecursionlimit(prior_limit)
@@ -178,7 +178,7 @@ export extreme
         try:
             module = parse(src)
             transpile(module, target=backend)
-        except (ParseError, UnsupportedConstruct, ValueError, OverflowError):
+        except ParseError, UnsupportedConstruct, ValueError, OverflowError:
             continue  # any clean error is acceptable
 
 
@@ -199,7 +199,7 @@ export long
     try:
         module = parse(src)
         transpile(module, target=backend)
-    except (ParseError, UnsupportedConstruct):
+    except ParseError, UnsupportedConstruct:
         return
 
 
@@ -224,7 +224,7 @@ export many
     try:
         module = parse(src)
         transpile(module, target=backend)
-    except (ParseError, UnsupportedConstruct):
+    except ParseError, UnsupportedConstruct:
         return
 
 
@@ -267,32 +267,32 @@ def test_string_literal_does_not_escape_target_quotes(
     backend: str,
 ) -> None:
     """A `let label = "<chars>"` binding flows through the renderer
-    as a target-language string literal. The four python-host
-    backends emit a Python string literal; injection-safety requires
-    the re-parsed Python AST to recover `label` as a string Constant
-    whose value equals the QVR-parsed string content verbatim.
+        as a target-language string literal. The four python-host
+        backends emit a Python string literal; injection-safety requires
+        the re-parsed Python AST to recover `label` as a string Constant
+        whose value equals the QVR-parsed string content verbatim.
 
-    The QVR grammar reads string-literal bodies as escape-passthrough
-    (a QVR ``"foo\\"bar"`` parses to the literal 7-character value
-    ``foo\\"bar`` with the backslash retained, rather than decoding
-the escape). The renderer's contract is thus: take the raw
-    parsed bytes and wrap them in target-language quoting that
-    preserves every byte. A naive ``f'"{value}"'`` interpolation
-    would let a payload containing a target-quote character break
-    out of the literal; `json.dumps`-style escaping does not.
+        The QVR grammar reads string-literal bodies as escape-passthrough
+        (a QVR ``"foo\\"bar"`` parses to the literal 7-character value
+        ``foo\\"bar`` with the backslash retained, rather than decoding
+    the escape). The renderer's contract is thus: take the raw
+        parsed bytes and wrap them in target-language quoting that
+        preserves every byte. A naive ``f'"{value}"'`` interpolation
+        would let a payload containing a target-quote character break
+        out of the literal; `json.dumps`-style escaping does not.
 
-    This test drives a payload whose QVR-parsed value contains every
-    sensitive byte for Python single- and double-quoted strings
-    (``"``, ``\\``, newline, plus a live ``os.system(...)`` call
-    that would execute if the escape failed).
+        This test drives a payload whose QVR-parsed value contains every
+        sensitive byte for Python single- and double-quoted strings
+        (``"``, ``\\``, newline, plus a live ``os.system(...)`` call
+        that would execute if the escape failed).
     """
     qvr_source = (
-        'object Obs : FinSet 5\n'
-        'program p : Obs -> Obs\n'
+        "object Obs : FinSet 5\n"
+        "program p : Obs -> Obs\n"
         '    let label = "abc\\"; os.system(\'rm -rf /\'); foo = \\"def"\n'
-        '    sample x <- Normal(0.0, 1.0)\n'
-        '    return x\n'
-        'export p\n'
+        "    sample x <- Normal(0.0, 1.0)\n"
+        "    return x\n"
+        "export p\n"
     )
     module = parse(qvr_source)
     parsed_value = _label_string_value(module)
@@ -300,7 +300,8 @@ the escape). The renderer's contract is thus: take the raw
     body = emitted.decode("utf-8")
     tree = ast.parse(body)
     label_assignments = [
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Assign)
         and len(node.targets) == 1
         and isinstance(node.targets[0], ast.Name)
@@ -323,7 +324,8 @@ the escape). The renderer's contract is thus: take the raw
         f"corrupted or under-escaped the string content"
     )
     calls_to_os_system = [
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "system"
@@ -350,8 +352,7 @@ def _label_string_value(module: object) -> str:
             ):
                 value = draw.value
                 assert getattr(value, "kind", None) == "let_expr_string", (
-                    f"label binding's RHS is not a string-literal "
-                    f"(got {value!r})"
+                    f"label binding's RHS is not a string-literal (got {value!r})"
                 )
                 return value.value
     raise AssertionError("test fixture missing `let label = ...`")
@@ -374,5 +375,5 @@ export overflow
         try:
             module = parse(src)
             transpile(module, target=backend)
-        except (ParseError, UnsupportedConstruct, ValueError, OverflowError):
+        except ParseError, UnsupportedConstruct, ValueError, OverflowError:
             continue

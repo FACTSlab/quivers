@@ -89,8 +89,7 @@ class SchemaTransform(dx.Mapping[Module, panproto.Schema]):
 
     def forward(self, module: Module) -> panproto.Schema:
         raise NotImplementedError(
-            f"{type(self).__name__} must implement forward(module): "
-            f"received {module!r}"
+            f"{type(self).__name__} must implement forward(module): received {module!r}"
         )
 
 
@@ -105,9 +104,7 @@ class EmitPretty(dx.Mapping[panproto.Schema, bytes]):
         return bytes(parser_registry().emit_pretty(self._grammar, schema))
 
 
-def realize(
-    module: Module, *, grammar: str, transform: SchemaTransform
-) -> bytes:
+def realize(module: Module, *, grammar: str, transform: SchemaTransform) -> bytes:
     """Run the full pipeline for one backend.
 
     Parameters

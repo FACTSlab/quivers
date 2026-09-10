@@ -162,9 +162,7 @@ def pick_program(module: Module) -> ProgramDecl:
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
             programs.append(stmt)
-        elif isinstance(stmt, ExportDecl) and isinstance(
-            stmt.expr, ExprIdent
-        ):
+        elif isinstance(stmt, ExportDecl) and isinstance(stmt.expr, ExprIdent):
             exported_names.add(stmt.expr.name)
     if not programs:
         raise UnsupportedConstruct(
@@ -360,9 +358,7 @@ def _affine_map_expr(
         weight=LetExprVar(name=pmap.weight),
         bias=LetExprVar(name=pmap.bias),
         sources=tuple(
-            LetAffineSource(
-                value=LetExprVar(name=source.name), width=source.width
-            )
+            LetAffineSource(value=LetExprVar(name=source.name), width=source.width)
             for source in pmap.sources
         ),
         row_offset=head_index * pmap.width,
@@ -371,9 +367,7 @@ def _affine_map_expr(
     )
 
 
-def _option_identifier(
-    options: tuple[OptionEntry, ...], key: str
-) -> str | None:
+def _option_identifier(options: tuple[OptionEntry, ...], key: str) -> str | None:
     """The identifier an option is bound to, when it is bound to one."""
     for entry in options:
         if entry.key == key and isinstance(entry.value, OptionName):
@@ -397,9 +391,7 @@ def _has_bare_family_init(
         return init.family == family and not init.args
     expr = decl.init_expr
     return (
-        isinstance(expr, ExprIdent)
-        and expr.name == family
-        and expr.name in family_set
+        isinstance(expr, ExprIdent) and expr.name == family and expr.name in family_set
     )
 
 
@@ -415,15 +407,12 @@ def _declares_head_argument(
     """
     names = {head.arg_name for head in heads}
     return any(
-        entry.key in names
-        and isinstance(entry.value, (OptionNumber, OptionString))
+        entry.key in names and isinstance(entry.value, (OptionNumber, OptionString))
         for entry in options
     )
 
 
-def _assert_param_map_plate(
-    morphism: str, plate: Plate, axis: str, width: int
-) -> None:
+def _assert_param_map_plate(morphism: str, plate: Plate, axis: str, width: int) -> None:
     """Assert a mapped site is plated over its codomain's width.
 
     The map produces one row per codomain coordinate, so the site it
@@ -467,9 +456,7 @@ def _program_domain_sources(ctx: _LowerCtx) -> tuple[_ParamMapSource, ...]:
         width = ctx.real_widths.get(factor.name)
         if width is None:
             continue
-        out.append(
-            _ParamMapSource(name=_domain_wire_name(factor), width=width)
-        )
+        out.append(_ParamMapSource(name=_domain_wire_name(factor), width=width))
     return tuple(out)
 
 
@@ -542,9 +529,7 @@ def _reserved_names(
     return frozenset(names)
 
 
-def _collect_step_names(
-    steps: tuple[ProgramStep, ...], names: set[str]
-) -> None:
+def _collect_step_names(steps: tuple[ProgramStep, ...], names: set[str]) -> None:
     """Add every name the steps bind, marginalize scopes included."""
     for step in steps:
         if isinstance(step, (SampleStep, ObserveStep, ReturnStep)):
@@ -578,9 +563,7 @@ def _floor_expr(name: str, coordinate: int) -> LetExprNode:
             left=LetExprBinOp(op="+", left=value, right=floor),
             right=LetExprCall(
                 func="abs",
-                args=(
-                    LetExprBinOp(op="-", left=value, right=floor),
-                ),
+                args=(LetExprBinOp(op="-", left=value, right=floor),),
             ),
         ),
         right=LetExprLiteral(value=2.0),
@@ -642,7 +625,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         inputs = self._build_inputs(program, body, ctx)
         inputs, body = _propagate_let_plates(inputs, body)
         inputs, body = _propagate_alphabet_event_dims(
-            inputs, body, ctx.alphabet_event_dims,
+            inputs,
+            body,
+            ctx.alphabet_event_dims,
         )
         return IRProgram(
             name=program.name,
@@ -680,9 +665,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 out.append(node)
         return tuple(out)
 
-    def _lower_step(
-        self, step: ProgramStep, ctx: _LowerCtx
-    ) -> tuple[IRNode, ...]:
+    def _lower_step(self, step: ProgramStep, ctx: _LowerCtx) -> tuple[IRNode, ...]:
         if isinstance(step, SampleStep):
             return self._lower_sample(step, ctx)
         if isinstance(step, ObserveStep):
@@ -695,13 +678,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
             return (self._lower_score(step),)
         if isinstance(step, ReturnStep):
             return (IRReturn(names=step.vars),)
-        raise UnsupportedConstruct(
-            "qvr-lower", [f"step:{step.kind}"]
-        )
+        raise UnsupportedConstruct("qvr-lower", [f"step:{step.kind}"])
 
-    def _lower_sample(
-        self, step: SampleStep, ctx: _LowerCtx
-    ) -> tuple[IRNode, ...]:
+    def _lower_sample(self, step: SampleStep, ctx: _LowerCtx) -> tuple[IRNode, ...]:
         resolved = resolve_step_dist(
             step.morphism,
             step.args,
@@ -716,7 +695,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         ):
             return (self._lower_sample_from_meta(meta, step, ctx),)
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx,
+            meta,
+            resolved,
+            ctx,
             event_axes=_event_axis_names(step, ctx),
             axes_index=step.index,
             structural_args=step.args,
@@ -769,7 +750,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_sample_from_meta(
-        self, meta: FamilyMeta, step: SampleStep, ctx: _LowerCtx,
+        self,
+        meta: FamilyMeta,
+        step: SampleStep,
+        ctx: _LowerCtx,
     ) -> IRSample:
         """Lower a no-args `~ Family` SampleStep using the family's
         declarative `structured_lowering` metadata.
@@ -796,13 +780,16 @@ class Lower(dx.Mapping[Module, IRProgram]):
         event_dims = _derive_event_dims(meta, step, ctx)
         ir_args = tuple(
             _build_structured_ir_arg(
-                spec, sample_name, event_dims, step, ctx, meta,
+                spec,
+                sample_name,
+                event_dims,
+                step,
+                ctx,
+                meta,
             )
             for spec in meta.structured_lowering.args
         )
-        arg_names = tuple(
-            spec.arg_name for spec in meta.structured_lowering.args
-        )
+        arg_names = tuple(spec.arg_name for spec in meta.structured_lowering.args)
         plate = Plate(event_dims=event_dims, batch_dims=())
         constraint = _SAMPLE_CONSTRAINT_FACTORY[
             meta.structured_lowering.sample_constraint_kind
@@ -816,9 +803,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             plate=plate,
         )
 
-    def _lower_observe(
-        self, step: ObserveStep, ctx: _LowerCtx
-    ) -> tuple[IRNode, ...]:
+    def _lower_observe(self, step: ObserveStep, ctx: _LowerCtx) -> tuple[IRNode, ...]:
         resolved = resolve_step_dist(
             step.morphism,
             step.args,
@@ -829,7 +814,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx,
+            meta,
+            resolved,
+            ctx,
             event_axes=_event_axis_names(step, ctx),
             axes_index=step.index,
             structural_args=step.args,
@@ -887,7 +874,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         meta = _family_meta_or_raise(resolved.family)
         ir_args, arg_names = self._lower_args(
-            meta, resolved, ctx,
+            meta,
+            resolved,
+            ctx,
             event_axes=_marginalize_event_axis_names(step),
             axes_index=step.index,
             structural_args=step.args,
@@ -1011,8 +1000,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         self._record_param_map_inputs(pmap, ctx)
         nodes = self._param_map_head_nodes(pmap, site, plate, ctx)
         return nodes, tuple(
-            IRArgRef(name=_head_binding_name(site, head))
-            for head in pmap.heads
+            IRArgRef(name=_head_binding_name(site, head)) for head in pmap.heads
         )
 
     def _param_map_for(
@@ -1147,9 +1135,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 return source.width
         return None
 
-    def _record_param_map_inputs(
-        self, pmap: _ParamMap, ctx: _LowerCtx
-    ) -> None:
+    def _record_param_map_inputs(self, pmap: _ParamMap, ctx: _LowerCtx) -> None:
         """Declare the map's weight and bias as data inputs.
 
         Two sites drawing the same morphism share one map, exactly as
@@ -1168,9 +1154,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
         bias_plate = Plate(
             event_dims=(),
-            batch_dims=(
-                DimStatic(size=rows, name=f"{pmap.morphism}_param_row"),
-            ),
+            batch_dims=(DimStatic(size=rows, name=f"{pmap.morphism}_param_row"),),
         )
         for name, plate in (
             (pmap.weight, weight_plate),
@@ -1237,9 +1221,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                             ),
                         ),
                         cases=tuple(
-                            LetFactorCase(
-                                label=i, value=_floor_expr(raw, i)
-                            )
+                            LetFactorCase(label=i, value=_floor_expr(raw, i))
                             for i in range(pmap.width)
                         ),
                     ),
@@ -1315,24 +1297,19 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # preserve compound shapes) and extend with the resolver's
         # tail so the morphism's option-derived args reach the IR.
         if structural_args is not None:
-            structural_ir = tuple(
-                self._raw_arg_to_ir(a, ctx) for a in structural_args
-            )
+            structural_ir = tuple(self._raw_arg_to_ir(a, ctx) for a in structural_args)
             resolved_tail = (
                 tuple(
                     self._raw_arg_to_ir(a, ctx)
-                    for a in resolved.args[len(structural_ir):]
+                    for a in resolved.args[len(structural_ir) :]
                 )
-                if resolved.args
-                and len(resolved.args) > len(structural_ir)
+                if resolved.args and len(resolved.args) > len(structural_ir)
                 else ()
             )
             pre_args = structural_ir + resolved_tail
         else:
             raw_args = resolved.args or ()
-            pre_args = tuple(
-                self._raw_arg_to_ir(a, ctx) for a in raw_args
-            )
+            pre_args = tuple(self._raw_arg_to_ir(a, ctx) for a in raw_args)
         arg_names = self._arg_names_for(meta, pre_args, ctx)
         # Re-walk with arg_constraints in hand to apply
         # IRArgBroadcast wrapping where needed.
@@ -1341,9 +1318,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         for arg, name in zip(pre_args, arg_names, strict=False):
             expected = constraints_map.get(name)
             out.append(
-                self._wrap_for_constraint(
-                    arg, expected, event_axes, axes_index, ctx
-                )
+                self._wrap_for_constraint(arg, expected, event_axes, axes_index, ctx)
             )
         return tuple(out), arg_names
 
@@ -1428,17 +1403,13 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 return IRArgMatrix(
                     rows=tuple(
                         IRArgList(
-                            elements=tuple(
-                                self._raw_arg_to_ir(e, ctx) for e in row
-                            )
+                            elements=tuple(self._raw_arg_to_ir(e, ctx) for e in row)
                         )
                         for row in matrix_rows(raw)
                     )
                 )
             return IRArgList(
-                elements=tuple(
-                    self._raw_arg_to_ir(e, ctx) for e in list_items(raw)
-                )
+                elements=tuple(self._raw_arg_to_ir(e, ctx) for e in list_items(raw))
             )
         if isinstance(raw, (int, float)):
             return IRArgNumber(value=float(raw))
@@ -1504,9 +1475,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 return arg
             if arg.name not in _scalar_binding_names(ctx):
                 return arg
-        target = self._broadcast_target(
-            expected, event_axes, axes_index, ctx
-        )
+        target = self._broadcast_target(expected, event_axes, axes_index, ctx)
         if target is None:
             return arg
         return IRArgBroadcast(value=arg, target_shape=target)
@@ -1571,9 +1540,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         axes = step.axes
         if axes is not None:
             event_dims = tuple(self._axis_dim(a, ctx) for a in axes.over)
-            batch_dims = tuple(
-                self._axis_dim(a, ctx) for a in axes.iid_over
-            )
+            batch_dims = tuple(self._axis_dim(a, ctx) for a in axes.iid_over)
             return Plate(event_dims=event_dims, batch_dims=batch_dims)
         # No AxisSpec on this step. Try the morphism-level `[over=...]`
         # option next: `morphism k : A * B -> A * B [over=[A, B]] ~ F`
@@ -1591,9 +1558,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             if decl is not None:
                 codomain_axes = _codomain_axes(decl.codomain, ctx.cards)
                 if len(codomain_axes) == event_dim:
-                    event_dims = tuple(
-                        self._axis_dim(a, ctx) for a in codomain_axes
-                    )
+                    event_dims = tuple(self._axis_dim(a, ctx) for a in codomain_axes)
                     return Plate(event_dims=event_dims, batch_dims=())
                 if codomain_axes and event_dim == 1:
                     # Vector family whose codomain is a product of
@@ -1608,11 +1573,15 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 # `Real N` cardinality with no named axis; size the
                 # event dim from the codomain's known cardinality.
                 sentinel_dims = _sentinel_event_dims_from_meta(
-                    meta, ir_args, ctx, decl.codomain,
+                    meta,
+                    ir_args,
+                    ctx,
+                    decl.codomain,
                 )
                 if sentinel_dims is not None:
                     return Plate(
-                        event_dims=sentinel_dims, batch_dims=(),
+                        event_dims=sentinel_dims,
+                        batch_dims=(),
                     )
         # Scalar family reached through a morphism whose codomain is a
         # `Real N` object: the step draws one value per coordinate of
@@ -1623,9 +1592,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         # `: Axis` index the two stack: the index replicates the whole
         # codomain vector, so it is the outer batch dim.
         codomain_width = (
-            self._codomain_width(step.morphism, ctx)
-            if event_dim == 0
-            else None
+            self._codomain_width(step.morphism, ctx) if event_dim == 0 else None
         )
         if step.index is None:
             if codomain_width is None:
@@ -1636,7 +1603,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
             if codomain_width is None:
                 return Plate(event_dims=(), batch_dims=(dim,))
             return Plate(
-                event_dims=(), batch_dims=(dim, codomain_width),
+                event_dims=(),
+                batch_dims=(dim, codomain_width),
             )
         return Plate(event_dims=(dim,), batch_dims=())
 
@@ -1671,9 +1639,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         event_dim = _event_dim_of(meta, ir_args, ctx)
         batch_dims: tuple[Dim, ...] = ()
         if step.over is not None:
-            batch_dims = (
-                self._axis_dim(step.over, ctx),
-            )
+            batch_dims = (self._axis_dim(step.over, ctx),)
         elif step.over_objs is not None:
             batch_dims = tuple(self._axis_dim(a, ctx) for a in step.over_objs)
         event_dims: tuple[Dim, ...] = ()
@@ -1704,13 +1670,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
         decl = ctx.morphisms.get(morphism_name)
         if decl is None:
             return None
-        shape = _object_expr_shape(
-            decl.codomain, ctx.shapes, (morphism_name,)
-        )
+        shape = _object_expr_shape(decl.codomain, ctx.shapes, (morphism_name,))
         if shape is None or not shape.finite or shape.extent is None:
             return None
         return DimStatic(
-            size=shape.extent, name=_axis_expr_name(decl.codomain),
+            size=shape.extent,
+            name=_axis_expr_name(decl.codomain),
         )
 
     def _apply_class_index_codomain(
@@ -1760,20 +1725,22 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 ],
             )
         arg_dim = DimStatic(
-            size=width - outcome.extent_offset, name=alphabet.name,
+            size=width - outcome.extent_offset,
+            name=alphabet.name,
         )
         out = list(ir_args)
         for i, arg_name in enumerate(arg_names):
             if arg_name not in outcome.alphabet_args:
                 continue
             out[i] = _retarget_alphabet_arg(
-                out[i], arg_dim, name, ctx,
+                out[i],
+                arg_dim,
+                name,
+                ctx,
             )
         return tuple(out), CSIntegerInterval(lower=0, upper=width - 1)
 
-    def _codomain_width(
-        self, morphism_name: str, ctx: _LowerCtx
-    ) -> Dim | None:
+    def _codomain_width(self, morphism_name: str, ctx: _LowerCtx) -> Dim | None:
         """Return the `Real N` width of `morphism_name`'s codomain as
         a `DimStatic`, or `None` when the step names no declared
         morphism or the codomain is not a single `Real N` object."""
@@ -1794,9 +1761,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         """
         return _axis_dim_at(axis_name, ctx)
 
-    def _object_expr_dim(
-        self, expr: ObjectExpr, ctx: _LowerCtx
-    ) -> Dim:
+    def _object_expr_dim(self, expr: ObjectExpr, ctx: _LowerCtx) -> Dim:
         """Convert an `ObjectExpr` into a `Dim`.
 
         A product axis (`observe y : A * B`) flattens to the product
@@ -1876,9 +1841,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                         continue
                     seen_param.add(p.name)
                     spec: ConstraintSpec = (
-                        CSReal()
-                        if p.scalar_kind == "Real"
-                        else CSNonnegativeInteger()
+                        CSReal() if p.scalar_kind == "Real" else CSNonnegativeInteger()
                     )
                     param_inputs.append(
                         IRDataInput(
@@ -1917,9 +1880,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 if upper is None:
                     via_constraint = CSNonnegativeInteger()
                 else:
-                    via_constraint = CSIntegerInterval(
-                        lower=0, upper=max(upper - 1, 0)
-                    )
+                    via_constraint = CSIntegerInterval(lower=0, upper=max(upper - 1, 0))
                 via_inputs.append(
                     IRDataInput(
                         name=vname,
@@ -1974,9 +1935,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         ]
         seen_map = {inp.name for inp in map_inputs}
 
-        seen_param_names = (
-            seen_domain | seen_param | seen_via | seen_obs | seen_map
-        )
+        seen_param_names = seen_domain | seen_param | seen_via | seen_obs | seen_map
         integer_names = self._integer_typed_free_names(body)
         kernel_input_plates = self._kernel_input_plates(body)
         structured_input_specs = self._structured_input_specs(body)
@@ -2001,13 +1960,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
                     )
                 )
                 continue
-            plate = kernel_input_plates.get(
-                name, Plate(event_dims=(), batch_dims=())
-            )
+            plate = kernel_input_plates.get(name, Plate(event_dims=(), batch_dims=()))
             constraint: ConstraintSpec = (
-                CSNonnegativeInteger()
-                if name in integer_names
-                else CSReal()
+                CSNonnegativeInteger() if name in integer_names else CSReal()
             )
             free_inputs.append(
                 IRDataInput(
@@ -2084,7 +2039,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 IRDataInput(
                     name=name,
                     constraint=_apply_declared_bounds(
-                        CSReal(), plate, ctx, name,
+                        CSReal(),
+                        plate,
+                        ctx,
+                        name,
                     ),
                     plate=plate,
                 )
@@ -2092,7 +2050,8 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return out
 
     def _structured_input_specs(
-        self, body: tuple[IRNode, ...],
+        self,
+        body: tuple[IRNode, ...],
     ) -> dict[str, tuple[ConstraintSpec, Plate]]:
         """Return ``name`` → ``(ConstraintSpec, Plate)`` for every
         per-sample data input synthesised by
@@ -2116,7 +2075,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 continue
             event_dims = node.plate.event_dims
             for spec, arg in zip(
-                meta.structured_lowering.args, node.args, strict=True,
+                meta.structured_lowering.args,
+                node.args,
+                strict=True,
             ):
                 if not isinstance(spec, StructuredDataArg):
                     continue
@@ -2129,9 +2090,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                             f"structured lowering, got {type(arg).__name__}"
                         ],
                     )
-                out_of_range = [
-                    i for i in spec.axis_indices if i >= len(event_dims)
-                ]
+                out_of_range = [i for i in spec.axis_indices if i >= len(event_dims)]
                 if out_of_range:
                     raise UnsupportedConstruct(
                         "qvr-lower",
@@ -2143,19 +2102,13 @@ class Lower(dx.Mapping[Module, IRProgram]):
                             f"has only {len(event_dims)} event dims"
                         ],
                     )
-                plate_dims = tuple(
-                    event_dims[i] for i in spec.axis_indices
-                )
+                plate_dims = tuple(event_dims[i] for i in spec.axis_indices)
                 plate = Plate(event_dims=plate_dims, batch_dims=())
-                constraint = _DATA_CONSTRAINT_FACTORY[
-                    spec.constraint_kind
-                ]()
+                constraint = _DATA_CONSTRAINT_FACTORY[spec.constraint_kind]()
                 out[arg.name] = (constraint, plate)
         return out
 
-    def _kernel_input_plates(
-        self, body: tuple[IRNode, ...]
-    ) -> dict[str, Plate]:
+    def _kernel_input_plates(self, body: tuple[IRNode, ...]) -> dict[str, Plate]:
         """Return ``x_name`` → `Plate` for every
         [`IRArgKernel`][quivers.transpile.ir.IRArgKernel] that appears
         in the body.
@@ -2182,9 +2135,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 )
         return out
 
-    def _integer_typed_free_names(
-        self, body: tuple[IRNode, ...]
-    ) -> set[str]:
+    def _integer_typed_free_names(self, body: tuple[IRNode, ...]) -> set[str]:
         """Return the set of free names whose usage proves they
         must be declared as integers.
 
@@ -2211,9 +2162,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 arg_constraints = getattr(
                     meta.distribution_class, "arg_constraints", {}
                 )
-                for arg, arg_name in zip(
-                    node.args, node.arg_names, strict=True
-                ):
+                for arg, arg_name in zip(node.args, node.arg_names, strict=True):
                     if not isinstance(arg, IRArgRef):
                         continue
                     constraint = arg_constraints.get(arg_name)
@@ -2265,9 +2214,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
                     add(n)
         return out
 
-    def _first_batch_card(
-        self, plate: Plate, ctx: _LowerCtx
-    ) -> int | None:
+    def _first_batch_card(self, plate: Plate, ctx: _LowerCtx) -> int | None:
         """Return the cardinality of the first batch dim, when known."""
         del ctx  # cards already resolved into the Dim
         if not plate.batch_dims:
@@ -2338,25 +2285,19 @@ class _LowerCtx(dx.Model):
     lets: dict[str, Expr] = dx.field(opaque=True)
     cards: dict[str, int]
     family_set: frozenset[str]
-    sentinel_cache: dict[tuple[str, tuple[str, ...]], Distribution] = (
-        dx.field(opaque=True)
+    sentinel_cache: dict[tuple[str, tuple[str, ...]], Distribution] = dx.field(
+        opaque=True
     )
     program: ProgramDecl = dx.field(opaque=True)
     real_widths: dict[str, int] = dx.field(default_factory=dict)
     bounds: dict[str, RealBounds] = dx.field(default_factory=dict)
     shapes: dict[str, ObjectShape] = dx.field(default_factory=dict)
-    bound_plates: dict[str, Plate] = dx.field(
-        default_factory=dict, opaque=True
-    )
-    bound_kinds: dict[str, str] = dx.field(
-        default_factory=dict, opaque=True
-    )
+    bound_plates: dict[str, Plate] = dx.field(default_factory=dict, opaque=True)
+    bound_kinds: dict[str, str] = dx.field(default_factory=dict, opaque=True)
     alphabet_event_dims: dict[str, DimStatic] = dx.field(
         default_factory=dict, opaque=True
     )
-    param_map_inputs: dict[str, Plate] = dx.field(
-        default_factory=dict, opaque=True
-    )
+    param_map_inputs: dict[str, Plate] = dx.field(default_factory=dict, opaque=True)
     reserved_names: frozenset[str] = frozenset()
 
 
@@ -2448,23 +2389,20 @@ def _object_expr_shape(
         if not expr.args:
             return None
         return ObjectShape(
-            extent=_size_arg_value(
-                expr.args[0], table, names, expr.constructor
-            ),
+            extent=_size_arg_value(expr.args[0], table, names, expr.constructor),
             finite=True,
         )
     if isinstance(expr, ContinuousConstructor):
         if not expr.args:
             return None
-        sizes = [
-            _size_arg_value(a, table, names, expr.constructor)
-            for a in expr.args
-        ]
+        sizes = [_size_arg_value(a, table, names, expr.constructor) for a in expr.args]
         bounds = _continuous_bounds(expr)
         if expr.constructor == "Real":
             width = math.prod(sizes)
             return ObjectShape(
-                extent=width, real_width=width, bounds=bounds,
+                extent=width,
+                real_width=width,
+                bounds=bounds,
             )
         # Every other continuous constructor takes its leading
         # argument as the space's dimension; the flattened width of
@@ -2472,10 +2410,7 @@ def _object_expr_shape(
         # a plain real vector, so no `real_width` is recorded.
         return ObjectShape(extent=sizes[0], bounds=bounds)
     if isinstance(expr, ObjectProduct):
-        factors = [
-            _object_expr_shape(f, table, names)
-            for f in object_factors(expr)
-        ]
+        factors = [_object_expr_shape(f, table, names) for f in object_factors(expr)]
         if any(f is None or f.extent is None for f in factors):
             return None
         total = 1
@@ -2508,7 +2443,8 @@ def object_shapes(module: Module) -> dict[str, ObjectShape]:
         shape: ObjectShape | None = None
         if isinstance(init, TypeEnumSet):
             shape = ObjectShape(
-                extent=len(init.elements), finite=True,
+                extent=len(init.elements),
+                finite=True,
             )
         elif isinstance(init, TypeFromExpr):
             shape = _object_expr_shape(init.expr, out, stmt.names)
@@ -2584,7 +2520,10 @@ def _spec_real_range(
 
 
 def _range_spec(
-    low: float, high: float, name: str, source: str,
+    low: float,
+    high: float,
+    name: str,
+    source: str,
 ) -> ConstraintSpec:
     """The `ConstraintSpec` for a closed real range.
 
@@ -2666,10 +2605,7 @@ def _apply_declared_bounds(
     than narrowing it, and an empty intersection describes no value,
     so both raise.
     """
-    axis_names = tuple(
-        dim.name
-        for dim in (*plate.event_dims, *plate.batch_dims)
-    )
+    axis_names = tuple(dim.name for dim in (*plate.event_dims, *plate.batch_dims))
     bounds = _bounds_of_axes(axis_names, ctx, name)
     if bounds is None:
         return spec
@@ -2704,7 +2640,10 @@ def _apply_declared_bounds(
 
 
 def _assert_alphabet_width(
-    stated: int, dim: DimStatic, name: str, source: str,
+    stated: int,
+    dim: DimStatic,
+    name: str,
+    source: str,
 ) -> None:
     """Reject an alphabet argument whose own width contradicts the
     width the declared codomain names.
@@ -2727,7 +2666,10 @@ def _assert_alphabet_width(
 
 
 def _retarget_alphabet_arg(
-    arg: IRArg, dim: DimStatic, name: str, ctx: _LowerCtx,
+    arg: IRArg,
+    dim: DimStatic,
+    name: str,
+    ctx: _LowerCtx,
 ) -> IRArg:
     """Widen a class-index family's alphabet argument to `dim`.
 
@@ -2751,9 +2693,7 @@ def _retarget_alphabet_arg(
     if isinstance(arg, IRArgBroadcast):
         if arg.target_shape == (dim.size,):
             return arg
-        return IRArgBroadcast(
-            value=arg.value, target_shape=(dim.size,)
-        )
+        return IRArgBroadcast(value=arg.value, target_shape=(dim.size,))
     if isinstance(arg, IRArgList):
         _assert_alphabet_width(len(arg.elements), dim, name, "list")
         return arg
@@ -2761,7 +2701,10 @@ def _retarget_alphabet_arg(
         row = arg.rows[0] if arg.rows else None
         if row is not None:
             _assert_alphabet_width(
-                len(row.elements), dim, name, "matrix-row",
+                len(row.elements),
+                dim,
+                name,
+                "matrix-row",
             )
         return arg
     if not isinstance(arg, IRArgRef) or arg.indices:
@@ -2771,7 +2714,10 @@ def _retarget_alphabet_arg(
         trailing = bound.event_dims[-1]
         if isinstance(trailing, DimStatic):
             _assert_alphabet_width(
-                trailing.size, dim, name, f"binding:{arg.name}",
+                trailing.size,
+                dim,
+                name,
+                f"binding:{arg.name}",
             )
         return arg
     if ctx.bound_kinds.get(arg.name) in ("sample", "marginalize"):
@@ -2826,9 +2772,7 @@ def _axis_expr_name(expr: ObjectExpr) -> str:
     if isinstance(expr, TypeName):
         return expr.name
     if isinstance(expr, ObjectProduct):
-        return "_".join(
-            _axis_expr_name(f) for f in object_factors(expr)
-        )
+        return "_".join(_axis_expr_name(f) for f in object_factors(expr))
     return "anon"
 
 
@@ -2849,9 +2793,7 @@ def object_cardinalities(module: Module) -> dict[str, int]:
     }
 
 
-def axis_shape(
-    expr: ObjectExpr, cards: dict[str, int]
-) -> int | None:
+def axis_shape(expr: ObjectExpr, cards: dict[str, int]) -> int | None:
     """Return the cardinality of an axis object expression.
 
     A product axis (`A * B`) is the flattened cardinality of its
@@ -2908,18 +2850,14 @@ def build_shape_table(
     return out
 
 
-def _step_shape(
-    index: ObjectExpr | None, cards: dict[str, int]
-) -> tuple[int, ...]:
+def _step_shape(index: ObjectExpr | None, cards: dict[str, int]) -> tuple[int, ...]:
     if index is None:
         return ()
     n = axis_shape(index, cards)
     return (n,) if n is not None else ()
 
 
-def exogenous_data_inputs(
-    program: ProgramDecl, bound: set[str]
-) -> list[str]:
+def exogenous_data_inputs(program: ProgramDecl, bound: set[str]) -> list[str]:
     """Return the ordered list of exogenous identifier names
     referenced in `program` but not bound by any step.
 
@@ -3116,7 +3054,9 @@ _SAMPLE_CONSTRAINT_FACTORY: dict[str, Callable[[], ConstraintSpec]] = {
 
 
 def _derive_event_dims(
-    meta: FamilyMeta, step: SampleStep, ctx: "_LowerCtx",
+    meta: FamilyMeta,
+    step: SampleStep,
+    ctx: "_LowerCtx",
 ) -> tuple[Dim, ...]:
     """Recover a family's event-axis tuple from the source declared
     on its :class:`StructuredSampleLowering`.
@@ -3136,24 +3076,21 @@ def _derive_event_dims(
         if decl is None:
             raise UnsupportedConstruct(
                 "qvr-lower",
-                [
-                    f"family:{meta.qvr_name}:morphism-unknown:"
-                    f"{step.morphism}"
-                ],
+                [f"family:{meta.qvr_name}:morphism-unknown:{step.morphism}"],
             )
         grid_axis_name, grid_size = _gp_grid_axis(decl.domain, ctx.cards)
         return (DimStatic(size=grid_size, name=grid_axis_name),)
     raise UnsupportedConstruct(
         "qvr-lower",
-        [
-            f"family:{meta.qvr_name}:event_axis_source:unknown-kind:"
-            f"{src.kind!r}"
-        ],
+        [f"family:{meta.qvr_name}:event_axis_source:unknown-kind:{src.kind!r}"],
     )
 
 
 def _n_event_dims(
-    step: SampleStep, ctx: "_LowerCtx", n: int, family_name: str,
+    step: SampleStep,
+    ctx: "_LowerCtx",
+    n: int,
+    family_name: str,
 ) -> tuple[Dim, ...]:
     """Return `n` event dims for a sample step, derived from the
     step's `[over=...]`, the morphism's `[over=...]`, or the
@@ -3212,7 +3149,8 @@ def _build_structured_ir_arg(
     """
     if isinstance(spec, StructuredDataArg):
         return IRArgRef(
-            name=f"{sample_name}_{spec.arg_name}", indices=(),
+            name=f"{sample_name}_{spec.arg_name}",
+            indices=(),
         )
     if isinstance(spec, StructuredZeroVectorArg):
         return IRArgNumber(value=0.0)
@@ -3221,10 +3159,7 @@ def _build_structured_ir_arg(
         if decl is None:
             raise UnsupportedConstruct(
                 "qvr-lower",
-                [
-                    f"family:{meta.qvr_name}:morphism-unknown:"
-                    f"{step.morphism}"
-                ],
+                [f"family:{meta.qvr_name}:morphism-unknown:{step.morphism}"],
             )
         kernel_name, length_scale = _gp_kernel_options(decl.options)
         return IRArgKernel(
@@ -3235,16 +3170,11 @@ def _build_structured_ir_arg(
         )
     raise UnsupportedConstruct(
         "qvr-lower",
-        [
-            f"family:{meta.qvr_name}:structured_arg:unknown-kind:"
-            f"{spec.kind!r}"
-        ],
+        [f"family:{meta.qvr_name}:structured_arg:unknown-kind:{spec.kind!r}"],
     )
 
 
-def _gp_grid_axis(
-    domain: ObjectExpr, cards: dict[str, int]
-) -> tuple[str, int]:
+def _gp_grid_axis(domain: ObjectExpr, cards: dict[str, int]) -> tuple[str, int]:
     """Return the (axis-name, cardinality) for a GP morphism's
     domain.
 
@@ -3290,9 +3220,7 @@ def _gp_kernel_options(
     for opt in options:
         if opt.key == "kernel" and isinstance(opt.value, OptionName):
             kernel = opt.value.value.lower()
-        elif opt.key == "length_scale" and isinstance(
-            opt.value, OptionNumber
-        ):
+        elif opt.key == "length_scale" and isinstance(opt.value, OptionNumber):
             length_scale = float(opt.value.value)
     if kernel is None:
         raise UnsupportedConstruct(
@@ -3307,17 +3235,12 @@ def _gp_kernel_options(
     if kernel != "rbf":
         raise UnsupportedConstruct(
             "qvr-lower",
-            [
-                f"family:GP:unsupported-kernel:{kernel}: only `rbf` is "
-                f"implemented"
-            ],
+            [f"family:GP:unsupported-kernel:{kernel}: only `rbf` is implemented"],
         )
     if length_scale <= 0.0:
         raise UnsupportedConstruct(
             "qvr-lower",
-            [
-                f"family:GP:length_scale:{length_scale}: must be > 0"
-            ],
+            [f"family:GP:length_scale:{length_scale}: must be > 0"],
         )
     return kernel, length_scale
 
@@ -3449,14 +3372,13 @@ def _ctor_param_names(cls: type) -> tuple[str, ...]:
     """
     try:
         params = inspect.signature(cls.__init__).parameters
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return ()
     return tuple(
         name
         for name, param in params.items()
         if name not in ("self", "validate_args")
-        and param.kind
-        not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+        and param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
     )
 
 
@@ -3483,8 +3405,7 @@ def _make_sentinel(
         return ctx.sentinel_cache[key]
     expected_shapes = _expected_arg_shapes(meta, len(args))
     sentinel_args = tuple(
-        _arg_to_tensor(a, ctx, expected_shapes[i])
-        for i, a in enumerate(args)
+        _arg_to_tensor(a, ctx, expected_shapes[i]) for i, a in enumerate(args)
     )
     try:
         instance = meta.distribution_class(*sentinel_args)
@@ -3523,9 +3444,7 @@ def _make_sentinel(
 
 def _construct_sentinel_from_signature(
     meta: FamilyMeta,
-    user_args: tuple[
-        torch.Tensor | torch.distributions.Distribution, ...
-    ],
+    user_args: tuple[torch.Tensor | torch.distributions.Distribution, ...],
 ) -> torch.distributions.Distribution | None:
     """Construct a placeholder
     [`Distribution`][torch.distributions.Distribution] instance for
@@ -3580,17 +3499,14 @@ def _construct_sentinel_from_signature(
     # Supply the canonical Cholesky-factor variant when none of the
     # trio is already bound.
     trio_group = (
-        "covariance_matrix", "precision_matrix", "scale_tril",
+        "covariance_matrix",
+        "precision_matrix",
+        "scale_tril",
     )
     param_names = {p.name for p in sigparams}
-    bound_names = {
-        p.name for p in sigparams[: len(bound_positional)]
-    } | set(kwargs)
+    bound_names = {p.name for p in sigparams[: len(bound_positional)]} | set(kwargs)
     present_in_sig = [n for n in trio_group if n in param_names]
-    if (
-        present_in_sig
-        and not any(n in bound_names for n in present_in_sig)
-    ):
+    if present_in_sig and not any(n in bound_names for n in present_in_sig):
         kwargs[present_in_sig[-1]] = torch.eye(dim)
     try:
         return meta.distribution_class(*bound_positional, **kwargs)
@@ -3599,7 +3515,8 @@ def _construct_sentinel_from_signature(
 
 
 def _sentinel_value_for_param(
-    name: str, dim: int,
+    name: str,
+    dim: int,
 ) -> torch.Tensor | None:
     """Pick a sensible sentinel default for a constructor parameter
     by name. Returns `None` for parameters whose name is not
@@ -3608,8 +3525,10 @@ def _sentinel_value_for_param(
     if name in ("df", "degree_of_freedom", "nu", "concentration"):
         return torch.tensor(float(dim + 1))
     if name in (
-        "covariance_matrix", "scale_matrix",
-        "precision_matrix", "scale_tril",
+        "covariance_matrix",
+        "scale_matrix",
+        "precision_matrix",
+        "scale_tril",
     ):
         return torch.eye(dim)
     if name in ("loc", "mean"):
@@ -3632,9 +3551,7 @@ def _sentinel_value_for_param(
 
 
 def _infer_sentinel_dim(
-    user_args: tuple[
-        torch.Tensor | torch.distributions.Distribution, ...
-    ],
+    user_args: tuple[torch.Tensor | torch.distributions.Distribution, ...],
 ) -> int:
     """Best-effort guess at the event dimension for a sentinel
     matrix-valued parameter. Inspects the first matrix-shaped tensor
@@ -3645,9 +3562,7 @@ def _infer_sentinel_dim(
     return 2
 
 
-def _expected_arg_shapes(
-    meta: FamilyMeta, n_args: int
-) -> tuple[tuple[int, ...], ...]:
+def _expected_arg_shapes(meta: FamilyMeta, n_args: int) -> tuple[tuple[int, ...], ...]:
     """Per-arg expected shape derived from class-level
     `arg_constraints`. Used to size placeholder tensors for the
     sentinel."""
@@ -3707,19 +3622,13 @@ def _arg_to_tensor(
         return torch.zeros(arg.target_shape, dtype=torch.float32)
     if isinstance(arg, IRArgList):
         return torch.tensor(
-            [
-                e.value if isinstance(e, IRArgNumber) else 0.0
-                for e in arg.elements
-            ],
+            [e.value if isinstance(e, IRArgNumber) else 0.0 for e in arg.elements],
             dtype=torch.float32,
         )
     if isinstance(arg, IRArgMatrix):
         return torch.tensor(
             [
-                [
-                    e.value if isinstance(e, IRArgNumber) else 0.0
-                    for e in row.elements
-                ]
+                [e.value if isinstance(e, IRArgNumber) else 0.0 for e in row.elements]
                 for row in arg.rows
             ],
             dtype=torch.float32,
@@ -3735,13 +3644,9 @@ def _arg_to_tensor(
                 ],
             )
         inner_meta = _family_meta_or_raise(decl.init_family.family)
-        inner_args = tuple(
-            _raw_to_ir_for_sentinel(a) for a in decl.init_family.args
-        )
+        inner_args = tuple(_raw_to_ir_for_sentinel(a) for a in decl.init_family.args)
         return _make_sentinel(inner_meta, inner_args, ctx)
-    raise UnsupportedConstruct(
-        "qvr-lower", [f"arg:unknown:{type(arg).__name__}"]
-    )
+    raise UnsupportedConstruct("qvr-lower", [f"arg:unknown:{type(arg).__name__}"])
 
 
 def _shape_default_tensor(shape: tuple[int, ...]) -> torch.Tensor:
@@ -3780,18 +3685,12 @@ def _raw_to_ir_for_sentinel(raw: DrawArg | str | float) -> IRArg:
         if is_matrix(raw):
             return IRArgMatrix(
                 rows=tuple(
-                    IRArgList(
-                        elements=tuple(
-                            _raw_to_ir_for_sentinel(e) for e in row
-                        )
-                    )
+                    IRArgList(elements=tuple(_raw_to_ir_for_sentinel(e) for e in row))
                     for row in matrix_rows(raw)
                 )
             )
         return IRArgList(
-            elements=tuple(
-                _raw_to_ir_for_sentinel(e) for e in list_items(raw)
-            )
+            elements=tuple(_raw_to_ir_for_sentinel(e) for e in list_items(raw))
         )
     if isinstance(raw, (int, float)):
         return IRArgNumber(value=float(raw))
@@ -3854,9 +3753,7 @@ def _resolve_support(
     return instance.support
 
 
-def _event_dim_of(
-    meta: FamilyMeta, args: tuple[IRArg, ...], ctx: _LowerCtx
-) -> int:
+def _event_dim_of(meta: FamilyMeta, args: tuple[IRArg, ...], ctx: _LowerCtx) -> int:
     """Return the family's event_dim, evaluating the sentinel when
     the class-level support is not a concrete Constraint."""
     cls_support = meta.distribution_class.support
@@ -3899,7 +3796,8 @@ def _event_axis_names(
 
 
 def _morphism_over_axes(
-    morphism_name: str, ctx: _LowerCtx,
+    morphism_name: str,
+    ctx: _LowerCtx,
 ) -> tuple[str, ...]:
     """Return the morphism declaration's `[over=[A, B]]` axis names.
 
@@ -3986,7 +3884,8 @@ def _codomain_base_name(codomain: ObjectExpr) -> str:
 
 
 def _codomain_axes(
-    codomain: ObjectExpr, cards: dict[str, int],
+    codomain: ObjectExpr,
+    cards: dict[str, int],
 ) -> tuple[str, ...]:
     """Return the named axes of a morphism codomain.
 
@@ -4036,14 +3935,10 @@ def _scalar_binding_names(ctx: _LowerCtx) -> frozenset[str]:
     program = ctx.program
     if program.type_params is None:
         return frozenset()
-    return frozenset(
-        p.name for p in program.type_params if isinstance(p, ScalarParam)
-    )
+    return frozenset(p.name for p in program.type_params if isinstance(p, ScalarParam))
 
 
-def _let_step_plate(
-    expr: LetExprNode, ctx: _LowerCtx
-) -> Plate:
+def _let_step_plate(expr: LetExprNode, ctx: _LowerCtx) -> Plate:
     """Derive the IR plate for an `IRDeterministic` whose bound
     expression is `expr`.
 
@@ -4061,9 +3956,7 @@ def _let_step_plate(
                 size = ctx.cards.get(idx.name)
                 if size is None:
                     return Plate(event_dims=(), batch_dims=())
-                dims.append(
-                    DimStatic(size=size, name=idx.name)
-                )
+                dims.append(DimStatic(size=size, name=idx.name))
             else:
                 return Plate(event_dims=(), batch_dims=())
         # Per-binder axes are the result's batch dimensions (the
@@ -4086,9 +3979,7 @@ def _walk_nodes(body: tuple[IRNode, ...]):
             yield from _walk_nodes(node.scope)
 
 
-def _collect_let_expr_var_names(
-    expr: LetExprNode, out: set[str]
-) -> None:
+def _collect_let_expr_var_names(expr: LetExprNode, out: set[str]) -> None:
     """Walk `expr` collecting every leaf
     [`LetExprVar.name`][quivers.dsl.ast_nodes.LetExprVar.name]. Used
     by the plate-propagation pass to find which exogenous /
@@ -4154,8 +4045,15 @@ def _let_expr_needs_plate(expr: LetExprNode) -> bool:
     shapes it reads, so it never inherits either.
     """
     if isinstance(
-        expr, (LetExprLiteral, LetExprString, LetExprList, LetExprFactor,
-               LetExprLambda, LetExprAffineMap)
+        expr,
+        (
+            LetExprLiteral,
+            LetExprString,
+            LetExprList,
+            LetExprFactor,
+            LetExprLambda,
+            LetExprAffineMap,
+        ),
     ):
         return False
     return True
@@ -4228,9 +4126,7 @@ def _propagate_let_plates(
             lets_by_name[node.name] = node
         if isinstance(node, IRSample):
             sample_event_dims[node.name] = node.plate.event_dims
-    input_map: dict[str, int] = {
-        inp.name: i for i, inp in enumerate(inputs)
-    }
+    input_map: dict[str, int] = {inp.name: i for i, inp in enumerate(inputs)}
     inputs_list = list(inputs)
 
     def _promote_input(name: str, batch_dims: tuple[Dim, ...]) -> bool:
@@ -4244,7 +4140,8 @@ def _propagate_let_plates(
             name=cur.name,
             constraint=cur.constraint,
             plate=Plate(
-                event_dims=cur.plate.event_dims, batch_dims=batch_dims,
+                event_dims=cur.plate.event_dims,
+                batch_dims=batch_dims,
             ),
         )
         return True
@@ -4276,7 +4173,8 @@ def _propagate_let_plates(
             expr=cur.expr,
             constraint=cur.constraint,
             plate=Plate(
-                event_dims=inherited_event_dims, batch_dims=batch_dims,
+                event_dims=inherited_event_dims,
+                batch_dims=batch_dims,
             ),
         )
         # Recurse into the let-expression's free names so any
@@ -4338,9 +4236,7 @@ def _propagate_alphabet_event_dims(
         for node in _walk_nodes(body)
         if isinstance(node, IRDeterministic)
     }
-    input_map: dict[str, int] = {
-        inp.name: i for i, inp in enumerate(inputs)
-    }
+    input_map: dict[str, int] = {inp.name: i for i, inp in enumerate(inputs)}
     inputs_list = list(inputs)
 
     def widen(name: str, dim: DimStatic, seen: set[str]) -> None:
@@ -4369,7 +4265,8 @@ def _propagate_alphabet_event_dims(
             expr=let.expr,
             constraint=let.constraint,
             plate=Plate(
-                event_dims=(dim,), batch_dims=let.plate.batch_dims,
+                event_dims=(dim,),
+                batch_dims=let.plate.batch_dims,
             ),
         )
         leaves: set[str] = set()
@@ -4406,9 +4303,7 @@ def _rebuild_with_lets(
     return tuple(out)
 
 
-def _collect_integer_index_names(
-    expr: LetExprNode, out: set[str]
-) -> None:
+def _collect_integer_index_names(expr: LetExprNode, out: set[str]) -> None:
     """Walk `expr` and add to `out` every `LetExprVar.name` that
     appears as an index in a `LetExprIndex`. Used during data-input
     typing inference to promote integer-indexed names from `real`

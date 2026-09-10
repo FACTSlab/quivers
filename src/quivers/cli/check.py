@@ -128,8 +128,7 @@ def _check_one(path: Path) -> list[Diagnostic]:
     ]
     diags.extend(family_diags)
     has_family_shape_error = any(
-        d.code == "family-arg-shape" and d.severity == "error"
-        for d in family_diags
+        d.code == "family-arg-shape" and d.severity == "error" for d in family_diags
     )
     if has_family_shape_error:
         # Skip compile: the wider compiler would crash on shape-mismatched

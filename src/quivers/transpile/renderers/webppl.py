@@ -265,10 +265,7 @@ class WebPPLRenderer(RendererBase):
         # declaration so the body's `sample(<Family>({...}))` call
         # sites resolve through normal JS name lookup.
         if (
-            any(
-                _ir_uses_family(ir.body, f)
-                for f in _WEBPPL_RUNTIME_HELPER_FAMILIES
-            )
+            any(_ir_uses_family(ir.body, f) for f in _WEBPPL_RUNTIME_HELPER_FAMILIES)
             or _ir_emits_qvr_bcast(ir, self._array_names)
             or _ir_uses_webppl_math(ir.body)
             or _ir_reduces_event_axis(ir.body, self._name_event_rank)
@@ -425,9 +422,7 @@ class WebPPLRenderer(RendererBase):
         `mapIndexed` observe for an observed site, `repeat` for a
         latent one.
         """
-        weights, loc, scale = mixture_normal_components(
-            "webppl", args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components("webppl", args, arg_names)
         components = mixture_component_count(
             "webppl",
             weights,
@@ -554,9 +549,7 @@ class WebPPLRenderer(RendererBase):
                     self._ident(ctx, "observe"),
                     (dist_call(), self._ident(ctx, name)),
                 )
-                self._emit_expression_statement(
-                    ctx, self._body_vid, observe_call
-                )
+                self._emit_expression_statement(ctx, self._body_vid, observe_call)
                 return observe_call
             loop_var = "n"
             per_elem_var = f"{name}_n"
@@ -575,17 +568,13 @@ class WebPPLRenderer(RendererBase):
                 ctx,
                 self._ident(ctx, "mapIndexed"),
                 (
-                    self._function_expression(
-                        ctx, (loop_var, per_elem_var), body
-                    ),
+                    self._function_expression(ctx, (loop_var, per_elem_var), body),
                     self._ident(ctx, name),
                 ),
             )
             self._emit_expression_statement(ctx, self._body_vid, mi_call)
             return mi_call
-        rhs = self._call(
-            ctx, self._ident(ctx, "sample"), (dist_call(),)
-        )
+        rhs = self._call(ctx, self._ident(ctx, "sample"), (dist_call(),))
         for dim in reversed(plate.batch_dims):
             rhs = self._wrap_in_repeat(ctx, rhs, dim)
         self._emit_var_decl(ctx, self._body_vid, name, rhs)
@@ -837,14 +826,10 @@ class WebPPLRenderer(RendererBase):
             node,
             support_size=marginal_support_size(node, name_plates=plates),
         )
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         prefix = f"__marg_{node.latent}"
         prev_group = self._group_plate_axes
-        self._group_plate_axes = tuple(
-            str(d.name) for d in node.plate.batch_dims
-        )
+        self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)
         try:
             term_names = tuple(
                 self._emit_atom_scope(ctx, node, atom, prefix, position)
@@ -869,7 +854,9 @@ class WebPPLRenderer(RendererBase):
             term_vid = self._ident(ctx, term)
             if accumulate_rows:
                 term_vid = self._call(
-                    ctx, self._ident(ctx, "_qvr_total"), (term_vid,),
+                    ctx,
+                    self._ident(ctx, "_qvr_total"),
+                    (term_vid,),
                 )
             self._emit_var_decl(
                 ctx,
@@ -894,9 +881,7 @@ class WebPPLRenderer(RendererBase):
             ctx,
             self._body_vid,
             prefix,
-            self._call(
-                ctx, self._ident(ctx, "_qvr_logsumexp"), (terms_array,)
-            ),
+            self._call(ctx, self._ident(ctx, "_qvr_logsumexp"), (terms_array,)),
         )
         self._emit_expression_statement(
             ctx,
@@ -930,9 +915,7 @@ class WebPPLRenderer(RendererBase):
         scope; the call site binds the returned per-row log-density
         array.
         """
-        scored = marginalize_body(
-            atom.scope, latent=node.latent, target=self.target
-        )
+        scored = marginalize_body(atom.scope, latent=node.latent, target=self.target)
         block = self._fresh(ctx, "abody")
         ctx.sb.vertex(block, "statement_block")
         outer_body = self._body_vid
@@ -960,9 +943,7 @@ class WebPPLRenderer(RendererBase):
         )
         return term
 
-    def _atom_score_expression(
-        self, ctx: _RenderCtx, observe: IRObserve
-    ) -> str:
+    def _atom_score_expression(self, ctx: _RenderCtx, observe: IRObserve) -> str:
         """The per-row log-density of one atom's scored site.
 
         Batched sites map over the observed array so the result keeps
@@ -1037,9 +1018,7 @@ class WebPPLRenderer(RendererBase):
                 ctx,
                 self._ident(ctx, "mapIndexed"),
                 (
-                    self._function_expression(
-                        ctx, (loop_var, per_elem_var), body
-                    ),
+                    self._function_expression(ctx, (loop_var, per_elem_var), body),
                     self._ident(ctx, observe.name),
                 ),
             )
@@ -1079,9 +1058,7 @@ class WebPPLRenderer(RendererBase):
                 self._ident(ctx, boundary_safe),
                 (params_vid, value_vid),
             )
-        dist_vid = self._call(
-            ctx, self._ident(ctx, webppl_name), (params_vid,)
-        )
+        dist_vid = self._call(ctx, self._ident(ctx, webppl_name), (params_vid,))
         if family in _WEBPPL_RUNTIME_HELPER_FAMILIES:
             return self._call(
                 ctx,
@@ -1090,9 +1067,7 @@ class WebPPLRenderer(RendererBase):
             )
         member = self._fresh(ctx, "mem")
         ctx.sb.vertex(member, "member_expression")
-        ctx.sb.edge(
-            member, self._paren(ctx, dist_vid, "call_expression"), "object"
-        )
+        ctx.sb.edge(member, self._paren(ctx, dist_vid, "call_expression"), "object")
         ctx.sb.edge(member, self._prop_ident(ctx, "score"), "property")
         return self._call(ctx, member, (value_vid,))
 
@@ -1693,9 +1668,7 @@ class WebPPLRenderer(RendererBase):
                 vid = self._render_reciprocal(ctx, substituted)
             else:
                 vid = self._render_arg(ctx, substituted)
-            if raw_name in _WEBPPL_TENSOR_ARGS.get(
-                meta.qvr_name, frozenset()
-            ):
+            if raw_name in _WEBPPL_TENSOR_ARGS.get(meta.qvr_name, frozenset()):
                 vid = self._call(ctx, self._ident(ctx, "Vector"), (vid,))
             out.append((keyword, vid))
         if meta.qvr_name == "Categorical":
@@ -1705,7 +1678,8 @@ class WebPPLRenderer(RendererBase):
             # its own probability vector, which is what the observed
             # index means, so the support is those positions.
             probabilities = next(
-                (vid for key, vid in out if key == "ps"), None,
+                (vid for key, vid in out if key == "ps"),
+                None,
             )
             if probabilities is None:
                 raise UnsupportedConstruct(
@@ -1715,12 +1689,16 @@ class WebPPLRenderer(RendererBase):
                         f"argument to take the support from"
                     ],
                 )
-            out.append((
-                "vs",
-                self._call(
-                    ctx, self._ident(ctx, "_qvr_support"), (probabilities,),
-                ),
-            ))
+            out.append(
+                (
+                    "vs",
+                    self._call(
+                        ctx,
+                        self._ident(ctx, "_qvr_support"),
+                        (probabilities,),
+                    ),
+                )
+            )
         return tuple(out)
 
     def _maybe_broadcast(
@@ -1980,9 +1958,7 @@ class WebPPLRenderer(RendererBase):
         first = plate.batch_dims[0]
         return f"m_{first.name}_{sample_name}"
 
-    def _wrap_in_repeat(
-        self, ctx: _RenderCtx, inner_value: str, dim: Dim
-    ) -> str:
+    def _wrap_in_repeat(self, ctx: _RenderCtx, inner_value: str, dim: Dim) -> str:
         """`repeat(<|dim|>, function () { return <inner_value>; })`.
 
         The iid-replication idiom, shared by the batch-axis wrapper
@@ -1993,9 +1969,7 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.vertex(body, "statement_block")
         self._emit_return_statement(ctx, body, inner_value)
         lam = self._function_expression(ctx, (), body)
-        return self._call(
-            ctx, self._ident(ctx, "repeat"), (size_vid, lam)
-        )
+        return self._call(ctx, self._ident(ctx, "repeat"), (size_vid, lam))
 
     def _zero_array(self, ctx: _RenderCtx, size_vid: str) -> str:
         """`repeat(<size>, function () { return 0; })`.
@@ -2008,9 +1982,7 @@ class WebPPLRenderer(RendererBase):
         """
         body = self._fresh(ctx, "zbody")
         ctx.sb.vertex(body, "statement_block")
-        self._emit_return_statement(
-            ctx, body, self._number_literal(ctx, 0)
-        )
+        self._emit_return_statement(ctx, body, self._number_literal(ctx, 0))
         return self._call(
             ctx,
             self._ident(ctx, "repeat"),
@@ -2628,21 +2600,15 @@ def _js_event_rank(expr: LetExprNode, ranks: dict[str, int]) -> int:
     if isinstance(expr, LetExprCall):
         if expr.func in _REDUCTION_FUNCS:
             return 0
-        return max(
-            (_js_event_rank(a, ranks) for a in expr.args), default=0
-        )
+        return max((_js_event_rank(a, ranks) for a in expr.args), default=0)
     if isinstance(expr, LetExprIndex):
         return max(0, _js_event_rank(expr.array, ranks) - len(expr.indices))
     if isinstance(expr, LetExprList):
-        return max(
-            (_js_event_rank(i, ranks) for i in expr.items), default=0
-        )
+        return max((_js_event_rank(i, ranks) for i in expr.items), default=0)
     return 0
 
 
-def _reduce_last_axis(
-    expr: LetExprNode, ranks: dict[str, int]
-) -> LetExprNode:
+def _reduce_last_axis(expr: LetExprNode, ranks: dict[str, int]) -> LetExprNode:
     """Rewrite every reduction over a positive-rank argument into the
     matching ``_qvr_<f>_last`` runtime-helper call.
 
@@ -2660,9 +2626,7 @@ def _reduce_last_axis(
             right=_reduce_last_axis(expr.right, ranks),
         )
     if isinstance(expr, LetExprUnaryOp):
-        return LetExprUnaryOp(
-            operand=_reduce_last_axis(expr.operand, ranks)
-        )
+        return LetExprUnaryOp(operand=_reduce_last_axis(expr.operand, ranks))
     if isinstance(expr, LetExprCall):
         args = tuple(_reduce_last_axis(a, ranks) for a in expr.args)
         if (
@@ -2686,23 +2650,15 @@ def _reduce_last_axis(
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
             array=_reduce_last_axis(expr.array, ranks),
-            indices=tuple(
-                _reduce_last_axis(i, ranks) for i in expr.indices
-            ),
+            indices=tuple(_reduce_last_axis(i, ranks) for i in expr.indices),
         )
     if isinstance(expr, LetExprList):
-        return LetExprList(
-            items=tuple(
-                _reduce_last_axis(i, ranks) for i in expr.items
-            )
-        )
+        return LetExprList(items=tuple(_reduce_last_axis(i, ranks) for i in expr.items))
     if isinstance(expr, LetExprMethodCall):
         return LetExprMethodCall(
             receiver=_reduce_last_axis(expr.receiver, ranks),
             method=expr.method,
-            args=tuple(
-                _reduce_last_axis(a, ranks) for a in expr.args
-            ),
+            args=tuple(_reduce_last_axis(a, ranks) for a in expr.args),
         )
     if isinstance(expr, LetExprLambda):
         return LetExprLambda(
@@ -2713,9 +2669,7 @@ def _reduce_last_axis(
         return LetExprFactor(
             binders=expr.binders,
             body=(
-                _reduce_last_axis(expr.body, ranks)
-                if expr.body is not None
-                else None
+                _reduce_last_axis(expr.body, ranks) if expr.body is not None else None
             ),
             cases=tuple(
                 LetFactorCase(
@@ -2750,9 +2704,7 @@ def _ir_has_affine_map(body: tuple[IRNode, ...]) -> bool:
     return False
 
 
-def _ir_reduces_event_axis(
-    body: tuple[IRNode, ...], ranks: dict[str, int]
-) -> bool:
+def _ir_reduces_event_axis(body: tuple[IRNode, ...], ranks: dict[str, int]) -> bool:
     """True iff any deterministic / score body reduces an event axis,
     so the emit references a `_qvr_<f>_last` runtime helper."""
     for node in body:
@@ -2765,9 +2717,7 @@ def _ir_reduces_event_axis(
     return False
 
 
-def _let_expr_reduces_event_axis(
-    expr: LetExprNode, ranks: dict[str, int]
-) -> bool:
+def _let_expr_reduces_event_axis(expr: LetExprNode, ranks: dict[str, int]) -> bool:
     """True iff ``expr`` contains a reduction over a positive-rank
     argument anywhere in its tree."""
     if isinstance(expr, LetExprCall):
@@ -2777,9 +2727,7 @@ def _let_expr_reduces_event_axis(
             and _js_event_rank(expr.args[0], ranks) > 0
         ):
             return True
-        return any(
-            _let_expr_reduces_event_axis(a, ranks) for a in expr.args
-        )
+        return any(_let_expr_reduces_event_axis(a, ranks) for a in expr.args)
     if isinstance(expr, LetExprBinOp):
         return _let_expr_reduces_event_axis(
             expr.left, ranks
@@ -2791,9 +2739,7 @@ def _let_expr_reduces_event_axis(
             _let_expr_reduces_event_axis(i, ranks) for i in expr.indices
         )
     if isinstance(expr, LetExprList):
-        return any(
-            _let_expr_reduces_event_axis(i, ranks) for i in expr.items
-        )
+        return any(_let_expr_reduces_event_axis(i, ranks) for i in expr.items)
     if isinstance(expr, LetExprLambda):
         return _let_expr_reduces_event_axis(expr.body, ranks)
     if isinstance(expr, LetExprMethodCall):
@@ -2801,14 +2747,9 @@ def _let_expr_reduces_event_axis(
             _let_expr_reduces_event_axis(a, ranks) for a in expr.args
         )
     if isinstance(expr, LetExprFactor):
-        if expr.body is not None and _let_expr_reduces_event_axis(
-            expr.body, ranks
-        ):
+        if expr.body is not None and _let_expr_reduces_event_axis(expr.body, ranks):
             return True
-        return any(
-            _let_expr_reduces_event_axis(c.value, ranks)
-            for c in expr.cases
-        )
+        return any(_let_expr_reduces_event_axis(c.value, ranks) for c in expr.cases)
     return False
 
 
@@ -2998,9 +2939,7 @@ def _ir_uses_webppl_math(body: tuple[IRNode, ...]) -> bool:
             _let_expr_calls_any(node.expr, _WEBPPL_MATH_HELPERS)
         ):
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_webppl_math(
-            node.scope
-        ):
+        if isinstance(node, IRMarginalize) and _ir_uses_webppl_math(node.scope):
             return True
     return False
 
@@ -3033,9 +2972,7 @@ def _let_expr_calls_any(expr: LetExprNode, names: frozenset[str]) -> bool:
     if isinstance(expr, LetExprFactor):
         if expr.body is not None and _let_expr_calls_any(expr.body, names):
             return True
-        return any(
-            _let_expr_calls_any(case.value, names) for case in expr.cases
-        )
+        return any(_let_expr_calls_any(case.value, names) for case in expr.cases)
     return False
 
 

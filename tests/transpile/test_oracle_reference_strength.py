@@ -86,7 +86,8 @@ def _flat_tensor(
 
 
 def _clamped_values(
-    dataset: _gallery_data.GalleryDataset, point: Point,
+    dataset: _gallery_data.GalleryDataset,
+    point: Point,
 ) -> dict[str, Tensor]:
     """Every clamped value the oracle sees at `point`, by site name.
 
@@ -106,7 +107,8 @@ def _clamped_values(
             )
         values[name] = _flat_tensor(point.params[name])
     for name, tensor in _gallery_data.observations_for_point(
-        dataset, point,
+        dataset,
+        point,
     ).items():
         values[name] = tensor
     return values
@@ -131,7 +133,9 @@ def _affine(x: Tensor, weight: Tensor, bias: Tensor) -> Tensor:
 
 
 def _normal_head(
-    raw: Tensor, event_dim: int, unit_scale: bool = False,
+    raw: Tensor,
+    event_dim: int,
+    unit_scale: bool = False,
 ) -> tuple[Tensor, Tensor]:
     """Split a `(..., 2 * event_dim)` parameter row into `(loc, scale)`.
 
@@ -188,8 +192,7 @@ def _seq2seq_block_prefixes(root: str) -> tuple[tuple[str, ...], ...]:
     """
     return (
         tuple(
-            f"{root}.left.left.left.left.left._components.{index}"
-            f".param_source"
+            f"{root}.left.left.left.left.left._components.{index}.param_source"
             for index in range(4)
         ),
         (f"{root}.left.left.left.left.right.param_source",),
@@ -237,7 +240,9 @@ def _seq2seq_side(
             for prefix in prefixes:
                 head_loc, head_scale = _normal_head(
                     _mlp3_linear(
-                        current, weights, prefix + ".net.",
+                        current,
+                        weights,
+                        prefix + ".net.",
                         activated=activated,
                     ),
                     4,
@@ -249,7 +254,9 @@ def _seq2seq_side(
         else:
             location, scale = _normal_head(
                 _mlp3_linear(
-                    current, weights, prefixes[0] + ".net.",
+                    current,
+                    weights,
+                    prefixes[0] + ".net.",
                     activated=activated,
                 ),
                 width,
@@ -294,7 +301,10 @@ def _reconstruct_seq2seq(
             "not carry."
         )
     known = (
-        "", "plate_mean", "drop_encoder_tower", "drop_cross_factor",
+        "",
+        "plate_mean",
+        "drop_encoder_tower",
+        "drop_cross_factor",
     )
     if variant not in known:
         raise _unknown_variant("seq2seq", variant)
@@ -303,27 +313,41 @@ def _reconstruct_seq2seq(
     source_tokens = x_input[..., 0]
     target_tokens = x_input[..., 1]
     encoder_term, encoder_out = _seq2seq_side(
-        "_step_h.left.left", source_tokens, weights, activated=activated,
+        "_step_h.left.left",
+        source_tokens,
+        weights,
+        activated=activated,
     )
     decoder_term, decoder_out = _seq2seq_side(
-        "_step_h.left.right", target_tokens, weights, activated=activated,
+        "_step_h.left.right",
+        target_tokens,
+        weights,
+        activated=activated,
     )
 
     combined = torch.cat([encoder_out, decoder_out], dim=-1)
     loc_cross, scale_cross = _normal_head(
         _mlp3_linear(
-            combined, weights, "_step_h.right.param_source.net.",
+            combined,
+            weights,
+            "_step_h.right.param_source.net.",
             activated=activated,
         ),
         32,
     )
-    cross_term = td.Normal(loc_cross, scale_cross).log_prob(
-        values["h"],
-    ).sum(-1)
+    cross_term = (
+        td.Normal(loc_cross, scale_cross)
+        .log_prob(
+            values["h"],
+        )
+        .sum(-1)
+    )
 
     head = "_step_next_token._family.param_source.linear."
     logits = F.linear(
-        values["h"], weights[head + "weight"], weights[head + "bias"],
+        values["h"],
+        weights[head + "weight"],
+        weights[head + "bias"],
     )
     per_token = td.Categorical(logits=logits).log_prob(
         values["next_token"],
@@ -340,7 +364,11 @@ def _reconstruct_seq2seq(
 
 
 def _mlp3_linear(
-    x: Tensor, weights: dict[str, Tensor], prefix: str, *, activated: bool = True,
+    x: Tensor,
+    weights: dict[str, Tensor],
+    prefix: str,
+    *,
+    activated: bool = True,
 ) -> Tensor:
     """`_mlp3` spelled through `torch.nn.functional.linear`.
 
@@ -351,22 +379,32 @@ def _mlp3_linear(
     the same implemented map.
     """
     layer = F.linear(
-        x, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+        x,
+        weights[prefix + "0.weight"],
+        weights[prefix + "0.bias"],
     )
     if activated:
         layer = torch.tanh(layer)
     layer = F.linear(
-        layer, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+        layer,
+        weights[prefix + "2.weight"],
+        weights[prefix + "2.bias"],
     )
     if activated:
         layer = torch.tanh(layer)
     return F.linear(
-        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+        layer,
+        weights[prefix + "4.weight"],
+        weights[prefix + "4.bias"],
     )
 
 
 def _mlp3(
-    x: Tensor, weights: dict[str, Tensor], prefix: str, *, activated: bool = True,
+    x: Tensor,
+    weights: dict[str, Tensor],
+    prefix: str,
+    *,
+    activated: bool = True,
 ) -> Tensor:
     """The parameter row a three-layer `mlp` source computes.
 
@@ -376,17 +414,23 @@ def _mlp3(
     dropped, which collapses the network to a single affine map.
     """
     layer = _affine(
-        x, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+        x,
+        weights[prefix + "0.weight"],
+        weights[prefix + "0.bias"],
     )
     if activated:
         layer = torch.tanh(layer)
     layer = _affine(
-        layer, weights[prefix + "2.weight"], weights[prefix + "2.bias"],
+        layer,
+        weights[prefix + "2.weight"],
+        weights[prefix + "2.bias"],
     )
     if activated:
         layer = torch.tanh(layer)
     return _affine(
-        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+        layer,
+        weights[prefix + "4.weight"],
+        weights[prefix + "4.bias"],
     )
 
 
@@ -424,12 +468,16 @@ def _reconstruct_deep_markov(
         raise _unknown_variant("deep_markov", variant)
 
     raw_hidden = _mlp3(
-        x_input, weights, "_step_s_new.left.param_source.net.",
+        x_input,
+        weights,
+        "_step_s_new.left.param_source.net.",
     )
     loc_hidden, scale_hidden = _normal_head(raw_hidden, 32)
     per_hidden = td.Normal(loc_hidden, scale_hidden).log_prob(loc_hidden)
     raw_state = _mlp3(
-        loc_hidden, weights, "_step_s_new.right.param_source.net.",
+        loc_hidden,
+        weights,
+        "_step_s_new.right.param_source.net.",
     )
     loc_state, scale_state = _normal_head(raw_state, 8)
     per_state = td.Normal(loc_state, scale_state).log_prob(values["s_new"])
@@ -441,12 +489,16 @@ def _reconstruct_deep_markov(
         transition = per_transition_row.sum()
 
     raw_emit = _mlp3(
-        values["s_new"], weights, "_step_o.left.param_source.net.",
+        values["s_new"],
+        weights,
+        "_step_o.left.param_source.net.",
     )
     loc_emit, scale_emit = _normal_head(raw_emit, 32)
     per_emit = td.Normal(loc_emit, scale_emit).log_prob(loc_emit)
     raw_obs = _mlp3(
-        loc_emit, weights, "_step_o.right.param_source.net.",
+        loc_emit,
+        weights,
+        "_step_o.right.param_source.net.",
     )
     loc_obs, scale_obs = _normal_head(raw_obs, 4)
     per_obs = td.Normal(loc_obs, scale_obs).log_prob(values["o"])
@@ -520,7 +572,9 @@ def _reconstruct_vae(
     # `dec_deep : DecoderHidden -> DecoderHidden [param_source=mlp]`.
     prefix = "_step_Y.left.right.param_source.net."
     layer = _affine(
-        hidden_1, weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+        hidden_1,
+        weights[prefix + "0.weight"],
+        weights[prefix + "0.bias"],
     )
     layer = _affine(
         torch.tanh(layer),
@@ -529,7 +583,9 @@ def _reconstruct_vae(
     )
     layer = torch.tanh(layer)
     raw_2 = _affine(
-        layer, weights[prefix + "4.weight"], weights[prefix + "4.bias"],
+        layer,
+        weights[prefix + "4.weight"],
+        weights[prefix + "4.bias"],
     )
     loc_2, scale_2 = _normal_head(raw_2, 16)
     per_2 = td.Normal(loc_2, scale_2).log_prob(loc_2)
@@ -541,7 +597,9 @@ def _reconstruct_vae(
         weights["_step_Y.right.param_source.linear.bias"],
     )
     loc_3, scale_3 = _normal_head(
-        raw_3, 8, unit_scale=variant == "decoder_unit_scale",
+        raw_3,
+        8,
+        unit_scale=variant == "decoder_unit_scale",
     )
     per_obs = td.Normal(loc_3, scale_3).log_prob(values["Y"])
 
@@ -553,9 +611,7 @@ def _reconstruct_vae(
         "decoder_unit_scale",
         "drop_latent_prior",
     ):
-        observation = (
-            per_1.sum(-1) + per_2.sum(-1) + per_obs.sum(-1)
-        ).sum()
+        observation = (per_1.sum(-1) + per_2.sum(-1) + per_obs.sum(-1)).sum()
     else:
         raise _unknown_variant("vae", variant)
 
@@ -586,7 +642,9 @@ def _reconstruct_bnn(
     del dataset
     prefix = "_step_y._family.param_source.net."
     hidden = _affine(
-        values["x"], weights[prefix + "0.weight"], weights[prefix + "0.bias"],
+        values["x"],
+        weights[prefix + "0.weight"],
+        weights[prefix + "0.bias"],
     )
     if variant == "mlp_without_activation":
         activated = hidden
@@ -602,7 +660,9 @@ def _reconstruct_bnn(
     # `object Target : Real 1`: a one-dimensional response, so the
     # head emits one location column and one log-scale column.
     loc, scale = _normal_head(
-        raw, 1, unit_scale=variant == "homoscedastic",
+        raw,
+        1,
+        unit_scale=variant == "homoscedastic",
     )
     per_row = td.Normal(loc, scale).log_prob(values["y"])
     if variant == "plate_mean":
@@ -647,7 +707,9 @@ def _reconstruct_state_space(
         weights["_step_s_new.param_source.linear.bias"],
     )
     loc_state, scale_state = _normal_head(
-        raw_state, state_dim, unit_scale=variant == "unit_transition_scale",
+        raw_state,
+        state_dim,
+        unit_scale=variant == "unit_transition_scale",
     )
     per_step_state = td.Normal(loc_state, scale_state).log_prob(state)
 
@@ -687,7 +749,12 @@ def _reconstruct_continuous_hmm(
 ) -> dict[str, Tensor]:
     """`object State : Real 16`, `object Obs : Real 8`."""
     return _reconstruct_state_space(
-        dataset, values, weights, variant, state_dim=16, obs_dim=8,
+        dataset,
+        values,
+        weights,
+        variant,
+        state_dim=16,
+        obs_dim=8,
     )
 
 
@@ -701,7 +768,12 @@ def _reconstruct_linear_gaussian_ssm(
     additionally reads a `Driver : Real 2` row, which the snippet
     concatenates onto the previous state before the call."""
     return _reconstruct_state_space(
-        dataset, values, weights, variant, state_dim=4, obs_dim=2,
+        dataset,
+        values,
+        weights,
+        variant,
+        state_dim=4,
+        obs_dim=2,
     )
 
 
@@ -748,20 +820,22 @@ def _reconstruct_mixture_model(
         sigma_term = sigma_term + sigma.log().sum()
 
     per_component = td.Normal(
-        mu.unsqueeze(0), sigma.unsqueeze(0),
+        mu.unsqueeze(0),
+        sigma.unsqueeze(0),
     ).log_prob(response.unsqueeze(-1))
     weighted = probs.log().unsqueeze(0) + per_component
     if variant == "first_component_only":
         per_row = weighted[..., 0]
     elif variant in (
-        "", "drop_dirichlet_prior", "unconstrain_sigma", "likelihood_mean",
+        "",
+        "drop_dirichlet_prior",
+        "unconstrain_sigma",
+        "likelihood_mean",
     ):
         per_row = torch.logsumexp(weighted, dim=-1)
     else:
         raise _unknown_variant("mixture_model", variant)
-    response_term = (
-        per_row.mean() if variant == "likelihood_mean" else per_row.sum()
-    )
+    response_term = per_row.mean() if variant == "likelihood_mean" else per_row.sum()
 
     return {
         "probs": probs_term,
@@ -890,9 +964,7 @@ def _reconstruct_pmf(
     return {
         "U": unit.log_prob(user_factor).sum(),
         "V": movie_term,
-        "rating": (
-            per_cell.mean() if variant == "plate_mean" else per_cell.sum()
-        ),
+        "rating": (per_cell.mean() if variant == "plate_mean" else per_cell.sum()),
     }
 
 
@@ -961,9 +1033,7 @@ def _reconstruct_tensor_contraction(
         "pred_embed": unit.log_prob(pred).sum(),
         "arg_embed": unit.log_prob(arg).sum(),
         "interaction": interaction_term,
-        "judgment": (
-            per_cell.mean() if variant == "plate_mean" else per_cell.sum()
-        ),
+        "judgment": (per_cell.mean() if variant == "plate_mean" else per_cell.sum()),
     }
 
 
@@ -999,17 +1069,25 @@ def _reconstruct_tree_categorical(
     """
     del dataset, weights
     p_root, p_left, p_right = (
-        values["p_root"], values["p_left"], values["p_right"],
+        values["p_root"],
+        values["p_left"],
+        values["p_right"],
     )
     sigma_v, delta, mu, y = (
-        values["sigma_v"], values["delta"], values["mu"], values["y"],
+        values["sigma_v"],
+        values["delta"],
+        values["mu"],
+        values["y"],
     )
     unit = td.Beta(1.0, 1.0)
 
     if variant == "delta_unit_scale":
         delta_scale = torch.ones_like(sigma_v)
     elif variant in (
-        "", "wrong_leaf_branch", "drop_leaf_offset", "plate_mean",
+        "",
+        "wrong_leaf_branch",
+        "drop_leaf_offset",
+        "plate_mean",
     ):
         delta_scale = sigma_v
     else:
@@ -1028,11 +1106,7 @@ def _reconstruct_tree_categorical(
     # same `cell0`, so an averaged plate returns the per-response
     # density itself and the defect is worth two orders of magnitude.
     per_response = td.Normal(cell_zero, 0.5).log_prob(y)
-    y_term = (
-        per_response.mean()
-        if variant == "plate_mean"
-        else per_response.sum()
-    )
+    y_term = per_response.mean() if variant == "plate_mean" else per_response.sum()
 
     return {
         "p_root": unit.log_prob(p_root).sum(),
@@ -1040,8 +1114,11 @@ def _reconstruct_tree_categorical(
         "p_right": unit.log_prob(p_right).sum(),
         "sigma_v": td.HalfNormal(1.0).log_prob(sigma_v).sum(),
         "delta": td.Normal(
-            torch.zeros_like(delta), delta_scale,
-        ).log_prob(delta).sum(),
+            torch.zeros_like(delta),
+            delta_scale,
+        )
+        .log_prob(delta)
+        .sum(),
         "mu": td.Normal(0.0, 1.0).log_prob(mu).sum(),
         "y": y_term,
     }
@@ -1187,14 +1264,20 @@ _RECONSTRUCTIONS: dict[str, _Reconstruction] = {
     ),
     "mixture_model": _Reconstruction(_reconstruct_mixture_model, (), ""),
     "parametric_pooling": _Reconstruction(
-        _reconstruct_parametric_pooling, (), "",
+        _reconstruct_parametric_pooling,
+        (),
+        "",
     ),
     "pmf": _Reconstruction(_reconstruct_pmf, (), ""),
     "tensor_contraction": _Reconstruction(
-        _reconstruct_tensor_contraction, (), "",
+        _reconstruct_tensor_contraction,
+        (),
+        "",
     ),
     "tree_categorical": _Reconstruction(
-        _reconstruct_tree_categorical, (), "",
+        _reconstruct_tree_categorical,
+        (),
+        "",
     ),
 }
 
@@ -1207,7 +1290,11 @@ class _Mutant:
     """
 
     def __init__(
-        self, example: str, variant: str, defect: str, floor: float,
+        self,
+        example: str,
+        variant: str,
+        defect: str,
+        floor: float,
     ) -> None:
         self.example = example
         self.variant = variant
@@ -1221,53 +1308,61 @@ class _Mutant:
 
 _MUTANTS: tuple[_Mutant, ...] = (
     _Mutant(
-        "seq2seq", "plate_mean",
+        "seq2seq",
+        "plate_mean",
         "the 32-row plate is averaged instead of summed.",
         10000.0,
     ),
     _Mutant(
-        "seq2seq", "drop_encoder_tower",
+        "seq2seq",
+        "drop_encoder_tower",
         "the encoder tower's thirteen factors are dropped and only "
         "the decoder's are scored, which is the joint a chain that "
         "scores one arm of a product would report.",
         7000.0,
     ),
     _Mutant(
-        "seq2seq", "drop_cross_factor",
+        "seq2seq",
+        "drop_cross_factor",
         "the cross factor is dropped, so `h` enters no density at "
         "all and the two towers are scored without the step that "
         "relates them.",
         1000.0,
     ),
     _Mutant(
-        "deep_markov", "drop_emission_prefix",
+        "deep_markov",
+        "drop_emission_prefix",
         "the emission chain's first factor is dropped and only its "
         "second is scored, which is the joint a chain that scores its "
         "endpoint's marginal alone would report.",
         1.0,
     ),
     _Mutant(
-        "deep_markov", "drop_transition_prefix",
+        "deep_markov",
+        "drop_transition_prefix",
         "the transition chain's first factor is dropped and only its "
         "second is scored, which is what a chain that scores its "
         "endpoint's marginal alone would report.",
         30.0,
     ),
     _Mutant(
-        "deep_markov", "drop_emission_term",
+        "deep_markov",
+        "drop_emission_term",
         "the `observe o` term is dropped, leaving the transition "
         "alone in a joint that claims to carry both.",
         33.0,
     ),
     _Mutant(
-        "vae", "drop_decoder_prefix",
+        "vae",
+        "drop_decoder_prefix",
         "the two decoder prefix factors are dropped and only the "
         "observation factor is scored, which is what a chain that "
         "scores its endpoint's marginal alone would report.",
         25.0,
     ),
     _Mutant(
-        "vae", "prefix_at_zero",
+        "vae",
+        "prefix_at_zero",
         "the first decoder intermediate is bound to the origin of "
         "the codomain rather than to the image of the base measure's "
         "origin, which is the off-by-one a chain that forgets to "
@@ -1275,99 +1370,114 @@ _MUTANTS: tuple[_Mutant, ...] = (
         43.0,
     ),
     _Mutant(
-        "vae", "decoder_unit_scale",
+        "vae",
+        "decoder_unit_scale",
         "the observation head's log-scale columns are ignored and "
         "`Y` is scored at unit scale.",
         0.35,
     ),
     _Mutant(
-        "vae", "drop_latent_prior",
+        "vae",
+        "drop_latent_prior",
         "the `sample z <- prior` term is dropped, leaving the "
         "likelihood alone in a joint that claims to carry both.",
         6.3,
     ),
     _Mutant(
-        "bnn", "mlp_without_activation",
+        "bnn",
+        "mlp_without_activation",
         "the hidden layer's `tanh` is dropped, collapsing the network "
         "to a single affine map: the defect class of a renderer that "
         "emits a linear head for a nonlinear parameter source.",
         5000.0,
     ),
     _Mutant(
-        "bnn", "homoscedastic",
+        "bnn",
+        "homoscedastic",
         "the head's log-scale columns are ignored and the response is "
         "scored at unit scale, dropping the heteroscedasticity the "
         "model exists to express.",
         80.0,
     ),
     _Mutant(
-        "bnn", "plate_mean",
+        "bnn",
+        "plate_mean",
         "the 200-row `Resp` plate is averaged instead of summed.",
         200.0,
     ),
     _Mutant(
-        "continuous_hmm", "drop_transition_term",
+        "continuous_hmm",
+        "drop_transition_term",
         "the `sample s_new <- transition` prior term is dropped and "
         "only the emission likelihood is scored.",
         14.0,
     ),
     _Mutant(
-        "continuous_hmm", "emission_reads_previous_state",
+        "continuous_hmm",
+        "emission_reads_previous_state",
         "`emission` is conditioned on the program input rather than "
         "on the freshly-drawn `s_new`, an off-by-one in the scan's "
         "wiring that leaves every shape valid.",
         0.65,
     ),
     _Mutant(
-        "continuous_hmm", "unit_transition_scale",
+        "continuous_hmm",
+        "unit_transition_scale",
         "the transition head's log-scale columns are ignored.",
         0.7,
     ),
     _Mutant(
-        "linear_gaussian_ssm", "swap_loc_and_log_scale",
+        "linear_gaussian_ssm",
+        "swap_loc_and_log_scale",
         "the emission head's location and log-scale columns are "
         "transposed, which every shape check still accepts.",
         0.16,
     ),
     _Mutant(
-        "linear_gaussian_ssm", "drop_transition_term",
+        "linear_gaussian_ssm",
+        "drop_transition_term",
         "the `sample s_new <- transition_cell` prior term is dropped "
         "and only the emission likelihood is scored.",
         3.5,
     ),
     _Mutant(
-        "linear_gaussian_ssm", "unit_transition_scale",
+        "linear_gaussian_ssm",
+        "unit_transition_scale",
         "the transition head's log-scale columns are ignored, so the "
         "process noise is scored at unit scale instead of at the "
         "kernel's own.",
         0.3,
     ),
     _Mutant(
-        "mixture_model", "first_component_only",
+        "mixture_model",
+        "first_component_only",
         "the closed-form marginalisation is replaced by component 0 "
         "alone, so the `logsumexp` over the discrete latent is lost.",
         1000.0,
     ),
     _Mutant(
-        "mixture_model", "drop_dirichlet_prior",
-        "the `Dirichlet(alpha)` prior on the mixing weights is "
-        "dropped.",
+        "mixture_model",
+        "drop_dirichlet_prior",
+        "the `Dirichlet(alpha)` prior on the mixing weights is dropped.",
         0.3,
     ),
     _Mutant(
-        "mixture_model", "unconstrain_sigma",
+        "mixture_model",
+        "unconstrain_sigma",
         "the `HalfNormal` scale is scored in log space, adding the "
         "`log sigma` Jacobian the constrained-space convention "
         "forbids.",
         1.0,
     ),
     _Mutant(
-        "mixture_model", "likelihood_mean",
+        "mixture_model",
+        "likelihood_mean",
         "the 100-row `Resp` plate is averaged instead of summed.",
         100.0,
     ),
     _Mutant(
-        "parametric_pooling", "drop_centering_score",
+        "parametric_pooling",
+        "drop_centering_score",
         "the soft sum-to-zero `score` factor is dropped. Its value is "
         "~0 at the ground truth, where the snippet centres the group "
         "effects exactly, so this mutant is invisible at point 0 and "
@@ -1375,31 +1485,36 @@ _MUTANTS: tuple[_Mutant, ...] = (
         5.0,
     ),
     _Mutant(
-        "parametric_pooling", "ignore_spread",
+        "parametric_pooling",
+        "ignore_spread",
         "the template's `spread = 0.6` scaling is dropped, so the "
         "non-centred parameterisation collapses to `theta = z`.",
         10.0,
     ),
     _Mutant(
-        "parametric_pooling", "unconstrain_sigma",
+        "parametric_pooling",
+        "unconstrain_sigma",
         "the `LogNormal` observation scale is scored in log space, "
         "adding a `log sigma` Jacobian.",
         0.5,
     ),
     _Mutant(
-        "parametric_pooling", "plate_mean",
+        "parametric_pooling",
+        "plate_mean",
         "the 8-school plate is averaged instead of summed.",
         2.0,
     ),
     _Mutant(
-        "pmf", "score_transposed",
+        "pmf",
+        "score_transposed",
         "the rating mean is read as `S[m, u]` rather than `S[u, m]`, "
         "the orientation error a mis-taken dagger produces. The score "
         "matrix is square, so no shape check objects.",
         1000.0,
     ),
     _Mutant(
-        "pmf", "factors_read_column_major",
+        "pmf",
+        "factors_read_column_major",
         "each flat factor payload is inflated as `(User, LatentDim)` "
         "and transposed rather than read as `(LatentDim, User)`, "
         "permuting which latent coordinate meets which user while "
@@ -1407,38 +1522,42 @@ _MUTANTS: tuple[_Mutant, ...] = (
         1000.0,
     ),
     _Mutant(
-        "pmf", "drop_movie_factor_prior",
-        "the entrywise `Normal(0, 1)` prior on the movie factor "
-        "matrix is dropped.",
+        "pmf",
+        "drop_movie_factor_prior",
+        "the entrywise `Normal(0, 1)` prior on the movie factor matrix is dropped.",
         27.0,
     ),
     _Mutant(
-        "pmf", "unit_rating_scale",
+        "pmf",
+        "unit_rating_scale",
         "the rating likelihood is scored at unit scale instead of at "
         "the snippet's `sigma = 0.5`.",
         18.0,
     ),
     _Mutant(
-        "pmf", "plate_mean",
-        "the 64-cell `(User, Movie)` rating plate is averaged instead "
-        "of summed.",
+        "pmf",
+        "plate_mean",
+        "the 64-cell `(User, Movie)` rating plate is averaged instead of summed.",
         85.0,
     ),
     _Mutant(
-        "tensor_contraction", "interaction_axes_swapped",
+        "tensor_contraction",
+        "interaction_axes_swapped",
         "the interaction tensor's `PredDim` and `ArgDim` axes are "
         "read in the wrong order. Both are `FinSet 2`, so the "
         "contraction stays well-typed and every shape check passes.",
         70.0,
     ),
     _Mutant(
-        "tensor_contraction", "drop_interaction_prior",
+        "tensor_contraction",
+        "drop_interaction_prior",
         "the entrywise `Normal(0, 1)` prior on the third-order "
         "interaction tensor is dropped.",
         19.0,
     ),
     _Mutant(
-        "tensor_contraction", "unit_judgment_scale",
+        "tensor_contraction",
+        "unit_judgment_scale",
         "the judgment likelihood is scored at unit scale instead of "
         "at the snippet's `sigma = 0.5`. The ground truth sits close "
         "to the bilinear score, so this mutant is nearly invisible "
@@ -1446,32 +1565,36 @@ _MUTANTS: tuple[_Mutant, ...] = (
         9.5,
     ),
     _Mutant(
-        "tensor_contraction", "plate_mean",
-        "the 12-cell `(Item, Judgment)` plate is averaged instead of "
-        "summed.",
+        "tensor_contraction",
+        "plate_mean",
+        "the 12-cell `(Item, Judgment)` plate is averaged instead of summed.",
         24.0,
     ),
     _Mutant(
-        "tree_categorical", "wrong_leaf_branch",
+        "tree_categorical",
+        "wrong_leaf_branch",
         "leaf 0 of the case table reads the `p_root` / `p_left` arm "
         "instead of its complement, the classic tree-traversal "
         "polarity error.",
         40.0,
     ),
     _Mutant(
-        "tree_categorical", "delta_unit_scale",
+        "tree_categorical",
+        "delta_unit_scale",
         "the per-verb effects are scored at unit scale instead of at "
         "the sampled `sigma_v`, severing the hierarchy.",
         1.5,
     ),
     _Mutant(
-        "tree_categorical", "drop_leaf_offset",
+        "tree_categorical",
+        "drop_leaf_offset",
         "the tree-structured leaf log-probability is dropped from the "
         "score cell, leaving `delta[0] + mu[0]`.",
         400.0,
     ),
     _Mutant(
-        "tree_categorical", "plate_mean",
+        "tree_categorical",
+        "plate_mean",
         "the 200-response `Resp` plate is averaged instead of summed.",
         100.0,
     ),
@@ -1541,10 +1664,7 @@ def _fixture(example: str) -> _Fixture:
         )
 
     points = _gallery_data.points_from_dataset(dataset)
-    weights = {
-        name: tensor.detach()
-        for name, tensor in monadic.state_dict().items()
-    }
+    weights = {name: tensor.detach() for name, tensor in monadic.state_dict().items()}
     joints: list[float] = []
     sites: list[dict[str, float]] = []
     for point in points:
@@ -1553,7 +1673,8 @@ def _fixture(example: str) -> _Fixture:
             point,
             x_input=dataset.x_input,
             observations=_gallery_data.observations_for_point(
-                dataset, point,
+                dataset,
+                point,
             ),
         )
         # A reconstruction compared against a redrawn "joint" would be
@@ -1566,15 +1687,15 @@ def _fixture(example: str) -> _Fixture:
         tr = traces[0]
         joint = tr.log_joint
         if joint is None:
-            raise AssertionError(
-                f"{example!r}: the trace returned no `log_joint`."
-            )
+            raise AssertionError(f"{example!r}: the trace returned no `log_joint`.")
         joints.append(float(joint.sum().item()))
-        sites.append({
-            name: float(site.log_prob.sum().item())
-            for name, site in tr.sites.items()
-            if site.log_prob is not None
-        })
+        sites.append(
+            {
+                name: float(site.log_prob.sum().item())
+                for name, site in tr.sites.items()
+                if site.log_prob is not None
+            }
+        )
 
     fixture = _Fixture(dataset, points, weights, joints, sites)
     _FIXTURES[example] = fixture
@@ -1582,13 +1703,18 @@ def _fixture(example: str) -> _Fixture:
 
 
 def _reconstruct(
-    example: str, index: int, variant: str = "",
+    example: str,
+    index: int,
+    variant: str = "",
 ) -> dict[str, float]:
     """Per-site reconstruction of `example` at point `index`."""
     fixture = _fixture(example)
     values = _clamped_values(fixture.dataset, fixture.points[index])
     terms = _RECONSTRUCTIONS[example].build(
-        fixture.dataset, values, fixture.weights, variant,
+        fixture.dataset,
+        values,
+        fixture.weights,
+        variant,
     )
     return {name: float(term.item()) for name, term in terms.items()}
 
@@ -1611,11 +1737,11 @@ def _cell_id(cell: tuple[str, int]) -> str:
 def _live_backend_cells(example: str) -> list[str]:
     """Backends whose container actually scores `example`.
 
-    A backend is live for an example when the gallery tier neither
-    pins its transpile as a raise nor parks the cell in a skip
-    registry: exactly the cells that reach
-`assert_log_density_match` and thus re-derive the oracle in a
-    foreign runtime.
+        A backend is live for an example when the gallery tier neither
+        pins its transpile as a raise nor parks the cell in a skip
+        registry: exactly the cells that reach
+    `assert_log_density_match` and thus re-derive the oracle in a
+        foreign runtime.
     """
     return sorted(
         backend
@@ -1686,8 +1812,7 @@ def test_every_pinned_example_has_an_independent_witness() -> None:
     unwitnessed = [
         example
         for example in pinned
-        if not _live_backend_cells(example)
-        and example not in _RECONSTRUCTIONS
+        if not _live_backend_cells(example) and example not in _RECONSTRUCTIONS
     ]
     assert not unwitnessed, (
         f"{unwitnessed!r} carry a pinned oracle joint that nothing "
@@ -1701,9 +1826,7 @@ def test_every_pinned_example_has_an_independent_witness() -> None:
     )
 
     idle = sorted(
-        example
-        for example in _RECONSTRUCTIONS
-        if not _live_backend_cells(example)
+        example for example in _RECONSTRUCTIONS if not _live_backend_cells(example)
     )
     assert idle, (
         f"every reconstructed example now has a live backend cell, so "
@@ -1787,7 +1910,9 @@ def test_reconstruction_matches_the_oracle_per_site(
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
+    "example",
+    sorted(_RECONSTRUCTIONS),
+    ids=lambda name: name,
 )
 def test_reconstruction_matches_the_pinned_reference(
     example: str,
@@ -1817,7 +1942,9 @@ def test_reconstruction_matches_the_pinned_reference(
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
+    "example",
+    sorted(_RECONSTRUCTIONS),
+    ids=lambda name: name,
 )
 def test_zero_scoring_sites_are_zero_by_identity(example: str) -> None:
     """Verify that Beta(1, 1) sites score zero across their support.
@@ -1827,12 +1954,14 @@ def test_zero_scoring_sites_are_zero_by_identity(example: str) -> None:
     directly at several values.
     """
     fixture = _fixture(example)
-    zero_sites = sorted({
-        name
-        for index in range(len(fixture.points))
-        for name, value in _reconstruct(example, index).items()
-        if value == 0.0
-    })
+    zero_sites = sorted(
+        {
+            name
+            for index in range(len(fixture.points))
+            for name, value in _reconstruct(example, index).items()
+            if value == 0.0
+        }
+    )
     for index in range(len(fixture.points)):
         terms = _reconstruct(example, index)
         for name in zero_sites:
@@ -1889,7 +2018,9 @@ that a term shrinking toward the tolerance trips here first."""
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
+    "example",
+    sorted(_RECONSTRUCTIONS),
+    ids=lambda name: name,
 )
 def test_dropping_any_scored_site_is_rejected(example: str) -> None:
     """Require every non-flat site to affect the joint at some point.
@@ -1902,8 +2033,7 @@ def test_dropping_any_scored_site_is_rejected(example: str) -> None:
     labels = _gallery_data.perturbation_labels(len(fixture.points))
     per_point = [_reconstruct(example, index) for index in range(len(fixture.points))]
     atols = [
-        _gallery_tier.reference_pin_atol(sum(terms.values()))
-        for terms in per_point
+        _gallery_tier.reference_pin_atol(sum(terms.values())) for terms in per_point
     ]
 
     names = sorted({name for terms in per_point for name in terms})
@@ -1924,9 +2054,7 @@ def test_dropping_any_scored_site_is_rejected(example: str) -> None:
         )
         if best < tightest:
             tightest = best
-            tightest_at = (
-                f"{name!r} at point {best_index} ({labels[best_index]})"
-            )
+            tightest_at = f"{name!r} at point {best_index} ({labels[best_index]})"
 
     assert tightest is not math.inf, (
         f"{example!r}: every reconstructed term is exactly zero at "
@@ -1948,7 +2076,9 @@ def test_dropping_any_scored_site_is_rejected(example: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutant", _MUTANTS, ids=lambda m: m.ident,
+    "mutant",
+    _MUTANTS,
+    ids=lambda m: m.ident,
 )
 def test_reconstruction_rejects_mutant(mutant: _Mutant) -> None:
     """Reject each catalogued defect above its recorded margin.
@@ -1961,9 +2091,7 @@ def test_reconstruction_rejects_mutant(mutant: _Mutant) -> None:
     labels = _gallery_data.perturbation_labels(len(fixture.points))
     margins: list[float] = []
     for index in range(len(fixture.points)):
-        total = sum(
-            _reconstruct(mutant.example, index, mutant.variant).values()
-        )
+        total = sum(_reconstruct(mutant.example, index, mutant.variant).values())
         assert math.isfinite(total), (
             f"{mutant.ident}: the mutant scores {total!r} at point "
             f"{index} ({labels[index]}). A mutant that leaves the "
@@ -2014,9 +2142,7 @@ def test_tightest_mutant_rejection_is_declared_and_holds() -> None:
         best = 0.0
         best_index = 0
         for index in range(len(fixture.points)):
-            total = sum(
-                _reconstruct(mutant.example, index, mutant.variant).values()
-            )
+            total = sum(_reconstruct(mutant.example, index, mutant.variant).values())
             margin = abs(total - fixture.joints[index])
             if margin > best:
                 best = margin
@@ -2049,9 +2175,7 @@ def test_mutant_catalogue_covers_every_reconstruction() -> None:
     )
 
     thin = sorted(
-        example
-        for example in _RECONSTRUCTIONS
-        if len(covered.get(example, [])) < 3
+        example for example in _RECONSTRUCTIONS if len(covered.get(example, [])) < 3
     )
     assert not thin, (
         f"{thin!r} carry fewer than three catalogued defects, so the "
@@ -2063,8 +2187,7 @@ def test_mutant_catalogue_covers_every_reconstruction() -> None:
 
     for example, variants in sorted(covered.items()):
         duplicates = sorted(
-            variant for variant in set(variants)
-            if variants.count(variant) > 1
+            variant for variant in set(variants) if variants.count(variant) > 1
         )
         assert not duplicates, (
             f"{example!r}: mutant variant(s) {duplicates!r} registered "
@@ -2080,7 +2203,9 @@ def test_mutant_catalogue_covers_every_reconstruction() -> None:
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
+    "example",
+    sorted(_RECONSTRUCTIONS),
+    ids=lambda name: name,
 )
 def test_reconstruction_rejects_an_unknown_variant(example: str) -> None:
     """Raise for mutation variants that a reconstruction does not define."""
@@ -2089,7 +2214,9 @@ def test_reconstruction_rejects_an_unknown_variant(example: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_RECONSTRUCTIONS), ids=lambda name: name,
+    "example",
+    sorted(_RECONSTRUCTIONS),
+    ids=lambda name: name,
 )
 def test_pin_comparison_boundary_is_the_tolerance(example: str) -> None:
     """Check acceptance below and rejection above `reference_pin_atol`."""
@@ -2119,9 +2246,7 @@ def test_reference_pin_is_never_looser_than_the_equivalence_check() -> None:
     """Bound each reference-pin tolerance by its equivalence tolerance."""
     ceiling = _equivalence.adaptive_atol(n_obs=0)
     loose: list[str] = []
-    for example, values in sorted(
-        _gallery_tier._QVR_REFERENCE_JOINT.items()
-    ):
+    for example, values in sorted(_gallery_tier._QVR_REFERENCE_JOINT.items()):
         for index, value in enumerate(values):
             atol = _gallery_tier.reference_pin_atol(value)
             if atol > ceiling:
@@ -2352,10 +2477,12 @@ two rules resolve the integrand at genuinely different nodes, so a
 joint that agrees across them agrees because the quadrature has
 converged rather than because the two node sets overlapped."""
 
-_UNWITNESSABLE_JOINT: frozenset[str] = frozenset({
-    "bidirectional_rnn_lm",
-    "transformer_lm",
-})
+_UNWITNESSABLE_JOINT: frozenset[str] = frozenset(
+    {
+        "bidirectional_rnn_lm",
+        "transformer_lm",
+    }
+)
 """Exempt examples whose joint a pin could hold, but which nothing
 outside the oracle reproduces.
 
@@ -2520,7 +2647,8 @@ def _exempt_traces(example: str, point: Point) -> list[Trace]:
         point,
         x_input=fixture.dataset.x_input,
         observations=_gallery_data.observations_for_point(
-            fixture.dataset, point,
+            fixture.dataset,
+            point,
         ),
     )
 
@@ -2531,13 +2659,10 @@ def _compositions(example: str) -> list[SampledComposition]:
     monadic = fixture.dataset.monadic
     if monadic is None:
         raise AssertionError(
-            f"{example!r}: the synthetic-data block bound no compiled "
-            f"`MonadicProgram`."
+            f"{example!r}: the synthetic-data block bound no compiled `MonadicProgram`."
         )
     found = [
-        module
-        for module in monadic.modules()
-        if isinstance(module, SampledComposition)
+        module for module in monadic.modules() if isinstance(module, SampledComposition)
     ]
     if not found:
         raise AssertionError(
@@ -2594,7 +2719,8 @@ def _shifted_point(point: Point, name: str, offset: float) -> Point:
         else [float(entry) + offset for entry in value]
     )
     return Point(
-        params={**point.params, name: moved}, data=dict(point.data),
+        params={**point.params, name: moved},
+        data=dict(point.data),
     )
 
 
@@ -2639,7 +2765,9 @@ def test_composition_exemption_grounds_partition_the_registry() -> None:
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_UNWITNESSABLE_JOINT), ids=lambda name: name,
+    "example",
+    sorted(_UNWITNESSABLE_JOINT),
+    ids=lambda name: name,
 )
 def test_unwitnessable_exempt_examples_have_no_independent_source(
     example: str,
@@ -2680,8 +2808,12 @@ def test_unwitnessable_exempt_examples_have_no_independent_source(
         f"move it and a pin here would say nothing about the data. "
         f"That is a different exemption from this one; re-derive it."
     )
+
+
 def _scan_factor_log_prob(
-    traced: Trace, name: str, x_input: Tensor,
+    traced: Trace,
+    name: str,
+    x_input: Tensor,
 ) -> Tensor:
     """The score the scan factor of a composition site contributes.
 
@@ -2710,14 +2842,18 @@ def _scan_factor_log_prob(
     for factor in prefix:
         width = factor.base_dimension(current)
         origin = torch.zeros(
-            current.shape[0], width, dtype=torch.get_default_dtype(),
+            current.shape[0],
+            width,
+            dtype=torch.get_default_dtype(),
         )
         current = factor.push_base(current, origin)
     return scan.log_prob(current, site.value)
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_FLAT_COMPOSITE_LATENT), ids=lambda name: name,
+    "example",
+    sorted(_FLAT_COMPOSITE_LATENT),
+    ids=lambda name: name,
 )
 def test_flat_latent_exempt_examples_carry_no_density_for_it(
     example: str,
@@ -2743,7 +2879,9 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
             f"marginalisation."
         )
         log_prob = _scan_factor_log_prob(
-            traced, name, fixture.dataset.x_input,
+            traced,
+            name,
+            fixture.dataset.x_input,
         )
         assert torch.equal(log_prob, torch.zeros_like(log_prob)), (
             f"{example!r} point {index} ({labels[index]}): the scan "
@@ -2770,10 +2908,13 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
     shifted = _shifted_point(base_point, name, _FLATNESS_PROBE_SHIFT)
     traced = _exempt_traces(example, shifted)[0]
     shifted_log_prob = _scan_factor_log_prob(
-        traced, name, fixture.dataset.x_input,
+        traced,
+        name,
+        fixture.dataset.x_input,
     )
     assert torch.equal(
-        shifted_log_prob, torch.zeros_like(shifted_log_prob),
+        shifted_log_prob,
+        torch.zeros_like(shifted_log_prob),
     ), (
         f"{example!r}: moving {name!r} by {_FLATNESS_PROBE_SHIFT} gives "
         f"it a log-density of "
@@ -2794,9 +2935,7 @@ def test_flat_latent_exempt_examples_carry_no_density_for_it(
                 f"does not, so the two are densities of different "
                 f"models and the comparison below is meaningless."
             )
-        downstream += abs(
-            float(site.log_prob.sum().item()) - baseline[other]
-        )
+        downstream += abs(float(site.log_prob.sum().item()) - baseline[other])
     assert downstream >= _FLATNESS_DOWNSTREAM_FLOOR, (
         f"{example!r}: moving {name!r} by {_FLATNESS_PROBE_SHIFT} "
         f"changed the rest of the joint by only {downstream:.6g} nats, "
@@ -2860,7 +2999,9 @@ def test_plate_inflation_registry_refines_the_flat_latent_ground() -> None:
 
 
 @pytest.mark.parametrize(
-    "example", sorted(_PLATE_INFLATED_EMISSION), ids=lambda name: name,
+    "example",
+    sorted(_PLATE_INFLATED_EMISSION),
+    ids=lambda name: name,
 )
 def test_flat_latent_exempt_examples_sum_each_site_once(
     example: str,
@@ -2877,8 +3018,7 @@ def test_flat_latent_exempt_examples_sum_each_site_once(
         traced = _exempt_trace(example, index)
         joint = float(traced.log_joint.sum().item())
         per_site = sum(
-            float(site.log_prob.sum().item())
-            for site in traced.sites.values()
+            float(site.log_prob.sum().item()) for site in traced.sites.values()
         )
         tolerance = _gallery_tier.reference_pin_atol(abs(joint))
         assert abs(joint - per_site) <= tolerance, (

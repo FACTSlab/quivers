@@ -28,8 +28,7 @@ class NumPyroProbe:
     def available(self) -> bool:
         """True iff `numpyro` is importable in-process."""
         return all(
-            importlib.util.find_spec(mod) is not None
-            for mod in ("numpyro", "jax")
+            importlib.util.find_spec(mod) is not None for mod in ("numpyro", "jax")
         )
 
     def evaluate(

@@ -14,7 +14,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install ruff
+      # Pinned to the line the tree is clean under. Unpinned, a
+      # linter release adds rules and every branch goes red at
+      # once, for a change nobody in this repository made.
+      - run: pip install 'ruff>=0.15,<0.16'
       - run: ruff check src/ tests/
       - run: ruff format --check src/ tests/
 
@@ -42,7 +45,11 @@ jobs:
       # through a real Scheme. Without the interpreter that check
       # skips, and a skipped check is a silent gap.
       - run: sudo apt-get update && sudo apt-get install -y chezscheme
-      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
+      # `test_audit_fix_pymc` imports pymc to check the emission
+      # against the library's own API rather than against a
+      # transcript of it, so the library has to be here: without
+      # it the module fails to import and the whole job errors.
+      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
       - run: python -m pytest tests/ -x -q
 
   # The default addopts deselect `slow`, so the gallery sweep and the
@@ -56,5 +63,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]"
+      # `test_audit_fix_pymc` imports pymc to check the emission
+      # against the library's own API rather than against a
+      # transcript of it, so the library has to be here: without
+      # it the module fails to import and the whole job errors.
+      - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
       - run: python -m pytest tests/ -m slow -q

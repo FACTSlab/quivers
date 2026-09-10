@@ -81,9 +81,7 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
     tier = _SUPPORT_TIER[backend]
     kinds = {str(stmt.kind) for stmt in module.statements}
     has_program = "program_decl" in kinds
-    effective_tier = (
-        tier | CATEGORICAL_METADATA_IGNORABLE if has_program else tier
-    )
+    effective_tier = tier | CATEGORICAL_METADATA_IGNORABLE if has_program else tier
     return {k for k in kinds if k not in effective_tier}
 
 
@@ -142,9 +140,7 @@ def _construct_fixtures() -> list[_load.Fixture]:
     )
 
 
-def _transpile_with_tier_check(
-    module, *, target: str
-) -> bytes:
+def _transpile_with_tier_check(module, *, target: str) -> bytes:
     """Run [`unsupported_for`][quivers.transpile.unsupported_for]
     against the backend's support tier, then
     [`transpile`][quivers.transpile.transpile].
@@ -157,9 +153,7 @@ def _transpile_with_tier_check(
     the production helper documents, then delegates body emission
     to the Lower + Renderer pipeline.
     """
-    unsupported_for(
-        f"qvr-{target}", module, allow=_SUPPORT_TIER[target]
-    )
+    unsupported_for(f"qvr-{target}", module, allow=_SUPPORT_TIER[target])
     return transpile(module, target=target)
 
 
@@ -167,9 +161,7 @@ def _transpile_with_tier_check(
     "fixture", _construct_fixtures(), ids=lambda f: f"{f.category}/{f.name}"
 )
 @pytest.mark.parametrize("backend", _BACKENDS)
-def test_construct_backend_cell(
-    fixture: _load.Fixture, backend: str
-) -> None:
+def test_construct_backend_cell(fixture: _load.Fixture, backend: str) -> None:
     """One cell of the (construct × backend) matrix."""
     expected_bad = _expected_unsupported_kinds(fixture, backend)
     module = parse(fixture.source)
@@ -205,6 +197,5 @@ def test_construct_backend_cell(
 
     output = _transpile_with_tier_check(module, target=backend)
     assert output, (
-        f"backend {backend!r} on {fixture.name!r}: transpile "
-        f"returned empty bytes"
+        f"backend {backend!r} on {fixture.name!r}: transpile returned empty bytes"
     )

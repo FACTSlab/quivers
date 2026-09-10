@@ -137,12 +137,8 @@ def _draw_arg_to_wire(arg: DrawArg) -> str | float:
                 for row in matrix_rows(arg)
             )
             return f"[{rows}]"
-        return (
-            "[" + ", ".join(_atom_to_text(e) for e in list_atoms(arg)) + "]"
-        )
-    raise TypeError(
-        f"_draw_arg_to_wire: unsupported arg variant {type(arg).__name__}"
-    )
+        return "[" + ", ".join(_atom_to_text(e) for e in list_atoms(arg)) + "]"
+    raise TypeError(f"_draw_arg_to_wire: unsupported arg variant {type(arg).__name__}")
 
 
 def _atom_to_text(value: str | float) -> str:
@@ -214,9 +210,7 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
     if isinstance(expr, LetExprUnaryOp):
         return _let_expr_value_names(expr.operand)
     if isinstance(expr, LetExprBinOp):
-        return _let_expr_value_names(expr.left) | _let_expr_value_names(
-            expr.right
-        )
+        return _let_expr_value_names(expr.left) | _let_expr_value_names(expr.right)
     if isinstance(expr, LetExprCall):
         # The callee is read as a value too: a morphism with no
         # `~ Family` init lowers to `f(prev)` with `f` a free
@@ -248,10 +242,7 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
     if isinstance(expr, LetExprFactor):
         bound = {binder.var for binder in expr.binders}
         inner = frozenset().union(
-            *(
-                _let_expr_value_names(case.value)
-                for case in expr.cases
-            ),
+            *(_let_expr_value_names(case.value) for case in expr.cases),
             (
                 _let_expr_value_names(expr.body)
                 if expr.body is not None
@@ -284,8 +275,7 @@ def _draw_arg_value_names(arg: DrawArg) -> frozenset[str]:
             frozenset(),
         )
     raise TypeError(
-        f"_draw_arg_value_names: unsupported arg variant "
-        f"{type(arg).__name__}"
+        f"_draw_arg_value_names: unsupported arg variant {type(arg).__name__}"
     )
 
 
@@ -306,9 +296,7 @@ def _expr_ident_names(expr: Expr) -> frozenset[str]:
     """
     if isinstance(expr, ExprIdent):
         return frozenset({expr.name})
-    if isinstance(
-        expr, (ExprIdentity, ExprCup, ExprCap, ExprFromData)
-    ):
+    if isinstance(expr, (ExprIdentity, ExprCup, ExprCap, ExprFromData)):
         # Object-indexed or data-indexed primitives: the payload is an
         # object name or a data key, never a morphism.
         return frozenset()
@@ -318,15 +306,9 @@ def _expr_ident_names(expr: Expr) -> frozenset[str]:
     ):
         return _expr_ident_names(expr.inner)
     if isinstance(expr, ExprChangeBase):
-        return _expr_ident_names(expr.inner) | _expr_ident_names(
-            expr.phi
-        )
-    if isinstance(
-        expr, (ExprCompose, ExprTensorProduct, ExprTransCompose)
-    ):
-        return _expr_ident_names(expr.left) | _expr_ident_names(
-            expr.right
-        )
+        return _expr_ident_names(expr.inner) | _expr_ident_names(expr.phi)
+    if isinstance(expr, (ExprCompose, ExprTensorProduct, ExprTransCompose)):
+        return _expr_ident_names(expr.left) | _expr_ident_names(expr.right)
     if isinstance(expr, ExprFan):
         return frozenset().union(
             *(_expr_ident_names(e) for e in expr.exprs),
@@ -338,25 +320,18 @@ def _expr_ident_names(expr: Expr) -> frozenset[str]:
         # `rules` names rule declarations and `terminal` the lexicon
         # morphism; `categories` and `start` name categories.
         return frozenset(expr.rules) | (
-            frozenset({expr.terminal})
-            if expr.terminal is not None
-            else frozenset()
+            frozenset({expr.terminal}) if expr.terminal is not None else frozenset()
         )
     if isinstance(expr, ExprChartFold):
         return frozenset().union(
             _expr_ident_names(expr.lex),
-            *(
-                _expr_ident_names(e)
-                for e in (expr.binary, expr.unary)
-                if e is not None
-            ),
+            *(_expr_ident_names(e) for e in (expr.binary, expr.unary) if e is not None),
             frozenset(),
         )
     if isinstance(expr, ExprMorphismCall):
         return frozenset({expr.callee, *expr.args})
     raise TypeError(
-        f"_expr_ident_names: unsupported expression variant "
-        f"{type(expr).__name__}"
+        f"_expr_ident_names: unsupported expression variant {type(expr).__name__}"
     )
 
 
@@ -405,10 +380,7 @@ def _step_site_names(step: ProgramStep) -> frozenset[str]:
         # two grouped-marginalize IR steps carry env slots and a class
         # size rather than a distribution reference.
         return frozenset()
-    raise TypeError(
-        f"_step_site_names: unsupported step variant "
-        f"{type(step).__name__}"
-    )
+    raise TypeError(f"_step_site_names: unsupported step variant {type(step).__name__}")
 
 
 def _step_value_names(step: ProgramStep) -> frozenset[str]:
@@ -462,8 +434,7 @@ def _step_value_names(step: ProgramStep) -> frozenset[str]:
     ):
         return frozenset()
     raise TypeError(
-        f"_step_value_names: unsupported step variant "
-        f"{type(step).__name__}"
+        f"_step_value_names: unsupported step variant {type(step).__name__}"
     )
 
 
@@ -514,8 +485,7 @@ def _param_source_message(
         f"slot a target can emit: its declared family contributes no "
         f"density and the network's weights, which are "
         f"model-internal, have nowhere to go, so a target given that "
-        f"program would score a different measure. "
-        + _PARAM_SOURCE_REMEDY
+        f"program would score a different measure. " + _PARAM_SOURCE_REMEDY
     )
 
 
@@ -538,12 +508,8 @@ def _reject_param_source_consumed(
             continue
         for step in stmt.draws:
             seeds = [
-                (name, _SITE_POSITION)
-                for name in sorted(_step_site_names(step))
-            ] + [
-                (name, _VALUE_POSITION)
-                for name in sorted(_step_value_names(step))
-            ]
+                (name, _SITE_POSITION) for name in sorted(_step_site_names(step))
+            ] + [(name, _VALUE_POSITION) for name in sorted(_step_value_names(step))]
             line = _step_line(step)
             for seed, seed_position in seeds:
                 _reject_reachable_param_source(
@@ -562,8 +528,7 @@ def _step_line(step: ProgramStep) -> int:
     line = step.line
     if not isinstance(line, int):
         raise TypeError(
-            f"_step_line: {type(step).__name__}.line is "
-            f"{type(line).__name__}, not int"
+            f"_step_line: {type(step).__name__}.line is {type(line).__name__}, not int"
         )
     return line
 
@@ -592,13 +557,9 @@ def _reject_reachable_param_source(
         if decl is not None:
             kind = param_source_kind(decl, target="qvr-transpile")
             if kind is not None:
-                position = (
-                    seed_position if not chain else _COMPOSITE_POSITION
-                )
+                position = seed_position if not chain else _COMPOSITE_POSITION
                 suffix = (
-                    ""
-                    if position == _SITE_POSITION
-                    else f":{position}-position:{name}"
+                    "" if position == _SITE_POSITION else f":{position}-position:{name}"
                 )
                 raise UnsupportedConstruct(
                     "qvr-transpile",
@@ -743,9 +704,7 @@ def resolve_step_dist(
                 f"weights and a deterministic forward pass, or observe against "
                 f"a closed-form family."
             )
-            raise UnsupportedConstruct(
-                target, [f"param-source:{param_source}", msg]
-            )
+            raise UnsupportedConstruct(target, [f"param-source:{param_source}", msg])
         if decl.init_family is not None:
             return _from_init_family(
                 morphism_name=morphism_name,
@@ -858,11 +817,7 @@ def _from_init_family(
     defaults = _FAMILY_DEFAULT_ARGS.get(init.family, ())
     arg_names = _FAMILY_ARG_NAMES.get(init.family, ())
     option_map = _options_to_map(morphism_options)
-    step_wire = (
-        tuple(_draw_arg_to_wire(a) for a in step_args)
-        if step_args
-        else ()
-    )
+    step_wire = tuple(_draw_arg_to_wire(a) for a in step_args) if step_args else ()
     wire_list: list[str | float] = list(step_wire)
     for i in range(len(step_wire), len(defaults)):
         name = arg_names[i] if i < len(arg_names) else None
@@ -954,15 +909,13 @@ def _assert_family_arg_names_match_torch() -> None:
             continue
         try:
             params = _inspect.signature(cls.__init__).parameters
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         # Alternative parameterisations trail the canonical ones
         # (``Bernoulli(probs, logits)``), so compare against the
         # leading prefix; transposition is still caught.
         ctor_names = tuple(
-            name
-            for name in params
-            if name not in ("self", "validate_args")
+            name for name in params if name not in ("self", "validate_args")
         )
         prefix = ctor_names[: len(declared)]
         if declared != prefix:
@@ -988,21 +941,21 @@ _assert_family_arg_names_match_torch()
 # resolver-side use (the expansion pass does in-chain substitution,
 # this fallback is for standalone kernels).
 _FAMILY_DEFAULT_ARGS: dict[str, tuple[str | float, ...]] = {
-    "Normal":       (0.0, 1.0),
-    "HalfNormal":   (1.0,),
-    "Cauchy":       (0.0, 1.0),
-    "HalfCauchy":   (1.0,),
-    "Laplace":      (0.0, 1.0),
-    "LogNormal":    (0.0, 1.0),
-    "Beta":         (1.0, 1.0),
-    "Bernoulli":    (0.5,),
-    "Gamma":        (1.0, 1.0),
+    "Normal": (0.0, 1.0),
+    "HalfNormal": (1.0,),
+    "Cauchy": (0.0, 1.0),
+    "HalfCauchy": (1.0,),
+    "Laplace": (0.0, 1.0),
+    "LogNormal": (0.0, 1.0),
+    "Beta": (1.0, 1.0),
+    "Bernoulli": (0.5,),
+    "Gamma": (1.0, 1.0),
     "InverseGamma": (1.0, 1.0),
-    "Exponential":  (1.0,),
-    "Uniform":      (0.0, 1.0),
-    "StudentT":     (1.0, 0.0, 1.0),
-    "Pareto":       (1.0, 1.0),
-    "Weibull":      (1.0, 1.0),
+    "Exponential": (1.0,),
+    "Uniform": (0.0, 1.0),
+    "StudentT": (1.0, 0.0, 1.0),
+    "Pareto": (1.0, 1.0),
+    "Weibull": (1.0, 1.0),
     # Multivariate-shape families (`MultivariateNormal`,
     # `MatrixNormal`, `GP`) have no entry here. They opt in to
     # structured lowering via the `structured_lowering` field on their

@@ -40,36 +40,38 @@ from quivers.dsl.compiler._prelude import _get_family_registry
 # Families generated with the inline-sample form. Args are scalar
 # literals; values picked to put the prior in a benign region.
 _INLINE_SAMPLE: dict[str, str] = {
-    "Beta":        "2.0, 2.0",
-    "Bernoulli":   "0.5",
+    "Beta": "2.0, 2.0",
+    "Bernoulli": "0.5",
     "Exponential": "1.0",
-    "Gamma":       "2.0, 1.0",
-    "HalfCauchy":  "1.0",
-    "HalfNormal":  "1.0",
-    "LogNormal":   "0.0, 1.0",
+    "Gamma": "2.0, 1.0",
+    "HalfCauchy": "1.0",
+    "HalfNormal": "1.0",
+    "LogNormal": "0.0, 1.0",
     "LogitNormal": "0.0, 1.0",
-    "Normal":      "0.0, 1.0",
-    "Uniform":     "0.0, 1.0",
+    "Normal": "0.0, 1.0",
+    "Uniform": "0.0, 1.0",
 }
 
 
 # Families generated with morphism-kernel form (Real codomain).
 # These have a `Conditional<F>` class but no inline factory.
-_MORPHISM_KERNEL: frozenset[str] = frozenset({
-    "Cauchy",
-    "Chi2",
-    "ContinuousBernoulli",
-    "FisherSnedecor",
-    "Gumbel",
-    "InverseGamma",
-    "Kumaraswamy",
-    "Laplace",
-    "Pareto",
-    "RelaxedBernoulli",
-    "StudentT",
-    "Weibull",
-    "GeneralizedPareto",
-})
+_MORPHISM_KERNEL: frozenset[str] = frozenset(
+    {
+        "Cauchy",
+        "Chi2",
+        "ContinuousBernoulli",
+        "FisherSnedecor",
+        "Gumbel",
+        "InverseGamma",
+        "Kumaraswamy",
+        "Laplace",
+        "Pareto",
+        "RelaxedBernoulli",
+        "StudentT",
+        "Weibull",
+        "GeneralizedPareto",
+    }
+)
 
 
 # Families requiring the observe-with-variable form.
@@ -77,17 +79,19 @@ _OBSERVE_WITH_VAR: frozenset[str] = frozenset({"TruncatedNormal"})
 
 
 # Vector / matrix families that need hand-written fixtures.
-_VECTOR_FAMILIES: frozenset[str] = frozenset({
-    "Categorical",
-    "Dirichlet",
-    "GP",
-    "InverseWishart",
-    "LowRankMVN",
-    "MatrixNormal",
-    "MultivariateNormal",
-    "RelaxedOneHotCategorical",
-    "Wishart",
-})
+_VECTOR_FAMILIES: frozenset[str] = frozenset(
+    {
+        "Categorical",
+        "Dirichlet",
+        "GP",
+        "InverseWishart",
+        "LowRankMVN",
+        "MatrixNormal",
+        "MultivariateNormal",
+        "RelaxedOneHotCategorical",
+        "Wishart",
+    }
+)
 
 
 # Families with no inline / conditional kernel surface; the fixture
@@ -153,19 +157,19 @@ def _morphism_kernel_source(family: str) -> str:
 
 
 _MORPHISM_KERNEL_DEFAULT_ARGS: dict[str, str] = {
-    "Cauchy":              "0.0, 1.0",
-    "Chi2":                "3.0",
+    "Cauchy": "0.0, 1.0",
+    "Chi2": "3.0",
     "ContinuousBernoulli": "0.5",
-    "FisherSnedecor":      "5.0, 5.0",
-    "Gumbel":              "0.0, 1.0",
-    "InverseGamma":        "3.0, 1.0",
-    "Kumaraswamy":         "2.0, 2.0",
-    "Laplace":             "0.0, 1.0",
-    "Pareto":              "1.0, 2.0",
-    "RelaxedBernoulli":    "0.5, 1.0",
-    "StudentT":            "5.0, 0.0, 1.0",
-    "Weibull":             "1.5, 1.0",
-    "GeneralizedPareto":   "0.0, 1.0, 0.5",
+    "FisherSnedecor": "5.0, 5.0",
+    "Gumbel": "0.0, 1.0",
+    "InverseGamma": "3.0, 1.0",
+    "Kumaraswamy": "2.0, 2.0",
+    "Laplace": "0.0, 1.0",
+    "Pareto": "1.0, 2.0",
+    "RelaxedBernoulli": "0.5, 1.0",
+    "StudentT": "5.0, 0.0, 1.0",
+    "Weibull": "1.5, 1.0",
+    "GeneralizedPareto": "0.0, 1.0, 0.5",
 }
 
 
@@ -324,9 +328,7 @@ def main() -> int:
         path.write_text(source)
         written.append(family)
 
-    print(
-        f"wrote {len(written)} fixture(s); {len(unchanged)} unchanged"
-    )
+    print(f"wrote {len(written)} fixture(s); {len(unchanged)} unchanged")
     if uncovered:
         print(
             f"ERROR: {len(uncovered)} families have no generator entry: "

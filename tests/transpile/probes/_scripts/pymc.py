@@ -27,6 +27,7 @@ the model rather than a value, so PyMC's export surface is
 each returned name under ``<name>_value`` and the probe evaluates
 that model variable with every free RV pinned to the point.
 """
+
 import json
 import pathlib
 
@@ -123,7 +124,9 @@ def _joint_logp_constrained(
 
     if substitutions:
         total = pytensor.graph.replace.graph_replace(
-            total, substitutions, strict=False,
+            total,
+            substitutions,
+            strict=False,
         )
 
     return float(total.eval())
@@ -173,7 +176,9 @@ def _exported_values(
             raise RuntimeError(msg)
         if substitutions:
             variable = pytensor.graph.replace.graph_replace(
-                variable, substitutions, strict=False,
+                variable,
+                substitutions,
+                strict=False,
             )
         values.append(as_nested(np.asarray(variable.eval())))
     return values
@@ -190,18 +195,12 @@ def main() -> None:
     exports = []
     for pt_record in points:
         reshaped = reshape_point(pt_record, shapes, dtypes)
-        data_kw = {
-            k: _arr(v) for k, v in reshaped.get("data", {}).items()
-        }
-        params = {
-            k: _arr(v) for k, v in reshaped.get("params", {}).items()
-        }
+        data_kw = {k: _arr(v) for k, v in reshaped.get("data", {}).items()}
+        params = {k: _arr(v) for k, v in reshaped.get("params", {}).items()}
         model = _build_model(source, data_kw)
         log_densities.append(_joint_logp_constrained(model, params))
         if export_names:
-            exports.append(
-                _exported_values(model, params, export_names)
-            )
+            exports.append(_exported_values(model, params, export_names))
 
     result = {"log_densities": log_densities}
     if export_names:
