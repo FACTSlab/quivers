@@ -64,20 +64,18 @@ if TYPE_CHECKING:
     from quivers.dsl.ast_nodes import Module
 
 
-_RENDERERS: dict[
-    str, tuple[type[RendererBase], str, frozenset[str]]
-] = {
-    "stan":    (StanRenderer,    "stan",       STAN_LIKE),
-    "numpyro": (NumPyroRenderer, "python",     PYTHON_DEEP),
-    "pyro":    (PyroRenderer,    "python",     PYTHON_DEEP),
-    "pymc":    (PyMCRenderer,    "python",     STAN_LIKE),
-    "edward2": (Edward2Renderer, "python",     STAN_LIKE),
-    "turing":  (TuringRenderer,  "julia",      STAN_LIKE),
-    "gen":     (GenRenderer,     "julia",      STAN_LIKE),
-    "church":  (ChurchRenderer,  "scheme",     CHURCH_LIKE),
-    "webppl":  (WebPPLRenderer,  "javascript", CHURCH_LIKE),
-    "bugs":    (BUGSRenderer,    "bugs",       STAN_LIKE),
-    "jags":    (JAGSRenderer,    "jags",       STAN_LIKE),
+_RENDERERS: dict[str, tuple[type[RendererBase], str, frozenset[str]]] = {
+    "stan": (StanRenderer, "stan", STAN_LIKE),
+    "numpyro": (NumPyroRenderer, "python", PYTHON_DEEP),
+    "pyro": (PyroRenderer, "python", PYTHON_DEEP),
+    "pymc": (PyMCRenderer, "python", STAN_LIKE),
+    "edward2": (Edward2Renderer, "python", STAN_LIKE),
+    "turing": (TuringRenderer, "julia", STAN_LIKE),
+    "gen": (GenRenderer, "julia", STAN_LIKE),
+    "church": (ChurchRenderer, "scheme", CHURCH_LIKE),
+    "webppl": (WebPPLRenderer, "javascript", CHURCH_LIKE),
+    "bugs": (BUGSRenderer, "bugs", STAN_LIKE),
+    "jags": (JAGSRenderer, "jags", STAN_LIKE),
 }
 
 
@@ -107,10 +105,7 @@ def transpile(module: Module, *, target: str) -> bytes:
     if target not in _RENDERERS:
         raise UnsupportedConstruct(
             target,
-            [
-                f"target:unknown:{target}:"
-                f"{','.join(sorted(_RENDERERS))}"
-            ],
+            [f"target:unknown:{target}:{','.join(sorted(_RENDERERS))}"],
         )
     renderer_cls, grammar, support_tier = _RENDERERS[target]
     unsupported_for(f"qvr-{target}", module, allow=support_tier)

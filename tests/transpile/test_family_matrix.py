@@ -103,13 +103,9 @@ _ORTHOGONAL_REFUSALS: dict[tuple[str, str], str] = {
 }
 
 
-@pytest.mark.parametrize(
-    "fixture", _family_fixtures(), ids=lambda f: f.name
-)
+@pytest.mark.parametrize("fixture", _family_fixtures(), ids=lambda f: f.name)
 @pytest.mark.parametrize("backend", _BACKENDS)
-def test_family_backend_cell(
-    fixture: _load.Fixture, backend: str
-) -> None:
+def test_family_backend_cell(fixture: _load.Fixture, backend: str) -> None:
     """One cell of the (family × backend) matrix.
 
     Two pre-declared outcomes:
@@ -140,9 +136,7 @@ def test_family_backend_cell(
         )
         return
 
-    if backend_name is None and family in _LONGHAND_FAMILIES.get(
-        backend, frozenset()
-    ):
+    if backend_name is None and family in _LONGHAND_FAMILIES.get(backend, frozenset()):
         # No native name, and none is wanted: the density is written
         # out longhand, so the cell asserts the shape of that emission
         # rather than a distribution name.
@@ -152,10 +146,7 @@ def test_family_backend_cell(
             f"lists this family as one it writes out longhand, and it "
             f"emitted nothing."
         )
-        missing = [
-            marker for marker in _ZEROS_TRICK_MARKERS
-            if marker not in output
-        ]
+        missing = [marker for marker in _ZEROS_TRICK_MARKERS if marker not in output]
         assert not missing, (
             f"backend {backend!r} on family {family!r}: emitted "
             f"output is missing {missing!r}, so it does not carry the "
@@ -182,9 +173,7 @@ def test_family_backend_cell(
         return
 
     output = transpile(module, target=backend)
-    assert output, (
-        f"backend {backend!r} on family {family!r}: empty bytes"
-    )
+    assert output, f"backend {backend!r} on family {family!r}: empty bytes"
     assert backend_name.encode("utf-8") in output, (
         f"backend {backend!r} on family {family!r}: emitted output "
         f"does not contain expected distribution name "

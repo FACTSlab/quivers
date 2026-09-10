@@ -149,7 +149,8 @@ def _gallery_reference(example: str) -> _Reference:
                 monadic=dataset.monadic,
                 x_input=dataset.x_input,
                 observations=_gallery_data.observations_for_point(
-                    dataset, point,
+                    dataset,
+                    point,
                 ),
             ).log_densities
         )
@@ -198,9 +199,7 @@ def _run_probe(
     image, ext, script_name = _require_image(backend)
     scratch = _SCRATCH_ROOT / scratch_name
     scratch.mkdir(parents=True, exist_ok=True)
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
     raw = _docker.run_probe(
         image=image,
         script=script_path,
@@ -216,15 +215,18 @@ def _run_probe(
 
 
 def _gallery_probe(
-    *, backend: str, example: str, reference: _Reference, source_text: str,
+    *,
+    backend: str,
+    example: str,
+    reference: _Reference,
+    source_text: str,
     tag: str,
 ) -> list[float]:
     """Score `source_text` on the gallery example's own point set."""
     return _run_probe(
         backend=backend,
         points=[
-            {"params": point.params, "data": point.data}
-            for point in reference.points
+            {"params": point.params, "data": point.data} for point in reference.points
         ],
         source_text=source_text,
         scratch_name=f"{example}_{backend}_{tag}",
@@ -333,9 +335,7 @@ def test_catalogue_covers_every_backend_and_defect_class() -> None:
             per_backend.setdefault(mutant.backend, set()).add(mutation.name)
     for mutation in _mutations.CATALOGUE:
         for mutant in mutation.mutants:
-            per_class.setdefault(mutation.defect_class, set()).add(
-                mutant.backend
-            )
+            per_class.setdefault(mutation.defect_class, set()).add(mutant.backend)
 
     thin_backends = sorted(
         name for name, names in per_backend.items() if len(names) < 4
@@ -365,8 +365,7 @@ def test_catalogue_covers_every_backend_and_defect_class() -> None:
         mutant.backend for mutant in _mutations.MARGINALIZE_MUTATION.mutants
     }
     declared = {
-        str(entry.backend)
-        for entry in _mutations.MARGINALIZE_ENUMERATION_MARKERS
+        str(entry.backend) for entry in _mutations.MARGINALIZE_ENUMERATION_MARKERS
     }
     assert marginalize_backends == declared, (
         f"the marginalize mutation covers {sorted(marginalize_backends)} "
@@ -408,12 +407,11 @@ def test_tightest_catalogue_margin_is_declared() -> None:
     entries = [
         (str(mutation.name), float(mutation.min_spread))
         for mutation in (
-            *_mutations.CATALOGUE, _mutations.MARGINALIZE_MUTATION,
+            *_mutations.CATALOGUE,
+            _mutations.MARGINALIZE_MUTATION,
         )
     ]
-    under_tolerance = sorted(
-        name for name, floor in entries if floor <= atol_floor
-    )
+    under_tolerance = sorted(name for name, floor in entries if floor <= atol_floor)
     assert not under_tolerance, (
         f"mutations whose pinned floor sits at or below the "
         f"equivalence tolerance {atol_floor:.6e}: {under_tolerance}. A "
@@ -438,13 +436,12 @@ def test_catalogue_names_are_unique() -> None:
     names = [
         mutation.name
         for mutation in (
-            *_mutations.CATALOGUE, _mutations.MARGINALIZE_MUTATION,
+            *_mutations.CATALOGUE,
+            _mutations.MARGINALIZE_MUTATION,
         )
     ]
     duplicates = sorted({name for name in names if names.count(name) > 1})
-    assert not duplicates, (
-        f"duplicate mutation names in the catalogue: {duplicates}"
-    )
+    assert not duplicates, f"duplicate mutation names in the catalogue: {duplicates}"
 
 
 # ---------------------------------------------------------------------
@@ -458,9 +455,7 @@ def test_catalogue_names_are_unique() -> None:
     _mutations.gallery_cells(),
     ids=str,
 )
-def test_mutant_is_rejected(
-    mutation_name: str, example: str, backend: str
-) -> None:
+def test_mutant_is_rejected(mutation_name: str, example: str, backend: str) -> None:
     """The equivalence check rejects the mutant, by a measured margin.
 
     Three assertions, in order of strength:
@@ -706,17 +701,21 @@ def _mixture_reference() -> list[float]:
             response = [float(v) for v in point.response]
             observations: dict[str, torch.Tensor] = {
                 "probs": torch.tensor(
-                    [float(p) for p in point.probs], dtype=torch.float64,
+                    [float(p) for p in point.probs],
+                    dtype=torch.float64,
                 ),
                 "mu_low": torch.tensor(
-                    float(point.mu_low), dtype=torch.float64,
+                    float(point.mu_low),
+                    dtype=torch.float64,
                 ),
                 "mu_diff": torch.tensor(
-                    float(point.mu_diff), dtype=torch.float64,
+                    float(point.mu_diff),
+                    dtype=torch.float64,
                 ),
                 "y": torch.tensor(response, dtype=torch.float64),
                 "idx": torch.tensor(
-                    list(range(len(response))), dtype=torch.long,
+                    list(range(len(response))),
+                    dtype=torch.long,
                 ),
             }
             result = trace(
@@ -726,8 +725,7 @@ def _mixture_reference() -> list[float]:
             )
             if result.log_joint is None:
                 raise AssertionError(
-                    "marginalize fixture: the reference trace returned a "
-                    "None log_joint"
+                    "marginalize fixture: the reference trace returned a None log_joint"
                 )
             log_densities.append(float(result.log_joint.item()))
     finally:
@@ -770,10 +768,7 @@ def test_marginalize_fixture_is_transpiled_as_an_enumeration(
 @pytest.mark.requires_docker
 @pytest.mark.parametrize(
     "backend",
-    [
-        mutant.backend
-        for mutant in _mutations.MARGINALIZE_MUTATION.mutants
-    ],
+    [mutant.backend for mutant in _mutations.MARGINALIZE_MUTATION.mutants],
     ids=str,
 )
 def test_marginalize_fixture_baseline_is_accepted(backend: str) -> None:
@@ -806,10 +801,7 @@ def test_marginalize_fixture_baseline_is_accepted(backend: str) -> None:
 @pytest.mark.requires_docker
 @pytest.mark.parametrize(
     "backend",
-    [
-        mutant.backend
-        for mutant in _mutations.MARGINALIZE_MUTATION.mutants
-    ],
+    [mutant.backend for mutant in _mutations.MARGINALIZE_MUTATION.mutants],
     ids=str,
 )
 def test_integrated_marginal_replaced_by_draw_is_rejected(
@@ -855,7 +847,11 @@ def test_integrated_marginal_replaced_by_draw_is_rejected(
     )
     with pytest.raises(AssertionError):
         _equivalence.assert_log_density_match(
-            reference, target, atol=atol, context=context, min_points=2,
+            reference,
+            target,
+            atol=atol,
+            context=context,
+            min_points=2,
         )
     assert spread >= mutation.min_spread, (
         f"{context}: rejected by only {spread:.6f} nats, under the "

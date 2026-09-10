@@ -10,10 +10,12 @@ the model function's own `return`, so the probe substitutes every
 latent with the point's value and calls the model. This checks the
 return channel separately from the log-density.
 """
+
 import json
 import pathlib
 
 import jax
+
 # Match QVR's torch defaults (float64) so the constant-spread
 # comparison is not dominated by float32 round-off in the JAX side.
 jax.config.update("jax_enable_x64", True)
@@ -43,7 +45,8 @@ def _returned(model, data_kw, param_dict):
     irrelevant to the returned value.
     """
     clamped = seed(
-        substitute(model, param_dict), jax.random.PRNGKey(0),
+        substitute(model, param_dict),
+        jax.random.PRNGKey(0),
     )
     return clamped(**data_kw)
 
@@ -64,15 +67,14 @@ def main() -> None:
     for pt in points:
         reshaped = reshape_point(pt, shapes, dtypes)
         data_kw = {k: _arr(v) for k, v in reshaped.get("data", {}).items()}
-        param_dict = {
-            k: _arr(v) for k, v in reshaped.get("params", {}).items()
-        }
+        param_dict = {k: _arr(v) for k, v in reshaped.get("params", {}).items()}
         lp, _ = log_density(model, (), data_kw, param_dict)
         log_densities.append(float(lp))
         if export_names:
             exports.append(
                 export_payload(
-                    export_names, _returned(model, data_kw, param_dict),
+                    export_names,
+                    _returned(model, data_kw, param_dict),
                 )
             )
 

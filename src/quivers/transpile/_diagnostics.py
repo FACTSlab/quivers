@@ -36,9 +36,7 @@ class RefusedDeclaration(dx.Model):
 #: Pipeline stages that raise before any one backend is in play. A
 #: refusal tagged with one of these is target-independent: it holds for
 #: every backend, so the message says so instead of blaming a language.
-_STAGE_TARGETS: frozenset[str] = frozenset(
-    {"transpile", "lower", "renderer", "expand"}
-)
+_STAGE_TARGETS: frozenset[str] = frozenset({"transpile", "lower", "renderer", "expand"})
 
 
 #: The name each backend's *language* goes by in prose, for the clauses
@@ -166,23 +164,17 @@ _NODE_SURFACE: dict[str, str] = {
 
 def _arg_surface(class_name: str) -> str:
     """QVR reading of an IR argument class name."""
-    return _ARG_SURFACE.get(
-        class_name, f"an argument the IR carries as `{class_name}`"
-    )
+    return _ARG_SURFACE.get(class_name, f"an argument the IR carries as `{class_name}`")
 
 
 def _dim_surface(class_name: str) -> str:
     """QVR reading of an IR axis class name."""
-    return _DIM_SURFACE.get(
-        class_name, f"an axis the IR carries as `{class_name}`"
-    )
+    return _DIM_SURFACE.get(class_name, f"an axis the IR carries as `{class_name}`")
 
 
 def _node_surface(class_name: str) -> str:
     """QVR reading of an IR node class name."""
-    return _NODE_SURFACE.get(
-        class_name, f"a step the IR carries as `{class_name}`"
-    )
+    return _NODE_SURFACE.get(class_name, f"a step the IR carries as `{class_name}`")
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +265,7 @@ _DECLARATION_MEANING: dict[str, str] = {
         "optimiser minimises, not a term of the model's density"
     ),
     "object_decl": (
-        "declares an object: the value space a variable of that type "
-        "ranges over"
+        "declares an object: the value space a variable of that type ranges over"
     ),
     "morphism_decl": (
         "declares a morphism between two objects, optionally with the "
@@ -294,8 +285,7 @@ _DECLARATION_MEANING: dict[str, str] = {
 _DECLARATION_GAP: dict[str, str] = {
     "composition_decl": "declaring the algebra a category composes in",
     "contraction_decl": (
-        "a morphism defined by contracting other morphisms over an "
-        "algebra's fold"
+        "a morphism defined by contracting other morphisms over an algebra's fold"
     ),
     "bundle_decl": "a first-class, nameable set of grammar rules",
     "schema_decl": (
@@ -304,18 +294,14 @@ _DECLARATION_GAP: dict[str, str] = {
     ),
     "category_decl": "naming a category",
     "rule_decl": "an inference rule",
-    "deduction_decl": (
-        "a deductive system, a chart over proofs, or a lexicon"
-    ),
+    "deduction_decl": ("a deductive system, a chart over proofs, or a lexicon"),
     "signature_decl": (
         "an algebraic term signature: sorts and constructors are not "
         "things its model block can declare"
     ),
     "encoder_decl": "a network whose weights are not themselves sites",
     "decoder_decl": "a network whose weights are not themselves sites",
-    "loss_decl": (
-        "an optimisation objective separate from the joint it scores"
-    ),
+    "loss_decl": ("an optimisation objective separate from the joint it scores"),
     "object_decl": "this object declaration",
     "morphism_decl": "this morphism declaration",
     "define_decl": "this define binding",
@@ -387,8 +373,7 @@ _DECLARATION_REMEDY: dict[str, str] = {
         "keep it in quivers, which is where training happens."
     ),
     "object_decl": (
-        "Declare the object inside a module that also declares the "
-        "program using it."
+        "Declare the object inside a module that also declares the program using it."
     ),
     "morphism_decl": (
         "Declare the morphism inside a module that also declares the "
@@ -469,20 +454,22 @@ def _render_declaration_kind(
 # ---------------------------------------------------------------------------
 
 
-_NO_TARGET_HEADS: frozenset[str] = frozenset({
-    "no-stan-target",
-    "no-bugs-target",
-    "no-jags-target",
-    "no-target-name",
-    "no-webppl-target",
-    "no-pymc-target",
-    "no-edward2-target",
-    "no-numpyro-target",
-    "no-pyro-target",
-    "no-gen-target",
-    "no-turing-target",
-    "no-church-target",
-})
+_NO_TARGET_HEADS: frozenset[str] = frozenset(
+    {
+        "no-stan-target",
+        "no-bugs-target",
+        "no-jags-target",
+        "no-target-name",
+        "no-webppl-target",
+        "no-pymc-target",
+        "no-edward2-target",
+        "no-numpyro-target",
+        "no-pyro-target",
+        "no-gen-target",
+        "no-turing-target",
+        "no-church-target",
+    }
+)
 
 
 def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
@@ -520,9 +507,7 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
         # absence sentinel.
         family, detail = detail, family
     if explained:
-        return _cannot(
-            backend, f"score a draw from `{family}`"
-        )
+        return _cannot(backend, f"score a draw from `{family}`")
     if not detail:
         return (
             f"{_has_no(backend, f'`{family}` distribution')}: the "
@@ -538,9 +523,9 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
             f"want as an explicit `score` step."
         )
     if detail.startswith("sentinel-failed"):
-        sentinel_detail = detail.removeprefix(
-            "sentinel-failed:"
-        ).removeprefix("sentinel-failed")
+        sentinel_detail = detail.removeprefix("sentinel-failed:").removeprefix(
+            "sentinel-failed"
+        )
         return (
             f"the shape of the `{family}` draw could not be derived, "
             f"so no target can size the variable it binds. This "
@@ -625,9 +610,7 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
         )
     if explained:
         return _cannot(backend, f"emit a `{family}` draw")
-    return (
-        f"{_cannot(backend, f'emit a `{family}` draw')}: {detail}."
-    )
+    return f"{_cannot(backend, f'emit a `{family}` draw')}: {detail}."
 
 
 def _render_node_kind(backend: str, tail: str, explained: bool) -> str:
@@ -667,9 +650,7 @@ def _render_declare_kind(backend: str, tail: str) -> str:
             f"fixes its own event shape."
         )
     if type_ == "unsupported-support":
-        return _has_no(
-            backend, f"declaration form for a variable supported on {rest}"
-        )
+        return _has_no(backend, f"declaration form for a variable supported on {rest}")
     return f"{_cannot(backend, f'declare a `{type_}` of this shape')}: {rest}"
 
 
@@ -736,8 +717,7 @@ def _render_arg_kind(backend: str, tail: str, explained: bool) -> str:
     if tail and ":" not in tail:
         headline = _cannot(
             backend,
-            f"take {_arg_surface(tail)} in a distribution-argument "
-            f"position",
+            f"take {_arg_surface(tail)} in a distribution-argument position",
         )
         if explained:
             return headline
@@ -786,9 +766,7 @@ def _render_let_expr_kind(backend: str, tail: str, explained: bool) -> str:
             f"take. Inline the lambda's body at its use site."
         )
     if kind == "elementwise-axis-operator":
-        return _cannot(
-            backend, "lift an infix operator over an axis inside a `let`"
-        )
+        return _cannot(backend, "lift an infix operator over an axis inside a `let`")
     if kind == "LetExprFactor" and rest == "cases-with-multi-axis-binders":
         return (
             "a `factor` written with `cases` enumerates one axis, so "
@@ -829,8 +807,7 @@ def _render_let_expr_kind(backend: str, tail: str, explained: bool) -> str:
         inner = rest.partition(":")[0] or rest
         headline = _cannot(
             backend,
-            f"emit {_let_expr_surface(inner)} as the outermost form "
-            f"of a `let` body",
+            f"emit {_let_expr_surface(inner)} as the outermost form of a `let` body",
         )
         if explained:
             return headline
@@ -838,9 +815,7 @@ def _render_let_expr_kind(backend: str, tail: str, explained: bool) -> str:
             f"{headline}. Bind the sub-expressions to their own "
             f"`let`s and combine the bound names."
         )
-    headline = _cannot(
-        backend, f"emit {_let_expr_surface(kind)} as a `let` body"
-    )
+    headline = _cannot(backend, f"emit {_let_expr_surface(kind)} as a `let` body")
     if explained or not rest:
         return headline
     return f"{headline}: {rest}"
@@ -852,9 +827,7 @@ def _render_let_kind(backend: str, tail: str, explained: bool) -> str:
     if tail.startswith("composite_expression"):
         rest = tail.partition(":")[2]
         if explained:
-            return _cannot(
-                backend, "unfold this composite `let` into program steps"
-            )
+            return _cannot(backend, "unfold this composite `let` into program steps")
         return (
             f"{_cannot(backend, 'unfold this composite `let` into program steps')} "
             f"(expression kind `{rest}`). Replace the composition "
@@ -870,12 +843,9 @@ def _render_define_kind(backend: str, tail: str, explained: bool) -> str:
     """`define:<reason>` -- a `define` binding the resolver could not
     reduce to a single distribution."""
     if explained:
-        return _cannot(
-            backend, "unfold this `define` into a single distribution"
-        )
+        return _cannot(backend, "unfold this `define` into a single distribution")
     return (
-        f"{_cannot(backend, 'unfold this `define` into a single distribution')}: "
-        f"{tail}"
+        f"{_cannot(backend, 'unfold this `define` into a single distribution')}: {tail}"
     )
 
 
@@ -900,8 +870,7 @@ def _render_broadcast_kind(backend: str, tail: str, explained: bool) -> str:
     if explained:
         return _cannot(backend, "broadcast this value to the shape it is used at")
     return (
-        f"{_cannot(backend, 'broadcast this value to the shape it is used at')}: "
-        f"{tail}"
+        f"{_cannot(backend, 'broadcast this value to the shape it is used at')}: {tail}"
     )
 
 
@@ -992,13 +961,9 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
         )
     if tail.startswith("arg:") or tail.startswith("expr:"):
         slot, _, cls = tail.partition(":")
-        surface = (
-            _arg_surface(cls) if slot == "arg" else _let_expr_surface(cls)
-        )
+        surface = _arg_surface(cls) if slot == "arg" else _let_expr_surface(cls)
         if explained:
-            return _cannot(
-                backend, f"rewrite {surface} inside a `marginalize` block"
-            )
+            return _cannot(backend, f"rewrite {surface} inside a `marginalize` block")
         return (
             f"integrating the latent out means rewriting every "
             f"reference to it, and {_language(backend)} has no "
@@ -1050,9 +1015,7 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
     if tail.startswith("weight-family:"):
         family = tail.partition(":")[2]
         if explained:
-            return _cannot(
-                backend, f"build a probability vector from `{family}`"
-            )
+            return _cannot(backend, f"build a probability vector from `{family}`")
         return (
             f"integrating the latent out means summing its atoms "
             f"against their probabilities, and the weights here come "
@@ -1076,9 +1039,7 @@ def _render_dim_kind(backend: str, tail: str, explained: bool) -> str:
     from, so the kind names the variant and the message names the two
     that work.
     """
-    variant = (
-        tail.removeprefix("unknown:").partition(":")[0].strip() or tail
-    )
+    variant = tail.removeprefix("unknown:").partition(":")[0].strip() or tail
     if variant:
         headline = _cannot(backend, f"size {_dim_surface(variant)}")
         if explained:
@@ -1156,9 +1117,7 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
     kind, _, rest = tail.partition(":")
     name = rest.rpartition(":")[2]
     if kind == "linear" and rest.startswith("width-mismatch:"):
-        headline = _linear_width_mismatch_headline(
-            rest.removeprefix("width-mismatch:")
-        )
+        headline = _linear_width_mismatch_headline(rest.removeprefix("width-mismatch:"))
     elif kind == "linear":
         headline = (
             "a morphism between objects of different width carries a "
@@ -1229,24 +1188,15 @@ def _render_program_domain_kind(backend: str, tail: str, explained: bool) -> str
     """`program-domain:<reason>:<name>` -- the program's domain does
     not lower to distinct data inputs."""
     if explained:
-        return (
-            "the program's domain does not lower to a distinct data "
-            "input per factor"
-        )
-    return (
-        f"{_cannot(backend, 'lower this program domain to data inputs')}: "
-        f"{tail}"
-    )
+        return "the program's domain does not lower to a distinct data input per factor"
+    return f"{_cannot(backend, 'lower this program domain to data inputs')}: {tail}"
 
 
 def _render_object_kind(backend: str, tail: str, explained: bool) -> str:
     """`object:<name>:<detail>` -- an `object` declaration whose shape
     no target can read."""
     if explained:
-        return (
-            "an `object` declaration does not give a shape the target "
-            "can read"
-        )
+        return "an `object` declaration does not give a shape the target can read"
     return f"{_cannot(backend, 'read this object declaration')}: {tail}"
 
 
@@ -1363,8 +1313,7 @@ def _render_morphism_kind(backend: str, tail: str, explained: bool) -> str:
     name = rest.partition(":")[0]
     if reason == "cycle":
         headline = (
-            f"resolving morphism `{name}` runs in a cycle, so it names "
-            f"no distribution"
+            f"resolving morphism `{name}` runs in a cycle, so it names no distribution"
         )
     elif reason == "no-init":
         headline = (
@@ -1400,9 +1349,7 @@ def _render_index_kind(backend: str, tail: str, explained: bool) -> str:
     `subscript-arg:<IRArgClass>` -- a subscript expression the target's
     index position cannot take."""
     if explained:
-        return _cannot(
-            backend, f"take {_arg_surface(tail)} as a subscript"
-        )
+        return _cannot(backend, f"take {_arg_surface(tail)} as a subscript")
     return (
         f"{_cannot(backend, f'take {_arg_surface(tail)} as a subscript')}. "
         f"A target subscript is an integer literal or a name bound to "
@@ -1500,9 +1447,7 @@ def _render_type_expr_kind(backend: str, tail: str, explained: bool) -> str:
     """`type-expr:<spec>` -- a storage-type spelling the target's type
     grammar cannot parse."""
     spec = tail.partition(":")[0]
-    headline = (
-        f"{_cannot(backend, f'read `{spec}` as a {_language(backend)} type')}"
-    )
+    headline = f"{_cannot(backend, f'read `{spec}` as a {_language(backend)} type')}"
     if explained:
         return headline
     return f"{headline}: {tail}"
@@ -1589,12 +1534,14 @@ def _render_draw_arg_kind(backend: str, tail: str) -> str:
 
 #: Heads whose refusal is an internal-invariant break rather than
 #: anything the user's program chose.
-_INTERNAL_HEADS: frozenset[str] = frozenset({
-    "ctx",
-    "arg-names-mismatch",
-    "prob-arg-complement",
-    "rate-arg-invert",
-})
+_INTERNAL_HEADS: frozenset[str] = frozenset(
+    {
+        "ctx",
+        "arg-names-mismatch",
+        "prob-arg-complement",
+        "rate-arg-invert",
+    }
+)
 
 
 def _split_explanation(kind: str) -> tuple[str, str]:
@@ -1647,9 +1594,7 @@ def _render_head(
     """Dispatch one kind's head to the renderer that owns it."""
     if head in _DECLARATION_MEANING:
         entries = tuple(e for e in declarations if e.kind == head)
-        return _render_declaration_kind(
-            backend, head, entries, module_has_program
-        )
+        return _render_declaration_kind(backend, head, entries, module_has_program)
     if head in _INTERNAL_HEADS:
         return _render_internal_kind(backend, structured, explained)
     if head == "family":
@@ -1771,14 +1716,8 @@ def user_facing_message(
     headed bullet list, one bullet per independent problem.
     """
     backend = _backend_display_name(target)
-    lines = [
-        _render_kind(backend, k, declarations, module_has_program)
-        for k in kinds
-    ]
+    lines = [_render_kind(backend, k, declarations, module_has_program) for k in kinds]
     if len(lines) == 1:
         return lines[0]
     bullet = "\n  - "
-    return (
-        f"{_cannot(backend, 'transpile this program')}:"
-        f"{bullet}{bullet.join(lines)}"
-    )
+    return f"{_cannot(backend, 'transpile this program')}:{bullet}{bullet.join(lines)}"

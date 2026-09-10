@@ -194,9 +194,7 @@ _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
 #: The constant ``log(2)`` offset that distinguishes HalfNormal from
 #: the full Normal is absorbed by the constant-spread tolerance in
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
-_PREPEND_ZERO: frozenset[str] = frozenset(
-    {"HalfNormal", "HalfCauchy", "Horseshoe"}
-)
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
 
 #: BUGS-side argument injection for QVR families that map to BUGS'
 #: ``dt(mu, tau, k)`` distribution. BUGS Student-t requires three
@@ -470,9 +468,7 @@ class BUGSRenderer(RendererBase):
             [f"node:{type(node).__name__}"],
         )
 
-    def _emit_export(
-        self, ctx: _BugsCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_export(self, ctx: _BugsCtx, names: tuple[str, ...]) -> None:
         """Expose each returned name as a deterministic relation.
 
         The BUGS language has no `return`: a model block declares
@@ -626,9 +622,7 @@ class BUGSRenderer(RendererBase):
             self._emit_broadcast_fill(bctx, name, value, size)
         return self._emit_indexed_name(bctx, name, (), (str(size),))
 
-    def _broadcast_key(
-        self, ctx: _BugsCtx, value: IRArg, size: int
-    ) -> tuple[str, int]:
+    def _broadcast_key(self, ctx: _BugsCtx, value: IRArg, size: int) -> tuple[str, int]:
         """Return the dedup key for a broadcast of `value` to `size`.
 
         Raises when `value` is not a plate-free scalar: an indexed or
@@ -778,10 +772,7 @@ class BUGSRenderer(RendererBase):
             if blocked is not None:
                 raise UnsupportedConstruct(
                     f"qvr-{self.target}",
-                    [
-                        f"family:{family}:no-free-density-term: "
-                        f"{blocked}"
-                    ],
+                    [f"family:{family}:no-free-density-term: {blocked}"],
                 )
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -796,10 +787,7 @@ class BUGSRenderer(RendererBase):
         if unavailable is not None:
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
-                [
-                    f"family:{family}:no-bugs-distribution: "
-                    f"{unavailable}"
-                ],
+                [f"family:{family}:no-bugs-distribution: {unavailable}"],
             )
         return meta
 
@@ -992,9 +980,7 @@ class BUGSRenderer(RendererBase):
         """
         observe = mixture.observe
         column_loop = f"i_{name}"
-        body_id = self._open_loops(
-            ctx, ctx.block_id, observe.plate, loop_names
-        )
+        body_id = self._open_loops(ctx, ctx.block_id, observe.plate, loop_names)
         body_id = self._open_loops(
             ctx,
             body_id,
@@ -1051,9 +1037,7 @@ class BUGSRenderer(RendererBase):
         dens_name = self._fresh_density_name(ctx, latent)
         dr_id = self._fresh(ctx, "dr")
         ctx.sb.vertex(dr_id, "deterministic_relation")
-        body_id = self._open_loops(
-            ctx, ctx.block_id, observe.plate, loop_names
-        )
+        body_id = self._open_loops(ctx, ctx.block_id, observe.plate, loop_names)
         ctx.sb.edge(body_id, dr_id, "deterministic_relation")
         lhs_id = self._emit_lhs(ctx, dens_name, observe.plate, loop_names)
         ctx.sb.edge(dr_id, lhs_id, "variable")
@@ -1084,9 +1068,7 @@ class BUGSRenderer(RendererBase):
         the scored entry is the one the observed symbol subscripts.
         """
         observe = mixture.observe
-        body_id = self._open_loops(
-            ctx, ctx.block_id, observe.plate, loop_names
-        )
+        body_id = self._open_loops(ctx, ctx.block_id, observe.plate, loop_names)
         sr_id = self._fresh(ctx, "sr")
         ctx.sb.vertex(sr_id, "stochastic_relation")
         ctx.sb.edge(body_id, sr_id, "stochastic_relation")
@@ -1131,9 +1113,7 @@ class BUGSRenderer(RendererBase):
         ctx.sb.edge(iv_id, il_id, "indices")
         self._emit_one_to(ctx, il_id, upper)
         for loop_name in loop_names:
-            ctx.sb.edge(
-                il_id, self._emit_bare_identifier(ctx, loop_name), "identifier"
-            )
+            ctx.sb.edge(il_id, self._emit_bare_identifier(ctx, loop_name), "identifier")
         return iv_id
 
     def _fresh_density_name(self, ctx: _BugsCtx, latent: str) -> str:
@@ -1180,9 +1160,7 @@ class BUGSRenderer(RendererBase):
         ctx.sb.vertex(il_id, "index_list")
         ctx.sb.edge(iv_id, il_id, "indices")
         self._emit_one_to(ctx, il_id, upper)
-        ctx.sb.edge(
-            il_id, self._emit_bare_identifier(ctx, column_loop), "identifier"
-        )
+        ctx.sb.edge(il_id, self._emit_bare_identifier(ctx, column_loop), "identifier")
         return iv_id
 
     def _emit_inprod(self, ctx: _BugsCtx, left: str, right: str) -> str:
@@ -1422,16 +1400,16 @@ class BUGSRenderer(RendererBase):
             lhs_id = self._emit_indexed_from_pieces(
                 ctx,
                 node.name,
-                tuple(
-                    _IndexPiece.number(str(value + 1)) for value in indices
-                ),
+                tuple(_IndexPiece.number(str(value + 1)) for value in indices),
                 (),
             )
             ctx.sb.edge(dr_id, lhs_id, "variable")
             ctx.sb.edge(
                 dr_id,
                 render_let_expr_bugs(
-                    let_ctx, body, decl_plates=ctx.decl_plates,
+                    let_ctx,
+                    body,
+                    decl_plates=ctx.decl_plates,
                 ),
                 "value",
             )
@@ -1575,7 +1553,9 @@ class BUGSRenderer(RendererBase):
             self.target,
         )
         inner_expr_id = render_let_expr_bugs(
-            let_ctx, node.expr, decl_plates=ctx.decl_plates,
+            let_ctx,
+            node.expr,
+            decl_plates=ctx.decl_plates,
         )
         paren_id = self._fresh(ctx, "par")
         ctx.sb.vertex(paren_id, "parenthesized_expression")
@@ -2578,9 +2558,7 @@ class BUGSRenderer(RendererBase):
 def _as_bugs_ctx(ctx: _RenderCtx) -> _BugsCtx:
     """Narrow a base `_RenderCtx` to the BUGS extension."""
     if not isinstance(ctx, _BugsCtx):
-        raise UnsupportedConstruct(
-            "qvr-bugs", ["ctx:type-mismatch"]
-        )
+        raise UnsupportedConstruct("qvr-bugs", ["ctx:type-mismatch"])
     return ctx
 
 

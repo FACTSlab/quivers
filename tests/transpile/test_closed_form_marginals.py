@@ -234,9 +234,7 @@ def _points_for(fixture_name: str) -> list[Point]:
     return [Point(params=g, data=data) for g in grids]
 
 
-def _analytic_log_densities(
-    fixture_name: str, points: list[Point]
-) -> list[float]:
+def _analytic_log_densities(fixture_name: str, points: list[Point]) -> list[float]:
     """Evaluate the hand-derived joint at every grid point."""
     f = _ANALYTIC[fixture_name]
     return [f(pt.params, pt.data) for pt in points]
@@ -272,9 +270,7 @@ def _target_log_densities(
     image, ext, script_name = _BACKENDS[backend]
     if not _docker.image_available(image):
         return None
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
     points_json = [{"params": pt.params, "data": pt.data} for pt in points]
     raw = _docker.run_probe(
         image=image,
@@ -312,9 +308,7 @@ def test_three_way_closed_form_agreement(
     points = _points_for(fixture_name)
 
     lp_analytic = _analytic_log_densities(fixture_name, points)
-    lp_qvr = _qvr_log_densities(
-        fixture.source, fixture_name, points, scratch
-    )
+    lp_qvr = _qvr_log_densities(fixture.source, fixture_name, points, scratch)
 
     # QVR vs analytic: pure-Python pair, runs unconditionally. A
     # nonzero spread here is a QVR-side bug (trace accumulation,
@@ -335,9 +329,7 @@ def test_three_way_closed_form_agreement(
             target_source = transpile(module, target=backend)
         except UnsupportedConstruct:
             continue
-        target_lps = _target_log_densities(
-            backend, target_source, points, scratch
-        )
+        target_lps = _target_log_densities(backend, target_source, points, scratch)
         if target_lps is None:
             continue
         any_target_ran = True

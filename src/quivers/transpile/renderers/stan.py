@@ -156,11 +156,13 @@ from quivers.transpile.renderers._stan_helpers import (
 #: than on the sentinel `[0, 1]` interval every integer support in the
 #: IR starts from. Bernoulli is deliberately absent: `bernoulli_lpmf`
 #: reads a genuine bit.
-_CLASS_INDEX_OUTCOME_FAMILIES: frozenset[str] = frozenset({
-    "Categorical",
-    "OrderedLogistic",
-    "OrderedProbit",
-})
+_CLASS_INDEX_OUTCOME_FAMILIES: frozenset[str] = frozenset(
+    {
+        "Categorical",
+        "OrderedLogistic",
+        "OrderedProbit",
+    }
+)
 
 
 _STAN_LOG_DENSITY_SUFFIX: dict[str, str] = {
@@ -303,9 +305,7 @@ class StanRenderer(RendererBase):
         # entry so repeated render calls on the same renderer produce
         # identical schemas.
         self._simplex_cards_state: dict[str, int] = {}
-        self._declared_shapes_state: dict[
-            str, tuple[Constraint, Plate]
-        ] = {}
+        self._declared_shapes_state: dict[str, tuple[Constraint, Plate]] = {}
         # name -> K for chain variables whose downstream consumer
         # binds the value to a slot whose constraint has
         # `event_dim >= 1` (e.g. Categorical's `probs`). The
@@ -362,13 +362,9 @@ class StanRenderer(RendererBase):
         self._simplex_cards_state.clear()
         self._declared_shapes_state.clear()
         self._vector_promotions_state.clear()
-        self._vector_promotions_state.update(
-            self._compute_vector_promotions(ir)
-        )
+        self._vector_promotions_state.update(self._compute_vector_promotions(ir))
         self._class_index_widths_state.clear()
-        self._class_index_widths_state.update(
-            self._compute_class_index_widths(ir)
-        )
+        self._class_index_widths_state.update(self._compute_class_index_widths(ir))
         # Program root.
         ctx.sb.vertex("prog", "program")
         # Stan ships `normal`, `beta`, `gamma`, ... as built-in
@@ -380,10 +376,7 @@ class StanRenderer(RendererBase):
         # into the program above the data block so the sampling
         # statement `y ~ kumaraswamy(a, b);` resolves through Stan's
         # `<family>_lpdf` lookup convention.
-        if any(
-            _ir_uses_family(ir.body, f)
-            for f in _STAN_RUNTIME_HELPER_FAMILIES
-        ):
+        if any(_ir_uses_family(ir.body, f) for f in _STAN_RUNTIME_HELPER_FAMILIES):
             _graft_runtime_stan_helper(ctx.sb, self, "prog")
         # Pre-create blocks in canonical Stan order so emit_pretty
         # honours the `data? transformed_data? parameters?
@@ -423,9 +416,7 @@ class StanRenderer(RendererBase):
         """
         return self._class_index_widths_state
 
-    def _compute_class_index_widths(
-        self, ir: IRProgram
-    ) -> dict[str, int]:
+    def _compute_class_index_widths(self, ir: IRProgram) -> dict[str, int]:
         """Scan the IR for observations under a class-index family and
         record each outcome's alphabet width.
 
@@ -460,9 +451,7 @@ class StanRenderer(RendererBase):
 
     def _declared_plates(self, ir: IRProgram) -> dict[str, Plate]:
         """Every bound name's declared plate, inputs and body alike."""
-        out: dict[str, Plate] = {
-            inp.name: inp.plate for inp in ir.inputs
-        }
+        out: dict[str, Plate] = {inp.name: inp.plate for inp in ir.inputs}
         for node in _iter_ir_nodes(ir.body):
             if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
                 out[node.name] = node.plate
@@ -513,9 +502,7 @@ class StanRenderer(RendererBase):
         """
         return self._vector_promotions_state
 
-    def _compute_vector_promotions(
-        self, ir: IRProgram
-    ) -> dict[str, int]:
+    def _compute_vector_promotions(self, ir: IRProgram) -> dict[str, int]:
         """Scan `ir.body` for consumers whose argument slot has
         `event_dim >= 1` and record the producer name plus required K.
 
@@ -546,7 +533,10 @@ class StanRenderer(RendererBase):
                 meta = FAMILY_META.get(node.family)
                 if meta is not None:
                     self._record_vector_promotions(
-                        promotions, node, meta, producers,
+                        promotions,
+                        node,
+                        meta,
+                        producers,
                         producer_event_dims,
                     )
             if isinstance(node, (IRSample, IRDeterministic, IRObserve)):
@@ -603,9 +593,7 @@ class StanRenderer(RendererBase):
                 continue
             promotions[arg.name] = K
 
-    def _consumer_event_K(
-        self, node: IRSample | IRObserve
-    ) -> int | None:
+    def _consumer_event_K(self, node: IRSample | IRObserve) -> int | None:
         """Derive the event-axis cardinality K for a consumer whose
         slot expects an event_dim>=1 arg.
 
@@ -643,9 +631,7 @@ class StanRenderer(RendererBase):
             self._collect_needed_blocks(node, needed)
         return [k for k in self._CANONICAL_BLOCK_ORDER if k in needed]
 
-    def _collect_needed_blocks(
-        self, node: IRNode, needed: set[BlockKind]
-    ) -> None:
+    def _collect_needed_blocks(self, node: IRNode, needed: set[BlockKind]) -> None:
         """Walk a single IR node, recording the blocks it touches.
 
         Descends into [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
@@ -1135,14 +1121,10 @@ class StanRenderer(RendererBase):
         # Variate: name indexed by loop vars.
         ctx.sb.edge(dal, self._build_lhs(ctx, name, loop_names), "child_of")
         if family == "NegativeBinomial":
-            self._emit_neg_binomial_2_args(
-                ctx, dal, rewritten, plate, loop_names
-            )
+            self._emit_neg_binomial_2_args(ctx, dal, rewritten, plate, loop_names)
         else:
             for arg in rewritten:
-                substituted = self._substitute_for_loops(
-                    arg, plate, loop_names
-                )
+                substituted = self._substitute_for_loops(arg, plate, loop_names)
                 arg_vid = self._render_arg(ctx, substituted)
                 ctx.sb.edge(dal, arg_vid, "child_of")
         ctx.sb.edge(de, dal, "child_of")
@@ -1190,9 +1172,7 @@ class StanRenderer(RendererBase):
                     f"{[d.name for d in plate.event_dims]!r}"
                 ],
             )
-        weights, loc, scale = mixture_normal_components(
-            "stan", args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components("stan", args, arg_names)
         declared = self._declared_shapes.get(
             weights.name if isinstance(weights, IRArgRef) else ""
         )
@@ -1302,13 +1282,21 @@ class StanRenderer(RendererBase):
             return density_vid
         if high_infinite:
             correction = self._build_tail_mass_call(
-                ctx, f"{stan_name}_lccdf", low, family_args,
-                plate, loop_names,
+                ctx,
+                f"{stan_name}_lccdf",
+                low,
+                family_args,
+                plate,
+                loop_names,
             )
         elif low_infinite:
             correction = self._build_tail_mass_call(
-                ctx, f"{stan_name}_lcdf", high, family_args,
-                plate, loop_names,
+                ctx,
+                f"{stan_name}_lcdf",
+                high,
+                family_args,
+                plate,
+                loop_names,
             )
         else:
             correction = self._stan_call(
@@ -1316,12 +1304,20 @@ class StanRenderer(RendererBase):
                 "log_diff_exp",
                 (
                     self._build_tail_mass_call(
-                        ctx, f"{stan_name}_lcdf", high, family_args,
-                        plate, loop_names,
+                        ctx,
+                        f"{stan_name}_lcdf",
+                        high,
+                        family_args,
+                        plate,
+                        loop_names,
                     ),
                     self._build_tail_mass_call(
-                        ctx, f"{stan_name}_lcdf", low, family_args,
-                        plate, loop_names,
+                        ctx,
+                        f"{stan_name}_lcdf",
+                        low,
+                        family_args,
+                        plate,
+                        loop_names,
                     ),
                 ),
             )
@@ -1352,12 +1348,8 @@ class StanRenderer(RendererBase):
         )
         ctx.sb.edge(dal, bound_vid, "child_of")
         for arg in family_args:
-            substituted = self._substitute_for_loops(
-                arg, plate, loop_names
-            )
-            ctx.sb.edge(
-                dal, self._render_arg(ctx, substituted), "child_of"
-            )
+            substituted = self._substitute_for_loops(arg, plate, loop_names)
+            ctx.sb.edge(dal, self._render_arg(ctx, substituted), "child_of")
         ctx.sb.edge(de, dal, "child_of")
         return de
 
@@ -1462,9 +1454,7 @@ class StanRenderer(RendererBase):
                     f"(total_count, probs), got {len(args)}"
                 ],
             )
-        total_count = self._substitute_for_loops(
-            args[0], plate, loop_names
-        )
+        total_count = self._substitute_for_loops(args[0], plate, loop_names)
         probs = self._substitute_for_loops(args[1], plate, loop_names)
         # mu = total_count * probs / (1 - probs)
         product = self._stan_binop(
@@ -1479,9 +1469,7 @@ class StanRenderer(RendererBase):
             "-",
             self._render_arg(ctx, probs),
         )
-        mu = self._stan_binop(
-            ctx, product, "/", self._stan_paren(ctx, complement)
-        )
+        mu = self._stan_binop(ctx, product, "/", self._stan_paren(ctx, complement))
         ctx.sb.edge(stmt, mu, "child_of")
         # phi = total_count
         ctx.sb.edge(stmt, self._render_arg(ctx, total_count), "child_of")
@@ -1541,9 +1529,7 @@ class StanRenderer(RendererBase):
                 out.append(arg)
                 continue
             expected = constraints[i]
-            if not isinstance(
-                arg, IRArgRef
-            ) or not isinstance(
+            if not isinstance(arg, IRArgRef) or not isinstance(
                 expected, _torch_constraints._IndependentConstraint
             ):
                 out.append(arg)
@@ -1578,11 +1564,7 @@ class StanRenderer(RendererBase):
             if not ok:
                 out.append(arg)
                 continue
-            out.append(
-                IRArgBroadcast(
-                    value=arg, target_shape=tuple(sizes)
-                )
-            )
+            out.append(IRArgBroadcast(value=arg, target_shape=tuple(sizes)))
         return tuple(out)
 
     def _wrap_in_for_loops(
@@ -1686,9 +1668,7 @@ class StanRenderer(RendererBase):
             return arg
         return IRArgRef(
             name=arg.name,
-            indices=tuple(
-                IRArgRef(name=lv) for lv in loop_names
-            ),
+            indices=tuple(IRArgRef(name=lv) for lv in loop_names),
         )
 
     # ----- marginalize dispatch -----
@@ -1766,9 +1746,7 @@ class StanRenderer(RendererBase):
             acc_loop_names = self._marginalize_loop_names(acc_dims)
         # 1. Declare `array[acc_dims] vector[K] lps_<latent>;`.
         lps_name = f"lps_{node.latent}"
-        self._declare_lps_array(
-            ctx, outer_block, lps_name, acc_dims, latent_card
-        )
+        self._declare_lps_array(ctx, outer_block, lps_name, acc_dims, latent_card)
         # 2. Seed each accumulator row with the latent log-pmf:
         #    for each accumulator index, for k in 1:K,
         #    lps[..., k] = lpmf(k | args).
@@ -1801,9 +1779,7 @@ class StanRenderer(RendererBase):
         self._marginalize_stack = (*self._marginalize_stack, node.plate)
         try:
             for scope_node in node.scope:
-                self._dispatch_marginalize_scope(
-                    ctx, outer_block, scope_node, node
-                )
+                self._dispatch_marginalize_scope(ctx, outer_block, scope_node, node)
         finally:
             self._marginalize_var = prev_marg_var
             self._marginalize_family = prev_marg_family
@@ -1844,9 +1820,7 @@ class StanRenderer(RendererBase):
                 return True
         return False
 
-    def _marginalize_row_dims(
-        self, node: IRMarginalize
-    ) -> tuple[Dim, ...]:
+    def _marginalize_row_dims(self, node: IRMarginalize) -> tuple[Dim, ...]:
         """The plate a per-row accumulator is keyed by: the batch dims
         of the scope's observe steps."""
         plates = {
@@ -1882,14 +1856,10 @@ class StanRenderer(RendererBase):
         observe's `via` fibration.
         """
         if not per_row:
-            return tuple(
-                IRArgRef(name=name) for name in acc_loop_names
-            )
+            return tuple(IRArgRef(name=name) for name in acc_loop_names)
         via = self._marginalize_scope_via(node)
         if via is None:
-            return tuple(
-                IRArgRef(name=name) for name in acc_loop_names
-            )
+            return tuple(IRArgRef(name=name) for name in acc_loop_names)
         if not acc_loop_names:
             raise UnsupportedConstruct(
                 "qvr-stan",
@@ -1901,20 +1871,13 @@ class StanRenderer(RendererBase):
             )
         row_loop = IRArgRef(name=acc_loop_names[0])
         return tuple(
-            IRArgRef(name=via, indices=(row_loop,))
-            for _ in node.plate.batch_dims
+            IRArgRef(name=via, indices=(row_loop,)) for _ in node.plate.batch_dims
         )
 
-    def _marginalize_scope_via(
-        self, node: IRMarginalize
-    ) -> str | None:
+    def _marginalize_scope_via(self, node: IRMarginalize) -> str | None:
         """The `via` fibration the scope's observe steps share, or
         `None` when they carry none."""
-        vias = {
-            inner.via
-            for inner in node.scope
-            if isinstance(inner, IRObserve)
-        }
+        vias = {inner.via for inner in node.scope if isinstance(inner, IRObserve)}
         if len(vias) != 1:
             raise UnsupportedConstruct(
                 "qvr-stan",
@@ -1995,14 +1958,10 @@ class StanRenderer(RendererBase):
         scope. Inner observe steps contribute to the per-group `lps`
         accumulator; other constructs raise."""
         if isinstance(node, IRObserve):
-            self._emit_marginalize_scope_observe(
-                ctx, scope_block, node, parent
-            )
+            self._emit_marginalize_scope_observe(ctx, scope_block, node, parent)
             return
         if isinstance(node, IRSample):
-            self._emit_marginalize_scope_sample(
-                ctx, scope_block, node, parent
-            )
+            self._emit_marginalize_scope_sample(ctx, scope_block, node, parent)
             return
         if isinstance(node, IRDeterministic):
             # A scope-local let binding (e.g. `let gated_rate = z *
@@ -2015,10 +1974,7 @@ class StanRenderer(RendererBase):
             return
         raise UnsupportedConstruct(
             "qvr-stan",
-            [
-                f"marginalize:scope:unsupported:"
-                f"{type(node).__name__}"
-            ],
+            [f"marginalize:scope:unsupported:{type(node).__name__}"],
         )
 
     def _emit_marginalize_scope_observe(
@@ -2073,7 +2029,12 @@ class StanRenderer(RendererBase):
         declared = marginalize_support(meta) if meta is not None else None
         if declared is not None and declared.atoms == "binary":
             self._emit_unrolled_scope_observe(
-                ctx, current, node, parent, loop_names, latent_card,
+                ctx,
+                current,
+                node,
+                parent,
+                loop_names,
+                latent_card,
             )
             return
         k_name = "k"
@@ -2085,9 +2046,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(lv, "literal-value", k_name)
         ctx.sb.edge(k_loop, lv, "loopvar")
         ctx.sb.edge(k_loop, self._int_literal(ctx, 1), "child_of")
-        ctx.sb.edge(
-            k_loop, self._int_literal(ctx, latent_card), "child_of"
-        )
+        ctx.sb.edge(k_loop, self._int_literal(ctx, latent_card), "child_of")
         kbs = self._fresh(ctx, "kbs")
         ctx.sb.vertex(kbs, "block_statement")
         ctx.sb.edge(k_loop, kbs, "child_of")
@@ -2096,12 +2055,8 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(asn, "assignment_statement")
         ctx.sb.edge(kbs, asn, "child_of")
         # LHS: indexed_lhs lps[group_idx..., k]
-        group_idx_exprs = self._marginalize_group_index_exprs(
-            node, parent, loop_names
-        )
-        lhs_vid = self._build_indexed_lhs(
-            ctx, lps_name, (*group_idx_exprs, k_name)
-        )
+        group_idx_exprs = self._marginalize_group_index_exprs(node, parent, loop_names)
+        lhs_vid = self._build_indexed_lhs(ctx, lps_name, (*group_idx_exprs, k_name))
         ctx.sb.edge(asn, lhs_vid, "child_of")
         # op: +=
         op = self._fresh(ctx, "aop")
@@ -2141,18 +2096,15 @@ class StanRenderer(RendererBase):
         the model samples.
         """
         meta = FAMILY_META.get(node.family)
-        stan_name = (
-            meta.target_names.get("stan") if meta is not None else None
-        )
+        stan_name = meta.target_names.get("stan") if meta is not None else None
         if stan_name is None:
             raise UnsupportedConstruct(
-                "qvr-stan", [f"family:no-stan-target:{node.family}"],
+                "qvr-stan",
+                [f"family:no-stan-target:{node.family}"],
             )
         lpdf_name = self._log_density_name(node.family, stan_name)
         lps_name = self._marginalize_var or ""
-        group_idx_exprs = self._marginalize_group_index_exprs(
-            node, parent, loop_names
-        )
+        group_idx_exprs = self._marginalize_group_index_exprs(node, parent, loop_names)
         previous_atom = self._marginalize_atom
         try:
             for position in range(latent_card):
@@ -2161,7 +2113,9 @@ class StanRenderer(RendererBase):
                 ctx.sb.vertex(asn, "assignment_statement")
                 ctx.sb.edge(current, asn, "child_of")
                 lhs_vid = self._build_indexed_lhs(
-                    ctx, lps_name, (*group_idx_exprs, str(position + 1)),
+                    ctx,
+                    lps_name,
+                    (*group_idx_exprs, str(position + 1)),
                 )
                 ctx.sb.edge(asn, lhs_vid, "child_of")
                 op = self._fresh(ctx, "uaop")
@@ -2236,10 +2190,7 @@ class StanRenderer(RendererBase):
             # `<via>[<observe-loop-0>]` per group dim. For
             # single-group marginalize this is exactly the spec's
             # `lps[word_idx[n], k]` form.
-            return tuple(
-                f"{observe.via}[{loop_names[0]}]"
-                for _ in range(group_count)
-            )
+            return tuple(f"{observe.via}[{loop_names[0]}]" for _ in range(group_count))
         # Fall through: use the marginalize group's loop names.
         return self._marginalize_group_idx
 
@@ -2288,9 +2239,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(idx, inner, "child_of")
         return idx
 
-    def _build_expr_from_text(
-        self, ctx: _RenderCtx, expr_text: str
-    ) -> str:
+    def _build_expr_from_text(self, ctx: _RenderCtx, expr_text: str) -> str:
         """Build an expression vertex for a small text form.
 
         Supports bare identifiers, integer literals, and a single
@@ -2312,17 +2261,13 @@ class StanRenderer(RendererBase):
             return ie
         return self._variable_expression(ctx, text)
 
-    def _observe_scope_loop_names(
-        self, batch_dims: tuple[Dim, ...]
-    ) -> tuple[str, ...]:
+    def _observe_scope_loop_names(self, batch_dims: tuple[Dim, ...]) -> tuple[str, ...]:
         """Generate per-observe loop-variable names. Distinct from
         the outer marginalize group's loop names to keep nesting
         unambiguous."""
         return tuple(f"n_{dim.name}" for dim in batch_dims)
 
-    def _marginalize_loop_names(
-        self, batch_dims: tuple[Dim, ...]
-    ) -> tuple[str, ...]:
+    def _marginalize_loop_names(self, batch_dims: tuple[Dim, ...]) -> tuple[str, ...]:
         """Generate group-loop names for the outer marginalize."""
         return tuple(f"g_{dim.name}" for dim in batch_dims)
 
@@ -2354,9 +2299,7 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(dal, "distr_argument_list")
         # First arg: observed[loop_idx] or bare observed.
         if loop_names:
-            obs_vid = self._indexed_expression_text(
-                ctx, observed_var, loop_names[0]
-            )
+            obs_vid = self._indexed_expression_text(ctx, observed_var, loop_names[0])
         else:
             obs_vid = self._variable_expression(ctx, observed_var)
         ctx.sb.edge(dal, obs_vid, "child_of")
@@ -2369,9 +2312,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(de, dal, "child_of")
         return de
 
-    def _substitute_latent_for_k(
-        self, arg: IRArg, k_name: str
-    ) -> IRArg:
+    def _substitute_latent_for_k(self, arg: IRArg, k_name: str) -> IRArg:
         """Rewrite any IR ref whose name is the marginalize latent
         into `IRArgRef(name=k_name)` so the per-k iteration uses the
         loop variable in place of the latent."""
@@ -2380,8 +2321,7 @@ class StanRenderer(RendererBase):
             return arg
         if isinstance(arg, IRArgRef):
             new_indices = tuple(
-                self._substitute_latent_for_k(idx, k_name)
-                for idx in arg.indices
+                self._substitute_latent_for_k(idx, k_name) for idx in arg.indices
             )
             if arg.name == latent:
                 return IRArgRef(name=k_name, indices=new_indices)
@@ -2394,8 +2334,7 @@ class StanRenderer(RendererBase):
         if isinstance(arg, IRArgList):
             return IRArgList(
                 elements=tuple(
-                    self._substitute_latent_for_k(e, k_name)
-                    for e in arg.elements
+                    self._substitute_latent_for_k(e, k_name) for e in arg.elements
                 )
             )
         if isinstance(arg, IRArgMatrix):
@@ -2580,9 +2519,7 @@ class StanRenderer(RendererBase):
         rep_v_al = self._fresh(ctx, "lpsrval")
         ctx.sb.vertex(rep_v_al, "argument_list")
         ctx.sb.edge(rep_v_al, self._int_literal(ctx, 0), "child_of")
-        ctx.sb.edge(
-            rep_v_al, self._int_literal(ctx, latent_card), "child_of"
-        )
+        ctx.sb.edge(rep_v_al, self._int_literal(ctx, latent_card), "child_of")
         ctx.sb.edge(rep_v, rep_v_al, "child_of")
         if batch_dims:
             init_call = self._fresh(ctx, "lpsinit")
@@ -2595,9 +2532,7 @@ class StanRenderer(RendererBase):
             ctx.sb.vertex(init_al, "argument_list")
             ctx.sb.edge(init_al, rep_v, "child_of")
             for dim in batch_dims:
-                ctx.sb.edge(
-                    init_al, self._dim_size_vertex(ctx, dim), "child_of"
-                )
+                ctx.sb.edge(init_al, self._dim_size_vertex(ctx, dim), "child_of")
             ctx.sb.edge(init_call, init_al, "child_of")
             ctx.sb.edge(vd, init_call, "child_of")
         else:
@@ -2626,9 +2561,7 @@ class StanRenderer(RendererBase):
         grouped reading, the observe's `via` fibration applied to the
         row loop variable under the per-row reading.
         """
-        current = self._wrap_in_for_loops(
-            ctx, scope_block, batch_dims, group_idx_names
-        )
+        current = self._wrap_in_for_loops(ctx, scope_block, batch_dims, group_idx_names)
         k_loop = self._fresh(ctx, "ifs")
         ctx.sb.vertex(k_loop, "for_statement")
         ctx.sb.edge(current, k_loop, "child_of")
@@ -2637,9 +2570,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(klv, "literal-value", "k")
         ctx.sb.edge(k_loop, klv, "loopvar")
         ctx.sb.edge(k_loop, self._int_literal(ctx, 1), "child_of")
-        ctx.sb.edge(
-            k_loop, self._int_literal(ctx, latent_card), "child_of"
-        )
+        ctx.sb.edge(k_loop, self._int_literal(ctx, latent_card), "child_of")
         kbs = self._fresh(ctx, "ibs")
         ctx.sb.vertex(kbs, "block_statement")
         ctx.sb.edge(k_loop, kbs, "child_of")
@@ -2647,9 +2578,7 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(asn, "assignment_statement")
         ctx.sb.edge(kbs, asn, "child_of")
         # LHS lps[group..., k]
-        lhs_vid = self._build_indexed_lhs(
-            ctx, lps_name, (*group_idx_names, "k")
-        )
+        lhs_vid = self._build_indexed_lhs(ctx, lps_name, (*group_idx_names, "k"))
         ctx.sb.edge(asn, lhs_vid, "child_of")
         op = self._fresh(ctx, "iop")
         ctx.sb.vertex(op, "assignment_op")
@@ -2685,9 +2614,7 @@ class StanRenderer(RendererBase):
         # First arg: the atom this iteration scores.
         if binary_atoms:
             k_ve = render_let_expr_stan(
-                _StanLetCtx(
-                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-                ),
+                _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 LetExprBinOp(
                     op="-",
                     left=LetExprVar(name="k"),
@@ -2739,9 +2666,7 @@ class StanRenderer(RendererBase):
             if len(declared_plate.batch_dims) < len(prior_index_args):
                 out.append(arg)
                 continue
-            out.append(
-                IRArgRef(name=arg.name, indices=prior_index_args)
-            )
+            out.append(IRArgRef(name=arg.name, indices=prior_index_args))
         return tuple(out)
 
     def _emit_lps_accumulate(
@@ -2753,9 +2678,7 @@ class StanRenderer(RendererBase):
         group_idx_names: tuple[str, ...],
     ) -> None:
         """Emit `for g in batch_dims, target += log_sum_exp(lps[g]);`."""
-        current = self._wrap_in_for_loops(
-            ctx, scope_block, batch_dims, group_idx_names
-        )
+        current = self._wrap_in_for_loops(ctx, scope_block, batch_dims, group_idx_names)
         ts = self._fresh(ctx, "ats")
         ctx.sb.vertex(ts, "target_statement")
         ctx.sb.edge(current, ts, "child_of")
@@ -2768,9 +2691,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(fn, fnid, "name")
         al = self._fresh(ctx, "lseal")
         ctx.sb.vertex(al, "argument_list")
-        lps_idx = self._build_indexed_arg_expression(
-            ctx, lps_name, group_idx_names
-        )
+        lps_idx = self._build_indexed_arg_expression(ctx, lps_name, group_idx_names)
         ctx.sb.edge(al, lps_idx, "child_of")
         ctx.sb.edge(fn, al, "child_of")
         ctx.sb.edge(ts, fn, "child_of")
@@ -2937,9 +2858,7 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(kernel_fn, "function_expression")
         kernel_id = self._fresh(ctx, "gpfid")
         ctx.sb.vertex(kernel_id, "identifier")
-        ctx.sb.constraint(
-            kernel_id, "literal-value", "gp_exp_quad_cov"
-        )
+        ctx.sb.constraint(kernel_id, "literal-value", "gp_exp_quad_cov")
         ctx.sb.edge(kernel_fn, kernel_id, "name")
         kernel_args = self._fresh(ctx, "gpal")
         ctx.sb.vertex(kernel_args, "argument_list")
@@ -2977,9 +2896,7 @@ class StanRenderer(RendererBase):
         ctx.sb.vertex(jit, "real_literal")
         ctx.sb.constraint(jit, "literal-value", repr(arg.jitter))
         ctx.sb.edge(rep_args, jit, "child_of")
-        ctx.sb.edge(
-            rep_args, self._int_literal(ctx, arg.grid_size), "child_of"
-        )
+        ctx.sb.edge(rep_args, self._int_literal(ctx, arg.grid_size), "child_of")
         ctx.sb.edge(rep_fn, rep_args, "child_of")
         ctx.sb.edge(diag_args, rep_fn, "child_of")
         ctx.sb.edge(diag_fn, diag_args, "child_of")
@@ -2999,9 +2916,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(v, "literal-value", repr(float(value)))
         return v
 
-    def _index_outer_plated_refs(
-        self, expr: LetExprNode, row_name: str
-    ) -> LetExprNode:
+    def _index_outer_plated_refs(self, expr: LetExprNode, row_name: str) -> LetExprNode:
         """Index a scope-local `let`'s references to outer plated
         arrays by the row the scope is iterating.
 
@@ -3082,9 +2997,7 @@ class StanRenderer(RendererBase):
                     return b
         return LetExprBinOp(op=expr.op, left=left, right=right)
 
-    def _render_ref(
-        self, ctx: _RenderCtx, arg: IRArgRef
-    ) -> SchemaFragment:
+    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
         """Render an IRArgRef. Bare-name refs become a
         `variable_expression`; indexed refs nest `indexed_expression`
         nodes. When the ref name resolves to a scope-local
@@ -3110,14 +3023,10 @@ class StanRenderer(RendererBase):
                     else ()
                 )
                 if row_names:
-                    expr = self._index_outer_plated_refs(
-                        expr, row_names[-1]
-                    )
+                    expr = self._index_outer_plated_refs(expr, row_names[-1])
                 expr = self._fold_constant_products(expr)
             return render_let_expr_stan(
-                _StanLetCtx(
-                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-                ),
+                _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 expr,
             )
         base = self._variable_expression(ctx, arg.name)
@@ -3202,9 +3111,7 @@ class StanRenderer(RendererBase):
 
     # ----- shared utilities -----
 
-    def _variable_expression(
-        self, ctx: _RenderCtx, name: str
-    ) -> str:
+    def _variable_expression(self, ctx: _RenderCtx, name: str) -> str:
         ve = self._fresh(ctx, "ve")
         ctx.sb.vertex(ve, "variable_expression")
         ident = self._fresh(ctx, "vid")
@@ -3219,9 +3126,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(v, "literal-value", str(int(value)))
         return v
 
-    def _ensure_block(
-        self, ctx: _RenderCtx, kind: BlockKind
-    ) -> str:
+    def _ensure_block(self, ctx: _RenderCtx, kind: BlockKind) -> str:
         """Lazily emit a top-level Stan block of the given kind.
 
         Blocks are children of the top `program` vertex. Each emit
@@ -3368,7 +3273,8 @@ class StanRenderer(RendererBase):
             return
         self._declared["transformed_parameters"].add(node.name)
         self._declared_shapes[node.name] = (
-            node.constraint.to_constraint(), node.plate,
+            node.constraint.to_constraint(),
+            node.plate,
         )
         # Normalise the RHS shape for fan / parallel-branch literals.
         # The lower phase aggregates parallel-branch outputs as
@@ -3382,10 +3288,7 @@ class StanRenderer(RendererBase):
         #     broadcasting rules.
         body_expr = node.expr
         list_array_size: int | None = None
-        if (
-            isinstance(body_expr, LetExprList)
-            and not node.plate.batch_dims
-        ):
+        if isinstance(body_expr, LetExprList) and not node.plate.batch_dims:
             if len(body_expr.items) == 1:
                 body_expr = body_expr.items[0]
             elif len(body_expr.items) > 1:
@@ -3417,7 +3320,9 @@ class StanRenderer(RendererBase):
             self._emit_vector_type_of_size(ctx, tvt, promoted_k)
         else:
             self._emit_type(
-                ctx, tvt, node.constraint.to_constraint(),
+                ctx,
+                tvt,
+                node.constraint.to_constraint(),
                 node.plate.event_dims,
             )
         ctx.sb.edge(decl, tvt, "child_of")
@@ -3440,9 +3345,7 @@ class StanRenderer(RendererBase):
             body_expr, (LetExprAffineMap, LetExprFactor, LetExprList)
         ):
             rhs = render_let_expr_stan(
-                _StanLetCtx(
-                    ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-                ),
+                _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 body_expr,
             )
             if promoted_k is not None:
@@ -3474,9 +3377,7 @@ class StanRenderer(RendererBase):
         ctx.sb.constraint(op, "literal-value", "=")
         ctx.sb.edge(asn, op, "child_of")
         rhs = render_let_expr_stan(
-            _StanLetCtx(
-                ctx.sb, lambda p: self._fresh(ctx, p), self._cards
-            ),
+            _StanLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
             subbed,
         )
         if promoted_k is not None:
@@ -3538,9 +3439,7 @@ class StanRenderer(RendererBase):
                 continue
             indexed = LetExprIndex(
                 array=LetExprVar(name=name),
-                indices=tuple(
-                    LetExprVar(name=lv) for lv in loop_names
-                ),
+                indices=tuple(LetExprVar(name=lv) for lv in loop_names),
             )
             out = _substitute_let_expr(
                 out,
@@ -3616,9 +3515,7 @@ class StanRenderer(RendererBase):
         rhs = self._variable_expression(ctx, var)
         ctx.sb.edge(decl, rhs, "child_of")
 
-    def _declared_shape(
-        self, var: str
-    ) -> tuple[Constraint, Plate]:
+    def _declared_shape(self, var: str) -> tuple[Constraint, Plate]:
         """Look up a previously-declared name's (support, plate) for
         the generated-quantities aliasing emission.
 
@@ -3815,20 +3712,12 @@ def _tighten_colon_ranges(text: str) -> str:
     i = 0
     n = len(text)
     while i < n:
-        if (
-            i + 2 < n
-            and text[i] == " "
-            and text[i + 1] == ":"
-            and text[i + 2] == " "
-        ):
+        if i + 2 < n and text[i] == " " and text[i + 1] == ":" and text[i + 2] == " ":
             # Look at neighbouring tokens: previous non-space char and
             # next non-space char both alphanumeric / underscore.
             left = out[-1] if out else ""
             right = text[i + 3] if i + 3 < n else ""
-            if (
-                (left.isalnum() or left == "_")
-                and (right.isalnum() or right == "_")
-            ):
+            if (left.isalnum() or left == "_") and (right.isalnum() or right == "_"):
                 out.append(":")
                 i += 3
                 continue
@@ -3932,8 +3821,7 @@ def _collapse_spaces(text: str) -> str:
 
 
 _RUNTIME_STAN_PATH = (
-    pathlib.Path(__file__).resolve().parent.parent
-    / "runtime_stan_functions.stan"
+    pathlib.Path(__file__).resolve().parent.parent / "runtime_stan_functions.stan"
 )
 
 
@@ -3942,17 +3830,17 @@ _RUNTIME_STAN_PATH = (
 #: helper subtree. Stan ships `normal`, `beta`, `gamma`, etc. as
 #: built-in densities but lacks `kumaraswamy`; the renderer grafts the
 #: helper when the IR samples or observes from any of them.
-_STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "Kumaraswamy",
-    "ContinuousBernoulli",
-    "MatrixNormal",
-    "LogitNormal",
-})
+_STAN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset(
+    {
+        "Kumaraswamy",
+        "ContinuousBernoulli",
+        "MatrixNormal",
+        "LogitNormal",
+    }
+)
 
 
-def _load_runtime_stan_schema() -> tuple[
-    panproto.Schema, str, tuple[str, ...]
-]:
+def _load_runtime_stan_schema() -> tuple[panproto.Schema, str, tuple[str, ...]]:
     """Parse
     [`runtime_stan_functions.stan`][quivers.transpile.runtime_stan_functions]
     through panproto's Stan tree-sitter grammar at module-load time.
@@ -3973,9 +3861,7 @@ def _load_runtime_stan_schema() -> tuple[
         None,
     )
     if src_id is None:
-        raise RuntimeError(
-            f"`program` not found in parse of {_RUNTIME_STAN_PATH}"
-        )
+        raise RuntimeError(f"`program` not found in parse of {_RUNTIME_STAN_PATH}")
     children_with_sb: list[tuple[int, str]] = []
     for edge in schema.edges:
         if edge.src != src_id:
@@ -4041,10 +3927,7 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     `continuous_bernoulli_lpdf`.
     """
     for node in body:
-        if (
-            isinstance(node, (IRSample, IRObserve))
-            and node.family == family
-        ):
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
             return True
         if isinstance(node, IRMarginalize):
             if node.family == family:
@@ -4076,9 +3959,7 @@ def _graft_runtime_stan_helper(
         renderer._fresh_n += 1
         new = f"rs_{renderer._fresh_n}"
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         sb.vertex(new, kind)
         for cstr in src_schema.constraints_for(old):
             sb.constraint(new, cstr.sort, cstr.value)

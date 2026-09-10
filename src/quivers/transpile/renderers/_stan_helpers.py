@@ -196,10 +196,12 @@ def _emit_variable_expression(ctx, name: str) -> tuple[str, str]:
     return vid, "variable_expression"
 
 
-_STAN_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
-    "infix_op_expression",
-    "prefix_op_expression",
-})
+_STAN_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset(
+    {
+        "infix_op_expression",
+        "prefix_op_expression",
+    }
+)
 """Operand kinds that must be wrapped in `parenthized_expression`
 when they appear as a sub-expression of a binary or unary operator
 in Stan. Stan's printer emits operands left-to-right without
@@ -223,9 +225,7 @@ def _stan_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
     return paren, "parenthized_expression"
 
 
-def _stan_maybe_paren(
-    ctx, rendered: tuple[str, str]
-) -> tuple[str, str]:
+def _stan_maybe_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthized_expression` if its kind is in
     [`_STAN_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_PAREN_REQUIRED_OPERAND_KINDS];
     otherwise return it unchanged."""
@@ -263,9 +263,7 @@ def _emit_infix_rendered(
     right_vid, right_kind = _stan_maybe_paren(ctx, right)
     vid = ctx.vertex(ctx.fresh("bin"), "infix_op_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", op)
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", f"{left_kind} {right_kind}")
     ctx.edge(vid, left_vid, "child_of")
     ctx.edge(vid, right_vid, "child_of")
     return vid, "infix_op_expression"
@@ -281,9 +279,7 @@ def _emit_prefix(ctx, expr: LetExprUnaryOp) -> tuple[str, str]:
     rejects, and `-(a + b)` would print as `-a + b` (i.e.
     `(-a) + b`).
     """
-    operand_vid, operand_kind = _stan_maybe_paren(
-        ctx, _render(ctx, expr.operand)
-    )
+    operand_vid, operand_kind = _stan_maybe_paren(ctx, _render(ctx, expr.operand))
     vid = ctx.vertex(ctx.fresh("uop"), "prefix_op_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", "-")
     ctx.constraint(vid, "chose-alt-child-kinds", operand_kind)
@@ -328,9 +324,7 @@ def _emit_call_rendered(
     table is applied by the caller that starts from a QVR name.
     """
     vid = ctx.vertex(ctx.fresh("call"), "function_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "identifier argument_list"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier argument_list")
     fn = ctx.vertex(ctx.fresh("fn"), "identifier")
     ctx.literal(fn, func)
     ctx.edge(vid, fn, "name")
@@ -339,9 +333,7 @@ def _emit_call_rendered(
     return vid, "function_expression"
 
 
-def _emit_argument_list(
-    ctx, rendered: tuple[tuple[str, str], ...]
-) -> str:
+def _emit_argument_list(ctx, rendered: tuple[tuple[str, str], ...]) -> str:
     """Emit an `argument_list` with the right comma fingerprint and
     child-kinds string."""
     vid = ctx.vertex(ctx.fresh("args"), "argument_list")
@@ -370,13 +362,15 @@ def _emit_argument_list(
     return vid
 
 
-_STAN_INDEXED_CALLEE_KINDS: frozenset[str] = frozenset({
-    "variable_expression",
-    "function_expression",
-    "indexed_expression",
-    "parenthized_expression",
-    "array_expression",
-})
+_STAN_INDEXED_CALLEE_KINDS: frozenset[str] = frozenset(
+    {
+        "variable_expression",
+        "function_expression",
+        "indexed_expression",
+        "parenthized_expression",
+        "array_expression",
+    }
+)
 """Stan grammar `indexed_expression` accepts a narrow set of array
 callee kinds. Anything else (`infix_op_expression`, a literal, ...)
 must be wrapped in `parenthized_expression` for the printer to
@@ -399,9 +393,7 @@ def _rebase_literal_index(index: LetExprNode) -> LetExprNode:
     return index
 
 
-def _emit_indexed(
-    ctx, expr: LetExprIndex
-) -> tuple[str, str]:
+def _emit_indexed(ctx, expr: LetExprIndex) -> tuple[str, str]:
     """Emit an `indexed_expression` (the `arr[i][j]...` form).
 
     When `expr.array` resolves to a kind Stan's `indexed_expression`
@@ -437,18 +429,14 @@ def _emit_indexed(
         child_kinds.append("index")
     vid = ctx.vertex(ctx.fresh("ix"), "indexed_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", "[ ]")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", " ".join(child_kinds)
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", " ".join(child_kinds))
     ctx.edge(vid, arr_vid, "child_of")
     for wrap in index_vids:
         ctx.edge(vid, wrap, "child_of")
     return vid, "indexed_expression"
 
 
-def _emit_row_block(
-    ctx, array: LetExprNode, offset: int, rows: int
-) -> tuple[str, str]:
+def _emit_row_block(ctx, array: LetExprNode, offset: int, rows: int) -> tuple[str, str]:
     """Emit ``<array>[lo:hi]``, one head's contiguous row block.
 
     `offset` and `rows` arrive in QVR's zero-based origin; Stan
@@ -492,9 +480,7 @@ def _emit_conditioning_row(
     """
     row: tuple[str, str] | None = None
     for source in sources:
-        column = _emit_call_rendered(
-            ctx, "to_vector", (_render(ctx, source.value),)
-        )
+        column = _emit_call_rendered(ctx, "to_vector", (_render(ctx, source.value),))
         row = (
             column
             if row is None
@@ -533,11 +519,7 @@ def _emit_affine_map(ctx, expr: LetExprAffineMap) -> tuple[str, str]:
             _emit_call_rendered(
                 ctx,
                 "to_matrix",
-                (
-                    _emit_row_block(
-                        ctx, expr.weight, expr.row_offset, expr.rows
-                    ),
-                ),
+                (_emit_row_block(ctx, expr.weight, expr.row_offset, expr.rows),),
             ),
             _emit_conditioning_row(ctx, expr.sources),
         ),
@@ -601,9 +583,7 @@ def _render_factor(ctx, expr: LetExprFactor) -> tuple[str, str]:
         return _emit_array_expression(ctx, rendered)
     if expr.body is not None and not expr.cases:
         sizes = tuple(_card_for(ctx, b) for b in expr.binders)
-        return _build_nested_array(
-            ctx, expr.binders, sizes, expr.body, ()
-        )
+        return _build_nested_array(ctx, expr.binders, sizes, expr.body, ())
     raise UnsupportedConstruct(
         "qvr-stan-helper",
         [
@@ -669,11 +649,7 @@ def _build_nested_array(
     level = len(fixed)
     rendered: list[tuple[str, str]] = []
     for i in range(sizes[level]):
-        rendered.append(
-            _build_nested_array(
-                ctx, binders, sizes, body, fixed + (i,)
-            )
-        )
+        rendered.append(_build_nested_array(ctx, binders, sizes, body, fixed + (i,)))
     return _emit_array_expression(ctx, tuple(rendered))
 
 

@@ -51,20 +51,50 @@ def _gallery_examples() -> list[Path]:
 # no standard interpreter we can lint against; Gen and Turing share
 # Julia's `Meta.parse`).
 _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
-    "stan":    ("stanc",  ["stanc", "--info", "-"], True),
-    "numpyro": ("python", ["python", "-c",
-                           "import ast, sys; ast.parse(sys.stdin.read())"], True),
-    "pyro":    ("python", ["python", "-c",
-                           "import ast, sys; ast.parse(sys.stdin.read())"], True),
-    "pymc":    ("python", ["python", "-c",
-                           "import ast, sys; ast.parse(sys.stdin.read())"], True),
-    "edward2": ("python", ["python", "-c",
-                           "import ast, sys; ast.parse(sys.stdin.read())"], True),
-    "webppl":  ("node",   ["node", "--check", "/dev/stdin"], True),
-    "turing":  ("julia",  ["julia", "--startup-file=no", "--quiet", "-e",
-                           "src = read(stdin, String); Meta.parseall(src)"], True),
-    "gen":     ("julia",  ["julia", "--startup-file=no", "--quiet", "-e",
-                           "src = read(stdin, String); Meta.parseall(src)"], True),
+    "stan": ("stanc", ["stanc", "--info", "-"], True),
+    "numpyro": (
+        "python",
+        ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
+        True,
+    ),
+    "pyro": (
+        "python",
+        ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
+        True,
+    ),
+    "pymc": (
+        "python",
+        ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
+        True,
+    ),
+    "edward2": (
+        "python",
+        ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
+        True,
+    ),
+    "webppl": ("node", ["node", "--check", "/dev/stdin"], True),
+    "turing": (
+        "julia",
+        [
+            "julia",
+            "--startup-file=no",
+            "--quiet",
+            "-e",
+            "src = read(stdin, String); Meta.parseall(src)",
+        ],
+        True,
+    ),
+    "gen": (
+        "julia",
+        [
+            "julia",
+            "--startup-file=no",
+            "--quiet",
+            "-e",
+            "src = read(stdin, String); Meta.parseall(src)",
+        ],
+        True,
+    ),
 }
 
 
@@ -165,9 +195,7 @@ for _neural_example in (
     "vae",
 ):
     for _syntax_backend in _SYNTAX_CHECKS:
-        _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = (
-            "param-source:mlp"
-        )
+        _EXPECTED_UNSUPPORTED[(_syntax_backend, _neural_example)] = "param-source:mlp"
 
 # 5. `scan(cell)` denotes one draw per sequence position over
 #    intermediate states the program never names, and the sequence
@@ -184,9 +212,7 @@ for _scan_example in (
     "vanilla_rnn_lm",
 ):
     for _syntax_backend in _SYNTAX_CHECKS:
-        _EXPECTED_UNSUPPORTED[(_syntax_backend, _scan_example)] = (
-            "scan:no-lowering"
-        )
+        _EXPECTED_UNSUPPORTED[(_syntax_backend, _scan_example)] = "scan:no-lowering"
 
 
 # 6. An ungrouped `marginalize` over a plated `observe` shares one
@@ -195,7 +221,12 @@ for _scan_example in (
 #    own, which gives every row a draw the source never declares, so
 #    they refuse rather than emit a different measure.
 for _ungrouped_backend in (
-    "bugs", "church", "edward2", "jags", "pymc", "turing",
+    "bugs",
+    "church",
+    "edward2",
+    "jags",
+    "pymc",
+    "turing",
 ):
     if _ungrouped_backend in _SYNTAX_CHECKS:
         _EXPECTED_UNSUPPORTED[(_ungrouped_backend, "hmm")] = (
@@ -210,14 +241,10 @@ for _ungrouped_backend in (
 for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
     for _syntax_backend in _SYNTAX_CHECKS:
         if _syntax_backend == "gen":
-            _EXPECTED_UNSUPPORTED[("gen", _gen_marginalize_model)] = (
-                "marginalize:"
-            )
+            _EXPECTED_UNSUPPORTED[("gen", _gen_marginalize_model)] = "marginalize:"
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)
 @pytest.mark.parametrize("backend", sorted(_SYNTAX_CHECKS))
 def test_gallery_example_compiles(example: Path, backend: str) -> None:
     """Transpile a gallery example to `backend` and run its target
@@ -236,9 +263,7 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
         with pytest.raises(UnsupportedConstruct) as exc_info:
             transpile(parse(source), target=backend)
         kinds = exc_info.value.kinds
-        assert any(
-            k.startswith(expected_unsupported) for k in kinds
-        ), (
+        assert any(k.startswith(expected_unsupported) for k in kinds), (
             f"{backend!r} on {example.name}: expected raise with "
             f"kind prefix {expected_unsupported!r}, got {kinds!r}. "
             f"Either the renderer changed (update the entry in "

@@ -63,9 +63,7 @@ def atom_value(arg: DrawArg) -> Atom:
         return arg.text
     if isinstance(arg, DrawArgIndex):
         return encode_index(arg)
-    raise TypeError(
-        f"atom_value: not an atomic DrawArg: {type(arg).__name__}"
-    )
+    raise TypeError(f"atom_value: not an atomic DrawArg: {type(arg).__name__}")
 
 
 def list_items(arg: DrawArgList) -> tuple[DrawArg, ...]:
@@ -105,8 +103,7 @@ def matrix_rows(arg: DrawArgList) -> tuple[tuple[Atom, ...], ...]:
     for item in arg.items:
         if not isinstance(item, DrawArgList):
             raise TypeError(
-                f"matrix_rows: row is not a DrawArgList: "
-                f"{type(item).__name__}"
+                f"matrix_rows: row is not a DrawArgList: {type(item).__name__}"
             )
         rows.append(list_atoms(item))
     return tuple(rows)

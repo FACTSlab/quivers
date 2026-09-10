@@ -169,11 +169,13 @@ def test_logistic_normal_support_is_simplex(
 ) -> None:
     m = ConditionalLogisticNormal(domain, codomain_3d)
     assert m.support == c.simplex
-    y = torch.tensor([
-        [0.33, 0.33, 0.34],
-        [0.5, 0.3, 0.2],
-        [0.1, 0.1, 0.8],
-    ])
+    y = torch.tensor(
+        [
+            [0.33, 0.33, 0.34],
+            [0.5, 0.3, 0.2],
+            [0.1, 0.1, 0.8],
+        ]
+    )
     lp = m.log_prob(x_batch, y)
     assert torch.isfinite(lp).all()
 
@@ -184,19 +186,20 @@ def test_one_hot_categorical_support(
     m = ConditionalOneHotCategorical(domain, codomain_3d)
     # torch's OneHotCategorical.support is OneHot().
     from torch.distributions import OneHotCategorical
+
     assert m.support is OneHotCategorical.support
-    y = torch.tensor([
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ])
+    y = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
     lp = m.log_prob(x_batch, y)
     assert torch.isfinite(lp).all()
 
 
-def test_lkj_cholesky_support(
-    domain: FinSet, x_batch: torch.Tensor
-) -> None:
+def test_lkj_cholesky_support(domain: FinSet, x_batch: torch.Tensor) -> None:
     cod = Euclidean(name="L", dim=3)
     m = ConditionalLKJCholesky(domain, cod)
     assert m.support == c.corr_cholesky
@@ -208,9 +211,7 @@ def test_lkj_cholesky_support(
 def test_mixture_supports_component_support(
     domain: FinSet, codomain_1d: Euclidean, x_batch: torch.Tensor
 ) -> None:
-    m = ConditionalMixture(
-        domain, codomain_1d, ConditionalPoisson, num_components=2
-    )
+    m = ConditionalMixture(domain, codomain_1d, ConditionalPoisson, num_components=2)
     # Class-level default is `real`; per-instance still resolves to `real`.
     assert ConditionalMixture.support == c.real
     y = torch.tensor([[0.0], [1.0], [2.0]])
@@ -223,11 +224,13 @@ def test_independent_wraps_base(
 ) -> None:
     base = ConditionalPoisson(domain, codomain_3d)
     m = ConditionalIndependent(base)
-    y = torch.tensor([
-        [0.0, 1.0, 2.0],
-        [1.0, 1.0, 1.0],
-        [2.0, 0.0, 3.0],
-    ])
+    y = torch.tensor(
+        [
+            [0.0, 1.0, 2.0],
+            [1.0, 1.0, 1.0],
+            [2.0, 0.0, 3.0],
+        ]
+    )
     lp = m.log_prob(x_batch, y)
     assert torch.isfinite(lp).all()
 
@@ -259,9 +262,7 @@ def test_truncated_accepts_base_and_bounds(
     assert (lp_out == float("-inf")).all()
 
 
-def test_lkj_correlation_factor_support(
-    domain: FinSet, x_batch: torch.Tensor
-) -> None:
+def test_lkj_correlation_factor_support(domain: FinSet, x_batch: torch.Tensor) -> None:
     m = LKJCorrelationFactor(dim=3, eta=1.5, domain=domain)
     assert m.support == c.corr_cholesky
     s = m.rsample(x_batch)
@@ -292,11 +293,11 @@ _FAMILY_META_LOOKUP = [
 
 
 @pytest.mark.parametrize(
-    "qvr_name,expected_cls", _FAMILY_META_LOOKUP, ids=[n for n, _ in _FAMILY_META_LOOKUP]
+    "qvr_name,expected_cls",
+    _FAMILY_META_LOOKUP,
+    ids=[n for n, _ in _FAMILY_META_LOOKUP],
 )
-def test_family_meta_resolves_to_real_class(
-    qvr_name: str, expected_cls: type
-) -> None:
+def test_family_meta_resolves_to_real_class(qvr_name: str, expected_cls: type) -> None:
     meta = FAMILY_META[qvr_name]
     # `distribution_class` carries the torch (or torch-shim) class
     # the transpile lower pipeline reads `arg_constraints` and

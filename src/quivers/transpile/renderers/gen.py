@@ -300,9 +300,7 @@ def _assignment(gx: _GenCtx, lhs: str, rhs: str) -> str:
     return asn
 
 
-def _macro_call_space(
-    gx: _GenCtx, macro_name: str, args: tuple[str, ...]
-) -> str:
+def _macro_call_space(gx: _GenCtx, macro_name: str, args: tuple[str, ...]) -> str:
     """`@<macro_name> arg1 arg2 ...` (space-separated macro args).
 
     Julia accepts both `@trace(dist, addr)` and `@trace dist addr`. The
@@ -361,9 +359,7 @@ def _for_stmt(
     return fs
 
 
-def _vector_alloc(
-    gx: _GenCtx, *, elem_type: str, size_vid: str
-) -> str:
+def _vector_alloc(gx: _GenCtx, *, elem_type: str, size_vid: str) -> str:
     """`Vector{<elem_type>}(undef, <size>)`.
 
     `elem_type` is a Julia type-name string (e.g. ``"Float64"``,
@@ -379,9 +375,7 @@ def _vector_alloc(
     return call
 
 
-def _array_alloc(
-    gx: _GenCtx, *, elem_type: str, size_vids: tuple[str, ...]
-) -> str:
+def _array_alloc(gx: _GenCtx, *, elem_type: str, size_vids: tuple[str, ...]) -> str:
     """`Array{<elem_type>, <N>}(undef, <s0>, ..., <sN-1>)`.
 
     The rank-1 case still spells `Vector{T}(undef, s)`, the idiom the
@@ -391,9 +385,7 @@ def _array_alloc(
     assigns into them.
     """
     if len(size_vids) == 1:
-        return _vector_alloc(
-            gx, elem_type=elem_type, size_vid=size_vids[0]
-        )
+        return _vector_alloc(gx, elem_type=elem_type, size_vid=size_vids[0])
     pt = gx.v("parametrized_type_expression", "pt")
     gx.e(pt, _ident(gx, "Array"))
     curly = gx.v("curly_expression", "cu")
@@ -464,9 +456,7 @@ def _dim_size_vid(gx: _GenCtx, dim: Dim) -> str:
         # `length(<name>)` form unless the name is already an integer
         # input the program reads directly.
         return _call(gx, _ident(gx, "length"), (_ident(gx, dim.size_name),))
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"dim:{type(dim).__name__}"]
-    )
+    raise UnsupportedConstruct("qvr-gen", [f"dim:{type(dim).__name__}"])
 
 
 # ---------------------------------------------------------------------------
@@ -483,19 +473,11 @@ def _element_type_for(spec: ConstraintSpec, plate: Plate) -> str:
     """
     del plate
     c = spec.to_constraint()
-    if (
-        is_real_scalar(c)
-        or is_real_positive(c)
-        or is_real_unit_interval(c)
-    ):
+    if is_real_scalar(c) or is_real_positive(c) or is_real_unit_interval(c):
         return "Float64"
     if is_real_vector(c) or is_real_simplex(c) or is_real_one_hot(c):
         return "Vector{Float64}"
-    if (
-        is_real_matrix(c)
-        or is_real_cov_matrix(c)
-        or is_real_corr_chol(c)
-    ):
+    if is_real_matrix(c) or is_real_cov_matrix(c) or is_real_corr_chol(c):
         return "Matrix{Float64}"
     if is_int_bit(c) or is_int_category(c) or is_int_count(c):
         return "Int"
@@ -532,9 +514,7 @@ def _loop_var_for(gx: _GenCtx, axis_name: str, step_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _expected_event_rank(
-    family: str, arg_name: str
-) -> int:
+def _expected_event_rank(family: str, arg_name: str) -> int:
     """Return the expected `event_dim` of the family's `arg_name`.
 
     Reads `FAMILY_META[family].distribution_class.arg_constraints`
@@ -557,9 +537,7 @@ def _expected_event_rank(
     # name while excluding other constraints (`simplex`,
     # `lower_triangular`, etc.) whose `event_dim > 0` reflects the
     # support's intrinsic shape, not a `Family.expand(...)` wrapper.
-    if hasattr(constraint, "base_constraint") and hasattr(
-        constraint, "event_dim"
-    ):
+    if hasattr(constraint, "base_constraint") and hasattr(constraint, "event_dim"):
         return int(constraint.event_dim)
     return 0
 
@@ -614,11 +592,7 @@ def _is_scalar_input(inp: IRDataInput) -> bool:
     c = inp.constraint.to_constraint()
     if is_real_vector(c) or is_real_simplex(c) or is_real_one_hot(c):
         return False
-    if (
-        is_real_matrix(c)
-        or is_real_cov_matrix(c)
-        or is_real_corr_chol(c)
-    ):
+    if is_real_matrix(c) or is_real_cov_matrix(c) or is_real_corr_chol(c):
         return False
     return True
 
@@ -638,9 +612,7 @@ class _ArgCtx:
     via_loop_var: str | None = None
 
 
-def _render_arg(
-    gx: _GenCtx, arg: IRArg, *, arg_ctx: _ArgCtx
-) -> str:
+def _render_arg(gx: _GenCtx, arg: IRArg, *, arg_ctx: _ArgCtx) -> str:
     """Render one IR arg into a Julia expression vertex.
 
     See `_render_arg_ref` for how `arg_ctx` participates in threading
@@ -662,14 +634,10 @@ def _render_arg(
             "qvr-gen",
             [f"arg:family_ref:{arg.name}: no inline rendering"],
         )
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"arg:{type(arg).__name__}"]
-    )
+    raise UnsupportedConstruct("qvr-gen", [f"arg:{type(arg).__name__}"])
 
 
-def _render_arg_ref(
-    gx: _GenCtx, ref: IRArgRef, *, arg_ctx: _ArgCtx
-) -> str:
+def _render_arg_ref(gx: _GenCtx, ref: IRArgRef, *, arg_ctx: _ArgCtx) -> str:
     """Render an [`IRArgRef`][quivers.transpile.ir.IRArgRef], threading
     the surrounding loop's index into the reference.
 
@@ -688,9 +656,7 @@ def _render_arg_ref(
     decl_axes = gx.decl_axes.get(ref.name, ())
 
     if ref.indices:
-        rendered = tuple(
-            _render_arg(gx, idx, arg_ctx=arg_ctx) for idx in ref.indices
-        )
+        rendered = tuple(_render_arg(gx, idx, arg_ctx=arg_ctx) for idx in ref.indices)
         return _index_into(gx, base, rendered)
 
     if not decl_axes:
@@ -704,10 +670,7 @@ def _render_arg_ref(
             continue
         # No direct loop variable: route through the via fibration
         # if one is active; otherwise leave the axis unindexed.
-        if (
-            arg_ctx.via_indexer is not None
-            and arg_ctx.via_loop_var is not None
-        ):
+        if arg_ctx.via_indexer is not None and arg_ctx.via_loop_var is not None:
             via_idx = _index_into(
                 gx,
                 _ident(gx, arg_ctx.via_indexer),
@@ -733,9 +696,7 @@ def _broadcast_to_shape(
     return _call(gx, _ident(gx, "fill"), tuple(args))
 
 
-def _render_list(
-    gx: _GenCtx, arg: IRArgList, *, arg_ctx: _ArgCtx
-) -> str:
+def _render_list(gx: _GenCtx, arg: IRArgList, *, arg_ctx: _ArgCtx) -> str:
     """`[e0, e1, ...]` as a Julia vector_expression."""
     ve = gx.v("vector_expression", "ve")
     for e in arg.elements:
@@ -743,9 +704,7 @@ def _render_list(
     return ve
 
 
-def _render_matrix(
-    gx: _GenCtx, arg: IRArgMatrix, *, arg_ctx: _ArgCtx
-) -> str:
+def _render_matrix(gx: _GenCtx, arg: IRArgMatrix, *, arg_ctx: _ArgCtx) -> str:
     """`[<r0>; <r1>; ...]` as a Julia matrix_expression of matrix_rows."""
     me = gx.v("matrix_expression", "me")
     for row in arg.rows:
@@ -810,9 +769,7 @@ def _gen_binary_expr(gx: _GenCtx, left: str, op: str, right: str) -> str:
     return be
 
 
-def _gen_transform_args(
-    gx: _GenCtx, arg_vids: list[str], family: str
-) -> list[str]:
+def _gen_transform_args(gx: _GenCtx, arg_vids: list[str], family: str) -> list[str]:
     """Apply the family's value-level arg transforms to rendered args.
 
     Reciprocates the rate arg (Gamma) into Gen.jl's scale slot and
@@ -823,11 +780,11 @@ def _gen_transform_args(
     pos = _GEN_RATE_TO_SCALE_INVERT_POSITIONS.get(family)
     if pos is not None and pos < len(arg_vids):
         inv = _call(gx, _ident(gx, "inv"), (arg_vids[pos],))
-        arg_vids = arg_vids[:pos] + [inv] + arg_vids[pos + 1:]
+        arg_vids = arg_vids[:pos] + [inv] + arg_vids[pos + 1 :]
     cpos = _GEN_PROB_COMPLEMENT_POSITIONS.get(family)
     if cpos is not None and cpos < len(arg_vids):
         comp = _gen_binary_expr(gx, _integer(gx, 1), "-", arg_vids[cpos])
-        arg_vids = arg_vids[:cpos] + [comp] + arg_vids[cpos + 1:]
+        arg_vids = arg_vids[:cpos] + [comp] + arg_vids[cpos + 1 :]
     return arg_vids
 
 
@@ -846,9 +803,7 @@ def _family_event_rank(family: str) -> int:
         return meta.event_rank
     if family in _WRAPPER_TARGET_NAMES:
         return 0
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"family:{family}: no Gen.jl event rank"]
-    )
+    raise UnsupportedConstruct("qvr-gen", [f"family:{family}: no Gen.jl event rank"])
 
 
 def _gen_target_name(family: str) -> str:
@@ -864,9 +819,7 @@ def _gen_target_name(family: str) -> str:
     fallback = _WRAPPER_TARGET_NAMES.get(family)
     if fallback is not None:
         return fallback
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"family:{family}:no-gen-target"]
-    )
+    raise UnsupportedConstruct("qvr-gen", [f"family:{family}:no-gen-target"])
 
 
 # ---------------------------------------------------------------------------
@@ -892,17 +845,15 @@ def _render_truncated_call(
             ["family:Truncated: first arg must be IRArgFamilyRef"],
         )
     inner_vid = _render_inner_family(
-        gx, args[0].name, arg_ctx=arg_ctx,
+        gx,
+        args[0].name,
+        arg_ctx=arg_ctx,
     )
-    bounds = tuple(
-        _render_arg(gx, a, arg_ctx=arg_ctx) for a in args[1:]
-    )
+    bounds = tuple(_render_arg(gx, a, arg_ctx=arg_ctx) for a in args[1:])
     return _call(gx, _ident(gx, "truncated"), (inner_vid, *bounds))
 
 
-def _render_inner_family(
-    gx: _GenCtx, morphism_name: str, *, arg_ctx: _ArgCtx
-) -> str:
+def _render_inner_family(gx: _GenCtx, morphism_name: str, *, arg_ctx: _ArgCtx) -> str:
     """Render the distribution call referenced by a morphism name.
 
     Reads the morphism's `init_family` clause from the carried
@@ -914,32 +865,22 @@ def _render_inner_family(
     if decl is None:
         raise UnsupportedConstruct(
             "qvr-gen",
-            [
-                f"family_ref:{morphism_name}: morphism not declared "
-                f"in transpile context"
-            ],
+            [f"family_ref:{morphism_name}: morphism not declared in transpile context"],
         )
     init = getattr(decl, "init_family", None)
     if init is None or getattr(init, "family", None) is None:
         raise UnsupportedConstruct(
             "qvr-gen",
-            [
-                f"family_ref:{morphism_name}: morphism has no "
-                f"init_family declaration"
-            ],
+            [f"family_ref:{morphism_name}: morphism has no init_family declaration"],
         )
     family = init.family
     raw_args = tuple(init.args or ())
     callee_name = _gen_target_name(family)
-    arg_vids = tuple(
-        _lift_raw_arg(gx, a, arg_ctx=arg_ctx) for a in raw_args
-    )
+    arg_vids = tuple(_lift_raw_arg(gx, a, arg_ctx=arg_ctx) for a in raw_args)
     return _call(gx, _ident(gx, callee_name), arg_vids)
 
 
-def _lift_raw_arg(
-    gx: _GenCtx, raw: object, *, arg_ctx: _ArgCtx
-) -> str:
+def _lift_raw_arg(gx: _GenCtx, raw: object, *, arg_ctx: _ArgCtx) -> str:
     """Lift a morphism-table raw arg (str / number / IRArg) to a vertex."""
     if isinstance(raw, IRArg):
         return _render_arg(gx, raw, arg_ctx=arg_ctx)
@@ -951,21 +892,19 @@ def _lift_raw_arg(
         except ValueError:
             return _ident(gx, raw)
         return _number(gx, value)
-    raise UnsupportedConstruct(
-        "qvr-gen", [f"raw-arg:{type(raw).__name__}"]
-    )
+    raise UnsupportedConstruct("qvr-gen", [f"raw-arg:{type(raw).__name__}"])
 
 
-_WrapperBuilder = Callable[
-    [_GenCtx, tuple[IRArg, ...], _ArgCtx], str
-]
+_WrapperBuilder = Callable[[_GenCtx, tuple[IRArg, ...], _ArgCtx], str]
 
 
 #: Per-wrapper-family builder dispatch.
 _WRAPPER_BUILDERS: dict[str, _WrapperBuilder] = {
     "Truncated": (
         lambda gx, args, arg_ctx: _render_truncated_call(
-            gx, args=args, arg_ctx=arg_ctx,
+            gx,
+            args=args,
+            arg_ctx=arg_ctx,
         )
     ),
 }
@@ -991,9 +930,7 @@ def _build_wrapper_call(
 # ---------------------------------------------------------------------------
 
 
-def _trace_address(
-    gx: _GenCtx, name: str, loop_indices: tuple[str, ...]
-) -> str:
+def _trace_address(gx: _GenCtx, name: str, loop_indices: tuple[str, ...]) -> str:
     """Build the trace address: ``:name`` or ``(:name, m_0, m_1, ...)``."""
     if not loop_indices:
         return _quote_sym(gx, name)
@@ -1021,9 +958,7 @@ def _trace_call(
     return _macro_call_parens(gx, "trace", (dist_vid, addr))
 
 
-def _macro_call_parens(
-    gx: _GenCtx, macro_name: str, args: tuple[str, ...]
-) -> str:
+def _macro_call_parens(gx: _GenCtx, macro_name: str, args: tuple[str, ...]) -> str:
     """`@<macro_name>(arg1, arg2, ...)` (parenthesised macro args).
 
     Use this form when any of `args` is a function call whose trailing
@@ -1123,7 +1058,10 @@ class GenRenderer(RendererBase):
         # function is always named `model` so the harness has a
         # canonical entry point regardless of the QVR module name.
         fn = _function_def(
-            gx, name="model", params=tuple(gx.params), body_vid=blk,
+            gx,
+            name="model",
+            params=tuple(gx.params),
+            body_vid=blk,
         )
         mc = _macro_call_body(gx, "gen", fn)
         src = gx.v("source_file", "src")
@@ -1135,10 +1073,7 @@ class GenRenderer(RendererBase):
         # carries its own `using Gen` / `using Distributions`
         # statements; subsequent `@gen` macrocalls see the imported
         # names through normal Julia name lookup.
-        if any(
-            _ir_uses_family(ir.body, f)
-            for f in _GEN_RUNTIME_HELPER_FAMILIES
-        ):
+        if any(_ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
         return sb.build()
@@ -1182,9 +1117,7 @@ class GenRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._gx.return_names = tuple(node.names)
             return
-        raise UnsupportedConstruct(
-            "qvr-gen", [f"node:{type(node).__name__}"]
-        )
+        raise UnsupportedConstruct("qvr-gen", [f"node:{type(node).__name__}"])
 
     # ------------------------------------------------------------------
     # Sample / observe emission
@@ -1217,9 +1150,7 @@ class GenRenderer(RendererBase):
         # loop axes rather than part of the distribution call: a
         # `Normal` site declared `over=LatentDim` fills a 32-by-2
         # `Array` at addresses `(:Z_mat, m_Item, m_LatentDim)`.
-        own_start = len(node.plate.event_dims) - _family_event_rank(
-            node.family
-        )
+        own_start = len(node.plate.event_dims) - _family_event_rank(node.family)
         residual_event = node.plate.event_dims[:own_start]
         own_event = node.plate.event_dims[own_start:]
         loop_dims = (*node.plate.batch_dims, *residual_event)
@@ -1254,9 +1185,7 @@ class GenRenderer(RendererBase):
         grafted into the emit via the existing runtime-helper graft
         when GP appears in the IR.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 "qvr-gen",
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -1265,10 +1194,7 @@ class GenRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 "qvr-gen",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         gx = self._gx
         n = kernel_arg.grid_size
@@ -1279,38 +1205,37 @@ class GenRenderer(RendererBase):
         cov_name = f"__gp_cov_{node.name}"
         # __gp_mean_<name> = zeros(N)
         mean_rhs = _call(
-            gx, _ident(gx, "zeros"), (_integer(gx, n),),
+            gx,
+            _ident(gx, "zeros"),
+            (_integer(gx, n),),
         )
-        gx.body_stmts.append(
-            _assignment(gx, _ident(gx, mean_name), mean_rhs)
-        )
+        gx.body_stmts.append(_assignment(gx, _ident(gx, mean_name), mean_rhs))
         # __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter)
         cov_rhs = _call(
-            gx, _ident(gx, "_qvr_rbf_kernel"),
+            gx,
+            _ident(gx, "_qvr_rbf_kernel"),
             (
                 _ident(gx, x),
                 _float_lit(gx, ls),
                 _float_lit(gx, jitter),
             ),
         )
-        gx.body_stmts.append(
-            _assignment(gx, _ident(gx, cov_name), cov_rhs)
-        )
+        gx.body_stmts.append(_assignment(gx, _ident(gx, cov_name), cov_rhs))
         # <name> = @trace(mvnormal(__gp_mean_<name>, __gp_cov_<name>), :<name>)
         mvn_call = _call(
-            gx, _ident(gx, "mvnormal"),
+            gx,
+            _ident(gx, "mvnormal"),
             (_ident(gx, mean_name), _ident(gx, cov_name)),
         )
         trace = _trace_call(
-            gx, dist_vid=mvn_call, name=node.name, loop_indices=(),
+            gx,
+            dist_vid=mvn_call,
+            name=node.name,
+            loop_indices=(),
         )
-        gx.body_stmts.append(
-            _assignment(gx, _ident(gx, node.name), trace)
-        )
+        gx.body_stmts.append(_assignment(gx, _ident(gx, node.name), trace))
 
-    def _emit_scalar_sample(
-        self, node: IRSample, *, observed: bool
-    ) -> None:
+    def _emit_scalar_sample(self, node: IRSample, *, observed: bool) -> None:
         gx = self._gx
         dist_vid = self._build_dist_call(
             family=node.family,
@@ -1319,9 +1244,7 @@ class GenRenderer(RendererBase):
             event_dims=node.plate.event_dims,
             arg_ctx=_ArgCtx(),
         )
-        trace = _trace_call(
-            gx, dist_vid=dist_vid, name=node.name, loop_indices=()
-        )
+        trace = _trace_call(gx, dist_vid=dist_vid, name=node.name, loop_indices=())
         if observed:
             gx.body_stmts.append(trace)
         else:
@@ -1329,9 +1252,7 @@ class GenRenderer(RendererBase):
             gx.body_stmts.append(stmt)
             gx.decl_axes[node.name] = ()
 
-    def _emit_storage_alloc(
-        self, node: IRSample, loop_dims: tuple[Dim, ...]
-    ) -> None:
+    def _emit_storage_alloc(self, node: IRSample, loop_dims: tuple[Dim, ...]) -> None:
         """Pre-allocate the dense array the plate loop fills.
 
         One axis gives `Vector{T}(undef, B)`; several give
@@ -1342,7 +1263,9 @@ class GenRenderer(RendererBase):
         elem_type = _element_type_for(node.constraint, node.plate)
         size_vids = tuple(_dim_size_vid(gx, dim) for dim in loop_dims)
         alloc = _array_alloc(
-            gx, elem_type=elem_type, size_vids=size_vids,
+            gx,
+            elem_type=elem_type,
+            size_vids=size_vids,
         )
         stmt = _assignment(gx, _ident(gx, node.name), alloc)
         gx.body_stmts.append(stmt)
@@ -1358,8 +1281,7 @@ class GenRenderer(RendererBase):
     ) -> None:
         gx = self._gx
         loop_names = tuple(
-            _loop_var_for(gx, str(dim.name), node.name)
-            for dim in loop_dims
+            _loop_var_for(gx, str(dim.name), node.name) for dim in loop_dims
         )
         # The batch-loop binding for the current step: axis name →
         # loop variable identifier. Each declared ref whose
@@ -1419,9 +1341,7 @@ class GenRenderer(RendererBase):
         for dim in loop_dims:
             gx.used_axes.add(str(dim.name))
 
-    def _build_indexed_lhs(
-        self, name: str, loop_names: tuple[str, ...]
-    ) -> str:
+    def _build_indexed_lhs(self, name: str, loop_names: tuple[str, ...]) -> str:
         gx = self._gx
         if not loop_names:
             return _ident(gx, name)
@@ -1502,9 +1422,7 @@ class GenRenderer(RendererBase):
         loop index from the surrounding plate.
         """
         gx = self._gx
-        weights, loc, scale = mixture_normal_components(
-            "gen", args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components("gen", args, arg_names)
         dims = gx.v("vector_expression", "mxdims")
         gx.e(dims, _integer(gx, 0))
         gx.e(dims, _integer(gx, 0))
@@ -1517,8 +1435,7 @@ class GenRenderer(RendererBase):
             gx,
             mixture,
             tuple(
-                _render_arg(gx, arg, arg_ctx=arg_ctx)
-                for arg in (weights, loc, scale)
+                _render_arg(gx, arg, arg_ctx=arg_ctx) for arg in (weights, loc, scale)
             ),
         )
 
@@ -1586,14 +1503,13 @@ class GenRenderer(RendererBase):
     # Marginalize: lower to IRSample + scope inline
     # ------------------------------------------------------------------
 
-    def _emit_marginalize(
-        self, ctx: _RenderCtx, node: IRMarginalize
-    ) -> None:
+    def _emit_marginalize(self, ctx: _RenderCtx, node: IRMarginalize) -> None:
         """Reject `IRMarginalize` because Gen's `@gen` DSL has no supported carrier for
         the reduced log density.
         """
         raise UnsupportedConstruct(
-            "qvr-gen", [f"marginalize:no-log-weight:{node.latent}"],
+            "qvr-gen",
+            [f"marginalize:no-log-weight:{node.latent}"],
         )
         explicit = self.explicit_latent_scope(node)
         for inner in explicit:
@@ -1611,9 +1527,7 @@ class GenRenderer(RendererBase):
         )
         bind = _assignment(gx, _ident(gx, node.name), rhs)
         gx.body_stmts.append(bind)
-        mc = _macro_call_space(
-            gx, "addlogprob!", (_ident(gx, node.name),)
-        )
+        mc = _macro_call_space(gx, "addlogprob!", (_ident(gx, node.name),))
         gx.body_stmts.append(mc)
 
     # ------------------------------------------------------------------
@@ -1649,7 +1563,14 @@ class GenRenderer(RendererBase):
         observed: bool,
     ) -> SchemaFragment:
         del (
-            ctx, name, family, args, arg_names, constraint, plate, observed,
+            ctx,
+            name,
+            family,
+            args,
+            arg_names,
+            constraint,
+            plate,
+            observed,
         )
         return ""
 
@@ -1731,9 +1652,7 @@ def _infer_deterministic_axes(
         for name in refs:
             if name not in inferred:
                 continue
-            inferred[name] = _union_dims(
-                inferred[name], node.plate.batch_dims
-            )
+            inferred[name] = _union_dims(inferred[name], node.plate.batch_dims)
     # Transitive propagation through deterministic->deterministic refs.
     # Two directions run to a joint fixpoint:
     #
@@ -1753,15 +1672,11 @@ def _infer_deterministic_axes(
             for ref_name in _bare_ref_names_in_expr(node.expr):
                 if ref_name not in inferred:
                     continue
-                forward = _union_dims(
-                    inferred[node.name], inferred[ref_name]
-                )
+                forward = _union_dims(inferred[node.name], inferred[ref_name])
                 if forward != inferred[node.name]:
                     inferred[node.name] = forward
                     changed = True
-                backward = _union_dims(
-                    inferred[ref_name], inferred[node.name]
-                )
+                backward = _union_dims(inferred[ref_name], inferred[node.name])
                 if backward != inferred[ref_name]:
                     inferred[ref_name] = backward
                     changed = True
@@ -1851,9 +1766,7 @@ def _walk_let_expr(node: object, out: list[str]) -> None:
         return
 
 
-def _union_dims(
-    a: tuple[Dim, ...], b: tuple[Dim, ...]
-) -> tuple[Dim, ...]:
+def _union_dims(a: tuple[Dim, ...], b: tuple[Dim, ...]) -> tuple[Dim, ...]:
     """Union two dim tuples by name, preserving the order in `a`
     followed by any new dims from `b`."""
     seen = {str(d.name) for d in a}
@@ -1887,9 +1800,7 @@ def _union_dims(
 # ---------------------------------------------------------------------------
 
 
-_RUNTIME_GEN_PATH = (
-    pathlib.Path(__file__).resolve().parent.parent / "runtime_gen.jl"
-)
+_RUNTIME_GEN_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_gen.jl"
 
 
 #: Families whose Gen.jl emit relies on the
@@ -1897,24 +1808,24 @@ _RUNTIME_GEN_PATH = (
 #: Gen.jl ships `normal`, `uniform`, `beta`, etc. as built-in
 #: distributions but lacks these; the renderer grafts the helper
 #: when the IR samples or observes from any of them.
-_GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "TruncatedNormal",
-    "Logistic",
-    "BetaBinomial",
-    "HalfStudentT",
-    "Kumaraswamy",
-    "ContinuousBernoulli",
-    "LKJCholesky",
-    "MatrixNormal",
-    "LogNormal",
-    "Weibull",
-    "GP",
-})
+_GEN_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset(
+    {
+        "TruncatedNormal",
+        "Logistic",
+        "BetaBinomial",
+        "HalfStudentT",
+        "Kumaraswamy",
+        "ContinuousBernoulli",
+        "LKJCholesky",
+        "MatrixNormal",
+        "LogNormal",
+        "Weibull",
+        "GP",
+    }
+)
 
 
-def _load_runtime_gen_schema() -> tuple[
-    panproto.Schema, str, tuple[str, ...]
-]:
+def _load_runtime_gen_schema() -> tuple[panproto.Schema, str, tuple[str, ...]]:
     """Parse [`runtime_gen.jl`][quivers.transpile.runtime_gen] through
     panproto's Julia tree-sitter grammar at module-load time.
 
@@ -1934,9 +1845,7 @@ def _load_runtime_gen_schema() -> tuple[
         None,
     )
     if src_id is None:
-        raise RuntimeError(
-            f"`source_file` not found in parse of {_RUNTIME_GEN_PATH}"
-        )
+        raise RuntimeError(f"`source_file` not found in parse of {_RUNTIME_GEN_PATH}")
     children_with_sb: list[tuple[int, str]] = []
     for edge in schema.edges:
         if edge.src != src_id:
@@ -1959,9 +1868,7 @@ _RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_SOURCE_ID, _RUNTIME_GEN_TOP_LEVEL = (
 )
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, roots: tuple[str, ...]
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, roots: tuple[str, ...]) -> set[str]:
     """Return every vertex id reachable from `roots` via outgoing edges."""
     seen: set[str] = set(roots)
     frontier: list[str] = list(roots)
@@ -1974,9 +1881,7 @@ def _subtree_vertex_ids(
     return seen
 
 
-_RUNTIME_GEN_SUBTREE = _subtree_vertex_ids(
-    _RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_TOP_LEVEL
-)
+_RUNTIME_GEN_SUBTREE = _subtree_vertex_ids(_RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_TOP_LEVEL)
 
 
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
@@ -1985,14 +1890,10 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
     samples from `family`."""
     for node in body:
-        if (
-            isinstance(node, (IRSample, IRObserve))
-            and node.family == family
-        ):
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
             return True
         if isinstance(node, IRMarginalize) and (
-            node.family == family
-            or _ir_uses_family(node.scope, family)
+            node.family == family or _ir_uses_family(node.scope, family)
         ):
             return True
     return False
@@ -2015,9 +1916,7 @@ def _graft_runtime_gen_helper(gx: _GenCtx, source_vid: str) -> None:
     for old in subtree:
         new = gx.fresh("rg")
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         gx.sb.vertex(new, kind)
         for cstr in src_schema.constraints_for(old):
             gx.sb.constraint(new, cstr.sort, cstr.value)

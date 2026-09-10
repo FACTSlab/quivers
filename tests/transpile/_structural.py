@@ -44,10 +44,7 @@ def vertex_ids_of_kind(schema: panproto.Schema, kind: str) -> list[str]:
 
 def children_of(schema: panproto.Schema, vertex_id: str) -> list[str]:
     """Target vertex ids of every outgoing `child_of` edge."""
-    return [
-        e.tgt for e in schema.edges
-        if e.src == vertex_id and e.kind == "child_of"
-    ]
+    return [e.tgt for e in schema.edges if e.src == vertex_id and e.kind == "child_of"]
 
 
 def outgoing_edges_named(
@@ -61,9 +58,7 @@ def outgoing_edges_named(
     return [e.tgt for e in schema.edges if e.src == vertex_id and e.kind == kind]
 
 
-def field_target(
-    schema: panproto.Schema, vertex_id: str, field: str
-) -> str:
+def field_target(schema: panproto.Schema, vertex_id: str, field: str) -> str:
     """The single target of the named field edge on ``vertex_id``.
 
     Raises ``AssertionError`` if the field is missing or has more
@@ -78,9 +73,7 @@ def field_target(
     return matches[0]
 
 
-def literal_value(
-    schema: panproto.Schema, vertex_id: str
-) -> str | None:
+def literal_value(schema: panproto.Schema, vertex_id: str) -> str | None:
     """The `literal-value` constraint text on ``vertex_id``, or None."""
     for c in schema.constraints_for(vertex_id):
         if c.sort == "literal-value":
@@ -139,23 +132,19 @@ def assert_stan_beta_bernoulli(schema: panproto.Schema) -> None:
     targets carry `literal-value` `beta` and `bernoulli`."""
     program = assert_unique_kind(schema, "program", 1)[0]
     blocks = children_of(schema, program)
-    block_kinds = [
-        next(v for v in schema.vertices if v.id == b).kind for b in blocks
-    ]
+    block_kinds = [next(v for v in schema.vertices if v.id == b).kind for b in blocks]
     assert "data" in block_kinds, f"missing `data` block; got {block_kinds}"
-    assert "parameters" in block_kinds, (
-        f"missing `parameters` block; got {block_kinds}"
-    )
+    assert "parameters" in block_kinds, f"missing `parameters` block; got {block_kinds}"
     assert "model" in block_kinds, f"missing `model` block; got {block_kinds}"
 
     [model_id] = [b for b in blocks if vertex_kind(schema, b) == "model"]
     stmts = [
-        c for c in children_of(schema, model_id)
+        c
+        for c in children_of(schema, model_id)
         if vertex_kind(schema, c) == "sampling_statement"
     ]
     dist_names = sorted(
-        literal_value(schema, field_target(schema, s, "name")) or ""
-        for s in stmts
+        literal_value(schema, field_target(schema, s, "name")) or "" for s in stmts
     )
     assert dist_names == ["bernoulli", "beta"], (
         f"expected dist names [bernoulli, beta]; got {dist_names}"
@@ -183,8 +172,9 @@ def assert_numpyro_beta_bernoulli(schema: panproto.Schema) -> None:
     )
 
     sample_calls = [
-        v.id for v in schema.vertices if v.kind == "call"
-        and _call_is_attribute(schema, v.id, ("numpyro", "sample"))
+        v.id
+        for v in schema.vertices
+        if v.kind == "call" and _call_is_attribute(schema, v.id, ("numpyro", "sample"))
     ]
     assert len(sample_calls) == 2, (
         f"expected 2 numpyro.sample calls; got {len(sample_calls)}"
@@ -238,9 +228,7 @@ def _attribute_matches(
     )
 
 
-def _string_literal_arg(
-    schema: panproto.Schema, call_id: str
-) -> str | None:
+def _string_literal_arg(schema: panproto.Schema, call_id: str) -> str | None:
     """First positional `string` argument's literal content, or None."""
     arg_lists = outgoing_edges_named(schema, call_id, "arguments")
     if len(arg_lists) != 1:

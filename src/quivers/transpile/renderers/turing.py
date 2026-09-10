@@ -150,39 +150,27 @@ def _literal(
     return vid
 
 
-def _identifier(
-    sb: panproto.SchemaBuilder, counter: list[int], text: str
-) -> str:
+def _identifier(sb: panproto.SchemaBuilder, counter: list[int], text: str) -> str:
     return _literal(sb, counter, "identifier", text)
 
 
-def _operator(
-    sb: panproto.SchemaBuilder, counter: list[int], text: str
-) -> str:
+def _operator(sb: panproto.SchemaBuilder, counter: list[int], text: str) -> str:
     return _literal(sb, counter, "operator", text)
 
 
-def _integer(
-    sb: panproto.SchemaBuilder, counter: list[int], value: int
-) -> str:
+def _integer(sb: panproto.SchemaBuilder, counter: list[int], value: int) -> str:
     return _literal(sb, counter, "integer_literal", str(value))
 
 
-def _float(
-    sb: panproto.SchemaBuilder, counter: list[int], value: float
-) -> str:
+def _float(sb: panproto.SchemaBuilder, counter: list[int], value: float) -> str:
     return _literal(sb, counter, "float_literal", repr(value))
 
 
-def _number(
-    sb: panproto.SchemaBuilder, counter: list[int], value: float
-) -> str:
+def _number(sb: panproto.SchemaBuilder, counter: list[int], value: float) -> str:
     """Pick `integer_literal` for whole values; `float_literal` for the
     rest. Mirrors the Julia source idiom of writing `3` instead of
     `3.0` for plate sizes and integer arguments."""
-    if isinstance(value, int) or (
-        isinstance(value, float) and value.is_integer()
-    ):
+    if isinstance(value, int) or (isinstance(value, float) and value.is_integer()):
         return _integer(sb, counter, int(value))
     return _float(sb, counter, float(value))
 
@@ -312,9 +300,7 @@ def _matrix_literal(
     return vid
 
 
-def _range(
-    sb: panproto.SchemaBuilder, counter: list[int], lo: str, hi: str
-) -> str:
+def _range(sb: panproto.SchemaBuilder, counter: list[int], lo: str, hi: str) -> str:
     """`<lo>:<hi>` (Julia `range_expression`, an infix `:`)."""
     vid = _vertex(sb, counter, "range_expression")
     sb.edge(vid, lo, "child_of")
@@ -395,17 +381,13 @@ def _array_alloc(
     sb.edge(call, pt, "child_of")
     sb.edge(
         call,
-        _argument_list(
-            sb, counter, (_identifier(sb, counter, "undef"), *sizes)
-        ),
+        _argument_list(sb, counter, (_identifier(sb, counter, "undef"), *sizes)),
         "child_of",
     )
     return call
 
 
-def _return(
-    sb: panproto.SchemaBuilder, counter: list[int], value: str
-) -> str:
+def _return(sb: panproto.SchemaBuilder, counter: list[int], value: str) -> str:
     """`return <value>`."""
     vid = _vertex(sb, counter, "return_statement")
     sb.edge(vid, value, "child_of")
@@ -548,9 +530,7 @@ class TuringRenderer(RendererBase):
         for node in ir.body:
             self._dispatch(ctx, node)
 
-        fn = _function_def(
-            sb, counter, name="model", params=params, body_vid=body
-        )
+        fn = _function_def(sb, counter, name="model", params=params, body_vid=body)
         macro = _macro_call(sb, counter, "model", fn)
         # Turing.jl + Distributions.jl ship a large catalogue of
         # distributions but lack `ContinuousBernoulli` and an RBF
@@ -560,10 +540,7 @@ class TuringRenderer(RendererBase):
         # the source above the `@model function model` macrocall so the
         # body's `~ ContinuousBernoulli(...)` / `_qvr_rbf_kernel(...)`
         # call sites resolve through normal Julia name lookup.
-        if any(
-            _ir_uses_family(ir.body, f)
-            for f in _TURING_RUNTIME_HELPER_FAMILIES
-        ):
+        if any(_ir_uses_family(ir.body, f) for f in _TURING_RUNTIME_HELPER_FAMILIES):
             _graft_runtime_turing_helper(sb, counter, source)
         sb.edge(source, macro, "child_of")
         return sb.build()
@@ -614,9 +591,7 @@ class TuringRenderer(RendererBase):
             return
         if isinstance(node, IRDataInput):
             return
-        raise UnsupportedConstruct(
-            "qvr-turing", [f"node:{type(node).__name__}"]
-        )
+        raise UnsupportedConstruct("qvr-turing", [f"node:{type(node).__name__}"])
 
     def _emit_gp_block(
         self,
@@ -637,9 +612,7 @@ class TuringRenderer(RendererBase):
         [`_graft_runtime_turing_helper`][quivers.transpile.renderers.turing._graft_runtime_turing_helper]
         path with GP added to the helper-family set).
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 "qvr-turing",
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -648,10 +621,7 @@ class TuringRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 "qvr-turing",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         sb, counter = ctx.sb, ctx.counter
         n = kernel_arg.grid_size
@@ -663,7 +633,8 @@ class TuringRenderer(RendererBase):
         # __gp_mean_<name> = zeros(N)
         mean_lhs = _identifier(sb, counter, mean_name)
         mean_rhs = _call(
-            sb, counter,
+            sb,
+            counter,
             _identifier(sb, counter, "zeros"),
             (_integer(sb, counter, n),),
         )
@@ -675,7 +646,8 @@ class TuringRenderer(RendererBase):
         # __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter)
         cov_lhs = _identifier(sb, counter, cov_name)
         cov_rhs = _call(
-            sb, counter,
+            sb,
+            counter,
             _identifier(sb, counter, "_qvr_rbf_kernel"),
             (
                 _identifier(sb, counter, x),
@@ -691,7 +663,8 @@ class TuringRenderer(RendererBase):
         # f ~ MvNormal(__gp_mean_f, __gp_cov_f)
         f_lhs = _identifier(sb, counter, node.name)
         mvn_rhs = _call(
-            sb, counter,
+            sb,
+            counter,
             _identifier(sb, counter, "MvNormal"),
             (
                 _identifier(sb, counter, mean_name),
@@ -785,14 +758,11 @@ class TuringRenderer(RendererBase):
         # observe/sample's batch axes. The presence of `via` is the
         # strongest signal: it always rewrites the indexing to thread
         # through the fibration variable.
-        index_dep = (
-            via is not None
-            or _args_have_batch_index(
-                args,
-                ctx.sample_plates,
-                plate,
-                ctx.batch_shaped_names,
-            )
+        index_dep = via is not None or _args_have_batch_index(
+            args,
+            ctx.sample_plates,
+            plate,
+            ctx.batch_shaped_names,
         )
 
         if own_event and (plate.batch_dims or residual_event):
@@ -841,8 +811,7 @@ class TuringRenderer(RendererBase):
             # Index-dependent observe with a `via` fibration: emit the
             # broadcast-dot form `name .~ Family.(rewritten_args)`.
             rhs_args = tuple(
-                _arg_to_julia(ctx, a, via=via, family=family)
-                for a in args
+                _arg_to_julia(ctx, a, via=via, family=family) for a in args
             )
             rhs = _dist_expr(
                 sb,
@@ -867,9 +836,7 @@ class TuringRenderer(RendererBase):
             # scalar tilde. DynamicPPL no longer accepts `.~` over
             # an array of distributions; `product_distribution` is
             # the supported replacement.
-            rhs_args = tuple(
-                _arg_to_julia(ctx, a, family=family) for a in args
-            )
+            rhs_args = tuple(_arg_to_julia(ctx, a, family=family) for a in args)
             elemwise = _dist_expr(
                 sb,
                 counter,
@@ -917,14 +884,10 @@ class TuringRenderer(RendererBase):
             _promote_scalar_ref(a, name, plate, meta)
             for name, a in zip(arg_names, args, strict=False)
         )
-        dist = self._family_call(
-            ctx, target_dist, promoted, family, own_event
-        )
+        dist = self._family_call(ctx, target_dist, promoted, family, own_event)
         fill_dims = (*plate.batch_dims, *residual_event)
         if fill_dims:
-            size_vids = tuple(
-                _dim_to_size(sb, counter, dim) for dim in fill_dims
-            )
+            size_vids = tuple(_dim_to_size(sb, counter, dim) for dim in fill_dims)
             dist = _call(
                 sb,
                 counter,
@@ -973,9 +936,7 @@ class TuringRenderer(RendererBase):
                     f"Turing.jl spelling"
                 ],
             )
-        weights, loc, scale = mixture_normal_components(
-            "turing", args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components("turing", args, arg_names)
         components = _broadcast_call(
             sb,
             counter,
@@ -1046,9 +1007,7 @@ class TuringRenderer(RendererBase):
             _promote_scalar_ref(a, arg_name, plate, meta)
             for arg_name, a in zip(arg_names, rewritten, strict=False)
         )
-        dist = self._family_call(
-            ctx, target_dist, promoted, family, own_event
-        )
+        dist = self._family_call(ctx, target_dist, promoted, family, own_event)
         lhs = _index_expr(
             sb,
             counter,
@@ -1058,12 +1017,8 @@ class TuringRenderer(RendererBase):
                 *(_colon(sb, counter) for _ in own_event),
             ),
         )
-        stmts: tuple[str, ...] = (
-            _tilde(sb, counter, lhs, dist),
-        )
-        for dim, loop_var in zip(
-            reversed(loop_dims), reversed(loop_vars), strict=True
-        ):
+        stmts: tuple[str, ...] = (_tilde(sb, counter, lhs, dist),)
+        for dim, loop_var in zip(reversed(loop_dims), reversed(loop_vars), strict=True):
             stmts = (
                 _for_stmt(
                     sb,
@@ -1079,8 +1034,7 @@ class TuringRenderer(RendererBase):
             counter,
             elem_type="Float64",
             sizes=tuple(
-                _dim_to_size(sb, counter, dim)
-                for dim in (*loop_dims, *own_event)
+                _dim_to_size(sb, counter, dim) for dim in (*loop_dims, *own_event)
             ),
         )
         sb.edge(
@@ -1093,9 +1047,7 @@ class TuringRenderer(RendererBase):
 
     # ----- marginalize: the integrated-density lowering -----
 
-    def marginalize(
-        self, ctx: _RenderCtx, node: IRMarginalize
-    ) -> SchemaFragment:
+    def marginalize(self, ctx: _RenderCtx, node: IRMarginalize) -> SchemaFragment:
         """Integrate an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         latent out, adding the reduced density to the model's
         log-joint with `Turing.@addlogprob!`.
@@ -1130,9 +1082,7 @@ class TuringRenderer(RendererBase):
             node,
             support_size=marginal_support_size(node, name_plates=plates),
         )
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         prefix = f"__marg_{node.latent}"
         term_names: list[str] = []
         for position, atom in enumerate(atoms):
@@ -1148,9 +1098,7 @@ class TuringRenderer(RendererBase):
                 ctx, term, self._atom_log_density(ctx, scored.observe)
             )
             term_names.append(term)
-        weight_names = self._emit_atom_weights(
-            ctx, node, raw, atoms, prefix, plates
-        )
+        weight_names = self._emit_atom_weights(ctx, node, raw, atoms, prefix, plates)
         shifted: list[str] = []
         for position, (weight, term) in enumerate(
             zip(weight_names, term_names, strict=True)
@@ -1204,9 +1152,7 @@ class TuringRenderer(RendererBase):
             counter,
             _identifier(sb, counter, max_name),
             "+",
-            _broadcast_call(
-                sb, counter, _identifier(sb, counter, "log"), (total,)
-            ),
+            _broadcast_call(sb, counter, _identifier(sb, counter, "log"), (total,)),
         )
         self._emit_assignment(ctx, prefix, reduced)
         summed = _call(
@@ -1222,9 +1168,7 @@ class TuringRenderer(RendererBase):
         )
         return ""
 
-    def _emit_assignment(
-        self, ctx: _TuringCtx, name: str, rhs: str
-    ) -> None:
+    def _emit_assignment(self, ctx: _TuringCtx, name: str, rhs: str) -> None:
         """Append `<name> = <rhs>` to the model body."""
         sb, counter = ctx.sb, ctx.counter
         sb.edge(
@@ -1233,9 +1177,7 @@ class TuringRenderer(RendererBase):
             "child_of",
         )
 
-    def _atom_log_density(
-        self, ctx: _TuringCtx, observe: IRObserve
-    ) -> str:
+    def _atom_log_density(self, ctx: _TuringCtx, observe: IRObserve) -> str:
         """`logpdf.(<Dist>, <observed value>)` for one atom's scope.
 
         The distribution constructor broadcasts when its arguments are
@@ -1283,9 +1225,7 @@ class TuringRenderer(RendererBase):
         )
         value = _identifier(sb, counter, observe.name)
         if observe.family in _ONE_BASED_SUPPORT_FAMILIES:
-            value = _dotted_binary(
-                sb, counter, value, "+", _integer(sb, counter, 1)
-            )
+            value = _dotted_binary(sb, counter, value, "+", _integer(sb, counter, 1))
         return _broadcast_call(
             sb,
             counter,
@@ -1330,11 +1270,7 @@ class TuringRenderer(RendererBase):
                     sb,
                     counter,
                     _identifier(sb, counter, "log1p"),
-                    (
-                        _unary_minus(
-                            sb, counter, _arg_to_julia(ctx, probs)
-                        ),
-                    ),
+                    (_unary_minus(sb, counter, _arg_to_julia(ctx, probs)),),
                 ),
             )
             self._emit_assignment(
@@ -1430,9 +1366,7 @@ class TuringRenderer(RendererBase):
         the rendered arguments and the site's own event axes (the
         `LKJCholesky` matrix dimension).
         """
-        rhs_args = tuple(
-            _arg_to_julia(ctx, a, family=family) for a in args
-        )
+        rhs_args = tuple(_arg_to_julia(ctx, a, family=family) for a in args)
         return _dist_expr(
             ctx.sb,
             ctx.counter,
@@ -1457,8 +1391,7 @@ class TuringRenderer(RendererBase):
         # `name[<binder>]` (when the existing index is itself a
         # reference into the batch axis).
         rewritten = tuple(
-            _replace_first_index(a, binder, ctx.batch_shaped_names)
-            for a in args
+            _replace_first_index(a, binder, ctx.batch_shaped_names) for a in args
         )
         body_call = _dist_expr(
             sb,
@@ -1479,9 +1412,7 @@ class TuringRenderer(RendererBase):
 
     # ----- deterministic / score / return -----
 
-    def _emit_deterministic(
-        self, ctx: _TuringCtx, node: IRDeterministic
-    ) -> None:
+    def _emit_deterministic(self, ctx: _TuringCtx, node: IRDeterministic) -> None:
         """Emit one `<name> = <rhs>` or `<name> = @. <rhs>` assignment.
 
         Wraps the RHS in Julia's `@.` macro when the deterministic is
@@ -1502,15 +1433,9 @@ class TuringRenderer(RendererBase):
         shim = _JlCtxShim(sb, counter, ctx.cards, "turing")
         shapes = ctx.shapes.scoped_to(len(node.plate.batch_dims))
         reduces_axis = let_expr_has_axis_reduction(shapes, node.expr)
-        rhs = render_let_expr_julia(
-            shim, node.expr, shapes=shapes, dotted=reduces_axis
-        )
+        rhs = render_let_expr_julia(shim, node.expr, shapes=shapes, dotted=reduces_axis)
         missing = _plate_axes_missing(shapes, node)
-        if (
-            node.name in ctx.batch_shaped_names
-            and not reduces_axis
-            and not missing
-        ):
+        if node.name in ctx.batch_shaped_names and not reduces_axis and not missing:
             rhs = _macro_call(sb, counter, ".", rhs)
         if missing:
             rhs = _fan_out_to_plate(ctx, node, rhs, missing)
@@ -1535,9 +1460,7 @@ class TuringRenderer(RendererBase):
         )
         sb.edge(ctx.body, mac, "child_of")
 
-    def _emit_return(
-        self, ctx: _RenderCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_return(self, ctx: _RenderCtx, names: tuple[str, ...]) -> None:
         assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         if not names:
@@ -1646,7 +1569,7 @@ def _complement_prob_arg(
         )
     one = _integer(sb, counter, 1)
     comp = _binary_expr(sb, counter, one, ".-", rhs_args[position])
-    return rhs_args[:position] + (comp,) + rhs_args[position + 1:]
+    return rhs_args[:position] + (comp,) + rhs_args[position + 1 :]
 
 
 def _transform_rhs_args(
@@ -1678,9 +1601,7 @@ def _transform_rhs_args(
             sb, counter, rhs_args, _PROB_COMPLEMENT_POSITIONS[family]
         )
     if family in _ARG_ORDER_PERMUTATIONS:
-        rhs_args = _permute_args(
-            rhs_args, _ARG_ORDER_PERMUTATIONS[family], family
-        )
+        rhs_args = _permute_args(rhs_args, _ARG_ORDER_PERMUTATIONS[family], family)
     return rhs_args
 
 
@@ -1789,9 +1710,7 @@ def _dist_expr(
                 ],
             )
         df, loc, scale = rhs_args
-        tdist = call(
-            sb, counter, _identifier(sb, counter, target_dist), (df,)
-        )
+        tdist = call(sb, counter, _identifier(sb, counter, target_dist), (df,))
         scaled = binary(sb, counter, scale, "*", tdist)
         return binary(sb, counter, loc, "+", scaled)
     if family == "LKJCholesky":
@@ -1834,9 +1753,7 @@ def _permute_args(
                 f"argument order, got {len(rhs_args)}"
             ],
         )
-    return tuple(rhs_args[p] for p in permutation) + rhs_args[
-        len(permutation):
-    ]
+    return tuple(rhs_args[p] for p in permutation) + rhs_args[len(permutation) :]
 
 
 def _invert_rate_arg(
@@ -1869,7 +1786,7 @@ def _invert_rate_arg(
         _identifier(sb, counter, "inv"),
         (rhs_args[position],),
     )
-    return rhs_args[:position] + (inv_call,) + rhs_args[position + 1:]
+    return rhs_args[:position] + (inv_call,) + rhs_args[position + 1 :]
 
 
 # ---------------------------------------------------------------------------
@@ -1984,9 +1901,7 @@ def _distinct_loop_vars(dims: tuple[Dim, ...]) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _plate_axes_missing(
-    shapes: JuliaShapes, node: IRDeterministic
-) -> int:
+def _plate_axes_missing(shapes: JuliaShapes, node: IRDeterministic) -> int:
     """How many of a binding's plate axes its expression does not
     itself produce.
 
@@ -2014,12 +1929,9 @@ def _fan_out_to_plate(
     """
     sb, counter = ctx.sb, ctx.counter
     sizes = tuple(
-        _dim_to_size(sb, counter, dim)
-        for dim in node.plate.batch_dims[:missing]
+        _dim_to_size(sb, counter, dim) for dim in node.plate.batch_dims[:missing]
     )
-    return _call(
-        sb, counter, _identifier(sb, counter, "fill"), (rhs, *sizes)
-    )
+    return _call(sb, counter, _identifier(sb, counter, "fill"), (rhs, *sizes))
 
 
 def _dotted_binary(
@@ -2035,9 +1947,7 @@ def _dotted_binary(
     return _binary_expr(sb, counter, left, f".{op}", right)
 
 
-def _unary_minus(
-    sb: panproto.SchemaBuilder, counter: list[int], operand: str
-) -> str:
+def _unary_minus(sb: panproto.SchemaBuilder, counter: list[int], operand: str) -> str:
     """`- <operand>` as a Julia `unary_expression`."""
     vid = _vertex(sb, counter, "unary_expression")
     sb.edge(vid, _operator(sb, counter, "-"), "child_of")
@@ -2102,9 +2012,7 @@ def _meta_or_raise(family: str) -> FamilyMeta:
     return meta
 
 
-def _dim_to_size(
-    sb: panproto.SchemaBuilder, counter: list[int], dim: Dim
-) -> str:
+def _dim_to_size(sb: panproto.SchemaBuilder, counter: list[int], dim: Dim) -> str:
     """Render a [`Dim`][quivers.transpile.ir.Dim] as a Julia size
     expression. Static dims become integer literals; dynamic dims
     become identifiers referencing the runtime-supplied size."""
@@ -2151,20 +2059,15 @@ def _arg_to_julia(
             sb,
             counter,
             tuple(
-                tuple(_arg_to_julia(ctx, e) for e in row.elements)
-                for row in arg.rows
+                tuple(_arg_to_julia(ctx, e) for e in row.elements) for row in arg.rows
             ),
         )
     if isinstance(arg, IRArgFamilyRef):
         return _family_ref_to_julia(ctx, arg)
-    raise UnsupportedConstruct(
-        "qvr-turing", [f"arg:{type(arg).__name__}"]
-    )
+    raise UnsupportedConstruct("qvr-turing", [f"arg:{type(arg).__name__}"])
 
 
-def _ref_to_julia(
-    ctx: _TuringCtx, ref: IRArgRef, *, via: str | None
-) -> str:
+def _ref_to_julia(ctx: _TuringCtx, ref: IRArgRef, *, via: str | None) -> str:
     """Render an [`IRArgRef`][quivers.transpile.ir.IRArgRef].
 
     Specialises on the LDA-style case: `phi[z]` with a surrounding
@@ -2178,24 +2081,16 @@ def _ref_to_julia(
     if not ref.indices:
         return base
     parent_plate = ctx.sample_plates.get(ref.name)
-    parent_event_dim = (
-        len(parent_plate.event_dims) if parent_plate is not None else 0
-    )
+    parent_event_dim = len(parent_plate.event_dims) if parent_plate is not None else 0
     # Rewrite each index: a name-ref index may be threaded through the
     # via fibration.
     rendered_indices: list[str] = []
     for idx in ref.indices:
-        if (
-            via is not None
-            and isinstance(idx, IRArgRef)
-            and not idx.indices
-        ):
+        if via is not None and isinstance(idx, IRArgRef) and not idx.indices:
             # `z` becomes `z[<via>]`.
             inner = _identifier(sb, counter, idx.name)
             via_id = _identifier(sb, counter, via)
-            rendered_indices.append(
-                _index_expr(sb, counter, inner, (via_id,))
-            )
+            rendered_indices.append(_index_expr(sb, counter, inner, (via_id,)))
         else:
             rendered_indices.append(_arg_to_julia(ctx, idx))
     if parent_event_dim > 0:
@@ -2230,9 +2125,7 @@ def _broadcast_arg(ctx: _TuringCtx, arg: IRArgBroadcast) -> str:
     )
 
 
-def _family_ref_to_julia(
-    ctx: _TuringCtx, ref: IRArgFamilyRef
-) -> str:
+def _family_ref_to_julia(ctx: _TuringCtx, ref: IRArgFamilyRef) -> str:
     """Render an [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef].
 
     Looks up the referenced morphism's `~ Family(...)` init clause and
@@ -2261,9 +2154,7 @@ def _family_ref_to_julia(
             ],
         )
     callee = _identifier(sb, counter, inner_target)
-    inner_args = tuple(
-        _raw_init_arg_to_julia(ctx, a) for a in decl.init_family.args
-    )
+    inner_args = tuple(_raw_init_arg_to_julia(ctx, a) for a in decl.init_family.args)
     return _call(sb, counter, callee, inner_args)
 
 
@@ -2305,10 +2196,7 @@ def _args_have_batch_index(
     even though its IRDeterministic carries an empty plate.
     """
     del plate
-    return any(
-        _arg_indexes_plated(a, sample_plates, batch_shaped_names)
-        for a in args
-    )
+    return any(_arg_indexes_plated(a, sample_plates, batch_shaped_names) for a in args)
 
 
 def _arg_indexes_plated(
@@ -2415,9 +2303,7 @@ def _replace_first_index(
             return IRArgRef(name=arg.name, indices=(IRArgRef(name=binder),))
     if isinstance(arg, IRArgBroadcast):
         return IRArgBroadcast(
-            value=_replace_first_index(
-                arg.value, binder, batch_shaped_names
-            ),
+            value=_replace_first_index(arg.value, binder, batch_shaped_names),
             target_shape=arg.target_shape,
         )
     return arg
@@ -2589,16 +2475,11 @@ def _mark_name_batch_shaped(
         ctx.batch_shaped_names.add(name)
         for ref in _let_expr_var_refs(dets[name].expr):
             _mark_name_batch_shaped(ref, ctx, dets)
-    elif (
-        ctx.input_plates.get(name) is not None
-        and ctx.input_plates[name].batch_dims
-    ):
+    elif ctx.input_plates.get(name) is not None and ctx.input_plates[name].batch_dims:
         ctx.batch_shaped_names.add(name)
 
 
-def _collect_sample_batch_shaped(
-    ctx: _TuringCtx, body: tuple[IRNode, ...]
-) -> None:
+def _collect_sample_batch_shaped(ctx: _TuringCtx, body: tuple[IRNode, ...]) -> None:
     """Add every IRSample / IRObserve / IRMarginalize name with
     non-empty batch_dims to `ctx.batch_shaped_names`."""
     for node in body:
@@ -2716,9 +2597,7 @@ def _pick_program(module: Module) -> ProgramDecl:
         elif isinstance(stmt, ExportDecl) and isinstance(stmt.expr, ExprIdent):
             exported.add(stmt.expr.name)
     if not programs:
-        raise UnsupportedConstruct(
-            "qvr-turing", ["program:absent"]
-        )
+        raise UnsupportedConstruct("qvr-turing", ["program:absent"])
     return next((p for p in programs if p.name in exported), programs[-1])
 
 
@@ -2765,15 +2644,15 @@ _RUNTIME_TURING_PATH = (
 #: own combinators rather than paying for a grafted scorer. Composing
 #: keeps the emitted file a single top-level `@model` macrocall, which
 #: a graft would turn into a sequence of top-level statements.
-_TURING_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset({
-    "ContinuousBernoulli",
-    "GP",
-})
+_TURING_RUNTIME_HELPER_FAMILIES: frozenset[str] = frozenset(
+    {
+        "ContinuousBernoulli",
+        "GP",
+    }
+)
 
 
-def _load_runtime_turing_schema() -> tuple[
-    panproto.Schema, str, tuple[str, ...]
-]:
+def _load_runtime_turing_schema() -> tuple[panproto.Schema, str, tuple[str, ...]]:
     """Parse [`runtime_turing.jl`][quivers.transpile.runtime_turing] through
     panproto's Julia tree-sitter grammar at module-load time.
 
@@ -2818,9 +2697,7 @@ _RUNTIME_TURING_SCHEMA, _RUNTIME_TURING_SOURCE_ID, _RUNTIME_TURING_TOP_LEVEL = (
 )
 
 
-def _subtree_vertex_ids(
-    schema: panproto.Schema, roots: tuple[str, ...]
-) -> set[str]:
+def _subtree_vertex_ids(schema: panproto.Schema, roots: tuple[str, ...]) -> set[str]:
     """Return every vertex id reachable from `roots` via outgoing edges."""
     seen: set[str] = set(roots)
     frontier: list[str] = list(roots)
@@ -2844,14 +2721,9 @@ def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     nested [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes)
     samples from `family`."""
     for node in body:
-        if (
-            isinstance(node, (IRSample, IRObserve))
-            and node.family == family
-        ):
+        if isinstance(node, (IRSample, IRObserve)) and node.family == family:
             return True
-        if isinstance(node, IRMarginalize) and _ir_uses_family(
-            node.scope, family
-        ):
+        if isinstance(node, IRMarginalize) and _ir_uses_family(node.scope, family):
             return True
     return False
 
@@ -2876,9 +2748,7 @@ def _graft_runtime_turing_helper(
         counter[0] += 1
         new = f"rt{counter[0]}"
         id_map[old] = new
-        kind = next(
-            v.kind for v in src_schema.vertices if v.id == old
-        )
+        kind = next(v.kind for v in src_schema.vertices if v.id == old)
         sb.vertex(new, kind)
         for cstr in src_schema.constraints_for(old):
             sb.constraint(new, cstr.sort, cstr.value)

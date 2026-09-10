@@ -36,7 +36,7 @@ def docker_available() -> bool:
             text=True,
             timeout=3,
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except subprocess.TimeoutExpired, OSError:
         return False
     return completed.returncode == 0
 
@@ -139,10 +139,15 @@ def run_probe(
     # `python python /io/probe.py` and the container fails with
     # "no such file: /io/python".
     argv = [
-        "docker", "run", "--rm",
-        "-v", f"{scratch.resolve()}:/io",
-        "-w", "/io",
-        "-e", f"FIXTURE_EXT={source_ext}",
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{scratch.resolve()}:/io",
+        "-w",
+        "/io",
+        "-e",
+        f"FIXTURE_EXT={source_ext}",
         image,
         "/io/probe.py",
     ]

@@ -1623,10 +1623,12 @@ _CLASS_INDEX_OUTCOMES: dict[str, ClassIndexOutcome] = {
         alphabet_args=("probs", "logits"),
     ),
     "OrderedLogistic": ClassIndexOutcome(
-        alphabet_args=("cutpoints",), extent_offset=1,
+        alphabet_args=("cutpoints",),
+        extent_offset=1,
     ),
     "OrderedProbit": ClassIndexOutcome(
-        alphabet_args=("cutpoints",), extent_offset=1,
+        alphabet_args=("cutpoints",),
+        extent_offset=1,
     ),
 }
 

@@ -67,7 +67,9 @@ def _ordered_log_probs(
     if cutpoints.shape[0] >= 2:
         a = log_cdf_below[..., 1:]
         b = log_cdf_below[..., :-1]
-        middle = a + torch.log1p(-torch.exp((b - a).clamp(max=0.0)).clamp(max=1.0 - 1e-12))
+        middle = a + torch.log1p(
+            -torch.exp((b - a).clamp(max=0.0)).clamp(max=1.0 - 1e-12)
+        )
     else:
         middle = eta.new_empty((eta.shape[0], 0))
     first = log_cdf_below[..., :1]
@@ -169,7 +171,11 @@ class _ConditionalOrdered(ContinuousMorphism):
             Log-probabilities. Shape ``(batch,)``.
         """
         eta = self._get_eta(x)
-        cps = self._default_cutpoints(eta) if cutpoints is None else self._validate_cutpoints(cutpoints)
+        cps = (
+            self._default_cutpoints(eta)
+            if cutpoints is None
+            else self._validate_cutpoints(cutpoints)
+        )
         log_probs = _ordered_log_probs(eta, cps, self._log_cdf)
         y_idx = y.long().clamp(min=0, max=self._k - 1)
         return log_probs.gather(-1, y_idx.unsqueeze(-1)).squeeze(-1)
@@ -211,7 +217,11 @@ class _ConditionalOrdered(ContinuousMorphism):
         """
         with torch.no_grad():
             eta = self._get_eta(x)
-            cps = self._default_cutpoints(eta) if cutpoints is None else self._validate_cutpoints(cutpoints)
+            cps = (
+                self._default_cutpoints(eta)
+                if cutpoints is None
+                else self._validate_cutpoints(cutpoints)
+            )
             log_probs = _ordered_log_probs(eta, cps, self._log_cdf)
             probs = log_probs.exp().clamp(min=0.0)
             probs = probs / probs.sum(dim=-1, keepdim=True)

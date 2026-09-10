@@ -78,8 +78,7 @@ class WebPPLProbe:
             observed_path.write_text(json.dumps(pt.data))
 
             driver = (
-                _WEBPPL_DRIVER
-                .replace("__CLAMPED_PATH__", str(clamped_path))
+                _WEBPPL_DRIVER.replace("__CLAMPED_PATH__", str(clamped_path))
                 .replace("__OBSERVED_PATH__", str(observed_path))
                 .replace("__USER_MODEL__", source.decode("utf-8"))
             )

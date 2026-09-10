@@ -30,6 +30,7 @@ class GenProbe:
             return False
         try:
             from juliacall import Main as jl
+
             jl.seval("using Gen")
         except Exception:  # noqa: BLE001
             return False

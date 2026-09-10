@@ -57,8 +57,14 @@ export bayes_linear_regression
 # is in scope. WebPPL gallery quirks are excluded per-fixture only
 # when they would `UnsupportedConstruct` on the unmutated baseline.
 _BACKENDS: tuple[str, ...] = (
-    "stan", "numpyro", "pyro", "pymc", "edward2",
-    "turing", "gen", "webppl",
+    "stan",
+    "numpyro",
+    "pyro",
+    "pymc",
+    "edward2",
+    "turing",
+    "gen",
+    "webppl",
 )
 
 
@@ -102,21 +108,25 @@ def _mutate_swap_beta_args(ir: IRProgram) -> IRProgram:
                 node.args[0],
                 *node.args[2:],
             )
-            new_body.append(IRSample(
-                name=node.name,
-                family=node.family,
-                args=new_args,
-                arg_names=node.arg_names,
-                constraint=node.constraint,
-                plate=node.plate,
-            ))
+            new_body.append(
+                IRSample(
+                    name=node.name,
+                    family=node.family,
+                    args=new_args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
+                    plate=node.plate,
+                )
+            )
             swapped = True
             continue
         new_body.append(node)
     if not swapped:
         return ir
     return IRProgram(
-        name=ir.name, inputs=ir.inputs, body=tuple(new_body),
+        name=ir.name,
+        inputs=ir.inputs,
+        body=tuple(new_body),
         cards=ir.cards,
     )
 
@@ -138,33 +148,39 @@ def _mutate_normal_to_cauchy(ir: IRProgram) -> IRProgram:
     changed = False
     for node in ir.body:
         if isinstance(node, IRSample) and node.family in pairs and not changed:
-            new_body.append(IRSample(
-                name=node.name,
-                family=pairs[node.family],
-                args=node.args,
-                arg_names=node.arg_names,
-                constraint=node.constraint,
-                plate=node.plate,
-            ))
+            new_body.append(
+                IRSample(
+                    name=node.name,
+                    family=pairs[node.family],
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
+                    plate=node.plate,
+                )
+            )
             changed = True
             continue
         if isinstance(node, IRObserve) and node.family in pairs and not changed:
-            new_body.append(IRObserve(
-                name=node.name,
-                family=pairs[node.family],
-                args=node.args,
-                arg_names=node.arg_names,
-                constraint=node.constraint,
-                plate=node.plate,
-                via=node.via,
-            ))
+            new_body.append(
+                IRObserve(
+                    name=node.name,
+                    family=pairs[node.family],
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
+                    plate=node.plate,
+                    via=node.via,
+                )
+            )
             changed = True
             continue
         new_body.append(node)
     if not changed:
         return ir
     return IRProgram(
-        name=ir.name, inputs=ir.inputs, body=tuple(new_body),
+        name=ir.name,
+        inputs=ir.inputs,
+        body=tuple(new_body),
         cards=ir.cards,
     )
 
@@ -182,7 +198,9 @@ def _mutate_drop_observe(ir: IRProgram) -> IRProgram:
     if not dropped:
         return ir
     return IRProgram(
-        name=ir.name, inputs=ir.inputs, body=tuple(new_body),
+        name=ir.name,
+        inputs=ir.inputs,
+        body=tuple(new_body),
         cards=ir.cards,
     )
 
@@ -200,7 +218,9 @@ def _mutate_drop_sample(ir: IRProgram) -> IRProgram:
         if isinstance(body[i], IRSample):
             body.pop(i)
             return IRProgram(
-                name=ir.name, inputs=ir.inputs, body=tuple(body),
+                name=ir.name,
+                inputs=ir.inputs,
+                body=tuple(body),
                 cards=ir.cards,
             )
     return ir
@@ -240,15 +260,17 @@ def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
             and flipped_name is None
         ):
             flipped_name = node.name
-            new_body.append(IRObserve(
-                name=f"{node.name}_mutated",
-                family=node.family,
-                args=node.args,
-                arg_names=node.arg_names,
-                constraint=node.constraint,
-                plate=Plate(event_dims=node.plate.event_dims, batch_dims=()),
-                via=node.via,
-            ))
+            new_body.append(
+                IRObserve(
+                    name=f"{node.name}_mutated",
+                    family=node.family,
+                    args=node.args,
+                    arg_names=node.arg_names,
+                    constraint=node.constraint,
+                    plate=Plate(event_dims=node.plate.event_dims, batch_dims=()),
+                    via=node.via,
+                )
+            )
             continue
         new_body.append(node)
     if flipped_name is None:
@@ -259,11 +281,14 @@ def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
             constraint=inp.constraint,
             plate=inp.plate,
         )
-        if inp.name == flipped_name else inp
+        if inp.name == flipped_name
+        else inp
         for inp in ir.inputs
     )
     return IRProgram(
-        name=ir.name, inputs=new_inputs, body=tuple(new_body),
+        name=ir.name,
+        inputs=new_inputs,
+        body=tuple(new_body),
         cards=ir.cards,
     )
 
@@ -286,7 +311,6 @@ _MUTATIONS: dict[str, object] = {
 _MUTATION_INAPPLICABLE: dict[tuple[str, str], str] = {}
 
 
-
 def _render(ir: IRProgram, backend: str) -> bytes | None:
     """Run the renderer for `backend` against an arbitrary
     [`IRProgram`][quivers.transpile.ir.IRProgram]. Returns the
@@ -295,7 +319,8 @@ def _render(ir: IRProgram, backend: str) -> bytes | None:
     mutation was observed')."""
     mod = _import_renderer_module(backend)
     renderer_cls = next(
-        cls for name, cls in vars(mod).items()
+        cls
+        for name, cls in vars(mod).items()
         if name.endswith("Renderer") and isinstance(cls, type)
     )
     renderer = renderer_cls()
@@ -346,8 +371,7 @@ def test_mutation_changes_emit(
     if ir_mutated is ir_baseline:
         reason = _MUTATION_INAPPLICABLE.get(
             (mutation_name, fixture_name),
-            f"mutation {mutation_name!r} selector matched no node in "
-            f"{fixture_name!r}",
+            f"mutation {mutation_name!r} selector matched no node in {fixture_name!r}",
         )
         pytest.xfail(reason)
 

@@ -167,9 +167,7 @@ _NO_EXPORTED_PROGRAM: dict[str, str] = {
     # `(backend, example)` cells sits in the gallery tier's
     # `_EXPECTED_TRANSPILE_RAISES` under `composition_decl`.
     "pmf": "structural: composition morphism, no program block",
-    "tensor_contraction": (
-        "structural: contraction morphism, no program block"
-    ),
+    "tensor_contraction": ("structural: contraction morphism, no program block"),
 }
 
 # `(backend, example)` cells the gallery tier scores numerically but
@@ -254,11 +252,10 @@ def _scorable_examples() -> list[pathlib.Path]:
 # untested code standing in for a check.
 # ---------------------------------------------------------------------
 
-_RESHAPE_PATH = (
-    pathlib.Path(__file__).parent / "probes" / "_scripts" / "_reshape.py"
-)
+_RESHAPE_PATH = pathlib.Path(__file__).parent / "probes" / "_scripts" / "_reshape.py"
 _RESHAPE_SPEC = importlib.util.spec_from_file_location(
-    "tests_transpile_probe_reshape", _RESHAPE_PATH,
+    "tests_transpile_probe_reshape",
+    _RESHAPE_PATH,
 )
 if _RESHAPE_SPEC is None or _RESHAPE_SPEC.loader is None:
     raise ImportError(
@@ -440,9 +437,7 @@ def run_export_probe(
     scratch = _SCRATCH_ROOT / scratch_name
     scratch.mkdir(parents=True, exist_ok=True)
     (scratch / "export_names.json").write_text(json.dumps(list(export_names)))
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
     raw = _docker.run_probe(
         image=image,
         script=script_path,
@@ -529,9 +524,7 @@ def export_deviation(
 
 
 def _probe_points(points: list[Point]) -> list[_ProbePoint]:
-    return [
-        {"params": point.params, "data": point.data} for point in points
-    ]
+    return [{"params": point.params, "data": point.data} for point in points]
 
 
 # ---------------------------------------------------------------------
@@ -600,16 +593,13 @@ def test_export_skip_registry_is_disjoint_from_the_gallery_skips() -> None:
     found and the density channel did not, which is the only thing
     this registry should ever hold.
     """
-    for (backend, example), reason in sorted(
-        _SKIP_EXPORT_INCOMPATIBLE.items()
-    ):
+    for (backend, example), reason in sorted(_SKIP_EXPORT_INCOMPATIBLE.items()):
         assert backend in _BACKENDS, (
             f"({backend!r}, {example!r}) names a backend outside the "
             f"gallery matrix {sorted(_BACKENDS)!r}."
         )
         assert reason.strip(), (
-            f"({backend!r}, {example!r}) skips the export check with "
-            f"an empty reason."
+            f"({backend!r}, {example!r}) skips the export check with an empty reason."
         )
         gallery_reason = _cell_skip_reason(backend, example)
         assert gallery_reason is None, (
@@ -621,9 +611,7 @@ def test_export_skip_registry_is_disjoint_from_the_gallery_skips() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "example", _scorable_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _scorable_examples(), ids=lambda p: p.stem)
 def test_export_reference_is_deterministic(example: pathlib.Path) -> None:
     """The reference's exported value is a function of the point.
 
@@ -646,10 +634,7 @@ def test_export_reference_is_deterministic(example: pathlib.Path) -> None:
         f"example is not in `_SKIP_DATASET_LOAD_FAILED`."
     )
     names = export_names_for(example)
-    assert names, (
-        f"{stem!r}: no `return` clause; see "
-        f"`test_export_registry_is_total`."
-    )
+    assert names, f"{stem!r}: no `return` clause; see `test_export_registry_is_total`."
     points = _gallery_data.points_from_dataset(dataset)
     for point in points:
         row = reference_export_row(dataset, point, names, stem)
@@ -669,9 +654,7 @@ def test_export_reference_is_deterministic(example: pathlib.Path) -> None:
                 )
 
 
-@pytest.mark.parametrize(
-    "example", _scorable_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _scorable_examples(), ids=lambda p: p.stem)
 def test_export_reference_varies_across_points(
     example: pathlib.Path,
 ) -> None:
@@ -710,9 +693,7 @@ def test_export_reference_varies_across_points(
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "example", _gallery_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)
 @pytest.mark.parametrize("backend", sorted(_BACKENDS))
 def test_gallery_backend_export_matches_qvr(
     example: pathlib.Path, backend: str
@@ -727,9 +708,7 @@ def test_gallery_backend_export_matches_qvr(
     carries into its codomain.
     """
     stem = example.stem
-    expected_raise = _gallery_tier._EXPECTED_TRANSPILE_RAISES.get(
-        (backend, stem)
-    )
+    expected_raise = _gallery_tier._EXPECTED_TRANSPILE_RAISES.get((backend, stem))
     if expected_raise is not None:
         module = parse(example.read_text())
         with pytest.raises(UnsupportedConstruct) as exc_info:
@@ -758,16 +737,11 @@ def test_gallery_backend_export_matches_qvr(
         f"example is not in `_SKIP_DATASET_LOAD_FAILED`."
     )
     names = export_names_for(example)
-    assert names, (
-        f"{stem!r}: no `return` clause; see "
-        f"`test_export_registry_is_total`."
-    )
+    assert names, f"{stem!r}: no `return` clause; see `test_export_registry_is_total`."
 
     points = _gallery_data.points_from_dataset(dataset)
     labels = _gallery_data.perturbation_labels(len(points))
-    emitted = transpile(parse(example.read_text()), target=backend).decode(
-        "utf-8"
-    )
+    emitted = transpile(parse(example.read_text()), target=backend).decode("utf-8")
     measured = run_export_probe(
         backend=backend,
         source_text=emitted,
@@ -992,7 +966,8 @@ EXPORT_MUTATIONS: tuple[ExportMutation, ...] = (
         probe_refuses=False,
         rewrites=(
             _mutations.SourceRewrite(
-                old="  return phi", new="  return sigma",
+                old="  return phi",
+                new="  return sigma",
             ),
         ),
     ),
@@ -1005,7 +980,8 @@ EXPORT_MUTATIONS: tuple[ExportMutation, ...] = (
         probe_refuses=False,
         rewrites=(
             _mutations.SourceRewrite(
-                old="  return phi", new="  return sigma",
+                old="  return phi",
+                new="  return sigma",
             ),
         ),
     ),
@@ -1037,7 +1013,8 @@ EXPORT_MUTATIONS: tuple[ExportMutation, ...] = (
         probe_refuses=False,
         rewrites=(
             _mutations.SourceRewrite(
-                old="phi_value <- phi", new="phi_value <- sigma",
+                old="phi_value <- phi",
+                new="phi_value <- sigma",
             ),
         ),
     ),
@@ -1055,7 +1032,8 @@ EXPORT_MUTATIONS: tuple[ExportMutation, ...] = (
         probe_refuses=False,
         rewrites=(
             _mutations.SourceRewrite(
-                old="  return p", new="  return p[::-1]",
+                old="  return p",
+                new="  return p[::-1]",
             ),
         ),
     ),
@@ -1069,10 +1047,7 @@ EXPORT_MUTATIONS: tuple[ExportMutation, ...] = (
         rewrites=(
             _mutations.SourceRewrite(
                 old='pymc.Deterministic("p_value" ,pymc.math.as_tensor(p))',
-                new=(
-                    'pymc.Deterministic("p_value" '
-                    ',pymc.math.as_tensor(p[::-1]))'
-                ),
+                new=('pymc.Deterministic("p_value" ,pymc.math.as_tensor(p[::-1]))'),
             ),
         ),
     ),
@@ -1121,7 +1096,8 @@ ACCEPTED_EXPORT_REWRITES: tuple[AcceptedExportRewrite, ...] = (
         ),
         rewrites=(
             _mutations.SourceRewrite(
-                old="  return phi", new="  return phi + 0.0",
+                old="  return phi",
+                new="  return phi + 0.0",
             ),
         ),
     ),
@@ -1199,7 +1175,9 @@ def _worst_export_ratio(
 
 
 @pytest.mark.parametrize(
-    "mutation", EXPORT_MUTATIONS, ids=_mutation_id,
+    "mutation",
+    EXPORT_MUTATIONS,
+    ids=_mutation_id,
 )
 def test_export_mutant_is_rejected(mutation: ExportMutation) -> None:
     """Each catalogued export defect is caught, with a pinned margin.
@@ -1223,11 +1201,14 @@ def test_export_mutant_is_rejected(mutation: ExportMutation) -> None:
     )
     source_path = _SOURCE_DIR / f"{mutation.example}.qvr"
     emitted = transpile(
-        parse(source_path.read_text()), target=mutation.backend,
+        parse(source_path.read_text()),
+        target=mutation.backend,
     ).decode("utf-8")
     context = f"{mutation.name}@{mutation.backend}/{mutation.example}"
     mutated = _mutations.apply_rewrites(
-        emitted, mutation.rewrites, context=context,
+        emitted,
+        mutation.rewrites,
+        context=context,
     )
 
     if mutation.probe_refuses:
@@ -1271,7 +1252,9 @@ def test_export_mutant_is_rejected(mutation: ExportMutation) -> None:
 
 
 @pytest.mark.parametrize(
-    "rewrite", ACCEPTED_EXPORT_REWRITES, ids=_accepted_id,
+    "rewrite",
+    ACCEPTED_EXPORT_REWRITES,
+    ids=_accepted_id,
 )
 def test_accepted_export_rewrite_is_not_rejected(
     rewrite: AcceptedExportRewrite,
@@ -1284,11 +1267,14 @@ def test_accepted_export_rewrite_is_not_rejected(
     """
     source_path = _SOURCE_DIR / f"{rewrite.example}.qvr"
     emitted = transpile(
-        parse(source_path.read_text()), target=rewrite.backend,
+        parse(source_path.read_text()),
+        target=rewrite.backend,
     ).decode("utf-8")
     context = f"{rewrite.name}@{rewrite.backend}/{rewrite.example}"
     rewritten = _mutations.apply_rewrites(
-        emitted, rewrite.rewrites, context=context,
+        emitted,
+        rewrite.rewrites,
+        context=context,
     )
     worst, detail = _worst_export_ratio(
         backend=rewrite.backend,

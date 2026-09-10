@@ -130,9 +130,7 @@ class IRArgTransform(IRArg):
     """
 
     inner: IRArg
-    transform: Literal[
-        "inv_square", "inv", "neg", "log", "exp", "one_minus", "pow_neg"
-    ]
+    transform: Literal["inv_square", "inv", "neg", "log", "exp", "one_minus", "pow_neg"]
     operand: IRArg | None = None
     kind: Literal["transform"] = "transform"
 
@@ -278,7 +276,8 @@ def refuse_ungrouped_row_marginalize(target: str, node: IRMarginalize) -> None:
     if marginalize_row_rank(node) == 0:
         return
     raise UnsupportedConstruct(
-        target, [f"marginalize:ungrouped-over-plate:{node.latent}"],
+        target,
+        [f"marginalize:ungrouped-over-plate:{node.latent}"],
     )
 
 
@@ -310,8 +309,7 @@ class RendererBase(abc.ABC):
         plate: Plate,
         *,
         block: BlockKind,
-    ) -> SchemaFragment:
-        ...
+    ) -> SchemaFragment: ...
 
     @abc.abstractmethod
     def sample(
@@ -324,16 +322,14 @@ class RendererBase(abc.ABC):
         constraint: ConstraintSpec,
         plate: Plate,
         observed: bool,
-    ) -> SchemaFragment:
-        ...
+    ) -> SchemaFragment: ...
 
     @abc.abstractmethod
     def marginalize(
         self,
         ctx: _RenderCtx,
         node: IRMarginalize,
-    ) -> SchemaFragment:
-        ...
+    ) -> SchemaFragment: ...
 
     @abc.abstractmethod
     def broadcast(
@@ -341,8 +337,7 @@ class RendererBase(abc.ABC):
         ctx: _RenderCtx,
         value: IRArg,
         target_shape: tuple[int, ...],
-    ) -> SchemaFragment:
-        ...
+    ) -> SchemaFragment: ...
 
     # ----- IR walk -----
 
@@ -380,9 +375,7 @@ class RendererBase(abc.ABC):
 
     def _dispatch_node(self, ctx: _RenderCtx, node: IRNode) -> None:
         if isinstance(node, IRDataInput):
-            self.declare(
-                ctx, node.name, node.constraint, node.plate, block="data"
-            )
+            self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             return
         if isinstance(node, IRSample):
             self.declare(
@@ -404,9 +397,7 @@ class RendererBase(abc.ABC):
             )
             return
         if isinstance(node, IRObserve):
-            self.declare(
-                ctx, node.name, node.constraint, node.plate, block="data"
-            )
+            self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             self.sample(
                 ctx,
                 node.name,
@@ -446,9 +437,7 @@ class RendererBase(abc.ABC):
 
     # ----- index-substitution helpers -----
 
-    def index_for(
-        self, ctx: _RenderCtx, plate: Plate
-    ) -> tuple[str, ...]:
+    def index_for(self, ctx: _RenderCtx, plate: Plate) -> tuple[str, ...]:
         """Return loop-index names for the plate's batch_dims.
 
         Returns one name per batch_dim, generated via
@@ -458,9 +447,7 @@ class RendererBase(abc.ABC):
         del ctx
         return tuple(f"m_{dim.name}" for dim in plate.batch_dims)
 
-    def substitute_indices(
-        self, arg: IRArg, names: tuple[str, ...]
-    ) -> IRArg:
+    def substitute_indices(self, arg: IRArg, names: tuple[str, ...]) -> IRArg:
         """Apply the loop-index names from `names` to the arg's
         bracket indices.
 
@@ -533,9 +520,7 @@ class RendererBase(abc.ABC):
             for k in range(size)
         )
 
-    def _marginal_weight_arg(
-        self, node: IRMarginalize, arg_name: str
-    ) -> IRArg:
+    def _marginal_weight_arg(self, node: IRMarginalize, arg_name: str) -> IRArg:
         """Return the probability argument the atom weights read."""
         for name, arg in zip(node.arg_names, node.args, strict=True):
             if name == arg_name:
@@ -551,9 +536,7 @@ class RendererBase(abc.ABC):
 
     # ----- explicit-latent rewrite for marginalize -----
 
-    def explicit_latent_scope(
-        self, node: IRMarginalize
-    ) -> tuple[IRNode, ...]:
+    def explicit_latent_scope(self, node: IRMarginalize) -> tuple[IRNode, ...]:
         """Rewrite an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         to `IRSample(latent)` plus the scope body inline.
 
@@ -590,9 +573,7 @@ class RendererBase(abc.ABC):
             ["node:IRScore: renderer does not implement score"],
         )
 
-    def _emit_return(
-        self, ctx: _RenderCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_return(self, ctx: _RenderCtx, names: tuple[str, ...]) -> None:
         """Default: subclasses override to emit `return ...` / Stan
         generated-quantities aliasing / similar.
         """
@@ -625,9 +606,7 @@ def substitute_latent(
     return tuple(_substitute_latent_node(node, latent, value) for node in body)
 
 
-def _substitute_latent_node(
-    node: IRNode, latent: str, value: IRArgNumber
-) -> IRNode:
+def _substitute_latent_node(node: IRNode, latent: str, value: IRArgNumber) -> IRNode:
     if isinstance(node, IRSample):
         return IRSample(
             name=node.name,
@@ -691,9 +670,7 @@ def _substitute_latent_args(
     return tuple(_substitute_latent_arg(arg, latent, value) for arg in args)
 
 
-def _substitute_latent_arg(
-    arg: IRArg, latent: str, value: IRArgNumber
-) -> IRArg:
+def _substitute_latent_arg(arg: IRArg, latent: str, value: IRArgNumber) -> IRArg:
     if isinstance(arg, IRArgRef):
         if arg.name == latent:
             if arg.indices:
@@ -716,17 +693,11 @@ def _substitute_latent_arg(
             target_shape=arg.target_shape,
         )
     if isinstance(arg, IRArgList):
-        return IRArgList(
-            elements=_substitute_latent_args(arg.elements, latent, value)
-        )
+        return IRArgList(elements=_substitute_latent_args(arg.elements, latent, value))
     if isinstance(arg, IRArgMatrix):
         return IRArgMatrix(
             rows=tuple(
-                IRArgList(
-                    elements=_substitute_latent_args(
-                        row.elements, latent, value
-                    )
-                )
+                IRArgList(elements=_substitute_latent_args(row.elements, latent, value))
                 for row in arg.rows
             )
         )
@@ -751,9 +722,7 @@ def _substitute_latent_arg(
     )
 
 
-def _substitute_latent_expr(
-    expr: IRExpr, latent: str, value: IRArgNumber
-) -> IRExpr:
+def _substitute_latent_expr(expr: IRExpr, latent: str, value: IRArgNumber) -> IRExpr:
     if isinstance(expr, LetExprVar):
         if expr.name == latent:
             return LetExprLiteral(value=value.value)
@@ -784,9 +753,7 @@ def _substitute_latent_expr(
             bias=_substitute_latent_expr(expr.bias, latent, value),
             sources=tuple(
                 LetAffineSource(
-                    value=_substitute_latent_expr(
-                        source.value, latent, value
-                    ),
+                    value=_substitute_latent_expr(source.value, latent, value),
                     width=source.width,
                 )
                 for source in expr.sources
@@ -796,9 +763,7 @@ def _substitute_latent_expr(
             transform=expr.transform,
         )
     if isinstance(expr, LetExprList):
-        return LetExprList(
-            items=_substitute_latent_exprs(expr.items, latent, value)
-        )
+        return LetExprList(items=_substitute_latent_exprs(expr.items, latent, value))
     if isinstance(expr, LetExprMethodCall):
         return LetExprMethodCall(
             receiver=_substitute_latent_expr(expr.receiver, latent, value),
@@ -844,9 +809,7 @@ def _substitute_latent_expr(
 def _substitute_latent_exprs(
     exprs: tuple[LetExprNode, ...], latent: str, value: IRArgNumber
 ) -> tuple[LetExprNode, ...]:
-    return tuple(
-        _substitute_latent_expr(expr, latent, value) for expr in exprs
-    )
+    return tuple(_substitute_latent_expr(expr, latent, value) for expr in exprs)
 
 
 # ---------------------------------------------------------------------------
@@ -896,9 +859,7 @@ def host_integer_input_names(ir: IRProgram) -> frozenset[str]:
     """
     integer_kinds = (CSNonnegativeInteger, CSIntegerInterval)
     return frozenset(
-        inp.name
-        for inp in ir.inputs
-        if isinstance(inp.constraint, integer_kinds)
+        inp.name for inp in ir.inputs if isinstance(inp.constraint, integer_kinds)
     )
 
 
@@ -999,9 +960,7 @@ def mixture_normal_components(
     return (by_name["weights"], by_name["loc"], by_name["scale"])
 
 
-def mixture_component_count(
-    target: str, weights: IRArg, declared: Plate | None
-) -> int:
+def mixture_component_count(target: str, weights: IRArg, declared: Plate | None) -> int:
     """Return `K`, the number of components a `MixtureNormal` mixes.
 
     Read off the declared shape of the weight vector, which is the only
@@ -1061,9 +1020,7 @@ def _walk_for_refs(
             declared.add(node.name)
 
 
-def _check_arg_refs(
-    arg: IRArg, declared: set[str], program_name: str
-) -> None:
+def _check_arg_refs(arg: IRArg, declared: set[str], program_name: str) -> None:
     if isinstance(arg, IRArgRef):
         if arg.name not in declared:
             raise UnsupportedConstruct(
@@ -1148,9 +1105,7 @@ def _family_arg_constraints(family: str) -> dict[str, Constraint]:
     }
 
 
-def _mixes_over_components(
-    family: str, arg_names: tuple[str, ...]
-) -> bool:
+def _mixes_over_components(family: str, arg_names: tuple[str, ...]) -> bool:
     """True when the call carries a simplex-constrained mixing weight.
 
     A mixture family (`MixtureNormal(weights, loc, scale)`) indexes
@@ -1262,9 +1217,7 @@ def _walk_for_param_maps(
         elif isinstance(node, IRMarginalize):
             _walk_for_param_maps(
                 node.scope,
-                extents.bind(
-                    node.latent, _static_extent(node.plate)
-                ).hide(node.latent),
+                extents.bind(node.latent, _static_extent(node.plate)).hide(node.latent),
                 program_name,
                 target,
             )

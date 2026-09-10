@@ -73,9 +73,7 @@ def _per_fixture_point_set(fixture_name: str) -> list[_protocol.Point]:
         cap=16,
     )
     data = _PARAM_DATA[fixture_name]
-    return [
-        _protocol.Point(params=grid, data=data) for grid in grids
-    ]
+    return [_protocol.Point(params=grid, data=data) for grid in grids]
 
 
 # Per-fixture parameter boundaries (used by `deterministic_grid`).
@@ -121,8 +119,11 @@ _PARAM_DATA: dict[str, dict[str, float | int | list]] = {
     "half_normal_scale": {"y": [0.3] * 80},
     "gamma_exponential": {"y": [1.0] * 80},
     "ill_conditioned_mvn": {
-        "y_1": 50.0, "y_2": 5.0, "y_3": 0.5,
-        "y_4": 0.05, "y_5": 0.005,
+        "y_1": 50.0,
+        "y_2": 5.0,
+        "y_3": 0.5,
+        "y_4": 0.05,
+        "y_5": 0.005,
     },
     "truncated_normal_recovery": {"y": [0.5] * 60},
 }
@@ -242,12 +243,8 @@ def test_log_density_equivalence(
     )
 
     # Target backend: run the in-container probe.
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
-    points_json = [
-        {"params": pt.params, "data": pt.data} for pt in points
-    ]
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
+    points_json = [{"params": pt.params, "data": pt.data} for pt in points]
     raw_result = _docker.run_probe(
         image=image,
         script=script_path,
@@ -261,7 +258,8 @@ def test_log_density_equivalence(
     n_obs = _observation_count(fixture_name)
     condition_number = _FIXTURE_CONDITION_NUMBER.get(fixture_name, 1.0)
     atol = _equivalence.adaptive_atol(
-        n_obs=n_obs, condition_number=condition_number,
+        n_obs=n_obs,
+        condition_number=condition_number,
     )
     _equivalence.assert_log_density_match(
         qvr_result.log_densities,

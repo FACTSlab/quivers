@@ -125,10 +125,7 @@ def _label(key: ProgramKey) -> str:
 
 def gallery_programs() -> list[tuple[str, str]]:
     """Every gallery program as `(stem, source text)`, stem-sorted."""
-    return [
-        (path.stem, path.read_text())
-        for path in sorted(GALLERY_DIR.glob("*.qvr"))
-    ]
+    return [(path.stem, path.read_text()) for path in sorted(GALLERY_DIR.glob("*.qvr"))]
 
 
 def construct_fixtures() -> list[_load.Fixture]:
@@ -268,11 +265,7 @@ def construct_labels(kinds: tuple[str, ...]) -> tuple[str, ...]:
     Raise when every kind begins with prose because such a refusal has
     no programmatically matchable construct.
     """
-    labels = {
-        path
-        for kind in kinds
-        if (path := _leading_identifier_path(kind))
-    }
+    labels = {path for kind in kinds if (path := _leading_identifier_path(kind))}
     if not labels:
         raise RuntimeError(
             f"refusal reported no identifier-shaped kind: {list(kinds)!r}. "
@@ -295,15 +288,11 @@ def _table(headers: list[str], rows: list[list[str]]) -> list[str]:
             widths[index] = max(widths[index], len(value))
 
     def _line(values: list[str]) -> str:
-        padded = [
-            value.ljust(widths[index]) for index, value in enumerate(values)
-        ]
+        padded = [value.ljust(widths[index]) for index, value in enumerate(values)]
         return f"| {' | '.join(padded)} |"
 
     lines = [_line(headers)]
-    lines.append(
-        "|" + "|".join("-" * (width + 2) for width in widths) + "|"
-    )
+    lines.append("|" + "|".join("-" * (width + 2) for width in widths) + "|")
     lines.extend(_line(row) for row in rows)
     return lines
 
@@ -335,9 +324,7 @@ def _correctness_link(backend: str) -> str:
     return f"[{backend}]({page})"
 
 
-def _matrix(
-    cells: list[Cell], *, group: str, category: str | None
-) -> list[str]:
+def _matrix(cells: list[Cell], *, group: str, category: str | None) -> list[str]:
     """One (program x backend) table."""
     backends = _backends(cells)
     rows: list[list[str]] = []
@@ -349,16 +336,13 @@ def _matrix(
             continue
         row = [_program_link(key)]
         row.extend(
-            "yes" if per_backend[backend].renders else "no"
-            for backend in backends
+            "yes" if per_backend[backend].renders else "no" for backend in backends
         )
         rows.append(row)
     return _table(["Program", *backends], rows)
 
 
-def _counts(
-    cells: list[Cell], *, backend: str, group: str
-) -> tuple[int, int]:
+def _counts(cells: list[Cell], *, backend: str, group: str) -> tuple[int, int]:
     """`(rendered, total)` for one backend over one corpus."""
     selected = [
         cell
@@ -430,10 +414,7 @@ def _universal_gaps(cells: list[Cell]) -> list[str]:
         agreed_kinds[key] = tuple(sorted(agreed))
 
     if not agreed_kinds and not divergent:
-        return [
-            "Every program in both corpora renders on at least one "
-            "backend."
-        ]
+        return ["Every program in both corpora renders on at least one backend."]
 
     lines = [
         f"Each construct below is refused by all {len(backends)} "
@@ -452,23 +433,15 @@ def _universal_gaps(cells: list[Cell]) -> list[str]:
         lines.extend(_reported_kinds_note(keys, agreed_kinds))
         representative = keys[0]
         backend = backends[0]
-        variants = {
-            str(cell.message)
-            for cell in programs[representative].values()
-        }
+        variants = {str(cell.message) for cell in programs[representative].values()}
         agreement = (
             "Every backend reports it in the same words."
             if len(variants) == 1
             else f"Each backend words it differently; this is {backend}'s."
         )
-        lines.append(
-            f"{agreement} `{backend}` on "
-            f"`{_label(representative)}` reports:"
-        )
+        lines.append(f"{agreement} `{backend}` on `{_label(representative)}` reports:")
         lines.append("")
-        lines.extend(
-            _quote(str(programs[representative][backend].message))
-        )
+        lines.extend(_quote(str(programs[representative][backend].message)))
     if divergent:
         lines.append("")
         lines.append("### Refused everywhere, for unrelated reasons")
@@ -493,9 +466,7 @@ def _backend_gaps(cells: list[Cell], *, backend: str) -> list[str]:
         if cell.renders:
             continue
         if not any(
-            per_backend[other].renders
-            for other in backends
-            if other != backend
+            per_backend[other].renders for other in backends if other != backend
         ):
             continue
         reported[key] = _kinds(cell)
@@ -507,8 +478,7 @@ def _backend_gaps(cells: list[Cell], *, backend: str) -> list[str]:
             f"gaps of section 2."
         ]
     lines = [
-        "Every program below renders on at least one other backend and "
-        "is refused here."
+        "Every program below renders on at least one other backend and is refused here."
     ]
     entries = [(key, kinds) for key, kinds in reported.items()]
     for labels, keys in _group_by_label(entries).items():
@@ -520,8 +490,7 @@ def _backend_gaps(cells: list[Cell], *, backend: str) -> list[str]:
         accepting = [
             other
             for other in backends
-            if other != backend
-            and all(programs[key][other].renders for key in keys)
+            if other != backend and all(programs[key][other].renders for key in keys)
         ]
         if accepting:
             names = ", ".join(f"`{name}`" for name in accepting)
@@ -530,13 +499,9 @@ def _backend_gaps(cells: list[Cell], *, backend: str) -> list[str]:
         lines.append("")
         lines.extend(_reported_kinds_note(keys, reported))
         representative = keys[0]
-        lines.append(
-            f"`{backend}` on `{_label(representative)}` reports:"
-        )
+        lines.append(f"`{backend}` on `{_label(representative)}` reports:")
         lines.append("")
-        lines.extend(
-            _quote(str(programs[representative][backend].message))
-        )
+        lines.extend(_quote(str(programs[representative][backend].message)))
     return lines
 
 
@@ -621,9 +586,7 @@ def render_page(cells: list[Cell]) -> str:
                 f"{rendered_construct} / {total_construct}",
             ]
         )
-    lines.extend(
-        _table(["Backend", "Gallery programs", "Constructs"], summary_rows)
-    )
+    lines.extend(_table(["Backend", "Gallery programs", "Constructs"], summary_rows))
     lines.extend(
         [
             "",

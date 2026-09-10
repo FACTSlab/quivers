@@ -96,9 +96,7 @@ def test_negbinomial_neg_binomial_2_conversion() -> None:
         "disp[m_Resp]);" in out
     )
     # The uncorrected identity mapping must not survive.
-    assert (
-        "neg_binomial_2_lpmf(y[m_Resp]|disp[m_Resp],probs[m_Resp])" not in out
-    )
+    assert "neg_binomial_2_lpmf(y[m_Resp]|disp[m_Resp],probs[m_Resp])" not in out
 
 
 _LOGITNORMAL_SRC = """
@@ -116,9 +114,7 @@ def test_logitnormal_runtime_helper_grafted() -> None:
     that the `target += logit_normal_lpdf(theta | 0, 1)` increment then
     calls directly."""
     out = _stan(_LOGITNORMAL_SRC)
-    assert (
-        "real logit_normal_lpdf(real y, real mu, real sigma)" in out
-    )
+    assert "real logit_normal_lpdf(real y, real mu, real sigma)" in out
     assert "real logit_normal_rng(real mu, real sigma)" in out
     # The Jacobian term -log(y) - log1m(y) guards the density. It is
     # data-dependent, so a `~` statement would drop it.

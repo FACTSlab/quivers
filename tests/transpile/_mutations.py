@@ -407,7 +407,8 @@ _AR1_FAMILY_SUBSTITUTED = Mutation(
             backend="turing",
             rewrites=(
                 SourceRewrite(
-                    old="Normal.(mu, sigma)", new="Laplace.(mu, sigma)",
+                    old="Normal.(mu, sigma)",
+                    new="Laplace.(mu, sigma)",
                 ),
             ),
         ),
@@ -508,10 +509,7 @@ _AR1_PLATE_INDEX_ROTATED = Mutation(
             rewrites=(
                 SourceRewrite(
                     old="dnorm(mu[m_Step],1/(sigma*sigma))",
-                    new=(
-                        "dnorm(mu[m_Step+1-64*equals(m_Step,64)],"
-                        "1/(sigma*sigma))"
-                    ),
+                    new=("dnorm(mu[m_Step+1-64*equals(m_Step,64)],1/(sigma*sigma))"),
                 ),
             ),
         ),
@@ -572,10 +570,7 @@ _AR1_LOCATION_TRUNCATED = Mutation(
             rewrites=(
                 SourceRewrite(
                     old='edward2.Normal(loc=mu,scale=sigma,name="y" )',
-                    new=(
-                        "edward2.Normal(loc=tf.math.floor(mu),scale=sigma,"
-                        'name="y" )'
-                    ),
+                    new=('edward2.Normal(loc=tf.math.floor(mu),scale=sigma,name="y" )'),
                 ),
             ),
         ),
@@ -583,7 +578,8 @@ _AR1_LOCATION_TRUNCATED = Mutation(
             backend="turing",
             rewrites=(
                 SourceRewrite(
-                    old="Normal.(mu, sigma)", new="Normal.(floor.(mu), sigma)",
+                    old="Normal.(mu, sigma)",
+                    new="Normal.(floor.(mu), sigma)",
                 ),
             ),
         ),
@@ -649,8 +645,7 @@ _AR1_OBSERVATION_TERM_DROPPED = Mutation(
                 SourceRewrite(
                     old="normal_lpdf(y[m_Step] | mu[m_Step],sigma)",
                     new=(
-                        "normal_lpdf(y[m_Step] | mu[m_Step],"
-                        "m_Step == 64 ? 1e6 : sigma)"
+                        "normal_lpdf(y[m_Step] | mu[m_Step],m_Step == 64 ? 1e6 : sigma)"
                     ),
                 ),
             ),
@@ -814,10 +809,7 @@ _AR1_PARAMETER_NORMALIZER_DROPPED = Mutation(
             rewrites=(
                 SourceRewrite(
                     old="  y ~ product_distribution(Normal.(mu, sigma) )",
-                    new=(
-                        "  Turing.@addlogprob! -0.5 * "
-                        "sum(((y .- mu) ./ sigma) .^ 2)"
-                    ),
+                    new=("  Turing.@addlogprob! -0.5 * sum(((y .- mu) ./ sigma) .^ 2)"),
                 ),
             ),
         ),
@@ -858,9 +850,7 @@ _WEIBULL_ARGUMENTS_TRANSPOSED = Mutation(
         ),
         BackendMutant(
             backend="pyro",
-            rewrites=(
-                SourceRewrite(old="Weibull(scale,k)", new="Weibull(k,scale)"),
-            ),
+            rewrites=(SourceRewrite(old="Weibull(scale,k)", new="Weibull(k,scale)"),),
         ),
         BackendMutant(
             backend="pymc",
@@ -884,7 +874,8 @@ _WEIBULL_ARGUMENTS_TRANSPOSED = Mutation(
             backend="turing",
             rewrites=(
                 SourceRewrite(
-                    old="Weibull.(k, scale)", new="Weibull.(scale, k)",
+                    old="Weibull.(k, scale)",
+                    new="Weibull.(scale, k)",
                 ),
             ),
         ),
@@ -982,10 +973,7 @@ _NEGBIN_FAMILY_SUBSTITUTED = Mutation(
             rewrites=(
                 SourceRewrite(
                     old="neg_binom(disp[m_Resp], 1 - probs[m_Resp])",
-                    new=(
-                        "poisson(disp[m_Resp] * probs[m_Resp] / "
-                        "(1 - probs[m_Resp]))"
-                    ),
+                    new=("poisson(disp[m_Resp] * probs[m_Resp] / (1 - probs[m_Resp]))"),
                 ),
             ),
         ),
@@ -1299,6 +1287,7 @@ program normal_mix : Obs -> Obs
 export normal_mix
 """
 
+
 class MixturePoint(dx.Model):
     """One evaluation point for the marginalize fixture.
 
@@ -1318,8 +1307,26 @@ class MixturePoint(dx.Model):
 
 
 _MIXTURE_RESPONSE = (
-    -2.0, -1.5, -2.5, -1.8, -2.2, -1.0, -2.7, 1.5, 2.0, 2.5,
-    1.8, 2.2, 1.0, -2.0, -1.7, 2.1, 1.9, -2.4, 2.3, -1.2,
+    -2.0,
+    -1.5,
+    -2.5,
+    -1.8,
+    -2.2,
+    -1.0,
+    -2.7,
+    1.5,
+    2.0,
+    2.5,
+    1.8,
+    2.2,
+    1.0,
+    -2.0,
+    -1.7,
+    2.1,
+    1.9,
+    -2.4,
+    2.3,
+    -1.2,
 )
 """Ground-truth responses: a left cluster near `mu_low` and a right
 cluster near `mu_low + mu_diff`, so both mixture components carry real
@@ -1333,34 +1340,45 @@ def _shifted(shift: float) -> tuple[float, ...]:
     translation would leave a location-family likelihood's spread
     misleadingly small)."""
     return tuple(
-        value + shift * (1 + index % 3)
-        for index, value in enumerate(_MIXTURE_RESPONSE)
+        value + shift * (1 + index % 3) for index, value in enumerate(_MIXTURE_RESPONSE)
     )
 
 
 MARGINALIZE_POINTS: tuple[MixturePoint, ...] = (
     MixturePoint(
-        probs=(0.5, 0.5), mu_low=-2.0, mu_diff=4.0,
+        probs=(0.5, 0.5),
+        mu_low=-2.0,
+        mu_diff=4.0,
         response=_shifted(0.0),
     ),
     MixturePoint(
-        probs=(0.3, 0.7), mu_low=-1.5, mu_diff=3.0,
+        probs=(0.3, 0.7),
+        mu_low=-1.5,
+        mu_diff=3.0,
         response=_shifted(0.0),
     ),
     MixturePoint(
-        probs=(0.7, 0.3), mu_low=-2.5, mu_diff=5.0,
+        probs=(0.7, 0.3),
+        mu_low=-2.5,
+        mu_diff=5.0,
         response=_shifted(0.0),
     ),
     MixturePoint(
-        probs=(0.5, 0.5), mu_low=-2.0, mu_diff=4.0,
+        probs=(0.5, 0.5),
+        mu_low=-2.0,
+        mu_diff=4.0,
         response=_shifted(0.31),
     ),
     MixturePoint(
-        probs=(0.3, 0.7), mu_low=-1.5, mu_diff=3.0,
+        probs=(0.3, 0.7),
+        mu_low=-1.5,
+        mu_diff=3.0,
         response=_shifted(-0.27),
     ),
     MixturePoint(
-        probs=(0.5, 0.5), mu_low=-2.0, mu_diff=4.0,
+        probs=(0.5, 0.5),
+        mu_low=-2.0,
+        mu_diff=4.0,
         response=_shifted(0.55),
     ),
 )
@@ -1413,6 +1431,7 @@ MARGINALIZE_MUTATION = Mutation(
     ),
 )
 
+
 class EnumerationMarker(dx.Model):
     """A target that lowers `marginalize` to an explicit enumeration,
     paired with the token that identifies it in emitted source."""
@@ -1461,7 +1480,8 @@ ACCEPTED: tuple[AcceptedRewrite, ...] = (
         ),
         rewrites=(
             SourceRewrite(
-                old="} model {", new="} model {\n  target += 3.7;",
+                old="} model {",
+                new="} model {\n  target += 3.7;",
             ),
         ),
     ),
@@ -1501,7 +1521,8 @@ BLIND_SPOTS: tuple[BlindSpot, ...] = (
         ),
         rewrites=(
             SourceRewrite(
-                old="real <lower = 0> sigma;", new="real sigma;",
+                old="real <lower = 0> sigma;",
+                new="real sigma;",
             ),
         ),
     ),
@@ -1552,9 +1573,7 @@ BLIND_SPOTS: tuple[BlindSpot, ...] = (
             "the model function's return rather than a generated "
             "quantity."
         ),
-        rewrites=(
-            SourceRewrite(old="  return phi", new="  return -phi"),
-        ),
+        rewrites=(SourceRewrite(old="  return phi", new="  return -phi"),),
     ),
 )
 

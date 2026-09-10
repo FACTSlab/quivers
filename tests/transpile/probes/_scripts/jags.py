@@ -27,6 +27,7 @@ comes from. With every stochastic node supplied as data the
 relation has a single determined value, so its one-iteration trace
 is the exported value rather than a draw.
 """
+
 import json
 import os
 import pathlib
@@ -54,7 +55,10 @@ def _arr(value):
 
 
 def _monitored_export(
-    dumped: dict, alias: str, name: str, shapes: dict,
+    dumped: dict,
+    alias: str,
+    name: str,
+    shapes: dict,
 ) -> list:
     """Read one monitored alias out of a `dumpMonitors` payload.
 
@@ -110,7 +114,8 @@ def main() -> None:
     exports = []
     for pt in points:
         reshaped = shift_index_inputs(
-            reshape_point(pt, shapes, dtypes), index_names,
+            reshape_point(pt, shapes, dtypes),
+            index_names,
         )
         # Combine params + data: JAGS treats every supplied node as
         # observed, so the deviance includes the joint log-density of
@@ -141,12 +146,17 @@ def main() -> None:
         dev = float(np.asarray(dev_arr).flatten()[0])
         log_densities.append(-dev / 2)
         if export_names:
-            exports.append([
-                _monitored_export(
-                    dumped, f"{name}_value", name, shapes,
-                )
-                for name in export_names
-            ])
+            exports.append(
+                [
+                    _monitored_export(
+                        dumped,
+                        f"{name}_value",
+                        name,
+                        shapes,
+                    )
+                    for name in export_names
+                ]
+            )
 
     result = {"log_densities": log_densities}
     if export_names:

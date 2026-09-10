@@ -147,9 +147,7 @@ _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
 }
 
 
-def _alias_transform_for(
-    family: str, emitted_name: str
-) -> _TransformKind | None:
+def _alias_transform_for(family: str, emitted_name: str) -> _TransformKind | None:
     """Resolve the arithmetic transform for an aliased arg, honouring
     the per-family override in
     [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.jags._FAMILY_ALIAS_TRANSFORM_OVERRIDE]
@@ -202,9 +200,7 @@ def _reorder_studentt_dt(
 #: the QVR call site writes only the scale, so the prepended zero
 #: fills ``dnorm``'s location and the family carries no entry in
 #: ``HALF_SUPPORT_LOWER_BOUND``.
-_PREPEND_ZERO: frozenset[str] = frozenset(
-    {"HalfNormal", "HalfCauchy", "Horseshoe"}
-)
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
 
 #: JAGS-side argument injection for QVR families that map to JAGS'
 #: ``dt(mu, tau, k)`` distribution. JAGS Student-t requires three
@@ -242,12 +238,14 @@ _ZEROS_TRICK_OFFSET: float = 1.0e6
 #: while a *latent* draw needs a node declaration as well; the
 #: families that can supply one are the entries of
 #: [`_ZEROS_TRICK_LATENT_CARRIER`][quivers.transpile.renderers.jags._ZEROS_TRICK_LATENT_CARRIER].
-_ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset({
-    "MixtureNormal",
-    "BetaBinomial",
-    "ContinuousBernoulli",
-    "Kumaraswamy",
-})
+_ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset(
+    {
+        "MixtureNormal",
+        "BetaBinomial",
+        "ContinuousBernoulli",
+        "Kumaraswamy",
+    }
+)
 
 #: Zeros-trick families a *latent* site can carry, mapped to the QVR
 #: family whose JAGS distribution declares the drawn node's support.
@@ -301,11 +299,13 @@ _UNIT_INTERVAL_CARRIER_ARG_NAMES: tuple[str, ...] = ("low", "high")
 #: exceeds one wherever the tilt concentrates the mass at an endpoint,
 #: so its log form is positive there and an unlifted ``-log f(z)``
 #: would hand ``dpois`` a negative rate.
-_ZEROS_TRICK_LIFTED_FAMILIES: frozenset[str] = frozenset({
-    "MixtureNormal",
-    "ContinuousBernoulli",
-    "Kumaraswamy",
-})
+_ZEROS_TRICK_LIFTED_FAMILIES: frozenset[str] = frozenset(
+    {
+        "MixtureNormal",
+        "ContinuousBernoulli",
+        "Kumaraswamy",
+    }
+)
 
 
 def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
@@ -376,14 +376,11 @@ class JAGSRenderer(RendererBase):
         # such nodes from inside the model source, so the emit declares
         # one when, and only when, a site needs it.
         if _ir_has_marginalize(ir.body) or any(
-            ir_uses_family(ir.body, family)
-            for family in _ZEROS_TRICK_FAMILIES
+            ir_uses_family(ir.body, family) for family in _ZEROS_TRICK_FAMILIES
         ):
             jctx.sb.constraint("src", "ptrace-0", "Cdata_block")
             jctx.sb.constraint("src", "ptrace-1", "Cmodel_block")
-            jctx.sb.constraint(
-                "src", "chose-alt-child-kinds", "data_block model_block"
-            )
+            jctx.sb.constraint("src", "chose-alt-child-kinds", "data_block model_block")
             db = _fresh(jctx, "db", "data_block")
             jctx.sb.edge("src", db, "child_of")
             jctx.data_block = db
@@ -474,9 +471,7 @@ class JAGSRenderer(RendererBase):
         self._emit_marginal_reduction(jctx, node)
         return ""
 
-    def _emit_marginal_reduction(
-        self, ctx: _JAGSCtx, node: IRMarginalize
-    ) -> None:
+    def _emit_marginal_reduction(self, ctx: _JAGSCtx, node: IRMarginalize) -> None:
         """Emit one marginalized latent as a rowwise log weighted sum.
 
         `marginalize_body` separates deterministic bindings from the observed
@@ -490,9 +485,7 @@ class JAGSRenderer(RendererBase):
         functions, the mixture is at most one and its negative log can be used
         as the zeros-trick Poisson rate without an additive lift.
         """
-        raw = marginalize_body(
-            node.scope, latent=node.latent, target=self.target
-        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         observe = raw.observe
         if observe.plate.event_dims:
             raise UnsupportedConstruct(
@@ -506,9 +499,7 @@ class JAGSRenderer(RendererBase):
             )
         atoms = self.marginal_atoms(
             node,
-            support_size=marginal_support_size(
-                node, name_plates=ctx.decl_plates
-            ),
+            support_size=marginal_support_size(node, name_plates=ctx.decl_plates),
         )
         total: LetExprNode | None = None
         lifted = False
@@ -536,9 +527,7 @@ class JAGSRenderer(RendererBase):
                 right=density.expr,
             )
             total = (
-                term
-                if total is None
-                else LetExprBinOp(op="+", left=total, right=term)
+                term if total is None else LetExprBinOp(op="+", left=total, right=term)
             )
         if total is None:
             raise UnsupportedConstruct(
@@ -595,9 +584,7 @@ class JAGSRenderer(RendererBase):
         if atom.weight_family == "Bernoulli":
             if atom.value.value == 1.0:
                 return probs
-            return LetExprBinOp(
-                op="-", left=LetExprLiteral(value=1.0), right=probs
-            )
+            return LetExprBinOp(op="-", left=LetExprLiteral(value=1.0), right=probs)
         return subscript_letexpr(
             _BACKEND, probs, LetExprLiteral(value=atom.value.value)
         )
@@ -641,9 +628,7 @@ class JAGSRenderer(RendererBase):
             )
         return self._rep_call(jctx, value, target_shape[0])
 
-    def _rep_call(
-        self, ctx: _JAGSCtx, value: IRArg, size: int
-    ) -> str:
+    def _rep_call(self, ctx: _JAGSCtx, value: IRArg, size: int) -> str:
         """Build ``rep(<value>, <size>)`` as a JAGS ``function_call``.
 
         The value expression is converted to a
@@ -661,7 +646,9 @@ class JAGSRenderer(RendererBase):
         )
         let_ctx = _jags_let_ctx(ctx, self._cards)
         return render_let_expr_bugs(
-            let_ctx, rep_expr, decl_plates=ctx.decl_plates,
+            let_ctx,
+            rep_expr,
+            decl_plates=ctx.decl_plates,
         )
 
     def _broadcast_scalar_args(
@@ -701,12 +688,8 @@ class JAGSRenderer(RendererBase):
                 and expected.event_dim >= 1
                 and arg.name in ctx.scalar_refs
             ):
-                target = self._static_event_shape(
-                    plate, expected.event_dim, arg_name
-                )
-                out.append(
-                    IRArgBroadcast(value=arg, target_shape=target)
-                )
+                target = self._static_event_shape(plate, expected.event_dim, arg_name)
+                out.append(IRArgBroadcast(value=arg, target_shape=target))
             else:
                 out.append(arg)
         return tuple(out)
@@ -748,9 +731,7 @@ class JAGSRenderer(RendererBase):
             sizes.append(dim.size)
         return tuple(sizes)
 
-    def render_list(
-        self, ctx: _JAGSCtx, arg: IRArgList
-    ) -> SchemaFragment:
+    def render_list(self, ctx: _JAGSCtx, arg: IRArgList) -> SchemaFragment:
         """JAGS does not parse list literals in argument position;
         callers must pre-bind collections via let-decl."""
         del ctx, arg
@@ -759,9 +740,7 @@ class JAGSRenderer(RendererBase):
             ["arg:list-literal"],
         )
 
-    def render_matrix(
-        self, ctx: _JAGSCtx, arg: IRArgMatrix
-    ) -> SchemaFragment:
+    def render_matrix(self, ctx: _JAGSCtx, arg: IRArgMatrix) -> SchemaFragment:
         """JAGS does not parse matrix literals in argument position;
         callers must pre-bind matrices via let-decl."""
         del ctx, arg
@@ -774,9 +753,7 @@ class JAGSRenderer(RendererBase):
     # IR node dispatch
     # ------------------------------------------------------------------
 
-    def _dispatch_jags_node(
-        self, ctx: _JAGSCtx, node: IRNode
-    ) -> None:
+    def _dispatch_jags_node(self, ctx: _JAGSCtx, node: IRNode) -> None:
         """Walk one IR node and emit its JAGS form into the active
         block."""
         if isinstance(node, IRDataInput):
@@ -839,9 +816,7 @@ class JAGSRenderer(RendererBase):
             [f"node:{type(node).__name__}"],
         )
 
-    def _emit_export(
-        self, ctx: _JAGSCtx, names: tuple[str, ...]
-    ) -> None:
+    def _emit_export(self, ctx: _JAGSCtx, names: tuple[str, ...]) -> None:
         """Expose each returned name as a deterministic relation.
 
         The BUGS language has no `return`: a model block declares
@@ -909,9 +884,7 @@ class JAGSRenderer(RendererBase):
         a double loop and then inverted before being passed as the
         precision argument.
         """
-        if len(node.args) != 2 or not isinstance(
-            node.args[1], IRArgKernel
-        ):
+        if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}",
                 ["family:GP:expected IRArgKernel as second arg"],
@@ -920,10 +893,7 @@ class JAGSRenderer(RendererBase):
         if kernel_arg.kernel != "rbf":
             raise UnsupportedConstruct(
                 f"qvr-{_BACKEND}",
-                [
-                    f"family:GP:kernel:{kernel_arg.kernel}: only rbf "
-                    f"is implemented"
-                ],
+                [f"family:GP:kernel:{kernel_arg.kernel}: only rbf is implemented"],
             )
         n = kernel_arg.grid_size
         ls = kernel_arg.length_scale
@@ -940,10 +910,12 @@ class JAGSRenderer(RendererBase):
         i_var = LetExprVar(name="i")
         j_var = LetExprVar(name="j")
         x_i = LetExprIndex(
-            array=LetExprVar(name=x), indices=(i_var,),
+            array=LetExprVar(name=x),
+            indices=(i_var,),
         )
         x_j = LetExprIndex(
-            array=LetExprVar(name=x), indices=(j_var,),
+            array=LetExprVar(name=x),
+            indices=(j_var,),
         )
         diff = LetExprBinOp(op="-", left=x_i, right=x_j)
         diff_sq = LetExprCall(
@@ -975,7 +947,9 @@ class JAGSRenderer(RendererBase):
             ),
         )
         rbf_entry_expr = LetExprBinOp(
-            op="+", left=exp_call, right=ifelse_call,
+            op="+",
+            left=exp_call,
+            right=ifelse_call,
         )
         # Build the K-matrix relation: K[i, j] <- <entry>, wrapped in
         # for (j) inside for (i).
@@ -984,18 +958,26 @@ class JAGSRenderer(RendererBase):
         ctx.sb.constraint(kij, "ptrace-0", "Cindexed_variable")
         ctx.sb.constraint(kij, "ptrace-1", "T<-")
         lhs_kij = self._indexed_variable(
-            ctx, kmat_name, ("i", "j"), (),
+            ctx,
+            kmat_name,
+            ("i", "j"),
+            (),
         )
         ctx.sb.edge(kij, lhs_kij, "variable")
         let_ctx = _jags_let_ctx(ctx, self._cards)
         kij_rhs = render_let_expr_bugs(
-            let_ctx, rbf_entry_expr, decl_plates=ctx.decl_plates,
+            let_ctx,
+            rbf_entry_expr,
+            decl_plates=ctx.decl_plates,
         )
         ctx.sb.edge(kij, kij_rhs, "value")
         # for (j in 1:N) { K[i, j] <- ... }
         inner_dim = DimStatic(size=n, name="j")
         inner_loop = self._wrap_in_for_loops(
-            ctx, kij, (inner_dim,), override_var="j",
+            ctx,
+            kij,
+            (inner_dim,),
+            override_var="j",
         )
         # zeros[i] <- 0 (one deterministic per i)
         zi = _fresh(ctx, "zi", "deterministic_relation")
@@ -1005,7 +987,8 @@ class JAGSRenderer(RendererBase):
         lhs_zi = self._indexed_variable(ctx, zeros_name, ("i",), ())
         ctx.sb.edge(zi, lhs_zi, "variable")
         zi_rhs = render_let_expr_bugs(
-            let_ctx, LetExprLiteral(value=0.0),
+            let_ctx,
+            LetExprLiteral(value=0.0),
             decl_plates=ctx.decl_plates,
         )
         ctx.sb.edge(zi, zi_rhs, "value")
@@ -1013,12 +996,15 @@ class JAGSRenderer(RendererBase):
         outer_block = _fresh(ctx, "blk", "block")
         ctx.sb.constraint(outer_block, "chose-alt-fingerprint", "{ }")
         ctx.sb.constraint(
-            outer_block, "chose-alt-child-kinds",
+            outer_block,
+            "chose-alt-child-kinds",
             "deterministic_relation for_loop",
         )
         ctx.sb.constraint(outer_block, "ptrace-0", "T{")
         ctx.sb.constraint(
-            outer_block, "ptrace-1", "Cdeterministic_relation",
+            outer_block,
+            "ptrace-1",
+            "Cdeterministic_relation",
         )
         ctx.sb.constraint(outer_block, "ptrace-2", "Cfor_loop")
         ctx.sb.constraint(outer_block, "ptrace-3", "T}")
@@ -1026,12 +1012,16 @@ class JAGSRenderer(RendererBase):
         ctx.sb.edge(outer_block, inner_loop, "child_of")
         # for (i in 1:N) { zeros[i] <- 0 ; for (j in 1:N) {...} }
         outer_loop = self._build_for_loop(
-            ctx, "i", n, outer_block,
+            ctx,
+            "i",
+            n,
+            outer_block,
         )
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, outer_loop, "child_of")
             ctx.block_children.setdefault(
-                ctx.current_block, [],
+                ctx.current_block,
+                [],
             ).append(_block_child_kind(ctx, outer_loop))
         # tau <- inverse(K)
         tau_dr = _fresh(ctx, "tdr", "deterministic_relation")
@@ -1051,7 +1041,8 @@ class JAGSRenderer(RendererBase):
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, tau_dr, "child_of")
             ctx.block_children.setdefault(
-                ctx.current_block, [],
+                ctx.current_block,
+                [],
             ).append(_block_child_kind(ctx, tau_dr))
         # f ~ dmnorm(zeros, tau)
         sr = _fresh(ctx, "sr", "stochastic_relation")
@@ -1061,13 +1052,16 @@ class JAGSRenderer(RendererBase):
         ctx.sb.constraint(sr, "ptrace-2", "Cdistribution_call")
         ctx.sb.edge(sr, _identifier(ctx, node.name), "variable")
         dist_vid = self._build_dmnorm_dist(
-            ctx, zeros_name, tau_name,
+            ctx,
+            zeros_name,
+            tau_name,
         )
         ctx.sb.edge(sr, dist_vid, "distribution")
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, sr, "child_of")
             ctx.block_children.setdefault(
-                ctx.current_block, [],
+                ctx.current_block,
+                [],
             ).append(_block_child_kind(ctx, sr))
 
     def _build_for_loop(
@@ -1082,7 +1076,8 @@ class JAGSRenderer(RendererBase):
         fl = _fresh(ctx, "fl", "for_loop")
         ctx.sb.constraint(fl, "chose-alt-fingerprint", "for ( in )")
         ctx.sb.constraint(
-            fl, "chose-alt-child-kinds",
+            fl,
+            "chose-alt-child-kinds",
             "identifier range block",
         )
         ctx.sb.constraint(fl, "ptrace-0", "Tfor")
@@ -1110,7 +1105,8 @@ class JAGSRenderer(RendererBase):
         dc = _fresh(ctx, "dc", "distribution_call")
         ctx.sb.constraint(dc, "chose-alt-fingerprint", "( )")
         ctx.sb.constraint(
-            dc, "chose-alt-child-kinds",
+            dc,
+            "chose-alt-child-kinds",
             "identifier argument_list",
         )
         ctx.sb.constraint(dc, "ptrace-0", "Cidentifier")
@@ -1121,7 +1117,9 @@ class JAGSRenderer(RendererBase):
         al = _fresh(ctx, "al", "argument_list")
         ctx.sb.constraint(al, "chose-alt-fingerprint", ", ")
         ctx.sb.constraint(
-            al, "chose-alt-child-kinds", "identifier identifier",
+            al,
+            "chose-alt-child-kinds",
+            "identifier identifier",
         )
         ctx.sb.constraint(al, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(al, "ptrace-1", "T,")
@@ -1236,9 +1234,7 @@ class JAGSRenderer(RendererBase):
         dim and attach it to the surrounding block."""
         meta = FAMILY_META.get(family)
         if meta is None:
-            raise UnsupportedConstruct(
-                f"qvr-{_BACKEND}", [f"family:unknown:{family}"]
-            )
+            raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"family:unknown:{family}"])
         target_name = meta.target_names.get(_BACKEND)
         if target_name is None:
             raise UnsupportedConstruct(
@@ -1249,9 +1245,7 @@ class JAGSRenderer(RendererBase):
         # (e.g. a symmetric-Dirichlet concentration) has no valid JAGS
         # form as a bare scalar; wrap it so emission repeats it into a
         # `rep(<scalar>, K)` vector parent.
-        args = self._broadcast_scalar_args(
-            ctx, args, arg_names, meta, plate
-        )
+        args = self._broadcast_scalar_args(ctx, args, arg_names, meta, plate)
 
         if family in _PREPEND_ZERO:
             args = (IRArgNumber(value=0.0), *args)
@@ -1267,8 +1261,8 @@ class JAGSRenderer(RendererBase):
         # the family's arg_aliases (which only renames the
         # distribution-call args). The peeled bounds are reattached
         # below as a `truncation` child of the stochastic_relation.
-        truncation_bounds: tuple[IRArg, ...] | None = (
-            half_support_truncation(family, observed=observed)
+        truncation_bounds: tuple[IRArg, ...] | None = half_support_truncation(
+            family, observed=observed
         )
         if family == "TruncatedNormal":
             if len(args) != 4:
@@ -1344,26 +1338,14 @@ class JAGSRenderer(RendererBase):
         # Compute loop var names. The observation-plate convention is to
         # use the canonical `n` when `via` is set and the plate has a
         # single dynamic dim.
-        if (
-            via is not None
-            and len(plate.batch_dims) == 1
-            and not residual_event
-        ):
+        if via is not None and len(plate.batch_dims) == 1 and not residual_event:
             batch_loop_names: tuple[str, ...] = ("n",)
         else:
-            batch_loop_names = tuple(
-                f"m_{_dim_name(dim)}" for dim in plate.batch_dims
-            )
-        residual_loop_names = _fresh_loop_names(
-            batch_loop_names, residual_event
-        )
-        loop_var_names: tuple[str, ...] = (
-            *batch_loop_names, *residual_loop_names
-        )
+            batch_loop_names = tuple(f"m_{_dim_name(dim)}" for dim in plate.batch_dims)
+        residual_loop_names = _fresh_loop_names(batch_loop_names, residual_event)
+        loop_var_names: tuple[str, ...] = (*batch_loop_names, *residual_loop_names)
         loop_dims: tuple[Dim, ...] = (*plate.batch_dims, *residual_event)
-        lhs_plate = Plate(
-            event_dims=native_event, batch_dims=loop_dims
-        )
+        lhs_plate = Plate(event_dims=native_event, batch_dims=loop_dims)
 
         # Build the axis-to-loop-var map for this sample's surrounding
         # plate. `_rewrite_arg` uses this to choose the right loop var
@@ -1404,22 +1386,24 @@ class JAGSRenderer(RendererBase):
         # plate's loop var when the axes match) and a fallback loop var
         # for when no surrounding plate covers the axis.
         if plate.batch_dims:
-            fallback_lv = loop_var_names[-1] if loop_var_names else f"m_{_dim_name(plate.batch_dims[-1])}"
+            fallback_lv = (
+                loop_var_names[-1]
+                if loop_var_names
+                else f"m_{_dim_name(plate.batch_dims[-1])}"
+            )
             axes = tuple(_dim_name(d) for d in plate.batch_dims)
             ctx.latent_plate_info[name] = (
-                fallback_lv, plate.event_dims, axes,
+                fallback_lv,
+                plate.event_dims,
+                axes,
             )
 
         override_var = (
             "n"
-            if via is not None
-            and len(plate.batch_dims) == 1
-            and not residual_event
+            if via is not None and len(plate.batch_dims) == 1 and not residual_event
             else None
         )
-        wrapped = self._wrap_in_for_loops(
-            ctx, sr, loop_dims, override_var=override_var
-        )
+        wrapped = self._wrap_in_for_loops(ctx, sr, loop_dims, override_var=override_var)
         if ctx.current_block is not None:
             ctx.sb.edge(ctx.current_block, wrapped, "child_of")
             ctx.block_children.setdefault(ctx.current_block, []).append(
@@ -1479,9 +1463,7 @@ class JAGSRenderer(RendererBase):
         lhs = self._build_lhs(ctx, lhs_name, plate, loop_vars)
         ctx.sb.edge(sr, lhs, "variable")
 
-        dc = self._build_distribution_call(
-            ctx, target_dist, renamed_pairs
-        )
+        dc = self._build_distribution_call(ctx, target_dist, renamed_pairs)
         ctx.sb.edge(sr, dc, "distribution")
 
         if has_trunc:
@@ -1517,7 +1499,11 @@ class JAGSRenderer(RendererBase):
         kinds: list[str] = []
         for bound in bounds:
             rewritten = _rewrite_arg(
-                ctx, bound, loop_var_names, axis_to_lv, via,
+                ctx,
+                bound,
+                loop_var_names,
+                axis_to_lv,
+                via,
             )
             vid, kind = self._render_arg_with_kind(ctx, rewritten)
             ctx.sb.edge(trunc, vid, "child_of")
@@ -1526,7 +1512,9 @@ class JAGSRenderer(RendererBase):
             trunc, "chose-alt-fingerprint", TRUNCATION_FINGERPRINT[_BACKEND]
         )
         ctx.sb.constraint(
-            trunc, "chose-alt-child-kinds", " ".join(kinds),
+            trunc,
+            "chose-alt-child-kinds",
+            " ".join(kinds),
         )
         return trunc
 
@@ -1546,9 +1534,7 @@ class JAGSRenderer(RendererBase):
         vector shape (e.g. Dirichlet draws on a Topic axis)."""
         if not plate.batch_dims and not plate.event_dims:
             return _identifier(ctx, name)
-        return self._indexed_variable(
-            ctx, name, loop_vars, plate.event_dims
-        )
+        return self._indexed_variable(ctx, name, loop_vars, plate.event_dims)
 
     def _indexed_variable(
         self,
@@ -1560,9 +1546,7 @@ class JAGSRenderer(RendererBase):
         """``name[m_0, m_1, ..., 1:E0, 1:E1, ...]``."""
         iv = _fresh(ctx, "iv", "indexed_variable")
         ctx.sb.constraint(iv, "chose-alt-fingerprint", "[ ]")
-        ctx.sb.constraint(
-            iv, "chose-alt-child-kinds", "identifier index_list"
-        )
+        ctx.sb.constraint(iv, "chose-alt-child-kinds", "identifier index_list")
         ctx.sb.constraint(iv, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(iv, "ptrace-1", "T[")
         ctx.sb.constraint(iv, "ptrace-2", "Cindex_list")
@@ -1597,26 +1581,20 @@ class JAGSRenderer(RendererBase):
             "chose-alt-fingerprint",
             " ".join(fingerprint_parts) if fingerprint_parts else "",
         )
-        ctx.sb.constraint(
-            idx_list, "chose-alt-child-kinds", " ".join(index_kinds)
-        )
+        ctx.sb.constraint(idx_list, "chose-alt-child-kinds", " ".join(index_kinds))
 
         for child_id, _kind in children:
             ctx.sb.edge(idx_list, child_id, "child_of")
         ctx.sb.edge(iv, idx_list, "indices")
         return iv
 
-    def _event_range_form(
-        self, ctx: _JAGSCtx, dim: object
-    ) -> tuple[str, str]:
+    def _event_range_form(self, ctx: _JAGSCtx, dim: object) -> tuple[str, str]:
         """`1:E` range form for one event dim. Returns (vid, kind)."""
         if isinstance(dim, DimStatic):
             return self._range_static(ctx, dim.size), "range"
         if isinstance(dim, DimDynamic):
             return self._range_dynamic(ctx, dim.size_name), "range"
-        raise UnsupportedConstruct(
-            f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"]
-        )
+        raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
 
     def _range_static(self, ctx: _JAGSCtx, upper: int) -> str:
         rng = _fresh(ctx, "rng", "range")
@@ -1634,9 +1612,7 @@ class JAGSRenderer(RendererBase):
     def _range_dynamic(self, ctx: _JAGSCtx, upper_name: str) -> str:
         rng = _fresh(ctx, "rng", "range")
         ctx.sb.constraint(rng, "chose-alt-fingerprint", ":")
-        ctx.sb.constraint(
-            rng, "chose-alt-child-kinds", "number identifier"
-        )
+        ctx.sb.constraint(rng, "chose-alt-child-kinds", "number identifier")
         ctx.sb.constraint(rng, "ptrace-0", "Cnumber")
         ctx.sb.constraint(rng, "ptrace-1", "T:")
         ctx.sb.constraint(rng, "ptrace-2", "Cidentifier")
@@ -1659,9 +1635,7 @@ class JAGSRenderer(RendererBase):
         """
         dc = _fresh(ctx, "dc", "distribution_call")
         ctx.sb.constraint(dc, "chose-alt-fingerprint", "( )")
-        ctx.sb.constraint(
-            dc, "chose-alt-child-kinds", "identifier argument_list"
-        )
+        ctx.sb.constraint(dc, "chose-alt-child-kinds", "identifier argument_list")
         ctx.sb.constraint(dc, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(dc, "ptrace-1", "T(")
         ctx.sb.constraint(dc, "ptrace-2", "Cargument_list")
@@ -1705,9 +1679,7 @@ class JAGSRenderer(RendererBase):
             "chose-alt-fingerprint",
             " ".join(fingerprint_parts) if fingerprint_parts else "",
         )
-        ctx.sb.constraint(
-            al, "chose-alt-child-kinds", " ".join(kinds)
-        )
+        ctx.sb.constraint(al, "chose-alt-child-kinds", " ".join(kinds))
 
         for vid, _kind in child_pairs:
             ctx.sb.edge(al, vid, "child_of")
@@ -1737,9 +1709,7 @@ class JAGSRenderer(RendererBase):
             return self._render_family_ref_with_kind(ctx, arg)
         if isinstance(arg, IRArgTransform):
             return self._render_transform_with_kind(ctx, arg)
-        raise UnsupportedConstruct(
-            f"qvr-{_BACKEND}", [f"arg:{type(arg).__name__}"]
-        )
+        raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"arg:{type(arg).__name__}"])
 
     def _render_ref_with_kind(
         self,
@@ -1764,9 +1734,7 @@ class JAGSRenderer(RendererBase):
             return _identifier(ctx, arg.name), "identifier"
         iv = _fresh(ctx, "iv", "indexed_variable")
         ctx.sb.constraint(iv, "chose-alt-fingerprint", "[ ]")
-        ctx.sb.constraint(
-            iv, "chose-alt-child-kinds", "identifier index_list"
-        )
+        ctx.sb.constraint(iv, "chose-alt-child-kinds", "identifier index_list")
         ctx.sb.constraint(iv, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(iv, "ptrace-1", "T[")
         ctx.sb.constraint(iv, "ptrace-2", "Cindex_list")
@@ -1797,9 +1765,7 @@ class JAGSRenderer(RendererBase):
             "chose-alt-fingerprint",
             " ".join(fingerprint_parts) if fingerprint_parts else "",
         )
-        ctx.sb.constraint(
-            idx_list, "chose-alt-child-kinds", " ".join(kinds)
-        )
+        ctx.sb.constraint(idx_list, "chose-alt-child-kinds", " ".join(kinds))
         for vid, _ in child_pairs:
             ctx.sb.edge(idx_list, vid, "child_of")
         ctx.sb.edge(iv, idx_list, "indices")
@@ -1835,17 +1801,13 @@ class JAGSRenderer(RendererBase):
         )
         inner_arg_names = tuple(
             inner_meta.distribution_class.arg_constraints.keys()
-            if isinstance(
-                inner_meta.distribution_class.arg_constraints, dict
-            )
+            if isinstance(inner_meta.distribution_class.arg_constraints, dict)
             else ()
         )
         renamed_pairs = tuple(
             (n, a) for n, a in zip(inner_arg_names, inner_args, strict=False)
         )
-        dc = self._build_distribution_call(
-            ctx, target_inner, renamed_pairs
-        )
+        dc = self._build_distribution_call(ctx, target_inner, renamed_pairs)
         return dc, "distribution_call"
 
     def _render_transform_with_kind(
@@ -1862,7 +1824,9 @@ class JAGSRenderer(RendererBase):
         """
         inner_vid, inner_kind = self._render_arg_with_kind(ctx, arg.inner)
         if arg.transform == "inv_square":
-            sq = self._binary_expr(ctx, "*", inner_vid, inner_kind, inner_vid, inner_kind)
+            sq = self._binary_expr(
+                ctx, "*", inner_vid, inner_kind, inner_vid, inner_kind
+            )
             paren = self._parenthesized(ctx, sq, "binary_expression")
             one = _number(ctx, 1)
             div = self._binary_expr(
@@ -1871,9 +1835,7 @@ class JAGSRenderer(RendererBase):
             return div, "binary_expression"
         if arg.transform == "inv":
             one = _number(ctx, 1)
-            div = self._binary_expr(
-                ctx, "/", one, "number", inner_vid, inner_kind
-            )
+            div = self._binary_expr(ctx, "/", one, "number", inner_vid, inner_kind)
             return div, "binary_expression"
         if arg.transform == "neg":
             ue = _fresh(ctx, "ue", "unary_expression")
@@ -1884,9 +1846,7 @@ class JAGSRenderer(RendererBase):
         if arg.transform in ("log", "exp"):
             fc = _fresh(ctx, "fc", "function_call")
             ctx.sb.constraint(fc, "chose-alt-fingerprint", "( )")
-            ctx.sb.constraint(
-                fc, "chose-alt-child-kinds", f"identifier {inner_kind}"
-            )
+            ctx.sb.constraint(fc, "chose-alt-child-kinds", f"identifier {inner_kind}")
             ctx.sb.constraint(fc, "ptrace-0", "Cidentifier")
             ctx.sb.constraint(fc, "ptrace-1", "T(")
             ctx.sb.constraint(fc, "ptrace-2", f"C{inner_kind}")
@@ -1897,9 +1857,7 @@ class JAGSRenderer(RendererBase):
             return fc, "function_call"
         if arg.transform == "one_minus":
             one = _number(ctx, 1)
-            diff = self._binary_expr(
-                ctx, "-", one, "number", inner_vid, inner_kind
-            )
+            diff = self._binary_expr(ctx, "-", one, "number", inner_vid, inner_kind)
             return diff, "binary_expression"
         if arg.transform == "pow_neg":
             if arg.operand is None:
@@ -1920,9 +1878,7 @@ class JAGSRenderer(RendererBase):
                 ((inner_vid, inner_kind), (neg, "unary_expression")),
             )
             return call, "function_call"
-        raise UnsupportedConstruct(
-            f"qvr-{_BACKEND}", [f"transform:{arg.transform}"]
-        )
+        raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"transform:{arg.transform}"])
 
     def _function_call_from_vids(
         self,
@@ -1935,9 +1891,7 @@ class JAGSRenderer(RendererBase):
         already-rendered ``(vertex, kind)`` pairs."""
         fc = _fresh(ctx, "fc", "function_call")
         ctx.sb.constraint(fc, "chose-alt-fingerprint", "( )")
-        ctx.sb.constraint(
-            fc, "chose-alt-child-kinds", "identifier argument_list"
-        )
+        ctx.sb.constraint(fc, "chose-alt-child-kinds", "identifier argument_list")
         ctx.sb.constraint(fc, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(fc, "ptrace-1", "T(")
         ctx.sb.constraint(fc, "ptrace-2", "Cargument_list")
@@ -1979,16 +1933,12 @@ class JAGSRenderer(RendererBase):
         be = _fresh(ctx, "be", "binary_expression")
         ctx.sb.constraint(be, "field:operator", op)
         ctx.sb.constraint(be, "chose-alt-fingerprint", op)
-        ctx.sb.constraint(
-            be, "chose-alt-child-kinds", f"{left_kind} {right_kind}"
-        )
+        ctx.sb.constraint(be, "chose-alt-child-kinds", f"{left_kind} {right_kind}")
         ctx.sb.edge(be, left_vid, "left")
         ctx.sb.edge(be, right_vid, "right")
         return be
 
-    def _parenthesized(
-        self, ctx: _JAGSCtx, inner_vid: str, inner_kind: str
-    ) -> str:
+    def _parenthesized(self, ctx: _JAGSCtx, inner_vid: str, inner_kind: str) -> str:
         """Build ``( <inner> )`` as a ``parenthesized_expression``."""
         pe = _fresh(ctx, "pe", "parenthesized_expression")
         ctx.sb.constraint(pe, "chose-alt-fingerprint", "( )")
@@ -2029,9 +1979,7 @@ class JAGSRenderer(RendererBase):
 
             fl = _fresh(ctx, "fl", "for_loop")
             ctx.sb.constraint(fl, "chose-alt-fingerprint", "for ( in )")
-            ctx.sb.constraint(
-                fl, "chose-alt-child-kinds", "identifier range block"
-            )
+            ctx.sb.constraint(fl, "chose-alt-child-kinds", "identifier range block")
             ctx.sb.constraint(fl, "ptrace-0", "Tfor")
             ctx.sb.constraint(fl, "ptrace-1", "T(")
             ctx.sb.constraint(fl, "ptrace-2", "Cidentifier")
@@ -2056,26 +2004,20 @@ class JAGSRenderer(RendererBase):
             current_kind = "for_loop"
         return current
 
-    def _dim_size_range(
-        self, ctx: _JAGSCtx, dim: object
-    ) -> tuple[str, str]:
+    def _dim_size_range(self, ctx: _JAGSCtx, dim: object) -> tuple[str, str]:
         """Build a ``1:N`` range vertex for one batch dim. Returns
         (vid, kind)."""
         if isinstance(dim, DimStatic):
             return self._range_static(ctx, dim.size), "range"
         if isinstance(dim, DimDynamic):
             return self._range_dynamic(ctx, dim.size_name), "range"
-        raise UnsupportedConstruct(
-            f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"]
-        )
+        raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
 
     # ------------------------------------------------------------------
     # Deterministic / score emission
     # ------------------------------------------------------------------
 
-    def _emit_factor_deterministic(
-        self, ctx: _JAGSCtx, node: IRDeterministic
-    ) -> None:
+    def _emit_factor_deterministic(self, ctx: _JAGSCtx, node: IRDeterministic) -> None:
         """Emit a `factor` binding as one relation per cell.
 
         A rank-`n` factor denotes a rank-`n` tensor of scalar cells.
@@ -2104,15 +2046,17 @@ class JAGSRenderer(RendererBase):
             ctx.sb.edge(
                 dr,
                 render_let_expr_bugs(
-                    let_ctx, body, decl_plates=ctx.decl_plates,
+                    let_ctx,
+                    body,
+                    decl_plates=ctx.decl_plates,
                 ),
                 "value",
             )
             if ctx.current_block is not None:
                 ctx.sb.edge(ctx.current_block, dr, "child_of")
-                ctx.block_children.setdefault(
-                    ctx.current_block, []
-                ).append(_block_child_kind(ctx, dr))
+                ctx.block_children.setdefault(ctx.current_block, []).append(
+                    _block_child_kind(ctx, dr)
+                )
         self._register_deterministic_plate(ctx, node)
 
     def _check_factor_plate(
@@ -2150,9 +2094,7 @@ class JAGSRenderer(RendererBase):
         """``name[i_0 + 1, i_1 + 1, ...]`` from zero-based coordinates."""
         iv = _fresh(ctx, "iv", "indexed_variable")
         ctx.sb.constraint(iv, "chose-alt-fingerprint", "[ ]")
-        ctx.sb.constraint(
-            iv, "chose-alt-child-kinds", "identifier index_list"
-        )
+        ctx.sb.constraint(iv, "chose-alt-child-kinds", "identifier index_list")
         ctx.sb.constraint(iv, "ptrace-0", "Cidentifier")
         ctx.sb.constraint(iv, "ptrace-1", "T[")
         ctx.sb.constraint(iv, "ptrace-2", "Cindex_list")
@@ -2201,9 +2143,7 @@ class JAGSRenderer(RendererBase):
         for dim in node.plate.batch_dims:
             ctx.emitted_plate_names.add(_dim_name(dim))
 
-    def _emit_deterministic(
-        self, ctx: _JAGSCtx, node: IRDeterministic
-    ) -> None:
+    def _emit_deterministic(self, ctx: _JAGSCtx, node: IRDeterministic) -> None:
         """JAGS deterministic relation ``<name> <- <expr>``.
 
         The RHS goes through
@@ -2219,9 +2159,7 @@ class JAGSRenderer(RendererBase):
         same loop variables so the emitted RHS pulls per-iteration
         values out of the surrounding vectors.
         """
-        loop_var_names = tuple(
-            f"m_{_dim_name(dim)}" for dim in node.plate.batch_dims
-        )
+        loop_var_names = tuple(f"m_{_dim_name(dim)}" for dim in node.plate.batch_dims)
         # Open the deterministic relation. When plated, the LHS is
         # indexed by every loop variable; otherwise it is a bare name.
         dr = _fresh(ctx, "dr", "deterministic_relation")
@@ -2338,9 +2276,7 @@ class JAGSRenderer(RendererBase):
             ],
         )
 
-    def _emit_zeros_trick_latent(
-        self, ctx: _JAGSCtx, node: IRSample
-    ) -> None:
+    def _emit_zeros_trick_latent(self, ctx: _JAGSCtx, node: IRSample) -> None:
         """Emit a latent from a family without a native JAGS distribution.
 
         The latent is drawn from a uniform carrier on its support. A zeros-trick
@@ -2458,15 +2394,11 @@ class JAGSRenderer(RendererBase):
                     f"{[_dim_name(d) for d in plate.event_dims]!r}"
                 ],
             )
-        weights, loc, scale = mixture_normal_components(
-            _BACKEND, args, arg_names
-        )
+        weights, loc, scale = mixture_normal_components(_BACKEND, args, arg_names)
         components = mixture_component_count(
             _BACKEND,
             weights,
-            ctx.decl_plates.get(
-                weights.name if isinstance(weights, IRArgRef) else ""
-            ),
+            ctx.decl_plates.get(weights.name if isinstance(weights, IRArgRef) else ""),
         )
         self._emit_zeros_trick_row(
             ctx,
@@ -2475,9 +2407,7 @@ class JAGSRenderer(RendererBase):
             log_density=LetExprCall(
                 func="log",
                 args=(
-                    self._mixture_density_expr(
-                        name, weights, loc, scale, components
-                    ),
+                    self._mixture_density_expr(name, weights, loc, scale, components),
                 ),
             ),
             row_plate=Plate(event_dims=(), batch_dims=plate.batch_dims),
@@ -2652,9 +2582,7 @@ class JAGSRenderer(RendererBase):
                 variate, weights, loc, scale, position
             )
             total = (
-                term
-                if total is None
-                else LetExprBinOp(op="+", left=total, right=term)
+                term if total is None else LetExprBinOp(op="+", left=total, right=term)
             )
         if total is None:
             raise UnsupportedConstruct(
@@ -2686,9 +2614,7 @@ class JAGSRenderer(RendererBase):
         scale_k = self._mixture_component_ref(scale, index)
         standardised = LetExprBinOp(
             op="/",
-            left=LetExprBinOp(
-                op="-", left=LetExprVar(name=variate), right=loc_k
-            ),
+            left=LetExprBinOp(op="-", left=LetExprVar(name=variate), right=loc_k),
             right=scale_k,
         )
         kernel = LetExprCall(
@@ -2697,9 +2623,7 @@ class JAGSRenderer(RendererBase):
                 LetExprBinOp(
                     op="*",
                     left=LetExprLiteral(value=-0.5),
-                    right=LetExprBinOp(
-                        op="*", left=standardised, right=standardised
-                    ),
+                    right=LetExprBinOp(op="*", left=standardised, right=standardised),
                 ),
             ),
         )
@@ -2713,9 +2637,7 @@ class JAGSRenderer(RendererBase):
             ),
         )
 
-    def _mixture_component_ref(
-        self, arg: IRArg, index: LetExprLiteral
-    ) -> LetExprNode:
+    def _mixture_component_ref(self, arg: IRArg, index: LetExprLiteral) -> LetExprNode:
         """Render `<arg>[k]` for one of the three per-component
         vectors a `MixtureNormal` call supplies."""
         if not isinstance(arg, IRArgRef) or arg.indices:
@@ -2728,9 +2650,7 @@ class JAGSRenderer(RendererBase):
                     f"reference to a per-component vector"
                 ],
             )
-        return LetExprIndex(
-            array=LetExprVar(name=arg.name), indices=(index,)
-        )
+        return LetExprIndex(array=LetExprVar(name=arg.name), indices=(index,))
 
     def _emit_zeros_carrier(
         self,
@@ -2814,7 +2734,9 @@ class JAGSRenderer(RendererBase):
         offset_id = _number(ctx, _ZEROS_TRICK_OFFSET)
         let_ctx = _jags_let_ctx(ctx, self._cards)
         inner_expr_id = render_let_expr_bugs(
-            let_ctx, node.expr, decl_plates=ctx.decl_plates,
+            let_ctx,
+            node.expr,
+            decl_plates=ctx.decl_plates,
         )
         # JAGS `_parenthesized` requires the child's grammar kind; the
         # score expression's outer kind is the BUGS-helper's emit, which
@@ -2823,7 +2745,12 @@ class JAGSRenderer(RendererBase):
         inner_kind = _letexpr_outer_kind(node.expr)
         paren_id = self._parenthesized(ctx, inner_expr_id, inner_kind)
         sub_id = self._binary_expr(
-            ctx, "-", offset_id, "number", paren_id, "parenthesized_expression",
+            ctx,
+            "-",
+            offset_id,
+            "number",
+            paren_id,
+            "parenthesized_expression",
         )
         ctx.sb.edge(dr, sub_id, "value")
         # Attach the deterministic relation under the model block.
@@ -2877,9 +2804,7 @@ class JAGSRenderer(RendererBase):
         ctx.sb.constraint(mb, "ptrace-1", "T{")
         for i, kind in enumerate(children):
             ctx.sb.constraint(mb, f"ptrace-{2 + i}", f"C{kind}")
-        ctx.sb.constraint(
-            mb, f"ptrace-{2 + len(children)}", "T}"
-        )
+        ctx.sb.constraint(mb, f"ptrace-{2 + len(children)}", "T}")
 
     def _finalise_data_block(self, ctx: _JAGSCtx) -> None:
         """Pin the ``data { ... }`` alternative and its child list.
@@ -2936,8 +2861,7 @@ def _rewrite_arg(
     """
     if isinstance(arg, IRArgRef):
         new_indices = tuple(
-            _rewrite_arg(ctx, idx, loop_vars, axis_to_lv, via)
-            for idx in arg.indices
+            _rewrite_arg(ctx, idx, loop_vars, axis_to_lv, via) for idx in arg.indices
         )
         info = ctx.latent_plate_info.get(arg.name)
         if info is None:
@@ -2980,18 +2904,19 @@ def _rewrite_arg(
         return IRArgBroadcast(value=inner, target_shape=arg.target_shape)
     if isinstance(arg, IRArgList):
         elements = tuple(
-            _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via)
-            for e in arg.elements
+            _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via) for e in arg.elements
         )
         if elements == arg.elements:
             return arg
         return IRArgList(elements=elements)
     if isinstance(arg, IRArgMatrix):
         rows = tuple(
-            IRArgList(elements=tuple(
-                _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via)
-                for e in row.elements
-            ))
+            IRArgList(
+                elements=tuple(
+                    _rewrite_arg(ctx, e, loop_vars, axis_to_lv, via)
+                    for e in row.elements
+                )
+            )
             for row in arg.rows
         )
         return IRArgMatrix(rows=rows)
@@ -3004,15 +2929,11 @@ def _rewrite_arg(
         )
         if inner is arg.inner and operand is arg.operand:
             return arg
-        return IRArgTransform(
-            inner=inner, transform=arg.transform, operand=operand
-        )
+        return IRArgTransform(inner=inner, transform=arg.transform, operand=operand)
     return arg
 
 
-def _has_trailing(
-    indices: tuple[IRArg, ...], suffix: tuple[IRArg, ...]
-) -> bool:
+def _has_trailing(indices: tuple[IRArg, ...], suffix: tuple[IRArg, ...]) -> bool:
     """Return True iff `indices` ends with `suffix` (by name equality).
 
     Used by `_rewrite_arg` for idempotence: if a latent ref already has
@@ -3023,7 +2944,7 @@ def _has_trailing(
         return False
     if len(indices) < len(suffix):
         return False
-    tail = indices[-len(suffix):]
+    tail = indices[-len(suffix) :]
     for a, b in zip(tail, suffix, strict=False):
         if not (isinstance(a, IRArgRef) and isinstance(b, IRArgRef)):
             return False
@@ -3086,9 +3007,7 @@ class _JAGSCtx(_RenderCtx):
 def _as_jags_ctx(ctx: _RenderCtx) -> _JAGSCtx:
     """Narrow a base `_RenderCtx` to the JAGS extension."""
     if not isinstance(ctx, _JAGSCtx):
-        raise UnsupportedConstruct(
-            f"qvr-{_BACKEND}", ["ctx:type-mismatch"]
-        )
+        raise UnsupportedConstruct(f"qvr-{_BACKEND}", ["ctx:type-mismatch"])
     return ctx
 
 
@@ -3168,9 +3087,7 @@ class _JagsLetCtx:
                     edge,
                 )
             )
-        self._ctx.sb.constraint(
-            rng, "chose-alt-child-kinds", " ".join(kinds)
-        )
+        self._ctx.sb.constraint(rng, "chose-alt-child-kinds", " ".join(kinds))
         self._ctx.sb.constraint(rng, "ptrace-0", f"C{kinds[0]}")
         self._ctx.sb.constraint(rng, "ptrace-1", "T:")
         self._ctx.sb.constraint(rng, "ptrace-2", f"C{kinds[1]}")
@@ -3244,14 +3161,10 @@ def _event_range_ir(dim: object) -> IRArg:
         return IRArgRef(name=f"{_RANGE_SENTINEL_PREFIX}{dim.size}")
     if isinstance(dim, DimDynamic):
         return IRArgRef(name=f"{_RANGE_SENTINEL_PREFIX}{dim.size_name}")
-    raise UnsupportedConstruct(
-        f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"]
-    )
+    raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
 
 
-def _fresh_loop_names(
-    taken: tuple[str, ...], dims: tuple[Dim, ...]
-) -> tuple[str, ...]:
+def _fresh_loop_names(taken: tuple[str, ...], dims: tuple[Dim, ...]) -> tuple[str, ...]:
     """Name one loop variable per dim, avoiding every name in `taken`.
 
     A residual event axis can repeat an axis already iterated by the
@@ -3277,9 +3190,7 @@ def _dim_name(dim: object) -> str:
     """Return the source-axis name carried by a Dim."""
     if isinstance(dim, (DimStatic, DimDynamic)):
         return dim.name
-    raise UnsupportedConstruct(
-        f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"]
-    )
+    raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
 
 
 def _lhs_kind(plate: Plate, loop_vars: tuple[str, ...]) -> str:
@@ -3316,9 +3227,7 @@ def _coerce_to_ir_arg(raw: object) -> IRArg:
         return IRArgNumber(value=float(raw))
     if isinstance(raw, str):
         return IRArgRef(name=raw)
-    raise UnsupportedConstruct(
-        f"qvr-{_BACKEND}", [f"arg:coerce:{type(raw).__name__}"]
-    )
+    raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"arg:coerce:{type(raw).__name__}"])
 
 
 def _ir_arg_to_let_expr(arg: IRArg) -> LetExprNode:
@@ -3369,13 +3278,9 @@ def _classify_bindings(
     scalar: set[str] = set()
     bound: set[str] = set()
 
-    def _record_stochastic(
-        name: str, plate: Plate, constraint: ConstraintSpec
-    ) -> None:
+    def _record_stochastic(name: str, plate: Plate, constraint: ConstraintSpec) -> None:
         bound.add(name)
-        if _is_scalar_shape(plate) and (
-            event_dim_of(constraint.to_constraint()) == 0
-        ):
+        if _is_scalar_shape(plate) and (event_dim_of(constraint.to_constraint()) == 0):
             scalar.add(name)
 
     def _visit(nodes: tuple[IRNode, ...]) -> None:
@@ -3389,9 +3294,7 @@ def _classify_bindings(
                 ):
                     scalar.add(node.name)
             elif isinstance(node, IRMarginalize):
-                _record_stochastic(
-                    node.latent, node.plate, node.constraint
-                )
+                _record_stochastic(node.latent, node.plate, node.constraint)
                 _visit(node.scope)
 
     _visit(ir.inputs)

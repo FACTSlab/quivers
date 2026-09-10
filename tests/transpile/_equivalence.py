@@ -66,9 +66,7 @@ a parameter swap (which is at least 1e-2 per point on the gallery
 fixtures' parameter ranges)."""
 
 
-def adaptive_atol(
-    *, n_obs: int, condition_number: float = 1.0
-) -> float:
+def adaptive_atol(*, n_obs: int, condition_number: float = 1.0) -> float:
     """Per-fixture adaptive tolerance for
     [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
 
@@ -117,8 +115,10 @@ def adaptive_atol(
     if n_obs <= 0:
         return _DEFAULT_ATOL
     adaptive = (
-        n_obs * max(condition_number, 1.0)
-        * _PER_OBS_ROUNDOFF_ESTIMATE * _TOLERANCE_HEADROOM
+        n_obs
+        * max(condition_number, 1.0)
+        * _PER_OBS_ROUNDOFF_ESTIMATE
+        * _TOLERANCE_HEADROOM
     )
     return max(_DEFAULT_ATOL, adaptive)
 

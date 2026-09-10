@@ -165,9 +165,7 @@ def _let_signed_sum(
     return total
 
 
-def _scalar_arg_expr(
-    backend: str, family: str, slot: str, arg: IRArg
-) -> LetExprNode:
+def _scalar_arg_expr(backend: str, family: str, slot: str, arg: IRArg) -> LetExprNode:
     """Read one distribution argument back as a let-expression.
 
     The closed-form densities this module writes out consume their
@@ -224,9 +222,7 @@ def beta_binomial_log_pmf(
                 f"{list(arg_names)}"
             ],
         )
-    n = _scalar_arg_expr(
-        backend, "BetaBinomial", "total_count", by_name["total_count"]
-    )
+    n = _scalar_arg_expr(backend, "BetaBinomial", "total_count", by_name["total_count"])
     a = _scalar_arg_expr(
         backend,
         "BetaBinomial",
@@ -278,9 +274,7 @@ def kumaraswamy_log_pdf(
     """
     by_name = dict(zip(arg_names, args, strict=False))
     missing = [
-        slot
-        for slot in ("concentration1", "concentration0")
-        if slot not in by_name
+        slot for slot in ("concentration1", "concentration0") if slot not in by_name
     ]
     if missing:
         raise UnsupportedConstruct(
@@ -309,7 +303,8 @@ def kumaraswamy_log_pdf(
                 _let_sub(b, one),
                 _let_log(
                     _let_sub(
-                        one, LetExprCall(func="pow", args=(y, a)),
+                        one,
+                        LetExprCall(func="pow", args=(y, a)),
                     )
                 ),
             ),
@@ -365,9 +360,7 @@ def continuous_bernoulli_log_pdf(
                 f"site supplies {list(arg_names)}"
             ],
         )
-    lam = _scalar_arg_expr(
-        backend, "ContinuousBernoulli", "probs", by_name["probs"]
-    )
+    lam = _scalar_arg_expr(backend, "ContinuousBernoulli", "probs", by_name["probs"])
     x = LetExprVar(name=variate)
     half = LetExprLiteral(value=0.5)
     one = LetExprLiteral(value=1.0)
@@ -380,16 +373,12 @@ def continuous_bernoulli_log_pdf(
     # d = 1 - 2 * lambda, and the indicator of the window around zero
     # on which the ratio is read at a displaced argument.
     gap = _let_sub(one, _let_mul(two, lam))
-    near = LetExprCall(
-        func="step", args=(_let_sub(width, absolute(gap)),)
-    )
+    near = LetExprCall(func="step", args=(_let_sub(width, absolute(gap)),))
     # Displacing by twice the half-width keeps `d_safe` clear of zero
     # for every `d` the indicator selects, including `d = -width`,
     # which the indicator includes and a one-width shift would send to
     # zero.
-    gap_safe = _let_add(
-        gap, _let_mul(near, _let_mul(two, width))
-    )
+    gap_safe = _let_add(gap, _let_mul(near, _let_mul(two, width)))
     # The tilt that `d_safe` names, `m = (1 - d_safe) / 2`.
     tilt = _let_mul(_let_sub(one, gap_safe), half)
     return _let_signed_sum(
@@ -397,13 +386,7 @@ def continuous_bernoulli_log_pdf(
         ("+", _let_mul(_let_sub(one, x), _let_log(_let_sub(one, lam)))),
         (
             "+",
-            _let_log(
-                absolute(
-                    _let_sub(
-                        _let_log(_let_sub(one, tilt)), _let_log(tilt)
-                    )
-                )
-            ),
+            _let_log(absolute(_let_sub(_let_log(_let_sub(one, tilt)), _let_log(tilt)))),
         ),
         ("-", _let_log(absolute(gap_safe))),
     )
@@ -885,9 +868,7 @@ def _emit_reduction_or_call(ctx: _LetEnv, expr: LetExprCall) -> str:
     )
 
 
-def _emit_contracted_binop(
-    ctx: _LetEnv, func: str, arg: LetExprBinOp
-) -> str:
+def _emit_contracted_binop(ctx: _LetEnv, func: str, arg: LetExprBinOp) -> str:
     """Lower `sum(<a> * <b>)` over two rank-1 operands to
     `inprod(<a>, <b>)`, and raise on every other shape."""
     left_rank = axis_rank(ctx.decl_plates, arg.left)
@@ -1077,11 +1058,7 @@ def _emit_affine_map(ctx: _LetEnv, expr: LetExprAffineMap) -> str:
                 ),
                 "function_call",
             )
-        total = (
-            term
-            if total is None
-            else _emit_binary_ids(ctx, "+", total, term)
-        )
+        total = term if total is None else _emit_binary_ids(ctx, "+", total, term)
     if total is None:
         raise UnsupportedConstruct(
             f"qvr-{_target(ctx)}-helper",
@@ -1100,9 +1077,7 @@ def _emit_affine_map(ctx: _LetEnv, expr: LetExprAffineMap) -> str:
     ctx.e(bias_iv, bias_il, "indices")
     row_vid, row_kind = _affine_row_slot(ctx, expr.row_offset)
     ctx.e(bias_il, row_vid, row_kind)
-    total = _emit_binary_ids(
-        ctx, "+", total, (bias_iv, "indexed_variable")
-    )
+    total = _emit_binary_ids(ctx, "+", total, (bias_iv, "indexed_variable"))
     if expr.transform == "exp":
         return _emit_call(ctx, "exp", (total[0],), (total[1],))
     return total[0]
@@ -1138,9 +1113,7 @@ def _emit_index(ctx: _LetEnv, expr: LetExprIndex) -> str:
     for idx in expr.indices:
         cid = _emit_index_slot(ctx, idx)
         ctx.e(il, cid, _arg_edge_kind(idx))
-    for dim in residual_event_dims(
-        ctx.decl_plates, expr.array.name, len(expr.indices)
-    ):
+    for dim in residual_event_dims(ctx.decl_plates, expr.array.name, len(expr.indices)):
         ctx.e(il, ctx.range_1_to(dim_upper_text(dim)), "range")
     return iv
 
@@ -1194,9 +1167,7 @@ def split_event_dims(
     rank = max(0, min(family_event_rank, len(event_dims)))
     if rank == 0:
         return (), event_dims
-    return event_dims[len(event_dims) - rank :], event_dims[
-        : len(event_dims) - rank
-    ]
+    return event_dims[len(event_dims) - rank :], event_dims[: len(event_dims) - rank]
 
 
 def dim_upper_text(dim: Dim) -> str:
@@ -1346,9 +1317,7 @@ def factor_cells(
                     f"{len(expr.binders)}"
                 ],
             )
-        return _factor_case_cells(
-            ctx, expr.binders[0], sizes[0], expr.cases
-        )
+        return _factor_case_cells(ctx, expr.binders[0], sizes[0], expr.cases)
     if expr.body is None:
         raise UnsupportedConstruct(
             f"qvr-{_target(ctx)}-helper",
@@ -1360,11 +1329,7 @@ def factor_cells(
             indices,
             _substitute(
                 body,
-                dict(
-                    zip(
-                        (b.var for b in expr.binders), indices, strict=True
-                    )
-                ),
+                dict(zip((b.var for b in expr.binders), indices, strict=True)),
             ),
         )
         for indices in _enumerate_indices(sizes)
@@ -1392,9 +1357,7 @@ def _factor_case_cells(
     return tuple(((label,), by_label[label]) for label in range(size))
 
 
-def factor_axis_sizes(
-    ctx: _BugsLetCtx, expr: LetExprFactor
-) -> tuple[int, ...]:
+def factor_axis_sizes(ctx: _BugsLetCtx, expr: LetExprFactor) -> tuple[int, ...]:
     """Return the static extent of each of `expr`'s binder axes."""
     return tuple(_factor_axis_size(ctx, b) for b in expr.binders)
 
@@ -1790,9 +1753,9 @@ def collect_letexpr_vars(expr: LetExprNode) -> frozenset[str]:
             out2 = out2 | collect_letexpr_vars(ix)
         return out2
     if isinstance(expr, LetExprAffineMap):
-        out3: frozenset[str] = collect_letexpr_vars(
-            expr.weight
-        ) | collect_letexpr_vars(expr.bias)
+        out3: frozenset[str] = collect_letexpr_vars(expr.weight) | collect_letexpr_vars(
+            expr.bias
+        )
         for source in expr.sources:
             out3 = out3 | collect_letexpr_vars(source.value)
         return out3
@@ -1932,12 +1895,8 @@ def _index_letexpr_refs_inner(
         )
     if isinstance(expr, LetExprAffineMap):
         return LetExprAffineMap(
-            weight=_index_letexpr_refs_inner(
-                expr.weight, decl_plates, axis_to_loop
-            ),
-            bias=_index_letexpr_refs_inner(
-                expr.bias, decl_plates, axis_to_loop
-            ),
+            weight=_index_letexpr_refs_inner(expr.weight, decl_plates, axis_to_loop),
+            bias=_index_letexpr_refs_inner(expr.bias, decl_plates, axis_to_loop),
             sources=tuple(
                 LetAffineSource(
                     value=_index_letexpr_refs_inner(
@@ -2096,9 +2055,7 @@ class MarginalScopeDensity(dx.Model):
     mass: bool
 
 
-def inline_letexpr(
-    expr: LetExprNode, bindings: dict[str, LetExprNode]
-) -> LetExprNode:
+def inline_letexpr(expr: LetExprNode, bindings: dict[str, LetExprNode]) -> LetExprNode:
     """Substitute every `LetExprVar` named in `bindings` by its
     expression.
 
@@ -2117,9 +2074,7 @@ def inline_letexpr(
             right=inline_letexpr(expr.right, bindings),
         )
     if isinstance(expr, LetExprUnaryOp):
-        return LetExprUnaryOp(
-            operand=inline_letexpr(expr.operand, bindings)
-        )
+        return LetExprUnaryOp(operand=inline_letexpr(expr.operand, bindings))
     if isinstance(expr, LetExprCall):
         return LetExprCall(
             func=expr.func,
@@ -2128,9 +2083,7 @@ def inline_letexpr(
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
             array=expr.array,
-            indices=tuple(
-                inline_letexpr(i, bindings) for i in expr.indices
-            ),
+            indices=tuple(inline_letexpr(i, bindings) for i in expr.indices),
         )
     return expr
 
@@ -2168,8 +2121,7 @@ def irarg_letexpr(
         return LetExprIndex(
             array=LetExprVar(name=arg.name),
             indices=tuple(
-                irarg_letexpr(backend, index, bindings)
-                for index in arg.indices
+                irarg_letexpr(backend, index, bindings) for index in arg.indices
             ),
         )
     raise UnsupportedConstruct(
@@ -2195,9 +2147,7 @@ def subscript_letexpr(
     if isinstance(base, LetExprVar):
         return LetExprIndex(array=base, indices=(index,))
     if isinstance(base, LetExprIndex):
-        return LetExprIndex(
-            array=base.array, indices=(*base.indices, index)
-        )
+        return LetExprIndex(array=base.array, indices=(*base.indices, index))
     raise UnsupportedConstruct(
         f"qvr-{backend}",
         [
@@ -2255,9 +2205,7 @@ def marginal_scope_density(
                     args=(
                         _let_sub(
                             LetExprUnaryOp(operand=rate),
-                            LetExprCall(
-                                func=_LOG_FACTORIAL, args=(y,)
-                            ),
+                            LetExprCall(func=_LOG_FACTORIAL, args=(y,)),
                         ),
                     ),
                 ),
@@ -2268,9 +2216,7 @@ def marginal_scope_density(
     if family == "Normal":
         loc = required("loc")
         scale = required("scale")
-        standardised = LetExprBinOp(
-            op="/", left=_let_sub(y, loc), right=scale
-        )
+        standardised = LetExprBinOp(op="/", left=_let_sub(y, loc), right=scale)
         return MarginalScopeDensity(
             expr=LetExprBinOp(
                 op="/",
@@ -2283,9 +2229,7 @@ def marginal_scope_density(
                         ),
                     ),
                 ),
-                right=_let_mul(
-                    scale, LetExprLiteral(value=SQRT_TWO_PI)
-                ),
+                right=_let_mul(scale, LetExprLiteral(value=SQRT_TWO_PI)),
             ),
             mass=False,
         )

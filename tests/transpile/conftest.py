@@ -38,9 +38,7 @@ from tests.transpile.fixtures import _load
 from tests.transpile.probes._protocol import LogDensityProbe
 
 
-_DOCKER_IMAGE_BUILD_SCRIPT = (
-    pathlib.Path(__file__).parent / "docker" / "build.sh"
-)
+_DOCKER_IMAGE_BUILD_SCRIPT = pathlib.Path(__file__).parent / "docker" / "build.sh"
 _DOCKER_IMAGE_TAGS = (
     "panproto-test-stan",
     "panproto-test-numpyro",
@@ -75,12 +73,15 @@ def _start_docker_daemon() -> None:
         )
     if platform.system() == "Darwin":
         subprocess.run(
-            ["open", "-a", "Docker"], check=False, capture_output=True,
+            ["open", "-a", "Docker"],
+            check=False,
+            capture_output=True,
         )
     elif platform.system() == "Linux":
         subprocess.run(
             ["systemctl", "start", "docker"],
-            check=False, capture_output=True,
+            check=False,
+            capture_output=True,
         )
     else:
         raise RuntimeError(
@@ -117,7 +118,9 @@ def _build_missing_docker_images(tags: tuple[str, ...]) -> None:
         )
     completed = subprocess.run(
         ["bash", str(_DOCKER_IMAGE_BUILD_SCRIPT)],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if completed.returncode != 0:
         raise RuntimeError(
@@ -136,17 +139,17 @@ def _build_missing_docker_images(tags: tuple[str, ...]) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_docker_environment() -> None:
     """Session-scope autouse fixture: bring Docker up and build every
-    probe image before the first test runs.
+        probe image before the first test runs.
 
-    Replaces the per-test "skip when daemon down / image missing"
-    pattern. Either the environment is brought into the state the
-    suite needs, or a clear configuration error fires at session
-    start (no silent per-test skips).
+        Replaces the per-test "skip when daemon down / image missing"
+        pattern. Either the environment is brought into the state the
+        suite needs, or a clear configuration error fires at session
+        start (no silent per-test skips).
 
-    Set `QUIVERS_SKIP_DOCKER=1` to opt out (only for environments
-where Docker tests cannot run, such as a pure
-    documentation build). Tests that need Docker will then raise
-    a configuration error rather than skip silently.
+        Set `QUIVERS_SKIP_DOCKER=1` to opt out (only for environments
+    where Docker tests cannot run, such as a pure
+        documentation build). Tests that need Docker will then raise
+        a configuration error rather than skip silently.
     """
     if os.environ.get("QUIVERS_SKIP_DOCKER") == "1":
         return
@@ -170,8 +173,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "requires_probe(backend): skip if the backend's probe is "
-        "unavailable",
+        "requires_probe(backend): skip if the backend's probe is unavailable",
     )
 
 
@@ -180,13 +182,13 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Apply per-marker xfails at collection time.
 
-    Environment shortfalls (binary missing from PATH, probe runtime
-    not installed) become `strict=False` xfails so the gap is visible
-    in the test report rather than absorbed into the skip pile. The
-Docker daemon and probe images are checked by the
-    session-scope `_ensure_docker_environment` autouse fixture, so
-    the `requires_docker` / `requires_image` markers reduce to a
-    declaration-of-intent here and don't introduce per-test skips.
+        Environment shortfalls (binary missing from PATH, probe runtime
+        not installed) become `strict=False` xfails so the gap is visible
+        in the test report rather than absorbed into the skip pile. The
+    Docker daemon and probe images are checked by the
+        session-scope `_ensure_docker_environment` autouse fixture, so
+        the `requires_docker` / `requires_image` markers reduce to a
+        declaration-of-intent here and don't introduce per-test skips.
     """
     del config
     for item in items:
@@ -229,6 +231,7 @@ def _probe_for_name(backend: str) -> LogDensityProbe | None:
     module_name = f"tests.transpile.probes.{backend}"
     try:
         import importlib
+
         module = importlib.import_module(module_name)
     except ImportError:
         return None

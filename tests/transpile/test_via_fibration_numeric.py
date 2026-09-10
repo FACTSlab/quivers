@@ -194,9 +194,18 @@ def _subject_mix_points() -> list[Point]:
     """
     g_qvr = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]
     y = [
-        -2.0, -1.8, -2.2, -1.5,
-        1.5, 1.0, 2.0, 1.8,
-        -0.5, 0.5, -1.0, 1.0,
+        -2.0,
+        -1.8,
+        -2.2,
+        -1.5,
+        1.5,
+        1.0,
+        2.0,
+        1.8,
+        -0.5,
+        0.5,
+        -1.0,
+        1.0,
     ]
     grid = [
         ([0.5, 0.5], -2.0, 4.0),
@@ -238,7 +247,9 @@ _BACKENDS: dict[str, tuple[str, str, str]] = {
 # ---------------------------------------------------------------------------
 
 
-def _coerce(value: float | int | list[float] | list[int], *, integer: bool) -> torch.Tensor:
+def _coerce(
+    value: float | int | list[float] | list[int], *, integer: bool
+) -> torch.Tensor:
     """Coerce a host-supplied value to the natural QVR tensor shape.
 
     Scalars land as 0-D tensors (so the
@@ -296,9 +307,7 @@ def _qvr_log_densities(
             x = torch.zeros(1, 1, dtype=_DOUBLE)
             tr = trace(monadic, x, observations=obs_dict)
             if tr.log_joint is None:
-                raise RuntimeError(
-                    f"qvr trace on {fixture_name!r}: log_joint is None"
-                )
+                raise RuntimeError(f"qvr trace on {fixture_name!r}: log_joint is None")
             log_densities.append(float(tr.log_joint.item()))
     finally:
         torch.set_default_dtype(prior)
@@ -337,12 +346,8 @@ def _target_log_densities(
     image, ext, script_name = _BACKENDS[backend]
     if not _docker.image_available(image):
         return None
-    script_path = (
-        pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
-    )
-    points_json = [
-        {"params": pt.params, "data": pt.data} for pt in points
-    ]
+    script_path = pathlib.Path(__file__).parent / "probes" / "_scripts" / script_name
+    points_json = [{"params": pt.params, "data": pt.data} for pt in points]
     raw = _docker.run_probe(
         image=image,
         script=script_path,
@@ -376,9 +381,7 @@ def test_via_fibration_three_way_agreement(
 
     qvr_points = _POINTS[fixture_name]()
 
-    lp_analytic = [
-        _ANALYTIC[fixture_name](pt.params, pt.data) for pt in qvr_points
-    ]
+    lp_analytic = [_ANALYTIC[fixture_name](pt.params, pt.data) for pt in qvr_points]
     lp_qvr = _qvr_log_densities(source, fixture_name, qvr_points)
 
     n_obs = _observation_count_via(qvr_points)

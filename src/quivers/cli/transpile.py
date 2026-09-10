@@ -70,10 +70,7 @@ def main(args: argparse.Namespace) -> int:
             # With --to-all, multiple backends share an extension (Python:
             # numpyro/pyro/pymc/edward2). Suffix the stem with the backend
             # name so they don't collide.
-            stem = (
-                f"{file_path.stem}.{target}" if args.to_all
-                else file_path.stem
-            )
+            stem = f"{file_path.stem}.{target}" if args.to_all else file_path.stem
             out_path = out_dir / f"{stem}.{ext}"
             out_path.write_bytes(bytes_out)
             print(f"qvr transpile [{target}]: wrote {out_path}", flush=True)

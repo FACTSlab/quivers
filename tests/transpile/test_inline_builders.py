@@ -59,9 +59,7 @@ def _build(family: str, params: list[float]) -> D.Distribution:
 
 @pytest.mark.parametrize("loc", [-2.0, 0.0, 1.5])
 @pytest.mark.parametrize("scale", [0.3, 1.0, 4.0])
-def test_logistic_builder_matches_closed_form(
-    loc: float, scale: float
-) -> None:
+def test_logistic_builder_matches_closed_form(loc: float, scale: float) -> None:
     """`Logistic(loc, scale).log_prob(y)` agrees with the closed-form
     logistic pdf at every test point."""
     dist = _build("Logistic", [loc, scale])
@@ -69,11 +67,7 @@ def test_logistic_builder_matches_closed_form(
         y = y.to(torch.float64)
         z = (y - loc) / scale
         # log f(y; loc, s) = -z - log(s) - 2 log(1 + exp(-z))
-        expected = (
-            -z
-            - math.log(scale)
-            - 2.0 * torch.log1p(torch.exp(-z))
-        )
+        expected = -z - math.log(scale) - 2.0 * torch.log1p(torch.exp(-z))
         actual = dist.log_prob(y)
         assert torch.allclose(actual, expected, atol=_ATOL), (
             f"Logistic(loc={loc}, scale={scale}) log_prob({y.item()}) "
@@ -106,9 +100,7 @@ def test_half_student_t_builder_matches_folded_identity(
 @pytest.mark.parametrize("n", [5, 20, 50])
 @pytest.mark.parametrize("a", [0.5, 1.0, 3.0])
 @pytest.mark.parametrize("b", [0.5, 1.0, 3.0])
-def test_beta_binomial_builder_matches_closed_form(
-    n: int, a: float, b: float
-) -> None:
+def test_beta_binomial_builder_matches_closed_form(n: int, a: float, b: float) -> None:
     """`BetaBinomial(n, a, b).log_prob(k)` agrees with the closed-form
     Beta-Binomial pmf
     `log C(n, k) + lbeta(a + k, b + n - k) - lbeta(a, b)`."""
@@ -142,9 +134,7 @@ def test_beta_binomial_builder_matches_closed_form(
 
 @pytest.mark.parametrize("a", [0.5, 1.0, 3.0])
 @pytest.mark.parametrize("b", [0.5, 1.0, 3.0])
-def test_kumaraswamy_builder_matches_closed_form(
-    a: float, b: float
-) -> None:
+def test_kumaraswamy_builder_matches_closed_form(a: float, b: float) -> None:
     """`Kumaraswamy(a, b).log_prob(x)` agrees with the closed-form pdf
     `log a + log b + (a - 1) log x + (b - 1) log(1 - x^a)`."""
     dist = _build("Kumaraswamy", [a, b])
@@ -222,9 +212,7 @@ def test_beta_1_1_log_prob_at_boundary_is_zero() -> None:
     regression to a half-open support is caught."""
     dist = _beta(1.0, 1.0)
     for endpoint in (0.0, 1.0):
-        actual = dist.log_prob(
-            torch.tensor(endpoint, dtype=torch.float64)
-        )
+        actual = dist.log_prob(torch.tensor(endpoint, dtype=torch.float64))
         assert torch.allclose(
             actual,
             torch.tensor(0.0, dtype=torch.float64),
@@ -236,9 +224,7 @@ def test_beta_1_1_log_prob_at_boundary_is_zero() -> None:
 
 
 @pytest.mark.parametrize("a, b", [(2.0, 2.0), (0.5, 0.5)])
-def test_kumaraswamy_log_prob_approaching_boundary(
-    a: float, b: float
-) -> None:
+def test_kumaraswamy_log_prob_approaching_boundary(a: float, b: float) -> None:
     """`Kumaraswamy(a, b).log_prob(x)` near ``x = 0``: for ``a >= 1``
     the density is finite at the interior but the closed-form
     ``(a - 1) log x`` term diverges to ``-inf`` for ``a > 1`` and
@@ -369,9 +355,7 @@ def test_half_student_t_peak_at_zero_matches_folded_identity(
         torch.tensor(0.0, dtype=torch.float64),
         torch.tensor(scale, dtype=torch.float64),
     )
-    expected = math.log(2.0) + base.log_prob(
-        torch.tensor(0.0, dtype=torch.float64)
-    )
+    expected = math.log(2.0) + base.log_prob(torch.tensor(0.0, dtype=torch.float64))
     actual = dist.log_prob(torch.tensor(0.0, dtype=torch.float64))
     assert torch.isfinite(actual), (
         f"HalfStudentT(df={df}, scale={scale}).log_prob(0.0) "
@@ -386,9 +370,7 @@ def test_half_student_t_peak_at_zero_matches_folded_identity(
 
 @pytest.mark.parametrize("dim", [2, 3, 5, 8])
 @pytest.mark.parametrize("eta", [0.5, 1.0, 3.0])
-def test_lkj_cholesky_builder_matches_torch_directly(
-    dim: int, eta: float
-) -> None:
+def test_lkj_cholesky_builder_matches_torch_directly(dim: int, eta: float) -> None:
     """`LKJCholesky` builder routed through `_dim_dependent_builder`
     must produce a distribution whose `log_prob` agrees with
     `torch.distributions.LKJCholesky(dim, eta).log_prob`. Also
@@ -397,9 +379,7 @@ def test_lkj_cholesky_builder_matches_torch_directly(
     from quivers.continuous.inline import _dim_dependent_builder
     from quivers.continuous.spaces import Euclidean
 
-    builder = _dim_dependent_builder(
-        "LKJCholesky", Euclidean(name="K", dim=dim)
-    )
+    builder = _dim_dependent_builder("LKJCholesky", Euclidean(name="K", dim=dim))
     eta_t = torch.tensor(eta, dtype=torch.float64)
     dist = builder([eta_t])
     reference = D.LKJCholesky(dim, eta_t)

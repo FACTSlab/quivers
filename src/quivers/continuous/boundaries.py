@@ -217,9 +217,7 @@ class Embed(ContinuousMorphism):
         self.centers = nn.Parameter(init_centers)
         self.log_sigma = nn.Parameter(torch.zeros(n, d))
 
-    def _kernel_params(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _kernel_params(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Gather the Gaussian kernel's location and scale at ``x``.
 
         Both gathers index the learnable tables by the domain index,

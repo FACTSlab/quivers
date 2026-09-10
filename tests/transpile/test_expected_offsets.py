@@ -70,9 +70,7 @@ restricted to the non-negative half-line and rescaled by two. A target
 that emits the symmetric base without a renormalization scores this
 much below the reference at every point of the support."""
 
-_HALF_FAMILIES: frozenset[str] = frozenset(
-    {"HalfCauchy", "HalfNormal", "HalfStudentT"}
-)
+_HALF_FAMILIES: frozenset[str] = frozenset({"HalfCauchy", "HalfNormal", "HalfStudentT"})
 """QVR families whose density carries a folding factor of two.
 
 Membership is a statement about the QVR-side density, independent of
@@ -427,7 +425,10 @@ class ExpectedOffset(dx.Model):
 
 
 def _derived(
-    *, half_sites: int, dropped_sites: int, lifted_rows: int = 0,
+    *,
+    half_sites: int,
+    dropped_sites: int,
+    lifted_rows: int = 0,
 ) -> ExpectedOffset:
     """Registry entry for a cell the derivation accounts for.
 
@@ -449,9 +450,7 @@ def _derived(
         target names each of the example's families as a distribution.
     """
     return ExpectedOffset(
-        offset=(
-            dropped_sites * _LOG_2 + lifted_rows * _ZEROS_TRICK_OFFSET
-        ),
+        offset=(dropped_sites * _LOG_2 + lifted_rows * _ZEROS_TRICK_OFFSET),
         justification=Derived(
             half_sites=half_sites,
             dropped_sites=dropped_sites,
@@ -479,27 +478,27 @@ def _derived(
 # ----------------------------------------------------------------------
 _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # ar1: 1 HalfCauchy folded factor(s).
-    ('bugs', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'ar1'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'ar1'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'ar1'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'ar1'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "ar1"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "ar1"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "ar1"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "ar1"): _derived(half_sites=1, dropped_sites=1),
     # bayesian_regression: 1 HalfCauchy folded factor(s).
-    ('bugs', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'bayesian_regression'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "bayesian_regression"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "bayesian_regression"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "bayesian_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "bayesian_regression"): _derived(half_sites=1, dropped_sites=1),
     # beta_binomial_ab_test: 4 HalfCauchy folded factor(s). `bugs` is
     # absent because the cell raises in transpile: the BUGS family
     # registry has no target name for `BetaBinomial`, and unlike JAGS
@@ -515,50 +514,50 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # entitled to, which is nothing;
     # `test_backend_offset_matches_registry` stays red for this cell
     # until the renderer emits one.
-    ('edward2', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('gen', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=4),
-    ('jags', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('numpyro', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('pymc', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('pyro', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('stan', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=4),
-    ('turing', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=0),
-    ('webppl', 'beta_binomial_ab_test'): _derived(half_sites=4, dropped_sites=4),
+    ("edward2", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("gen", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=4),
+    ("jags", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("numpyro", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("pymc", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("pyro", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("stan", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=4),
+    ("turing", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=0),
+    ("webppl", "beta_binomial_ab_test"): _derived(half_sites=4, dropped_sites=4),
     # beta_regression: 3 HalfCauchy folded factor(s).
-    ('bugs', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('edward2', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('gen', 'beta_regression'): _derived(half_sites=3, dropped_sites=3),
-    ('jags', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('numpyro', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('pymc', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('pyro', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('stan', 'beta_regression'): _derived(half_sites=3, dropped_sites=3),
-    ('turing', 'beta_regression'): _derived(half_sites=3, dropped_sites=0),
-    ('webppl', 'beta_regression'): _derived(half_sites=3, dropped_sites=3),
+    ("bugs", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("edward2", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("gen", "beta_regression"): _derived(half_sites=3, dropped_sites=3),
+    ("jags", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("numpyro", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("pymc", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("pyro", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("stan", "beta_regression"): _derived(half_sites=3, dropped_sites=3),
+    ("turing", "beta_regression"): _derived(half_sites=3, dropped_sites=0),
+    ("webppl", "beta_regression"): _derived(half_sites=3, dropped_sites=3),
     # ccg: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'ccg'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'ccg'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "ccg"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "ccg"): _derived(half_sites=0, dropped_sites=0),
     # changepoint: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'changepoint'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "changepoint"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "changepoint"): _derived(half_sites=0, dropped_sites=0),
     # continuous_hmm / linear_gaussian_ssm: both programs score two
     # `~ Normal` steps and name no folded family, so no target is
     # entitled to a truncation renormalizer and none reaches its
@@ -566,61 +565,61 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # scores the reference exactly. Both programs are declared
     # without a plate, so the fixture presents the one row they
     # denote and the emitted program reads it directly.
-    ('bugs', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'continuous_hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('bugs', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'linear_gaussian_ssm'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "continuous_hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "linear_gaussian_ssm"): _derived(half_sites=0, dropped_sites=0),
     # custom_rules: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'custom_rules'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "custom_rules"): _derived(half_sites=0, dropped_sites=0),
     # factor_analysis: 1 HalfCauchy folded factor(s).
-    ('bugs', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'factor_analysis'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'factor_analysis'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'factor_analysis'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'factor_analysis'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "factor_analysis"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "factor_analysis"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "factor_analysis"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "factor_analysis"): _derived(half_sites=1, dropped_sites=1),
     # gamma_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'gamma_regression'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "gamma_regression"): _derived(half_sites=0, dropped_sites=0),
     # half_student_t_hierarchical: 2 HalfStudentT folded factor(s).
     #
     # `turing` keeps its zero on the strength of a corrected harness
@@ -633,16 +632,16 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # scores it. The entry states what the emitted program is entitled
     # to, which is nothing: `runtime_turing.jl` folds `TDist` with an
     # explicit `+ log(2)`.
-    ('bugs', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('edward2', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=2),
-    ('gen', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('jags', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('numpyro', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('pymc', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('pyro', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('stan', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=2),
-    ('turing', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
-    ('webppl', 'half_student_t_hierarchical'): _derived(half_sites=2, dropped_sites=0),
+    ("bugs", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("edward2", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=2),
+    ("gen", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("jags", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("numpyro", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("pymc", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("pyro", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("stan", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=2),
+    ("turing", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
+    ("webppl", "half_student_t_hierarchical"): _derived(half_sites=2, dropped_sites=0),
     # hmm: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     #
@@ -651,33 +650,33 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # scope lowers to `state ~ dcat(initial_row)`, a latent no point
     # payload clamps, and the engine rejects it ("Cannot normalize
     # density" at `state`) rather than integrating it out.
-    ('webppl', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'hmm'): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "hmm"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "hmm"): _derived(half_sites=0, dropped_sites=0),
     # horseshoe_regression: 6 HalfCauchy folded factor(s).
-    ('bugs', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('edward2', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('gen', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=6),
-    ('jags', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('numpyro', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('pymc', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('pyro', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('stan', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=6),
-    ('turing', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=0),
-    ('webppl', 'horseshoe_regression'): _derived(half_sites=6, dropped_sites=6),
+    ("bugs", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("edward2", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("gen", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=6),
+    ("jags", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("numpyro", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("pymc", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("pyro", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("stan", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=6),
+    ("turing", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=0),
+    ("webppl", "horseshoe_regression"): _derived(half_sites=6, dropped_sites=6),
     # irt_2pl: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'irt_2pl'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "irt_2pl"): _derived(half_sites=0, dropped_sites=0),
     # kumaraswamy_bounded_outcome: 1 HalfNormal folded factor(s).
     # `jags` also owes the zeros-trick lift: it has no `Kumaraswamy`
     # distribution, so `_emit_kumaraswamy` writes the closed-form
@@ -686,17 +685,19 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # absent because the cell raises in transpile: the BUGS family
     # registry has no target name for `Kumaraswamy` and its renderer
     # carries no closed-form path to reach one.
-    ('edward2', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'kumaraswamy_bounded_outcome'): _derived(
-        half_sites=1, dropped_sites=0, lifted_rows=64,
+    ("edward2", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "kumaraswamy_bounded_outcome"): _derived(
+        half_sites=1,
+        dropped_sites=0,
+        lifted_rows=64,
     ),
-    ('numpyro', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'kumaraswamy_bounded_outcome'): _derived(half_sites=1, dropped_sites=1),
+    ("numpyro", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "kumaraswamy_bounded_outcome"): _derived(half_sites=1, dropped_sites=1),
     # lda: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     #
@@ -710,169 +711,173 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # would be entitled to, which is nothing;
     # `test_backend_offset_matches_registry` stays red for this cell
     # until the renderer emits it.
-    ('jags', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('bugs', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'lda'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'lda'): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "lda"): _derived(half_sites=0, dropped_sites=0),
     # logistic_noise_regression: 1 HalfNormal folded factor(s). The
     # engines' `dlogis(mu, tau)` is rate-parameterised, so `bugs` and
     # `jags` emit `y[n] ~ dlogis(mu[n], 1/scale)`; the reciprocal is an
     # algebraic identity on the density and carries no constant.
-    ('bugs', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'logistic_noise_regression'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "logistic_noise_regression"): _derived(half_sites=1, dropped_sites=1),
     # mixture_model: 3 HalfNormal folded factor(s). `jags` also owes
     # the zeros-trick lift: it has no `MixtureNormal` distribution, so
     # it writes the closed-form mixture density into a Poisson rate and
     # lifts that rate by `_ZEROS_TRICK_OFFSET` on each of the 100 rows
     # of `Resp`. `bugs` is absent because the cell raises in transpile.
-    ('edward2', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
-    ('gen', 'mixture_model'): _derived(half_sites=3, dropped_sites=3),
-    ('jags', 'mixture_model'): _derived(
-        half_sites=3, dropped_sites=0, lifted_rows=100,
+    ("edward2", "mixture_model"): _derived(half_sites=3, dropped_sites=0),
+    ("gen", "mixture_model"): _derived(half_sites=3, dropped_sites=3),
+    ("jags", "mixture_model"): _derived(
+        half_sites=3,
+        dropped_sites=0,
+        lifted_rows=100,
     ),
-    ('numpyro', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
-    ('pymc', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
-    ('pyro', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
-    ('stan', 'mixture_model'): _derived(half_sites=3, dropped_sites=3),
-    ('turing', 'mixture_model'): _derived(half_sites=3, dropped_sites=0),
-    ('webppl', 'mixture_model'): _derived(half_sites=3, dropped_sites=3),
+    ("numpyro", "mixture_model"): _derived(half_sites=3, dropped_sites=0),
+    ("pymc", "mixture_model"): _derived(half_sites=3, dropped_sites=0),
+    ("pyro", "mixture_model"): _derived(half_sites=3, dropped_sites=0),
+    ("stan", "mixture_model"): _derived(half_sites=3, dropped_sites=3),
+    ("turing", "mixture_model"): _derived(half_sites=3, dropped_sites=0),
+    ("webppl", "mixture_model"): _derived(half_sites=3, dropped_sites=3),
     # multimodal_tlg: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'multimodal_tlg'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "multimodal_tlg"): _derived(half_sites=0, dropped_sites=0),
     # negbin_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'negbin_regression'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "negbin_regression"): _derived(half_sites=0, dropped_sites=0),
     # pcfg: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'pcfg'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "pcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "pcfg"): _derived(half_sites=0, dropped_sites=0),
     # pmcfg: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'pmcfg'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "pmcfg"): _derived(half_sites=0, dropped_sites=0),
     # ppca: 1 HalfCauchy folded factor(s).
-    ('bugs', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'ppca'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'ppca'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'ppca'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'ppca'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "ppca"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "ppca"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "ppca"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "ppca"): _derived(half_sites=1, dropped_sites=1),
     # quantifier_scope: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'quantifier_scope'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "quantifier_scope"): _derived(half_sites=0, dropped_sites=0),
     # stochastic_volatility: 1 HalfCauchy folded factor(s).
-    ('webppl', 'stochastic_volatility'): _derived(
-        half_sites=1, dropped_sites=1,
+    ("webppl", "stochastic_volatility"): _derived(
+        half_sites=1,
+        dropped_sites=1,
     ),
-    ('bugs', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
-    ('stan', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=1),
-    ('turing', 'stochastic_volatility'): _derived(half_sites=1, dropped_sites=0),
+    ("bugs", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
+    ("stan", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=1),
+    ("turing", "stochastic_volatility"): _derived(half_sites=1, dropped_sites=0),
     # survival_weibull: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'survival_weibull'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "survival_weibull"): _derived(half_sites=0, dropped_sites=0),
     # tree_categorical: 1 HalfNormal folded factor(s). `sigma_v` is
     # the example's only folded site and it carries no axis, so the
     # count is one whatever `Verb`, `Class` and `Resp` are sized at.
     # `stan` is absent because the cell raises in transpile.
-    ('stan', 'tree_categorical'): _derived(
-        half_sites=1, dropped_sites=1,
+    ("stan", "tree_categorical"): _derived(
+        half_sites=1,
+        dropped_sites=1,
     ),
-    ('bugs', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('edward2', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('gen', 'tree_categorical'): _derived(half_sites=1, dropped_sites=1),
-    ('jags', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('numpyro', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('pymc', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('pyro', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('turing', 'tree_categorical'): _derived(half_sites=1, dropped_sites=0),
-    ('webppl', 'tree_categorical'): _derived(half_sites=1, dropped_sites=1),
+    ("bugs", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("edward2", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("gen", "tree_categorical"): _derived(half_sites=1, dropped_sites=1),
+    ("jags", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("numpyro", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("pymc", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("pyro", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("turing", "tree_categorical"): _derived(half_sites=1, dropped_sites=0),
+    ("webppl", "tree_categorical"): _derived(half_sites=1, dropped_sites=1),
     # type_logical: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
-    ('bugs', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('gen', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('numpyro', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'type_logical'): _derived(half_sites=0, dropped_sites=0),
+    ("bugs", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "type_logical"): _derived(half_sites=0, dropped_sites=0),
     # zip_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     #
@@ -884,14 +889,14 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # offset: the rendered source carries no lift constant on any of
     # the 400 rows. `bugs` is absent because its cell raises in
     # transpile, its renderer carrying no path to the family at all.
-    ('numpyro', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('stan', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('edward2', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('jags', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pymc', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('pyro', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('turing', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
-    ('webppl', 'zip_regression'): _derived(half_sites=0, dropped_sites=0),
+    ("numpyro", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("edward2", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
 }
 
 
@@ -1005,13 +1010,13 @@ def _exported_program(module: Module, stem: str) -> ProgramDecl:
 def _axis_names(step: SampleStep | ObserveStep) -> tuple[str, ...]:
     """Every axis attached to a draw step, batch and event alike.
 
-    A folded family is scored elementwise, so the folding factor of two
-    applies once per coordinate whether the coordinate sits on a batch
-    axis (`sample s : Coef <- HalfCauchy(1.0)`) or on an event axis
-(`[over=...]`). Both thus multiply the factor count. When an
-    `[over=..., iid_over=...]` clause is present it is authoritative and
-    the bare index is not counted again, since the index axis reappears
-    inside `iid_over`.
+        A folded family is scored elementwise, so the folding factor of two
+        applies once per coordinate whether the coordinate sits on a batch
+        axis (`sample s : Coef <- HalfCauchy(1.0)`) or on an event axis
+    (`[over=...]`). Both thus multiply the factor count. When an
+        `[over=..., iid_over=...]` clause is present it is authoritative and
+        the bare index is not counted again, since the index axis reappears
+        inside `iid_over`.
     """
     axes = step.axes
     if axes is not None:
@@ -1078,8 +1083,7 @@ def half_family_factor_counts(example: pathlib.Path) -> dict[str, int]:
     sub_programs = {
         statement.name
         for statement in module.statements
-        if isinstance(statement, ProgramDecl)
-        and statement.name != program.name
+        if isinstance(statement, ProgramDecl) and statement.name != program.name
     }
 
     counts: dict[str, int] = {}
@@ -1380,9 +1384,7 @@ def _points_key(points: list[Point]) -> str:
     that rebuild equal points hit the cache, and any coordinate that
     moved misses it.
     """
-    payload = [
-        {"params": point.params, "data": point.data} for point in points
-    ]
+    payload = [{"params": point.params, "data": point.data} for point in points]
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -1440,7 +1442,8 @@ def _qvr_log_densities(
                 monadic=dataset.monadic,
                 x_input=dataset.x_input,
                 observations=_gallery_data.observations_for_point(
-                    dataset, point,
+                    dataset,
+                    point,
                 ),
             ).log_densities
         )
@@ -1459,9 +1462,7 @@ def _half_family_emit(backend: str, family: str) -> str:
     renderer *usually* takes, and a renderer that rewrites the site is
     invisible in it.
     """
-    source = _HALF_FAMILY_PROBE_SOURCE.format(
-        call=_HALF_FAMILY_PROBE_ARGS[family]
-    )
+    source = _HALF_FAMILY_PROBE_SOURCE.format(call=_HALF_FAMILY_PROBE_ARGS[family])
     return transpile(parse(source), target=backend).decode("utf-8")
 
 
@@ -1562,33 +1563,39 @@ def test_zeros_trick_table_agrees_with_the_emit() -> None:
 
 def test_drop_table_agrees_with_the_family_registry() -> None:
     """Every target in
-    [`_DROPS_HALF_NORMALIZER`][tests.transpile.test_expected_offsets._DROPS_HALF_NORMALIZER]
-    spells the half-families as a symmetric base, and no target outside
-    it does.
+        [`_DROPS_HALF_NORMALIZER`][tests.transpile.test_expected_offsets._DROPS_HALF_NORMALIZER]
+        spells the half-families as a symmetric base, and no target outside
+        it does.
 
-    The drop table is the hinge of the whole derivation: it decides
-    which cells expect `n * log 2` and which expect zero. Pinning it as
-    a literal set and never re-checking it would let a renderer switch
-    `HalfCauchy` from `cauchy` to a native or truncated spelling while
-    the registry kept charging the cell a `log 2` it no longer drops.
+        The drop table is the hinge of the whole derivation: it decides
+        which cells expect `n * log 2` and which expect zero. Pinning it as
+        a literal set and never re-checking it would let a renderer switch
+        `HalfCauchy` from `cauchy` to a native or truncated spelling while
+        the registry kept charging the cell a `log 2` it no longer drops.
 
-    The reconciliation is against the *effective* spelling: the name
-    [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] resolves
-    the family to, amended by
-    [`_RENDERER_SPELLING_OVERRIDES`][tests.transpile.test_expected_offsets._RENDERER_SPELLING_OVERRIDES]
-    where the renderer rewrites the draw site rather than take that
-    resolution. The name table alone is not enough, and the way it
-    fails is exactly the failure this module is built around: Edward2's
-    `HalfStudentT` reads as a native folded class in `FAMILY_META` and
-    emits as the bare `edward2.StudentT`, so a derivation off the table
-    would name zero for a cell that drops `log 2` at every site and the
-    constant-spread check would never notice. Each override is
-thus held against the emitted program rather than taken on
-    trust.
+        The reconciliation is against the *effective* spelling: the name
+        [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] resolves
+        the family to, amended by
+        [`_RENDERER_SPELLING_OVERRIDES`][tests.transpile.test_expected_offsets._RENDERER_SPELLING_OVERRIDES]
+        where the renderer rewrites the draw site rather than take that
+        resolution. The name table alone is not enough, and the way it
+        fails is exactly the failure this module is built around: Edward2's
+        `HalfStudentT` reads as a native folded class in `FAMILY_META` and
+        emits as the bare `edward2.StudentT`, so a derivation off the table
+        would name zero for a cell that drops `log 2` at every site and the
+        constant-spread check would never notice. Each override is
+    thus held against the emitted program rather than taken on
+        trust.
     """
     symmetric_bases = {
-        "cauchy", "Cauchy", "normal", "Normal", "gaussian", "Gaussian",
-        "student_t", "StudentT",
+        "cauchy",
+        "Cauchy",
+        "normal",
+        "Normal",
+        "gaussian",
+        "Gaussian",
+        "student_t",
+        "StudentT",
     }
     assert set(_DROPS_HALF_NORMALIZER) == set(_HALF_FAMILIES), (
         f"the drop table keys {sorted(_DROPS_HALF_NORMALIZER)} but the "
@@ -1657,21 +1664,19 @@ thus held against the emitted program rather than taken on
         )
 
 
-@pytest.mark.parametrize(
-    "cell", _live_cells(), ids=lambda c: f"{c[0]}-{c[1]}"
-)
+@pytest.mark.parametrize("cell", _live_cells(), ids=lambda c: f"{c[0]}-{c[1]}")
 def test_every_live_cell_has_a_registered_offset(
     cell: tuple[str, str],
 ) -> None:
     """Every numerically-evaluated gallery cell names its constant.
 
-    A cell that starts passing without an entry here would be checked
-    only for constant spread, which is the existential statement this
-    module exists to strengthen. Growing the coverage of
-    [`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence]
-thus fails this test until the new cell's offset is derived
-    and registered, and new coverage cannot bypass the named-constant
-    criterion by arriving unannounced.
+        A cell that starts passing without an entry here would be checked
+        only for constant spread, which is the existential statement this
+        module exists to strengthen. Growing the coverage of
+        [`test_gallery_numeric_equivalence`][tests.transpile.test_gallery_numeric_equivalence]
+    thus fails this test until the new cell's offset is derived
+        and registered, and new coverage cannot bypass the named-constant
+        criterion by arriving unannounced.
     """
     backend, stem = cell
     assert cell in _EXPECTED_OFFSET, (
@@ -1853,12 +1858,12 @@ def test_a_shared_scratch_swaps_the_point_set_under_its_writer() -> None:
     content of the fix: the isolation is structural rather than a
     convention callers are asked to respect.
     """
-    ours: list[
-        dict[str, dict[str, float | int | list[float] | list[int]]]
-    ] = [{"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}]
-    theirs: list[
-        dict[str, dict[str, float | int | list[float] | list[int]]]
-    ] = [{"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}]
+    ours: list[dict[str, dict[str, float | int | list[float] | list[int]]]] = [
+        {"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}
+    ]
+    theirs: list[dict[str, dict[str, float | int | list[float] | list[int]]]] = [
+        {"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}
+    ]
 
     shared_root = _gallery_data.probe_scratch("shared-scratch-demo")
     shared_ours = shared_root / "qvr_offset_changepoint_stan"
@@ -1904,38 +1909,30 @@ def test_the_input_check_catches_a_rewritten_program_or_point_set() -> None:
     """
     scratch = _gallery_data.probe_scratch("input-check-demo")
     emitted = b"// emitted by this cell\n"
-    ours: list[
-        dict[str, dict[str, float | int | list[float] | list[int]]]
-    ] = [{"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}]
-    theirs: list[
-        dict[str, dict[str, float | int | list[float] | list[int]]]
-    ] = [{"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}]
+    ours: list[dict[str, dict[str, float | int | list[float] | list[int]]]] = [
+        {"params": {"tau": 50.5}, "data": {"y": [3.0, 4.0]}}
+    ]
+    theirs: list[dict[str, dict[str, float | int | list[float] | list[int]]]] = [
+        {"params": {"tau": 12.25}, "data": {"y": [9.0, 1.0]}}
+    ]
 
     (scratch / "source.js").write_bytes(emitted)
     _stage_probe_inputs(scratch, ours)
-    _assert_container_read_our_inputs(
-        scratch, emitted, "js", ours, "demo@demo"
-    )
+    _assert_container_read_our_inputs(scratch, emitted, "js", ours, "demo@demo")
 
     _stage_probe_inputs(scratch, theirs)
     with pytest.raises(AssertionError, match=r"points\.json"):
-        _assert_container_read_our_inputs(
-            scratch, emitted, "js", ours, "demo@demo"
-        )
+        _assert_container_read_our_inputs(scratch, emitted, "js", ours, "demo@demo")
 
     _stage_probe_inputs(scratch, ours)
     (scratch / "source.js").write_bytes(b"// emitted by somebody else\n")
     with pytest.raises(AssertionError, match=r"program source"):
-        _assert_container_read_our_inputs(
-            scratch, emitted, "js", ours, "demo@demo"
-        )
+        _assert_container_read_our_inputs(scratch, emitted, "js", ours, "demo@demo")
 
     (scratch / "source.js").write_bytes(emitted)
     (scratch / "shapes.json").write_text("{}")
     with pytest.raises(AssertionError, match=r"present but empty"):
-        _assert_container_read_our_inputs(
-            scratch, emitted, "js", ours, "demo@demo"
-        )
+        _assert_container_read_our_inputs(scratch, emitted, "js", ours, "demo@demo")
 
 
 def test_the_reference_cache_refuses_a_second_point_set() -> None:
@@ -1970,9 +1967,7 @@ def test_the_reference_cache_refuses_a_second_point_set() -> None:
 
     _QVR_LOG_DENSITY_CACHE[stem] = (_points_key(mine), [-131.5])
     try:
-        assert _qvr_log_densities(example, dataset, mine, scratch) == [
-            -131.5
-        ]
+        assert _qvr_log_densities(example, dataset, mine, scratch) == [-131.5]
         with pytest.raises(RuntimeError, match=r"point set"):
             _qvr_log_densities(example, dataset, theirs, scratch)
     finally:
@@ -1989,10 +1984,7 @@ def test_probe_scratch_is_fresh_and_unshared_for_every_cell() -> None:
     what lets a stale compiled model or a leftover shape table from the
     previous run reach this run's container.
     """
-    labels = [
-        f"offset-{stem}-{backend}"
-        for backend, stem in sorted(_EXPECTED_OFFSET)
-    ]
+    labels = [f"offset-{stem}-{backend}" for backend, stem in sorted(_EXPECTED_OFFSET)]
     labels.extend(labels[:16])
     handed_out: list[pathlib.Path] = []
     for label in labels:
@@ -2052,9 +2044,7 @@ def test_the_root_sweep_spares_live_roots_and_reclaims_dead_ones() -> None:
     # exercising it cannot reach a root a concurrent session is
     # measuring under. That is not a convenience: deleting a live root
     # destroys another run's probe inputs mid-container.
-    parent = pathlib.Path(
-        tempfile.mkdtemp(prefix="root-sweep-", dir=my_root)
-    )
+    parent = pathlib.Path(tempfile.mkdtemp(prefix="root-sweep-", dir=my_root))
     dead = parent / "quivers-probe-99999999-deadowner"
     (dead / "leftover").mkdir(parents=True)
     live = parent / f"quivers-probe-{os.getpid()}-liveowner"
@@ -2236,9 +2226,7 @@ def test_backend_offset_matches_registry(cell: tuple[str, str]) -> None:
     points = _gallery_data.points_from_dataset(dataset)
     labels = _gallery_data.perturbation_labels(len(points))
     copied = _copied_probe_sources(script_name)
-    _gallery_data.assert_probe_scripts_unchanged(
-        _PROBE_SCRIPTS_AT_IMPORT, copied
-    )
+    _gallery_data.assert_probe_scripts_unchanged(_PROBE_SCRIPTS_AT_IMPORT, copied)
     scratch = _gallery_data.probe_scratch(f"offset-{stem}-{backend}")
     assert not sorted(scratch.iterdir()), (
         f"{backend}@{stem}: the scratch {scratch} already holds "
@@ -2252,9 +2240,7 @@ def test_backend_offset_matches_registry(cell: tuple[str, str]) -> None:
     qvr_lps = _qvr_log_densities(example, dataset, points, scratch)
     emitted = transpile(parse(example.read_text()), target=backend)
     script_path = _gallery_data.PROBE_SCRIPT_DIR / script_name
-    payload = [
-        {"params": point.params, "data": point.data} for point in points
-    ]
+    payload = [{"params": point.params, "data": point.data} for point in points]
     raw_result = _docker.run_probe(
         image=image,
         script=script_path,
@@ -2269,9 +2255,7 @@ def test_backend_offset_matches_registry(cell: tuple[str, str]) -> None:
     _assert_container_read_our_inputs(
         scratch, emitted, source_ext, payload, f"{backend}@{stem}"
     )
-    _gallery_data.assert_probe_scripts_unchanged(
-        _PROBE_SCRIPTS_AT_IMPORT, copied
-    )
+    _gallery_data.assert_probe_scripts_unchanged(_PROBE_SCRIPTS_AT_IMPORT, copied)
     backend_lps = [float(x) for x in raw_result["log_densities"]]
 
     atol = _offset_atol(dataset)

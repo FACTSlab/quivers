@@ -116,9 +116,7 @@ def test_walker_determinism(backend: str) -> None:
     schema_b = render_b.forward(ir)
     a_kinds = sorted(v.kind for v in schema_a.vertices)
     b_kinds = sorted(v.kind for v in schema_b.vertices)
-    assert a_kinds == b_kinds, (
-        f"{backend}: vertex-kind multisets differ between calls"
-    )
+    assert a_kinds == b_kinds, f"{backend}: vertex-kind multisets differ between calls"
     a_edges = sorted(
         (e.kind, _vertex_kind(schema_a, e.src), _vertex_kind(schema_a, e.tgt))
         for e in schema_a.edges
@@ -127,9 +125,7 @@ def test_walker_determinism(backend: str) -> None:
         (e.kind, _vertex_kind(schema_b, e.src), _vertex_kind(schema_b, e.tgt))
         for e in schema_b.edges
     )
-    assert a_edges == b_edges, (
-        f"{backend}: edge structure differs between calls"
-    )
+    assert a_edges == b_edges, f"{backend}: edge structure differs between calls"
 
 
 def _vertex_kind(schema: panproto.Schema, vid: str) -> str:
@@ -163,7 +159,7 @@ _REEMIT_IS_FIXED_POINT: dict[str, bool] = {
     "pyro": True,
     "pymc": True,
     "edward2": True,
-    "church": True,    # vacuous: panproto/panproto#172 makes both emits empty
+    "church": True,  # vacuous: panproto/panproto#172 makes both emits empty
     "webppl": True,
     "turing": True,
     "gen": True,
@@ -200,6 +196,5 @@ def test_reemit_fixed_point(backend: str, request: pytest.FixtureRequest) -> Non
     reparsed = reg.parse_with_protocol(grammar, first, f"first.{backend}")
     second = bytes(reg.emit_pretty(grammar, reparsed))
     assert first == second, (
-        f"{backend}: re-emit is not a fixed point; "
-        f"first={first!r}, second={second!r}"
+        f"{backend}: re-emit is not a fixed point; first={first!r}, second={second!r}"
     )

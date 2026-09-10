@@ -140,7 +140,9 @@ def test_geometric_observed_shifted_off_by_one() -> None:
 def test_continuous_bernoulli_grafts_custom_dist_helper() -> None:
     """PyMC ships no `ContinuousBernoulli`; the renderer grafts a
     `CustomDist`-backed helper and calls it by bare name."""
-    out = _emit(open("tests/transpile/fixtures/families/continuousbernoulli.qvr").read())
+    out = _emit(
+        open("tests/transpile/fixtures/families/continuousbernoulli.qvr").read()
+    )
     assert "def ContinuousBernoulli(" in out
     assert "pymc.CustomDist(" in out
     assert 'ContinuousBernoulli("x"' in out
@@ -297,9 +299,9 @@ def test_lkj_cholesky_log_density_matches_torch(
             plus, minus = z.copy(), z.copy()
             plus[k] += step
             minus[k] -= step
-            jac[:, k] = (
-                _free_lower(backward(plus)) - _free_lower(backward(minus))
-            ) / (2.0 * step)
+            jac[:, k] = (_free_lower(backward(plus)) - _free_lower(backward(minus))) / (
+                2.0 * step
+            )
         return float(np.linalg.slogdet(jac)[1])
 
     rng = np.random.default_rng(0)
@@ -309,10 +311,9 @@ def test_lkj_cholesky_log_density_matches_torch(
         emitted = float(
             logp({"eta_log__": eta_unconstrained, "chol_cholesky_corr__": z})
         )
-        expected = (
-            reference.log_prob(torch.tensor(backward(z))).item()
-            + jacobian_logdet(z)
-        )
+        expected = reference.log_prob(
+            torch.tensor(backward(z))
+        ).item() + jacobian_logdet(z)
         offsets.append(emitted - expected)
 
     # Agreement up to an additive constant, and in fact outright: the

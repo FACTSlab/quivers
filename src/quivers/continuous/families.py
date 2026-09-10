@@ -3351,8 +3351,7 @@ class ConditionalBetaBinomial(ContinuousMorphism):
     ) -> None:
         if total_count < 1:
             raise ValueError(
-                f"ConditionalBetaBinomial: total_count must be >= 1, "
-                f"got {total_count}"
+                f"ConditionalBetaBinomial: total_count must be >= 1, got {total_count}"
             )
         super().__init__(domain, codomain)
         d = codomain.dim
@@ -3371,9 +3370,7 @@ class ConditionalBetaBinomial(ContinuousMorphism):
     def support(self) -> _constraints.Constraint:
         return _constraints.integer_interval(0, self._total_count)
 
-    def _get_concentrations(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _get_concentrations(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.param_source(x)
         log_alpha = raw[..., : self._d]
         log_beta = raw[..., self._d :]
@@ -3388,9 +3385,7 @@ class ConditionalBetaBinomial(ContinuousMorphism):
         lgamma = torch.lgamma
         n_tensor = torch.tensor(n, device=y_f.device, dtype=y_f.dtype)
         log_binom = (
-            lgamma(n_tensor + 1.0)
-            - lgamma(y_f + 1.0)
-            - lgamma(n_tensor - y_f + 1.0)
+            lgamma(n_tensor + 1.0) - lgamma(y_f + 1.0) - lgamma(n_tensor - y_f + 1.0)
         )
         log_p = (
             lgamma(alpha + beta)
@@ -3473,9 +3468,7 @@ class ConditionalLogistic(ContinuousMorphism):
     def support(self) -> _constraints.Constraint:
         return _constraints.real
 
-    def _get_params(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _get_params(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         raw = self.param_source(x)
         loc = raw[..., : self._d]
         scale = F.softplus(raw[..., self._d :]) + EPS
@@ -3539,9 +3532,7 @@ class ConditionalHalfStudentT(ContinuousMorphism):
         param_source_option: str | None = None,
     ) -> None:
         if df <= 0.0:
-            raise ValueError(
-                f"ConditionalHalfStudentT: df must be > 0, got {df!r}"
-            )
+            raise ValueError(f"ConditionalHalfStudentT: df must be > 0, got {df!r}")
         super().__init__(domain, codomain)
         d = codomain.dim
         self._d = d
@@ -3570,7 +3561,7 @@ class ConditionalHalfStudentT(ContinuousMorphism):
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         scale = self._get_scale(x)
         base = self._base_dist(scale)
-        in_support = (y >= 0.0)
+        in_support = y >= 0.0
         # Fold: log p_half(y) = log 2 + log p_base(y) for y >= 0,
         # else -inf. Clamp y to a finite nonnegative value before
         # evaluating the base density to avoid NaN from StudentT at
@@ -3578,9 +3569,7 @@ class ConditionalHalfStudentT(ContinuousMorphism):
         y_safe = y.clamp(min=0.0)
         base_lp = base.log_prob(y_safe)
         folded = math.log(2.0) + base_lp
-        masked = torch.where(
-            in_support, folded, torch.full_like(folded, float("-inf"))
-        )
+        masked = torch.where(in_support, folded, torch.full_like(folded, float("-inf")))
         return masked.sum(dim=-1)
 
     def rsample(
@@ -3668,9 +3657,7 @@ class LKJCorrelationFactor(ContinuousMorphism):
         # the concentration parameters. Discrete-domain `x` arrives as
         # `torch.long`, so the morphism's own working dtype is fixed
         # by `torch.get_default_dtype()`.
-        dtype = (
-            x.dtype if x.is_floating_point() else torch.get_default_dtype()
-        )
+        dtype = x.dtype if x.is_floating_point() else torch.get_default_dtype()
         L = torch.zeros(batch, K, K, device=x.device, dtype=dtype)
         L[:, 0, 0] = 1.0
         for i in range(1, K):

@@ -77,9 +77,8 @@ def test_transpile_dispatches_to_every_backend(
     [`test_structural.py`][tests.transpile.test_structural].
     """
     response = loaded_session.dispatch(f":transpile {target}")
-    assert response.ok, (
-        f"{target!r} dispatch failed: "
-        + "; ".join(d.message for d in response.diagnostics)
+    assert response.ok, f"{target!r} dispatch failed: " + "; ".join(
+        d.message for d in response.diagnostics
     )
     if target == "church" and not response.body.strip():
         pytest.xfail(

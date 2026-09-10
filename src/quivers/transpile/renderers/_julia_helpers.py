@@ -280,9 +280,7 @@ def render_let_expr_julia(
     return vid
 
 
-def let_expr_has_axis_reduction(
-    ctx: _JlShapeView, expr: LetExprNode
-) -> bool:
+def let_expr_has_axis_reduction(ctx: _JlShapeView, expr: LetExprNode) -> bool:
     """True iff ``expr`` contracts an axis anywhere in its tree:
     either a reduction over a positive-rank event axis, or the
     matrix-vector product an affine parameter map denotes.
@@ -301,9 +299,7 @@ def let_expr_has_axis_reduction(
             and _infer_event_rank(ctx, expr.args[0]) > 0
         ):
             return True
-        return any(
-            let_expr_has_axis_reduction(ctx, a) for a in expr.args
-        )
+        return any(let_expr_has_axis_reduction(ctx, a) for a in expr.args)
     if isinstance(expr, LetExprBinOp):
         return let_expr_has_axis_reduction(
             ctx, expr.left
@@ -311,29 +307,21 @@ def let_expr_has_axis_reduction(
     if isinstance(expr, LetExprUnaryOp):
         return let_expr_has_axis_reduction(ctx, expr.operand)
     if isinstance(expr, LetExprIndex):
-        return let_expr_has_axis_reduction(
-            ctx, expr.array
-        ) or any(
+        return let_expr_has_axis_reduction(ctx, expr.array) or any(
             let_expr_has_axis_reduction(ctx, i) for i in expr.indices
         )
     if isinstance(expr, LetExprList):
-        return any(
-            let_expr_has_axis_reduction(ctx, i) for i in expr.items
-        )
+        return any(let_expr_has_axis_reduction(ctx, i) for i in expr.items)
     if isinstance(expr, LetExprLambda):
         return let_expr_has_axis_reduction(ctx, expr.body)
     if isinstance(expr, LetExprMethodCall):
-        return let_expr_has_axis_reduction(
-            ctx, expr.receiver
-        ) or any(let_expr_has_axis_reduction(ctx, a) for a in expr.args)
-    if isinstance(expr, LetExprFactor):
-        if expr.body is not None and let_expr_has_axis_reduction(
-            ctx, expr.body
-        ):
-            return True
-        return any(
-            let_expr_has_axis_reduction(ctx, c.value) for c in expr.cases
+        return let_expr_has_axis_reduction(ctx, expr.receiver) or any(
+            let_expr_has_axis_reduction(ctx, a) for a in expr.args
         )
+    if isinstance(expr, LetExprFactor):
+        if expr.body is not None and let_expr_has_axis_reduction(ctx, expr.body):
+            return True
+        return any(let_expr_has_axis_reduction(ctx, c.value) for c in expr.cases)
     if isinstance(expr, LetExprAffineMap):
         # The matrix-vector product contracts the map's column axis.
         # `@.` would broadcast the `*` into a `.*` and leave the
@@ -368,9 +356,7 @@ def infer_array_rank(ctx: _JlShapeView, expr: LetExprNode) -> int:
     if isinstance(expr, LetExprUnaryOp):
         return infer_array_rank(ctx, expr.operand)
     if isinstance(expr, LetExprCall):
-        inner = max(
-            (infer_array_rank(ctx, a) for a in expr.args), default=0
-        )
+        inner = max((infer_array_rank(ctx, a) for a in expr.args), default=0)
         if expr.func in _AXIS_REDUCING_CALLS:
             return max(0, inner - 1)
         return inner
@@ -416,9 +402,7 @@ def _infer_event_rank(ctx: _JlShapeView, expr: LetExprNode) -> int:
     if isinstance(expr, LetExprCall):
         if expr.func in _AXIS_REDUCING_CALLS:
             return 0
-        return max(
-            (_infer_event_rank(ctx, a) for a in expr.args), default=0
-        )
+        return max((_infer_event_rank(ctx, a) for a in expr.args), default=0)
     if isinstance(expr, LetExprIndex):
         arr_rank = _infer_event_rank(ctx, expr.array)
         return max(0, arr_rank - len(expr.indices))
@@ -448,9 +432,7 @@ def _render(ctx: _JlState, expr: LetExprNode) -> tuple[str, str]:
     if isinstance(expr, LetExprIndex):
         return _emit_index(ctx, expr)
     if isinstance(expr, LetExprList):
-        return _emit_vector(
-            ctx, tuple(_render(ctx, item) for item in expr.items)
-        )
+        return _emit_vector(ctx, tuple(_render(ctx, item) for item in expr.items))
     if isinstance(expr, LetExprLambda):
         return _emit_lambda(ctx, expr)
     if isinstance(expr, LetExprMethodCall):
@@ -544,20 +526,24 @@ def _emit_operator(ctx: _JlState, op: str) -> tuple[str, str]:
     return vid, "operator"
 
 
-_JL_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset({
-    "binary_expression",
-    "unary_expression",
-    "arrow_function_expression",
-})
+_JL_PAREN_REQUIRED_OPERAND_KINDS: frozenset[str] = frozenset(
+    {
+        "binary_expression",
+        "unary_expression",
+        "arrow_function_expression",
+    }
+)
 
-_JL_INDEX_CALLEE_KINDS: frozenset[str] = frozenset({
-    "identifier",
-    "field_expression",
-    "call_expression",
-    "index_expression",
-    "parenthesized_expression",
-    "vector_expression",
-})
+_JL_INDEX_CALLEE_KINDS: frozenset[str] = frozenset(
+    {
+        "identifier",
+        "field_expression",
+        "call_expression",
+        "index_expression",
+        "parenthesized_expression",
+        "vector_expression",
+    }
+)
 """Vertex kinds Julia's `index_expression` accepts as the array
 callee directly. Anything else (numeric literals, binary
 expressions, unary expressions) must be wrapped in
@@ -643,9 +629,7 @@ def _emit_unary(ctx: _JlState, expr: LetExprUnaryOp) -> tuple[str, str]:
     op_vid, _op_kind = _emit_operator(ctx, "-")
     operand_vid, operand_kind = _maybe_paren(ctx, _render(ctx, expr.operand))
     vid = ctx.v(ctx.fresh("ue"), "unary_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", f"operator {operand_kind}"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", f"operator {operand_kind}")
     ctx.e(vid, op_vid, "child_of")
     ctx.e(vid, operand_vid, "child_of")
     return vid, "unary_expression"
@@ -667,9 +651,7 @@ def _sigmoid_expansion(arg: LetExprNode) -> LetExprNode:
         right=LetExprBinOp(
             op="+",
             left=LetExprLiteral(value=1.0),
-            right=LetExprCall(
-                func="exp", args=(LetExprUnaryOp(operand=arg),)
-            ),
+            right=LetExprCall(func="exp", args=(LetExprUnaryOp(operand=arg),)),
         ),
     )
 
@@ -698,19 +680,13 @@ def _emit_call(
         and len(args) == 1
         and _infer_event_rank(ctx, args[0]) > 0
     ):
-        return _emit_axis_reduction(
-            ctx, func, args[0], _infer_event_rank(ctx, args[0])
-        )
+        return _emit_axis_reduction(ctx, func, args[0], _infer_event_rank(ctx, args[0]))
     rendered = tuple(_render(ctx, a) for a in args)
     callee_vid, _callee_kind = _emit_identifier(ctx, func)
     al_vid = _emit_argument_list(ctx, rendered)
-    kind = (
-        "broadcast_call_expression" if ctx.dotted else "call_expression"
-    )
+    kind = "broadcast_call_expression" if ctx.dotted else "call_expression"
     vid = ctx.v(ctx.fresh("ce"), kind)
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "identifier argument_list"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier argument_list")
     ctx.e(vid, callee_vid, "child_of")
     ctx.e(vid, al_vid, "child_of")
     return vid, kind
@@ -761,9 +737,7 @@ def _emit_keyword_call(
     callee_vid, _callee_kind = _emit_identifier(ctx, func)
     al_vid = _emit_argument_list(ctx, rendered)
     vid = ctx.v(ctx.fresh("ce"), "call_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "identifier argument_list"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier argument_list")
     ctx.e(vid, callee_vid, "child_of")
     ctx.e(vid, al_vid, "child_of")
     return vid, "call_expression"
@@ -806,9 +780,7 @@ def _emit_axis_reduction(
     return rendered
 
 
-def _emit_argument_list(
-    ctx: _JlState, rendered: tuple[tuple[str, str], ...]
-) -> str:
+def _emit_argument_list(ctx: _JlState, rendered: tuple[tuple[str, str], ...]) -> str:
     """Emit an `argument_list` with the right comma fingerprint.
 
     Julia's `argument_list` fingerprint is ``( )`` for zero args,
@@ -857,21 +829,14 @@ def _emit_index(ctx: _JlState, expr: LetExprIndex) -> tuple[str, str]:
     arr_vid, arr_kind = _render(ctx, expr.array)
     if arr_kind not in _JL_INDEX_CALLEE_KINDS:
         arr_vid, arr_kind = _force_paren(ctx, (arr_vid, arr_kind))
-    inner_rendered = tuple(
-        _render(ctx, _rebase_literal_index(i)) for i in expr.indices
-    )
-    if (
-        isinstance(expr.array, LetExprVar)
-        and expr.array.name in ctx.nested_names
-    ):
+    inner_rendered = tuple(_render(ctx, _rebase_literal_index(i)) for i in expr.indices)
+    if isinstance(expr.array, LetExprVar) and expr.array.name in ctx.nested_names:
         current = (arr_vid, arr_kind)
         for one in inner_rendered:
             current = _emit_subscript(ctx, current, (one,))
         return current
     residual = _residual_index_axes(ctx, expr)
-    inner_rendered += tuple(
-        _emit_operator(ctx, ":") for _ in range(residual)
-    )
+    inner_rendered += tuple(_emit_operator(ctx, ":") for _ in range(residual))
     return _emit_subscript(ctx, (arr_vid, arr_kind), inner_rendered)
 
 
@@ -903,9 +868,7 @@ def _emit_range(ctx: _JlState, lower: int, upper: int) -> tuple[str, str]:
     """
     vid = ctx.v(ctx.fresh("rng"), "range_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", ":")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "integer_literal integer_literal"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "integer_literal integer_literal")
     lo_vid, _lo_kind = _emit_literal(ctx, float(lower))
     hi_vid, _hi_kind = _emit_literal(ctx, float(upper))
     ctx.e(vid, lo_vid, "child_of")
@@ -928,9 +891,7 @@ def _emit_row_block(
     if arr[1] not in _JL_INDEX_CALLEE_KINDS:
         arr = _force_paren(ctx, arr)
     block = _emit_range(ctx, offset + 1, offset + rows)
-    indices = (
-        (block, _emit_operator(ctx, ":")) if trailing_colon else (block,)
-    )
+    indices = (block, _emit_operator(ctx, ":")) if trailing_colon else (block,)
     return _emit_subscript(ctx, arr, indices)
 
 
@@ -957,9 +918,7 @@ def _emit_conditioning_row(
     callee_vid, _callee_kind = _emit_identifier(ctx, "vcat")
     al_vid = _emit_argument_list(ctx, rendered)
     vid = ctx.v(ctx.fresh("ce"), "call_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "identifier argument_list"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier argument_list")
     ctx.e(vid, callee_vid, "child_of")
     ctx.e(vid, al_vid, "child_of")
     return vid, "call_expression"
@@ -988,9 +947,7 @@ def _emit_infix(
     return vid, "binary_expression"
 
 
-def _emit_affine_map(
-    ctx: _JlState, expr: LetExprAffineMap
-) -> tuple[str, str]:
+def _emit_affine_map(ctx: _JlState, expr: LetExprAffineMap) -> tuple[str, str]:
     """Emit one head's row block of ``W x + b`` as a matrix-vector
     product.
 
@@ -1035,9 +992,7 @@ def _emit_affine_map(
     callee_vid, _callee_kind = _emit_identifier(ctx, "exp")
     al_vid = _emit_argument_list(ctx, (total,))
     vid = ctx.v(ctx.fresh("ce"), "broadcast_call_expression")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", "identifier argument_list"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", "identifier argument_list")
     ctx.e(vid, callee_vid, "child_of")
     ctx.e(vid, al_vid, "child_of")
     return vid, "broadcast_call_expression"
@@ -1052,13 +1007,9 @@ def _rebase_literal_index(index: LetExprNode) -> LetExprNode:
     in; either way its value is already in the target's origin by the
     time the subscript reads it.
     """
-    if isinstance(index, LetExprLiteral) and not isinstance(
-        index.value, bool
-    ):
+    if isinstance(index, LetExprLiteral) and not isinstance(index.value, bool):
         value = index.value
-        if isinstance(value, int) or (
-            isinstance(value, float) and value.is_integer()
-        ):
+        if isinstance(value, int) or (isinstance(value, float) and value.is_integer()):
             return LetExprLiteral(value=float(value) + 1.0)
     return index
 
@@ -1107,9 +1058,7 @@ def _emit_vector(
     return vid, "vector_expression"
 
 
-def _emit_lambda(
-    ctx: _JlState, expr: LetExprLambda
-) -> tuple[str, str]:
+def _emit_lambda(ctx: _JlState, expr: LetExprLambda) -> tuple[str, str]:
     """Emit ``param -> body`` as an `arrow_function_expression`.
 
     The Julia grammar's single-parameter form uses a bare `identifier`
@@ -1122,17 +1071,13 @@ def _emit_lambda(
     body_vid, body_kind = _render(ctx, expr.body)
     vid = ctx.v(ctx.fresh("af"), "arrow_function_expression")
     ctx.constraint(vid, "chose-alt-fingerprint", "->")
-    ctx.constraint(
-        vid, "chose-alt-child-kinds", f"{param_kind} {body_kind}"
-    )
+    ctx.constraint(vid, "chose-alt-child-kinds", f"{param_kind} {body_kind}")
     ctx.e(vid, param_vid, "child_of")
     ctx.e(vid, body_vid, "child_of")
     return vid, "arrow_function_expression"
 
 
-def _emit_method_call(
-    ctx: _JlState, expr: LetExprMethodCall
-) -> tuple[str, str]:
+def _emit_method_call(ctx: _JlState, expr: LetExprMethodCall) -> tuple[str, str]:
     """Emit ``receiver.method(args...)`` as a `call_expression` whose
     callee is a `field_expression`.
 
@@ -1167,9 +1112,7 @@ def _emit_method_call(
     return vid, "call_expression"
 
 
-def _render_factor(
-    ctx: _JlState, expr: LetExprFactor
-) -> tuple[str, str]:
+def _render_factor(ctx: _JlState, expr: LetExprFactor) -> tuple[str, str]:
     """Unroll a `LetExprFactor` into nested `vector_expression` vertices.
 
     The cases form (binders contain a single axis, body is `None`,
@@ -1205,9 +1148,7 @@ def _render_factor(
         return _emit_factor_cases(ctx, expr.binders[0], size, expr.cases)
     if expr.body is not None and not expr.cases:
         sizes = tuple(_factor_axis_size(ctx, b) for b in expr.binders)
-        return _build_nested_vector(
-            ctx, expr.binders, sizes, expr.body, ()
-        )
+        return _build_nested_vector(ctx, expr.binders, sizes, expr.body, ())
     raise UnsupportedConstruct(
         f"qvr-{_target(ctx)}-helper",
         [
@@ -1236,9 +1177,7 @@ def _emit_factor_cases(
                 f"{binder.var!r} of size {size}"
             ],
         )
-    rendered = tuple(
-        _render(ctx, by_label[label]) for label in range(size)
-    )
+    rendered = tuple(_render(ctx, by_label[label]) for label in range(size))
     return _emit_vector(ctx, rendered)
 
 
@@ -1258,18 +1197,12 @@ def _build_nested_vector(
     if len(fixed) == len(binders):
         subst = body
         for binder, value in zip(binders, fixed, strict=True):
-            subst = _substitute(
-                subst, binder.var, LetExprLiteral(value=value)
-            )
+            subst = _substitute(subst, binder.var, LetExprLiteral(value=value))
         return _render(ctx, subst)
     level = len(fixed)
     rendered: list[tuple[str, str]] = []
     for i in range(sizes[level]):
-        rendered.append(
-            _build_nested_vector(
-                ctx, binders, sizes, body, fixed + (i,)
-            )
-        )
+        rendered.append(_build_nested_vector(ctx, binders, sizes, body, fixed + (i,)))
     return _emit_vector(ctx, tuple(rendered))
 
 
@@ -1278,9 +1211,7 @@ def _build_nested_vector(
 # ---------------------------------------------------------------------------
 
 
-def _factor_axis_size(
-    ctx: _JlState, binder: LetFactorBinder
-) -> int:
+def _factor_axis_size(ctx: _JlState, binder: LetFactorBinder) -> int:
     """Resolve a factor binder's axis to a static integer size.
 
     Looks up the binder's index expression in ``ctx.cards``. Raises
@@ -1302,9 +1233,7 @@ def _factor_axis_size(
     return int(size)
 
 
-def _object_expr_axis_name(
-    ctx: _JlState, obj: ObjectExpr
-) -> str:
+def _object_expr_axis_name(ctx: _JlState, obj: ObjectExpr) -> str:
     """Resolve an `ObjectExpr` to the axis name a `cards` lookup wants.
 
     Handles `TypeName` directly and
@@ -1332,9 +1261,7 @@ def _object_expr_axis_name(
     )
 
 
-def _substitute(
-    expr: LetExprNode, name: str, value: LetExprNode
-) -> LetExprNode:
+def _substitute(expr: LetExprNode, name: str, value: LetExprNode) -> LetExprNode:
     """Capture-avoiding substitution of every free occurrence of
     `LetExprVar(name=name)` in `expr` with `value`.
 
@@ -1362,22 +1289,16 @@ def _substitute(
     if isinstance(expr, LetExprCall):
         return LetExprCall(
             func=expr.func,
-            args=tuple(
-                _substitute(a, name, value) for a in expr.args
-            ),
+            args=tuple(_substitute(a, name, value) for a in expr.args),
         )
     if isinstance(expr, LetExprIndex):
         return LetExprIndex(
             array=_substitute(expr.array, name, value),
-            indices=tuple(
-                _substitute(i, name, value) for i in expr.indices
-            ),
+            indices=tuple(_substitute(i, name, value) for i in expr.indices),
         )
     if isinstance(expr, LetExprList):
         return LetExprList(
-            items=tuple(
-                _substitute(i, name, value) for i in expr.items
-            ),
+            items=tuple(_substitute(i, name, value) for i in expr.items),
         )
     if isinstance(expr, LetExprLambda):
         if expr.param == name:
@@ -1392,9 +1313,7 @@ def _substitute(
         return LetExprFactor(
             binders=expr.binders,
             body=(
-                _substitute(expr.body, name, value)
-                if expr.body is not None
-                else None
+                _substitute(expr.body, name, value) if expr.body is not None else None
             ),
             cases=tuple(
                 LetFactorCase(
@@ -1410,9 +1329,7 @@ def _substitute(
         return LetExprMethodCall(
             receiver=_substitute(expr.receiver, name, value),
             method=expr.method,
-            args=tuple(
-                _substitute(a, name, value) for a in expr.args
-            ),
+            args=tuple(_substitute(a, name, value) for a in expr.args),
         )
     raise UnsupportedConstruct(
         "qvr-let-substitution",
@@ -1472,9 +1389,7 @@ def _rebase_arg(arg: IRArg) -> IRArg:
             indices=tuple(_rebase_index(i) for i in arg.indices),
         )
     if isinstance(arg, IRArgList):
-        return IRArgList(
-            elements=tuple(_rebase_arg(e) for e in arg.elements)
-        )
+        return IRArgList(elements=tuple(_rebase_arg(e) for e in arg.elements))
     return arg
 
 
@@ -1503,9 +1418,7 @@ def nested_tower_names(ir: IRProgram) -> frozenset[str]:
 def _walk_for_towers(body: tuple[IRNode, ...], out: set[str]) -> None:
     """Collect multi-binder factor bindings over an IR body."""
     for node in body:
-        if isinstance(node, IRDeterministic) and isinstance(
-            node.expr, LetExprFactor
-        ):
+        if isinstance(node, IRDeterministic) and isinstance(node.expr, LetExprFactor):
             if len(node.expr.binders) > 1 and node.expr.body is not None:
                 out.add(node.name)
         elif isinstance(node, IRMarginalize):
@@ -1535,9 +1448,7 @@ def _plate_rank(plate: Plate) -> int:
     return len(plate.batch_dims) + len(plate.event_dims)
 
 
-def _walk_for_array_ranks(
-    body: tuple[IRNode, ...], out: dict[str, int]
-) -> None:
+def _walk_for_array_ranks(body: tuple[IRNode, ...], out: dict[str, int]) -> None:
     """Accumulate array ranks over an IR body, descending into every
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scope."""
     for node in body:

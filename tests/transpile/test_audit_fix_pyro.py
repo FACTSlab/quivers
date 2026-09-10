@@ -47,9 +47,7 @@ from quivers.dsl.parser import parse
 from quivers.transpile import transpile
 
 
-_FIXTURES = (
-    pathlib.Path(__file__).parent / "fixtures" / "families"
-)
+_FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "families"
 
 
 def _emit(source: str) -> tuple[str, str]:
@@ -193,8 +191,7 @@ def test_inversewishart_grafts_helper_not_pyro_class() -> None:
     assert "pyro.distributions.InverseWishart" not in text
     # Called by its bare name with (df, scale_tril) in order.
     assert (
-        "InverseWishart(7,torch.tensor([[1,0,0],[0.2,1,0],[0.1,0.3,1]]))"
-        in stripped
+        "InverseWishart(7,torch.tensor([[1,0,0],[0.2,1,0],[0.1,0.3,1]]))" in stripped
     ), text
 
 
@@ -249,13 +246,9 @@ def test_inversewishart_sampler_mean_matches_theory() -> None:
     torch = pytest.importorskip("torch")
     runtime = pytest.importorskip("quivers.transpile.runtime_pyro")
     torch.manual_seed(0)
-    scale_tril = torch.tensor(
-        [list(row) for row in _INVERSEWISHART_SCALE_TRIL]
-    )
+    scale_tril = torch.tensor([list(row) for row in _INVERSEWISHART_SCALE_TRIL])
     scale = scale_tril @ scale_tril.transpose(-1, -2)
-    dist = runtime.InverseWishart(
-        torch.tensor(_INVERSEWISHART_DF), scale_tril
-    )
+    dist = runtime.InverseWishart(torch.tensor(_INVERSEWISHART_DF), scale_tril)
     draws = dist.sample((40000,))
     expected = scale / (_INVERSEWISHART_DF - 3.0 - 1.0)
     assert torch.allclose(draws.mean(0), expected, atol=0.05)

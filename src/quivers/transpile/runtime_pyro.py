@@ -101,18 +101,12 @@ class TruncatedNormal(pyro.distributions.torch_distribution.TorchDistribution):
         support; ``-inf`` outside.
         """
         base_lp = self.base_dist.log_prob(value)
-        log_z = torch.log(
-            self.base_dist.cdf(self.high) - self.base_dist.cdf(self.low)
-        )
+        log_z = torch.log(self.base_dist.cdf(self.high) - self.base_dist.cdf(self.low))
         in_bounds = (value >= self.low) & (value <= self.high)
         out = base_lp - log_z
-        return torch.where(
-            in_bounds, out, torch.full_like(out, float("-inf"))
-        )
+        return torch.where(in_bounds, out, torch.full_like(out, float("-inf")))
 
-    def sample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         """Inverse-CDF sampling on the rescaled uniform draw
         ``CDF(low) + u * (CDF(high) - CDF(low))``."""
         shape = (
@@ -160,14 +154,10 @@ class LogitNormal(pyro.distributions.torch_distribution.TorchDistribution):
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         return self._transformed.log_prob(value)
 
-    def rsample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
+    def rsample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         return self._transformed.rsample(sample_shape)
 
-    def sample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         return self._transformed.sample(sample_shape)
 
 
@@ -201,9 +191,7 @@ class HalfStudentT(pyro.distributions.torch_distribution.TorchDistribution):
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         return self._folded.log_prob(value)
 
-    def sample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         return self._folded.sample(sample_shape)
 
 
@@ -264,28 +252,15 @@ class MatrixNormal(pyro.distributions.torch_distribution.TorchDistribution):
         gram = diff.transpose(-1, -2) @ row_solve
         col_solve = torch.cholesky_solve(gram, self._col_tril)
         trace = col_solve.diagonal(dim1=-2, dim2=-1).sum(-1)
-        logdet_row = 2.0 * torch.log(
-            self._row_tril.diagonal(dim1=-2, dim2=-1)
-        ).sum(-1)
-        logdet_col = 2.0 * torch.log(
-            self._col_tril.diagonal(dim1=-2, dim2=-1)
-        ).sum(-1)
-        const = n * p * torch.log(
-            torch.as_tensor(2.0 * torch.pi, dtype=self.loc.dtype)
-        )
+        logdet_row = 2.0 * torch.log(self._row_tril.diagonal(dim1=-2, dim2=-1)).sum(-1)
+        logdet_col = 2.0 * torch.log(self._col_tril.diagonal(dim1=-2, dim2=-1)).sum(-1)
+        const = n * p * torch.log(torch.as_tensor(2.0 * torch.pi, dtype=self.loc.dtype))
         return -0.5 * (trace + const + p * logdet_row + n * logdet_col)
 
-    def sample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
-        shape = (
-            torch.Size(sample_shape) + self.batch_shape + self.event_shape
-        )
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
+        shape = torch.Size(sample_shape) + self.batch_shape + self.event_shape
         z = torch.randn(shape, dtype=self.loc.dtype)
-        return (
-            self.loc
-            + self._row_tril @ z @ self._col_tril.transpose(-1, -2)
-        )
+        return self.loc + self._row_tril @ z @ self._col_tril.transpose(-1, -2)
 
 
 class InverseWishart(pyro.distributions.torch_distribution.TorchDistribution):
@@ -342,9 +317,7 @@ class InverseWishart(pyro.distributions.torch_distribution.TorchDistribution):
         self.scale_tril = torch.as_tensor(scale_tril, dtype=dtype)
         dim = self.scale_tril.shape[-1]
         self._dim = dim
-        batch_shape = torch.broadcast_shapes(
-            self.df.shape, self.scale_tril.shape[:-2]
-        )
+        batch_shape = torch.broadcast_shapes(self.df.shape, self.scale_tril.shape[:-2])
         super().__init__(
             batch_shape,
             (dim, dim),
@@ -356,30 +329,24 @@ class InverseWishart(pyro.distributions.torch_distribution.TorchDistribution):
         dim = self._dim
         dtype = self.scale_tril.dtype
         offsets = torch.arange(dim, dtype=dtype)
-        constant = 0.25 * dim * (dim - 1) * torch.log(
-            torch.as_tensor(torch.pi, dtype=dtype)
+        constant = (
+            0.25 * dim * (dim - 1) * torch.log(torch.as_tensor(torch.pi, dtype=dtype))
         )
-        return constant + torch.lgamma(
-            half_df.unsqueeze(-1) - 0.5 * offsets
-        ).sum(-1)
+        return constant + torch.lgamma(half_df.unsqueeze(-1) - 0.5 * offsets).sum(-1)
 
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         dim = self._dim
         value_tril = torch.linalg.cholesky(value)
-        logdet_scale = 2.0 * torch.log(
-            self.scale_tril.diagonal(dim1=-2, dim2=-1)
-        ).sum(-1)
-        logdet_value = 2.0 * torch.log(
-            value_tril.diagonal(dim1=-2, dim2=-1)
-        ).sum(-1)
+        logdet_scale = 2.0 * torch.log(self.scale_tril.diagonal(dim1=-2, dim2=-1)).sum(
+            -1
+        )
+        logdet_value = 2.0 * torch.log(value_tril.diagonal(dim1=-2, dim2=-1)).sum(-1)
         whitened = torch.linalg.solve_triangular(
             value_tril, self.scale_tril.expand_as(value_tril), upper=False
         )
         trace = (whitened * whitened).sum((-2, -1))
         half_df = 0.5 * self.df
-        log_two = torch.log(
-            torch.as_tensor(2.0, dtype=self.scale_tril.dtype)
-        )
+        log_two = torch.log(torch.as_tensor(2.0, dtype=self.scale_tril.dtype))
         return (
             half_df * logdet_scale
             - half_df * dim * log_two
@@ -388,15 +355,11 @@ class InverseWishart(pyro.distributions.torch_distribution.TorchDistribution):
             - 0.5 * trace
         )
 
-    def sample(
-        self, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
+    def sample(self, sample_shape: torch.Size = torch.Size()) -> torch.Tensor:
         inverse_scale = torch.cholesky_inverse(self.scale_tril)
         wishart = pyro.distributions.Wishart(
             df=self.df.expand(self.batch_shape),
-            covariance_matrix=inverse_scale.expand(
-                self.batch_shape + self.event_shape
-            ),
+            covariance_matrix=inverse_scale.expand(self.batch_shape + self.event_shape),
         )
         draw = wishart.sample(sample_shape)
         return torch.cholesky_inverse(torch.linalg.cholesky(draw))

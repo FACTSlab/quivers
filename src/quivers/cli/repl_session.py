@@ -392,9 +392,7 @@ class ReplSession:
 
         targets = available_targets()
         if target not in targets:
-            return _err(
-                f"unknown target {target!r}; available: {', '.join(targets)}"
-            )
+            return _err(f"unknown target {target!r}; available: {', '.join(targets)}")
         try:
             output = transpile(self._module, target=target)
         except UnsupportedConstruct as e:

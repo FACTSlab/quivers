@@ -140,9 +140,7 @@ def _scheme_number(ctx, value: int) -> str:
     return vid
 
 
-def _affine_conditioning_row(
-    ctx, sources: tuple[LetAffineSource, ...]
-) -> str:
+def _affine_conditioning_row(ctx, sources: tuple[LetAffineSource, ...]) -> str:
     """Emit the map's conditioning row: the factors joined by
     `append` in declaration order.
 
@@ -157,9 +155,7 @@ def _affine_conditioning_row(
                 "row carries no factors"
             ],
         )
-    rendered = tuple(
-        render_let_expr_scheme(ctx, source.value) for source in sources
-    )
+    rendered = tuple(render_let_expr_scheme(ctx, source.value) for source in sources)
     if len(rendered) == 1:
         return rendered[0]
     return _scheme_form(ctx, "append", rendered)
@@ -313,13 +309,9 @@ def _render_factor(ctx, expr: LetExprFactor) -> str:
             ctx.e(lst, render_let_expr_scheme(ctx, case.value))
         return lst
     if expr.body is None:
-        raise UnsupportedConstruct(
-            _TARGET, ["let-expr:LetExprFactor:no-body-no-cases"]
-        )
+        raise UnsupportedConstruct(_TARGET, ["let-expr:LetExprFactor:no-body-no-cases"])
     if len(expr.binders) != 1:
-        raise UnsupportedConstruct(
-            _TARGET, ["let-expr:LetExprFactor:multi-axis-body"]
-        )
+        raise UnsupportedConstruct(_TARGET, ["let-expr:LetExprFactor:multi-axis-body"])
     binder = expr.binders[0]
     size_text = _binder_static_size(binder)
     if size_text is None:
@@ -335,10 +327,7 @@ def _render_factor(ctx, expr: LetExprFactor) -> str:
     if size_text is None:
         raise UnsupportedConstruct(
             _TARGET,
-            [
-                "let-expr:LetExprFactor:"
-                f"unresolved-binder-size:{binder.var}"
-            ],
+            [f"let-expr:LetExprFactor:unresolved-binder-size:{binder.var}"],
         )
     # `(map (lambda (<var>) <body>) (iota <N>))` -- one Scheme list
     # per fresh vertex; the body schema is emitted once and bound at
@@ -395,7 +384,7 @@ def _binder_static_size(binder: LetFactorBinder) -> str | None:
     (raw,) = index.args
     try:
         n = int(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if n < 0:
         return None

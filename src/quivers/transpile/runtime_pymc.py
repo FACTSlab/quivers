@@ -30,11 +30,7 @@ def _continuous_bernoulli_logp(value, lam):
         pt.log(2.0),
         pt.log(2.0 * pt.arctanh(z) / z),
     )
-    return (
-        value * pt.log(lam)
-        + (1.0 - value) * pt.log(1.0 - lam)
-        + log_norm
-    )
+    return value * pt.log(lam) + (1.0 - value) * pt.log(1.0 - lam) + log_norm
 
 
 def _continuous_bernoulli_random(lam, rng=None, size=None):
@@ -82,11 +78,7 @@ def _lkj_cholesky_log_normalizer(n, eta):
     ``j`` in ``0 .. d - 1``."""
     dm1 = n - 1
     alpha = eta + 0.5 * dm1
-    shifted = (
-        pt.shape_padright(alpha)
-        - 0.5
-        - 0.5 * pt.arange(dm1, dtype="float64")
-    )
+    shifted = pt.shape_padright(alpha) - 0.5 - 0.5 * pt.arange(dm1, dtype="float64")
     numerator = 0.25 * dm1 * (dm1 - 1) * np.log(np.pi) + pt.sum(
         pt.gammaln(shifted), axis=-1
     )

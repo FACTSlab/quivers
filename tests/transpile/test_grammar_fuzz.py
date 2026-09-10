@@ -131,9 +131,7 @@ def random_let_expr(
         if bugs_safe:
             array_node: LetExprNode = LetExprVar(name=rng.choice(_VAR_NAMES))
         else:
-            array_node = random_let_expr(
-                rng, depth - 1, bugs_safe=bugs_safe
-            )
+            array_node = random_let_expr(rng, depth - 1, bugs_safe=bugs_safe)
         return LetExprIndex(
             array=array_node,
             indices=tuple(
@@ -363,9 +361,7 @@ def _scheme_build(sb: panproto.SchemaBuilder, ctx_obj: object, rhs: str) -> None
     _shell_scheme(ctx_obj, rhs)
 
 
-def _javascript_build(
-    sb: panproto.SchemaBuilder, ctx_obj: object, rhs: str
-) -> None:
+def _javascript_build(sb: panproto.SchemaBuilder, ctx_obj: object, rhs: str) -> None:
     assert isinstance(ctx_obj, _FuzzCtx)
     _shell_javascript(ctx_obj, rhs)
 
@@ -543,14 +539,16 @@ def _vertex_kinds_multiset(
 # other kind's fingerprint is either a comma-skeleton (set by the
 # re-parser but not by the helper) or a literal echo (redundant with
 # `literal-value`); stripping those eliminates spurious mismatches.
-_OP_KINDS: frozenset[str] = frozenset({
-    "infix_op_expression",
-    "binary_expression",
-    "binary_operator",
-    "prefix_op_expression",
-    "unary_expression",
-    "unary_operator",
-})
+_OP_KINDS: frozenset[str] = frozenset(
+    {
+        "infix_op_expression",
+        "binary_expression",
+        "binary_operator",
+        "prefix_op_expression",
+        "unary_expression",
+        "unary_operator",
+    }
+)
 
 
 def _normalise_counter(
@@ -753,11 +751,5 @@ def test_helper_symbols_importable() -> None:
     """
     for name, spec in _TARGETS.items():
         assert callable(spec.helper), f"{name} helper is not callable"
-        assert callable(spec.find_rhs_root), (
-            f"{name} RHS-root finder is not callable"
-        )
-        assert callable(spec.build_shell), (
-            f"{name} shell builder is not callable"
-        )
-
-
+        assert callable(spec.find_rhs_root), f"{name} RHS-root finder is not callable"
+        assert callable(spec.build_shell), f"{name} shell builder is not callable"

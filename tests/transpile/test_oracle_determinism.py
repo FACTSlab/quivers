@@ -110,20 +110,20 @@ _R1 = Euclidean(name="R1", dim=1)
 class _DrawnMarginal(ContinuousMorphism):
     """A kernel that integrates its internal latent by drawing it.
 
-    Denotes
+        Denotes
 
-        p(y | x) = integral N(u; x, 1) N(y; u, 1) du
+            p(y | x) = integral N(u; x, 1) N(y; u, 1) du
 
-    and evaluates it as the Monte-Carlo average over `n_draws` draws
-    of `u`, which is the estimator shape the structural guard cannot
-    see: `u` is internal to the kernel, so it is recorded at no site,
-    appears in no `Trace.latent_sites`, and can be clamped by no
-point. Every call thus returns a different number for the
-    same arguments.
+        and evaluates it as the Monte-Carlo average over `n_draws` draws
+        of `u`, which is the estimator shape the structural guard cannot
+        see: `u` is internal to the kernel, so it is recorded at no site,
+        appears in no `Trace.latent_sites`, and can be clamped by no
+    point. Every call thus returns a different number for the
+        same arguments.
 
-    A plain `ContinuousMorphism` subclass rather than a `dx.Model`: it
-    is a `torch.nn.Module` participating in a compiled program, not a
-    structured value.
+        A plain `ContinuousMorphism` subclass rather than a `dx.Model`: it
+        is a `torch.nn.Module` participating in a compiled program, not a
+        structured value.
     """
 
     def __init__(self, n_draws: int = _DRAWN_MARGINAL_DRAWS) -> None:
@@ -131,7 +131,9 @@ point. Every call thus returns a different number for the
         self.n_draws = n_draws
 
     def rsample(
-        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size(),
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
     ) -> torch.Tensor:
         """Ancestral draw: `u ~ N(x, 1)`, then `y ~ N(u, 1)`."""
         shape = torch.Size((*sample_shape, *x.shape))
@@ -286,9 +288,7 @@ def _sweep(
     )
 
 
-@pytest.mark.parametrize(
-    "example", _scored_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _scored_examples(), ids=lambda p: p.stem)
 def test_gallery_reference_joint_is_bitwise_deterministic(
     example: pathlib.Path,
 ) -> None:
@@ -336,9 +336,7 @@ def test_gallery_reference_joint_is_bitwise_deterministic(
             f"tolerable reference."
         )
 
-        names = {
-            frozenset(trace_result.sites) for trace_result in traces
-        }
+        names = {frozenset(trace_result.sites) for trace_result in traces}
         assert len(names) == 1, (
             f"{context}: the set of recorded trace sites depends on the "
             f"generator state ({[sorted(entry) for entry in names]!r}), "
@@ -346,15 +344,9 @@ def test_gallery_reference_joint_is_bitwise_deterministic(
             f"a different seed."
         )
         for name in sorted(traces[0].sites):
-            summands = [
-                trace_result.sites[name].log_prob for trace_result in traces
-            ]
-            site_patterns = {
-                _bit_pattern(summand) for summand in summands
-            }
-            site_totals = [
-                float(summand.sum().item()) for summand in summands
-            ]
+            summands = [trace_result.sites[name].log_prob for trace_result in traces]
+            site_patterns = {_bit_pattern(summand) for summand in summands}
+            site_totals = [float(summand.sum().item()) for summand in summands]
             assert len(site_patterns) == 1, (
                 f"{context}: site {name!r} contributes a different "
                 f"log-density under different generator states "
@@ -414,12 +406,8 @@ def test_composition_marginalised_models_are_bitwise_deterministic(
             f"a different seed."
         )
         for name in sorted(traces[0].sites):
-            summands = [
-                trace_result.sites[name].log_prob for trace_result in traces
-            ]
-            site_totals = [
-                float(summand.sum().item()) for summand in summands
-            ]
+            summands = [trace_result.sites[name].log_prob for trace_result in traces]
+            site_totals = [float(summand.sum().item()) for summand in summands]
             assert len({_bit_pattern(summand) for summand in summands}) == 1, (
                 f"{context}: site {name!r} contributes a different "
                 f"log-density under different generator states "
@@ -436,7 +424,8 @@ def test_composition_marginalised_models_are_bitwise_deterministic(
             monadic=dataset.monadic,
             x_input=dataset.x_input,
             observations=_gallery_data.observations_for_point(
-                dataset, point,
+                dataset,
+                point,
             ),
         )
         assert len(result.log_densities) == 1
@@ -496,19 +485,17 @@ def test_structural_guard_passes_where_behavioural_guard_rejects() -> None:
     # The behavioural guard, over those same two traces, fires.
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            traces, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS,
+            traces,
+            _CONSTRUCTED_FIXTURE,
+            DETERMINISM_SEEDS,
         )
 
     message = str(exc_info.value)
     left = float(
-        _joint_of(first, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[0])
-        .sum()
-        .item()
+        _joint_of(first, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[0]).sum().item()
     )
     right = float(
-        _joint_of(second, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[1])
-        .sum()
-        .item()
+        _joint_of(second, _CONSTRUCTED_FIXTURE, DETERMINISM_SEEDS[1]).sum().item()
     )
     assert left != right, (
         f"the two joints agree ({left!r}), so the raise came from a "
@@ -529,8 +516,7 @@ def test_structural_guard_passes_where_behavioural_guard_rejects() -> None:
     )
 
     prior_patterns = {
-        _bit_pattern(trace_result.sites["z"].log_prob)
-        for trace_result in traces
+        _bit_pattern(trace_result.sites["z"].log_prob) for trace_result in traces
     }
     assert len(prior_patterns) == 1, (
         f"the prior site 'z' also moved between seeds, so the "
@@ -592,9 +578,9 @@ def _trace_with(joint: float, site_log_prob: float) -> Trace:
 def test_structural_guard_admits_a_trace_the_behavioural_guard_rejects() -> None:
     """A moving joint can occur with no recorded free latent.
 
-    Both hand-built traces contain the same clamped observed site, so
-`Trace.latent_sites` is empty. Their different joints are rejected by
-    the behavioral guard.
+        Both hand-built traces contain the same clamped observed site, so
+    `Trace.latent_sites` is empty. Their different joints are rejected by
+        the behavioral guard.
     """
     first = _trace_with(joint=-1.5, site_log_prob=-1.5)
     second = _trace_with(joint=-2.25, site_log_prob=-2.25)
@@ -605,14 +591,15 @@ def test_structural_guard_admits_a_trace_the_behavioural_guard_rejects() -> None
 
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            [first, second], "handbuilt", DETERMINISM_SEEDS,
+            [first, second],
+            "handbuilt",
+            DETERMINISM_SEEDS,
         )
     message = str(exc_info.value)
     assert "handbuilt" in message
     assert repr(-1.5) in message and repr(-2.25) in message
     assert "'y'" in message, (
-        f"the rejection does not name the site whose log-density "
-        f"moved: {message!r}"
+        f"the rejection does not name the site whose log-density moved: {message!r}"
     )
 
 
@@ -627,7 +614,9 @@ def test_behavioural_guard_rejects_a_joint_moving_under_frozen_sites() -> None:
 
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            [first, second], "handbuilt", DETERMINISM_SEEDS,
+            [first, second],
+            "handbuilt",
+            DETERMINISM_SEEDS,
         )
     message = str(exc_info.value)
     assert "[]" in message, (
@@ -668,15 +657,16 @@ def test_behavioural_guard_rejects_a_one_ulp_difference() -> None:
 
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            [first, second], "handbuilt", DETERMINISM_SEEDS,
+            [first, second],
+            "handbuilt",
+            DETERMINISM_SEEDS,
         )
     message = str(exc_info.value)
     left = float(joint.item())
     right = float(neighbour.item())
     assert left.hex() != right.hex()
     assert repr(left) in message and repr(right) in message, (
-        f"the rejection does not show both joints ({left!r}, "
-        f"{right!r}): {message!r}"
+        f"the rejection does not show both joints ({left!r}, {right!r}): {message!r}"
     )
 
 
@@ -698,7 +688,9 @@ def test_behavioural_guard_rejects_a_moving_site_under_a_frozen_joint() -> None:
 
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            [first, second], "handbuilt", DETERMINISM_SEEDS,
+            [first, second],
+            "handbuilt",
+            DETERMINISM_SEEDS,
         )
     assert "'y'" in str(exc_info.value), (
         f"the rejection does not name the site whose log-density "
@@ -728,7 +720,9 @@ def test_behavioural_guard_rejects_a_site_recorded_under_only_one_seed() -> None
 
     with pytest.raises(RuntimeError) as exc_info:
         assert_reference_joint_deterministic(
-            [first, second], "handbuilt", DETERMINISM_SEEDS,
+            [first, second],
+            "handbuilt",
+            DETERMINISM_SEEDS,
         )
     assert "'branch'" in str(exc_info.value), (
         f"the rejection does not name the site recorded under only one "
@@ -759,7 +753,9 @@ def test_behavioural_guard_reads_bytes_rather_than_float_equality() -> None:
         log_joint=payload.clone(),
     )
     assert_reference_joint_deterministic(
-        [first, second], "handbuilt", DETERMINISM_SEEDS,
+        [first, second],
+        "handbuilt",
+        DETERMINISM_SEEDS,
     )
 
 
@@ -771,7 +767,8 @@ def test_behavioural_guard_reads_bytes_rather_than_float_equality() -> None:
     ],
 )
 def test_seed_sets_can_observe_a_disagreement(
-    label: str, seeds: tuple[int, ...],
+    label: str,
+    seeds: tuple[int, ...],
 ) -> None:
     """Require each determinism seed set to contain distinct entries."""
     assert len(seeds) >= 2, (
@@ -791,7 +788,9 @@ def test_behavioural_guard_accepts_a_bit_identical_pair() -> None:
     first = _trace_with(joint=-3.75, site_log_prob=-3.75)
     second = _trace_with(joint=-3.75, site_log_prob=-3.75)
     assert_reference_joint_deterministic(
-        [first, second], "handbuilt", DETERMINISM_SEEDS,
+        [first, second],
+        "handbuilt",
+        DETERMINISM_SEEDS,
     )
 
 
@@ -815,7 +814,8 @@ def test_sweep_rejects_a_degenerate_seed_set(seeds: tuple[int, ...]) -> None:
             point,
             x_input=dataset.x_input,
             observations=_gallery_data.observations_for_point(
-                dataset, point,
+                dataset,
+                point,
             ),
             seeds=seeds,
         )
@@ -846,7 +846,8 @@ def test_probe_evaluation_leaves_the_global_rng_state_untouched() -> None:
             monadic=dataset.monadic,
             x_input=dataset.x_input,
             observations=_gallery_data.observations_for_point(
-                dataset, point,
+                dataset,
+                point,
             ),
         ).log_densities
 
@@ -872,9 +873,7 @@ def test_probe_evaluation_leaves_the_global_rng_state_untouched() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "example", _scored_examples(), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("example", _scored_examples(), ids=lambda p: p.stem)
 def test_probe_log_density_is_invariant_to_the_ambient_rng(
     example: pathlib.Path,
 ) -> None:

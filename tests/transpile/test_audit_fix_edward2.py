@@ -66,9 +66,7 @@ def test_lkj_cholesky_prepends_dimension_and_flags_cholesky() -> None:
     correlation-matrix event axis (size 4)."""
     out = _emit_file("docs/examples/source/lkj_cholesky_correlation.qvr")
     ast.parse(out)
-    assert "edward2.LKJ(4,eta,input_output_cholesky=True" in out.replace(
-        " ", ""
-    )
+    assert "edward2.LKJ(4,eta,input_output_cholesky=True" in out.replace(" ", "")
     # The bare single-arg form (concentration bound to dimension) is
     # gone.
     assert "edward2.LKJ(eta" not in out.replace(" ", "")

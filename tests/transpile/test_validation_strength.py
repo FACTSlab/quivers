@@ -223,63 +223,75 @@ _UNPERTURBABLE_COORDINATES: tuple[UnperturbableCoordinate, ...] = tuple(
     )
     for _example, _coordinate, _detail in (
         (
-            "beta_binomial_ab_test", "arm_idx",
+            "beta_binomial_ab_test",
+            "arm_idx",
             "Gathers conc1 and conc0 over the Arm plate",
         ),
         (
-            "beta_regression", "out_idx",
+            "beta_regression",
+            "out_idx",
             "Gathers beta_0, beta_1 and phi over the Out plate",
         ),
         (
-            "factor_analysis", "item_idx",
-            "Gathers the per-item latent code row of Z_mat over the "
-            "Item plate",
+            "factor_analysis",
+            "item_idx",
+            "Gathers the per-item latent code row of Z_mat over the Item plate",
         ),
         (
-            "factor_analysis", "obs_idx",
+            "factor_analysis",
+            "obs_idx",
             "Gathers the loading row of W_mat over the ObsDim plate",
         ),
         (
-            "gamma_regression", "cat_idx",
+            "gamma_regression",
+            "cat_idx",
             "Gathers beta_0 and beta_1 over the Cat plate",
         ),
         (
-            "half_student_t_hierarchical", "group_idx",
+            "half_student_t_hierarchical",
+            "group_idx",
             "Gathers the per-group offset u over the Group plate",
         ),
         (
-            "horseshoe_regression", "coef_idx",
+            "horseshoe_regression",
+            "coef_idx",
             "Gathers lambda_local and z_raw over the Coef plate",
         ),
         (
-            "irt_2pl", "item_idx",
+            "irt_2pl",
+            "item_idx",
             "Gathers difficulty and discrim over the Item plate",
         ),
         (
-            "irt_2pl", "person_idx",
+            "irt_2pl",
+            "person_idx",
             "Gathers ability over the Person plate",
         ),
         (
-            "lda", "word_idx",
+            "lda",
+            "word_idx",
             "Names the fibration from each word position into its "
             "document, selecting the theta row the per-word mixture "
             "marginal is scored under",
         ),
         (
-            "negbin_regression", "out_idx",
+            "negbin_regression",
+            "out_idx",
             "Gathers beta_0, beta_1 and dispersion over the Out plate",
         ),
         (
-            "ppca", "item_idx",
-            "Gathers the per-item latent code row of Z_mat over the "
-            "Item plate",
+            "ppca",
+            "item_idx",
+            "Gathers the per-item latent code row of Z_mat over the Item plate",
         ),
         (
-            "ppca", "obs_idx",
+            "ppca",
+            "obs_idx",
             "Gathers the loading row of W_mat over the ObsDim plate",
         ),
         (
-            "zip_regression", "out_idx",
+            "zip_regression",
+            "out_idx",
             "Gathers alpha_zero, beta_zero, alpha_rate and beta_rate "
             "over the Out plate",
         ),
@@ -339,10 +351,8 @@ def _gallery_cells() -> list[pathlib.Path]:
     return [
         example
         for example in _gallery_data.gallery_examples_with_data()
-        if example.stem
-        not in _gallery_equivalence._SKIP_DATASET_LOAD_FAILED
-        and example.stem
-        not in _gallery_equivalence._SKIP_QVR_INCOMPATIBLE
+        if example.stem not in _gallery_equivalence._SKIP_DATASET_LOAD_FAILED
+        and example.stem not in _gallery_equivalence._SKIP_QVR_INCOMPATIBLE
     ]
 
 
@@ -380,7 +390,9 @@ def _evaluate(
         f"`_SKIP_DATASET_LOAD_FAILED` nor `_SKIP_QVR_INCOMPATIBLE`."
     )
     points = _gallery_data.points_from_dataset(
-        dataset, seed=seed, scale=scale,
+        dataset,
+        seed=seed,
+        scale=scale,
     )
     probe = QvrProbe()
     scratch = pathlib.Path("/tmp") / f"qvr_strength_{example.stem}"
@@ -402,7 +414,8 @@ def _evaluate(
                 monadic=dataset.monadic,
                 x_input=dataset.x_input,
                 observations=_gallery_data.observations_for_point(
-                    dataset, point,
+                    dataset,
+                    point,
                 ),
             ).log_densities
         )
@@ -452,7 +465,10 @@ def _coordinate_key(
 
 
 def _distinct_values(
-    points: tuple[Point, ...], name: str, *, latent: bool,
+    points: tuple[Point, ...],
+    name: str,
+    *,
+    latent: bool,
 ) -> int:
     """Number of distinct values `name` takes across `points`."""
     seen: set[tuple[float, ...]] = set()
@@ -473,7 +489,8 @@ def _registered(stem: str) -> dict[str, UnperturbableCoordinate]:
 
 
 def _diff_pair(
-    diffs: list[float], base: float = -137.25,
+    diffs: list[float],
+    base: float = -137.25,
 ) -> tuple[list[float], list[float]]:
     """A (qvr, target) sequence pair realising `diffs` exactly.
 
@@ -517,8 +534,7 @@ def test_tolerance_constants_are_pinned() -> None:
         f"and update this mirror in the same commit."
     )
     assert (
-        _equivalence._PER_OBS_ROUNDOFF_ESTIMATE
-        == _PINNED_PER_OBS_ROUNDOFF_ESTIMATE
+        _equivalence._PER_OBS_ROUNDOFF_ESTIMATE == _PINNED_PER_OBS_ROUNDOFF_ESTIMATE
     ), (
         f"`_PER_OBS_ROUNDOFF_ESTIMATE` moved to "
         f"{_equivalence._PER_OBS_ROUNDOFF_ESTIMATE!r} from the pinned "
@@ -526,9 +542,7 @@ def test_tolerance_constants_are_pinned() -> None:
         f"per-log_prob float64 round-off; re-measure it across the "
         f"backends before changing it."
     )
-    assert (
-        _equivalence._TOLERANCE_HEADROOM == _PINNED_TOLERANCE_HEADROOM
-    ), (
+    assert _equivalence._TOLERANCE_HEADROOM == _PINNED_TOLERANCE_HEADROOM, (
         f"`_TOLERANCE_HEADROOM` moved to "
         f"{_equivalence._TOLERANCE_HEADROOM!r} from the pinned "
         f"{_PINNED_TOLERANCE_HEADROOM!r}. The multiplier is the "
@@ -549,8 +563,7 @@ def test_adaptive_atol_stays_under_ceiling() -> None:
         "asserts nothing about the adaptive term."
     )
     assert (
-        _SMALLEST_SEMANTIC_DISCREPANCY
-        >= _BUG_DETECTION_MARGIN * _ADAPTIVE_ATOL_CEILING
+        _SMALLEST_SEMANTIC_DISCREPANCY >= _BUG_DETECTION_MARGIN * _ADAPTIVE_ATOL_CEILING
     ), (
         f"the tolerance ceiling {_ADAPTIVE_ATOL_CEILING!r} leaves less "
         f"than a factor of {_BUG_DETECTION_MARGIN!r} below the "
@@ -584,10 +597,9 @@ def test_adaptive_atol_stays_under_ceiling() -> None:
         previous = atol
 
     for degenerate in (0, -1):
-        assert (
-            _equivalence.adaptive_atol(n_obs=degenerate)
-            == _PINNED_DEFAULT_ATOL
-        ), "a non-positive observation count must fall back to the floor."
+        assert _equivalence.adaptive_atol(n_obs=degenerate) == _PINNED_DEFAULT_ATOL, (
+            "a non-positive observation count must fall back to the floor."
+        )
     assert (
         _equivalence.adaptive_atol(n_obs=64, condition_number=0.0)
         == _PINNED_DEFAULT_ATOL
@@ -605,9 +617,13 @@ def test_gallery_point_set_size_is_pinned() -> None:
     Six points cover two latent-only, two data-only, and one joint
     perturbation in addition to the ground truth.
     """
-    default = inspect.signature(
-        _gallery_data.points_from_dataset,
-    ).parameters["n_points"].default
+    default = (
+        inspect.signature(
+            _gallery_data.points_from_dataset,
+        )
+        .parameters["n_points"]
+        .default
+    )
     assert default >= _MIN_GALLERY_POINTS, (
         f"`points_from_dataset` defaults to {default!r} points, below "
         f"the pinned minimum {_MIN_GALLERY_POINTS!r}. Every gallery "
@@ -662,9 +678,7 @@ def test_point_set_defaults_are_pinned() -> None:
         f"default, so a default that moves run to run turns a real "
         f"transpile regression into an intermittent one."
     )
-    assert (
-        parameters["scale"].default == _gallery_data.PERTURBATION_SCALE
-    ), (
+    assert parameters["scale"].default == _gallery_data.PERTURBATION_SCALE, (
         f"`points_from_dataset` defaults to scale "
         f"{parameters['scale'].default!r} rather than "
         f"{_gallery_data.PERTURBATION_SCALE!r}. The excursion every "
@@ -693,10 +707,7 @@ def test_point_set_defaults_are_pinned() -> None:
         f"module never checks."
     )
 
-    assert (
-        _gallery_data.WIDE_PERTURBATION_SCALE
-        > _gallery_data.PERTURBATION_SCALE
-    ), (
+    assert _gallery_data.WIDE_PERTURBATION_SCALE > _gallery_data.PERTURBATION_SCALE, (
         f"`WIDE_PERTURBATION_SCALE` "
         f"({_gallery_data.WIDE_PERTURBATION_SCALE!r}) does not exceed "
         f"the base scale ({_gallery_data.PERTURBATION_SCALE!r}), so "
@@ -713,7 +724,9 @@ def test_single_point_comparison_is_vacuous() -> None:
     """
     qvr, target = _diff_pair([1.0e6])
     constant = _equivalence.assert_log_density_match(
-        qvr, target, context="vacuity-demonstration",
+        qvr,
+        target,
+        context="vacuity-demonstration",
     )
     assert constant == pytest.approx(1.0e6), (
         "the one-point comparison should absorb the entire "
@@ -727,7 +740,10 @@ def test_min_points_rejects_a_collapsed_point_set() -> None:
     qvr, target = _diff_pair([1.0e6])
     with pytest.raises(AssertionError) as exc_info:
         _equivalence.assert_log_density_match(
-            qvr, target, context="collapsed", min_points=2,
+            qvr,
+            target,
+            context="collapsed",
+            min_points=2,
         )
     message = str(exc_info.value)
     assert "at least 2" in message, (
@@ -737,7 +753,10 @@ def test_min_points_rejects_a_collapsed_point_set() -> None:
 
     with pytest.raises(AssertionError):
         _equivalence.assert_log_density_match(
-            [], [], context="empty", min_points=2,
+            [],
+            [],
+            context="empty",
+            min_points=2,
         )
 
     # Pin the gallery call site, not just the helper's capability: the
@@ -760,7 +779,9 @@ def test_min_points_rejects_a_collapsed_point_set() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _point_signature(point: Point) -> tuple[
+def _point_signature(
+    point: Point,
+) -> tuple[
     tuple[tuple[str, tuple[float, ...]], ...],
     tuple[tuple[str, tuple[float, ...]], ...],
 ]:
@@ -769,15 +790,11 @@ def _point_signature(point: Point) -> tuple[
     return (
         tuple(
             sorted(
-                (name, _coordinate_key(value))
-                for name, value in point.params.items()
+                (name, _coordinate_key(value)) for name, value in point.params.items()
             )
         ),
         tuple(
-            sorted(
-                (name, _coordinate_key(value))
-                for name, value in point.data.items()
-            )
+            sorted((name, _coordinate_key(value)) for name, value in point.data.items())
         ),
     )
 
@@ -789,9 +806,7 @@ def test_seed_sweep_draws_independent_point_sets() -> None:
     every set.
     """
     cells = _gallery_cells()
-    assert cells, (
-        "no gallery example is available to draw a seed sweep from."
-    )
+    assert cells, "no gallery example is available to draw a seed sweep from."
     example = cells[0]
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None
@@ -799,13 +814,11 @@ def test_seed_sweep_draws_independent_point_sets() -> None:
     assert set(sweep) == set(_gallery_data.GALLERY_SEEDS)
 
     repeat = _gallery_data.points_from_dataset(
-        dataset, seed=_DEFAULT_GALLERY_SEED,
+        dataset,
+        seed=_DEFAULT_GALLERY_SEED,
     )
-    assert [
-        _point_signature(point) for point in repeat
-    ] == [
-        _point_signature(point)
-        for point in sweep[_DEFAULT_GALLERY_SEED]
+    assert [_point_signature(point) for point in repeat] == [
+        _point_signature(point) for point in sweep[_DEFAULT_GALLERY_SEED]
     ], (
         f"{example.stem!r}: two draws at seed "
         f"{_DEFAULT_GALLERY_SEED!r} gave different point sets, so the "
@@ -818,9 +831,7 @@ def test_seed_sweep_draws_independent_point_sets() -> None:
         for right in range(left + 1, len(seeds)):
             first = sweep[seeds[left]]
             second = sweep[seeds[right]]
-            assert _point_signature(first[0]) == _point_signature(
-                second[0]
-            ), (
+            assert _point_signature(first[0]) == _point_signature(second[0]), (
                 f"{example.stem!r}: the ground-truth point differs "
                 f"between seeds {seeds[left]} and {seeds[right]}. "
                 f"Point 0 is the captured fixture, not a draw; a seed "
@@ -829,8 +840,7 @@ def test_seed_sweep_draws_independent_point_sets() -> None:
             shared = [
                 index
                 for index in range(1, min(len(first), len(second)))
-                if _point_signature(first[index])
-                == _point_signature(second[index])
+                if _point_signature(first[index]) == _point_signature(second[index])
             ]
             assert not shared, (
                 f"{example.stem!r}: seeds {seeds[left]} and "
@@ -865,18 +875,11 @@ def test_seed_sweep_is_independent_for_every_cell(
         for right in range(left + 1, len(seeds)):
             first = sets[seeds[left]]
             second = sets[seeds[right]]
-            labels = _gallery_data.perturbation_labels(
-                min(len(first), len(second))
-            )
+            labels = _gallery_data.perturbation_labels(min(len(first), len(second)))
             for index in range(1, min(len(first), len(second))):
-                if _point_signature(first[index]) != _point_signature(
-                    second[index]
-                ):
+                if _point_signature(first[index]) != _point_signature(second[index]):
                     continue
-                assert (
-                    labels[index] == _gallery_data.PERTURB_LATENTS
-                    and not latents
-                ), (
+                assert labels[index] == _gallery_data.PERTURB_LATENTS and not latents, (
                     f"{example.stem!r}: seeds {seeds[left]} and "
                     f"{seeds[right]} drew the identical point at index "
                     f"{index} ({labels[index]}), and the program "
@@ -893,11 +896,10 @@ def test_seed_sweep_is_independent_for_every_cell(
                 )
 
 
-@pytest.mark.parametrize(
-    "example, seed", _seeded_cells(), ids=_cell_id
-)
+@pytest.mark.parametrize("example, seed", _seeded_cells(), ids=_cell_id)
 def test_no_point_collapses_onto_the_ground_truth(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> None:
     """Require each scheduled perturbation to differ from ground truth.
 
@@ -913,10 +915,7 @@ def test_no_point_collapses_onto_the_ground_truth(
     for index in range(1, len(points)):
         if _point_signature(points[index]) != ground_truth:
             continue
-        assert (
-            labels[index] == _gallery_data.PERTURB_LATENTS
-            and not latents
-        ), (
+        assert labels[index] == _gallery_data.PERTURB_LATENTS and not latents, (
             f"{example.stem!r} at seed {seed}: point {index} "
             f"({labels[index]}) is byte-identical to the ground-truth "
             f"point, so the {len(points)}-point schedule realises only "
@@ -930,11 +929,10 @@ def test_no_point_collapses_onto_the_ground_truth(
         )
 
 
-@pytest.mark.parametrize(
-    "example, seed", _seeded_cells(), ids=_cell_id
-)
+@pytest.mark.parametrize("example, seed", _seeded_cells(), ids=_cell_id)
 def test_every_quantified_coordinate_varies(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> None:
     """Vary every latent and observed coordinate across each point set.
 
@@ -1036,11 +1034,10 @@ def test_every_quantified_coordinate_varies(
             )
 
 
-@pytest.mark.parametrize(
-    "example, seed", _seeded_cells(), ids=_cell_id
-)
+@pytest.mark.parametrize("example, seed", _seeded_cells(), ids=_cell_id)
 def test_point_set_exposes_a_planted_coordinate_defect(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> None:
     """Reject a defect attached to each non-exempt coordinate.
 
@@ -1055,28 +1052,21 @@ def test_point_set_exposes_a_planted_coordinate_defect(
     registry = _registered(example.stem)
     constant = 4.25
 
-    coordinates = [
-        (name, True) for name in _latent_site_names(evaluated.dataset)
-    ] + [
+    coordinates = [(name, True) for name in _latent_site_names(evaluated.dataset)] + [
         (name, False)
-        for name in sorted(
-            _gallery_data.observed_data_names(evaluated.dataset)
-        )
+        for name in sorted(_gallery_data.observed_data_names(evaluated.dataset))
     ]
     planted_any = False
     for name, latent in coordinates:
         if name in registry:
             continue
         keys = [
-            _coordinate_key(
-                (point.params if latent else point.data)[name]
-            )
+            _coordinate_key((point.params if latent else point.data)[name])
             for point in points
         ]
         moved_at = [key != keys[0] for key in keys]
         planted = [
-            value + constant
-            + (_SMALLEST_SEMANTIC_DISCREPANCY if moved else 0.0)
+            value + constant + (_SMALLEST_SEMANTIC_DISCREPANCY if moved else 0.0)
             for value, moved in zip(reference, moved_at)
         ]
         planted_any = True
@@ -1143,11 +1133,10 @@ def test_unperturbable_registry_is_well_formed() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "example, seed", _seeded_cells(), ids=_cell_id
-)
+@pytest.mark.parametrize("example, seed", _seeded_cells(), ids=_cell_id)
 def test_reference_joint_is_in_support_and_varies(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> None:
     """Require finite and varying QVR joints at every swept seed.
 
@@ -1210,8 +1199,7 @@ def _quadratic_defect(points: Sequence[Point]) -> list[float]:
     degree, the second is a matter of what the check can see at all.
     """
     return [
-        displacement ** 2
-        for displacement in _gallery_data.point_displacements(points)
+        displacement**2 for displacement in _gallery_data.point_displacements(points)
     ]
 
 
@@ -1235,30 +1223,32 @@ def _linear_defect(points: Sequence[Point]) -> list[float]:
 
 
 def _detection_threshold(
-    profile: Sequence[float], atol: float,
+    profile: Sequence[float],
+    atol: float,
 ) -> float:
     """The smallest coefficient at which a defect of shape `profile` is
-    rejected on the point set that produced it.
+        rejected on the point set that produced it.
 
-    A defect contributing `c * profile[i]` at point `i` has spread
-    `c * spread(profile)`, since the spread statistic is positively
-    homogeneous, and the assertion rejects once that exceeds `atol`.
-The threshold is thus `atol / spread(profile)` exactly, with
-    no search required, and it is the quantity that answers what a
-    point set can *detect* rather than how loudly it complains about
-    one defect that was planted.
+        A defect contributing `c * profile[i]` at point `i` has spread
+        `c * spread(profile)`, since the spread statistic is positively
+        homogeneous, and the assertion rejects once that exceeds `atol`.
+    The threshold is thus `atol / spread(profile)` exactly, with
+        no search required, and it is the quantity that answers what a
+        point set can *detect* rather than how loudly it complains about
+        one defect that was planted.
 
-    Returns infinity for a profile that is constant across the set:
-    such a defect is absorbed into the additive constant Theorem 4.1
-    permits, at any coefficient whatever, so no magnitude of it is
-    detectable.
+        Returns infinity for a profile that is constant across the set:
+        such a defect is absorbed into the additive constant Theorem 4.1
+        permits, at any coefficient whatever, so no magnitude of it is
+        detectable.
     """
     reach = _spread(profile)
     return atol / reach if reach > 0.0 else math.inf
 
 
 def _wide_excursion_gain(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> tuple[_EvaluatedPointSet, _EvaluatedPointSet, float]:
     """The default and wide point sets of one cell, and the ratio of
     the distances they actually travelled.
@@ -1273,7 +1263,9 @@ def _wide_excursion_gain(
     """
     default = _evaluate(example, seed=seed)
     wide = _evaluate(
-        example, seed=seed, scale=_gallery_data.WIDE_PERTURBATION_SCALE,
+        example,
+        seed=seed,
+        scale=_gallery_data.WIDE_PERTURBATION_SCALE,
     )
     reach = _gallery_data.point_excursion(default.points)
     assert reach > 0.0, (
@@ -1281,16 +1273,13 @@ def _wide_excursion_gain(
         f"leaves the ground truth, so it has no excursion to widen and "
         f"its spread statistic is identically zero."
     )
-    return default, wide, (
-        _gallery_data.point_excursion(wide.points) / reach
-    )
+    return default, wide, (_gallery_data.point_excursion(wide.points) / reach)
 
 
-@pytest.mark.parametrize(
-    "example, seed", _seeded_cells(), ids=_cell_id
-)
+@pytest.mark.parametrize("example, seed", _seeded_cells(), ids=_cell_id)
 def test_wider_excursion_detects_a_nonlinear_defect(
-    example: pathlib.Path, seed: int,
+    example: pathlib.Path,
+    seed: int,
 ) -> None:
     """A wider excursion changes *what the check can detect*, not
     merely how loudly it detects it.
@@ -1422,14 +1411,12 @@ def test_wider_excursion_detects_a_nonlinear_defect(
     # coordinate steps inside its attested window whatever the scale
     # asks, which pulls the achieved advantage below `g` without
     # touching the direction of the inequality.
-    quadratic_advantage = (
-        _detection_threshold(default_profile, atol)
-        / _detection_threshold(wide_profile, atol)
-    )
-    linear_advantage = (
-        _detection_threshold(_linear_defect(default.points), atol)
-        / _detection_threshold(_linear_defect(wide.points), atol)
-    )
+    quadratic_advantage = _detection_threshold(
+        default_profile, atol
+    ) / _detection_threshold(wide_profile, atol)
+    linear_advantage = _detection_threshold(
+        _linear_defect(default.points), atol
+    ) / _detection_threshold(_linear_defect(wide.points), atol)
     assert quadratic_advantage > linear_advantage, (
         f"{example.stem!r} at seed {seed}: widening the excursion by "
         f"{gain:.3f}x improved the detection threshold for a quadratic "
@@ -1529,7 +1516,10 @@ def test_spread_accepts_a_genuinely_constant_offset() -> None:
     offset = 12.3456789
     qvr, target = _diff_pair([offset] * 6)
     constant = _equivalence.assert_log_density_match(
-        qvr, target, context="constant-offset", min_points=2,
+        qvr,
+        target,
+        context="constant-offset",
+        min_points=2,
     )
     assert constant == pytest.approx(offset, abs=1e-12)
 
@@ -1539,7 +1529,10 @@ def test_spread_accepts_a_genuinely_constant_offset() -> None:
     wide_qvr = [-1.0e4, -1.0, 5.0e3, 12.5, -7.5e3, 0.25]
     wide_target = [value + offset for value in wide_qvr]
     assert _equivalence.assert_log_density_match(
-        wide_qvr, wide_target, context="constant-offset-wide", min_points=2,
+        wide_qvr,
+        wide_target,
+        context="constant-offset-wide",
+        min_points=2,
     ) == pytest.approx(offset, abs=1e-9)
 
 
@@ -1561,7 +1554,10 @@ def test_spread_rejects_a_non_constant_offset() -> None:
     qvr, target = _diff_pair(diffs)
     with pytest.raises(AssertionError) as exc_info:
         _equivalence.assert_log_density_match(
-            qvr, target, context="drifting-offset", min_points=2,
+            qvr,
+            target,
+            context="drifting-offset",
+            min_points=2,
         )
     message = str(exc_info.value)
     assert "spread" in message, (
@@ -1635,12 +1631,18 @@ def test_spread_boundary_matches_the_pinned_tolerance() -> None:
         qvr, target = _diff_pair(diffs)
         if should_pass:
             _equivalence.assert_log_density_match(
-                qvr, target, context=f"boundary-{factor}", min_points=2,
+                qvr,
+                target,
+                context=f"boundary-{factor}",
+                min_points=2,
             )
         else:
             with pytest.raises(AssertionError):
                 _equivalence.assert_log_density_match(
-                    qvr, target, context=f"boundary-{factor}", min_points=2,
+                    qvr,
+                    target,
+                    context=f"boundary-{factor}",
+                    min_points=2,
                 )
 
 
@@ -1659,7 +1661,10 @@ def test_spread_rejects_degenerate_sequences() -> None:
     target[2] = math.inf
     with pytest.raises(AssertionError) as exc_info:
         _equivalence.assert_log_density_match(
-            qvr, target, context="non-finite", min_points=2,
+            qvr,
+            target,
+            context="non-finite",
+            min_points=2,
         )
     assert "non-finite" in str(exc_info.value)
 
@@ -1674,6 +1679,9 @@ def test_spread_rejects_degenerate_sequences() -> None:
 
     with pytest.raises(AssertionError) as exc_info:
         _equivalence.assert_log_density_match(
-            [1.0, 2.0], [1.0, 2.0, 3.0], context="length", min_points=2,
+            [1.0, 2.0],
+            [1.0, 2.0, 3.0],
+            context="length",
+            min_points=2,
         )
     assert "length mismatch" in str(exc_info.value)

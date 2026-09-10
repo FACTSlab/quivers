@@ -71,10 +71,7 @@ class Edward2Probe:
             with ed.interception(_make_value_setter(value_map)):
                 with ed.tape() as recorded:
                     model(**data_kwargs)
-            total = sum(
-                rv.distribution.log_prob(rv.value)
-                for rv in recorded.values()
-            )
+            total = sum(rv.distribution.log_prob(rv.value) for rv in recorded.values())
             log_densities.append(float(tf.reduce_sum(total).numpy()))
 
         return ProbeResult(
@@ -94,6 +91,7 @@ def _make_value_setter(value_map):
         if name is not None and name in value_map:
             kwargs["value"] = tf.constant(value_map[name])
         return rv_constructor(*args, **kwargs)
+
     return interceptor
 
 

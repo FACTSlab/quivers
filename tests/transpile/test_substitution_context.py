@@ -41,9 +41,7 @@ def _stan_substitute(expr: LetExprNode, name: str, value: int) -> LetExprNode:
     )
 
 
-def _python_substitute(
-    expr: LetExprNode, name: str, value: int
-) -> LetExprNode:
+def _python_substitute(expr: LetExprNode, name: str, value: int) -> LetExprNode:
     """Python / NumPyro / Pyro / PyMC / Edward2 call-site convention:
     same 0-indexed value in both slots (matches `_build_nested_python`
     in `_python_helpers` and `_build_nested_array` in
@@ -194,12 +192,12 @@ def test_array_child_of_indexed_is_scalar_slot_stan() -> None:
 
 def test_nested_indices_inner_index_is_index_slot_stan() -> None:
     """`arr[subj[v]]` with `v=0` substitutes to `arr[subj[1]]` in
-    Stan. The inner `LetExprIndex` lives inside the outer node's
-    `indices` tuple, but the helper resets `in_index_slot` on
-    descent into the inner's `array` child and re-sets it on
-    descent into the inner's `indices` tuple. The bare `v` ends
-up in `subj[...]`'s index slot and thus picks the
-    1-indexed value."""
+        Stan. The inner `LetExprIndex` lives inside the outer node's
+        `indices` tuple, but the helper resets `in_index_slot` on
+        descent into the inner's `array` child and re-sets it on
+        descent into the inner's `indices` tuple. The bare `v` ends
+    up in `subj[...]`'s index slot and thus picks the
+        1-indexed value."""
     expr = LetExprIndex(
         array=LetExprVar(name="arr"),
         indices=(
