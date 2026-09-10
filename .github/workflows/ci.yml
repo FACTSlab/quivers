@@ -50,7 +50,10 @@ jobs:
       # transcript of it, so the library has to be here: without
       # it the module fails to import and the whole job errors.
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp]" pymc
-      - run: python -m pytest tests/ -x -q
+      # No `-x`: one failure used to hide every test behind it,
+      # and with the probe images built in-job each rediscovery
+      # costs an hour and a half. The run reports all of them.
+      - run: python -m pytest tests/ -q
 
   # The default addopts deselect `slow`, so the gallery sweep and the
   # recovery benchmarks never run in the `test` job. They gate here

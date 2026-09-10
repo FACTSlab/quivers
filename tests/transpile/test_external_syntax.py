@@ -55,10 +55,17 @@ def _run_syntax_check(
     argv: list[str],
     *,
     input_bytes: bytes,
-    timeout: float = 30.0,
+    timeout: float = 300.0,
 ) -> tuple[int, str, str]:
     """Run the ``binary`` with ``argv``, feeding ``input_bytes`` on
-    stdin. Returns (returncode, stdout, stderr)."""
+    stdin. Returns (returncode, stdout, stderr).
+
+    The timeout is generous because the cost being waited on is a
+    cold start rather than the parse: Julia compiles its own runtime
+    on first invocation, and on a fresh machine that alone can run
+    past half a minute. A parser that has actually hung still fails
+    here, only later.
+    """
     if shutil.which(binary) is None:
         pytest.xfail(
             f"{binary!r} not on PATH; install it in the local toolchain "
