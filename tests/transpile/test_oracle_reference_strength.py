@@ -1941,46 +1941,100 @@ def test_reconstruction_matches_the_pinned_reference(
         )
 
 
+#: Sites that contribute nothing at some points and something at the
+#: rest, keyed by example and pinned to the point indices where they
+#: vanish.
+#:
+#: A score whose argument is zero at a point contributes nothing there,
+#: and that is the term working rather than the fixture failing to
+#: exercise it, so long as the term is visible at the other points.
+#: What has to be pinned is where the vanishing happens: a term that
+#: starts vanishing at a point not listed here, or stops vanishing at
+#: one that is, has changed, whether or not the joint still matches.
+_PARTIALLY_INVISIBLE_SITES: dict[str, dict[str, tuple[int, ...]]] = {
+    # `centering` scores `-50 * sum(theta)**2`, and the ground-truth
+    # `theta` is a centered vector. Points 0, 2 and 5 leave the latents
+    # at ground truth and perturb the data alone, so the penalty is
+    # zero there; at 1, 3 and 4, which perturb the latents, it reaches
+    # 1.85, 2.09 and 10.88 nats.
+    "parametric_pooling": {"centering": (0, 2, 5)},
+}
+
+
 @pytest.mark.parametrize(
     "example",
     sorted(_RECONSTRUCTIONS),
     ids=lambda name: name,
 )
 def test_zero_scoring_sites_are_zero_by_identity(example: str) -> None:
-    """Verify that Beta(1, 1) sites score zero across their support.
+    """Account for every site that the joint comparison cannot see.
 
-    These flat sites cannot be detected by removing their zero-valued
-    contribution from the joint, so the family identity is checked
-    directly at several values.
+    A summand smaller than the tolerance that comparison allows is a
+    summand it cannot distinguish from absent, and two cases follow
+    that need different evidence.
+
+    A site invisible at *every* point cannot be dropped detectably at
+    all, so its flatness has to hold as a family identity rather than
+    as a property of the values the fixture happens to carry. That is
+    checked directly, on a grid across the support.
+
+    A site invisible at only *some* points is visible at the rest, and
+    what needs pinning there is which points those are, so that a term
+    whose vanishing spreads is caught by name rather than left to show
+    up as a joint that still happens to match.
+
+    Visibility is measured against
+    [`reference_pin_atol`][tests.transpile.test_gallery_numeric_equivalence.reference_pin_atol]
+    rather than against exact zero. A term equal to zero up to
+    round-off is already invisible to the pin, and whether the last
+    bits cancel to `0.0` or to `-7e-13` is a property of the
+    platform's summation order, not of the model.
     """
     fixture = _fixture(example)
-    zero_sites = sorted(
-        {
-            name
-            for index in range(len(fixture.points))
-            for name, value in _reconstruct(example, index).items()
-            if value == 0.0
-        }
-    )
+    reference = _gallery_tier._QVR_REFERENCE_JOINT[example]
+    invisible: dict[str, set[int]] = {}
     for index in range(len(fixture.points)):
-        terms = _reconstruct(example, index)
-        for name in zero_sites:
-            assert terms[name] == 0.0, (
-                f"{example!r} site {name!r} scores zero at some points "
-                f"and {terms[name]!r} at point {index}. A term that is "
-                f"zero only sometimes is a term whose value the "
-                f"fixture is not exercising, not a flat family."
-            )
-            assert fixture.sites[index][name] == 0.0, (
+        atol = _gallery_tier.reference_pin_atol(reference[index])
+        for name, value in _reconstruct(example, index).items():
+            if abs(float(value)) > atol:
+                continue
+            invisible.setdefault(name, set()).add(index)
+            assert abs(fixture.sites[index][name]) <= atol, (
                 f"{example!r} site {name!r}: the reconstruction scores "
-                f"zero and the oracle scores "
+                f"{float(value)!r}, under the {atol:.6g} the pin "
+                f"tolerates, and the oracle scores "
                 f"{fixture.sites[index][name]!r} at point {index}."
             )
 
+    n_points = len(fixture.points)
+    everywhere = sorted(n for n, at in invisible.items() if len(at) == n_points)
+    sometimes = {
+        name: tuple(sorted(at)) for name, at in invisible.items() if len(at) < n_points
+    }
+    assert sometimes == _PARTIALLY_INVISIBLE_SITES.get(example, {}), (
+        f"{example!r}: sites vanishing at some points but not others "
+        f"are {sometimes!r}, against the pinned "
+        f"{_PARTIALLY_INVISIBLE_SITES.get(example, {})!r}. Either the "
+        f"reconstruction changed, or the fixture stopped exercising a "
+        f"term it used to."
+    )
+    for name, at in sometimes.items():
+        peak = max(
+            abs(float(_reconstruct(example, index)[name]))
+            for index in range(n_points)
+            if index not in at
+        )
+        assert peak >= _SMALLEST_SCORED_SITE, (
+            f"{example!r} site {name!r} vanishes at {at!r} and peaks "
+            f"at {peak:.6g} nats over the points that remain, under "
+            f"the {_SMALLEST_SCORED_SITE} floor. A term visible "
+            f"nowhere by much is a term the pins barely constrain."
+        )
+
     if example != "tree_categorical":
-        assert not zero_sites, (
-            f"{example!r}: {zero_sites!r} contribute exactly zero to "
-            f"the joint at every point, so dropping them from the "
+        assert not everywhere, (
+            f"{example!r}: {everywhere!r} contribute nothing to the "
+            f"joint at every point, so dropping them from the "
             f"reconstruction would be undetectable. Only "
             f"`tree_categorical`'s `Beta(1, 1)` splits are flat by "
             f"identity; state why these are, or the check is weaker "
@@ -1988,9 +2042,9 @@ def test_zero_scoring_sites_are_zero_by_identity(example: str) -> None:
         )
         return
 
-    assert zero_sites == ["p_left", "p_right", "p_root"], (
+    assert everywhere == ["p_left", "p_right", "p_root"], (
         f"tree_categorical: expected exactly the three `Beta(1, 1)` "
-        f"splits to score zero; got {zero_sites!r}."
+        f"splits to score zero; got {everywhere!r}."
     )
     grid = torch.linspace(0.05, 0.95, 19)
     flat = td.Beta(1.0, 1.0).log_prob(grid)

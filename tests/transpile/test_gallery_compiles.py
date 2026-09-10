@@ -50,29 +50,43 @@ def _gallery_examples() -> list[Path]:
 # Backends with no canonical lint-only tool are skipped (Church has
 # no standard interpreter we can lint against; Gen and Turing share
 # Julia's `Meta.parse`).
-_SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
-    "stan": ("stanc", ["stanc", "--info", "-"], True),
+#: Placeholder in an ``argv`` template standing for the path of the
+#: file the emitted source is written to.
+_SOURCE_PATH = "<source-path>"
+
+#: `(binary, argv, suffix)`. A `suffix` of None feeds the emitted
+#: source to the checker on stdin. Otherwise the source is written to
+#: a file with that suffix and `_SOURCE_PATH` in `argv` is replaced by
+#: its path. The suffix is not cosmetic: `node` picks a module format
+#: by extension and refuses a name it does not recognise.
+_SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
+    "stan": ("stanc", ["stanc", "--info", "-"], None),
     "numpyro": (
         "python",
         ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
-        True,
+        None,
     ),
     "pyro": (
         "python",
         ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
-        True,
+        None,
     ),
     "pymc": (
         "python",
         ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
-        True,
+        None,
     ),
     "edward2": (
         "python",
         ["python", "-c", "import ast, sys; ast.parse(sys.stdin.read())"],
-        True,
+        None,
     ),
-    "webppl": ("node", ["node", "--check", "/dev/stdin"], True),
+    # `node --check` opens its argument as a file. Handed
+    # `/dev/stdin` it resolves that through `/proc/<pid>/fd/0`, which
+    # is a pipe when the source arrives on stdin, and a pipe is not
+    # something it can open. The source goes to a real file, named
+    # here by the `_SOURCE_PATH` placeholder.
+    "webppl": ("node", ["node", "--check", _SOURCE_PATH], ".js"),
     "turing": (
         "julia",
         [
@@ -82,7 +96,7 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
             "-e",
             "src = read(stdin, String); Meta.parseall(src)",
         ],
-        True,
+        None,
     ),
     "gen": (
         "julia",
@@ -93,7 +107,7 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], bool]] = {
             "-e",
             "src = read(stdin, String); Meta.parseall(src)",
         ],
-        True,
+        None,
     ),
 }
 
@@ -246,10 +260,10 @@ for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
 
 @pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)
 @pytest.mark.parametrize("backend", sorted(_SYNTAX_CHECKS))
-def test_gallery_example_compiles(example: Path, backend: str) -> None:
+def test_gallery_example_compiles(example: Path, backend: str, tmp_path: Path) -> None:
     """Transpile a gallery example to `backend` and run its target
     compiler / parser as a syntax check."""
-    binary, argv, _uses_stdin = _SYNTAX_CHECKS[backend]
+    binary, argv, suffix = _SYNTAX_CHECKS[backend]
     if shutil.which(binary) is None:
         pytest.skip(
             f"{binary!r} not on PATH; install it in the local toolchain "
@@ -274,9 +288,16 @@ def test_gallery_example_compiles(example: Path, backend: str) -> None:
 
     emitted = transpile(parse(source), target=backend)
 
+    if suffix is None:
+        run_argv, stdin_bytes = argv, emitted
+    else:
+        script = tmp_path / f"{example.stem}{suffix}"
+        script.write_bytes(emitted)
+        run_argv = [str(script) if a == _SOURCE_PATH else a for a in argv]
+        stdin_bytes = b""
     completed = subprocess.run(
-        argv,
-        input=emitted,
+        run_argv,
+        input=stdin_bytes,
         capture_output=True,
         timeout=60.0,
     )
