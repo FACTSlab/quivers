@@ -20,16 +20,23 @@ Tool availability markers:
 - `pytest.mark.requires_docker` — gates on `docker_available()`.
 - `pytest.mark.requires_image("<tag>")` — gates on
   `docker image inspect <tag>` succeeding.
+- `pytest.mark.probe` — applied at collection to every test in
+  [`PROBE_MODULES`][tests.transpile.conftest.PROBE_MODULES], so a tier
+  can select or deselect the container-backed cells.
 """
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import os
 import pathlib
 import platform
 import shutil
 import subprocess
+import tempfile
 import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -49,6 +56,36 @@ _DOCKER_IMAGE_TAGS = (
     "panproto-test-node",
     "panproto-test-jags",
     "panproto-test-bugs",
+)
+
+
+#: Test modules whose cells launch a probe container. Their tests are
+#: marked `probe` at collection, so a tier that trades coverage for
+#: turnaround can deselect them with `-m "not probe"` while the tier
+#: that gates a release runs them.
+#:
+#: Names are matched against modules in this directory alone. A
+#: conftest's `pytest_collection_modifyitems` is handed the whole
+#: session's items, so matching on the bare stem would mark a
+#: like-named module elsewhere in `tests/`.
+#:
+#: The list is checked against the source rather than trusted:
+#: `test_probe_marker_registry.py` fails when a module calls
+#: `run_probe` without appearing here, so a new probe module cannot
+#: quietly land in the fast tier.
+_TRANSPILE_DIR = pathlib.Path(__file__).parent
+
+PROBE_MODULES = frozenset(
+    {
+        "test_closed_form_marginals",
+        "test_equivalence_sensitivity",
+        "test_expected_offsets",
+        "test_export_equivalence",
+        "test_gallery_numeric_equivalence",
+        "test_marginalize_numeric",
+        "test_numeric_equivalence",
+        "test_via_fibration_numeric",
+    }
 )
 
 
@@ -99,6 +136,28 @@ def _start_docker_daemon() -> None:
     )
 
 
+#: Lock serialising the image build across `pytest-xdist` workers.
+#: Every worker runs the session-scope fixture, so without it `n`
+#: workers invoke `build.sh` at once and race on the same tags.
+_DOCKER_BUILD_LOCK = pathlib.Path(tempfile.gettempdir()) / "qvr-probe-image-build.lock"
+
+
+@contextlib.contextmanager
+def _image_build_lock() -> Iterator[None]:
+    """Hold an exclusive lock for the duration of an image build.
+
+    Workers that arrive while another holds the lock block here rather
+    than launching a competing build, and re-check what is missing once
+    they acquire it.
+    """
+    with open(_DOCKER_BUILD_LOCK, "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 def _build_missing_docker_images(tags: tuple[str, ...]) -> None:
     """Run `tests/transpile/docker/build.sh` when any image in `tags`
     is missing locally. The build script is idempotent: present images
@@ -108,6 +167,16 @@ def _build_missing_docker_images(tags: tuple[str, ...]) -> None:
     exits non-zero or if any image is still missing after the build,
     so a test cannot silently skip on a missing image.
     """
+    if not [t for t in tags if not _docker.image_available(t)]:
+        return
+    with _image_build_lock():
+        _build_missing_docker_images_locked(tags)
+
+
+def _build_missing_docker_images_locked(tags: tuple[str, ...]) -> None:
+    """Build under the lock. The caller's check is a fast path taken
+    without it, so what is missing is established again here: another
+    worker may have built everything while this one waited."""
     missing = [t for t in tags if not _docker.image_available(t)]
     if not missing:
         return
@@ -192,6 +261,8 @@ def pytest_collection_modifyitems(
     """
     del config
     for item in items:
+        if item.path.parent == _TRANSPILE_DIR and item.path.stem in PROBE_MODULES:
+            item.add_marker(pytest.mark.probe)
         for marker in item.iter_markers(name="requires_tool"):
             binary = marker.args[0]
             if shutil.which(binary) is None:

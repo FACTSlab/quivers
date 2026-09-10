@@ -17,6 +17,7 @@ that reads `/io/source.<ext>`, `/io/points.json`, and emits
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -70,6 +71,90 @@ def image_available(tag: str) -> bool:
     if completed.returncode != 0:
         return False
     return bool(completed.stdout.strip())
+
+
+#: Environment variable naming the directory that holds memoised probe
+#: results. Unset, nothing is cached and every call runs its container.
+PROBE_CACHE_ENV = "QUIVERS_PROBE_CACHE"
+
+
+def probe_cache_dir() -> pathlib.Path | None:
+    """The probe cache directory, or None when caching is off.
+
+    Caching is opt-in rather than the default. A memoised measurement
+    is only as trustworthy as the key that selects it, and a suite that
+    gates a release should be able to run every container for real; the
+    variable is set on the tiers where turnaround matters and left
+    unset where it does not.
+    """
+    configured = os.environ.get(PROBE_CACHE_ENV)
+    if not configured:
+        return None
+    path = pathlib.Path(configured).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def image_id(tag: str) -> str | None:
+    """The local image ID for `tag`, or None when it cannot be read.
+
+    The cache keys on this rather than on the tag. A tag is a mutable
+    pointer: rebuilding `panproto-test-julia` with a changed Dockerfile
+    leaves the name identical and every cached measurement taken under
+    the old image wrong.
+    """
+    completed = subprocess.run(
+        ["docker", "images", "--filter", f"reference={tag}", "--format", "{{.ID}}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        return None
+    ids = completed.stdout.split()
+    return ids[0] if ids else None
+
+
+def _probe_cache_key(
+    *,
+    image: str,
+    resolved_image_id: str,
+    source: bytes,
+    source_ext: str,
+    points: list[dict],
+    shapes: dict[str, list[int]] | None,
+    dtypes: dict[str, str] | None,
+    script: pathlib.Path,
+) -> str:
+    """Digest every input that can move the measurement.
+
+    That is the image the code runs under, the emitted source and its
+    extension, the points, the shape and dtype side-tables, and the
+    probe script together with the reshape helpers copied in beside it.
+    Anything omitted here is something that can change while the cache
+    keeps answering with a stale number, so the helpers are hashed by
+    content rather than by name.
+    """
+    digest = hashlib.sha256()
+    parts: list[bytes] = [
+        image.encode(),
+        resolved_image_id.encode(),
+        source,
+        source_ext.encode(),
+        json.dumps(points, sort_keys=True).encode(),
+        json.dumps(shapes, sort_keys=True).encode(),
+        json.dumps(dtypes, sort_keys=True).encode(),
+        script.name.encode(),
+        script.read_bytes(),
+    ]
+    for reshape_name in ("_reshape.py", "_reshape.jl"):
+        reshape_path = script.parent / reshape_name
+        parts.append(reshape_name.encode())
+        parts.append(reshape_path.read_bytes() if reshape_path.exists() else b"")
+    for part in parts:
+        digest.update(len(part).to_bytes(8, "big"))
+        digest.update(part)
+    return digest.hexdigest()
 
 
 def run_probe(
@@ -151,6 +236,34 @@ def run_probe(
         image,
         "/io/probe.py",
     ]
+    cache_dir = probe_cache_dir()
+    cache_path: pathlib.Path | None = None
+    if cache_dir is not None:
+        resolved = image_id(image)
+        if resolved is not None:
+            cache_path = cache_dir / (
+                _probe_cache_key(
+                    image=image,
+                    resolved_image_id=resolved,
+                    source=source,
+                    source_ext=source_ext,
+                    points=points,
+                    shapes=shapes,
+                    dtypes=dtypes,
+                    script=script,
+                )
+                + ".json"
+            )
+            if cache_path.exists():
+                # The inputs above are already on disk, so a caller that
+                # inspects the scratch sees what this call wrote either
+                # way. What the hit skips is the container, and the key
+                # says the container ran on exactly these bytes under
+                # exactly this image.
+                cached = json.loads(cache_path.read_text())
+                result_path.write_text(json.dumps(cached))
+                return cached
+
     completed = subprocess.run(
         argv,
         capture_output=True,
@@ -170,7 +283,22 @@ def run_probe(
             f"stdout: {completed.stdout}\n"
             f"stderr: {completed.stderr}"
         )
-    return json.loads(result_path.read_text())
+    result = json.loads(result_path.read_text())
+    if cache_path is not None:
+        # Write through a unique temporary name and rename, so two
+        # xdist workers finishing the same cell cannot leave a reader
+        # holding half a file.
+        staged = cache_path.with_suffix(f".{os.getpid()}.tmp")
+        staged.write_text(json.dumps(result))
+        staged.replace(cache_path)
+    return result
 
 
-__all__ = ["docker_available", "image_available", "run_probe"]
+__all__ = [
+    "PROBE_CACHE_ENV",
+    "docker_available",
+    "image_available",
+    "image_id",
+    "probe_cache_dir",
+    "run_probe",
+]
