@@ -64,28 +64,28 @@ def lda_graph():
 
 def test_lda_program_metadata(lda_graph):
     assert lda_graph.program_name == "lda"
-    assert lda_graph.domain == "Word"
-    assert lda_graph.codomain == "Word"
+    assert lda_graph.domain == "Token"
+    assert lda_graph.codomain == "Mix"
 
 
 def test_lda_plates_are_doc_topic_word(lda_graph):
     names = {p.name for p in lda_graph.plates}
-    assert names == {"Doc", "Topic", "Word"}, names
+    assert names == {"Doc", "Topic", "Token"}, names
 
 
 def test_lda_plate_cardinalities(lda_graph):
     by_name = {p.name: p for p in lda_graph.plates}
     assert by_name["Doc"].cardinality == 20
     assert by_name["Topic"].cardinality == 3
-    assert by_name["Word"].cardinality == 200
+    assert by_name["Token"].cardinality == 200
 
 
 def test_lda_word_plate_is_nested_inside_doc(lda_graph):
     """An observe inside a marginalize-over-Doc inherits Doc as
-    its grouping plate, so the Word plate (the observe's own
+    its grouping plate, so the Token plate (the observe's own
     index) records Doc as its parent."""
     by_name = {p.name: p for p in lda_graph.plates}
-    assert by_name["Word"].parent == "Doc"
+    assert by_name["Token"].parent == "Doc"
 
 
 def test_lda_theta_is_latent_on_doc_plate(lda_graph):
@@ -110,12 +110,12 @@ def test_lda_z_is_marginalized_on_topic_plate(lda_graph):
 
 def test_lda_w_is_observed_on_doc_x_word(lda_graph):
     """The inner observe lives on Doc (inherited from the
-    enclosing marginalize's over axis) cross-product Word (its own
+    enclosing marginalize's over axis) cross-product Token (its own
     index). It is NOT on Topic (the marginalized axis) and NOT on
     word_idx (a fibration map, not a plate)."""
     w = next(n for n in lda_graph.nodes if n.name == "w")
     assert w.kind == "observed"
-    assert w.plates == ("Doc", "Word")
+    assert w.plates == ("Doc", "Token")
 
 
 def test_lda_edges_match_dependency_structure(lda_graph):

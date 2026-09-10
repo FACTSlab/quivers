@@ -206,11 +206,18 @@ export ord
     )
     assert tr.log_joint is not None
     assert torch.isfinite(tr.log_joint).all()
-    # The per-row log-density should respect the participant index:
-    # rows 0 and 3 share participant 0, so the only difference in the
-    # eta-conditional density comes from the (sampled) eta values,
-    # which trace clamps to a single draw.
-    assert tr.log_joint.shape == torch.Size([6])
+    # The joint reduces to the narrowest shape its density-carrying
+    # sites agree on, and `eta` is one draw shared by every row, so
+    # that shape is a single element rather than one per row. What it
+    # has to equal is the sum of the sites it is built from, which is
+    # the invariant a shape alone does not pin: a joint that repeated
+    # a shared site once per row would have the same shape and the
+    # wrong value.
+    assert tr.log_joint.numel() == 1
+    site_total = sum(float(site.log_prob.sum()) for site in tr.sites.values())
+    torch.testing.assert_close(
+        float(tr.log_joint.sum()), site_total, atol=1e-5, rtol=1e-5
+    )
 
 
 def test_dsl_inline_observe_with_shared_cutpoints_vector() -> None:
@@ -239,7 +246,16 @@ export ordinal
         observations={"y": y, "base": base},
     )
     assert tr.log_joint is not None
-    assert tr.log_joint.shape == torch.Size([N])
+    # One `eta` shared across the plate, so the joint reduces to a
+    # single element and must equal the sum of its sites; see the
+    # participant-indexed case above.
+    assert tr.log_joint.numel() == 1
+    torch.testing.assert_close(
+        float(tr.log_joint.sum()),
+        sum(float(site.log_prob.sum()) for site in tr.sites.values()),
+        atol=1e-5,
+        rtol=1e-5,
+    )
     assert torch.isfinite(tr.log_joint).all()
     # Numeric equivalence: the DSL log-prob at the sampled eta must
     # match `OrderedLogistic(eta_row, base).log_prob(y).sum()`.

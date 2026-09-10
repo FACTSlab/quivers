@@ -364,6 +364,9 @@ class TestFamilyMetaWiring:
             assert meta.distribution_class.__name__ == qvr_name
 
     def test_registry_size_unchanged(self) -> None:
+        # A registered family is one a target can be asked to emit, so
+        # the count is pinned: a family arriving without its per-target
+        # names, or leaving, changes what `transpile` accepts.
         from quivers.transpile.family_meta import FAMILY_META
 
-        assert len(FAMILY_META) == 51
+        assert len(FAMILY_META) == 52

@@ -50,8 +50,16 @@ def test_program_schema_has_root(path: Path) -> None:
 
 
 def test_program_schema_object_decls_for_hmm() -> None:
-    """hmm.qvr's two object declarations (State, Obs) appear as object_decl
-    vertices with the right names and bind to finset vertices."""
+    """hmm.qvr's object declarations appear as object_decl vertices
+    with the right names and bind to finset vertices.
+
+    The three finite objects play different roles, and the schema
+    carries all of them: `State` is the latent's support, `Obs` the
+    alphabet an emission draws from, and `Step` the plate the
+    sequence is observed over. `StateDist` is the real vector the
+    program returns, so it binds a euclidean vertex rather than a
+    finset one.
+    """
     compiler = _compile_to_env(EXAMPLES_DIR / "hmm.qvr")
     schema = extract_program_schema(compiler)
 
@@ -61,7 +69,7 @@ def test_program_schema_object_decls_for_hmm() -> None:
         for c in schema.constraints_for(vid):
             if c.sort == "name":
                 decl_names.append(c.value)
-    assert set(decl_names) == {"State", "Obs"}
+    assert set(decl_names) == {"State", "Obs", "Step"}
 
     finset_ids = [v.id for v in schema.vertices if v.kind == "finset"]
     finset_props = []
@@ -69,7 +77,7 @@ def test_program_schema_object_decls_for_hmm() -> None:
         props = {c.sort: c.value for c in schema.constraints_for(fid)}
         finset_props.append(props)
     cardinalities = sorted(int(p["cardinality"]) for p in finset_props)
-    assert cardinalities == [8, 16]
+    assert cardinalities == [8, 12, 16]
 
 
 def test_output_decl_recorded_for_hmm() -> None:
