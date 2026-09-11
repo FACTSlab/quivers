@@ -11,9 +11,9 @@ Both inherit a common interface: a `.source` algebra, a `.target` algebra, and a
 
 In a PyTorch program you'd write `softmax(logits, dim=-1)` whenever you needed to normalise. That's fine for a one-shot call, but it has no record of *which algebra the result lives in* once normalised. If you then compose with another morphism that lives in a fuzzy algebra, nothing flags the mismatch and the result is mathematically incoherent (you've sum-product-composed a row-stochastic tensor with a noisy-OR one).
 
-A [`MorphismTransformation`](../../api/core/morphisms.md) is a typed function on morphisms: `softmax(B)` doesn't just normalise a tensor, it announces "I take a ProductFuzzyAlgebra morphism in, I emit a Markov morphism out". The compiler can then verify downstream compositions. Concretely, applying `softmax(B)` to any row-stochastic-shape morphism `f` returns a new morphism `f.change_base(softmax(B))` whose algebra tag is `Markov`. Subsequent `>>` composition against another Markov morphism accepts it; `>>` against a fuzzy morphism rejects it, since the two operands carry different algebras.
+A [`MorphismTransformation`](../../api/core/morphisms.md) is a typed function on morphisms. `softmax(B)` records `ProductFuzzyAlgebra` as its source and `Markov` as its target, so the compiler can check subsequent compositions. Applying it to a morphism `f` returns `f.change_base(softmax(B))` with the algebra tag `Markov`. A later `>>` accepts another Markov morphism and rejects a fuzzy one because the two operands carry different algebras.
 
-This is the same idea as PyMC's `pm.Deterministic` wrapping a transformation so that the trace knows about it, but lifted to the algebra layer: the tag isn't just "deterministic", it's "lives in algebra W now".
+The algebra tag records the result's composition semantics and is consumed by later type checks.
 
 ## The catalog
 
@@ -38,7 +38,7 @@ The shipped *singletons* (no arguments needed):
 | `MATERIAL_IMPLICATION` | `ProductFuzzyAlgebra` | `Godel` | Reichenbach implication lift. |
 | `PROBABILITY_CLAMP` | `Real` | `Probability` | Clamp real entries to `[0, 1]`. |
 | `PROBABILITY_TO_REAL` | `Probability` | `Real` | Forget the `[0, 1]` constraint. |
-| `COUNTING_FROM_REAL` | `Real` | `Counting` | Round real entries to non-negative integers. |
+| `COUNTING_FROM_REAL` | `Real` | `Counting` | Floor real entries and clamp them to non-negative integers. |
 | `COUNTING_TO_REAL` | `Counting` | `Real` | Embed counts as reals. |
 
 The shipped *constructors* (one argument):
@@ -141,9 +141,9 @@ export g
 
 `let` for trans-valued RHS lands the binding in the compiler's transformation namespace (disjoint from morphisms). The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user-side; this Python-side surface mirrors it directly.
 
-## Why this matters
+## Composition checks
 
-Transformations are first-class values in the same sense morphisms are: you bind them to local names, hand them to functions, and compose them into longer pipelines. Anywhere the API accepts a morphism, the analogous slot accepts a transformation; anywhere the API composes two morphisms, the analogous combinator composes two transformations. The composition check enforces that adjacent steps' source and target algebras line up, so a pipeline either type-checks before any tensor work happens or fails fast at compose time.
+Transformations can be bound to local names, passed to functions, and composed into pipelines. `compose_trans` checks that each step's target algebra matches the next step's source before applying the pipeline to a tensor.
 
 ## Try this
 

@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Pareto family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Pareto(1.0, 2.0)`.
+object Obs : Real 4
+morphism pareto_kernel : Obs -> Obs [role=kernel] ~ Pareto(1.0, 2.0)
+program pareto_fixture : Obs -> Obs
+    sample x <- pareto_kernel
+    return x
+export pareto_fixture

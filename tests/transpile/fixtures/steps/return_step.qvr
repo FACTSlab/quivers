@@ -1,0 +1,7 @@
+# Exercises ReturnStep with multiple variables.
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
+    return (a, b)
+export prog

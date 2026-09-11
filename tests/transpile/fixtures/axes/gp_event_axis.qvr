@@ -1,0 +1,8 @@
+# Exercises GP family with `over=<input_locations_axis>`.
+object Idx : FinSet 8
+object Obs : Real 1
+morphism gp_kernel : Idx -> Obs [role=kernel, kernel=rbf, length_scale=1.0] ~ GP
+program prog : Idx -> Obs
+    sample f <- gp_kernel
+    return f
+export prog

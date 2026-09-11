@@ -1,37 +1,34 @@
-"""Transpile a compiled QVR program to other probabilistic-programming
-languages, via panproto's tree-sitter emission.
+"""Transpile a compiled QVR module to other probabilistic-programming
+languages.
 
-Every backend is a [`didactic.codegen.Emitter`][didactic.codegen.Emitter]
-registered via [`@dx.codegen.emitter("qvr-<name>")`][didactic.codegen.emitter]
-(e.g. ``"qvr-stan"``). The
-[`transpile`][quivers.transpile.transpile] function and the
-``qvr transpile`` CLI subcommand are thin sugar over
-[`didactic.codegen.lookup_emitter`][didactic.codegen.lookup_emitter].
+The pipeline is a [`didactic.api.Mapping`][didactic.api.Mapping]
+composition of three arrows:
 
-The pipeline is fixed:
-1. [`extract_program_schema`][quivers.dsl.program_theory.extract_program_schema]
-   turns the resolved QVR program into a `panproto.Schema`.
-2. A backend-specific
-   [`SchemaTransform`][quivers.transpile._pipeline.SchemaTransform]
-   walks the QVR schema and builds the target schema via
-   [`panproto.SchemaBuilder`][panproto.SchemaBuilder].
-3. [`panproto.AstParserRegistry.emit_pretty`][panproto.AstParserRegistry.emit_pretty]
-   renders the target schema as source bytes.
+    Module --Lower--> IRProgram --Renderer[T]--> panproto.Schema --emit_pretty--> bytes
 
-No backend constructs source via string interpolation; emission flows
-through panproto's grammar walker.
+[`Lower`][quivers.transpile.lower.Lower] is target-independent; it
+walks the parsed module, resolves morphism / let references, builds
+an [`IRProgram`][quivers.transpile.ir.IRProgram] whose nodes carry
+the structural intent (sample, observe, marginalize, ...) plus the
+support / plate / argument shape derived from
+[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] +
+[`torch.distributions.Distribution.arg_constraints`][torch.distributions.Distribution.arg_constraints].
+
+Each target `T` has its own
+[`Renderer[T]`][quivers.transpile.renderers._base.RendererBase]
+subclass in `quivers.transpile.renderers.<target>`; the renderer
+consumes the IR and emits a target-specific
+[`panproto.Schema`][panproto.Schema]. The renderer's idiom (Stan's
+`block` structure, NumPyro's `plate` contexts, BUGS's row-loop
+relations) is the only place target-specific vocabulary lives.
+
+Family-level facts (per-target distribution name, argument aliases)
+live in `FAMILY_META`; no renderer hardcodes family-name dispatch.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
-from didactic.codegen import list_emitters
-
-# `lookup_emitter` is documented and stable but not re-exported from
-# `didactic.codegen.__init__`; import directly from the implementation
-# module.
-from didactic.codegen._emitter import lookup_emitter
+from typing import TYPE_CHECKING
 
 from quivers.transpile._api import (
     CHURCH_LIKE,
@@ -41,7 +38,7 @@ from quivers.transpile._api import (
     UnsupportedConstruct,
     unsupported_for,
 )
-from quivers.transpile._expand_composites import expand_composite_defines
+from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import (
     EmitPretty,
     SchemaTransform,
@@ -49,17 +46,37 @@ from quivers.transpile._pipeline import (
     realize,
     target_protocol,
 )
-
-# Target-specific backends register themselves via
-# `@dx.codegen.emitter("qvr-<name>")` when their module is imported.
-# The core `quivers.transpile` package ships the target-agnostic
-# scaffold (IR, pipeline, Lower, family metadata, RendererBase,
-# renderer_registry, backend name-resolution); each backend module
-# lives outside this package's import list and either registers on
-# demand or is imported explicitly by a caller.
+from quivers.transpile.lower import Lower
+from quivers.transpile.renderers._base import RendererBase
+from quivers.transpile.renderers.bugs import BUGSRenderer
+from quivers.transpile.renderers.church import ChurchRenderer
+from quivers.transpile.renderers.edward2 import Edward2Renderer
+from quivers.transpile.renderers.gen import GenRenderer
+from quivers.transpile.renderers.jags import JAGSRenderer
+from quivers.transpile.renderers.numpyro import NumPyroRenderer
+from quivers.transpile.renderers.pymc import PyMCRenderer
+from quivers.transpile.renderers.pyro import PyroRenderer
+from quivers.transpile.renderers.stan import StanRenderer
+from quivers.transpile.renderers.turing import TuringRenderer
+from quivers.transpile.renderers.webppl import WebPPLRenderer
 
 if TYPE_CHECKING:
     from quivers.dsl.ast_nodes import Module
+
+
+_RENDERERS: dict[str, tuple[type[RendererBase], str, frozenset[str]]] = {
+    "stan": (StanRenderer, "stan", STAN_LIKE),
+    "numpyro": (NumPyroRenderer, "python", PYTHON_DEEP),
+    "pyro": (PyroRenderer, "python", PYTHON_DEEP),
+    "pymc": (PyMCRenderer, "python", STAN_LIKE),
+    "edward2": (Edward2Renderer, "python", STAN_LIKE),
+    "turing": (TuringRenderer, "julia", STAN_LIKE),
+    "gen": (GenRenderer, "julia", STAN_LIKE),
+    "church": (ChurchRenderer, "scheme", CHURCH_LIKE),
+    "webppl": (WebPPLRenderer, "javascript", CHURCH_LIKE),
+    "bugs": (BUGSRenderer, "bugs", STAN_LIKE),
+    "jags": (JAGSRenderer, "jags", STAN_LIKE),
+}
 
 
 def transpile(module: Module, *, target: str) -> bytes:
@@ -70,8 +87,8 @@ def transpile(module: Module, *, target: str) -> bytes:
     module
         The parsed [`Module`][quivers.dsl.ast_nodes.Module] AST.
     target
-        A registered backend key (without the ``qvr-`` prefix), e.g.
-        ``"stan"``.
+        A registered backend key. See
+        [`available_targets`][quivers.transpile.available_targets].
 
     Returns
     -------
@@ -80,37 +97,27 @@ def transpile(module: Module, *, target: str) -> bytes:
 
     Raises
     ------
-    LookupError
-        If no backend is registered under ``"qvr-<target>"``.
     UnsupportedConstruct
-        If the module contains constructs the chosen backend does not
-        support.
+        If ``target`` is not registered, or if the module contains
+        constructs the chosen renderer cannot lower (e.g. a
+        non-finite-support marginalize on Stan).
     """
-    name = f"qvr-{target}"
-    emitter = lookup_emitter(name)
-    if emitter is None:
-        msg = (
-            f"transpile(target={target!r}): no backend registered. "
-            f"Available: {available_targets()}"
+    if target not in _RENDERERS:
+        raise UnsupportedConstruct(
+            target,
+            [f"target:unknown:{target}:{','.join(sorted(_RENDERERS))}"],
         )
-        raise LookupError(msg)
-    # `Emitter.emit_instance` is typed `(Model) -> bytes`; quivers
-    # backends accept a `Module` instead. The Emitter Protocol is
-    # `runtime_checkable` and duck-typed; the cast is the static-type
-    # boundary. Before dispatch, expand composite-define bindings
-    # (the `define chain = prior >> likelihood` form) into atomic
-    # sample chains so each backend walker sees only simple per-step
-    # morphism references.
-    return cast("Backend", emitter).emit_instance(
-        expand_composite_defines(module, target=target)
-    )
+    renderer_cls, grammar, support_tier = _RENDERERS[target]
+    unsupported_for(f"qvr-{target}", module, allow=support_tier)
+    expanded = expand_composite_lets(module, target=target)
+    ir = Lower().forward(expanded)
+    schema = renderer_cls().render(ir)
+    return bytes(parser_registry().emit_pretty(grammar, schema))
 
 
 def available_targets() -> list[str]:
-    """List every registered ``qvr-<name>`` backend, sorted."""
-    return sorted(
-        n.removeprefix("qvr-") for n in list_emitters() if n.startswith("qvr-")
-    )
+    """List every registered backend, sorted."""
+    return sorted(_RENDERERS)
 
 
 __all__ = [

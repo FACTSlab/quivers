@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the GeneralizedPareto family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ GeneralizedPareto(0.0, 1.0, 0.5)`.
+object Obs : Real 4
+morphism generalizedpareto_kernel : Obs -> Obs [role=kernel] ~ GeneralizedPareto(0.0, 1.0, 0.5)
+program generalizedpareto_fixture : Obs -> Obs
+    sample x <- generalizedpareto_kernel
+    return x
+export generalizedpareto_fixture

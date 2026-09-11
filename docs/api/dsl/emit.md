@@ -1,7 +1,7 @@
 # `quivers.dsl.emit`
 
-AST → canonical `.qvr` source. Walks a `Module` and produces text
-that, when re-parsed by `quivers.dsl.loads`, compiles to the same
-program.
+Emission from an AST to canonical `.qvr` source. The emitter walks a
+`Module`; reparsing its output with `quivers.dsl.loads` produces the
+same compiled program.
 
 ::: quivers.dsl.emit

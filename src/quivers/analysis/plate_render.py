@@ -1,31 +1,6 @@
-"""Renderers for `quivers.analysis.plate_graph.PlateGraph`.
+"""Render plate graphs as tables, Mermaid, Graphviz, TikZ, or daft output.
 
-A `PlateGraph` is the structural model of a plate-notation diagram
-for one QVR program. This module produces concrete output formats:
-
-* `render_table(graph)` -- a Rich table for the in-TUI view. One
-  row per variable; columns variable / kind / plates / family /
-  parents. Observed variables get a reverse-video badge; latent
-  unshaded; marginalized italic; deterministic dim. No 2D edge
-  routing, so the output is robust on every terminal width and
-  never visually janky.
-
-* `render_mermaid(graph)` -- Mermaid `graph TD` source with one
-  `subgraph` cluster per plate. Renders in any Mermaid frontend
-  (mermaid.live, mkdocs-material, GitHub-rendered markdown).
-
-* `render_dot(graph)` -- Graphviz DOT source with `cluster_<plate>`
-  subgraphs. ``dot -Tpng`` produces a publication-quality image.
-
-* `render_tikz(graph)` -- LaTeX TikZ + ``tikz-network`` source for
-  the LaTeX-pgm crowd.
-
-* `render_daft(graph)` -- Python script that calls the ``daft``
-  library to build the figure. ``daft`` uses matplotlib so users
-  can emit SVG / PNG / PDF from one source.
-
-Renderers consume only `PlateGraph` so the layout decisions stay
-in one place; they never introspect the original AST.
+Each renderer consumes only `PlateGraph` and does not inspect the source AST.
 """
 
 from __future__ import annotations
@@ -181,7 +156,7 @@ def render_mermaid(graph: PlateGraph) -> str:
     Mermaid lacks a native plate / nested-plate primitive; the
     subgraph blocks approximate it well enough that
     GitHub-rendered markdown and mermaid.live both display the
-    structure clearly.
+    structure.
     """
     lines: list[str] = []
     lines.append("graph TD")

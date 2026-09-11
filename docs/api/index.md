@@ -1,12 +1,14 @@
 # API Reference
 
-This section documents the public API of the quivers library, organized by functional subpackages. Each module is documented with its classes, functions, and properties using Sphinx-style docstrings.
+This reference groups the public API by subpackage. Module pages obtain
+class, function, and property documentation from the source docstrings.
 
 ## Core Package
 
-The `core` package provides the fundamental categorical and algebraic structures that underpin all other modules.
+The `core` package defines the categorical objects, algebras,
+morphisms, and tensor operations shared by the other packages.
 
-- **Objects**: Finite sets, products, coproducts, and free monoids
+- **Objects**: Finite and enumerated sets, products, coproducts, free monoids, and free residuated universes
 - **Algebras**: Enrichment algebras for $\mathcal{V}$-enriched composition (the eleven built-in cases plus duals and user-defined extensions)
 - **Algebra Morphisms**: Homomorphisms between algebras, used for base-change
 - **Morphisms**: Base morphism classes and composition operations
@@ -15,7 +17,8 @@ The `core` package provides the fundamental categorical and algebraic structures
 
 ## Categorical Package
 
-The `categorical` package implements standard category theory concepts and structures.
+The `categorical` package contains functors, natural transformations,
+adjunctions, and monoidal structures.
 
 - **Functors**: Mappings between categories preserving structure
 - **Natural Transformations**: Morphisms between functors
@@ -26,8 +29,9 @@ The `categorical` package implements standard category theory concepts and struc
 
 ## Monadic Package
 
-A typeclass hierarchy plus concrete monad instances, comonads,
-algebras, distributive laws, transformers, and algebraic effects.
+The `monadic` package contains the typeclass hierarchy, concrete monad
+instances, comonads, algebras, distributive laws, transformers, and
+algebraic effects.
 
 - **Typeclass Hierarchy**: `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`, `Foldable`, `Traversable`, `MonadTrans` ABCs
 - **Stdlib Effect Instances**: `Identity`, `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`, `List`
@@ -40,14 +44,16 @@ algebras, distributive laws, transformers, and algebraic effects.
 
 ## Arrows Package
 
-Hughes-style arrow tower (parallel to the monad-side hierarchy).
+The `arrows` package contains the Hughes-style hierarchy parallel to
+the monad hierarchy.
 
 - **Typeclass Hierarchy**: `Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`
 - **Arrow Theories**: panproto-theory mirrors
 
 ## Enriched Package
 
-The `enriched` package extends category theory with enrichment and advanced constructions.
+The `enriched` package contains constructions for categories enriched
+over a selected algebra.
 
 - **Ends & Coends**: End and coend computations in enriched categories
 - **Kan Extensions**: Left and right Kan extensions
@@ -59,28 +65,33 @@ The `enriched` package extends category theory with enrichment and advanced cons
 
 ## Stochastic Package
 
-The `stochastic` package provides stochastic morphisms and probability distributions.
+The `stochastic` package contains stochastic morphisms, finite
+distribution families, and weighted deduction systems.
 
 - **Morphisms**: Stochastic relations and kernels
 - **Families**: Parametric families of distributions
 - **Transforms**: Operations on stochastic morphisms
 - **Queries**: Probabilistic queries and computations
 - **Giry Monad**: The Giry monad construction
+- **Weighted Deduction**: Rule schemas, chart semirings, and CKY parsers
 
 ## Continuous Package
 
-The `continuous` package handles continuous-valued distributions and spaces.
+The `continuous` package defines continuous spaces, distribution
+families, parameter sources, and continuous morphisms.
 
-- **Spaces**: Continuous topological spaces
-- **Morphisms**: Continuous mappings
+- **Spaces**: Typed carriers and support constraints for continuous values
+- **Morphisms**: Operational kernels with log-density and sampling methods
 - **Families**: Families of continuous distributions
 - **Programs**: Probabilistic programs in continuous domains
-- **Boundaries**: Boundary conditions and constraints
+- **Boundaries**: Discretization and embedding between finite and continuous carriers
 - **Flows**: Normalizing flows and transformations
 
 ## DSL Package
 
-The `dsl` package implements the QVR domain-specific language for quivers. Parsing is delegated to panproto via the `qvr` tree-sitter grammar; AST nodes and value types are didactic Models.
+The `dsl` package implements the QVR language. Panproto parses the
+`qvr` tree-sitter grammar, while didactic Models represent AST nodes
+and value types.
 
 - **Parser**: panproto-driven parser walker (`parse`, `parse_file`, `ParseError`)
 - **AST Nodes**: didactic Model definitions for every syntactic node
@@ -90,7 +101,8 @@ The `dsl` package implements the QVR domain-specific language for quivers. Parsi
 
 ## Inference Package
 
-The `inference` package provides variational inference capabilities.
+The `inference` package contains variational inference, MCMC, and
+posterior-predictive sampling.
 
 - **Trace**: Program trace data structures
 - **Conditioning**: Conditioning and observations
@@ -98,6 +110,7 @@ The `inference` package provides variational inference capabilities.
 - **ELBO**: Evidence lower bound computation
 - **SVI**: Stochastic variational inference
 - **Predictive**: Predictive inference and sampling
+- **MCMC**: HMC and NUTS kernels plus the multi-chain runner
 
 ## Root Module
 

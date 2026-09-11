@@ -1,0 +1,8 @@
+# Exercises LetExprUnaryOp (unary minus).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let neg_a = -a
+    observe y <- Normal(neg_a, 1.0)
+    return neg_a
+export prog

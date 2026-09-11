@@ -1,0 +1,14 @@
+# Exercises LetExprString (string literal; used in lexicon and LF
+# constructors). The simplest invocation that compiles is inside a
+# deduction's lexicon entry.
+object Term : FinSet 16
+deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
+    atoms S, the
+    rule s_the : the |- S #[learnable]
+    lexicon
+        "the" : S = the
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    return x
+export prog

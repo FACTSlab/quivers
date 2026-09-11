@@ -4,12 +4,31 @@
 
 The canonical first-order [autoregressive](https://en.wikipedia.org/wiki/Autoregressive_model) model: each observation is a Normal draw centered on a linear function of the previous observation, with three free parameters (intercept, autoregressive coefficient, and noise scale). The model is the reference point for the more elaborate state-space and stochastic-volatility examples in the gallery; it shows the minimum DSL surface needed to fit a stationary linear time series.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Step : FinSet 200
+# First-Order Autoregressive Model
+#
+# A first-order autoregressive time series with Normal noise.
+# Conditioning on an observed series indexed by Step recovers
+# the stationary posterior over (alpha, phi, sigma); this is
+# the canonical reference point for the more elaborate
+# state-space models in the gallery.
+#
+# Generative structure:
+#
+#   alpha  ~ Normal(0, 5)
+#   phi    ~ Uniform(-1, 1)                       stationarity constraint
+#   sigma  ~ HalfCauchy(1)
+#   y_t    ~ Normal(alpha + phi * y_{t-1}, sigma) per-step observation
+#
+# The Uniform(-1, 1) prior on phi enforces a stationary chain;
+# the marginal stationary variance is sigma^2 / (1 - phi^2).
 
-program ar1 : Step -> Step
+object Step : FinSet 64
+object Val : Real 1
+
+program ar1 : Step -> Val
     sample alpha <- Normal(0.0, 5.0)
     sample phi <- Uniform(-1.0, 1.0)
     sample sigma <- HalfCauchy(1.0)
@@ -26,14 +45,16 @@ export ar1
 
 `alpha` is the intercept of the AR(1) recurrence, `phi` is the autoregressive coefficient constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)` via a `Uniform` prior, and `sigma` is the per-step Normal scale with a [half-Cauchy](https://en.wikipedia.org/wiki/Cauchy_distribution#Related_distributions) prior. The identifier `y_prev` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the lagged response series. The mean `mu = alpha + phi * y_prev` is then the per-step recurrence and the observed series `y` is Normal noise around it.
 
+The program returns `phi`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back, not the index set the series is plated over. `Step` names that plate extent, and it appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Pick ground-truth dynamics and forward-sample a single AR(1) trajectory of length `T`. The lagged-response vector `y_prev` is the host-data the program reads at trace time; the first entry is anchored at the stationary mean.
+Pick ground-truth dynamics and forward-sample a single AR(1) trajectory of length `T`. The generated series starts at the stationary mean, while the model's lag vector uses a zero boundary at its first entry. Thus the first likelihood row has mean `alpha`, not the stationary mean.
 
 ```python
 import torch
@@ -105,7 +126,7 @@ for name, samples in result.samples.items():
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) whose denotation is the standard AR(1) joint $p(\alpha, \phi, \sigma) \prod_t \mathcal{N}(y_t \mid \alpha + \phi y_{t-1}, \sigma)$. The `Step`-indexed plate is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) of the per-step Normal kernel along the trivial projection $\mathrm{Step} \to \mathbf{1}$.
 

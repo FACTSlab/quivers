@@ -1,4 +1,4 @@
-"""Comprehensive tests for :mod:`quivers.formulas`: the brms-style
+"""Tests for :mod:`quivers.formulas`: the brms-style
 formula frontend.
 
 Every test exercises the AST-driven pipeline end-to-end:

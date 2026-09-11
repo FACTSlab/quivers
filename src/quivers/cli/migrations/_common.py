@@ -508,7 +508,7 @@ def clone_vertex(view: SchemaView, src_vid: str, vids: VidGen) -> Vertex:
 
     Used by per-hop migrators for declarations whose surface is
     unchanged between adjacent revisions: walk the source vertex,
-    keep every constraint and edge, just allocate fresh target
+    keep every constraint and edge while allocating fresh target
     vertex ids.
     """
     new_vid = vids.fresh()

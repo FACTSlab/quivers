@@ -1,5 +1,6 @@
 # Natural Transformations
 
-Morphisms between functors that preserve categorical structure naturally.
+The `NaturalTransformation` interface and componentwise natural
+transformations.
 
 ::: quivers.categorical.natural_transformations

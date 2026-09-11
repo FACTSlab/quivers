@@ -1,9 +1,9 @@
 # Deduction Systems
 
-The user-facing surface for working with weighted chart
-deductions: the model type, its abstract primitives, and three
-orthogonal operations on it. All public symbols re-exported from
-`quivers.stochastic.deduction`.
+The public API for weighted chart deductions consists of the model
+type, its abstract primitives, and operations for fitting, Bayesian
+lifting, and sampling. `quivers.stochastic.deduction` re-exports the
+public symbols.
 
 | Submodule | Job |
 |---|---|

@@ -1,0 +1,8 @@
+# Hand-written MultivariateNormal fixture (vector family).
+object Dim : FinSet 4
+object Obs : Real 4
+morphism mvn_kernel : Obs -> Obs [role=kernel] ~ MultivariateNormal
+program multivariatenormal_fixture : Obs -> Obs
+    sample x <- mvn_kernel
+    return x
+export multivariatenormal_fixture

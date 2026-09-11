@@ -146,7 +146,7 @@ class CartesianTrace(TracedMonoidal):
 
         Tr^U(f)(a, b) = ⋁_u f((a, u), (b, u))
 
-    This is simply the join over the feedback dimensions of the
+    This is the join over the feedback dimensions of the
     tensor's diagonal (where the U components of domain and
     codomain agree).
 

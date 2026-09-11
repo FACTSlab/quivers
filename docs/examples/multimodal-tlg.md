@@ -1,6 +1,6 @@
 # Multimodal Type-Logical Grammar
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Multimodal Type-Logical Grammar
@@ -24,6 +24,26 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program multimodal_tlg_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export multimodal_tlg_prior
+
 deduction MMTLG : Term -> Term [semiring=LogProb, start=S, depth=3, tolerance=1e-5]
     atoms S, NP, N, VP, PP, Fwd, Bwd, Dia, Box, span, the, dog, barks
     rule right_app : span(I, K, Fwd(A, B)), span(K, J, B) |- span(I, J, A) #[learnable]
@@ -38,19 +58,21 @@ deduction MMTLG : Term -> Term [semiring=LogProb, start=S, depth=3, tolerance=1e
 
 ## Overview
 
-Multimodal type-logical grammar (Moortgat 1997) extends the Lambek calculus with unary modal type constructors `Dia` (`◇`) and `Box` (`□`) that form a residuated pair (`◇ ⊣ □`). The structural rules associated with each modality are controlled by the grammar's structural component; the deduction above licenses base right / left application together with modal introduction and elimination, leaving further structural postulates as user-added rules.
+Multimodal type-logical grammar (Moortgat, 1997) motivates unary modal type constructors such as `Dia` (`◇`) and `Box` (`□`). This deduction declares both names but supplies rules only for `Dia`, in both directions `A -> Dia(A)` and `Dia(A) -> A`. It thus makes `Dia(A)` interderivable with `A` within the depth bound; it does not implement a `Dia ⊣ Box` residuated pair or modal structural postulates.
 
 ## Walkthrough
+
+`object Term : FinSet 16` indexes the deduction's domain and codomain; `object Rule : FinSet 16` indexes the rule-weight vector, which the `multimodal_tlg_prior` program draws from an independent `Normal(0.0, 1.0)` per coordinate. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
 
 `atoms NAME, NAME, …` declares category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and modal constructors (`Dia`, `Box`). Chart items are `span(I, J, X)` triples.
 
 - **`right_app` / `left_app`**: modus ponens for forward / backward slash, exactly as in the base Lambek calculus.
-- **`dia_intro`**: modal introduction: a derivation of `A` lifts to a derivation of `Dia(A)` over the same span. This is the unit of the modality's monadic structure on the category of formulas.
-- **`dia_elim`**: modal elimination: a derivation of `Dia(A)` projects back to a derivation of `A` over the same span. Combined with structural rules licensed under the modality, `dia_elim` is what permits controlled exchange / weakening / contraction within modal-marked subderivations.
+- **`dia_intro`**: lifts `A` to `Dia(A)` over the same span.
+- **`dia_elim`**: projects `Dia(A)` back to `A` over the same span.
 
 A richer fragment would add explicit modal structural rules (modal exchange, modal contraction) and the `Box` introduction / elimination duals; both are sequent rules in the same style.
 
-## DSL Features
+## DSL features
 
 - **Sequent rules with arbitrary arity**: rule premises can be unary or binary; the agenda dispatches each pattern to the appropriate chart-cell shape.
 - **Modal constructors as atoms**: `Dia` and `Box` are user-declared atoms in the same vocabulary as the slash constructors. There is no built-in modal syntax.
@@ -71,6 +93,31 @@ regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
 corpus of sentences. The
 [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
 two standard surfaces.
+
+### Generating synthetic data
+
+The `multimodal_tlg_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/multimodal_tlg.qvr")
+model = prog.morphism
+
+N_RULES = 16
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
 
 ### MAP fit (Adam on rule & lexicon weights)
 
@@ -143,11 +190,11 @@ posterior $p(\mathbf{w} \mid s_1, \ldots, s_N) \propto p(\mathbf{w})
 [`bayesian_regression`](bayesian-regression.md) fits, with the chart
 total in place of the Gaussian likelihood.
 
-## Categorical Perspective
+## Categorical perspective
 
-The diamond `◇` acts as a monad on the category of formulas: its unit `η : X → ◇X` (modal introduction) lifts any formula into the modal regime, and its multiplication `μ : ◇(◇X) → ◇X` (idempotence) collapses nested modals when the corresponding structural rule is licensed. The standard Lambek calculus is the internal language of a residuated monoidal category with no extra structure. Adding the diamond monad and licensing modal structural rules permits controlled relaxation of resource sensitivity: inside the monad, structural rules like exchange, weakening, and contraction become available without contaminating the surrounding linear context.
+The two `Dia` rules make the modal wrapper operationally transparent up to the agenda depth. No multiplication, `Box` rule, exchange, weakening, or contraction rule appears in the source. Those require explicit additions before the stronger multimodal interpretation applies.
 
-## Linguistic Applications
+## Linguistic applications
 
 Multimodal type-logical grammar handles cases where strict linearity must be relaxed:
 

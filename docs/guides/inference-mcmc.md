@@ -62,9 +62,8 @@ densities per draw via `log_densities`.
 [Differentiable annealed importance
 sampling](https://doi.org/10.48550/arXiv.2107.10211) wraps a base
 guide with $K$ HMC trajectories along an annealing path between
-base and target. The base mean / scale, the step size, and the
-inverse temperatures are jointly trained via SVI. Closes the parity
-gap with NumPyro / Pyro `AutoDAIS`.
+base and target. The base mean and scale, step size, and inverse
+temperatures are jointly trained via SVI.
 
 <!-- python: skip -->
 ```python
@@ -84,11 +83,10 @@ guide = AutoDAIS(
 
 ### WarmupThenHMC
 
-Train a variational guide to convergence, then initialise HMC
-chains from the guide's posterior mean. [Pareto-dominates
-cold-start
-HMC](https://doi.org/10.48550/arXiv.2108.03782) on hierarchical models with
-skewed prior support.
+Train a variational guide for a configured number of SVI steps, then
+initialise HMC chains from the guide's posterior mean. This provides
+an informed starting point; convergence still depends on the HMC
+warmup and diagnostics.
 
 <!-- python: skip -->
 ```python

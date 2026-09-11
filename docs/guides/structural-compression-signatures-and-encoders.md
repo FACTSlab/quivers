@@ -5,7 +5,7 @@ arbitrary structured objects to fixed-length vectors and decoding
 them back under a learned distribution. The interface is built on
 two categorical primitives:
 
-- A **encoder** is a [Σ-algebra
+- An **encoder** is a [Σ-algebra
   homomorphism](https://ncatlab.org/nlab/show/algebra+over+an+endofunctor)
   $T_\Sigma \to \mathrm{Vec}_D$: for each operation $\mathrm{op} :
   s_1 \times \cdots \times s_n \to s$ in a multi-sorted signature
@@ -22,7 +22,7 @@ two categorical primitives:
   available for observed terms).
 
 Encoder plus decoder is a stochastic autoencoder on $T_\Sigma$. The
-same interface uniformly realizes transformers (sequence encoder +
+same interface represents transformers (sequence encoder +
 autoregressive decoder), tree-LSTMs (tree encoder), graph neural
 networks (message-passing graph encoder), variational autoencoders
 (encoder + decoder pair on $T_\Sigma$ with a KL term), the

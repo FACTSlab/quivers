@@ -1,14 +1,14 @@
 # Decoders
 
-`Decoder` is a `torch.nn.Module` that realizes a Kleisli
-coalgebra `Vec_D → Kern(T_Σ)`, given an input vector, defines
-a distribution over terms of a signature. Two operations:
+`Decoder` is a `torch.nn.Module` that realizes the Kleisli coalgebra
+`Vec_D → Kern(T_Σ)`. Given an input vector, it defines a distribution
+over terms of a signature through two operations:
 
 - `sample(vec, ctx, sort)` draws a single `Term`.
 - `log_prob(term, vec, ctx, sort)` scores an observed term
   under the same distribution.
 
-The corecursion over a signature Σ:
+Corecursion over a signature Σ proceeds as follows:
 
 1. At each sort position, the decoder produces logits over its
    *choice set*, every constructor and binder whose codomain is
@@ -20,12 +20,11 @@ The corecursion over a signature Σ:
 3. Data-sorted children are sampled from a closed vocabulary via
    the per-sort `primitive` head; index-sorted children are
    sampled via `binder_select` over the in-scope variables.
-4. Binder ops extend Γ before recursing on their scoped arguments,
-   exactly mirroring the encoder.
+4. Binder ops extend Γ before recursing on their scoped arguments, as
+   in the encoder.
 
-Termination is depth-bounded at construction. At the budget limit
-the choice set is restricted to recursion-terminating ops; if no
-such op exists at a sort, the decoder raises with a precise
-diagnostic.
+Construction sets a recursion-depth bound. At that bound, the decoder
+restricts the choice set to terminating ops. If a sort has no such op,
+the decoder raises an error that identifies the sort.
 
 ::: quivers.structural.decoder

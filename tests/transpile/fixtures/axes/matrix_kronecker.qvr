@@ -1,0 +1,9 @@
+# Exercises a matrix (rank-2) family with `over=[Row, Col]` for the
+# Kronecker covariance.
+object Row : FinSet 3
+object Col : FinSet 4
+morphism mn_kernel : Row * Col -> Row * Col [role=kernel, over=[Row, Col]] ~ MatrixNormal
+program prog : Row * Col -> Row * Col
+    sample m <- mn_kernel
+    return m
+export prog

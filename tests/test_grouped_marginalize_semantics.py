@@ -1,11 +1,9 @@
 """Behavioral / semantic tests for the grouped ``marginalize``
 block.
 
-These tests target the *semantic correctness* of the runtime, not
-just the validation surface. They verify:
+The tests check:
 
-* Gradient flow through all levels of a deeply nested marginalize
-  stack (not just compile + finite log_joint).
+* Gradient flow through every level of a nested marginalize stack.
 * Body vectorisation: a body with multiple ``let`` steps that
   reference the latent compiles to the right per-(N, K) tensor.
 * The captured observe handles a per-row variable parameter

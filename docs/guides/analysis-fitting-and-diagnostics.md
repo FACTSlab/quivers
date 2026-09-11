@@ -28,8 +28,8 @@ result = fit(
 The returned [`BayesianFit`](../api/formulas/fit.md) is itself a
 frozen [`dx.Model`](https://didactic.dev/api/Model), with
 `.formula`, `.family`, `.program` (the compiled
-[`MonadicProgram`](../api/continuous/programs.md)), `.posterior`
-(either an [`MCMCResult`](../api/inference/predictive.md) or a
+    [`MonadicProgram`](../api/continuous/programs.md)), `.posterior`
+    (either an [`MCMCResult`](../api/inference/mcmc.md) or a
 [`Guide`](../api/inference/guide.md)), and `.observations` (the
 inference-time observations dict).
 
@@ -58,13 +58,11 @@ QVR source; use `formula_to_qvr` to inspect names upfront.
 
 ## Diagnostics: `quivers.diagnostics`
 
-The [diagnostics adapter](../api/diagnostics/index.md) is glue
+The [diagnostics adapter](../api/diagnostics/index.md) connects
 between quivers' inference records and
-[ArviZ 1.x](https://python.arviz.org/), the canonical
-posterior-analysis library. ArviZ 1.x replaced the legacy
-`InferenceData` container with
-[`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html);
-the adapter targets that surface directly.
+[ArviZ](https://python.arviz.org/). It returns an
+[`xarray.DataTree`](https://docs.xarray.dev/en/stable/generated/xarray.DataTree.html)
+with ArviZ-compatible groups.
 
 <!-- python: skip -->
 ```python
@@ -101,7 +99,7 @@ populates the canonical ArviZ groups (`posterior`, `sample_stats`,
 `posterior_predictive`, `log_likelihood`, `observed_data`,
 `constant_data`) from the `(num_chains, num_samples, *site_shape)`
 tensors that
-[`MCMCResult`](../api/inference/predictive.md) already produces.
+[`MCMCResult`](../api/inference/mcmc.md) already produces.
 [`compare`](../api/diagnostics/comparison.md#quivers.diagnostics.comparison.compare)
 delegates to
 [`arviz.compare`](https://python.arviz.org/en/stable/api/generated/arviz.compare.html)
@@ -119,7 +117,7 @@ analytics primitive comes from ArviZ.
 
 ## Algebra-guided training tooling
 
-The [`quivers.analysis`](../api/diagnostics/index.md) subpackage
+The `quivers.analysis` subpackage
 collects static-analysis passes that read a compiled QVR program
 and return structured data the user can act on: chain shapes,
 algebra-specific init recipes, and saturation warnings. None of
@@ -129,7 +127,7 @@ as the canonical specification.
 
 ### ChainShape
 
-[`ChainShape.from_module(module)`](../api/diagnostics/index.md) walks
+`ChainShape.from_module(module)` walks
 a compiled `Module`, returning per-step `StepShape` records that
 tag every program step (`latent`, `observe`, `marginalize`, or
 `let`) with:
@@ -194,10 +192,10 @@ for the surface syntax.
 ### recommend_init and apply_init_spec
 
 Given a program,
-[`recommend_init(module)`](../api/diagnostics/index.md) produces a
+`recommend_init(module)` produces a
 per-latent `InitSpec` by composing `ChainShape` with each
 algebra's `init_spec`.
-[`apply_init_spec(tensor, spec)`](../api/diagnostics/index.md)
+`apply_init_spec(tensor, spec)`
 materializes the spec onto a single learnable tensor, with
 [`torch.nn.init`](https://docs.pytorch.org/docs/stable/nn.init.html)
 integration for the standard distributions.
@@ -223,7 +221,7 @@ random init.
 
 ### saturation_warnings
 
-[`saturation_warnings(module)`](../api/diagnostics/index.md) returns
+`saturation_warnings(module)` returns
 source-keyed warnings about latents whose algebra-guided init
 recipe differs materially from the default `Normal(0, 1)` init. It
 walks every `latent` step at depth $\geq 2$ or with intermediate
@@ -253,12 +251,9 @@ to be saturated under its default init.
 
 [`module_to_source`](../api/dsl/emit.md) walks a
 [`Module`](../api/dsl/ast_nodes.md) AST and produces canonical
-`.qvr` source. The printer covers the subset of statement / step /
-expression variants the formula frontend builds (object / morphism
-/ let / program / export declarations, plus let-arithmetic and
-program-step nodes); other AST variants raise `NotImplementedError`
-rather than guessing a serialisation. The emit is one-way and
-semantic: the emitted source, re-parsed by
+`.qvr` source for every current statement, program-step, and
+expression variant. The emit is one-way and semantic: the emitted
+source, re-parsed by
 [`quivers.dsl.loads`](../api/dsl/parser.md), produces a `Module`
 that compiles to the same program as the original AST.
 
@@ -303,7 +298,7 @@ program = loads('''
 composition product_fuzzy [level=algebra]
 object X : FinSet 8
 object Y : FinSet 8
-morphism W : X -> Y [role=latent] [init=auto]
+morphism W : X -> Y [role=latent, init=auto]
 export W
 ''')
 W = program.morphism

@@ -2,15 +2,48 @@
 
 ## Overview
 
-A [probabilistic context-free grammar](https://en.wikipedia.org/wiki/Probabilistic_context-free_grammar) as an agenda-based weighted deduction over [CKY](https://en.wikipedia.org/wiki/CYK_algorithm) chart items `span(I, J, N)` (token range `[I, J)` carrying nonterminal `N`) under the `LogProb` semiring. Each production is a concrete `rule` with no free wildcards on the conclusion: the chart fires only the productions the grammar licenses, the weights are bindings-keyed under `#[learnable]`, and the chart's goal weight at `span(0, n, S)` is the corpus inside log-probability.
+A [probabilistic context-free grammar](https://en.wikipedia.org/wiki/Probabilistic_context-free_grammar) as an agenda-based weighted deduction over [CKY](https://en.wikipedia.org/wiki/CYK_algorithm) chart items `span(I, J, N)` under the `LogProb` semiring.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Probabilistic Context-Free Grammar
+#
+# A PCFG as an agenda-based weighted deduction over CKY chart
+# items ``span(I, J, N)`` (token range ``[I, J)`` with
+# nonterminal ``N``) under the LogProb semiring. Each production
+# is a specific ``rule`` (no free wildcards on the conclusion):
+# the chart fires only the productions the grammar licenses, the
+# weights are bindings-keyed under ``#[learnable]``, and the
+# chart's goal weight at ``span(0, n, S)`` is the corpus inside
+# log-probability.
+
 object Term : FinSet 16
+object Rule : FinSet 9
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program pcfg_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export pcfg_prior
 
 deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=4]
     atoms S, NP, VP, Det, N, V, span, the, a, cat, dog, sleeps, runs
+    # Concrete binary productions. Each ``#[learnable]`` allocates
+    # one log-weight per firing binding tuple; with no free
+    # wildcards in the conclusion, there is one weight per rule.
     rule s_np_vp : span(I, K, NP), span(K, J, VP) |- span(I, J, S) #[learnable]
     rule np_det_n : span(I, K, Det), span(K, J, N) |- span(I, J, NP) #[learnable]
     rule vp_v : span(I, J, V) |- span(I, J, VP) #[learnable]
@@ -24,6 +57,8 @@ deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=4]
 ```
 
 ## Walkthrough
+
+`object Term : FinSet 16` declares the index set the deduction's domain and codomain range over; the cardinality is incidental, since the chart reasons symbolically over constructor-tagged tuples rather than over enumerated elements. `object Rule : FinSet 9` indexes the rule-weight vector instead: one coordinate per learnable weight, three rules plus six lexicon entries. The `pcfg_prior` program draws that vector from an independent `Normal(0.0, 1.0)` per coordinate, so `Rule` names the axis the weights live on, not the values they take; those come from the family. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
 
 The `atoms` block enumerates the constructor universe: nonterminals (`S`, `NP`, `VP`), preterminals (`Det`, `N`, `V`), the chart-item constructor `span`, and the closed-class terminal vocabulary (`the`, `a`, `cat`, `dog`, `sleeps`, `runs`).
 
@@ -41,14 +76,39 @@ prog = load("docs/examples/source/pcfg.qvr")
 
 To fit per-rule probabilities, wrap the deduction in a [`program`](../guides/dsl-overview.md) that draws lexicon weights from a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) prior per preterminal and observes the chart's `chart.goal_weight()` against a corpus of sentences. The `#[learnable]` markers on each lexicon entry expose `nn.Parameter`s the optimizer adjusts; an [`AutoNormalGuide`](../api/inference/guide.md) plus [`SVI`](../api/inference/svi.md) over an [`ELBO`](../api/inference/elbo.md) objective drives the fit. For Viterbi or counting semirings the chart returns a single max-derivation score or a derivation count, which can be conditioned in the same way.
 
-## Categorical Perspective
+### Generating synthetic data
+
+The `pcfg_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/pcfg.qvr")
+model = prog.morphism
+
+N_RULES = 9
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
+
+## Categorical perspective
 
 A PCFG is a weighted deduction in the `LogProb` semiring whose chart is a `K`-valued presheaf over the item algebra `I` of `span(I, J, N)` triples. Branching rules are binary hyperedges in the rule-system hypergraph; anchor rules are unary hyperedges. The least pre-fixed point of the rule-system functor in the `K`-enriched lattice of charts is the inside table; the strategy-independence theorem (Goodman 1999) says CKY-sweep, A\*, and Knuth's algorithm all compute the same chart value. The compiler picks a default strategy from the rule arities and the semiring's algebraic properties.
 
-## CKY and Inside-Outside
+## Inside computation
 
-For deductions whose semiring is commutative + idempotent + supports inverses (`LogProb`, `Viterbi`), the runtime emits an analytic outside pass via Eisner & Goldlust 2005 in addition to the inside fixpoint; this yields closed-form gradients of any chart value with respect to rule weights and is faster and more numerically stable than backpropagating through the unrolled agenda. For other semirings the runtime falls back to autodiff through the chart-fill operations.
+The runtime computes chart values through the agenda and supports autodiff through those operations. It exposes no analytic outside pass; gradients come from autodiff over the inside computation.
 
 ## Connections to Language Modeling
 
-Summing `chart.goal_weight()` over derivations gives the sentence's marginal log-probability under the grammar; that scalar is a perfectly ordinary log-prob and can be used as a language model in a downstream `program`. EM-style training reduces to maximizing `chart.goal_weight()` on observed sentences; the analytic outside pass handles the gradient. Changing the `semiring` field (e.g., from `LogProb` to `Viterbi`) selects a different aggregation strategy without touching the rules.
+When the grammar licenses a sentence, `chart.goal_weight()` is its inside score under the chosen semiring. Changing `semiring` selects a different aggregation strategy without changing the rules.

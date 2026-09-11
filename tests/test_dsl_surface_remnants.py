@@ -15,7 +15,7 @@ coverage elsewhere in the suite:
 * ``.curry_right`` / ``.curry_left`` / ``.trace(A)`` postfix methods:
   positive compilations with forward-shape assertions.
 * ``from_data("KEY")`` initializers: the bound tensor's values flow
-  through an actual forward pass, not just parameter registration.
+through a forward pass as well as parameter registration.
 """
 
 from __future__ import annotations

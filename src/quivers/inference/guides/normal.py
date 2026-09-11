@@ -1,43 +1,9 @@
 """Mean-field Normal variational guide.
 
-`AutoNormalGuide` factorizes the variational posterior as
-a product of independent Normals — one per latent site in
-unconstrained space — and pushes each through the site's
-constrained-support bijector. This is the smallest and fastest
-guide quivers ships; it works well when posterior correlations
-are weak (a deliberately wide class of problems) and serves as
-the warm-start for richer guides
-([`quivers.inference.guides.multivariate_normal.AutoMultivariateNormal`][quivers.inference.guides.multivariate_normal.AutoMultivariateNormal],
-[`quivers.inference.guides.flow.AutoIAFGuide`][quivers.inference.guides.flow.AutoIAFGuide], …).
-
-The construction follows Pyro's ``AutoNormal``:
-
-1. For each latent site :math:`v_i` with prior support
-   :math:`\\mathrm{supp}(p_i) \\subseteq B_i`, maintain
-   :math:`(\\mathrm{loc}_i, \\log\\mathrm{scale}_i) \\in
-   \\mathbb{R}^{d_i} \\times \\mathbb{R}^{d_i}` where
-   :math:`d_i = \\dim T_i^{-1}(B_i)` is the unconstrained-side
-   event dimension.
-2. Sample :math:`z_i \\sim \\mathcal{N}(\\mathrm{loc}_i, \\exp(\\log\\mathrm{scale}_i))`.
-3. Return :math:`v_i = T_i(z_i)` where
-   :math:`T_i = \\mathsf{biject\\_to}(\\mathrm{supp}(p_i))`.
-
-Log-density is the change-of-variables identity:
-
-.. math::
-
-    \\log q(v) = \\sum_i \\Bigl[
-        \\log\\mathcal{N}(z_i;\\, \\mathrm{loc}_i, \\mathrm{scale}_i)
-        + \\log\\bigl|\\det J_{T_i^{-1}}(v_i)\\bigr|
-    \\Bigr].
-
-Plate latents ([`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw])
-are stored as ``(|A|, d_i)`` parameter tensors and sampled batch-
-invariantly: the latent vector is a global model parameter shared
-across every row of an observed plate, not replicated against the
-program input's leading batch axis. This matches the model-side
-`PlateDraw.rsample` convention and is the standard Pyro /
-NumPyro plate semantic.
+`AutoNormalGuide` assigns each latent site an independent Normal distribution in
+unconstrained space and maps each draw through the site's support bijector.
+Plate-latent parameters have shape ``(|A|, d_i)`` and do not acquire the
+observed plate's leading batch axis.
 """
 
 from __future__ import annotations

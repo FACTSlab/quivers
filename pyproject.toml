@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quivers"
-version = "0.17.0"
+version = "0.18.0"
 description = "A functional probabilistic programming language that compiles to PyTorch."
 readme = "README.md"
 license = {text = "MIT"}
@@ -41,7 +41,9 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
-    "ruff",
+    "pytest-xdist>=3.6",
+    "pytest-split>=0.9",
+    "ruff>=0.15,<0.16",
     "pyright",
     "numpy",
     "pandas",
@@ -112,6 +114,7 @@ testpaths = ["tests"]
 # `pytest -m slow tests/` or `pytest --runslow tests/`.
 markers = [
     "slow: deselected by default; run with `-m slow` or `--runslow`.",
+    "probe: launches a probe container; deselected on the fast tier.",
 ]
 addopts = "-m 'not slow'"
 
@@ -157,3 +160,8 @@ reportMissingImports = "warning"
 # with branch-specific captures and only one branch is reached at
 # runtime.
 reportRedeclaration = "warning"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

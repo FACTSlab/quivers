@@ -1,0 +1,11 @@
+# Exercises SignatureDecl (declares an inductive algebra).
+signature LF
+    sorts
+        Term : object [dim=16]
+    constructors
+        App : Term, Term -> Term
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

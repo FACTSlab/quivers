@@ -1,0 +1,8 @@
+# Hand-written Wishart fixture (matrix family).
+object Dim : FinSet 3
+object Obs : Real 9
+morphism w_kernel : Obs -> Obs [role=kernel] ~ Wishart
+program wishart_fixture : Obs -> Obs
+    sample sigma <- w_kernel
+    return sigma
+export wishart_fixture

@@ -1,0 +1,8 @@
+# Hand-written RelaxedOneHotCategorical fixture (Gumbel-softmax over a simplex).
+object Cls : FinSet 4
+object Obs : Real 4
+morphism roc_kernel : Obs -> Obs [role=kernel, temperature=0.5] ~ RelaxedOneHotCategorical
+program relaxedonehotcategorical_fixture : Obs -> Obs
+    sample z <- roc_kernel
+    return z
+export relaxedonehotcategorical_fixture

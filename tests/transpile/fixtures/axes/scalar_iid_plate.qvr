@@ -1,0 +1,8 @@
+# Exercises a scalar family on an iid plate (`: Axis` annotation on
+# the sample step).
+object N : FinSet 8
+object Obs : FinSet 8
+program prog : Obs -> Obs
+    sample xs : N <- Normal(0.0, 1.0)
+    return xs
+export prog

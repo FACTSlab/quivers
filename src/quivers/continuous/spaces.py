@@ -62,18 +62,47 @@ class ContinuousSpace(dx.TaggedUnion, discriminator="kind"):
 
 
 class Euclidean(ContinuousSpace):
-    """Euclidean space :math:`\\mathbb{R}^d`, optionally bounded."""
+    """Euclidean space :math:`\\mathbb{R}^d`, optionally bounded.
+
+    ``plate_rows`` marks the space as the flattened codomain of a
+    plate draw: :math:`\\mathbb{R}^{d}` read as ``plate_rows``
+    independent rows of width ``dim // plate_rows``. The distinction
+    matters wherever a plate variable is consumed as a *parameter*
+    rather than as a value, because the plate axis is a batch axis
+    there and the per-row parameter width is `row_width`, never the
+    flat ``dim``.
+    """
 
     name: str
     dim: int
     low: float | None = None
     high: float | None = None
+    plate_rows: int | None = None
     kind: Literal["euclidean"] = "euclidean"
 
     @property
     def is_bounded(self) -> bool:
         """Whether the space has finite bounds on all sides."""
         return self.low is not None and self.high is not None
+
+    @property
+    def row_width(self) -> int:
+        """Width of a single row of the space.
+
+        For an ordinary Euclidean space this is ``dim``. For a
+        flattened plate codomain it is the per-row width, i.e.
+        ``dim // plate_rows``.
+        """
+        rows = self.plate_rows
+        if rows is None:
+            return self.dim
+        if rows <= 0 or self.dim % rows != 0:
+            raise ValueError(
+                f"Euclidean({self.name!r}, {self.dim}): plate_rows={rows} "
+                f"does not divide the flat dimension {self.dim} into "
+                f"whole rows"
+            )
+        return self.dim // rows
 
     def contains(self, x: torch.Tensor) -> torch.Tensor:
         result = torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)

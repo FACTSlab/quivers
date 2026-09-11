@@ -39,6 +39,73 @@ python -m pytest tests/ -k test_name        # run specific tests
 python -m pytest tests/path/to/test_file.py # run specific file
 ```
 
+### Test tiers
+
+The suite splits in two, along the line that governs its runtime. Most
+tests read and write text and finish in microseconds. A few thousand
+drive a real probabilistic programming language inside a Docker
+container to compare its log density against the reference, and those
+carry nearly all of the wall clock. The latter are marked `probe`:
+
+```bash
+python -m pytest tests/ -m "not probe"   # everything cheap
+python -m pytest tests/ -m probe         # the container-backed cells
+```
+
+The marker is applied by module, from the registry in
+`tests/transpile/conftest.py`, and audited against the source: a module
+that calls `run_probe` without appearing there fails
+`test_probe_marker_registry.py`, so a new probe module cannot land in
+the cheap tier by omission.
+
+Probe cells need Docker. The session fixture starts the daemon and
+builds any missing images rather than skipping, since a skipped check
+is a silent gap. Set `QUIVERS_SKIP_DOCKER=1` to opt out, which is
+appropriate when running only `-m "not probe"`.
+
+### Running tests in parallel
+
+Both tiers are parallel-safe: probe scratch directories are unique per
+call, containers are anonymous, and the image build is serialised
+across workers by a file lock.
+
+```bash
+python -m pytest tests/ -m "not probe" -n auto --dist loadfile
+python -m pytest tests/ -m probe -n auto
+```
+
+`--dist loadfile` is the right mode for the cheap tier. Its tests are
+individually far shorter than the cost of handing one to a worker, so
+distributing whole files wins where distributing single tests loses.
+
+To divide the probe tier across machines, `pytest-split` takes a share:
+
+```bash
+python -m pytest tests/ -m probe --splits 4 --group 1
+```
+
+### Caching probe measurements
+
+A probe pays for a language runtime rather than for the container.
+Loading Turing into a fresh Julia session costs seconds, while the
+container itself starts in a fraction of one, and many cells measure
+the same density and then assert different things about it. Point
+`QUIVERS_PROBE_CACHE` at a directory to memoise those measurements:
+
+```bash
+QUIVERS_PROBE_CACHE=.probe-cache python -m pytest tests/ -m probe
+```
+
+The key covers the image ID, the emitted source, the points, the shape
+and dtype tables, and the probe script together with its reshape
+helpers, all hashed by content. Keying on the image ID rather than the
+tag is what makes a rebuilt image miss instead of answering from
+before it changed.
+
+Caching is off unless the variable is set. A memoised measurement is
+only as sound as its key, so a run that gates a release should execute
+every container for real.
+
 ## Project Structure
 
 ```
@@ -58,20 +125,21 @@ quivers/
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
 │   ├── categorical/               # Categorical algebra
-│   ├── continuous/                # Continuous distributions (40+ families)
+│   ├── continuous/                # Continuous distributions (more than 40 families)
 │   ├── core/                      # Core types (didactic Models)
 │   ├── dsl/                       # QVR DSL pipeline
-│   │   ├── parser.py              # panproto-driven parser walker
-│   │   ├── ast_nodes.py           # didactic Model AST nodes
-│   │   ├── compiler.py            # AST -> Program lowering
-│   │   ├── resolution.py          # dx.Lens family for type/space resolution
+│   │   ├── parser/                # panproto-driven parser walker
+│   │   ├── ast_nodes/             # didactic Model AST nodes
+│   │   ├── compiler/              # AST -> Program lowering and resolution
+│   │   ├── emit.py                # canonical AST -> QVR source printer
 │   │   ├── program_theory.py      # QVR_PROGRAM_PROTOCOL + Schema extractor
 │   │   ├── pygments_lexer.py      # Pygments lexer for docs highlighting
-│   │   └── examples/              # Example .qvr files
+│   ├── effects/                   # Algebraic effect handlers
 │   ├── enriched/                  # Enriched categories
 │   ├── inference/                 # Variational inference
 │   ├── monadic/                   # Monadic programs (draw, observe, return)
 │   ├── stochastic/                # Stochastic morphisms
+│   ├── transpile/                 # Cross-language PPL emitters
 │   └── ...
 ├── tests/                         # Test suite (mirrors src structure)
 ├── pyproject.toml                 # Package metadata
@@ -166,27 +234,37 @@ The QVR DSL processes `.qvr` files through these stages:
 
 ### 2. AST Nodes
 
-Each syntax construct is a `dx.Model`. Recursive sums (`TypeExpr`, `SpaceExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots:
+Each syntax construct is a `dx.Model`. Recursive sums (`ObjectExpr`,
+`Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are
+`dx.TaggedUnion` roots:
 
 <!-- python: skip -->
 ```python
-import didactic.api as dx
 from typing import Literal
+from quivers.dsl.ast_nodes import ObjectExpr, OptionEntry, ProgramParam, ProgramStep, Statement
 
-class ProgramDecl(dx.Model):
-    kind: Literal["program_decl"] = "program_decl"
+class ProgramDecl(Statement):
     name: str
-    params: tuple[str, ...] | None
-    domain: TypeExpr
-    codomain: TypeExpr
-    body: tuple[ProgramStep, ...]
-    return_vars: tuple[str, ...]
-    return_labels: tuple[str, ...] | None
+    params: tuple[str, ...] | None = None
+    type_params: tuple[ProgramParam, ...] | None = None
+    domain: ObjectExpr
+    codomain: ObjectExpr
+    options: tuple[OptionEntry, ...] = ()
+    draws: tuple[ProgramStep, ...] = ()
+    return_vars: tuple[str, ...] = ()
+    return_labels: tuple[str, ...] | None = None
+    docs: tuple[str, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["program_decl"] = "program_decl"
 ```
 
-### 3. Resolution Lenses
+### 3. Resolution
 
-`quivers.dsl.resolution` exposes `TypeExprToSetObject(env)` and `SpaceExprToContinuousSpace(env_spaces, env_objects, name)` as `dx.Lens` instances. The compiler invokes their `forward` direction; the complement preserves the original AST node so `backward` recovers it verbatim.
+`quivers.dsl.compiler.resolution._ResolutionMixin` resolves an
+`ObjectExpr` to either a discrete `SetObject` or a
+`ContinuousSpace`. `_resolve_any_space` performs the shared dispatch;
+the narrower helpers reject a result in the wrong category.
 
 ### 4. Compilation
 
@@ -198,61 +276,36 @@ class ProgramDecl(dx.Model):
 
 ## Adding a New Distribution Family
 
-To add a new continuous distribution family:
+Most independent families use the single registry in
+`src/quivers/continuous/family_spec.py`. If PyTorch already provides
+the distribution, add an `_make_family(...)` call in
+`src/quivers/continuous/families.py` with the parameter names and
+bijectors that map unconstrained parameters onto their supports.
+That call creates the `Conditional*` class and registers both inline
+DSL paths.
 
-### 1. Define the Distribution Class
-
-Create a new class in `src/quivers/continuous/families.py` or a new module:
-
+<!-- python: skip -->
 ```python
-import didactic.api as dx
-import torch
-
-class MyDistribution(dx.Model):
-    """My custom probability distribution.
-
-    Parameters
-    ----------
-    param1 : float
-        First parameter.
-    param2 : float
-        Second parameter.
-    """
-
-    param1: float
-    param2: float
-
-    def sample(self, size: int) -> torch.Tensor:
-        ...
-
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        ...
+ConditionalMyFamily = _make_family(
+    "ConditionalMyFamily",
+    MyTorchDistribution,
+    [("loc", "id"), ("scale", "softplus")],
+    "Conditional MyFamily(loc(x), scale(x)).",
+)
 ```
 
-### 2. Register in the DSL
+Families with vector or matrix events, custom constructors, or
+nonstandard sampling behavior need a hand-written
+`ContinuousMorphism` plus a `FamilySpec` whose override fields point
+to that implementation. An entirely new underlying distribution may
+also require a `torch.distributions.Distribution` implementation.
 
-Add the family to the compiler's family registry in `src/quivers/dsl/compiler.py` so that `~ MyDistribution(...)` clauses resolve to your class.
-
-### 3. Add Tests
-
-Create test cases in `tests/continuous/test_mydistribution.py`:
-
-```python
-def test_mydistribution_sample_shape():
-    dist = MyDistribution(param1=1.0, param2=2.0)
-    samples = dist.sample(1000)
-    assert samples.shape == (1000,)
-
-def test_mydistribution_log_prob():
-    dist = MyDistribution(param1=1.0, param2=2.0)
-    value = torch.tensor([0.5])
-    log_prob = dist.log_prob(value)
-    assert log_prob.shape == ()
-```
-
-### 4. Update Documentation
-
-Add the distribution to `docs/api/continuous/distributions.md` with usage examples and parameter descriptions.
+Add registry, fixed-inline, mixed-inline, conditional sampling, and
+`log_prob` coverage. `tests/test_family_registry.py` contains the
+shared registry checks; specialized behavior belongs under
+`tests/continuous/`. Document the family in
+`docs/guides/continuous-families.md` and
+`docs/api/continuous/families.md`.
 
 ## Testing Philosophy
 

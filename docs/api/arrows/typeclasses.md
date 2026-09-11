@@ -1,5 +1,6 @@
 # Arrow Typeclass Hierarchy
 
-`Category_`, `Arrow`, `ArrowChoice`, `ArrowApply`, `ArrowLoop`, `ArrowZero`, `ArrowPlus`, the Hughes-style arrow tower.
+The Hughes-style arrow hierarchy: `Category_`, `Arrow`, `ArrowChoice`,
+`ArrowApply`, `ArrowLoop`, `ArrowZero`, and `ArrowPlus`.
 
 ::: quivers.arrows.typeclasses

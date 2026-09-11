@@ -121,7 +121,7 @@ class AffineCouplingLayer(nn.Module):
         z_a' = z_a                               (unchanged)
         z_b' = z_b * exp(s(x, z_a)) + t(x, z_a) (transformed)
 
-    The Jacobian is triangular, so its log-determinant is simply
+    The Jacobian is triangular, so its log-determinant is
     sum(s(x, z_a)).
 
     Parameters
@@ -239,16 +239,16 @@ class AffineCouplingLayer(nn.Module):
 class ConditionalFlow(ContinuousMorphism):
     """Conditional normalizing flow as a continuous morphism.
 
-    Stacks multiple affine coupling layers to form a flexible
-    invertible transformation from a standard normal base to the
-    target distribution, conditioned on input x.
+    Stacks affine coupling layers to form an invertible transformation
+    from a standard normal base to the target distribution, conditioned
+    on input x.
 
     The flow supports exact log-density computation:
 
         log p(y | x) = log N(f^{-1}(y; x); 0, I)
                        + sum_k log |det df_k^{-1}/dz_k|
 
-    And efficient sampling:
+    Sampling uses:
 
         z ~ N(0, I)
         y = f_K(... f_2(f_1(z; x); x) ...; x)
@@ -260,7 +260,7 @@ class ConditionalFlow(ContinuousMorphism):
     codomain : Euclidean
         Target continuous space.
     n_layers : int
-        Number of coupling layers. More layers = more expressive.
+        Number of coupling layers.
     hidden_dim : int
         Hidden layer width for scale/shift networks.
 

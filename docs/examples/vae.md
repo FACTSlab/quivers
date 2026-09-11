@@ -1,12 +1,35 @@
-# Variational Autoencoder
+# Latent decoder with encoder and decoder paths
 
 ## Overview
 
-A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencoder) ([Kingma & Welling 2014](https://arxiv.org/abs/1312.6114)) learns latent representations by training an encoder, which maps observations to a distribution over latent codes, and a decoder, which maps latent codes back to observations, jointly under the [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) objective. The quivers idiom expresses both networks as [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphisms for the [Giry monad](https://doi.org/10.1007/BFb0092872) and wires them with explicit `>>` composition into two execution paths: a generative path (prior to decoder) and a reconstruction path (encoder to decoder).
+A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencoder) ([Kingma & Welling, 2014](https://arxiv.org/abs/1312.6114)) trains a decoder with an observation-dependent encoder used as the variational guide. This source declares both an encoder-decoder composition and a prior-decoder composition, but exports only `vae_program`, whose latent `z` is sampled from `prior`. The runnable SVI block uses `AutoNormalGuide`; it does not use the declared `encoder` as an amortized guide. Thus this page demonstrates the two paths needed for a VAE without implementing joint VAE training.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Variational Autoencoder
+#
+# A VAE with multi-layer encoder and decoder networks, expressed
+# as a morphism network using stack for deep layers and explicit
+# Kleisli composition (>>) to wire encoder and decoder into
+# generative and reconstruction paths.
+#
+# Structural form:
+#
+#   encoder     = pixel_embed >> stack(enc_deep, 1) >> enc_to_latent
+#   decoder     = dec_1       >> stack(dec_deep, 1) >> dec_to_obs
+#   generative  = prior   >> decoder              ancestral sampling
+#   reconstruct = encoder >> decoder              posterior predictive
+#
+# The encoder is a Kleisli morphism for the Giry monad mapping
+# observations to a distribution over latent codes; the decoder
+# is the Kleisli morphism from the latent space back to
+# observation space. The ELBO decomposes categorically into a
+# reconstruction term (faithfulness of encoder >> decoder) and a
+# KL term (distance from the prior in the enriched hom-space).
+#
+# Reference: [Kingma and Welling 2014](https://doi.org/10.48550/arXiv.1312.6114).
+
 object Pixel : FinSet 8
 object Latent : Real 4
 object EncoderHidden, DecoderHidden : Real 16
@@ -30,7 +53,18 @@ define decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 define generative = prior >> decoder
 define reconstruct = encoder >> decoder
 
-export generative
+# Probabilistic surface for the generative branch: sample the
+# latent code under the standard-Normal prior, then push it
+# through the decoder Kleisli morphism to score the observation
+# Y. The decoder's per-layer weights carry the kernel-prior
+# Normals declared above; the program traces both the latent and
+# the observation sites for inference.
+program vae_program : UnitSpace -> ObsSpace
+    sample z <- prior
+    observe Y <- decoder(z)
+    return Y
+
+export vae_program
 ```
 
 ## Walkthrough
@@ -47,11 +81,11 @@ define generative = prior >> decoder
 define reconstruct = encoder >> decoder
 ```
 
-express the VAE's two execution paths as explicit [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category). The `generative` path samples a latent from the standard-normal prior and decodes it, used for sampling new data. The `reconstruct` path encodes observed data and decodes the resulting latent code, the path traversed by the [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) reconstruction term during training. Both paths share the decoder; the relationship between generation and inference is a matter of which morphism precedes the decoder in the composition chain.
+express generative and reconstruction-shaped execution paths. The exported `vae_program` traverses `prior` and `decoder`; the current ELBO does not traverse `reconstruct`. A complete VAE would connect `encoder` to a guide conditioned on the observation.
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -59,39 +93,43 @@ express the VAE's two execution paths as explicit [Kleisli composition](https://
 ```python
 import torch
 from quivers.dsl import load
+from quivers.inference.trace import trace
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/vae.qvr")
-generative = prog.morphism
+model = prog.morphism
 
 N = 32
 unit = torch.zeros(N, 1)
-with torch.no_grad():
-    Y = generative.rsample(unit).detach()
-print("Y shape:", Y.shape)
+x_in = unit
 
+# Run one forward trace under the program's own parameters so the
+# captured latent and observation are jointly consistent under the
+# generative kernel.
+with torch.no_grad():
+    forward = trace(model, unit)
+true_z = forward.sites["z"].value.detach()
+Y = forward.sites["Y"].value.detach()
+
+observations = {"Y": Y, "z": true_z}
+print("Y shape:", Y.shape)
 ```
 
-The exported `generative` composition is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace`; `rsample` runs the full prior-then-decoder ancestral path so the synthetic batch comes from the model itself at its current (random) parameter values, then lift the entire parameter vector into a Bayesian model for SVI and NUTS.
+The exported `vae_program` is a [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphism `UnitSpace -> ObsSpace` whose body samples the latent `z` and scores the observation `Y` under `decoder(z)`; the forward trace captures a jointly-consistent `(z, Y)` pair, which the observation dict then clamps while [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts the entire parameter vector into a Bayesian model for SVI and NUTS.
 
 ### SVI fit
 
 ```python
 from quivers.inference import (
-    AutoNormalGuide, ELBO, SVI, lift_from_log_prob,
+    AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters,
 )
 
-model, x_in, observations = lift_from_log_prob(
-    prog,
-    log_prob_fn=prog.morphism.log_prob,
-    parameter_prior_scale=1.0,
-    target_key="Y",
-    x=unit,
-    observations={"Y": Y},
+model, x_in, observations = bayesian_lift_parameters(
+    prog.morphism, x_in, observations, prior_scale=1.0,
 )
 
 torch.manual_seed(1)
-guide = AutoNormalGuide(model, observed_names={"Y"})
+guide = AutoNormalGuide(model, observed_names=set())
 optim = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
@@ -120,13 +158,13 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
-The encoder and decoder are both [Kleisli](https://en.wikipedia.org/wiki/Kleisli_category) morphisms for the [Giry monad](https://doi.org/10.1007/BFb0092872); their two compositions `prior >> decoder` and `encoder >> decoder` correspond to the generative and reconstruction paths. They share the decoder but differ in which morphism produces the latent code. The `embed` operation acts as a functor from the category of discrete objects to the category of [Euclidean spaces](https://en.wikipedia.org/wiki/Euclidean_space), letting the encoder accept a discrete input and feed it into continuous stochastic layers. The `stack(f, N)` combinator is iterated independent composition: $f_1 \circ f_2 \circ \cdots \circ f_N$ with $N$ fresh copies of $f$ (no weight sharing), distinct from `repeat(f, N) = f^N`.
+The two compositions `prior >> decoder` and `encoder >> decoder` share the decoder but differ in which morphism produces the latent code. `stack(f, N)` creates independently parameterized copies, unlike a weight-sharing repetition. Only the prior-decoder program participates in the runnable inference block on this page.
 
 The [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) decomposes categorically into a reconstruction term, the faithfulness of `encoder >> decoder`, and a KL term, the distance from the prior in the enriched hom-space $\mathbf{Kern}(\mathsf{Pixel}, \mathsf{Latent})$.
 
-## See Also
+## See also
 
 - [Probabilistic PCA](ppca.md) for a linear-Gaussian latent-variable model.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism composition surface (`>>`, `stack`, `embed`).

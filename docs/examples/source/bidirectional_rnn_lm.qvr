@@ -13,6 +13,11 @@
 #   h        ~ combine(h_fwd, h_bwd)           merged representation
 #   masked_t ~ Categorical(lm_head(h))         observed masked token
 #
+# Resp is the plate: it indexes the 32 scored rows of the corpus,
+# one masked-token target per context window. Token is the
+# vocabulary, so it is the value space of what lm_head draws and of
+# what the program returns.
+#
 # The fan-out fan(forward_path, backward_path) runs the two
 # paths in parallel over the same token sequence in the
 # Kleisli category; the backbone is
@@ -23,6 +28,7 @@
 # Reference: [Devlin et al. 2019](https://doi.org/10.18653/v1/N19-1423).
 
 object Token : FinSet 256
+object Resp : FinSet 32
 object Embedded, FwdHidden, BwdHidden : Real 64
 object Combined : Real 128
 
@@ -39,7 +45,7 @@ define backbone = fan(forward_path, backward_path) >> combine
 program bidirectional_rnn_lm : Token -> Token
     sample h <- backbone
 
-    observe masked_token : Token <- lm_head(h)
+    observe masked_token : Resp <- lm_head(h)
     return masked_token
 
 export bidirectional_rnn_lm

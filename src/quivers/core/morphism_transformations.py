@@ -217,8 +217,7 @@ class L2Normalize(MorphismTransformation):
 
     Maps a real-valued tensor to one whose entries lie on the unit
     L2 sphere along the given axis. The result is still in the
-    source algebra (Real); the morphism just has its rows
-    rescaled to unit length.
+    source algebra (Real), with rows rescaled to unit length.
 
     Parameters
     ----------

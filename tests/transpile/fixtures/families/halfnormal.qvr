@@ -1,0 +1,7 @@
+# Auto-generated fixture exercising the HalfNormal family.
+# Regenerate via tests/transpile/fixtures/_generate_families.py.
+object Obs : FinSet 8
+program halfnormal_fixture : Obs -> Obs
+    sample theta <- HalfNormal(1.0)
+    return theta
+export halfnormal_fixture

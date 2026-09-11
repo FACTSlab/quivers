@@ -10,8 +10,23 @@ in every call site.
 
 from __future__ import annotations
 
-from quivers.continuous import spaces as continuous_spaces
-from quivers.continuous.spaces import ContinuousSpace, ProductSpace
+import didactic.api as dx
+
+from quivers.continuous.spaces import (
+    Ball,
+    CholeskyFactor,
+    ContinuousSpace,
+    Correlation,
+    Covariance,
+    Diagonal,
+    Euclidean,
+    LowerTriangular,
+    Orthogonal,
+    ProductSpace,
+    Simplex,
+    Sphere,
+    Stiefel,
+)
 from quivers.core.objects import CoproductSet, FinSet, ProductSet, SetObject
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
@@ -33,19 +48,110 @@ def _prod(xs: list[int]) -> int:
     return out
 
 
-_CONTINUOUS_FACTORIES: dict[str, str] = {
-    "Real": "Euclidean",
-    "Simplex": "Simplex",
-    "Sphere": "Sphere",
-    "Ball": "Ball",
-    "CholeskyFactor": "CholeskyFactor",
-    "Covariance": "Covariance",
-    "Correlation": "Correlation",
-    "Orthogonal": "Orthogonal",
-    "Stiefel": "Stiefel",
-    "LowerTriangular": "LowerTriangular",
-    "Diagonal": "Diagonal",
+def _finset_literal(bind_name: str, digits: str, line: int, col: int) -> FinSet:
+    """Build the `FinSet` an integer literal in type position denotes.
+
+    A `FinSet` carries at least one element, so a literal ``0`` names
+    no object at all; reporting that here keeps the diagnostic on the
+    literal's own line and column instead of surfacing as a bare
+    validation error from the object constructor.
+    """
+    cardinality = int(digits)
+    if cardinality < 1:
+        raise CompileError(
+            f"FinSet cardinality must be at least 1, got {cardinality}; "
+            f"the empty finite set is not an inhabitable type",
+            line,
+            col,
+        )
+    return FinSet(name=bind_name, cardinality=cardinality)
+
+
+class ContinuousCtorSpec(dx.Model):
+    """The calling convention of one surface continuous constructor.
+
+    Attributes
+    ----------
+    size_fields : tuple of str
+        Names of the size arguments, in surface order. Their count
+        is the constructor's positional arity and their names appear
+        verbatim in the arity diagnostic.
+    option_fields : tuple of str
+        Names the brace-block keyword arguments may take.
+    fuses_sizes : bool
+        Whether extra size arguments fuse into the single size slot
+        by multiplication (``Real 4 8`` denotes
+        :math:`\\mathbb{R}^{32}`) rather than being an arity error.
+    """
+
+    size_fields: tuple[str, ...]
+    option_fields: tuple[str, ...] = ()
+    fuses_sizes: bool = False
+
+
+_CONTINUOUS_CTORS: dict[str, ContinuousCtorSpec] = {
+    "Real": ContinuousCtorSpec(
+        size_fields=("dim",),
+        option_fields=("low", "high"),
+        fuses_sizes=True,
+    ),
+    "Simplex": ContinuousCtorSpec(size_fields=("dim",)),
+    "Sphere": ContinuousCtorSpec(size_fields=("dim",)),
+    "Ball": ContinuousCtorSpec(size_fields=("dim",), option_fields=("radius",)),
+    "CholeskyFactor": ContinuousCtorSpec(size_fields=("dim",)),
+    "Covariance": ContinuousCtorSpec(size_fields=("dim",)),
+    "Correlation": ContinuousCtorSpec(size_fields=("dim",)),
+    "Orthogonal": ContinuousCtorSpec(size_fields=("dim",)),
+    "Stiefel": ContinuousCtorSpec(size_fields=("rows", "cols")),
+    "LowerTriangular": ContinuousCtorSpec(size_fields=("dim",)),
+    "Diagonal": ContinuousCtorSpec(size_fields=("dim",)),
 }
+
+
+def _build_continuous_space(
+    ctor_name: str,
+    synth_name: str,
+    sizes: list[int],
+    options: dict[str, float | int],
+) -> ContinuousSpace:
+    """Construct the space a validated constructor invocation denotes.
+
+    Every `ContinuousSpace` subclass takes keyword-only fields, so
+    the sizes are bound by name here rather than forwarded
+    positionally. Arity, option names, and size positivity are
+    already checked by the caller.
+    """
+    if ctor_name == "Real":
+        return Euclidean(
+            name=synth_name,
+            dim=sizes[0],
+            low=options.get("low"),
+            high=options.get("high"),
+        )
+    if ctor_name == "Simplex":
+        return Simplex(name=synth_name, dim=sizes[0])
+    if ctor_name == "Sphere":
+        return Sphere(name=synth_name, dim=sizes[0])
+    if ctor_name == "Ball":
+        return Ball(name=synth_name, dim=sizes[0], radius=options.get("radius", 1.0))
+    if ctor_name == "CholeskyFactor":
+        return CholeskyFactor(name=synth_name, dim=sizes[0])
+    if ctor_name == "Covariance":
+        return Covariance(name=synth_name, dim=sizes[0])
+    if ctor_name == "Correlation":
+        return Correlation(name=synth_name, dim=sizes[0])
+    if ctor_name == "Orthogonal":
+        return Orthogonal(name=synth_name, dim=sizes[0])
+    if ctor_name == "Stiefel":
+        return Stiefel(name=synth_name, rows=sizes[0], cols=sizes[1])
+    if ctor_name == "LowerTriangular":
+        return LowerTriangular(name=synth_name, dim=sizes[0])
+    if ctor_name == "Diagonal":
+        return Diagonal(name=synth_name, dim=sizes[0])
+    raise CompileError(
+        f"unknown continuous constructor {ctor_name!r}; "
+        f"available: {sorted(_CONTINUOUS_CTORS)}"
+    )
 
 
 class _ResolutionMixin:
@@ -97,7 +203,12 @@ class _ResolutionMixin:
             and texpr.name not in self._objects
             and bind_name is not None
         ):
-            return FinSet(name=bind_name, cardinality=int(texpr.name))
+            return _finset_literal(
+                bind_name,
+                texpr.name,
+                texpr.line,
+                texpr.col,
+            )
         obj = self._resolve_any_space(texpr)
         if isinstance(obj, ContinuousSpace):
             raise CompileError(
@@ -161,7 +272,7 @@ class _ResolutionMixin:
     ) -> SetObject | ContinuousSpace:
         name = texpr.name
         if name.isdigit():
-            return FinSet(name=f"_{name}", cardinality=int(name))
+            return _finset_literal(f"_{name}", name, texpr.line, texpr.col)
         if name in self._objects:
             return self._objects[name]
         if name in self._spaces:
@@ -190,7 +301,12 @@ class _ResolutionMixin:
             )
         arg = texpr.args[0]
         if arg.isdigit():
-            return FinSet(name=f"_FinSet_{arg}", cardinality=int(arg))
+            return _finset_literal(
+                f"_FinSet_{arg}",
+                arg,
+                texpr.line,
+                texpr.col,
+            )
         if arg in self._objects:
             return self._objects[arg]
         raise CompileError(
@@ -200,53 +316,98 @@ class _ResolutionMixin:
             texpr.col,
         )
 
-    def _resolve_continuous_constructor(self, texpr: ContinuousConstructor):
+    def _resolve_continuous_constructor(
+        self,
+        texpr: ContinuousConstructor,
+    ) -> ContinuousSpace:
+        """Resolve ``Real 3``, ``Simplex 4``, ``Stiefel 5 2``, ... to a space.
+
+        The surface writes size arguments by juxtaposition and
+        options in a brace block; both are bound onto the target
+        class's keyword fields through the constructor's
+        `ContinuousCtorSpec`. Every arity, option-name, and
+        size-positivity violation is reported against the
+        constructor's own line and column.
+        """
         ctor_name = texpr.constructor
-        cls = getattr(
-            continuous_spaces,
-            _CONTINUOUS_FACTORIES[ctor_name],
-            None,
-        )
-        if cls is None:
+        spec = _CONTINUOUS_CTORS.get(ctor_name)
+        if spec is None:
             raise CompileError(
-                f"continuous constructor {ctor_name!r} is not "
-                f"available in quivers.continuous.spaces",
+                f"unknown continuous constructor {ctor_name!r}; "
+                f"available: {sorted(_CONTINUOUS_CTORS)}",
                 texpr.line,
                 texpr.col,
             )
-        positional: list[int] = []
-        for arg in texpr.args:
-            positional.append(self._eval_size_arg(arg, texpr))
-        kwargs: dict[str, float | int] = {}
-        for key, val in texpr.kwargs.items():
-            kwargs[key] = self._eval_scalar_kwarg(val, texpr)
-        synth_name = f"_{ctor_name}_" + "_".join(str(p) for p in positional)
-        if ctor_name == "Real":
-            if len(positional) == 1:
-                return cls(name=synth_name, dim=positional[0], **kwargs)
-            if len(positional) >= 2:
-                return cls(
-                    name=synth_name,
-                    dim=int(_prod(positional)),
-                    **kwargs,
-                )
-            raise CompileError(
-                "Real takes at least one dimension argument; got 0",
-                texpr.line,
-                texpr.col,
-            )
-        try:
-            return cls(name=synth_name, *positional, **kwargs)
-        except TypeError:
-            try:
-                return cls(*positional, **kwargs)
-            except TypeError as exc:
+        sizes = [self._eval_size_arg(arg, texpr) for arg in texpr.args]
+        self._check_ctor_arity(ctor_name, spec, sizes, texpr)
+        for size in sizes:
+            if size < 1:
                 raise CompileError(
-                    f"{ctor_name}: invalid arguments "
-                    f"({positional!r}, {kwargs!r}): {exc}",
+                    f"{ctor_name}: dimension must be at least 1, got {size}; "
+                    f"a zero-dimensional space has no values to sample",
                     texpr.line,
                     texpr.col,
-                ) from exc
+                )
+        bound = [_prod(sizes)] if spec.fuses_sizes else list(sizes)
+        options: dict[str, float | int] = {}
+        for key, val in texpr.kwargs.items():
+            if key not in spec.option_fields:
+                allowed = (
+                    ", ".join(repr(k) for k in spec.option_fields)
+                    if spec.option_fields
+                    else "none"
+                )
+                raise CompileError(
+                    f"{ctor_name}: unknown option {key!r}; accepted options: {allowed}",
+                    texpr.line,
+                    texpr.col,
+                )
+            options[key] = self._eval_scalar_kwarg(val, texpr)
+        if ctor_name == "Stiefel" and bound[1] > bound[0]:
+            raise CompileError(
+                f"Stiefel: cols={bound[1]} must not exceed rows={bound[0]}; "
+                f"a Stiefel manifold needs at least as many ambient "
+                f"dimensions as frame vectors",
+                texpr.line,
+                texpr.col,
+            )
+        low = options.get("low")
+        high = options.get("high")
+        if low is not None and high is not None and high <= low:
+            raise CompileError(
+                f"{ctor_name}: high={high} must be strictly greater than low={low}",
+                texpr.line,
+                texpr.col,
+            )
+        synth_name = f"_{ctor_name}_" + "_".join(str(size) for size in sizes)
+        return _build_continuous_space(ctor_name, synth_name, bound, options)
+
+    def _check_ctor_arity(
+        self,
+        ctor_name: str,
+        spec: ContinuousCtorSpec,
+        sizes: list[int],
+        texpr: ContinuousConstructor,
+    ) -> None:
+        """Reject a size-argument count the constructor cannot bind."""
+        wanted = len(spec.size_fields)
+        if spec.fuses_sizes:
+            if len(sizes) >= 1:
+                return
+            raise CompileError(
+                f"{ctor_name} takes at least one dimension argument; got 0",
+                texpr.line,
+                texpr.col,
+            )
+        if len(sizes) == wanted:
+            return
+        names = " ".join(spec.size_fields)
+        raise CompileError(
+            f"{ctor_name} takes exactly {wanted} size argument(s) "
+            f"({names}); got {len(sizes)}",
+            texpr.line,
+            texpr.col,
+        )
 
     def _eval_size_arg(self, arg: str, texpr) -> int:
         if arg.isdigit():
@@ -277,4 +438,4 @@ class _ResolutionMixin:
         )
 
 
-__all__ = ["_ResolutionMixin"]
+__all__ = ["ContinuousCtorSpec", "_ResolutionMixin"]

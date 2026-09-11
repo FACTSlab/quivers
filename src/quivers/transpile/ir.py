@@ -57,6 +57,88 @@ IRExpr = LetExprNode
 
 
 # ---------------------------------------------------------------------------
+# The one let-expression variant the surface grammar cannot write.
+#
+# A declared kernel morphism's parameter map is an affine map from the
+# concatenated domain coordinates to a block of the family's argument
+# row. Spelling it with the arithmetic variants above costs one node
+# per (codomain coordinate, domain coordinate) pair, and every node is
+# a validated `dx.Model`, so a 16-wide state took hours to lower and
+# emitted a program no reader could follow. `LetExprAffineMap` names
+# the contraction instead: one node per head, whatever the widths.
+#
+# It lives here rather than in `quivers.dsl.ast_nodes` because the QVR
+# surface has no syntax for it. Nothing parses to a
+# `LetExprAffineMap`; `Lower` is its only constructor, and renderers
+# its only readers. Being a `LetExprNode` subclass, it rides in
+# `IRDeterministic.expr` alongside the variants the parser does
+# produce, so plate derivation, name binding, and declaration
+# emission treat a mapped head exactly as they treat any other
+# deterministic binding.
+# ---------------------------------------------------------------------------
+
+
+class LetAffineSource(dx.Model):
+    """One factor of the conditioning row an affine map reads.
+
+    A morphism whose domain is a product reads the concatenation of
+    its factors in declaration order, so
+    [`LetExprAffineMap.sources`][quivers.transpile.ir.LetExprAffineMap]
+    is ordered and `width` is the column count this factor occupies.
+    `value` is the expression the factor's coordinates are read from,
+    a `LetExprVar` naming a program input or a previously bound site.
+    """
+
+    value: LetExprNode
+    width: int
+
+
+class LetExprAffineMap(LetExprNode):
+    """Represent one head of a parameter map's ``W x + b`` operation.
+
+    For ``i`` in ``0 .. rows - 1``, the expression computes::
+
+        y[i] = sum_j weight[row_offset + i, j] * x[j] + bias[row_offset + i]
+
+    where ``x`` concatenates `sources` in order. The `transform` is either
+    ``identity`` or coordinatewise ``exp``. Indices are zero-based; renderers
+    rebase them for one-based targets. The node stores the contraction rather
+    than unrolled arithmetic.
+    """
+
+    weight: LetExprNode
+    bias: LetExprNode
+    sources: tuple[LetAffineSource, ...]
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp"]
+    kind: Literal["let_expr_affine_map"] = "let_expr_affine_map"
+
+
+def affine_domain_width(expr: LetExprAffineMap) -> int:
+    """Total column count of an affine map's conditioning row."""
+    return sum(source.width for source in expr.sources)
+
+
+def affine_column_offsets(
+    expr: LetExprAffineMap,
+) -> tuple[tuple[LetAffineSource, int], ...]:
+    """Each source paired with its zero-based first column.
+
+    A renderer whose language cannot concatenate the factors into one
+    vector slices the weight column-block-wise instead, and this
+    gives it the block boundaries without recomputing the running
+    sum.
+    """
+    out: list[tuple[LetAffineSource, int]] = []
+    column = 0
+    for source in expr.sources:
+        out.append((source, column))
+        column += source.width
+    return tuple(out)
+
+
+# ---------------------------------------------------------------------------
 # ConstraintSpec: a structural mirror of `torch.distributions.constraints`.
 # ---------------------------------------------------------------------------
 
@@ -348,6 +430,30 @@ def is_real_unit_interval(c: Constraint) -> bool:
     return False
 
 
+def is_real_bounded_interval(c: Constraint) -> bool:
+    """`Interval(lo, hi)` with finite, non-(0,1) bounds.
+
+    Distinguishes `Uniform(-1, 1)`-style supports from `UnitInterval`
+    so the type emitter can produce `real <lower=lo, upper=hi>` rather
+    than falling through to the unsupported-support fallback.
+    """
+    if not isinstance(c, _constraints._Interval):
+        return False
+    lo = float(c.lower_bound)
+    hi = float(c.upper_bound)
+    if lo == float("-inf") or hi == float("inf"):
+        return False
+    if lo == 0.0 and hi == 1.0:
+        return False
+    return lo < hi
+
+
+def real_interval_bounds(c: Constraint) -> tuple[float, float]:
+    """The (lo, hi) bounds of a bounded-interval support."""
+    assert isinstance(c, _constraints._Interval)
+    return float(c.lower_bound), float(c.upper_bound)
+
+
 def is_real_vector(c: Constraint) -> bool:
     """`IndependentConstraint(Real(), 1)` (a vector of real scalars)."""
     if not _is_independent(c, 1):
@@ -515,6 +621,140 @@ class IRArgFamilyRef(IRArg):
     kind: Literal["family_ref"] = "family_ref"
 
 
+class IRArgKernel(IRArg):
+    """A Gaussian-process kernel-covariance argument.
+
+    Carries the kernel family name (``"rbf"`` is the only kernel
+    `Lower` emits today), the positive ``length_scale`` hyperparameter,
+    the data-input name that holds the input-locations vector
+    (``"x"`` by convention), and the static cardinality of the grid
+    axis. Renderers emit the backend-specific covariance matrix:
+    Stan uses ``gp_exp_quad_cov(x, 1.0, length_scale)`` plus a
+    diagonal jitter; NumPyro / Pyro / PyMC emit a
+    ``jnp.exp(-0.5 * d2 / length_scale**2)`` expression; Turing /
+    Gen build the matrix in Julia; WebPPL / Church emit nested
+    loops.
+
+    A small diagonal ``jitter`` is added for numerical positive-
+    definiteness before passing the matrix to the
+    MultivariateNormal sampler.
+    """
+
+    kernel: str
+    length_scale: float
+    x_name: str
+    grid_size: int
+    jitter: float = 1e-8
+    kind: Literal["kernel"] = "kernel"
+
+
+# ---------------------------------------------------------------------------
+# Structured-args lowering metadata.
+#
+# A family whose `~ Family` clause carries no explicit arguments
+# (today: MultivariateNormal, MatrixNormal, GP) declares a
+# `StructuredSampleLowering` on its `FamilyMeta`. `Lower` walks the
+# declared `args` tuple in order, synthesising the appropriate IRArg
+# variant per spec and deriving every data-input plate from the
+# sample's event axes. The result: one uniform code path replaces
+# the per-family `_lower_sample_<family>` methods, and the
+# per-sample data-input shapes flow from declarative metadata
+# rather than family-name branches in `Lower._structured_input_specs`.
+# ---------------------------------------------------------------------------
+
+
+class StructuredArgSpec(dx.TaggedUnion, discriminator="kind"):
+    """One arg position in a family's structured no-args lowering."""
+
+
+class StructuredDataArg(StructuredArgSpec):
+    """A data-input arg whose name is synthesised per sample site as
+    ``<sample_name>_<arg_name>``.
+
+    `axis_indices` indexes into the family's event-axis tuple to
+    build the data-input plate: ``(0, 1)`` for an `event_axis_0 x
+    event_axis_1` matrix, ``(0, 0)`` for an `event_axis_0 x
+    event_axis_0` square matrix, ``(0,)`` for an `event_axis_0` vector.
+    `constraint_kind` selects the IR constraint:
+
+    - ``"real_matrix"`` :class:`CSRealMatrix`
+    - ``"real_vector"`` :class:`CSRealVector`
+    - ``"positive_definite"`` :class:`CSPositiveDefinite`
+    """
+
+    arg_name: str
+    axis_indices: tuple[int, ...]
+    constraint_kind: Literal[
+        "real_matrix",
+        "real_vector",
+        "positive_definite",
+    ]
+    kind: Literal["data"] = "data"
+
+
+class StructuredZeroVectorArg(StructuredArgSpec):
+    """A zero-valued :class:`IRArgNumber` stand-in for a vector mean
+    that the family treats as the all-zero vector of the sample's
+    event size (today: GP's mean argument)."""
+
+    arg_name: str
+    kind: Literal["zero_vector"] = "zero_vector"
+
+
+class StructuredKernelArg(StructuredArgSpec):
+    """A GP kernel-covariance arg.
+
+    The renderer reads the kernel family name and the positive
+    `length_scale` from the morphism's `[kernel=..., length_scale=...]`
+    option block and emits the backend-specific covariance matrix
+    over the data-input vector named ``x_input_name``.
+    """
+
+    arg_name: str
+    x_input_name: str
+    kind: Literal["kernel"] = "kernel"
+
+
+class EventAxisSource(dx.TaggedUnion, discriminator="kind"):
+    """Where to read the sample's event axes from."""
+
+
+class OverOrCodomainAxes(EventAxisSource):
+    """Read event axes from the morphism's `[over=...]` option,
+    falling back to the codomain product factors. The shape of MN
+    and MVN."""
+
+    axis_count: int
+    kind: Literal["over_or_codomain"] = "over_or_codomain"
+
+
+class DomainGridAxis(EventAxisSource):
+    """Read the single event axis from the morphism's domain
+    (a `FinSet N` object). The shape of GP."""
+
+    kind: Literal["domain_grid"] = "domain_grid"
+
+
+class StructuredSampleLowering(dx.Model):
+    """How `Lower` constructs IR for a no-args `~ Family` sample.
+
+    `args` is the ordered tuple of per-position specs (each one of
+    :class:`StructuredDataArg`, :class:`StructuredZeroVectorArg`, or
+    :class:`StructuredKernelArg`). `event_axis_source` declares how
+    to recover the sample's event axes. `sample_constraint_kind`
+    selects the IR constraint on the sample itself
+    (``"real_matrix"`` or ``"real_vector"``). `always_apply` means
+    this lowering fires unconditionally for the family even when the
+    user supplied positional args (today: GP, whose kernel and grid
+    axes have no user-facing arg surface).
+    """
+
+    args: tuple[StructuredArgSpec, ...]
+    event_axis_source: EventAxisSource
+    sample_constraint_kind: Literal["real_matrix", "real_vector"]
+    always_apply: bool = False
+
+
 # ---------------------------------------------------------------------------
 # IRNode: top-level statements of a program body.
 # ---------------------------------------------------------------------------
@@ -616,11 +856,19 @@ class IRReturn(IRNode):
 
 
 class IRProgram(dx.Model):
-    """A lowered program: inputs plus body."""
+    """A lowered program: inputs plus body.
+
+    `cards` carries the static cardinalities of every QVR object
+    used in the program, keyed by object name. Renderers consult
+    it when an expression-level construct binds over a finite-set
+    axis by name (`LetExprFactor` binders, for instance) and the
+    static size is required to unroll the construct.
+    """
 
     name: str
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
+    cards: dict[str, int] = dx.Field(default_factory=dict)
 
 
 __all__ = [
@@ -647,6 +895,7 @@ __all__ = [
     "IRArg",
     "IRArgBroadcast",
     "IRArgFamilyRef",
+    "IRArgKernel",
     "IRArgList",
     "IRArgMatrix",
     "IRArgNumber",
@@ -661,6 +910,8 @@ __all__ = [
     "IRReturn",
     "IRSample",
     "IRScore",
+    "LetAffineSource",
+    "LetExprAffineMap",
     "LetExprBinOp",
     "LetExprCall",
     "LetExprFactor",
@@ -674,6 +925,8 @@ __all__ = [
     "LetExprUnaryOp",
     "LetExprVar",
     "Plate",
+    "affine_column_offsets",
+    "affine_domain_width",
     "event_dim_of",
     "event_shape_of",
     "from_constraint",
@@ -684,9 +937,11 @@ __all__ = [
     "is_real_cov_matrix",
     "is_real_matrix",
     "is_real_one_hot",
+    "is_real_bounded_interval",
     "is_real_positive",
     "is_real_scalar",
     "is_real_simplex",
     "is_real_unit_interval",
+    "real_interval_bounds",
     "is_real_vector",
 ]

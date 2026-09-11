@@ -1,6 +1,10 @@
 # Weighted Deduction Systems
 
-QVR's `deduction` block declares a weighted deductive system, a hyperedge of inference rules over an item algebra, paired with a semiring for weight aggregation. A single agenda-driven runtime evaluates the system; concrete parsing algorithms (CKY, Earley, Viterbi, A*, Knuth's, semi-naive Datalog, MLTT proof search) fall out as parameter settings.
+QVR's `deduction` block declares a weighted deductive system: a
+hypergraph of inference rules over an item algebra, paired with a
+semiring for weight aggregation. A single agenda-driven runtime
+evaluates the system under strategies for CKY, Earley, Viterbi, A*,
+Knuth's algorithm, semi-naive Datalog, and proof search.
 
 ## The framework
 
@@ -8,7 +12,7 @@ Categorically, a weighted deduction system is a tuple
 
 $$\mathcal{D} = (I, R, K, \mathrm{ax}, \mathrm{goal})$$
 
-with $I$ an *item algebra* (an abstract data type of judgments / facts / sequents), $R$ a *hypergraph* of inference rules (each a premise multiset, a conclusion, and a weight in $K$, universally quantified over pattern variables), $K$ a *algebra* / semiring for weight aggregation, $\mathrm{ax}$ an *axiom injector* producing the input's lexical / boundary items, and $\mathrm{goal} \subseteq I$ a *termination predicate*.
+with $I$ an *item algebra* (an abstract data type of judgments / facts / sequents), $R$ a *hypergraph* of inference rules (each a premise multiset, a conclusion, and a weight in $K$, universally quantified over pattern variables), $K$ an *algebra* / semiring for weight aggregation, $\mathrm{ax}$ an *axiom injector* producing the input's lexical / boundary items, and $\mathrm{goal} \subseteq I$ a *termination predicate*.
 
 The chart is the $K$-presheaf $C : I^{\mathrm{op}} \to K$ that is the least pre-fixed point of the rule-system functor in the $K$-enriched lattice (Tarski-Knaster). The chart is *strategy-independent*; the agenda is the operational realization of the fixed-point computation.
 

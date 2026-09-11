@@ -1,5 +1,6 @@
 # Boundaries
 
-Boundary conditions and constraints for continuous spaces.
+`Discretize` and `Embed`, which move between bounded continuous spaces
+and finite sets.
 
 ::: quivers.continuous.boundaries

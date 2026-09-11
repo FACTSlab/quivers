@@ -1,5 +1,6 @@
 # Typeclass Hierarchy
 
-Functor / Applicative / Monad / Alternative / MonadPlus / Foldable / Traversable / MonadTrans ABCs.
+ABCs for `Functor`, `Applicative`, `Monad`, `Alternative`, `MonadPlus`,
+`Foldable`, `Traversable`, and `MonadTrans`.
 
 ::: quivers.monadic.typeclasses

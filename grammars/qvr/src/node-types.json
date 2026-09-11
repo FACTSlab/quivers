@@ -1973,6 +1973,21 @@
     }
   },
   {
+    "type": "draw_arg_matrix",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "list_arg",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "edge_arrow",
     "named": true,
     "fields": {}
@@ -2883,6 +2898,10 @@
           },
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -4214,6 +4233,10 @@
           "named": true
         },
         {
+          "type": "draw_arg_matrix",
+          "named": true
+        },
+        {
           "type": "family_call_arg",
           "named": true
         },
@@ -4332,6 +4355,10 @@
         "types": [
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -4806,6 +4833,10 @@
           },
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -5387,6 +5418,10 @@
         "types": [
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {
@@ -6322,6 +6357,10 @@
         "types": [
           {
             "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "draw_arg_matrix",
             "named": true
           },
           {

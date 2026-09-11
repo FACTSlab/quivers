@@ -1,0 +1,7 @@
+# Exercises ObjectDecl with a continuous Real initializer.
+object Cont : Real 4
+morphism kernel : Cont -> Cont [role=kernel] ~ Normal
+program continuous_prog : Cont -> Cont
+    sample x <- kernel
+    return x
+export continuous_prog

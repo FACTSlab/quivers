@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from quivers.transpile._diagnostics import (
+    RefusedDeclaration,
+    user_facing_message,
+)
+
 if TYPE_CHECKING:
     from quivers.dsl.ast_nodes import Module, Statement
 
@@ -19,18 +24,57 @@ class UnsupportedConstruct(Exception):
     Attributes
     ----------
     target
-        The backend name (e.g., ``"qvr-stan"``).
+        Backend name, such as ``"qvr-stan"``.
     kinds
-        The unsupported QVR construct kinds, sorted, deduplicated.
+        Sorted, deduplicated construct identifiers suitable for programmatic
+        matching.
+    declarations
+        Affected top-level declarations, when applicable.
+    module_has_program
+        Whether the refused module declares a probabilistic program.
+
+    The exception message describes the unsupported constructs and possible
+    replacements. The structured identifiers remain available in ``kinds``.
     """
 
-    def __init__(self, target: str, kinds: list[str]) -> None:
+    def __init__(
+        self,
+        target: str,
+        kinds: list[str],
+        *,
+        declarations: tuple[RefusedDeclaration, ...] = (),
+        module_has_program: bool = False,
+    ) -> None:
         self.target = target
         self.kinds = sorted(set(kinds))
+        self.declarations = declarations
+        self.module_has_program = module_has_program
         super().__init__(
-            f"backend {target!r} does not support construct kinds: "
-            f"{', '.join(self.kinds)}"
+            user_facing_message(
+                target,
+                tuple(self.kinds),
+                declarations,
+                module_has_program,
+            )
         )
+
+
+_NO_TARGET_HEADS: frozenset[str] = frozenset(
+    {
+        "no-stan-target",
+        "no-bugs-target",
+        "no-jags-target",
+        "no-target-name",
+        "no-webppl-target",
+        "no-pymc-target",
+        "no-edward2-target",
+        "no-numpyro-target",
+        "no-pyro-target",
+        "no-gen-target",
+        "no-turing-target",
+        "no-church-target",
+    }
+)
 
 
 #: Statement kinds every PPL backend accepts: the probabilistic-program
@@ -115,11 +159,23 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
     didactic [`TaggedUnion`][didactic.api.TaggedUnion] discriminator
     (``"program_decl"``, ``"morphism_decl"``, etc.). Any kind not in
     ``allow`` is collected; if the resulting set is non-empty, raises.
+
+    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile.CATEGORICAL_METADATA_IGNORABLE]
+    kinds (``composition_decl``, ``category_decl``, ``schema_decl``,
+    ``bundle_decl``, ``rule_decl``, ``contraction_decl``,
+    ``signature_decl``, ``deduction_decl``) are accepted ALONGSIDE a
+    ``program_decl``: when the module has at least one program, the
+    walker ignores these metadata declarations and transpiles the
+    program. Without a ``program_decl`` they remain in `bad` so the
+    contract surfaces "no probabilistic program here to transpile."
     """
+    kinds = {cast_kind(s) for s in module.statements}
+    has_program = "program_decl" in kinds
+    effective_allow = allow | CATEGORICAL_METADATA_IGNORABLE if has_program else allow
     bad: set[str] = set()
     for statement in module.statements:
         kind = cast_kind(statement)
-        if kind not in allow:
+        if kind not in effective_allow:
             bad.add(kind)
     if bad:
         raise UnsupportedConstruct(target, sorted(bad))

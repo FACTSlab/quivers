@@ -21,13 +21,18 @@
 # mixing weights, the locations, and the scales), each shared across
 # every row of the Resp plate, and scores each row against the
 # K-component mixture they define.
+#
+# Resp is the plate the rows are observed over; Weights is the
+# value space of the returned mixing weights, a point of the
+# Component simplex embedded in R^K.
 
 composition log_prob [level=algebra]
 
 object Component : FinSet 3
 object Resp : FinSet 100
+object Weights : Real 3
 
-program gmm(alpha : Real) : Resp -> Resp
+program gmm(alpha : Real) : Resp -> Weights
     sample probs <- Dirichlet(alpha) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)

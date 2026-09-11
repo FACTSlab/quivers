@@ -1,5 +1,6 @@
 # Functors
 
-Functors between enriched categories preserving categorical structure and composition.
+The `Functor` interface and its identity, composition, and free-monoid
+implementations.
 
 ::: quivers.categorical.functors

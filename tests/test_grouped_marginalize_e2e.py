@@ -142,8 +142,8 @@ def test_svi_runs_on_grouped_marginalize_model() -> None:
 
 def test_svi_gradients_flow_into_continuous_latent_guide_params() -> None:
     """The gradient of the loss with respect to the guide's
-    mu_shift variational parameters must be non-zero and finite —
-    proving the marginalize block doesn't break the autograd chain."""
+    mu_shift variational parameters must be non-zero and finite,
+    showing that the marginalize block preserves the autograd chain."""
     src = _two_class_mixture_model()
     model = loads(textwrap.dedent(src)).morphism
     guide = AutoNormalGuide(model, observed_names={"probs", "idx", "_grouped_ll_cls_0"})
@@ -173,10 +173,9 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     marginalize block; checks that the recovered ``probs`` are
     close to the true proportions.
 
-    Tolerance is loose because mean-field VI on a mixture has
-    well-known bias toward the more populous component — but the
-    direction of the recovery (more populous component gets larger
-    weight) should be unambiguous."""
+    Tolerance is loose because mean-field VI on a mixture is biased
+    toward the more populous component. The test checks only that this
+    component receives the larger weight."""
     src = """
     composition log_prob [level=algebra]
 
@@ -342,16 +341,18 @@ def test_two_task_mixture_recovers_joint_proportions() -> None:
     ll_b[: n_b // 2, 0] = 1.0
     ll_b[n_b // 2 :, 1] = 1.0
     obs = {
-        "probs": torch.tensor([0.5, 0.5]),
         "idx_a": torch.tensor([0, 0, 1, 1, 2, 2, 3, 3]),
         "idx_b": torch.tensor([0, 1, 2, 3, 0, 1]),
         "_grouped_ll_cls_0": ll_a,
         "_grouped_ll_cls_1": ll_b,
     }
+    # `probs` is the latent the two heterogeneous observe blocks jointly
+    # identify, so it is inferred rather than clamped; the guide carries
+    # its variational parameters. The fibration indices and the grouped
+    # per-axis log-likelihoods are data.
     guide = AutoNormalGuide(
         model,
         observed_names={
-            "probs",
             "idx_a",
             "idx_b",
             "_grouped_ll_cls_0",

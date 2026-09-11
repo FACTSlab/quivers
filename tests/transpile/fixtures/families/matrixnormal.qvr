@@ -1,0 +1,9 @@
+# Hand-written MatrixNormal fixture (matrix family; Kronecker covariance).
+# ``over=[Row, Col]`` binds the two event axes to the Kronecker factors.
+object Row : FinSet 3
+object Col : FinSet 4
+morphism mn_kernel : Row * Col -> Row * Col [role=kernel, over=[Row, Col]] ~ MatrixNormal
+program matrixnormal_fixture : Row * Col -> Row * Col
+    sample m <- mn_kernel
+    return m
+export matrixnormal_fixture

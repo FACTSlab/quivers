@@ -11,7 +11,7 @@ Verifies:
   ``DUAL_LUKASIEWICZ``, ``DUAL_GODEL`` match the algebraic
   expectations.
 * :class:`CustomAlgebra` accepts user-supplied operations and
-  catches obviously-wrong axiom violations at construction time.
+  catches axiom violations at construction time.
 """
 
 from __future__ import annotations

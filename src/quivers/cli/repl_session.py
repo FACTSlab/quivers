@@ -359,6 +359,46 @@ class ReplSession:
             body_kind="qvr",
         )
 
+    def transpile_module(self, target: str) -> ReplResponse:
+        """Emit the loaded module as source for the named transpile
+        backend.
+
+        Mirrors the [`qvr transpile`][quivers.cli.transpile] CLI
+        subcommand, dispatched in-session against the currently-loaded
+        [`Module`][quivers.dsl.ast_nodes.Module]. Returns the
+        transpiled bytes decoded as UTF-8; never mutates session state.
+
+        Errors:
+
+        - No module loaded yet (caller must run ``:load FILE`` first).
+        - Empty or whitespace-only target string.
+        - Target is not in
+          [`available_targets`][quivers.transpile.available_targets].
+        - The walker raises
+          [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
+          (the message carries the offending construct kinds).
+        """
+        if self._compiler is None:
+            return _err("no environment loaded; use :load <FILE> first")
+        target = target.strip()
+        if not target:
+            return _err("usage: :transpile <TARGET>")
+
+        from quivers.transpile import (
+            UnsupportedConstruct,
+            available_targets,
+            transpile,
+        )
+
+        targets = available_targets()
+        if target not in targets:
+            return _err(f"unknown target {target!r}; available: {', '.join(targets)}")
+        try:
+            output = transpile(self._module, target=target)
+        except UnsupportedConstruct as e:
+            return _err(str(e))
+        return _resp(output.decode("utf-8"))
+
     def _value_line_for_name(self, bare: str) -> str | None:
         """Return the value-level signature for ``bare``, or None.
 
@@ -530,7 +570,7 @@ class ReplSession:
         depends on the parameter list:
 
         - Bare-identifier params (``P(q₁, …, qₖ) : τ₁ -> τ₂``) project
-          components of the domain. The kernel's signature is just
+          components of the domain. The kernel's signature is
           ``τ₁ -> τ₂``; the q_i are syntactic conveniences, not
           additional arguments, so they do not appear in the type.
         - Typed params (``alpha : Real``, ``X : Object``,
@@ -1590,6 +1630,10 @@ def _cmd_kind(s: ReplSession, arg: str) -> ReplResponse:
     return s.kind_of(arg)
 
 
+def _cmd_transpile(s: ReplSession, arg: str) -> ReplResponse:
+    return s.transpile_module(arg)
+
+
 def _cmd_info(s: ReplSession, arg: str) -> ReplResponse:
     parts = arg.split()
     if not parts:
@@ -1886,6 +1930,17 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         ),
     ),
     (
+        "code generation",
+        (
+            (
+                ":transpile TARGET",
+                "emit the loaded module as source for TARGET "
+                "(stan, numpyro, pyro, pymc, edward2, church, webppl, "
+                "turing, gen, bugs, jags)",
+            ),
+        ),
+    ),
+    (
         "control",
         (
             (":help", "show this dialog (Esc closes)"),
@@ -1922,6 +1977,7 @@ _META_COMMANDS = {
     "t": _cmd_type,
     "kind": _cmd_kind,
     "k": _cmd_kind,
+    "transpile": _cmd_transpile,
     "info": _cmd_info,
     "i": _cmd_info,
     "doc": _cmd_doc,
@@ -1956,6 +2012,7 @@ _HELP_SUMMARIES = {
     "reload": "re-run :load on the last file, diffing the env",
     "type EXPR": "print the type of a value-level expression (GHCi-style)",
     "kind TYPE": "print the kind of a type (GHCi-style)",
+    "transpile TARGET": "transpile the loaded module to TARGET (stan, numpyro, ...)",
     "info NAME": "show the declaration and source location of NAME (--python for AST repr)",
     "doc NAME": "render the doc comment attached to NAME",
     "browse [NS]": "list bound names, optionally per namespace",
@@ -1984,6 +2041,11 @@ _HELP: dict[str, str] = {
     "expressions like ``FinSet 3`` or ``A * B``. If <TYPE> names a "
     "value-level binding (morphism, program), the command reports an "
     "error directing you to :type.",
+    "transpile": "Emit the currently-loaded module as source for the named "
+    "TARGET backend. TARGET must be one of the names returned by "
+    "``quivers.transpile.available_targets()`` (stan, numpyro, pyro, pymc, "
+    "edward2, church, webppl, turing, gen, bugs, jags). The output is the "
+    "transpiled source bytes decoded as UTF-8.",
     "info": "Show NAME's declaration as verbatim .qvr source (sliced from the "
     "loaded file), plus the source location and any leading doc comment. "
     "Pass --python to see the didactic AST `repr()` instead.",
@@ -2316,7 +2378,7 @@ def _site_value_space(step: Any) -> str | None:
 def _site_signature(name: str, step: Any) -> str:
     """GHCi-style ``name :: type`` for a sample / observe / marginalize
     step. ``type`` is ``index -> value-space`` when both are known,
-    or just ``value-space`` when the step has no index.
+    or ``value-space`` when the step has no index.
     Falls back to the family call (``Dirichlet(alpha)``) when the
     value-space can't be read off the options.
     """

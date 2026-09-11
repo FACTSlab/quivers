@@ -1,0 +1,6 @@
+# Exercises SampleStep on its own.
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample theta <- Beta(2.0, 2.0)
+    return theta
+export prog

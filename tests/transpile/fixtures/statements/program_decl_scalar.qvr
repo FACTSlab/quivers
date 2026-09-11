@@ -1,0 +1,8 @@
+# Exercises ProgramDecl in its simplest form (scalar Obs, single
+# sample / observe / return).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample theta <- Beta(2.0, 2.0)
+    observe y <- Bernoulli(theta)
+    return theta
+export prog

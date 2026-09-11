@@ -20,6 +20,7 @@ import pytest
 import torch
 
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.spaces import ProductSpace
 from quivers.core.objects import FinSet
 from quivers.dsl import Compiler, load, loads
 from quivers.dsl.parser import parse_file
@@ -97,15 +98,21 @@ def _intermediates(z: torch.Tensor) -> dict[str, torch.Tensor]:
 
 def test_example_compiles_end_to_end() -> None:
     """The gallery example loads into a Program wrapping the exported
-    MonadicProgram, typed at the declared School plate."""
+    MonadicProgram, typed at the arrow the source declares.
+
+    `pooled_tight : School -> Effect * Scale` reads its domain from
+    the 8-school plate and returns the pair of real scalars the
+    program's two sites carry, so the codomain is that product rather
+    than the domain repeated.
+    """
     prog = load(str(_EXAMPLE))
     assert isinstance(prog, Program)
     morph = prog.morphism
     assert isinstance(morph, MonadicProgram)
     assert isinstance(morph.domain, FinSet)
     assert morph.domain.cardinality == 8
-    assert isinstance(morph.codomain, FinSet)
-    assert morph.codomain.cardinality == 8
+    assert isinstance(morph.codomain, ProductSpace)
+    assert [c.dim for c in morph.codomain.components] == [1, 1]
 
 
 def test_template_scalar_parameter_changes_forward_pass() -> None:

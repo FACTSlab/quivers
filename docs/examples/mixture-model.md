@@ -12,15 +12,44 @@ $$
 
 so the model carries no discrete latent: `MixtureNormal` integrates the component assignment out analytically, evaluating the marginal by [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$ components.
 
-## QVR Source
+## QVR source
 
 ```qvr
+# Bayesian Gaussian Mixture Model
+#
+# A finite Gaussian mixture with K components. Per-component means,
+# scales, and mixing weights are latents on the Component plate; each
+# observed row is drawn from the resulting mixture. The per-row
+# component assignment is integrated out in closed form by the
+# MixtureNormal likelihood, so the model carries no discrete latent.
+#
+# Generative structure:
+#
+#   probs    ~ Dirichlet(alpha)                    Component-simplex mixing weights
+#   mu_k     ~ Normal(0, 5)                        per-component mean
+#   sigma_k  ~ HalfNormal(1)                       per-component scale
+#   r_n      ~ MixtureNormal(probs, mu, sigma)     observed row
+#
+# Per-row marginal likelihood (closed form):
+#
+#   p(r_n) = sum_k probs[k] * Normal(r_n; mu[k], sigma[k]).
+#
+# MixtureNormal takes three per-component vector parameters (the
+# mixing weights, the locations, and the scales), each shared across
+# every row of the Resp plate, and scores each row against the
+# K-component mixture they define.
+#
+# Resp is the plate the rows are observed over; Weights is the
+# value space of the returned mixing weights, a point of the
+# Component simplex embedded in R^K.
+
 composition log_prob [level=algebra]
 
 object Component : FinSet 3
 object Resp : FinSet 100
+object Weights : Real 3
 
-program gmm(alpha : Real) : Resp -> Resp
+program gmm(alpha : Real) : Resp -> Weights
     sample probs <- Dirichlet(alpha) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
@@ -34,7 +63,7 @@ export gmm
 
 ## Walkthrough
 
-`composition log_prob [level=algebra]` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3` and `object Resp : FinSet 100` declare the two discrete plates: $K = 3$ mixture components and $N = 100$ observed rows. `program gmm(alpha : Real) : Resp -> Resp` parameterises the program by the Dirichlet concentration.
+`composition log_prob [level=algebra]` selects the log-probability semiring so the program's `Score` effect accumulates log-densities additively. `object Component : FinSet 3` and `object Resp : FinSet 100` declare the two discrete plates: $K = 3$ mixture components and $N = 100$ observed rows, and `object Weights : Real 3` is the value space of the returned mixing weights, a point of the component simplex embedded in $\mathbb{R}^K$. `program gmm(alpha : Real) : Resp -> Weights` parameterises the program by the Dirichlet concentration and declares that what it returns is a mixing-weight vector rather than a row index.
 
 The three `sample` steps draw the shared per-component parameters:
 
@@ -48,7 +77,7 @@ The three `sample` steps draw the shared per-component parameters:
 
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -113,10 +142,10 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The per-row likelihood `MixtureNormal(probs, mu, sigma)` is a [Kleisli arrow](https://en.wikipedia.org/wiki/Kleisli_category) $\mathsf{Resp} \to \mathsf{Resp}$ in the [Giry monad](https://doi.org/10.1007/BFb0092872). It is a finite convex combination of the $K$ Gaussian component measures, weighted by the categorical measure $\mathrm{probs}$ on `Component`: the Giry-monad mixture operation that draws a component from $\mathrm{Categorical}(\mathrm{probs})$, then a value from the chosen Gaussian, and keeps the marginal on the value. Equivalently, `MixtureNormal` is the [pushforward](https://en.wikipedia.org/wiki/Pushforward_measure) of the joint component-and-value measure along the projection $\mathsf{Component} \times \mathbb{R} \to \mathbb{R}$, which is exactly the closed-form marginal $\sum_k \mathrm{probs}[k]\,\mathcal{N}(\cdot;\,\mu[k],\,\sigma[k])$. Because the component index is integrated out inside the likelihood rather than sampled, the program carries no discrete latent to marginalise and every site it holds is continuous.
 
-## See Also
+## See also
 
 - [Latent Dirichlet Allocation](lda.md), the grouped discrete-mixture generalisation whose per-word topic assignment is integrated out by a scoped `marginalize` block.

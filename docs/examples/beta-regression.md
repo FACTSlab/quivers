@@ -4,14 +4,36 @@
 
 A multi-output beta regression ([Ferrari and Cribari-Neto 2004](https://doi.org/10.1080/0266476042000214501)) for response variables on the open unit interval. Each output dimension carries its own logit-link coefficients and precision; the per-cell mean is mapped through the [sigmoid](https://en.wikipedia.org/wiki/Logistic_function) link to the unit interval, and the [Beta](https://en.wikipedia.org/wiki/Beta_distribution) likelihood is reparameterised in mean / precision form.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Item : FinSet 200
-object Out : FinSet 3
-object Resp : FinSet 600
+# Multi-Output Beta Regression
+#
+# A multi-output beta regression for response variables on the
+# open unit interval. Each output dimension carries its own
+# logit-link coefficients and precision; the per-cell mean is
+# mapped through the sigmoid, and the Beta likelihood is
+# parameterised in its mean / precision form.
+#
+# Generative structure:
+#
+#   beta_0_d ~ Normal(0, 5)                       per-output intercept
+#   beta_1_d ~ Normal(0, 5)                       per-output slope
+#   phi_d    ~ HalfCauchy(2.5)                    per-output precision
+#   y_{n,d}  ~ Beta(mu * phi_d, (1 - mu) * phi_d) mu = sigmoid(eta)
+#
+# The mean / precision parameterisation gives mean mu and
+# variance mu * (1 - mu) / (1 + phi); per-output precision
+# permits heterogeneous dispersion across the response axis.
+#
+# Reference: [Ferrari and Cribari-Neto 2004](https://doi.org/10.1080/0266476042000214501).
 
-program beta_regression : Resp -> Resp
+object Item : FinSet 21
+object Out : FinSet 3
+object Resp : FinSet 63
+object Val : Real 1
+
+program beta_regression : Resp -> Val
     sample beta_0 : Out <- Normal(0.0, 5.0)
     sample beta_1 : Out <- Normal(0.0, 5.0)
     sample phi : Out <- HalfCauchy(2.5)
@@ -34,9 +56,11 @@ export beta_regression
 
 Per-output coefficient plates `beta_0 : Out` and `beta_1 : Out` carry one coefficient per response dimension; per-output precision `phi : Out` permits heterogeneous dispersion across the response axis. The per-cell linear predictor `eta = b0 + b1 * x` is mapped to the unit interval via `mu = sigmoid(eta)`. The mean / precision form of the Beta is `Beta(mu * phi, (1 - mu) * phi)`, giving mean `mu` and variance `mu * (1 - mu) / (1 + phi)`. Plate-gathers `beta_0[out_idx]`, `beta_1[out_idx]`, `phi[out_idx]` broadcast each output's coefficients across its share of the flat `Resp` plate.
 
+The program returns `beta_1`, an `Out`-indexed plate of real scalars, so the declared codomain is `Val : Real 1`: the per-row value space of the returned coefficients. `Resp` names the plate extent of the response and appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
@@ -114,7 +138,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model is a [Kleisli morphism](https://ncatlab.org/nlab/show/Kleisli+category) in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category whose codomain factors through the [unit interval](https://en.wikipedia.org/wiki/Unit_interval); the per-cell Beta likelihood factors through the link `sigmoid` as a `1 -> G((0, 1))` kernel. The plate-gather `beta_1[out_idx]` is the Kleisli pullback of the `Out`-indexed plate along the fibration `Resp -> Out` carried by the runtime index.
 

@@ -11,7 +11,7 @@ injections / case eliminators, product projections / pairings,
 parallel pairs, distributivity, terminal maps). Each operation is
 built as a concrete `ObservedMorphism` over the appropriate
 SetObject; composition uses the underlying algebra through the
-``>>`` operator and the factory helpers compose seamlessly.
+``>>`` operator, and the factory helpers use the same composition interface.
 
 Continuation, State, Reader, and Writer carry an extra typed
 parameter (the answer/state/environment/monoid). Their operations

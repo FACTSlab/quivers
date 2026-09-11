@@ -28,8 +28,14 @@
 object Verb : FinSet 12
 object Class : FinSet 4
 object Resp : FinSet 200
+object Val : Real 1
 
-program tree_categorical : Resp -> Resp
+# Resp is the response plate: 200 rows of a single real response.
+# Val is the program's codomain, the value space of what the
+# program returns. It returns the per-verb effect vector delta,
+# whose rows are single real numbers, so the codomain is Real 1
+# and not the Resp index the observations are plated over.
+program tree_categorical : Resp -> Val
     sample p_root <- Beta(1.0, 1.0)
     sample p_left <- Beta(1.0, 1.0)
     sample p_right <- Beta(1.0, 1.0)

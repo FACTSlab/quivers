@@ -144,56 +144,31 @@ class Formula(dx.Model):
 
 
 class FormulaData(dx.Model):
-    """The complement of a `Formula` under the
-    [`quivers.formulas.compile.FormulaToQVRModule`][quivers.formulas.compile.FormulaToQVRModule] lens.
+    """Store the nonstructural complement of a `Formula` lens mapping.
 
-    The emitted QVR [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] carries
-    the structural skeleton of the formula (which columns there are,
-    keyed by their QVR-legal identifier; whether each is an
-    intercept; the random-effect group / slope pairs; the family;
-    the response identifier in its QVR-legal form). It does *not*
-    carry:
-
-    * the per-row data arrays (those flow through the host-data
-      channel at fit time);
-    * the per-column / per-group / response *original* names (the
-      lens uses `_qvr_name` to normalize identifiers, which
-      replaces non-alphanumeric characters with underscores and is
-      therefore lossy);
-    * the per-column ``term`` label (presentation, ungrouped from
-      the lens forward output);
-    * the original formula string (presentation: the lens emits a
-      canonical AST that does not record user whitespace or
-      operator-precedence choices).
-
-    Those fields travel in the complement. ``backward(module,
-    complement)`` decodes the structural fields from the Module and
-    fuses them with this carrier to reproduce the original
-    `Formula` verbatim.
+    The emitted QVR module records formula structure under normalized
+    identifiers. This complement retains the source formula, original names,
+    presentation labels, per-row arrays, group levels, and group indices so
+    ``backward(module, complement)`` can reconstruct the original `Formula`.
 
     Attributes
     ----------
     formula : str
         Original formula string.
     response_name : str
-        Original (pre-`_qvr_name`) response column name.
+        Original response column name.
     response_values : np.ndarray
-        Response column values, shape ``(N,)``.
+        Response values with shape ``(N,)``.
     fixed_column_names : Mapping[str, tuple[str, str]]
-        Per-column ``(term, name)`` keyed by ``FixedColumn.qvr_name``.
-        Lets the decoder recover `FixedColumn.term` and
-        `FixedColumn.name` from the qvr-name surfaced in the
-        Module's latent declarations.
+        ``(term, name)`` pairs keyed by normalized fixed-column name.
     fixed_column_data : Mapping[str, np.ndarray]
-        Per-row predictor values, keyed by ``FixedColumn.qvr_name``.
+        Predictor values keyed by normalized fixed-column name.
     group_original_names : Mapping[str, str]
-        Per-group ``qvr_name → original group name``.
+        Original group names keyed by normalized group name.
     group_levels : Mapping[str, tuple[str, ...]]
-        Canonical per-group level ordering. Needed to populate
-        `Formula.group_levels` from the integer-coded
-        ``object G : K`` declarations the Module records.
+        Canonical level order for each group.
     group_indices : Mapping[str, tuple[int, ...]]
-        Per-row integer codes for each grouping factor.
+        Per-row integer codes for each group.
     """
 
     formula: str = ""

@@ -1,0 +1,9 @@
+# Hand-written InverseWishart fixture (matrix family).
+object Row : FinSet 3
+object Col : FinSet 3
+object Obs : Real 9
+morphism iw_kernel : Obs -> Obs [role=kernel] ~ InverseWishart
+program inversewishart_fixture : Obs -> Obs
+    sample sigma <- iw_kernel
+    return sigma
+export inversewishart_fixture

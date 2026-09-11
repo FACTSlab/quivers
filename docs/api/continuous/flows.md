@@ -1,5 +1,5 @@
 # Flows
 
-Normalizing flows and flow-based transformations.
+Normalizing flows and their transformations.
 
 ::: quivers.continuous.flows

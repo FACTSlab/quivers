@@ -1,8 +1,8 @@
 # QVR grammar VCS
 
 This directory holds a panproto VCS (`.panproto/`) that tracks the
-QVR grammar's evolution as a chain of panproto schema objects. Its
-sole purpose is to drive batch migration of every `.qvr` file in the
+QVR grammar's evolution as a chain of panproto schema objects. It
+drives batch migration of `.qvr` files in the
 repository (examples, doc code blocks, regression fixtures) whenever
 the grammar or AST shape changes.
 
@@ -22,7 +22,7 @@ grammars/qvr/vcs/
 
 ## Workflow
 
-Every grammar release follows the same three-step ritual:
+Every grammar release follows three steps:
 
 1. Generate the panproto schema for the new grammar. Two paths:
    * **Preferred** (once `panproto-grammars-all` vendors the
@@ -49,9 +49,9 @@ Every grammar release follows the same three-step ritual:
 A grammar/AST change typically touches every `.qvr` source in the
 tree. Hand-editing each one re-introduces drift, misses fenced doc
 blocks, and forks the migration logic across files. A single
-panproto migration computed from the schema delta is correct by
-construction: every file the migration touches is guaranteed to
-parse against the head grammar.
+panproto migration centralizes the schema delta and reduces drift.
+The migration command still parses and compiles its outputs; schema
+construction alone does not guarantee a valid program.
 
 ## Out of scope
 

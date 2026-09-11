@@ -39,7 +39,8 @@ schemas live in the [panproto VCS](#the-panproto-vcs-chain) at
 
 ## Common invocations
 
-Migrate one file in place to the latest release:
+Migrate one file in place from the default source revision to the
+current grammar:
 
 ```bash
 qvr migrate docs/examples/source/lda.qvr
@@ -76,18 +77,20 @@ the migration chain without migrating any files:
 qvr migrate --check
 ```
 
-`--from` defaults to the most recent released revision on the chain
-(the penultimate entry of `CHAIN`). `--to` defaults to `HEAD`, the
-working-tree grammar.
+`--from` defaults to the penultimate entry of `CHAIN` (currently
+`v0.14.0`). `--to` defaults to `HEAD`, an alias for the chain's final
+entry (currently `v0.15.0`).
 
 ## What survives migration
 
 What's preserved by the migrator today:
 
-- **Every declaration's semantics.** Each source decl becomes the
-  semantically-equivalent target decl, even when the surface
-  changed (e.g. `latent f : A -> B` becomes
-  `morphism f : A -> B [role=latent]`).
+- **Declarations handled by a full converter.** Each supported source
+  declaration becomes the semantically equivalent target declaration,
+  even when the surface changed (e.g. `latent f : A -> B` becomes
+  `morphism f : A -> B [role=latent]`). Identity-scaffold hops pass
+  bytes through and may fail final target validation when an older
+  construct needs a converter.
 - **Top-level comments.** Header comments (file preamble,
   between-decl explanations) pass through verbatim.
 - **In-body comments.** Comments inside `program`, `deduction`,
@@ -134,11 +137,13 @@ as the tuple `CHAIN`. Each adjacent pair has a module:
 | `v0.7.0 → v0.9.0` | identity scaffold |
 | `v0.9.0 → v0.10.0` | identity (grammar byte-identical) |
 | `v0.10.0 → v0.11.0` | full homogenization hop (all in-tree examples) |
+| `v0.11.0 → v0.14.0` | identity (target grammar is an extension) |
+| `v0.14.0 → v0.15.0` | full token-local converter; removed compose operators raise `MigrationError` |
 
-The 0.10.0 → 0.11.0 hop is the only one with full converters
-today. The earlier hops parse and pass through their source
-unchanged. They become non-trivial as users present older source
-files that need lowering; the
+The 0.10.0 → 0.11.0 and 0.14.0 → 0.15.0 hops have full converters.
+The earlier scaffold hops parse and pass their source through
+unchanged. They become non-trivial when older source needs lowering;
+the
 [`SOURCE_RULE_COVERAGE`](#-check-mode-coverage-against-the-vcs)
 machinery makes the missing converters discoverable.
 
