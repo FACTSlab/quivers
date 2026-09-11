@@ -1,15 +1,11 @@
 """Gallery-wide SVI + NUTS sweep.
 
-For every ``docs/examples/source/*.qvr`` example the test suite
-checks two contracts:
+For every ``docs/examples/source/*.qvr`` example, the suite checks:
 
 1. **SVI** drives the negative ELBO strictly down (or holds it flat
    if the model has already converged at the synthetic data's
-   noise floor). The harness synthesises the observations from the
-   example's own shape, identical to the way the ``Try it`` doc
-   blocks construct them, so a failure flags either a regression
-   in the compiler / runtime or a genuine fitting problem with the
-   example as written.
+   noise floor). The harness constructs observations from the
+   example's shape in the same way as its ``Try it`` block.
 
 2. **NUTS** runs to completion with finite log-density, positive
    acceptance, and zero divergences. Models with explicit
@@ -18,28 +14,23 @@ checks two contracts:
    :func:`bayesian_lift_parameters` so the same kernel applies
    uniformly.
 
-Slow examples (deep nonlinear nets, large transformers) carry the
-``@pytest.mark.slow`` marker so the default test invocation skips
-them while ``pytest -m slow`` runs the full sweep.
+Deep nonlinear networks and large transformers use the
+``@pytest.mark.slow`` marker.
 
 How this stays in sync with the gallery
 ---------------------------------------
 
-Two mechanisms keep the suite aligned with whatever ships under
-``docs/examples/``:
+The suite follows the contents of ``docs/examples/`` in two ways:
 
-* The ``stem`` parameter list is computed at collection time from
-  the *actual filesystem* — :func:`_all_example_stems` globs
+* The ``stem`` parameter list is computed at collection time by
+  :func:`_all_example_stems`, which globs
   ``docs/examples/source/*.qvr``. Adding (or deleting) a ``.qvr``
-  file automatically adds (or removes) a parametrised test case.
+  file adds or removes a parametrised test case.
 
 * The ``Try it`` code blocks inside ``docs/examples/*.md`` are
   extracted by :func:`test_gallery_try_it_blocks_execute` and
-  ``exec``'d under a sandboxed namespace. Doc snippets that don't
-  parse or that name a removed helper fail the suite immediately
-  rather than rotting silently. The block extractor honours an
-  HTML-comment opt-out (``<!-- pytest: skip -->``) so genuinely
-  illustrative pseudo-code can be excluded.
+  executed under a sandboxed namespace. An HTML comment
+  (``<!-- pytest: skip -->``) excludes illustrative pseudo-code.
 """
 
 from __future__ import annotations

@@ -161,17 +161,37 @@ exponential entries map to their obvious bijector counterparts.
 INLINE_CLAMP_TO_BIJECTOR: dict[str, Bijector] = {
     "id": Identity(),
     "softplus": _ClampAbove(EPS),
-    "softplus_shifted": _ClampAbove(0.1),
+    "softplus_shifted": _ClampAbove(EPS),
     "exp": _ClampAbove(EPS),
     "sigmoid": _ClampInterval(EPS, 1.0 - EPS),
 }
 """Per-transform safety clamps used on the inline call path.
 
-A `Bijector`-typed mirror of the historical inline-clamp table.
-The inline path applies the clamp to user-supplied literal or
-runtime parameters at construction time; the clamp is a
-projection onto the constraint set, so its
+A `Bijector`-typed mirror of the transform table, keyed by the
+*constraint set* each transform targets rather than by the shape
+of the transform itself. The inline path applies the clamp to
+user-supplied literal or runtime parameters at construction time,
+and the clamp is a projection onto that constraint set, so its
 `forward_log_det_jacobian` is zero.
+
+The projection reading is the whole contract, and it fixes the
+floor exactly at the constraint boundary: a clamp is allowed to
+move a parameter value that no distribution in the family admits,
+and is allowed to move nothing else. A floor set anywhere in the
+interior would silently rewrite the model for values the family
+does admit, replacing the requested density with a different one
+and reporting no error. That is why ``softplus_shifted`` shares
+``softplus``'s floor of [`EPS`][quivers.core._util.EPS] here even
+though the two transforms differ: every family declaring
+``softplus_shifted`` (a Student-t ``df``, a Gamma / Dirichlet /
+Kumaraswamy ``concentration``, an F ``df1`` / ``df2``) constrains
+that parameter to be *positive*, and the 0.1 offset the transform
+adds is a conditioning choice for unconstrained network output on
+the conditional path, not part of the parameter's support. An
+inline ``Kumaraswamy(a, b)`` whose per-row ``a`` falls below the
+offset is a perfectly ordinary member of the family, and scoring
+it under a shifted ``a`` would make the runtime disagree with
+every faithful rendering of the same program.
 """
 
 

@@ -29,7 +29,7 @@ object Resp : FinSet 200
 
 morphism net : Feature -> Target [param_source=mlp, hidden_dim=64] ~ Normal
 
-program bnn : Resp -> Resp
+program bnn : Resp -> Target
     observe y : Resp <- net(x)
     return y
 

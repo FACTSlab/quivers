@@ -43,6 +43,8 @@
 
 object Term : FinSet 8
 
+object LogWeight : Real 1
+
 # ---------------------------------------------------------------------------
 # Grammar deduction
 # ---------------------------------------------------------------------------
@@ -126,9 +128,12 @@ deduction Prover : Term -> Term [semiring=LogProb, depth=12]
 # ---------------------------------------------------------------------------
 # Fit program: the chart's goal weight is the inside log-marginal
 # of the sentence at the start symbol under the current parameters.
+# The program returns that log-marginal, one real number, so its
+# codomain is LogWeight : Real 1 rather than the Term index the
+# deduction ranges over.
 # ---------------------------------------------------------------------------
 
-program fit_grammar : Term -> Term
+program fit_grammar : Term -> LogWeight
     let chart = parse(Montague, sentence)
     score log_Z = chart.goal_weight()
     return log_Z

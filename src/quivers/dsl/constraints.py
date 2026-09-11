@@ -48,12 +48,21 @@ from quivers.stochastic.schema import SCHEMA_REGISTRY
 
 
 class Violation(dx.Model):
-    """One constraint-solver finding."""
+    """One constraint-solver finding.
+
+    ``severity`` defaults to ``"error"`` for backward compatibility:
+    legacy diagnostics emitted by `check_constraints` are always
+    errors. Compiler-emitted diagnostics (such as the
+    ``implicit-family-defaults`` deprecation) set ``severity`` to
+    ``"warning"`` so they surface in ``qvr check`` output without
+    failing the compile.
+    """
 
     code: str
     message: str
     line: int
     col: int
+    severity: str = "error"
 
 
 def check_constraints(module: Module) -> list[Violation]:

@@ -1,5 +1,5 @@
 # Transforms
 
-Operations and transformations on stochastic morphisms.
+Transformations of stochastic morphisms.
 
 ::: quivers.stochastic.transforms

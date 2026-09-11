@@ -1,0 +1,6 @@
+# Exercises ExportDecl explicitly (other fixtures also use it).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

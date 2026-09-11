@@ -146,7 +146,7 @@ def test_program_builder_renders_full_signature(lda_session):
 
     tmpl = lda_session._compiler.programs["lda"]
     head, children = _children_for_program("lda", tmpl)
-    assert head == "lda(alpha : Real, beta : Real) : Word -> Word", head
+    assert head == "lda(alpha : Real, beta : Real) : Token -> Mix", head
     # First three children are the two sample sites + the marginalize block.
     # The marginalize child has its own nested observe child.
     assert children, children
@@ -175,6 +175,7 @@ def test_deduction_builder_renders_rule_lines():
 
     s = ReplSession()
     s.load_file("docs/examples/source/ccg.qvr")
+    assert s._compiler is not None
     ded = s._compiler.deductions["CCG"]
     head, children = _children_for_deduction("CCG", ded)
     assert head == "CCG", head
@@ -280,14 +281,14 @@ def test_info_body_keyword_truecolor_is_unique_to_keywords(lda_session):
 
 def test_type_lda_emits_ghci_signature(lda_session):
     # GHCi-style: ``name :: dom -> cod``. Decl-style ``program
-    # lda(alpha, beta) : Word -> Word`` lives in :info / :browse.
-    assert lda_session.type_of("lda").body == ("lda :: (Real, Real) => Word -> Word")
+    # lda(alpha, beta) : Token -> Mix`` lives in :info / :browse.
+    assert lda_session.type_of("lda").body == ("lda :: (Real, Real) => Token -> Mix")
 
 
 def test_browse_includes_program_and_nested_steps(lda_session):
     body = lda_session.browse().body
     assert "programs:" in body
-    assert "lda(alpha : Real, beta : Real) : Word -> Word" in body
+    assert "lda(alpha : Real, beta : Real) : Token -> Mix" in body
     for needle in (
         "sample theta",
         "sample phi",
@@ -423,7 +424,7 @@ def test_scope_tree_deduction_rules_carry_paths():
 
 def test_scope_tree_category_headings_have_no_data(lda_session):
     """Category nodes (objects / programs / ...) must not be
-    clickable — their ``data`` is ``None``."""
+    clickable because their ``data`` is ``None``."""
     root = _build_fake_tree(lda_session)
     # Direct children of root are category headings.
     for child in root.children:
@@ -435,7 +436,7 @@ def test_resolve_click_target_accepts_scoped_paths():
     leaf format), not just bare identifiers."""
     from quivers.cli.repl_tui import resolve_click_target
 
-    leaf = _FakeNode(data="lda::z::w", label="observe w : Word <- ...")
+    leaf = _FakeNode(data="lda::z::w", label="observe w : Token <- ...")
     assert resolve_click_target(leaf) == "lda::z::w"
 
 

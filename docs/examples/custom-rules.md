@@ -1,6 +1,6 @@
 # Custom Sequent Rules
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Custom Rules
@@ -23,6 +23,26 @@
 
 object Term : FinSet 16
 
+object Rule : FinSet 16
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program custom_rules_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export custom_rules_prior
+
 deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
     atoms S, NP, N, VP, PP, Fwd, Bwd, span, the, dog, runs
     rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
@@ -41,13 +61,15 @@ Every rule in a `deduction { … }` block is a sequent declared in the DSL itsel
 
 ## Walkthrough
 
+`object Term : FinSet 16` is the index the deduction's domain and codomain range over; its cardinality is incidental, since rules match constructor-tagged tuples symbolically. `object Rule : FinSet 16` indexes the rule-weight vector instead, and the `custom_rules_prior` program puts an independent `Normal(0.0, 1.0)` on each of its coordinates. Both are indices: the values a site carries come from its family, not from the `FinSet`. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
+
 `atoms NAME, NAME, …` lists every identifier the rules may match literally. Category atoms (`S`, `NP`, `N`, `VP`, `PP`), slash constructors (`Fwd`, `Bwd`), and the chart-item constructor (`span`) are atoms. Identifiers that appear in a rule pattern but are *not* listed in `atoms` are pattern variables; the convention is single uppercase letters (`X`, `Y`, `Z`, `I`, `J`, `K`).
 
 Each rule's body is a sequent: comma-separated premises on the left of `|-`, a single conclusion on the right. The premise multiplicity determines whether the rule fires on a single chart cell (unary) or on a pair of adjacent cells (binary).
 
 A variable appearing multiple times in the same rule unifies across occurrences: in `fwd_app`, the `Y` in the first premise must match the `Y` in the second premise. Different rules instantiate independently.
 
-## DSL Features
+## DSL features
 
 - **`rule NAME : premises |- conclusion`**: a sequent rule. Arbitrary-arity premise lists are supported; the compiler dispatches to the appropriate chart-cell shape.
 - **Pattern variables vs atoms**: single-uppercase identifiers bind as wildcards; every other identifier in a rule pattern must appear in the `atoms` list.
@@ -86,6 +108,31 @@ regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
 corpus of sentences. The
 [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
 two standard surfaces.
+
+### Generating synthetic data
+
+The `custom_rules_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/custom_rules.qvr")
+model = prog.morphism
+
+N_RULES = 16
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
 
 ### MAP fit (Adam on rule & lexicon weights)
 
@@ -158,6 +205,6 @@ posterior $p(\mathbf{w} \mid s_1, \ldots, s_N) \propto p(\mathbf{w})
 [`bayesian_regression`](bayesian-regression.md) fits, with the chart
 total in place of the Gaussian likelihood.
 
-## Categorical Perspective
+## Categorical perspective
 
 Sequent rules are hyperedges in the rule-system multicategory. A binary rule is a 2-input / 1-output hyperedge whose endpoints are pattern templates; firing the rule against the chart is the substitution along a pattern morphism into the category of concrete chart items. Variable unification across premises is exactly the pullback in the category of variable assignments: two premise patterns sharing a variable `Y` constrain the two assignments to agree on `Y`'s value. The agenda's least-pre-fixed-point computation in the `LogProb`-enriched lattice of charts is independent of firing order (Goodman 1999 §3); the runtime picks a default strategy from rule arities and semiring properties.

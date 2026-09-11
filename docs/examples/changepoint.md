@@ -4,12 +4,35 @@
 
 A canonical Bayesian [change-point model](https://doi.org/10.2307/2347570) in the rate of a [Poisson](https://en.wikipedia.org/wiki/Poisson_distribution) series, with a single switch at an unknown time `tau`. The classical application is the British coal-mining disaster series: the rate of accidents per year drops at an estimated change-point in the late nineteenth century. Two rates, one before and one after the switch, are tied together by a soft indicator parameterized as $s(t) = \sigma(k \cdot (t - \tau))$, which is the standard differentiable relaxation of the indicator $\mathbf{1}\{t > \tau\}$ and lets gradient-based variational inference fit the change-point location directly.
 
-## QVR Source
+## QVR source
 
 ```qvr
-object Step : FinSet 100
+# Bayesian Change-Point Detection
+#
+# A canonical Bayesian change-point model with a single switch
+# in the rate of a Poisson series. The classical application is
+# the coal-mining disaster series: the rate of accidents per
+# year drops at an unknown change-point tau.
+#
+# Generative structure:
+#
+#   tau          ~ Uniform(0, T)                  change-point time
+#   rate_before  ~ Gamma(2, 1)                    rate before tau
+#   rate_after   ~ Gamma(2, 1)                    rate after tau
+#   y_t          ~ Poisson(rate_t)                rate_t = soft switch
+#
+# The soft-indicator parameterisation s = sigmoid(20 * (t - tau))
+# is a differentiable relaxation of 1{t > tau} that lets
+# gradient-based variational inference fit the change-point
+# location directly. Hard change-points require integer-valued
+# tau and a per-tau marginalize over a Tau-axis.
+#
+# Reference: [Carlin, Gelfand, and Smith 1992](https://doi.org/10.2307/2347570).
 
-program changepoint : Step -> Step
+object Step : FinSet 64
+object Val : Real 1
+
+program changepoint : Step -> Val
     sample tau <- Uniform(0.0, 100.0)
     sample rate_before <- Gamma(2.0, 1.0)
     sample rate_after <- Gamma(2.0, 1.0)
@@ -25,18 +48,20 @@ export changepoint
 
 ## Walkthrough
 
-`tau` is the change-point time with a uniform prior on the observation window. `rate_before` and `rate_after` are Gamma-prior intensities, each centered on a prior mean of 2 events per period. The identifier `t` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the per-step time vector. The soft indicator $s = \sigma(20 (t - \tau))$ with steepness 20 gives a sharp but differentiable switch; the per-step rate is the convex combination of the two regime rates, and the observation `y : Step <- Poisson(rate)` is the per-step Poisson likelihood.
+`tau` is the change-point time with a uniform prior over the 100-unit time window that the 64 steps of the `Step` plate fall inside. `rate_before` and `rate_after` are Gamma-prior intensities, each centered on a prior mean of 2 events per period. The identifier `t` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the per-step vector of absolute observation epochs. The soft indicator $s = \sigma(20 (t - \tau))$ with steepness 20 gives a sharp but differentiable switch; the per-step rate is the convex combination of the two regime rates, and the observation `y : Step <- Poisson(rate)` is the per-step Poisson likelihood.
 
 For a strict hard change-point with integer-valued `tau`, replace the soft indicator with a scoped `marginalize tau_idx : Tau <- Categorical(uniform) [reduction=logsumexp]` block whose indented body emits the per-step likelihood. The runtime then log-sum-exps the per-step likelihood over the `Tau` axis, realizing the exact Bayesian change-point posterior at the cost of a $|\mathsf{Tau}|$-fold widening of the inner loop.
 
+The program returns `tau`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Step` names the plate extent of the observed counts and appears in the signature only as the domain.
+
 ## Try it
 
-> The SVI step counts and NUTS warmup, sample, and chain budgets in the snippets below are illustrative: each block is sized to run in tens of seconds and demonstrate the API surface. Production fits typically need 10x to 100x more SVI steps, longer NUTS warmup, and multiple chains to actually converge to the data-generating parameters.
+> The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
 ### Generating synthetic data
 
-Pick concrete ground-truth rates and a change-point location, then forward-sample a Poisson count series whose intensity jumps from `rate_before` to `rate_after` at `tau_true`. The per-step time vector `t` is the host-data the program reads from the observations dict.
+Pick concrete ground-truth rates and a change-point location, then forward-sample a Poisson count series whose intensity jumps from `rate_before` to `rate_after` at `tau_true`. The per-step time vector `t` is the host-data the program reads from the observations dict, and it carries *absolute* epochs rather than row positions: each count accumulates over one unit-width period of the 100-unit window the `tau` prior spans, and is timestamped at that period's midpoint, so the series runs 18.5, 19.5, ... rather than 0, 1, .... Only `t - tau` enters the likelihood, so the offset leaves the joint unchanged while keeping the observation epoch distinct from the index of the step that reads it.
 
 ```python
 import torch
@@ -47,13 +72,15 @@ prog = load("docs/examples/source/changepoint.qvr")
 model = prog.morphism
 
 T = 64
-tau_true = 32
+t_start = 18.5
+n_before = 32
+tau_true = t_start + n_before
 rate_before, rate_after = 2.0, 5.0
 y = torch.cat([
-    torch.poisson(torch.ones(tau_true) * rate_before),
-    torch.poisson(torch.ones(T - tau_true) * rate_after),
+    torch.poisson(torch.ones(n_before) * rate_before),
+    torch.poisson(torch.ones(T - n_before) * rate_after),
 ])
-t_vec = torch.arange(T, dtype=torch.float32)
+t_vec = t_start + torch.arange(T, dtype=torch.float32)
 x_in = torch.zeros(T, 1)
 observations = {"y": y, "t": t_vec}
 ```
@@ -110,7 +137,7 @@ for name, samples in result.samples.items():
 ```
 
 
-## Categorical Perspective
+## Categorical perspective
 
 The model is a Kleisli morphism in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) whose denotation is the joint $p(\tau, r_1, r_2) \prod_t \mathrm{Poisson}(y_t \mid r(t; \tau, r_1, r_2))$. The soft indicator is the [reparameterisation gradient](https://doi.org/10.48550/arXiv.1312.6114)-friendly relaxation of an indicator function; in the hard-change-point variant, the discrete `tau_idx` is integrated out by `marginalize`, realizing the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the trivial projection from the time axis to a singleton.
 

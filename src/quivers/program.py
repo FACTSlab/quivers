@@ -84,7 +84,7 @@ class Program(nn.Module):
         """Build the error for ``domain`` / ``codomain`` access on a
         Program that wraps no morphism.
 
-        A ``TypeError`` (rather than ``AttributeError``) is essential
+        A ``TypeError`` (rather than ``AttributeError``) is required
         here: a property that raises ``AttributeError`` is re-routed
         through ``nn.Module.__getattr__``, which replaces the message
         with a generic missing-attribute one.

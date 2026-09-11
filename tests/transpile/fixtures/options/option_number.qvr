@@ -1,0 +1,7 @@
+# Exercises OptionNumber (`key=numeric_literal`).
+object Obs : Real 1
+morphism kernel : Obs -> Obs [role=kernel, scale=0.5] ~ Normal
+program prog : Obs -> Obs
+    sample x <- kernel
+    return x
+export prog

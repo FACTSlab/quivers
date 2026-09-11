@@ -1,0 +1,7 @@
+# Exercises OptionName (`key=identifier`).
+object Obs : Real 1
+morphism kernel : Obs -> Obs [role=kernel] ~ Normal
+program prog : Obs -> Obs
+    sample x <- kernel
+    return x
+export prog

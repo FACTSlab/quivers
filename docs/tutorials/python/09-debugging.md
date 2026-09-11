@@ -119,9 +119,9 @@ for step in range(20):                # bump to ~2000 for a real fit
         print(f"step {step:4d}  ELBO={-loss:.3f}  grad_norm={total_grad:.3f}")
 ```
 
-A healthy SVI run shows ELBO climbing monotonically (with noise) and grad_norm decreasing toward a small positive value. Failure modes:
+A healthy SVI run often shows an upward ELBO trend and decreasing gradient norms, but minibatch and Monte Carlo noise make neither trajectory monotonic. Failure modes:
 
-- ELBO climbing then plateauing well below the prior's log-density: the guide can't cover the posterior. Try a richer guide ([`AutoMultivariateNormalGuide`](../../api/inference/guide.md), [`AutoIAFGuide`](../../api/inference/guide.md)).
+- ELBO plateaus while posterior checks remain poor: the guide or optimizer may be inadequate. Try a richer guide ([`AutoMultivariateNormalGuide`](../../api/inference/guide.md), [`AutoIAFGuide`](../../api/inference/guide.md)) and check the learning rate.
 - ELBO going to `nan`: a sample-site log-density blew up. Drop in a `trace` call at the same step and find the offending site.
 - ELBO oscillating with grad_norm growing: learning rate too large. Halve it.
 

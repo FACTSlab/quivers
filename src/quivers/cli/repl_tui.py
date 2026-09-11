@@ -80,6 +80,7 @@ def run_tui(session: "ReplSession") -> int:
         "reload",
         "type",
         "kind",
+        "transpile",
         "info",
         "doc",
         "browse",

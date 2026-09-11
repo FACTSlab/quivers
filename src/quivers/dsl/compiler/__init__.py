@@ -6,8 +6,6 @@ Re-exports the public surface from the package's submodules.
 from quivers.dsl.compiler.core import Compiler
 from quivers.dsl.compiler._prelude import (
     CompileError,
-    _FAMILY_REGISTRY,
-    _FAMILY_EVENT_RANK,
     _ALGEBRA_REGISTRY,
     _available_axes_for,
     _family_event_rank,
@@ -21,8 +19,6 @@ from quivers.dsl.compiler._prelude import (
 __all__ = [
     "Compiler",
     "CompileError",
-    "_FAMILY_REGISTRY",
-    "_FAMILY_EVENT_RANK",
     "_ALGEBRA_REGISTRY",
     "_available_axes_for",
     "_family_event_rank",

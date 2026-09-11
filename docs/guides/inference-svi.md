@@ -1,7 +1,7 @@
 # Variational Inference: Guides, Objectives, and SVI
 
 This page covers the variational layer: the `Auto*Guide` family,
-the four objectives and four gradient estimators, the SVI training
+seven objectives and four gradient estimators, the SVI training
 loop, and predictive sampling from a trained guide. The MCMC layer
 (HMC, NUTS, hybrid samplers) lives in [the MCMC
 guide](inference-mcmc.md); the trace / conditioning / registry
@@ -105,7 +105,7 @@ log_q = guide.log_prob(x, z_map)
 [`SVI`](../api/inference/svi.md) accepts any
 [`Objective`](../api/inference/elbo.md) subclass, not just
 [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO).
-Four are shipped:
+Seven are shipped:
 
 | Objective | Bound | Use case |
 |---|---|---|
@@ -113,8 +113,12 @@ Four are shipped:
 | `IWAEBound(K, estimator=...)` | $\mathbb{E}[\log \tfrac{1}{K}\sum_k (p/q)_k]$ | Tighter than ELBO for $K > 1$ ([Burda et al. 2016](https://doi.org/10.48550/arXiv.1509.00519)) |
 | `RenyiBound(alpha, K)` | $\alpha$-divergence bound ([Li-Turner 2016](https://doi.org/10.48550/arXiv.1602.02311)) | $\alpha = 0$ recovers IWAE; $\alpha \to 1$ recovers the ELBO in the limit (the constructor rejects `alpha == 1.0` as numerically singular; use `ELBO` directly) |
 | `VRIWAEBound(alpha, K)` | Variational Rényi-IWAE ([Daudel et al. 2023](https://doi.org/10.48550/arXiv.2210.06226)) | Interpolates cheap-vs-tight regimes |
+| `ChiVI(n, K)` | Chi-squared upper bound (CUBO; [Dieng et al. 2017](https://doi.org/10.48550/arXiv.1611.00328)) | Over-covering approximation; pair with ELBO for lower/upper estimates |
+| `RWS(K)` | Reweighted wake-sleep ([Bornschein and Bengio 2015](https://doi.org/10.48550/arXiv.1406.2751)) | Discrete latents and importance-weighted wake updates |
+| `DReGsBound(K)` | IWAE bound with a doubly reparameterized gradient ([Tucker et al. 2019](https://doi.org/10.48550/arXiv.1810.04152)) | Switch the IWAE bound and DReG estimator together |
 
-Each accepts an `estimator=` strategy:
+The first six accept an `estimator=` strategy. `DReGsBound` fixes the
+strategy to `DoublyReparameterized` by definition:
 
 | Estimator | What it does |
 |---|---|
@@ -356,5 +360,7 @@ class MyGuide(Guide):
 - Geoffrey Roeder, Yuhuai Wu, and David Duvenaud. 2017. Sticking the landing: Simple, lower-variance gradient estimators for variational inference. arXiv preprint arXiv:1703.09194.
 - George Tucker, Dieterich Lawson, Shixiang Gu, and Chris J. Maddison. 2019. Doubly reparameterized gradient estimators for Monte Carlo objectives. arXiv preprint arXiv:1810.04152.
 - Kamélia Daudel, Joe Benton, Yuyang Shi, and Arnaud Doucet. 2023. Alpha-divergence variational inference meets importance weighted auto-encoders: Methodology and asymptotics. arXiv preprint arXiv:2210.06226.
+- Adji B. Dieng, Dustin Tran, Rajesh Ranganath, John Paisley, and David M. Blei. 2017. Variational inference via chi upper bound minimization. arXiv preprint arXiv:1611.00328.
+- Jörg Bornschein and Yoshua Bengio. 2015. Reweighted wake-sleep. arXiv preprint arXiv:1406.2751.
 - Yingzhen Li and Richard E. Turner. 2016. Rényi divergence variational inference. arXiv preprint arXiv:1602.02311.
 - Yuri Burda, Roger Grosse, and Ruslan Salakhutdinov. 2016. Importance weighted autoencoders. arXiv preprint arXiv:1509.00519.

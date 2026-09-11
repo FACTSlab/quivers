@@ -1,5 +1,6 @@
 # Traced Monoidal
 
-Traced monoidal categories with feedback and trace operations.
+Cartesian and iterative traced monoidal structures, with `trace` and
+`partial_trace` operations.
 
 ::: quivers.categorical.traced

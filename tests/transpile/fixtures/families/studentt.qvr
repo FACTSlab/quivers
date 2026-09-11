@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the StudentT family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ StudentT(5.0, 0.0, 1.0)`.
+object Obs : Real 4
+morphism studentt_kernel : Obs -> Obs [role=kernel] ~ StudentT(5.0, 0.0, 1.0)
+program studentt_fixture : Obs -> Obs
+    sample x <- studentt_kernel
+    return x
+export studentt_fixture

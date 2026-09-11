@@ -7,9 +7,8 @@ Exercises every source the completer fans out to:
 - Grammar-keyword and builtin-function/type catalogues.
 - File-system path completion for `:load`.
 
-The completer is what powers Tab in the TUI, the LSP's `completion`
-handler, the Jupyter kernel's `do_complete`, and the prompt_toolkit
-fallback, so every assertion here protects four surfaces at once.
+The TUI, LSP completion handler, Jupyter kernel, and prompt-toolkit
+fallback share this engine.
 """
 
 from __future__ import annotations

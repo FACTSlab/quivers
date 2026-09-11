@@ -7,13 +7,13 @@ This page gives a denotational semantics for the four declarations that constitu
 A `signature` declaration
 
 ```
-signature Σ [Π] {
-    sorts        { s_1 : k_1 [dim d_1] [vocab V_1], ... }
-    constructors { c_1 : s_{i_1,1}, ..., s_{i_1,n_1} -> t_1, ... }
-    binders      { β_1 : binds (x_1 : v_1 : a_1 : A_1, ...) in (b_1 : B_1, ...) -> r_1, ... }
-    vertex_kinds { ... }
-    edge_kinds   { ... }
-}
+signature Σ(Π)
+    sorts
+        s_1 : k_1 [dim=d_1]
+    constructors
+        c_1 : s_{i_1,1}, ..., s_{i_1,n_1} -> t_1
+    binders
+        β_1 : binds (x_1 : v_1 : a_1 : A_1) in (b_1 : B_1) -> r_1
 ```
 
 denotes a [*generalized algebraic theory*](https://ncatlab.org/nlab/show/generalized+algebraic+theory) $\mathrm{Th}_{\Sigma}$ together with its [initial algebra](https://ncatlab.org/nlab/show/initial+algebra) $T_{\Sigma}$.
@@ -61,8 +61,11 @@ The reserved tags $\mathrm{Data}$ and $\mathrm{BoundVar}$ are not user-declarabl
 The graph-shaped fragment replaces (or augments) the inductive signature with declarations
 
 ```
-vertex_kinds { K_1 : k_1 [dim d_1], ... }
-edge_kinds   { ε_1 : K_a -> K_b, ε_2 : K_c -- K_d, ... }
+vertex_kinds
+    K_1 : k_1 [dim=d_1]
+edge_kinds
+    ε_1 : K_a -> K_b
+    ε_2 : K_c -- K_d
 ```
 
 A vertex kind is the type of a vertex; an edge kind is a typed binary relation $\varepsilon \subseteq K_{\mathrm{src}} \times K_{\mathrm{tgt}}$, with `->` directed and `--` undirected. The corresponding initial structure is the category $\mathbf{Graph}_\Sigma$ of finite typed graphs over the kind signature: objects of a fixed labeled multi-relational shape with payload data on each vertex. Encoders interpret graph signatures via message-passing rather than structural recursion (§2.4).
@@ -73,23 +76,21 @@ The optional `[Π]` parameter list introduces sort-level parameters $\pi_1, \dot
 
 ## 2. Encoders
 
-An `encoder C over Σ` declaration
+An encoder declaration
 
 ```
-encoder C over Σ [σ_args] {
-    dim s = d_s , ...
-    [iterations n]
-    [readout |-> body_R]
-    op_1(args_1)   [recurrent state | attention prefix] |-> body_1
-    ...
-    init κ(arg)    |-> body_init_κ                          # graph
-    message[ε](s,t) |-> body_msg_ε                          # graph
-    update[K](v,m)  |-> body_upd_K                          # graph
-    var_init v_i [from A_i [as ty]] |-> body_var_i
-}
+encoder C : Σ(σ_args)
+    dim s = d_s
+    iterations n
+    readout |-> body_R
+    op op_1(args_1) recurrent state |-> body_1
+    init κ(arg) |-> body_init_κ
+    message[ε](s,t) |-> body_msg_ε
+    update[K](v,m) |-> body_upd_K
+    var_init v_i from A_i as ty |-> body_var_i
 ```
 
-or the factory form `encoder C over Σ using F [options]`, denotes a $\Sigma$-algebra homomorphism from the initial algebra into a fixed-dimension vector carrier algebra.
+denotes an executable encoder over the named signature. The current grammar has no `encoder ... using ...` factory form.
 
 ### 2.1 The carrier algebra
 
@@ -194,10 +195,6 @@ $$
 
 Undirected edges (`--`) emit messages in both directions; directed edges (`->`) only in the declared direction. The denotation is invariant under graph isomorphism and equivariant under the permutation action on vertices ([Battaglia et al., 2018](https://arxiv.org/abs/1806.01261), §4); the readout aggregates the final vertex-state field into a graph-level vector.
 
-### 2.5 Factory form
-
-`encoder C over Σ using F [options]` denotes the encoder produced by the registry entry $F$ in `quivers.structural.shapes` applied to the signature and the keyword overrides. Each registry entry $F$ is a builder function `(Σ, **options) ↦ Encoder` returning an `Encoder` directly. Both the explicit form and the factory form denote a $\Sigma$-algebra homomorphism $T_\Sigma \to \mathcal{A}_C$; the two forms share the same denotation when the factory's builder produces a per-op function family equivalent to the explicit body.
-
 ## 3. Decoders
 
 A `decoder D : Σ [depth=d]` declaration denotes, for each object sort $s \in S_{\mathrm{obj}}$ and each syntactic de Bruijn context $\Gamma$ (§1.2), a *Markov kernel*
@@ -260,7 +257,14 @@ is the *reconstruction kernel*. The reconstruction loss (§4.2 below) trains $C$
 
 ## 4. Losses
 
-A `loss L weight w on K T { body }` declaration denotes a scalar functional on a training site.
+A loss declaration has an option block followed by one indented let-expression:
+
+```
+loss L [weight=w, on=K, target=T]
+    body
+```
+
+The compiler interprets supported option keys as attachment metadata and the body as the scalar expression.
 
 ### 4.1 Attachment sites
 

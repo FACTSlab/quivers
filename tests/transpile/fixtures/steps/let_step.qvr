@@ -1,0 +1,9 @@
+# Exercises LetStep (in-body let binding).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(0.0, 1.0)
+    let mu = a + b
+    observe y <- Normal(mu, 0.5)
+    return mu
+export prog

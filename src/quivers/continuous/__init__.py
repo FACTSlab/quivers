@@ -105,17 +105,52 @@ from quivers.continuous.families import (
     ConditionalHorseshoe,
     # discrete-valued
     ConditionalBernoulli,
-    ConditionalBinomial,
     ConditionalCategorical,
+    # discrete count families
     ConditionalPoisson,
     ConditionalNegativeBinomial,
-    # ordinal and zero-inflated / hurdle / mixture
-    ConditionalOrderedLogistic,
+    ConditionalGeometric,
+    ConditionalBinomial,
+    # circular / simplex / one-hot / correlation
+    ConditionalVonMises,
+    ConditionalLogisticNormal,
+    ConditionalOneHotCategorical,
+    ConditionalLKJCholesky,
+    # distribution wrappers
+    ConditionalMixture,
+    ConditionalIndependent,
+    ConditionalTransformed,
+    Truncated,
+    LKJCorrelationFactor,
+    # shim distribution families
+    ConditionalBetaBinomial,
+    ConditionalLogistic,
+    ConditionalHalfStudentT,
     ConditionalZeroInflatedPoisson,
     ConditionalHurdlePoisson,
     ConditionalZeroOneInflatedBeta,
     ConditionalMixtureNormal,
 )
+from quivers.continuous.ordered import (
+    ConditionalOrderedLogistic,
+    ConditionalOrderedProbit,
+)
+from quivers.continuous.programs import (
+    MonadicProgram,
+)
+from quivers.continuous.scan import (
+    ScanMorphism,
+)
+from quivers.continuous.boundaries import (
+    Discretize,
+    Embed,
+)
+from quivers.continuous.flows import (
+    AffineCouplingLayer,
+    ConditionalFlow,
+)
+
+# Compositional measure-algebra families from main (0.14.x)
 from quivers.continuous._ordered import OrderedLogistic
 from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
@@ -135,20 +170,6 @@ from quivers.continuous.param_source import (
     ParamSource,
     make_param_source,
     param_source_from_option,
-)
-from quivers.continuous.programs import (
-    MonadicProgram,
-)
-from quivers.continuous.scan import (
-    ScanMorphism,
-)
-from quivers.continuous.boundaries import (
-    Discretize,
-    Embed,
-)
-from quivers.continuous.flows import (
-    AffineCouplingLayer,
-    ConditionalFlow,
 )
 
 # optional: GeneralizedPareto (torch version dependent)
@@ -226,17 +247,44 @@ __all__ = [
     "ConditionalHorseshoe",
     # discrete-valued conditional distributions
     "ConditionalBernoulli",
-    "ConditionalBinomial",
     "ConditionalCategorical",
+    # discrete count families
     "ConditionalPoisson",
     "ConditionalNegativeBinomial",
-    # ordinal and zero-inflated / hurdle / mixture
+    "ConditionalGeometric",
+    "ConditionalBinomial",
+    # circular / simplex / one-hot / correlation
+    "ConditionalVonMises",
+    "ConditionalLogisticNormal",
+    "ConditionalOneHotCategorical",
+    "ConditionalLKJCholesky",
+    # distribution wrappers
+    "ConditionalMixture",
+    "ConditionalIndependent",
+    "ConditionalTransformed",
+    "Truncated",
+    "LKJCorrelationFactor",
+    # shim distribution families
+    "ConditionalBetaBinomial",
+    "ConditionalLogistic",
+    "ConditionalHalfStudentT",
     "ConditionalOrderedLogistic",
+    "ConditionalOrderedProbit",
     "ConditionalZeroInflatedPoisson",
     "ConditionalHurdlePoisson",
     "ConditionalZeroOneInflatedBeta",
     "ConditionalMixtureNormal",
-    # underlying distribution classes
+    # monadic programs
+    "MonadicProgram",
+    # scan (temporal recurrence)
+    "ScanMorphism",
+    # boundaries
+    "Discretize",
+    "Embed",
+    # flows
+    "AffineCouplingLayer",
+    "ConditionalFlow",
+    # Compositional measure-algebra families from main
     "OrderedLogistic",
     "HurdlePoisson",
     "MixtureNormal",
@@ -254,14 +302,4 @@ __all__ = [
     "ComposeSource",
     "make_param_source",
     "param_source_from_option",
-    # monadic programs
-    "MonadicProgram",
-    # scan (temporal recurrence)
-    "ScanMorphism",
-    # boundaries
-    "Discretize",
-    "Embed",
-    # flows
-    "AffineCouplingLayer",
-    "ConditionalFlow",
 ]

@@ -9,14 +9,10 @@ named ``composition_decl`` / ``type_decl`` / etc. are shared
 across revisions where those rules appear), and commits the result
 via the Python :class:`panproto.Repository` API.
 
-Naming vertices by rule keeps the auto-derived migration between
-adjacent revisions cheap: panproto's vertex-mapping matches by name,
-so unchanged rules are recognised instantly and only the renamed /
-new / removed rules need any work. Compare with parsing
-``grammar.js`` as a JavaScript AST, which produces anonymous
-per-syntax-node vertices that share no labels across revisions and
-forces panproto into the combinatorial ``find_best_morphism``
-search.
+Naming vertices by rule lets panproto match unchanged rules by name
+when deriving migrations between adjacent revisions. Parsing
+``grammar.js`` as a JavaScript AST would instead produce anonymous
+syntax-node vertices without stable labels across revisions.
 
 Each VCS commit is tagged with the matching git tag name so a
 panproto migration can address any historical surface by the same

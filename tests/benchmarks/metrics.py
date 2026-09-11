@@ -1,15 +1,9 @@
 """Posterior comparison metrics for the benchmark suite.
 
-Metrics are split into two groups:
-
-* **Sample-based** (``posterior_mean_error``, ``posterior_variance_error``,
-  ``correlation_error``, ``total_variation_1d``, ``coverage``,
-  ``wasserstein_2_1d``) — consume tensors of draws and compare
-  against an analytical reference distribution / value.
-* **Chain-based** (``split_r_hat``, ``effective_sample_size``) —
-  consume ``(chain, draw, ...)``-shaped MCMC output and produce
-  the standard mixing diagnostics from Vehtari et al. 2021,
-  doi:10.1214/20-BA1221.
+Sample-based metrics compare draws with an analytical reference.
+Chain-based metrics consume ``(chain, draw, ...)``-shaped MCMC
+output and compute the diagnostics from Vehtari et al. (2021),
+doi:10.1214/20-BA1221.
 """
 
 from __future__ import annotations
@@ -145,7 +139,7 @@ def wasserstein_2_1d(samples_a: torch.Tensor, samples_b: torch.Tensor) -> float:
 
 
 def gaussian_kl(mu_a: float, var_a: float, mu_b: float, var_b: float) -> float:
-    """KL(N(mu_a, var_a) || N(mu_b, var_b)) — closed form.
+    """Return the closed-form KL(N(mu_a, var_a) || N(mu_b, var_b)).
 
     Useful when both the candidate and reference posteriors are
     Gaussian (Tier-1 Normal-Normal, Eight Schools mu).

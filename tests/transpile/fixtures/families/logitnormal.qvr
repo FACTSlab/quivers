@@ -1,0 +1,7 @@
+# Auto-generated fixture exercising the LogitNormal family.
+# Regenerate via tests/transpile/fixtures/_generate_families.py.
+object Obs : FinSet 8
+program logitnormal_fixture : Obs -> Obs
+    sample theta <- LogitNormal(0.0, 1.0)
+    return theta
+export logitnormal_fixture

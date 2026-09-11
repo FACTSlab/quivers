@@ -19,18 +19,26 @@
 # return tuple names the program's outputs. The export selects
 # which host program the compiled module runs.
 #
+# School is the plate the group summaries are observed over.
+# Effect and Scale are the value spaces of the two returned
+# quantities, both real scalars, so each host program's codomain
+# is the product Effect * Scale that its labeled return tuple
+# inhabits.
+#
 # References: [Rubin 1981](https://doi.org/10.3102/10769986006004377),
 # [Papaspiliopoulos et al. 2007](https://doi.org/10.1214/088342307000000014),
 # [Morris et al. 2019](https://doi.org/10.1016/j.sste.2019.100301).
 
 object School : FinSet 8
+object Effect : Real 1
+object Scale : Real 1
 
-program school_effects(spread : Real, K : FinSet) : K -> K
+program school_effects(spread : Real, K : FinSet) : K -> Effect
     sample z : K <- Normal(0.0, 1.0)
     let effect = spread * z
     return effect
 
-program pooled_tight : School -> School
+program pooled_tight : School -> Effect * Scale
     sample theta <- school_effects(0.6, School)
     sample sigma <- LogNormal(0.0, 0.5)
     let total_effect = sum(theta)
@@ -38,7 +46,7 @@ program pooled_tight : School -> School
     observe y : School <- Normal(theta, sigma)
     return (effects: theta, scale: sigma)
 
-program pooled_loose : School -> School
+program pooled_loose : School -> Effect * Scale
     sample theta <- school_effects(2.5, School)
     sample sigma <- LogNormal(0.0, 0.5)
     let total_effect = sum(theta)

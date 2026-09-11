@@ -1,0 +1,13 @@
+# Exercises LetExprMethodCall (`.method(args)` chain on a parser
+# chart). Requires a deduction whose `parse(...)` returns a chart.
+object Term : FinSet 16
+deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
+    atoms S, the
+    rule s_the : the |- S #[learnable]
+    lexicon
+        "the" : S = the
+program prog(sentence : Real) : Term -> Term
+    let chart = parse(PCFG, sentence)
+    score log_Z = chart.goal_weight()
+    return log_Z
+export prog

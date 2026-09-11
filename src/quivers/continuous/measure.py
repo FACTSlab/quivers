@@ -1,49 +1,18 @@
-"""Sub-Giry measure algebra: the compositional vocabulary for
-distributions.
+"""Sub-Giry measures and their primitive transformations.
 
-A `Measure` is an unnormalised positive measure on a Borel space.
-Probability distributions are the special case where the total
-mass is one; sub-probability measures arise naturally from
-restriction and from likelihood scoring. The runtime tracks the
-log of the total mass (the "log-normaliser") symbolically and
-only renormalises at the observe / sample boundary.
+A `Measure` is an unnormalized positive measure on a Borel space. Probability
+measures have total mass one; restrictions and likelihood scores may produce
+sub-probability measures. The runtime tracks total mass as a log normalizer and
+normalizes at sample or observation boundaries.
 
-The seven primitive constructions are:
-
-* [`PointMass(x)`][quivers.continuous.measure.PointMass] —
-  Dirac measure at `x`, the unit $\\eta$ of the Giry monad.
-* [`Restrict(D, low, high)`][quivers.continuous.measure.Restrict] —
-  restriction of `D` to a measurable subset, the sub-Giry monad's
-  natural operation. Does not renormalise.
-* [`Pushforward(D, b)`][quivers.continuous.measure.Pushforward] —
-  pushforward through a `Bijector`, the functoriality of the
-  Giry monad on measurable isomorphisms.
-* [`Mixture(weights, components)`][quivers.continuous.measure.Mixture] —
-  n-ary convex combination, the unique algebra structure on the
-  Giry monad's Eilenberg-Moore category.
-* [`Independent(D, n)`][quivers.continuous.measure.Independent] —
-  declare the last `n` batch dims as event dims (the strong
-  monoidal product of independent copies).
-* [`Normalize(D)`][quivers.continuous.measure.Normalize] —
-  rescale a sub-measure to a probability measure, lifting from
-  the sub-Giry to the Giry monad. Only defined where the total
-  mass is strictly positive.
-
-Categorical sources:
-
-* [Giry 1982](https://doi.org/10.1007/BFb0092872) — the probability monad.
-* [Panangaden 1999](https://doi.org/10.1016/S1571-0661(05)80602-4) —
-  sub-probability monad.
-* [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) —
-  disintegration and Bayesian inversion via string diagrams.
-* [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239) — Markov categories.
-* [Di Lavore, Roman, Sobocinski 2025](https://arxiv.org/abs/2502.03477) —
-  partial Markov categories; the foundation for treating
-  truncation, conditioning, and rescaling as one partial morphism.
+The module provides point masses, restriction, pushforward through a bijector,
+finite mixtures, event-dimension declarations with `Independent`, and
+normalization of positive-mass sub-measures.
 """
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 import torch
@@ -243,6 +212,13 @@ class Restrict(Measure):
                 )
             )
         except NotImplementedError:
+            symmetric = _symmetric_fold_log_normalizer(
+                self.base,
+                self.low,
+                self.high,
+            )
+            if symmetric is not None:
+                return symmetric
             return _discrete_restriction_log_normalizer(
                 self.base,
                 self.low,
@@ -662,6 +638,53 @@ class Normalize(Measure):
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
         return self.base.sample(sample_shape)
+
+
+def _symmetric_fold_log_normalizer(
+    base: Distribution,
+    low: Tensor | None,
+    high: Tensor | None,
+) -> Tensor | None:
+    """Closed-form log-normaliser for a one-sided restriction that
+    cuts a location-symmetric base at its own centre of symmetry.
+
+    A base whose density is symmetric about its location `loc`
+    (Normal, Cauchy, Laplace, StudentT, ...) splits exactly in half
+    at `loc`: the mass above `loc` and the mass below `loc` are each
+    `0.5`, whatever the tails. So a one-sided restriction to
+    `[loc, +inf)` or `(-inf, loc]` has mass `0.5`, i.e.
+    `log_normalizer = -log 2`, with no CDF required. This is the fold
+    that turns `Restrict(StudentT(nu, 0, s), low=0)` into the standard
+    half-Student-t whose density on the positive half is
+    `base.log_prob(x) + log 2`.
+
+    Returns the `-log 2` normaliser (shaped like `base.batch_shape`)
+    when the restriction is one-sided, the base exposes a `loc`, the
+    finite cut equals `loc` elementwise, and the base is numerically
+    symmetric about `loc`; returns `None` otherwise so the caller can
+    fall through to the discrete pmf-sum path.
+    """
+    one_sided = (low is None) != (high is None)
+    if not one_sided:
+        return None
+    loc = getattr(base, "loc", None)
+    if not isinstance(loc, Tensor):
+        return None
+    cut = low if high is None else high
+    if cut is None:
+        return None
+    cut = cut.to(dtype=loc.dtype)
+    if not bool(torch.isclose(loc, cut, atol=1e-7, rtol=1e-6).all()):
+        return None
+    scale = getattr(base, "scale", None)
+    ref = scale if isinstance(scale, Tensor) else torch.ones_like(loc)
+    for factor in (0.5, 1.0, 2.0):
+        delta = factor * ref
+        lp_above = base.log_prob(loc + delta)
+        lp_below = base.log_prob(loc - delta)
+        if not bool(torch.isclose(lp_above, lp_below, atol=1e-6, rtol=1e-5).all()):
+            return None
+    return torch.full_like(loc, -math.log(2.0))
 
 
 def _discrete_restriction_log_normalizer(

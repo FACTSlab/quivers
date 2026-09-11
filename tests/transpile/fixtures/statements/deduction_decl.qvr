@@ -1,0 +1,10 @@
+# Exercises DeductionDecl (categorical-algebra parser declaration).
+object Term : FinSet 16
+deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
+    atoms S, NP, VP, span
+    rule s_np_vp : span(I, K, NP), span(K, J, VP) |- span(I, J, S) #[learnable]
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+export prog

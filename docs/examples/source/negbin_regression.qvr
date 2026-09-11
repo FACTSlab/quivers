@@ -19,11 +19,12 @@
 # for finite overdispersion; per-output coefficients permit
 # heterogeneous count regimes across the response axis.
 
-object Item : FinSet 200
+object Item : FinSet 21
 object Out : FinSet 3
-object Resp : FinSet 600
+object Resp : FinSet 63
+object Val : Real 1
 
-program negbin_regression : Resp -> Resp
+program negbin_regression : Resp -> Val
     sample beta_0 : Out <- Normal(0.0, 5.0)
     sample beta_1 : Out <- Normal(0.0, 5.0)
     sample dispersion : Out <- Gamma(2.0, 0.5)

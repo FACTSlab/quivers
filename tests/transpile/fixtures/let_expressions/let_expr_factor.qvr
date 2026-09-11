@@ -1,0 +1,10 @@
+# Exercises LetExprFactor (tensor construction via `factor` binders).
+object Comp : FinSet 3
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample mu : Comp <- Normal(0.0, 1.0)
+    let scores = factor c : Comp in mu[c] * 2.0
+    let cell0 = scores[0]
+    observe y <- Normal(cell0, 1.0)
+    return cell0
+export prog

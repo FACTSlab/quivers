@@ -1,0 +1,8 @@
+# Exercises LetExprVar (bare variable reference).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    let aliased = x
+    observe y <- Normal(aliased, 1.0)
+    return aliased
+export prog

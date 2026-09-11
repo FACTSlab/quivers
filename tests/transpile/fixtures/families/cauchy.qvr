@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the Cauchy family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ Cauchy(0.0, 1.0)`.
+object Obs : Real 4
+morphism cauchy_kernel : Obs -> Obs [role=kernel] ~ Cauchy(0.0, 1.0)
+program cauchy_fixture : Obs -> Obs
+    sample x <- cauchy_kernel
+    return x
+export cauchy_fixture

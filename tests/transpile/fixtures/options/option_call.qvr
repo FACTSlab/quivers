@@ -1,0 +1,8 @@
+# Exercises OptionCall (`key=func(args)`; used in loss `on=` attachments).
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample x <- Bernoulli(0.5)
+    return x
+loss recon [weight=1.0, on=program(prog)]
+    -log_prob_sum
+export prog

@@ -1,5 +1,6 @@
 # Monoidal Structures
 
-Monoidal categories with tensor products, units, and coherence conditions.
+The `MonoidalStructure` interface with cartesian-product and
+coproduct implementations.
 
 ::: quivers.categorical.monoidal

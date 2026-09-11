@@ -70,7 +70,7 @@ word = FM.decode(idx)          # back to tuple
 
 ## Algebras: Enrichment Algebras
 
-An [`Algebra`](../api/core/algebras.md) $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a carrier set with a monoidal product, a join, a meet, and a negation. It defines the structure in which morphism values live and how morphisms compose. The strict-quantale subclass (idempotent, tropical, log-additive cases) additionally satisfies $\bigvee$-distributivity over $\otimes$; see [Algebras §2](../semantics/algebras.md#2-order-and-structure-preservation).
+An [`Algebra`](../api/core/algebras.md) $(\mathcal{L}, \otimes, \bigvee, \bigwedge, \neg, I, \perp)$ is a carrier set with a monoidal product, a join, a meet, and a negation. It defines the structure in which morphism values live and how morphisms compose. The strict-quantale subclass (idempotent, tropical, log-additive cases) additionally satisfies $\bigvee$-distributivity over $\otimes$; see [Algebras §2](../semantics/algebras.md#2-algebraic-scope).
 
 The six primitive operations:
 

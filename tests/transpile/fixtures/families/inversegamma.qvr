@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the InverseGamma family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ InverseGamma(3.0, 1.0)`.
+object Obs : Real 4
+morphism inversegamma_kernel : Obs -> Obs [role=kernel] ~ InverseGamma(3.0, 1.0)
+program inversegamma_fixture : Obs -> Obs
+    sample x <- inversegamma_kernel
+    return x
+export inversegamma_fixture

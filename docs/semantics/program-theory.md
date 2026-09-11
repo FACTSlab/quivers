@@ -1,98 +1,54 @@
-# The Program Theory
+# The Program-Shape Protocol
 
-The denotational semantics of the previous pages assigns each well-typed QVR module a morphism in $\mathbf{Kern}$ (or one of its sub-strata). This page introduces a *second*, schema-level denotation: every compiled module also lifts to a panproto `Schema` over a fixed protocol $\mathsf{QVR}$. The two interpretations are connected by a structure-preserving map, and the schema-level interpretation is what powers diff/migrate/lens-generation tooling on `.qvr` programs.
+`quivers.dsl.program_theory` provides a schema-level view of a compiled QVR environment. The word *theory* here names a panproto protocol, not a proof that schema equality captures program behavior.
 
-## 1. The protocol $\mathsf{QVR}$
+## 1. `QVR_PROGRAM_PROTOCOL`
 
-The constant `QVR_PROGRAM_PROTOCOL` defined in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) is a panproto protocol: a pair of generalized algebraic theories $(\mathcal{T}_{\mathrm{schema}}, \mathcal{T}_{\mathrm{instance}})$ together with vertex- and edge-kind declarations. Its content is summarized below.
+`QVR_PROGRAM_PROTOCOL` reuses panproto's `ThBratSchema` and `ThBratInstance` shape-graph theories with QVR-specific kinds, constraints, and edge rules.
 
-### 1.1 Vertex kinds
+The principal vertex groups are:
 
-Vertex kinds enumerate the runtime *value* layer:
+| Group | Representative kinds |
+|---|---|
+| Discrete values | `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set`, `enum_set`, `free_residuated` |
+| Continuous values | `euclidean`, `simplex`, `positive_reals`, `product_space` |
+| Declarations | `object_decl`, `space_decl`, morphism-role declarations, `output_decl`, `schema_decl` |
+| Root | `program` |
 
-| Group | Vertex kinds |
-|-------|--------------|
-| Discrete objects | `finset`, `product_set`, `coproduct_set`, `free_monoid`, `empty_set`, `enum_set`, `free_residuated` |
-| Continuous spaces | `euclidean`, `simplex`, `positive_reals`, `product_space` |
-| Declarations | `object_decl`, `space_decl`, `morphism_decl`, `kernel_decl`, `discretize_decl`, `embed_decl`, `output_decl`, `schema_decl` |
-| Module root | `program` |
+Edges record membership in the module, declaration-to-value bindings, product components, generators, morphism domains and codomains, and the selected output. Constraints record metadata such as names, cardinalities, dimensions, families, roles, and bounds.
 
-Each vertex carries a string label (typically the declared identifier or a synthesized key) and the kind-specific payload (cardinality, dimension, family name, …).
+## 2. Extraction
 
-### 1.2 Edge kinds
+`extract_program_schema(compiler)` reads a populated `Compiler` environment and returns a `panproto.Schema` with protocol name `qvr_program`. `extract_deduction_schema(compiler)` performs the analogous extraction for deduction structures.
 
-Edges encode structural relations:
+The writer caches emitted runtime objects by Python identity. This avoids collapsing two equal-looking component occurrences into one vertex when repeated edges would otherwise be lost under panproto's edge-set semantics.
 
-| Edge kind | Source | Target | Meaning |
-|-----------|--------|--------|---------|
-| `decl` | `program` | any `*_decl` | Declaration is part of the module |
-| `binds_to` | `object_decl`, `space_decl` | object / space vertex | Declared name binds to its semantic value |
-| `component` | `product_set`, `coproduct_set`, `product_space` | object / space vertex | Position in a finite tuple |
-| `generators` | `free_monoid`, `free_residuated` | `finset`, `enum_set` | Underlying alphabet |
-| `domain` | morphism / kernel / discretize / embed `_decl` | object / space vertex | Domain of the declaration |
-| `codomain` | morphism / kernel / discretize / embed `_decl` | object / space vertex | Codomain of the declaration |
-| `output` | `program` | `output_decl` | The module's public export |
+Extraction is deterministic for the cases covered by `tests/test_program_theory.py`, and every example schema in that test validates against `QVR_PROGRAM_PROTOCOL`.
 
-The schema and instance theories of $\mathsf{QVR}$ are panproto's `ThBratSchema` and `ThBratInstance` (the shape-graph theories used by the brat protocol family); the QVR protocol reuses them and specializes via the kind enumerations and edge rules above.
+## 3. What a schema records
 
-## 2. The extraction functor
+The schema records static shape and selected declaration metadata. It does not contain learned tensors, observations, optimizer state, distribution objects, or the executable bodies needed to reconstruct a kernel.
 
-The function `extract_program_schema` in [`quivers.dsl.program_theory`](../api/dsl/program_theory.md) realizes a *functor*
+Thus two practical implications follow.
 
-$$
-\mathcal{S} : \mathrm{Modules}_{\mathrm{compiled}} \to \mathrm{Schema}(\mathsf{QVR}),
-$$
+First, a nonempty `panproto.diff_schemas(a, b)` identifies a structural difference between extracted environments. The test suite checks this on distinct example programs.
 
-from the category of well-typed, compiled QVR modules (with module morphisms given by environment-preserving renamings) to the category of schemas over $\mathsf{QVR}$.
+Second, equal extracted schemas do not imply equal program behavior. Two compilations may share all recorded vertices, edges, and constraints while carrying different parameter values or executable functions.
 
-Concretely, $\mathcal{S}$ walks the resolved environment $\rho_{\mathrm{obj}} \cup \rho_{\mathrm{spc}} \cup \rho_{\mathrm{mor}}$ produced by the compiler and emits one vertex per binding. The walk is *id-based*: two structurally-equal `dx.Model` instances declared under different identifiers produce two distinct vertices (sharing structural payload but with distinct labels), reflecting the user's intent that distinct declarations are distinct schema elements.
+## 4. Migration scope
 
-## 3. Two denotations, one module
+Panproto schema operations may consume the extracted shape, but this module does not itself define `auto_lens`, prove lens laws, migrate `.qvr` source, or implement an evaluator from `(Schema, parameters)` back to a QVR kernel. Those are separate operations and require their own validation.
 
-For a compiled module $M$ we therefore have two denotations:
+In particular, renaming a schema vertex does not by itself rename every reference in source text or preserve learned state. Source migration is handled by the grammar migration tooling, while parameter migration needs an explicit value-level policy.
 
-$$
-\llbracket M \rrbracket_{\mathrm{kern}} \in \mathbf{Kern}\bigl(\llbracket \tau_{\mathrm{in}} \rrbracket, \llbracket \tau_{\mathrm{out}} \rrbracket\bigr),
-\qquad
-\mathcal{S}(M) \in \mathrm{Schema}(\mathsf{QVR}).
-$$
+## 5. Evidence
 
-These are related by a *forgetful* projection: $\mathcal{S}(M)$ enumerates the *generators* of $\llbracket M \rrbracket_{\mathrm{kern}}$, but does not record the numerical content of any morphism (no tensor data, no learned parameters). Two modules $M_1, M_2$ with $\mathcal{S}(M_1) = \mathcal{S}(M_2)$ have *isomorphic shape*, but their kernel denotations may differ on the parameter values.
+`tests/test_program_theory.py` checks that:
 
-## 4. Diff, migrate, and lens generation
+1. every current example produces a validating `qvr_program` schema;
+2. extracted schemas contain a `program` root;
+3. selected object and output metadata are recorded;
+4. structurally distinct examples produce a nonempty diff;
+5. recompiling the same example produces schemas with the same recorded structure.
 
-Because $\mathcal{S}(M) \in \mathrm{Schema}(\mathsf{QVR})$, every panproto operation on schemas is automatically available on `.qvr` modules:
-
-- $\mathrm{diff} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Patch}(\mathsf{QVR})$: produce a structural diff between two modules;
-- $\mathrm{auto\_lens} : \mathrm{Schema}(\mathsf{QVR})^2 \to \mathrm{Lens}(\mathsf{QVR})$: derive a bidirectional migration lens between two module versions;
-- $\mathrm{check} : \mathrm{Schema}(\mathsf{QVR})^2 \times \mathrm{Lens}(\mathsf{QVR}) \to \mathrm{Bool}$: check that a candidate lens satisfies the GetPut/PutGet round-trip laws.
-
-These operate on the *shape* of a module (its declarations and the relations between them) and not on its parameter values. Numerical-content migration, e.g.\ initializing the parameters of a renamed `latent` morphism from those of the original, is a separate concern, handled by panproto's *field-transform* layer ([Field Transforms](https://panproto.dev/skills/panproto-field-transforms.html)) using `compute-field` / `coerce-type` rules.
-
-## 5. Naturality
-
-The extraction $\mathcal{S}$ is *natural* in the following sense. Let $\phi : \rho \to \rho'$ be a renaming of the resolved environment that preserves structural payload (changes only identifiers). Then there is an induced renaming $\phi^{*} : \mathcal{S}(M_{\rho}) \to \mathcal{S}(M_{\rho'})$ on the level of schemas, and $\mathcal{S}$ commutes with this action:
-
-$$
-\mathcal{S}(M_{\phi(\rho)}) \;=\; \phi^{*}\bigl(\mathcal{S}(M_{\rho})\bigr).
-$$
-
-This naturality is what licenses the use of panproto's auto-lens generation on QVR modules: the lens search may freely rename vertices, knowing that the underlying denotation is preserved up to the canonical relabelling.
-
-## 6. Connection to the kernel denotation
-
-There is an *evaluation functor*
-
-$$
-\mathrm{eval} : \mathrm{Schema}(\mathsf{QVR}) \times \Theta \to \mathbf{Kern}
-$$
-
-that takes a schema and a parameter assignment $\theta \in \Theta$ (where $\Theta$ collects the parameters of all `latent` and `kernel` declarations in the schema) and produces the corresponding kernel. The denotation $\llbracket M \rrbracket_{\mathrm{kern}}$ is recovered by
-
-$$
-\llbracket M \rrbracket_{\mathrm{kern}} \;=\; \mathrm{eval}\bigl(\mathcal{S}(M),\ \theta_M\bigr),
-$$
-
-where $\theta_M$ is the parameter assignment realized in the compiled module's PyTorch state. This factorization is the formal statement that the schema layer captures the *type structure* and the kernel layer captures the *parameter content*.
-
-The implementation does not currently expose `eval` as a stand-alone operation; it is implicit in the compiler's tensor-construction pass.
+These checks establish the extractor's current shape contract. They do not establish functoriality, naturality, or behavioral equivalence.

@@ -16,16 +16,16 @@ The program syntax mirrors probabilistic programming languages
 
 ```
 program name : domain -> codomain
-    x_1 <- morphism_1
-    x_2 <- morphism_2(x_1)
+    sample x_1 <- morphism_1
+    sample x_2 <- morphism_2(x_1)
     let y = x_1 + x_2
     observe z <- morphism_3(y)
     return y
 ```
 
-Each `<-` bind samples from a conditional distribution, binding the
-result. The `observe` keyword conditions the program on an external
-observation.
+Each `sample ... <- ...` step draws from a conditional distribution
+and binds the result. The `observe` keyword conditions the program on
+an external observation.
 
 ## Program structure
 
@@ -72,29 +72,29 @@ log_joint = program.log_joint(
 
 ## Bind steps
 
-A bind step `x <- f` or `x <- f(y, z)` samples from a morphism,
+A bind step `sample x <- f` or `sample x <- f(y, z)` samples from a morphism,
 optionally conditioned on previous variables.
 
 Single bind:
 
 ```
-x <- prior_f
+sample x <- prior_f
 ```
 
 Conditioned bind:
 
 ```
-y <- likelihood_f(x)
+sample y <- likelihood_f(x)
 ```
 
 Destructuring tuple bind (stacked along feature dimension):
 
 ```
-(x, y) <- joint_f(z, w)
+sample (x, y) <- joint_f(z, w)
 ```
 
 The variable names on the left side are bound in the environment.
-An indexed bind `v : A <- F(args)` declares `v` as an
+An indexed bind `sample v : A <- F(args)` declares `v` as an
 $A$-indexed plate of independent draws.
 
 ## Let steps
@@ -279,16 +279,16 @@ Extract multiple values from a tuple-returning sub-program:
 
 ```
 program sub : X -> Y * Y
-    (a, b) <- some_morphism
+    sample (a, b) <- some_morphism
     return (a, b)
 
 program main : X -> Z
-    (u, v) <- sub
-    w <- g(u, v)
+    sample (u, v) <- sub
+    sample w <- g(u, v)
     return w
 ```
 
-The pattern `(u, v) <- sub` destructures the output.
+The pattern `sample (u, v) <- sub` destructures the output.
 
 ## Observation clamping
 
@@ -314,7 +314,7 @@ For multiple domain inputs, stack along the feature dimension:
 
 ```
 program f(x_val, y_val) : (X * Y) -> Z
-    z <- g(x_val, y_val)
+    sample z <- g(x_val, y_val)
     return z
 ```
 

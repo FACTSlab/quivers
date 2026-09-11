@@ -197,21 +197,21 @@ A short check that exercises every distinguishing surface feature:
 
 <!-- compile: false -->
 ```qvr
-object D : FinSet 32
-object K : FinSet 64
-object SD : Real 32
-object SK : Real 64
+object Item : FinSet 32
 
-morphism W : SD -> SK [role=latent, over=[dom, cod]] ~ MatrixNormal(0.0, 1.0)
-morphism softmax_link : SK -> SK ~ Normal
-program regression : SD -> SK [effects = [Sample, Score]]
-    let z = W >> softmax_link
-    observe y : K <- Normal(z, 0.5)
+program regression : Item -> Item [effects=[Sample, Score]]
+    sample sigma <- HalfNormal(1.0)
+    sample beta <- Normal(0.0, 2.0)
+    let mu = beta * x
+    observe y : Item <- Normal(mu, sigma)
     return y
 
 export regression
 ```
 
-When the highlighting is wired up, keywords (`object`, `morphism`, `program`, `let`, `observe`, `return`, `export`), the option-block keys and the family-init sigil (`role=`, `over=`, `effects=`, `~`), the `<-` Kleisli-bind punctuation, the family identifiers (`MatrixNormal`, `Normal`), and the comments (none here, but `#`-prefixed lines anywhere in the file) all carry distinct colors.
+When the highlighting is wired up, keywords (`object`, `program`,
+`sample`, `let`, `observe`, `return`, `export`), the `effects` option,
+the `<-` bind punctuation, family identifiers (`HalfNormal`, `Normal`),
+and comments carry distinct colors.
 
 If a token is unhighlighted (rendered as default-foreground text), the corresponding rule in the editor's highlight query is the place to look; the canonical reference is [`grammars/qvr/queries/highlights.scm`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/queries/highlights.scm).

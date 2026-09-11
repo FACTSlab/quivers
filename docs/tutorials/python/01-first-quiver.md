@@ -1,6 +1,6 @@
 # Tutorial 1: Your First Quiver
 
-In this tutorial, you will create a simple enriched category and work with morphisms as tensors. A quiver in this context is a directed graph where edges carry values in a lattice ([algebra](https://ncatlab.org/nlab/show/algebra)) rather than being abstract. When the algebra is $[0, 1]$ with product t-norm and noisy-OR, morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$.
+A quiver here is a directed graph whose edges carry values in a lattice ([algebra](https://ncatlab.org/nlab/show/algebra)). When the algebra is $[0, 1]$ with product t-norm and noisy-OR, its morphisms are fuzzy relations: functions from pairs of objects to truth values in $[0, 1]$. This chapter constructs these objects and morphisms as tensors, composes them, and exposes their parameters to PyTorch.
 
 If you're coming from Stan, PyMC, or Pyro: the Python API is the lower-level interface that the [QVR DSL](../qvr/01-first-model.md) compiles to. You write models as compositions of typed tensors instead of as `program` blocks. Use this track when you want to build new categorical constructs, write libraries on top of quivers, or read the type errors emitted by the DSL compiler. For day-to-day modelling, the DSL track is the right entry point.
 
@@ -24,7 +24,7 @@ from quivers.core.algebras import PRODUCT_FUZZY
 from quivers.program import Program
 ```
 
-## Creating Objects
+## Creating objects
 
 Create three finite sets: one for positions (X), one for colors (Y), and one for outcomes (Z):
 
@@ -40,9 +40,9 @@ print(Z.size)   # 2
 
 Each object has a shape and size. These define the dimensions of the tensors representing morphisms.
 
-## Creating Morphisms
+## Creating morphisms
 
-### Latent Morphism
+### Latent morphism
 
 A latent morphism has learnable tensor entries. Create one from X to Y using [`morphism`](../../api/core/morphisms.md):
 
@@ -65,7 +65,7 @@ print(len(params))  # 1
 print(params[0].shape)  # torch.Size([3, 4])
 ```
 
-### Observed Morphism
+### Observed morphism
 
 An observed morphism has a fixed, non-learnable tensor. Create one from Y to Z with explicit data using [`observed`](../../api/core/morphisms.md):
 
@@ -132,7 +132,7 @@ $$
 
 In PRODUCT_FUZZY, $\otimes$ is multiplication and $\bigvee$ is $1 - \prod_i (1 - x_i)$.
 
-## Accessing Tensor Values
+## Accessing tensor values
 
 Once composed, access the materialized tensor:
 
@@ -196,7 +196,7 @@ Other algebras are available ([`BOOLEAN`](../../api/core/algebras.md), [`LUKASIE
 2. How they compose
 3. The semantics of the resulting values
 
-For now, PRODUCT_FUZZY is the natural choice for fuzzy relations.
+The examples use `PRODUCT_FUZZY` because their entries denote fuzzy membership and compose by product and noisy-OR.
 
 ## Summary
 

@@ -670,33 +670,16 @@ class _ExpressionsMixin:
             raise CompileError(str(e), expr.line, expr.col) from e
 
     def _compile_chart_fold(self, expr):
-        """Compile a chart_fold(...) primitive expression.
+        """Compile a ``chart_fold(...)`` primitive expression.
 
-        chart_fold is the primitive form; parser(rules=...) is the
-        surface sugar over it. Given a lexical morphism
-        ``lex : Token -> Cat`` plus a binary morphism (and optional
-        unary morphism) on Cat, it constructs an InsideAlgorithm-based
-        chart parser. The user-visible structure of the parser is
-        therefore expressible from primitives, with no opaque parser()
-        call required.
+        ``parser(rules=...)`` is surface syntax for this primitive. A lexical
+        morphism, a binary morphism, and an optional unary morphism define the
+        `InsideAlgorithm` chart parser.
 
-        Effect-typed chart cells (``effect_depth`` > 0) extend the
-        category universe to ``Cat × EffectStack_{≤d}`` via the
-        class-driven lifting machinery in
-        [`quivers.stochastic.effect_lifts`][quivers.stochastic.effect_lifts]; the caller is expected
-        to have constructed ``binary`` (and any ``unary``) over this
-        enlarged universe, typically via
-        [`quivers.stochastic.effect_lifts.lift_rule_set`][quivers.stochastic.effect_lifts.lift_rule_set] over the
-        declared `EffectDecl` instances in scope. The
-        ``effect_depth`` integer flows through to the parser as the
-        depth bound used for any depth-truncating reductions over
-        intermediate cells.
-
-        Handler firings (``handlers=`` argument) are applied as a
-        post-composition step on the parser's denotation: the final
-        chart cell is routed through each handler's `run`
-        morphism in declared order, reducing the effect stack as the
-        handlers compose.
+        When ``effect_depth`` is positive, the category universe is extended
+        with bounded effect stacks. The supplied binary and unary morphisms
+        must act on that enlarged universe. Each declared handler is then
+        post-composed with the parser's denotation in declaration order.
         """
         from quivers.stochastic.inside import InsideAlgorithm
 

@@ -1,12 +1,12 @@
 # Agenda-based Deduction
 
-The concrete chart implementation underlying every weighted
-deduction in the DSL. `DeductionSystem` ties an axiom injector,
-a rule system, a semiring, and an agenda schedule into an
-`nn.Module`; `ChartView` is the differentiable presheaf returned
-from `DeductionSystem.__call__`.
+The concrete chart implementation used for DSL-compiled weighted
+deductions. `DeductionSystem` combines an axiom injector, a rule
+system, a semiring, and an agenda schedule in an `nn.Module`.
+`DeductionSystem.__call__` returns the differentiable `ChartView`
+presheaf.
 
-For the user-facing surface (fit, sample, NUTS wrap), see
+For fitting, sampling, and the NUTS wrapper, see
 [`api/stochastic/deduction`](deduction.md).
 
 ::: quivers.stochastic.agenda

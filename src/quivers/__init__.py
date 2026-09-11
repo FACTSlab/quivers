@@ -286,6 +286,28 @@ from quivers.continuous import (
     # families — discrete-valued
     ConditionalBernoulli,
     ConditionalCategorical,
+    # families — discrete count
+    ConditionalPoisson,
+    ConditionalNegativeBinomial,
+    ConditionalGeometric,
+    ConditionalBinomial,
+    # families — circular / simplex / one-hot / correlation
+    ConditionalVonMises,
+    ConditionalLogisticNormal,
+    ConditionalOneHotCategorical,
+    ConditionalLKJCholesky,
+    # families — distribution wrappers
+    ConditionalMixture,
+    ConditionalIndependent,
+    ConditionalTransformed,
+    Truncated,
+    LKJCorrelationFactor,
+    # families — shim distributions
+    ConditionalBetaBinomial,
+    ConditionalLogistic,
+    ConditionalHalfStudentT,
+    ConditionalOrderedLogistic,
+    ConditionalOrderedProbit,
     # monadic programs
     MonadicProgram,
     # boundaries & flows
@@ -538,6 +560,28 @@ __all__ = [
     # continuous — families (discrete-valued)
     "ConditionalBernoulli",
     "ConditionalCategorical",
+    # continuous — families (discrete count)
+    "ConditionalPoisson",
+    "ConditionalNegativeBinomial",
+    "ConditionalGeometric",
+    "ConditionalBinomial",
+    # continuous — families (circular / simplex / one-hot / correlation)
+    "ConditionalVonMises",
+    "ConditionalLogisticNormal",
+    "ConditionalOneHotCategorical",
+    "ConditionalLKJCholesky",
+    # continuous — families (distribution wrappers)
+    "ConditionalMixture",
+    "ConditionalIndependent",
+    "ConditionalTransformed",
+    "Truncated",
+    "LKJCorrelationFactor",
+    # continuous — families (shim distributions)
+    "ConditionalBetaBinomial",
+    "ConditionalLogistic",
+    "ConditionalHalfStudentT",
+    "ConditionalOrderedLogistic",
+    "ConditionalOrderedProbit",
     # continuous — monadic programs
     "MonadicProgram",
     "Discretize",

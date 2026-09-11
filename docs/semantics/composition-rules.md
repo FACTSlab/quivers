@@ -20,7 +20,7 @@ We organize composition rules into a hierarchy of progressively stronger structu
 
 **Definition (semigroupoid).** A *[semigroupoid](https://en.wikipedia.org/wiki/Semigroupoid)* is a composition rule whose inner tensor is associative, $a \otimes (b \otimes c) = (a \otimes b) \otimes c$. The associativity of $\otimes$ is precisely what makes the induced composition operation $\mathbin{>\!>}$ associative as a partial operation on hom-objects.
 
-**Definition (algebra).** A *algebra* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
+**Definition (algebra).** An *algebra* is a semigroupoid additionally equipped with an identity element $\mathbf{1} \in V$ for $\otimes$, a meet $\bigwedge$ paired with the join under a complete-lattice structure, and the distributive law $a \otimes \bigoplus_i b_i = \bigoplus_i (a \otimes b_i)$.
 
 The implementation reflects this hierarchy as a class lattice in which `BilinearForm` and `Semigroupoid` are siblings under `CompositionRule` and `Algebra` extends `Semigroupoid`:
 
@@ -136,12 +136,10 @@ The binary case $w = (s_1 s_2 \cdots s_k, t_1 t_2 \cdots t_l \to ?)$ recovers th
 The `.qvr` surface for a contraction is
 
 ```
-contraction NAME ( input_1 : A_1 -> B_1, ..., input_n : A_n -> B_n ) : DOM -> COD
-    rule R
-    wiring "SPEC"
+contraction NAME (input_1 : A_1 -> B_1, ..., input_n : A_n -> B_n) : DOM -> COD [rule=R, wiring="SPEC"]
 ```
 
-where `R` is a name resolving to a `CompositionRule` in scope and `SPEC` is an einsum-style flat wiring string. The declared morphism `NAME` is callable from any expression site as `NAME(arg_1, ..., arg_n)`; the call site type-checks the argument count and the per-argument numel against the contraction's signature before applying the wiring.
+where `R` names a `CompositionRule` and `SPEC` is an optional einsum-style flat wiring string. The compiler may infer the wiring from the typed signature when `wiring=` is absent. The declared `NAME` is callable from an expression site as `NAME(arg_1, ..., arg_n)`.
 
 **Categorical content.** The contraction surface is the action of a *colored operad* whose colors are the V-Cat objects and whose operations are flat wirings. The composition rule $\mathcal{R}$ is the enriching algebra: the operad's operation $w$ is realized as the multi-input morphism above. When $w$ is a binary wiring with a single contracted letter, the operadic action reduces to the binary composition of $\mathcal{V}\text{-}\mathbf{Rel}$.
 

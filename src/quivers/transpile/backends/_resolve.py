@@ -358,14 +358,6 @@ def _resolve_expr(
         target,
         [
             f"define:composite_expression:{expr_kind}",
-            (
-                f"morphism / define {morphism_name!r} resolves to a "
-                f"composite expression of kind {expr_kind!r}; "
-                f"transpile backends only unfold pure-alias "
-                f"bindings today. Replace the composition with a "
-                f"direct ``~ Family(args)`` declaration or with a "
-                f"separate `sample` per stochastic step."
-            ),
         ],
     )
 

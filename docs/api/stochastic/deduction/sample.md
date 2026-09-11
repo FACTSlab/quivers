@@ -8,7 +8,6 @@ The implementation enumerates every length-$L$ sequence over the
 deduction's surface vocabulary, evaluates $\log Z$ exactly via
 the chart, softmaxes the log-weights, and draws a multinomial.
 The procedure is exact (no MCMC over derivations); the $|V|^L$
-enumeration cost is the fundamental cost of forward sampling
-from a globally-normalised chart-defined distribution.
+enumeration is the cost of this implementation.
 
 ::: quivers.stochastic.deduction.sample

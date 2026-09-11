@@ -2,9 +2,9 @@
 
 ## Overview
 
-Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalized quantifiers are typed as continuations `Cont(X) = S/(S/X)`; surface and inverse scope arise from different sequent-rule applications of an applicative lift and a scope-extruding bind. The deduction itself is a `LogProb`-weighted relation; a downstream `program` block over the chart's per-derivation weights can be conditioned to learn or marginalize over which reading the parser commits to. Canonical reference: [Bumford & Charlow (2026)](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4), *Effect-Driven Interpretation*.
+Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalized quantifiers are typed as continuations `Cont(X) = S/(S/X)`. A reference for the broader approach is [Bumford and Charlow (2026)](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4), *Effect-Driven Interpretation*.
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Quantifier Scope via the Continuation Monad
@@ -12,22 +12,46 @@ Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to 
 # Generalised quantifiers as Cont-typed denotations whose lifts
 # through the residuation calculus give surface vs. inverse
 # scope readings. Categories carry slash (Fwd, Bwd) constructors
-# and a unary Cont(X) constructor for the continuation-typed
-# lift S/(S/X); chart items are span(I, J, X) triples.
+# and a unary ``Cont(X)`` constructor for the continuation-typed
+# lift ``S/(S/X)``; chart items are ``span(I, J, X)`` triples.
 #
 # Deduction:
 #
-#   fwd_app       : X/Y, Y                 |- X            base application
-#   bwd_app       : Y,   X\Y               |- X            base application
-#   fwd_app_cont  : Cont(A/B), Cont(B)     |- Cont(A)      applicative lift
-#   pure_cont     : A                      |- Cont(A)      pure
-#   scope_take    : Cont(A), B\A           |- Cont(B)      scope bind
+#   fwd_app      : X/Y, Y                 |- X        base application
+#   bwd_app      : Y,   X\Y               |- X        base application
+#   fwd_app_cont : Cont(X/Y), Cont(Y)     |- Cont(X)  applicative lift
+#   pure_cont    : A                      |- Cont(A)  pure
+#   scope_take   : Cont(A), B\A           |- Cont(B)  scope bind
+#   cont_elim    : Cont(S)                |- S        lower at the answer type
 #
-# Concrete answer types are baked into the rules (Cont(_) over
-# arbitrary S); a richer fragment with multiple answer types
-# would parameterise the rules over S.
+# A determiner is a generalised quantifier in continuation form:
+# ``every : Cont(NP/N)``. Applying it to a common-noun-typed
+# argument lifted into ``Cont(N)`` via ``pure_cont`` yields
+# ``Cont(NP)``, which then binds an inhomogeneous-typed VP under
+# ``scope_take`` to give a saturated ``Cont(S)`` reading; the
+# final ``cont_elim`` lowers to a flat ``S``.
 
 object Term : FinSet 16
+
+object Rule : FinSet 16
+
+object Weight : Real 1
+
+# Probabilistic surface for transpile: each learnable rule weight
+# carries an independent Normal(0, 1) prior, and a treebank reports
+# how often each rule fired. Exponentiating a weight gives that
+# rule's firing rate, so the counts are Poisson in the rate; the
+# chart parser downstream consumes the same weights as its per-rule
+# log-probabilities. Rule indexes the weight vector, so it is the
+# plate extent; the codomain Weight is the value space of the one
+# real number a single weight is.
+program quantifier_scope_prior : Rule -> Weight
+    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    let rule_rate = exp(rule_weights)
+    observe rule_counts : Rule <- Poisson(rule_rate)
+    return rule_weights
+
+export quantifier_scope_prior
 
 deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=4, tolerance=1e-5]
     atoms S, NP, N, Fwd, Bwd, Cont, span, every, dog, barks
@@ -44,6 +68,8 @@ deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=4, tolerance=1
 ```
 
 ## Walkthrough
+
+`object Term : FinSet 16` is the index set the deduction's domain and codomain range over; the chart itself reasons symbolically over constructor-tagged tuples. `object Rule : FinSet 16` indexes the rule-weight vector that the `quantifier_scope_prior` program draws from an independent `Normal(0.0, 1.0)` per coordinate. The program's codomain is `object Weight : Real 1`, the value space of the single real number one weight is, not the index that enumerates the rules. Exponentiating a weight gives that rule's firing rate, so the `rule_counts` plate over `Rule` observes one Poisson count per rule.
 
 The `atoms` block declares category atoms (`S`, `NP`, `N`), slash constructors (`Fwd`, `Bwd`), the unary continuation constructor (`Cont`), the chart-item constructor (`span`), and the closed-class terminal vocabulary (`every`, `dog`, `barks`). Pattern variables (single-uppercase identifiers) are bound at firing time.
 
@@ -67,7 +93,32 @@ prog = load("docs/examples/source/quantifier_scope.qvr")
 
 To use the deduction inside a probabilistic program, wrap the chart's per-derivation weights in an outer [`program`](../guides/dsl-overview.md) that draws a categorical reading variable and observes a downstream comprehension judgment; conditioning on the judgment and marginalizing over the scoping yields a posterior over which reading speakers commit to. The [`MonadicProgram.marginalize`](../api/program.md) step is the categorical handle for the scoping marginal: the projection $\pi : \Phi \times R \to \Phi$ integrates out the reading coordinate $R$ via log-sum-exp on the joint log-likelihood.
 
-## Categorical Perspective
+### Generating synthetic data
+
+The `quantifier_scope_prior` program is the standalone Bayesian surface over the same
+rule weights. Each rule draws one log-weight from a unit Normal;
+exponentiating that weight gives the rate at which the rule fires, and
+a treebank reports the count. Drawing the weights from their own prior
+and the counts from those weights keeps the synthetic point
+self-consistent, so a fit has a ground truth to recover.
+
+```python
+import torch
+from quivers.dsl import load
+
+torch.manual_seed(0)
+prog = load("docs/examples/source/quantifier_scope.qvr")
+model = prog.morphism
+
+N_RULES = 16
+true_rule_weights = torch.randn(N_RULES)
+rule_counts = torch.poisson(torch.exp(true_rule_weights))
+
+observations = {"rule_counts": rule_counts}
+x_in = torch.zeros(N_RULES, 1)
+```
+
+## Categorical perspective
 
 `Cont` is the continuation monad on the category of formulas: $\mathrm{Cont}(X) = S/(S/X)$ realizes double negation $\neg\neg X$ in the answer-type $S$. The `pure_cont` rule is its unit $\eta : X \to \mathrm{Cont}(X)$; `fwd_app_cont` realizes its applicative-functor structure; `scope_take` realizes the [monadic bind](https://doi.org/10.1016/0890-5401(91)90052-4) $\mu \circ \mathrm{Cont}(f)$ in the form licensed by the [Lambek calculus](https://doi.org/10.2307/2310058) residuation laws. Surface vs inverse scope is then a choice of derivation in the rule-system multicategory; the agenda's `LogProb`-enriched chart records every choice, and downstream `marginalize` integrates them away into a single scope-marginal likelihood.
 

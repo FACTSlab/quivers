@@ -1,11 +1,10 @@
 # Examples Gallery
 
-Complete `.qvr` programs spanning probabilistic regressions,
-latent-variable models, state-space models, language models,
-encoder-decoder networks, and weighted deductions. Every example
-ships a `## Try it` section with synthetic-data generation, an
-SVI fit, and a Bayesian posterior block; all snippets are
-executed in CI.
+`.qvr` programs spanning probabilistic regressions, latent-variable
+models, state-space models, language models, encoder-decoder networks,
+and weighted deductions. Most full pages include a `## Try it` section;
+CI executes runnable documentation blocks and skips blocks marked as
+illustrative. Pages with current model limitations identify them directly.
 
 All source files live under `docs/examples/source/`.
 
@@ -13,21 +12,21 @@ All source files live under `docs/examples/source/`.
 
 - [Bayesian Linear Regression](bayesian-regression.md): Normal likelihood with Normal-prior weights.
 - [Beta Regression](beta-regression.md): Beta-distributed response with logit link.
-- [Gamma Regression](gamma-regression.md): Gamma response with log link.
+- [Gamma Regression](gamma-regression.md): Gamma response with a log-shape predictor and unit rate.
 - [Horseshoe Regression](horseshoe-regression.md): sparse linear regression under the horseshoe prior.
 - [Negative Binomial Regression](negbin-regression.md): overdispersed count response.
-- [Zero-Inflated Poisson Regression](zip-regression.md): count response with a separate zero-inflation channel.
+- [Continuous-gate Poisson Regression](zip-regression.md): differentiable relaxation of a zero-inflation gate.
 - [Item Response Theory (2PL)](irt-2pl.md): Rasch-style logistic IRT with item difficulty and discrimination.
-- [Weibull Survival](survival-weibull.md): proportional-hazards survival with Weibull baseline.
+- [Weibull Survival](survival-weibull.md): uncensored Weibull event-time regression; censored rows require an explicit survival-score term.
 
 ## Latent-variable models
 
-- [Factor Analysis](factor-analysis.md): linear factor decomposition with free per-dimension noise.
+- [Factor Analysis](factor-analysis.md): current isotropic-noise factor model, equivalent in noise structure to PPCA.
 - [Probabilistic PCA](ppca.md): isotropic-noise special case of factor analysis.
 - [Latent Dirichlet Allocation](lda.md): topic model with Dirichlet priors on per-document and per-topic distributions.
 - [Gaussian Mixture Model](mixture-model.md): finite mixture with grouped marginalization over the cluster label.
-- [Variational Autoencoder](vae.md): amortized inference over a continuous latent with neural decoder.
-- [Bayesian Neural Network](bnn.md): nonlinear regression through an MLP-parameterised Normal kernel, with Normal priors lifted over every weight.
+- [Latent Decoder and Encoder Paths](vae.md): prior-decoder program plus a separately exported encoder-decoder path; the current SVI block does not use the encoder as its guide.
+- [Bayesian Neural Network](bnn.md): nonlinear regression through an MLP-parameterised Normal kernel, made Bayesian after lifting priors over its weights.
 - [Parametric Partial Pooling](parametric-pooling.md): random effects from a parametric program template, with a labeled return tuple, a score-step sum-to-zero factor, and export selection.
 - [Probabilistic Matrix Factorization](pmf.md): low-rank Bayesian completion of a sparse rating matrix.
 - [Bilinear Tensor Contraction](tensor-contraction.md): neural-tensor-layer scoring of predicate-argument pairs via an operadic three-way contraction.
@@ -37,23 +36,23 @@ All source files live under `docs/examples/source/`.
 - [AR(1)](ar1.md): first-order autoregressive Normal scalar series.
 - [Changepoint Model](changepoint.md): piecewise-constant means with a sampled change point.
 - [Stochastic Volatility](stochastic-volatility.md): AR(1) log-variance driving Normal returns.
-- [Linear-Gaussian SSM](linear-gaussian-ssm.md): Kalman-filter dynamics with learnable transition / emission.
-- [Hidden Markov Model (Discrete)](hmm.md): row-stochastic transition and emission matrices over finite states.
-- [Hidden Markov Model (Continuous)](continuous-hmm.md): Gaussian-emission HMM with continuous-state latent trajectory.
+- [Gaussian-Kernel SSM](linear-gaussian-ssm.md): learned transition, emission, and filtering kernels; not a closed-form Kalman filter.
+- [Finite-State Path Composition](hmm.md): product-fuzzy transition and emission relations, plus a partial discrete-program sketch.
+- [Continuous-State Sequence Model](continuous-hmm.md): Gaussian transition, emission, and separately learned recognition kernels.
 - [Deep Markov Model](deep-markov.md): nonlinear-MLP transition and emission cells.
 
 ## Language models
 
 - [Vanilla RNN LM](vanilla-rnn-lm.md): single-cell Elman RNN scored by a Categorical head.
-- [GRU LM](gru-lm.md): gated recurrent unit cell.
-- [LSTM LM](lstm-lm.md): long short-term memory cell.
-- [Bidirectional RNN LM](bidirectional-rnn-lm.md): forward + backward RNN with a masked-token target.
-- [Transformer LM](transformer-lm.md): stacked self-attention with a Categorical head.
+- [GRU-shaped LM](gru-lm.md): stochastic reset and update gates with a simplified candidate update.
+- [LSTM-shaped LM](lstm-lm.md): stochastic gates without a separately threaded cell state.
+- [Dual-RNN Masked-Token Model](bidirectional-rnn-lm.md): two left-to-right scans combined for a masked-token target.
+- [Transformer-shaped LM](transformer-lm.md): parallel MLP-normal branches with a Categorical head; no dot-product self-attention or causal mask.
 
 ## Encoder-decoder and structured outputs
 
-- [Sequence-to-Sequence](seq2seq.md): encoder-decoder with attention scored by a target-side Categorical.
-- [Tree-Structured Categorical](tree-categorical.md): hierarchical Categorical observation over a parametric tree.
+- [Sequence-to-Sequence](seq2seq.md): parallel encoder-decoder branches joined by a learned merge, without attention.
+- [Tree-Structured Score Tensor](tree-categorical.md): recursive additive scores over a parametric tree.
 
 ## Weighted deductions
 

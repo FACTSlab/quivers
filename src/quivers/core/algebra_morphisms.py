@@ -207,9 +207,9 @@ class Expectation(AlgebraHomomorphism):
 class LogProb(AlgebraHomomorphism):
     """ProductFuzzyAlgebra → LogProb via ``log``.
 
-    Maps entries in (0, 1] to (-∞, 0]; pairs naturally with
+    Maps entries in (0, 1] to (-∞, 0] for
     log-space computation. Entries that are exactly 0 in the
-    source go to ``-inf``; in practice the input is clamped to
+    source go to ``-inf``. In practice the input is clamped to
     ``[ε, 1]`` first to avoid numerical blow-up.
     """
 

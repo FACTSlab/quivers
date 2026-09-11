@@ -1,0 +1,9 @@
+# Auto-generated fixture exercising the FisherSnedecor family.
+# Family lacks an inline factory; declared via a morphism
+# kernel with `~ FisherSnedecor(5.0, 5.0)`.
+object Obs : Real 4
+morphism fishersnedecor_kernel : Obs -> Obs [role=kernel] ~ FisherSnedecor(5.0, 5.0)
+program fishersnedecor_fixture : Obs -> Obs
+    sample x <- fishersnedecor_kernel
+    return x
+export fishersnedecor_fixture

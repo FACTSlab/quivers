@@ -4,7 +4,7 @@
 
 A learnable [CKY](https://en.wikipedia.org/wiki/CYK_algorithm) chart parser assembled from pattern-polymorphic `schema` declarations rather than a `deduction` block. Two binary schemas give forward and backward application (the AB grammar core of the [Lambek calculus](https://doi.org/10.2307/2310058)); one unary schema adds the directional permutation of the commutative Lambek calculus LP. A `bundle` names the rule set, and `parser(...)` splices the bundle into a [`ChartParser`](../api/stochastic/parsers.md#quivers.stochastic.parsers.ChartParser) whose lexical category assignments and per-rule weights are learnable log-weights.
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Schema-Bundled Chart Parser
@@ -73,7 +73,14 @@ print(parser.n_rules, "binary rules;", parser.n_unary_rules, "unary rules")
 corpus = torch.tensor([[0, 1, 3], [0, 2, 3]])  # the dog sleeps / the cat sleeps
 print("initial scores:", parser(corpus))
 
-opt = torch.optim.Adam(parser.parameters(), lr=5e-2)
+# LP's permutation is a structural postulate rather than a fitted
+# preference, so the corpus adjusts the lexical table and the two
+# application rules and leaves the unary weights at their zero
+# initialisation.
+structural = {id(p) for p in parser.deductions[1].parameters()}
+fitted = [p for p in parser.parameters() if id(p) not in structural]
+
+opt = torch.optim.Adam(fitted, lr=5e-2)
 for _ in range(40):
     opt.zero_grad()
     loss = -parser(corpus).sum()
@@ -103,6 +110,6 @@ export inside
 
 This form is the PCFG inside algorithm with `grow[A, B, C]` playing the role of the production probability P(A -> B C) and `emit[A, t]` the emission probability P(A -> t); `start=0` selects the root nonterminal by index.
 
-## Categorical Perspective
+## Categorical perspective
 
 A schema denotes a uniform family of morphisms indexed by substitutions of its parameters into the residuated universe ([Schemas](../semantics/schemas.md#6-schema-declarations)); instantiating the family over a finite [`CategorySystem`](../api/stochastic/categories.md#quivers.stochastic.categories.CategorySystem) is precisely the evaluation of a functor from category inventories to rule systems, and the union of schemas corresponds to the coproduct of the induced rule systems. Under QVR's biclosed convention `fwd_app` and `bwd_app` are the counits of the right and left residuation adjunctions, and `perm` is the structural isomorphism that a symmetric monoidal (rather than merely monoidal) base makes available. The bundle is denotationally inert: `parser(rules=[lp_rules])` and `parser(rules=[fwd_app, bwd_app, perm])` compile to the same rule system.

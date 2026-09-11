@@ -1,203 +1,82 @@
-# Adequacy
+# Implementation Correspondence and Limits
 
-The implementation in `quivers.dsl.compiler.Compiler` is a *concrete realization* of the denotational semantics. This page states and sketches a proof of the adequacy theorem connecting the two.
+This page records the **implementation-correspondence claim** (ICC): the compiler should construct the runtime object described by the semantics pages for each supported QVR phrase. The ICC is a specification tested on representative cases. It is not a mechanized adequacy theorem for the whole language.
 
-## 1. The compiler as a function
+## 1. What the compiler returns
 
-The compiler is a function
+`Compiler` resolves a parsed module into an environment of objects, morphisms, programs, deductions, structural components, and exports. A successful compilation does not always return one `Program`, and `Program.forward` does not in general return a probability distribution. Depending on the compiled artifact, evaluation may return a tensor, a sample, a dictionary of returned values, or another runtime wrapper.
 
-$$
-\mathcal{C} : \mathrm{AST} \to \mathrm{Program} \cup \{\bot\},
-$$
+Thus correspondence must be stated per artifact:
 
-producing a `quivers.Program` (an `nn.Module`) on success and raising `CompileError` (denoted $\bot$) on type-error or undefined-name failure. A `quivers.Program` is in turn a *runnable representation* of a kernel: invoking $\mathrm{Program}.\mathrm{forward}$ produces, for each input, a value or a sample distribution.
-
-We define the *operational denotation* of a successfully-compiled module $M$ as
-
-$$
-\mathcal{C}\llbracket M \rrbracket : \llbracket \tau_{\mathrm{in}} \rrbracket \to \mathcal{G}\bigl(\llbracket \tau_{\mathrm{out}} \rrbracket\bigr),
-\qquad
-\mathcal{C}\llbracket M \rrbracket(x) \;=\; \text{distribution induced by } \mathrm{Program}.\mathrm{forward}(x).
-$$
-
-For deterministic (purely $\mathcal{V}$-enriched) modules this collapses to a Dirac kernel.
-
-## 2. Statement of adequacy
-
-**Theorem (Adequacy).** Let $M$ be a well-typed QVR module and let $\theta_M$ be the parameter assignment realized in the compiled program. Then
-
-$$
-\mathcal{C}\llbracket M \rrbracket \;=\; \llbracket M \rrbracket
-\quad \text{in } \mathbf{Kern},
-$$
-
-where $\llbracket M \rrbracket$ is the denotation of [Setting](setting.md), [Morphisms](morphisms.md), [Expressions](expressions.md), and [Programs](programs.md), instantiated at the parameters $\theta_M$.
-
-Equality is in $\mathbf{Kern}$, i.e. as Markov kernels: for every input $x$ the two sides agree as probability measures on the $\sigma$-algebra of the codomain. For the deterministic (purely $\mathcal{V}$-enriched) strata this collapses to exact tensor equality up to floating-point precision; for sampled compositions in $\mathbf{Kern}$ the agreement is *in expectation*, witnessed by unbiased Monte-Carlo estimates whose error decays as the sample budget grows. The test suite asserts the deterministic equalities pointwise and the sampled equalities within numerical tolerance.
-
-## 3. Proof sketch
-
-The proof proceeds by structural induction on the module $M$. We outline the induction at each layer.
-
-### 3.1 Types and spaces
-
-For every `ObjectExpr` $\tau$ and every well-formed environment $\rho_{\mathrm{obj}}$, the compiler's `_resolve_type(τ)` satisfies
-
-$$
-\mathtt{\_resolve\_type}(\tau) \;=\; \llbracket \tau \rrbracket_{\rho_{\mathrm{obj}}}
-$$
-
-by definition: the recursion in `_ResolutionMixin._resolve_any_space` is term-by-term equal to the recursion in [Types §2](types-and-spaces.md#2-denotation-of-types). The same recursion discharges the continuous case at every `ContinuousConstructor` node, so [Spaces §4](types-and-spaces.md#4-denotation-of-spaces) holds by the same argument.
-
-### 3.2 Discrete morphisms
-
-A `latent` declaration creates a learnable PyTorch parameter $W \in \mathbb{R}^{|X| \times |Y|}$ and applies the constraint map $\sigma : \mathbb{R} \to V$ pointwise. The denotation $\llbracket f \rrbracket(x, y) = \sigma(W[x, y])$ is exactly the value computed by `LatentMorphism.tensor`. An `observed` declaration's denotation is the user-supplied tensor verbatim.
-
-### 3.3 Composition
-
-The `>>` operator in PyTorch is realized as $V$-algebra matrix multiplication (`noisy_or_contract` for $\mathcal{V}_{\mathrm{pf}}$, ordinary matrix multiplication for $\mathcal{V}_{\mathbb{B}}$ over `BoolTensor`, etc.). The composition of two tensors $(M_1, M_2)$ at indices $(x, z)$ is
-
-$$
-\bigoplus_{y} \sigma(M_1[x, y]) \otimes \sigma(M_2[y, z]),
-$$
-
-term-by-term equal to the categorical composition of [Morphisms §1.1](morphisms.md#11-composition-tensor-identity).
-
-### 3.4 Tensor product, marginalization, fan, stack, repeat, scan
-
-Each combinator is implemented as a tensor-level operation whose definition is the term-by-term unfolding of its denotation. We give the proof for `@` (tensor product) in full as a representative case; the remaining combinators (`marginalize`, `fan`, `stack`, `repeat`, `scan`) follow the same template.
-
-**Proposition (Adequacy of `@`).** *Let $f : A_1 \to B_1$ and $g : A_2 \to B_2$ be QVR morphisms with tensor representations $T_f \in \mathcal{V}^{|A_1| \times |B_1|}$ and $T_g \in \mathcal{V}^{|A_2| \times |B_2|}$. Then the runtime tensor of $f \mathbin{@} g$ equals the denotation $\llbracket f \otimes g \rrbracket \in \mathcal{V}^{|A_1 \times A_2| \times |B_1 \times B_2|}$ as a $\mathcal{V}$-valued function on indices.*
-
-**Proof.** The compiler's handler for `ExprTensorProduct` (in `_ProgramsMixin._compile_expr`) evaluates `left @ right`, where `Morphism.__matmul__` returns a `ProductMorphism(f, g)` whose `tensor` property is
-$$
-\mathtt{ProductMorphism.tensor}[(a_1, a_2), (b_1, b_2)]
-\;=\;
-T_f[a_1, b_1] \otimes T_g[a_2, b_2].
-$$
-The denotation $\llbracket f \otimes g \rrbracket$ is the tensor product $\boxtimes$ of $\mathcal{V}$-relations from [Setting §2](setting.md#2-mathcalv-enriched-relations):
-$$
-(\llbracket f \rrbracket \boxtimes \llbracket g \rrbracket)\bigl((a_1, a_2), (b_1, b_2)\bigr)
-\;=\;
-\llbracket f \rrbracket(a_1, b_1) \otimes \llbracket g \rrbracket(a_2, b_2).
-$$
-By induction $\llbracket f \rrbracket(a_1, b_1) = T_f[a_1, b_1]$ and $\llbracket g \rrbracket(a_2, b_2) = T_g[a_2, b_2]$, so the two expressions are term-by-term equal. $\square$
-
-The remaining combinators are summarised:
-
-| Combinator | Runtime realization | Denotational target |
+| Phrase | Runtime object | Evidence-bearing operation |
 |---|---|---|
-| `marginalize(f, axes)` | `torch.sum(T_f, dim=axes)` (or algebra-join along those axes) | the $\bigoplus$-fold $\sum_{y \in Y} \llbracket f \rrbracket(x, y)$ of [Morphisms §1.1](morphisms.md#11-composition-tensor-identity) |
-| `fan(f_1, ..., f_n)` | `FanOutMorphism` whose tensor stacks each $T_{f_i}$ along a fresh axis | the diagonal $\Delta : A \to A^n$ post-composed with $f_1 \otimes \cdots \otimes f_n$ |
-| `stack(f, n)` | repeated `>>` composition of `copy.deepcopy(f)` per replica | the $n$-fold Kleisli composite of $\llbracket f \rrbracket$ with itself, parameters freshly cloned per layer |
-| `repeat(f, n)` | repeated `>>` composition sharing the operand | the same $n$-fold composite, parameters shared |
-| `scan(f)` | `ScanMorphism(f)` realizing the categorical trace | the trace $\mathrm{tr}_X(\llbracket f \rrbracket)$ of [Expressions §3.4](expressions.md#34-scan) |
+| `object` | `SetObject` or `ContinuousSpace` | structural equality, shape, membership where implemented |
+| discrete `morphism` | `Morphism` | `.tensor` |
+| family morphism | `ContinuousMorphism` | `.rsample`, `.log_prob` |
+| `program` | `MonadicProgram` or compiled program wrapper | sampling and `.log_joint` |
+| `deduction` | `DeductionSystem` | agenda/chart evaluation |
+| structural declaration | encoder, decoder, signature, or loss object | component-specific method |
 
-For each row, the proof is the same shape as the proposition above: the runtime tensor is the term-by-term unfolding of the categorical operation. The induction is on the structure of the morphism expression, with the base case being a primitive `morphism` declaration whose tensor is the declared parameter (`role=latent`), the supplied data tensor (`role=observed`), or the family's parameter map (`role=kernel`).
+## 2. Direct correspondences
 
-### 3.5 Lookup-table kernels (finite-set codomain)
+Several clauses are close enough to their implementations to check pointwise.
 
-A `morphism f : A -> B [role = kernel]` declaration with finite-set codomain and no `~ Family` clause is realized as a softmax-normalized parameter tensor along the codomain axis (the canonical surjection $\mathbb{R}^{|Y|} \to \Delta^{|Y| - 1}$). Composition is ordinary matrix multiplication, which coincides with Kleisli composition in $\mathbf{Stoch}$ ([Morphisms §2](morphisms.md#2-stochastic-morphisms)).
+First, object resolution is a structural walk over `ObjectExpr`. Nested products and coproducts are flattened without reordering components. Continuous constructors dispatch through the compiler's constructor table.
 
-### 3.6 Parametric kernels (continuous codomain)
+Second, a discrete latent morphism stores a raw parameter and exposes `sigmoid(raw)` as its tensor. An observed morphism exposes its supplied tensor. Composition calls the active composition rule's `tensor_op` and `join`; tensor product applies `tensor_op` pointwise.
 
-A `morphism f : σ -> σ' [role = kernel, axis_role_clause] ~ Family` declaration is realized as a PyTorch `Distribution` parameterized by a small network mapping $\llbracket \sigma \rrbracket$ to $\Theta_{\mathrm{Family}}$. Sampling and density evaluation are exposed by `rsample` and `log_prob`. Composition is realized by *sampled-composition* (Monte-Carlo integration) or, for closed-form families, by the appropriate analytical convolution. The optional axis-role clause configures the family's event / batch decomposition according to the contract of [Morphisms §6](morphisms.md#6-axis-role-specifications); matrix-valued families (`MatrixNormal`, `Wishart`, `InverseWishart`, `LKJCholesky`) receive their row / column dimensions from the named axes at compile time.
+Third, the expression combinators have distinct operational contracts:
 
-The equality
+| Combinator | Current implementation |
+|---|---|
+| `.marginalize(X, ...)` | reduces named **codomain** axes with the active algebra's `join` |
+| `fan(f, g, ...)` | feeds one input to each component and concatenates outputs |
+| `repeat(f, n)` | sequentially composes the same instance, sharing parameters |
+| `stack(f, n)` | sequentially composes deep copies, giving each layer independent parameters |
+| `scan(cell)` | iterates a continuous cell `A * H -> H` over an implicit time axis and returns the final state |
 
-$$
-\int_{\llbracket \sigma' \rrbracket} g_2(t, C)\, g_1(s, \mathrm{d}t) \;=\; \mathbb{E}_{T \sim g_1(s, \cdot)}\bigl[g_2(T, C)\bigr]
-$$
+These last two distinctions matter: `stack` is not tensor power, and `scan` is not `.trace`.
 
-between the Chapman–Kolmogorov composition and its Monte-Carlo realization holds in expectation; the `quivers` runtime uses reparameterisation to obtain unbiased gradient estimates.
+## 3. Probabilistic composition
 
-### 3.7 Programs
+Sampling from `f >> g` is ancestral: sample the intermediate value with `f.rsample`, then pass it to `g.rsample`. This produces samples from the composite kernel when the component samplers implement their declared kernels.
 
-The body-interpreter `_compile_program` of [`quivers.dsl.compiler`](../api/dsl/compiler.md) realizes the Kleisli chain of [Programs §2](programs.md#2-statements). Each statement is interpreted as a Python operation that:
+Density evaluation is different. `SampledComposition.log_prob` draws a fixed number of intermediate samples, evaluates the second density, and combines the values with `logsumexp - log(n)`. The density-scale average is a Monte Carlo estimator of the integral; taking its logarithm introduces finite-sample bias. The default sample count is 100. Thus the returned log density is an approximation, not pointwise equality with the Chapman–Kolmogorov integral.
 
-- *Draw*: calls `family.rsample(theta(context))` and appends the result to the trace;
-- *Observe*: calls `family.log_prob(value, theta(context))` and accumulates the score;
-- *Let*: evaluates the arithmetic expression and binds the result;
-- *Score*: evaluates the let-expression to a scalar tensor, binds the result to the named coordinate, AND adds the same scalar to the accumulated log-score (the runtime tag is `_ScoreSpec`, distinct from `_LetSpec` for ordinary let bindings; see [Programs §2.7a](programs.md#27a-score-factor));
-- *Return*: projects the trace onto the named coordinates.
+`ScanMorphism.log_prob` currently returns zeros for the final state, while `log_joint(x, hidden_states)` scores a supplied full hidden trajectory. A semantics that requires the marginal density of the final recurrent state is thus not implemented by `log_prob`.
 
-The categorical equations of [Programs §5](programs.md#5-soundness-of-monadic-semantics) are inherited from PyTorch's distribution / random-variable algebra, which is well-known to satisfy the Giry-monad axioms.
+## 4. Programs and data
 
-### 3.7a Deduction systems and chart-access let-expressions
+Program statements preserve their leading-keyword distinction:
 
-The body-interpreter resolves three deduction-related let-expression builtins through the [`compose`, `parse`, `subst`] dispatch table on `_ProgramsMixin`:
+- `sample` introduces a random value;
+- `observe` adds a family log density at supplied data;
+- `let` binds deterministic tensor arithmetic;
+- `score` adds an explicitly computed scalar to the log joint;
+- `marginalize` introduces a scoped latent and removes it from the outer scope;
+- `return` selects the program result.
 
-- *parse(D, x)*: runs the registered `DeductionSystem` $D$ on $x$ to the agenda's fixed point, wrapping the resulting `Chart` in a `ChartView`. The view's method-call surface ([Expressions §4.2](expressions.md#42-deduction-system-call-sites)) realizes presheaf evaluation against the chart's $K$-valued tensor entries; gradients flow through the entries' `requires_grad` via the agenda's semiring operations, matching the differentiable-chart denotation of [Weighted Deduction Fragment §8](grammar.md#8-charts-as-first-class-differentiable-values).
-- *compose($D_1, D_2$)*: synthesizes a new `DeductionSystem` whose `axiom_injector` chains $D_1$'s `goal_items` into $D_2$'s axioms; the composed system carries cross-attached `_axiom_module` / `_rule_module` references so `composed.parameters()` walks both factors' learnable weights ([Weighted Deduction Fragment §9.1](grammar.md#91-composing-deductions)).
-- *subst($t, v, w$)*: performs a structural-equality walk over $t$, replacing each subterm equal to $v$ with $w$. Capture-avoidance is guaranteed at the call site by the compile-time alpha-renaming invariant of the lexicon-LF compiler ([Weighted Deduction Fragment §3a](grammar.md#3a-binders-and-alpha-renaming)).
+`from_data("key")` is resolved through data bound to the compiler before expression compilation. It should not be described as a learnable value or as an unbound runtime lookup.
 
-Adequacy for the deduction-fitting surface follows from the agenda's strategy-independence theorem (Goodman 1999) applied to the bindings-keyed rule-weight parameters: each rule firing on bindings $\sigma$ contributes $\theta_{r, \sigma}$ from a per-deduction `nn.ParameterDict` allocated lazily at run time, and the differentiable-chart equations of §8 propagate the gradient back to $\theta_{r, \sigma}$ through the standard semiring-times / semiring-plus operations.
+## 5. What the tests establish
 
-### 3.7b Bayesian lifts of parameter-bearing artefacts
+The repository contains focused evidence rather than one exhaustive theorem:
 
-The four lift constructors of [`quivers.inference.lifts`](../api/inference/lifts.md)
-realize [Programs §7](programs.md#7-bayesian-lifts). Adequacy
-at this stratum is the claim that the lifted [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram)
-realizes its stated log-density.
+- compiler and DSL tests exercise parsing, resolution, typing errors, expression composition, contractions, programs, and structural declarations;
+- `tests/test_program_theory.py` checks extraction and validation of program-shape schemas;
+- `tests/test_model_roundtrips.py` checks JSON round trips for `dx.Model` values;
+- `tests/transpile/test_structural.py`, `test_lens_laws.py`, `test_external_syntax.py`, and `test_numeric_equivalence.py` test the separate transpilation pipeline described in [Transpilation correctness](transpile-correctness/index.md).
 
-* [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) (Programs §7.1): the
-  total log-density assembled by the inference layer is
-  $\sum_{i} \log \mathcal{N}(\theta_{i}; 0, \sigma_{\theta}^{2}) + \sum_{j} \log \mathcal{N}(\mathbf{z}_{j}; 0, \sigma_{z}^{2}) + S(\theta, \mathbf{z})$
-  with $S$ the score step. The score step's subtraction of the
-  placeholder log-priors cancels the second term *pointwise*
-  (not merely in expectation), so the lifted log-density
-  realizes $\log p(\theta) + \log p_{\mathrm{inner}}(\mathbf{z}, y \mid x, \theta)$ exactly. The
-  parameter-substitution context manager
-  ([`_swap_named_parameters`](../api/inference/lifts.md)) preserves the
-  inner module's autograd graph through the override tensors,
-  so $\nabla_{(\theta, \mathbf{z})} \log p_{\mathrm{lift}}$ on
-  the lift agrees with the analytic gradient of the target on
-  the unconstrained latent state.
-* [`lift_to_bayesian_program`](../api/inference/lifts.md#quivers.inference.lifts.lift_to_bayesian_program) and [`lift_from_log_prob`](../api/inference/lifts.md#quivers.inference.lifts.lift_from_log_prob)
-  (Programs §7.2–§7.3): adequacy reduces by construction to
-  §7.1, since both wrap their input in a synthetic `log_joint`
-  before delegating to [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters).
-* [`monte_carlo_log_joint`](../api/inference/lifts.md#quivers.inference.lifts.monte_carlo_log_joint) (Programs §7.4): the
-  wrapper realizes a single-sample MC estimator
-  $\widetilde{\ell}(x, y; \theta) = \log p_{\mathrm{inner}}(y \mid \mathbf{z}_{*}, x, \theta)$,
-  $\mathbf{z}_{*} \sim q$. By Jensen's inequality, the
-  estimator is downward-biased relative to the marginal
-  log-likelihood; the wrapper is therefore an *unsound*
-  denotation for any MCMC sampler that demands a deterministic
-  per-evaluation energy (NUTS / HMC). For SVI it is a valid
-  reparameterised stochastic gradient estimator of the
-  marginal log-likelihood's expected gradient. Adequacy at
-  this stratum is the conjunction of these two clauses,
-  documented at the call site.
+Passing these tests supports the covered cases. It does not establish equality for every phrase, algebra, distribution parameterization, backend, input, or floating-point value.
 
-### 3.8 Schema extraction
+## 6. Conditions and open gaps
 
-The schema extractor `extract_program_schema` walks the same resolved environment used by the compiler. Its denotation is exactly the schema-level interpretation of [The Program Theory §2](program-theory.md#2-the-extraction-functor); the equality $\mathcal{S}(M) = \mathrm{extract\_program\_schema}(\mathrm{Compiler}(M))$ holds by construction.
+The ICC must be qualified in five places.
 
-## 4. Tests as adequacy witnesses
+1. Categorical equations that use distributivity, arbitrary joins, or compact closure require those laws of the active algebra. The `Algebra` class does not prove them.
+2. Floating-point operations may differ from exact real arithmetic, especially near support boundaries and saturated reductions.
+3. Monte Carlo density calculations are approximate at finite sample counts.
+4. Family registries state support and parameter maps operationally; registry membership alone does not prove measurability, normalization, or equivalence to an external library.
+5. Schema extraction records program shape. Equality of extracted schemas is not equality of program behavior or parameter values.
 
-The test suite asserts the following propositions, each a special case of the adequacy theorem.
-
-| Test file | Assertion |
-|-----------|-----------|
-| `test_program_theory.py` | $\mathcal{S}(M)$ validates against $\mathsf{QVR}$ on every example. |
-| `test_program_theory.py` | $\mathcal{S}(M_1) \neq \mathcal{S}(M_2)$ when $M_1, M_2$ differ in declarations. |
-| `test_program_theory.py` | Idempotence: $\mathcal{S}(M)$ recomputed twice yields equal schemas. |
-| `test_model_roundtrips.py` | Every `dx.Model` instance round-trips through `model_dump_json` / `model_validate_json`. |
-
-The tests are not a substitute for a fully formal proof, but they constitute a finite set of adequacy witnesses across the language's surface syntax, verified on every commit.
-
-## 5. Limitations
-
-The adequacy theorem holds *up to floating-point precision* and *modulo the chosen Monte-Carlo seeds* for sampled compositions in $\mathbf{Kern}$. The semantic equality is between *kernels* (probability distributions); the implementation realizes samples and gradient estimates of those kernels, with an error that decays with the number of Monte-Carlo samples and is irrelevant in the limit.
-
-The four tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace`) carry mutable runtime state and are not part of the value layer; the adequacy theorem does not assign them denotations. They are scratch space for inference algorithms; their semantics is given operationally by the inference layer and is outside the scope of this document.
-
-## References
-
-- Joyal, A., Street, R., and Verity, D. (1996). [*Traced monoidal categories*](https://doi.org/10.1017/S0305004100074338). Mathematical Proceedings of the Cambridge Philosophical Society, 119(3), 447–468.
-- Giry, M. (1982). [*A categorical approach to probability theory*](https://doi.org/10.1007/BFb0092872). In B. Banaschewski (ed.), *Categorical Aspects of Topology and Analysis*, Lecture Notes in Mathematics 915, 68–85. Springer.
-- Cho, K. and Jacobs, B. (2019). [*Disintegration and Bayesian inversion via string diagrams*](https://doi.org/10.1017/S0960129518000488). Mathematical Structures in Computer Science, 29(7), 938–971.
-- Fritz, T. (2020). [*A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics*](https://doi.org/10.1016/j.aim.2020.107239). Advances in Mathematics, 370, 107239.
-- Kelly, G. M. (1982). [*Basic Concepts of Enriched Category Theory*](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html). London Mathematical Society Lecture Note Series 64. Cambridge University Press. Republished as Reprints in Theory and Applications of Categories 10 (2005).
-- Lawvere, F. W. (1973). [*Metric spaces, generalized logic, and closed categories*](https://doi.org/10.1007/BF02924844). Rendiconti del Seminario Matematico e Fisico di Milano, 43(1), 135–166. Republished as Reprints in Theory and Applications of Categories 1 (2002), [tac:reprints/articles/1/tr1abs.html](http://www.tac.mta.ca/tac/reprints/articles/1/tr1abs.html).
+These limits identify concrete work: add property tests for each claimed algebraic law, compare probabilistic compositions against analytic cases, and connect each declarative typing rule to a compiler test. Until then, the semantics pages should distinguish implemented behavior, test evidence, and conditional mathematical interpretation.

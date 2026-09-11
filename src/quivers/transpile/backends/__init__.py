@@ -2,8 +2,7 @@
 
 Each backend module registers itself via
 [`@dx.codegen.emitter("qvr-<name>")`][didactic.codegen.emitter] on
-import, so the public surface is just the side-effect of importing
-this package.
+import. Importing this package performs the registration.
 """
 
 from __future__ import annotations

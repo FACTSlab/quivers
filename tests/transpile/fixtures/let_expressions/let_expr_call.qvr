@@ -1,0 +1,8 @@
+# Exercises LetExprCall (builtin function call: log, exp, sqrt, ...).
+object Obs : FinSet 4
+program prog : Obs -> Obs
+    sample x <- Normal(0.0, 1.0)
+    let log_abs_x = log(exp(x))
+    observe y <- Normal(log_abs_x, 1.0)
+    return log_abs_x
+export prog

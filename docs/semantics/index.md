@@ -1,6 +1,6 @@
 # Denotational Semantics of the QVR DSL
 
-This section gives a formal denotational semantics for the QVR domain-specific language. Each well-typed phrase $\phi$ is assigned a unique mathematical denotation $\llbracket \phi \rrbracket$ in a fixed semantic universe, parameterized by a choice of algebra $\mathcal{V}$.
+This section gives a mathematical interpretation of the QVR DSL and records how that interpretation relates to the current implementation. Some results are conditional on algebraic laws that the runtime interface does not verify; the chapters mark those assumptions and distinguish them from tested behavior.
 
 The development is organized as follows.
 
@@ -16,8 +16,10 @@ The development is organized as follows.
 10. **[Schemas, rules, categories, bundles](schemas.md).** Category atoms; rule declarations as universally-quantified hyperedges; pattern-polymorphic schema declarations; bundles as first-class rule sets; the residuated type formers $/$, $\backslash$, $T(\cdot)$; free residuated category universes; object- and space-level aliases.
 11. **[Structural compression](structural.md).** Signatures as generalized algebraic theories; encoders as initial-algebra catamorphisms into a vector carrier; decoders as Kleisli coalgebras of the Giry monad; losses as attached scalar functionals on training-site traces.
 12. **[Compositional effects](effects.md).** Typeclass + algebraic-effects framework over a residuated category universe; class-driven schema lifting; joint type-and-effect dispatch in the chart parser; conservativity over the bare deduction fragment.
-13. **[The program theory](program-theory.md).** The schema-level semantics: every compiled program lifts to a panproto `Schema` over the protocol $\mathsf{QVR}$, making syntactic equality of denotations decidable up to the protocol's natural equivalence.
-14. **[Adequacy](adequacy.md).** A statement and proof sketch of the adequacy theorem: the compiler implementation $\mathcal{C}$ agrees with the denotation $\llbracket\cdot\rrbracket$ on every well-typed module.
+13. **[The program-shape protocol](program-theory.md).** Extraction of a compiled environment into a validating panproto `Schema`, plus the limits of schema equality.
+14. **[Implementation correspondence and limits](adequacy.md).** Direct correspondences, test evidence, Monte Carlo qualifications, and open gaps.
+15. **[Transpilation architecture](transpile-architecture.md).** The `Module -> IRProgram -> panproto.Schema -> bytes` pipeline, its shared family metadata, and backend renderers.
+16. **[Transpilation correctness](transpile-correctness/index.md).** Structural, re-emission, external-syntax, and numeric-equivalence evidence, with per-target support notes: [Stan](transpile-correctness/stan.md), [NumPyro](transpile-correctness/numpyro.md), [Pyro](transpile-correctness/pyro.md), [PyMC](transpile-correctness/pymc.md), [Edward2](transpile-correctness/edward2.md), [Turing.jl](transpile-correctness/turing.md), [Gen.jl](transpile-correctness/gen.md), [Church](transpile-correctness/church.md), [WebPPL](transpile-correctness/webppl.md), [BUGS](transpile-correctness/bugs.md), and [JAGS](transpile-correctness/jags.md).
 
 ## The unified declaration surface
 
@@ -29,7 +31,7 @@ KIND NAME : SIGNATURE [k = v, ...] [~ INIT] [BODY]
 
 where:
 
-* `KIND` is one of `composition`, `category`, `object`, `morphism`, `bundle`, `program`, `contraction`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `let`, `export`, `schema`, `rule`. There are no per-kind keyword variants for the *behavior* of a declaration; behavior is selected in the option block.
+* `KIND` is one of `composition`, `category`, `object`, `morphism`, `bundle`, `program`, `contraction`, `define`, `export`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `schema`, or `rule`. `let` is reserved for deterministic bindings inside program bodies.
 * `SIGNATURE` is a colon-prefixed phrase (an object value for `object`, a `dom -> cod` arrow for everything that denotes a morphism, an `inputs / codomain` shape for `contraction`, etc.).
 * `[k = v, ...]` is the *unified option block*: a single bracketed key-value list that drives every per-declaration knob (`role`, `scale`, `init`, `axes`, `effects`, `over`, `replicate`, `semiring`, `start`, `depth`, `tolerance`, `max_iterations`, `bins`, `path`, `weight`, `parent`, …). Every parser walker reads the same `OptionEntry` tree; every compiler reads the same `get_option_{flag,name,int,int_list,float,string,name_list,call,call_text}` accessors, and each declaration checks its keys against the set its resolved role reads, so a key the chosen lowering would ignore is rejected instead. The block is denotationally inert at the categorical level: it selects which functor / kernel / parametric family the declaration denotes, never how composition fires.
 * `~ INIT` is the optional *initializer*: either a `Family(args)` clause (sampled stochastic kernel, evaluated through the family registry) or an arbitrary `expr` (deterministic morphism, evaluated through the expression denotation). On a `morphism` declaration the initializer interacts with `role` in the option block: `role=latent` admits only `~ Family(...)`; `role=let` / `role=observed` admits only `~ expr`; `role=kernel` admits both.

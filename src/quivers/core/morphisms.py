@@ -49,8 +49,8 @@ if TYPE_CHECKING:
 def _build_algebra_homomorphism_transform(phi):
     """Closure factory for the pointwise change-of-base transform.
 
-    Splitting the closure construction into a free function keeps
-    the per-branch local bindings clean and avoids ``reportRedeclaration``
+    Splitting the closure construction into a free function avoids
+    ``reportRedeclaration``
     warnings from the type checker when both arms of the ``isinstance``
     in ``change_base`` define a local with the same name.
     """
@@ -1181,7 +1181,7 @@ def extract_morphism(module: nn.Module) -> Morphism | None:
 
     Returns the categorical morphism stored on the wrapper, or
     ``None`` if the module was registered directly (i.e. was
-    already an `nn.Module` subclass) and therefore has no
+    already an `nn.Module` subclass) and thus has no
     separate categorical object attached.
     """
     return getattr(module, "_morphism", None)

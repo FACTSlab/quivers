@@ -60,9 +60,9 @@ $$
 
 The last three cases require the surrounding object universe to be residuated and/or effect-extended; otherwise the denotation is undefined and well-typedness rejects the expression.
 
-If $X$ is not bound in $\rho_{\mathrm{obj}}$ but parses as a non-negative integer literal, the literal rule is used: this allows ad-hoc cardinalities such as `f : 3 -> 4` without prior `object` declarations.
+Finite cardinalities use the explicit constructor `FinSet n`, as in `morphism f : FinSet 3 -> FinSet 4`. Bare integer type expressions are not part of the current grammar.
 
-The cartesian product $\times$ in $\mathbf{FinSet}$ is associative and commutative up to canonical isomorphism. The implementation chooses the right-associated, flattened representative; this is enforced by the `_flatten_products` converter on `ProductSet.components` and the analogous flattener on `CoproductSet.components`. The chosen representatives are *equal* (not merely isomorphic) under the `dx.Model` structural equality used throughout the codebase.
+The cartesian product $\times$ in $\mathbf{FinSet}$ is associative and commutative up to isomorphism. The implementation flattens nested `ProductSet` and `CoproductSet` values while preserving component order. Thus reassociated parses have the same structural representation, but `A * B` and `B * A` remain distinct values unless an explicit symmetry morphism swaps them.
 
 ## 2a. Object initializers
 
@@ -130,10 +130,10 @@ a *family invocation* against the [`ContinuousSpace`](../api/continuous/spaces.m
 
 | Surface | Family identifier | Carrier | Parameters |
 |---|---|---|---|
-| `Real d`              | [`Euclidean`](../api/continuous/spaces.md#quivers.continuous.spaces.Euclidean) | $\mathbb{R}^d$ | dimension $d$, optional `low=` / `high=` bounds (use `low=0` for $(0, \infty)^d$ once a positive prior is attached; `low=0, high=1` for $[0,1]^d$) |
+| `Real d`              | [`Euclidean`](../api/continuous/spaces.md#quivers.continuous.spaces.Euclidean) | $\mathbb{R}^d$ | dimension $d$, with optional constructor bounds such as `Real 1 {low=0, high=1}`; bounds are inclusive |
 | `Simplex d`           | [`Simplex`](../api/continuous/spaces.md#quivers.continuous.spaces.Simplex) | $\Delta^{d-1}$ | dimension $d$ |
 | `Sphere d`            | [`Sphere`](../api/continuous/spaces.md#quivers.continuous.spaces.Sphere) | $S^{d-1} \subset \mathbb{R}^d$ | ambient dimension $d$ |
-| `Ball d [radius = r]` | [`Ball`](../api/continuous/spaces.md#quivers.continuous.spaces.Ball) | $\{x \in \mathbb{R}^d : \lVert x \rVert_2 \le r\}$ | ambient dim $d$, radius $r$ |
+| `Ball d {radius=r}` | [`Ball`](../api/continuous/spaces.md#quivers.continuous.spaces.Ball) | $\{x \in \mathbb{R}^d : \lVert x \rVert_2 \le r\}$ | ambient dim $d$, radius $r$ |
 | `CholeskyFactor d`    | [`CholeskyFactor`](../api/continuous/spaces.md#quivers.continuous.spaces.CholeskyFactor) | unit-row-norm lower-triangular $d \times d$ | $d$ |
 | `Covariance d`        | [`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance) | $\mathrm{Sym}^+_d$ (SPD cone) | $d$ |
 | `Correlation d`       | [`Correlation`](../api/continuous/spaces.md#quivers.continuous.spaces.Correlation) | SPD with unit diagonal | $d$ |
@@ -142,17 +142,19 @@ a *family invocation* against the [`ContinuousSpace`](../api/continuous/spaces.m
 | `LowerTriangular d`   | [`LowerTriangular`](../api/continuous/spaces.md#quivers.continuous.spaces.LowerTriangular) | $d \times d$ lower-triangular | $d$ |
 | `Diagonal d`          | [`Diagonal`](../api/continuous/spaces.md#quivers.continuous.spaces.Diagonal) | $\mathbb{R}^d$ via diagonal embedding | $d$ |
 
-The surface `Real d` resolves to the [`Euclidean`](../api/continuous/spaces.md#quivers.continuous.spaces.Euclidean) class through the same family-registry lookup. New continuous-space families register through the same registry without surface keyword changes once the grammar adds the constructor name to the `ContinuousConstructor` AST node's accepted `Literal[...]`, and the surface `Family d [args]` denotes `Family(d, **args)` against the registry.
+The surface `Real d` resolves to [`Euclidean`](../api/continuous/spaces.md#quivers.continuous.spaces.Euclidean). Positional arguments are space-separated, and constructor keyword arguments use braces. Adding a runtime class alone does not add surface syntax: the grammar and compiler constructor tables must also recognize its name.
 
 For the matrix-manifold variants (`CholeskyFactor`, `Covariance`,
 `Correlation`, `Orthogonal`, `Stiefel`, `LowerTriangular`) the
 carrier is a flat $d \times d$ (or $N \times K$) tensor laid out
-row-major; the on-manifold predicate is enforced by the sampling
-family that targets the space, not by the type. The membership
-check [`ContinuousSpace.contains`](../api/continuous/spaces.md#quivers.continuous.spaces.ContinuousSpace) returns a per-batch boolean
-mask testing the manifold equations up to a fixed numerical
-tolerance (symmetric and SPD for [`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance);
-orthogonal columns for [`Stiefel`](../api/continuous/spaces.md#quivers.continuous.spaces.Stiefel), etc.).
+row-major; the sampling family is responsible for producing values on
+the intended support. A membership check may return a per-batch mask
+for classes that implement one. For instance,
+[`Covariance`](../api/continuous/spaces.md#quivers.continuous.spaces.Covariance)
+checks symmetry and nonnegative eigenvalues up to tolerance, and
+[`Stiefel`](../api/continuous/spaces.md#quivers.continuous.spaces.Stiefel)
+checks orthogonal columns. The base implementation is permissive, so
+the type alone does not validate every manifold constraint.
 
 Space denotation is a function
 
@@ -224,18 +226,18 @@ $$
 \end{array}
 $$
 
-where $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ is the canonical inclusion (every finite set as a discrete standard Borel space). The fallback rule for `SpaceName` allows mixed-domain `ProductSpace` instances such as `Real(3) * Token` where `Token : 256` is a previously declared object. The denotation is the product in $\mathbf{SBor}$, which is well-defined precisely because $\iota$ is a faithful functor preserving finite products.
+where $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ is the canonical inclusion (every finite set as a discrete standard Borel space). The fallback rule for `SpaceName` allows mixed-domain `ProductSpace` instances such as `Real 3 * Token` where `Token : FinSet 256` is a previously declared object. The denotation is the product in $\mathbf{SBor}$, which is well-defined precisely because $\iota$ is a faithful functor preserving finite products.
 
 ## 5. Coherence
 
-The two type-formers $\times$ and $+$ on `ObjectExpr` are interpreted by the cartesian product and disjoint union in $\mathbf{FinSet}$, both of which are associative, commutative, and unital up to canonical isomorphism (with units the singleton $\mathbf{1}$ and the empty set $\emptyset$ respectively). Concretely:
+The two type-formers $\times$ and $+$ on `ObjectExpr` are interpreted by cartesian product and disjoint union in $\mathbf{FinSet}$. Both are associative up to canonical isomorphism; their symmetries are isomorphisms, not structural equalities. Concretely:
 
 - The flattening converters on `ProductSet` and `CoproductSet` realize the *coherence isomorphisms* $((\tau_1 \times \tau_2) \times \tau_3) \cong (\tau_1 \times (\tau_2 \times \tau_3))$ as identities on the chosen representative.
 - Empty products denote $\mathbf{1}$ (a singleton; `EmptySet` for coproducts denotes $\emptyset$).
 - The `EmptySet` constructor in `categorical.monoidal` is the unit for $+$.
 
-Mac Lane's coherence theorem guarantees that any two parses of the same `ObjectExpr` denote *equal* finite sets in $\mathbf{FinSet}$, not merely isomorphic ones, when the implementation uses the canonical flattened normal form.
+Flattening makes reassociation literal in the runtime representation. It does not identify permutations of factors or summands.
 
 ## 6. Resolution in code
 
-Both denotations are realized by a single unified walk on `ObjectExpr` in [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md). The mixin `_ResolutionMixin` exposes `_resolve_any_space`, which dispatches on the AST `kind` field and returns either a `SetObject` (for `DiscreteConstructor` / `TypeName` / `ObjectProduct` / `ObjectCoproduct` resolving to finite sets) or a `ContinuousSpace` (for `ContinuousConstructor` / `TypeName` / `ObjectProduct` resolving to continuous spaces, including mixed-domain `ProductSpace` instances such as `Real(3) * Token` where `Token : 256` is a previously declared finite object). The narrowing wrapper `_resolve_type` constrains the result to the discrete stratum so callers that know they want a `SetObject` can demand one without re-encoding the constraint at every call site. The mixed-domain case is well-defined precisely because the inclusion $\iota : \mathbf{FinSet} \hookrightarrow \mathbf{SBor}$ is a faithful functor preserving finite products.
+Both denotations are realized by a single unified walk on `ObjectExpr` in [`quivers.dsl.compiler.resolution`](../api/dsl/resolution.md). The mixin `_ResolutionMixin` exposes `_resolve_any_space`, which dispatches on the AST `kind` field and returns either a `SetObject` or a `ContinuousSpace`, including mixed-domain `ProductSpace` instances such as `Real 3 * Token` where `Token : FinSet 256`. The narrowing wrapper `_resolve_type` constrains the result to the discrete stratum for callers that require a `SetObject`.

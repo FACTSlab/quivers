@@ -6,7 +6,7 @@ A stochastic autoencoder on simply typed lambda terms, built from the four struc
 
 This example wires all four declarations together in one module. It shows the keyword-led encoder body (an explicit `op` rule alongside compiler-scaffolded defaults), the per-encoder / per-decoder `dim` override, a binder that threads a [de Bruijn](https://en.wikipedia.org/wiki/De_Bruijn_index) type annotation through the recursion, and a loss attached to a named site via `[on=...]`. The `#!` doc comments attach to the declaration that follows and are carried on its AST node's `docs` field.
 
-## QVR Source
+## QVR source
 
 ```qvr
 # Term Autoencoder
@@ -138,7 +138,7 @@ print("reconstruction root op:", recon.op)
 
 ### Score and train the round trip
 
-[`Decoder.log_prob`](../api/structural/decoder.md#quivers.structural.decoder.Decoder.log_prob) scores an observed term against a code vector; the registry's `evaluate` sums every registered loss under a caller-supplied environment. A few optimizer steps on the encoder and decoder parameters drive the single-term reconstruction loss toward zero.
+[`Decoder.log_prob`](../api/structural/decoder.md) scores an observed term against a code vector; the registry's `evaluate` sums every registered loss under a caller-supplied environment. A few optimizer steps on the encoder and decoder parameters drive the single-term reconstruction loss toward zero.
 
 ```python
 import torch
@@ -169,11 +169,11 @@ print(f"reconstruction loss: {float(loss0.detach()):.2f} -> {float(loss.detach()
 
 Note that the encoder's data-leaf embedding tables allocate parameters lazily on first lookup, so the initial `evaluate` call precedes the optimizer's parameter collection.
 
-## Categorical Perspective
+## Categorical perspective
 
 The encoder is a [Σ-algebra homomorphism](https://ncatlab.org/nlab/show/algebra+over+an+endofunctor) $T_\Sigma \to \mathrm{Vec}_D$: the framework supplies the recursion over the term tree, and the analyst supplies (or accepts scaffolds for) one parametric function per operation. The decoder is a [Kleisli coalgebra](https://ncatlab.org/nlab/show/coalgebra+over+an+endofunctor) $\mathrm{Vec}_D \to \mathrm{Kern}(T_\Sigma)$, corecursively generating a distribution over terms with a per-term `log_prob`. Their composite is a stochastic endomorphism on $T_\Sigma$, and the loss head scores how far that endomorphism sits from the identity on the observed term.
 
-## See Also
+## See also
 
 - [Structural Compression: Signatures and Encoders](../guides/structural-compression-signatures-and-encoders.md)
 - [Structural Compression: Decoders and Losses](../guides/structural-compression-decoders-and-losses.md)

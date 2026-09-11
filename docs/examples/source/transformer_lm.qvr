@@ -2,8 +2,8 @@
 #
 # A multi-layer Bayesian transformer used as a causal language
 # model. Token indices are embedded into a Latent
-# representation, passed through four independent attention plus
-# feed-forward layers via stack(layer, 4), and projected back
+# representation, passed through two independent attention plus
+# feed-forward layers via stack(layer, 2), and projected back
 # onto the Token vocabulary via a Categorical lm_head.
 #
 # Generative structure:
@@ -14,13 +14,19 @@
 #   h        ~ residual_ff(h_ff)                   feed-forward residual
 #   next_t   ~ Categorical(lm_head(h))             next-token target
 #
-# stack(layer, 4) composes four independent copies of the
+# stack(layer, 2) composes two independent copies of the
 # attention plus feed-forward block, each carrying its own
 # Normal-prior weights drawn from the morphism declarations.
+#
+# Resp is the plate: it indexes the 32 scored rows, one
+# next-token target per context. Token is the vocabulary, so it
+# is the value space of what lm_head draws and of what the
+# program returns.
 #
 # Reference: [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
 
 object Token : FinSet 32
+object Resp : FinSet 32
 object Latent : Real 16
 object HeadOut : Real 4
 object FFHidden : Real 32
@@ -39,7 +45,7 @@ define backbone = tok_embed >> stack(layer, 2)
 program transformer_lm : Token -> Token
     sample h <- backbone
 
-    observe next_token : Token <- lm_head(h)
+    observe next_token : Resp <- lm_head(h)
     return next_token
 
 export transformer_lm

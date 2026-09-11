@@ -251,7 +251,7 @@ GHCi-shaped meta-commands:
 
 ```
 qvr> :type seq2seq
-morphism seq2seq : Source * Target -> Target [role=latent]
+seq2seq :: Source * Target -> Target
 
 qvr> :info backbone
 define backbone = (encoder @ decoder) >> cross
