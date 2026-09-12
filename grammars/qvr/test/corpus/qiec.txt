@@ -1,0 +1,376 @@
+==================
+QIEC declarations
+==================
+
+index Nat = Z | S(Nat)
+
+family Vec[A : Type](n : Nat) : Type
+    constructor Nil : Vec[A](Z)
+    constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
+
+effect State[S : Type] [version=1, evolution=sealed]
+    get : Unit -> S
+    put : S -> Unit
+
+instance cell : State[Int]
+
+handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total]
+    get resumes 1
+    put resumes 0
+
+---
+
+(source_file
+  (index_decl
+    (identifier)
+    (qiec_index_constructor
+      (identifier))
+    (qiec_index_constructor
+      (identifier)
+      (qiec_index_sort
+        (qiec_nat_sort))))
+  (indexed_family_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind)))
+    (qiec_index_telescope
+      (qiec_index_binder
+        (identifier)
+        (qiec_index_sort
+          (qiec_nat_sort))))
+    (qiec_type_kind)
+    (qiec_constructor_decl
+      (identifier)
+      (qiec_type_application
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_index_name
+          (identifier))))
+    (qiec_constructor_decl
+      (identifier)
+      (qiec_static_telescope
+        (qiec_index_binder
+          (identifier)
+          (qiec_index_sort
+            (qiec_nat_sort))))
+      (qiec_type_name
+        (identifier))
+      (qiec_type_application
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_index_name
+          (identifier)))
+      (qiec_type_application
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_index_application
+          (identifier)
+          (qiec_index_name
+            (identifier))))))
+  (effect_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind)))
+    (qiec_effect_options
+      (qiec_effect_option
+        (integer))
+      (qiec_effect_option))
+    (qiec_operation_decl
+      (identifier)
+      (qiec_type_name
+        (identifier))
+      (qiec_type_name
+        (identifier)))
+    (qiec_operation_decl
+      (identifier)
+      (qiec_type_name
+        (identifier))
+      (qiec_type_name
+        (identifier))))
+  (effect_instance_decl
+    (identifier)
+    (qiec_effect_ref
+      (identifier)
+      (qiec_static_argument
+        (qiec_type_name
+          (identifier)))))
+  (handler_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind))
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind)))
+    (qiec_effect_ref
+      (identifier)
+      (qiec_static_argument
+        (qiec_type_name
+          (identifier))))
+    (qiec_type_name
+      (identifier))
+    (qiec_type_name
+      (identifier))
+    (qiec_handler_options
+      (qiec_handler_first_option
+        (qiec_handler_coverage_key)))
+    (qiec_handler_clause
+      (identifier)
+      (qiec_resumption_grade))
+    (qiec_handler_clause
+      (identifier)
+      (qiec_resumption_grade))))
+
+==================
+QIEC state computations and open rows
+==================
+
+define swap[cell_effect : Effect](next : Int) : Int ! {cell | rho lacks cell} =
+    let prior <- perform cell.get()
+    perform cell.put(next)
+    return prior
+
+define run(next : Int) : Int ! {} =
+    handle cell with run_state[Int, Int] in
+        return next
+
+define polymorphic(next : Int) : Int ! {| rho lacks cell} =
+    return next
+
+---
+
+(source_file
+  (computation_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_effect_binder
+        (identifier)
+        (qiec_effect_kind)))
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal
+        (qiec_row_entry
+          (identifier))
+        (identifier)
+        (identifier)))
+    (qiec_bind_computation
+      (qiec_local_binding
+        (identifier))
+      (qiec_perform_computation
+        (qiec_effect_request
+          (identifier)
+          (identifier)))
+      (qiec_sequence_computation
+        (qiec_perform_computation
+          (qiec_effect_request
+            (identifier)
+            (identifier)
+            (qiec_variable_value
+              (identifier))))
+        (qiec_return_computation
+          (qiec_variable_value
+            (identifier))))))
+  (computation_decl
+    (identifier)
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_handle_computation
+      (identifier)
+      (qiec_handler_application
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier))))
+      (qiec_return_computation
+        (qiec_variable_value
+          (identifier)))))
+  (computation_decl
+    (identifier)
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal
+        (identifier)
+        (identifier)))
+    (qiec_return_computation
+      (qiec_variable_value
+        (identifier)))))
+
+==================
+QIEC indexed construction and case
+==================
+
+define singleton[A : Type](value : A) : Vec[A](S(Z)) ! {} =
+    return construct Cons[A, Z](value, construct Nil[A]() as Vec[A](Z)) as Vec[A](S(Z))
+
+define head[A : Type, n : Nat](xs : Vec[A](S(n))) : A ! {} =
+    case xs motive (m : Nat) => A
+        Cons[n](head, tail) =>
+            return head
+
+---
+
+(source_file
+  (computation_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind)))
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_application
+      (identifier)
+      (qiec_static_argument
+        (qiec_type_name
+          (identifier)))
+      (qiec_index_application
+        (identifier)
+        (qiec_index_name
+          (identifier))))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_return_computation
+      (qiec_constructor_value
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_variable_value
+          (identifier))
+        (qiec_constructor_value
+          (identifier)
+          (qiec_static_argument
+            (qiec_type_name
+              (identifier)))
+          (qiec_type_application
+            (identifier)
+            (qiec_static_argument
+              (qiec_type_name
+                (identifier)))
+            (qiec_index_name
+              (identifier))))
+        (qiec_type_application
+          (identifier)
+          (qiec_static_argument
+            (qiec_type_name
+              (identifier)))
+          (qiec_index_application
+            (identifier)
+            (qiec_index_name
+              (identifier)))))))
+  (computation_decl
+    (identifier)
+    (qiec_static_telescope
+      (qiec_type_binder
+        (identifier)
+        (qiec_type_kind))
+      (qiec_index_binder
+        (identifier)
+        (qiec_index_sort
+          (qiec_nat_sort))))
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_application
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (qiec_index_application
+          (identifier)
+          (qiec_index_name
+            (identifier)))))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_case_computation
+      (qiec_variable_value
+        (identifier))
+      (qiec_case_motive
+        (qiec_index_telescope
+          (qiec_index_binder
+            (identifier)
+            (qiec_index_sort
+              (qiec_nat_sort))))
+        (qiec_type_name
+          (identifier)))
+      (qiec_case_branch
+        (identifier)
+        (qiec_case_static_binder
+          (identifier))
+        (qiec_local_binding
+          (identifier))
+        (qiec_local_binding
+          (identifier))
+        (qiec_return_computation
+          (qiec_variable_value
+            (identifier)))))))
+
+==================
+QIEC signed literals
+==================
+
+define negative_int() : Int !{} =
+    return -1
+
+define negative_real() : Real !{} =
+    return -1.5
+
+---
+
+(source_file
+  (computation_decl
+    (identifier)
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_return_computation
+      (qiec_literal_value
+        (signed_number
+          (integer)))))
+  (computation_decl
+    (identifier)
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_return_computation
+      (qiec_literal_value
+        (signed_number
+          (float))))))

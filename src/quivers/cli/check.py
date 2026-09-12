@@ -27,17 +27,32 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-from quivers.dsl import Compiler, CompileError, ParseError, parse
+from quivers.dsl import (
+    Compiler,
+    CompileError,
+    ParseError,
+    non_qiec_projection,
+    parse,
+)
 from quivers.dsl.compiler._validate import validate_family_arg_shapes
 from quivers.dsl.constraints import check_constraints
+from quivers.dsl.qiec_tooling import (
+    has_qiec_surface,
+    qiec_diagnostic,
+    qiec_module_name,
+)
 
 
 type Severity = Literal["error", "warning", "note"]
+
+
+_PARSE_POSITION = re.compile(r"line\s+(\d+),\s*col\s+(\d+)")
 
 
 @dataclass(frozen=True)
@@ -85,17 +100,43 @@ def _check_one(path: Path) -> list[Diagnostic]:
     try:
         module = parse(source, file_path=str(path))
     except ParseError as e:
+        match = _PARSE_POSITION.search(str(e))
+        line = int(match.group(1)) if match is not None else 0
+        col = int(match.group(2)) if match is not None else 0
         diags.append(
             Diagnostic(
                 file=str(path),
-                line=0,
-                col=0,
+                line=line,
+                col=col,
                 severity="error",
                 code="parse",
                 message=str(e),
             )
         )
         return diags
+
+    compiler_module = non_qiec_projection(module)
+    try:
+        compiler = Compiler(
+            module,
+            module_name=qiec_module_name(path),
+            file_path=str(path),
+        )
+    except Exception as error:
+        if not has_qiec_surface(module):
+            raise
+        diagnostic = qiec_diagnostic(error)
+        diags.append(
+            Diagnostic(
+                file=str(path),
+                line=diagnostic.line,
+                col=diagnostic.col,
+                severity="error",
+                code=diagnostic.code,
+                message=diagnostic.message,
+            )
+        )
+        compiler = Compiler(compiler_module)
 
     # Constraint solver runs before compile so users see structural
     # diagnostics even when compilation would also fail.
@@ -108,7 +149,7 @@ def _check_one(path: Path) -> list[Diagnostic]:
             code=v.code,
             message=v.message,
         )
-        for v in check_constraints(module)
+        for v in check_constraints(compiler_module)
     )
 
     # Family argument-shape pass: arity and elementwise compatibility
@@ -124,7 +165,7 @@ def _check_one(path: Path) -> list[Diagnostic]:
             code=v.code,
             message=v.message,
         )
-        for v in validate_family_arg_shapes(module)
+        for v in validate_family_arg_shapes(compiler_module)
     ]
     diags.extend(family_diags)
     has_family_shape_error = any(
@@ -136,16 +177,16 @@ def _check_one(path: Path) -> list[Diagnostic]:
         return diags
 
     try:
-        Compiler(module).compile()
-    except CompileError as e:
+        compiler.compile()
+    except CompileError as error:
         diags.append(
             Diagnostic(
                 file=str(path),
-                line=getattr(e, "line", 0),
-                col=getattr(e, "col", 0),
+                line=getattr(error, "line", 0),
+                col=getattr(error, "col", 0),
                 severity="error",
                 code="compile",
-                message=str(e),
+                message=str(error),
             )
         )
 

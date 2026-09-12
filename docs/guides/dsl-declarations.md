@@ -642,6 +642,46 @@ define model = embed >> layers >> output_proj where
 The `where` keyword introduces a block of local definitions scoped
 to the parent `define` binding.
 
+## Indexed families and effect declarations
+
+QVR v0.19 adds five QIEC declaration forms. An `index` introduces a closed
+index sort and its constructors; a `family` separates type parameters in square
+brackets from refinable indices in parentheses; an `effect` declares a
+versioned operation interface; an `instance` gives an applied interface a
+lexical identity; and a `handler` records coverage and resumption contracts.
+
+<!-- compile: qiec -->
+```qvr
+index Nat = Z | S(Nat)
+
+family Vec[A : Type](n : Nat) : Type
+    constructor Nil : Vec[A](Z)
+    constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
+
+effect Abort[E : Type] [version=1, evolution=sealed]
+    abort : E -> Unit
+
+instance stop : Abort[String]
+
+handler ignore[E : Type, A : Type] for Abort[E] : A -> A [coverage=partial]
+    abort resumes 0
+```
+
+The heterogeneous square-bracket telescope admits type, index, and effect-interface
+binders; the binder annotation determines its kind. Constructor results must
+name their family explicitly, which makes the refined indices available to
+case checking. The `sealed` evolution policy fixes the operation set at the
+declared version, while `forwarding` permits a handler that explicitly forwards
+unknown operations from later versions.
+
+A handler option block may specify `coverage=total|partial`,
+`forwards=unknown|none`, and an `introduces=!{...}` row. Each operation clause
+assigns a resumption grade: `0` forbids resumption, `aff` permits at most one,
+`1` requires exactly one, and `omega` permits multiple resumptions when the
+captured context is duplicable. These declarations are stable signatures;
+their executable clause bodies are process-local runtime attachments in v0.19.
+See [Quivers Indexed Effect Core](../developer/qiec.md) for the full contract.
+
 ## Structural compression: `signature`, `encoder`, `decoder`, `loss`
 
 The structural-compression surface gives transformers, tree LSTMs,

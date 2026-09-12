@@ -199,19 +199,39 @@ def _ansi_for_info_body(session: ReplSession) -> str:
 
     from rich.console import Console
 
-    from quivers.cli.repl_highlight import to_rich_text
+    from quivers.cli.repl_tui import _to_tui_rich_text
 
     env_kinds = session.env_kinds()
     body = session.info("lda").body
     console = Console(
-        file=StringIO(), force_terminal=True, color_system="truecolor", width=160
+        file=StringIO(),
+        force_terminal=True,
+        color_system="truecolor",
+        no_color=False,
+        width=160,
     )
     for line in body.splitlines() or [""]:
         stripped = line.lstrip()
         if stripped.startswith("--") and not stripped.startswith("->"):
             continue
-        console.print(to_rich_text(line, env_kinds=env_kinds, link_action="info"))
+        console.print(_to_tui_rich_text(line, env_kinds=env_kinds, link_action="info"))
     return console.file.getvalue()  # type: ignore[attr-defined]
+
+
+def test_tui_click_metadata_preserves_truecolor_style() -> None:
+    from rich.console import Console
+
+    from quivers.cli.repl_tui import _to_tui_rich_text
+
+    rendered = _to_tui_rich_text(
+        "State", env_kinds={"State": "type"}, link_action="info"
+    )
+    style = rendered.get_style_at_offset(Console(no_color=False), 0)
+
+    assert style.color is not None
+    assert style.color.triplet is not None
+    assert tuple(style.color.triplet) == (97, 175, 239)
+    assert style.meta["@click"] == "info('State')"
 
 
 def test_info_body_emits_truecolor_codes(lda_session):

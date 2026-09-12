@@ -39,22 +39,23 @@ class Completion:
     detail: str = ""
 
 
-_META_COMMANDS = (
-    "load",
-    "reload",
-    "type",
-    "kind",
-    "transpile",
-    "info",
-    "doc",
-    "browse",
-    "dump",
-    "edit",
-    "trace",
-    "set",
-    "help",
-    "quit",
-)
+def public_meta_commands() -> tuple[str, ...]:
+    """Return one public spelling for every registered meta-command.
+
+    The dispatch table registers each long spelling before its short aliases.
+    Keeping the first name for each handler thus makes completion and the TUI
+    palette follow the executable command surface without advertising aliases.
+    """
+    from quivers.cli import repl_session
+
+    seen: set[object] = set()
+    commands: list[str] = []
+    for name, handler in repl_session._META_COMMANDS.items():  # noqa: SLF001
+        if handler in seen:
+            continue
+        seen.add(handler)
+        commands.append(name)
+    return tuple(commands)
 
 
 def all_completions(session: "ReplSession", prefix: str) -> list[Completion]:
@@ -105,7 +106,7 @@ def _meta_completions(prefix: str) -> list[Completion]:
     out: list[Completion] = []
     if prefix.startswith(":"):
         p = prefix[1:]
-        for name in _META_COMMANDS:
+        for name in public_meta_commands():
             if name.startswith(p):
                 out.append(
                     Completion(text=":" + name, kind="command", detail="meta-command")
@@ -133,10 +134,53 @@ def _env_completions(session: "ReplSession", prefix: str) -> list[Completion]:
         scope_children,
     )
 
+    out: list[Completion] = []
+    from quivers.dsl.ast_nodes.qiec import QiecEffectDecl, QiecEffectInstanceDecl
+    from quivers.dsl.qiec_tooling import qiec_binding_map
+
+    # QIEC declarations do not live in the categorical Compiler registries. Expose
+    # their top-level names and signature members through the same stream.
+    for name, binding in qiec_binding_map(session.module).items():
+        if name.startswith(prefix):
+            out.append(Completion(name, binding.semantic_kind, binding.kind))
+
+    # ``perform`` addresses operations through a lexical instance.
+    if "." in prefix:
+        instance_name, _, operation_prefix = prefix.partition(".")
+        instance = next(
+            (
+                statement
+                for statement in session.module.statements
+                if isinstance(statement, QiecEffectInstanceDecl)
+                and statement.name == instance_name
+            ),
+            None,
+        )
+        effect = next(
+            (
+                statement
+                for statement in session.module.statements
+                if isinstance(statement, QiecEffectDecl)
+                and instance is not None
+                and statement.name == instance.effect.name
+            ),
+            None,
+        )
+        if effect is not None:
+            out.extend(
+                Completion(
+                    f"{instance_name}.{operation.name}",
+                    "function",
+                    f"operation of {effect.name}",
+                )
+                for operation in effect.operations
+                if operation.name.startswith(operation_prefix)
+            )
+        return out
+
     compiler = session._compiler  # noqa: SLF001 — internal but stable
     if compiler is None:
-        return []
-    out: list[Completion] = []
+        return out
 
     # Mode B: scope-path completion. The prefix is ``a::b::`` (or
     # ``a::b::c``); enumerate the children of ``a::b``'s scope
@@ -251,4 +295,4 @@ def _path_completions(prefix: str) -> list[Completion]:
     return out
 
 
-__all__ = ["Completion", "all_completions"]
+__all__ = ["Completion", "all_completions", "public_meta_commands"]

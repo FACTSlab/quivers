@@ -9,6 +9,7 @@ prompt_toolkit lexer, and the LSP semantic-tokens encoder all consume.
 from __future__ import annotations
 
 import pytest
+from pygments.token import Name
 
 from quivers.cli.repl_highlight import (
     SEMANTIC_TOKEN_MODIFIERS,
@@ -18,6 +19,7 @@ from quivers.cli.repl_highlight import (
     to_semantic_token_legend,
     tokenize,
 )
+from quivers.dsl.pygments_lexer import QvrLexer
 
 
 SAMPLE = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\n# comment\n"
@@ -101,6 +103,29 @@ def test_semantic_token_data_with_env_classification() -> None:
     type_index = SEMANTIC_TOKEN_TYPES.index("type")
     # At least one token carries the 'type' index.
     assert type_index in data[3::5]
+
+
+def test_effect_request_distinguishes_instance_from_operation() -> None:
+    source = "define read() : Int !{reader} =\n    perform reader.get()\n"
+    pairs = _classify(tokenize(source))
+    assert ("variable", "reader") in pairs
+    assert ("function", "get") in pairs
+
+    pygments = list(QvrLexer().get_tokens_unprocessed(source))
+    assert any(
+        token in Name.Variable and text == "reader" for _, token, text in pygments
+    )
+    assert any(token in Name.Function and text == "get" for _, token, text in pygments)
+
+
+def test_unicode_offsets_match_pygments_and_lsp_coordinate_systems() -> None:
+    source = "#! café 😀\nindex Nat = Z\n"
+    pygments = list(QvrLexer().get_tokens_unprocessed(source))
+    index_offset = next(offset for offset, _, text in pygments if text == "index")
+    assert index_offset == source.index("index")
+
+    semantic = to_semantic_token_data(source)
+    assert semantic[:5] == [0, 0, 10, SEMANTIC_TOKEN_TYPES.index("comment"), 0]
 
 
 def test_to_rich_text_smoke() -> None:

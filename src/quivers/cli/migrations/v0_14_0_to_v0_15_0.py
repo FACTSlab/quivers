@@ -47,14 +47,14 @@ from quivers.cli.migrations._common import (
     SchemaView,
     validate_decl,
 )
-from quivers.dsl._historical_grammar import registry_for
+from quivers.cli.migrations._grammar import registry_for
 
 
 _SOURCE_REV = "v0.14.0"
-# The target grammar is the working-tree surface; its parser snapshot
-# lives under ``grammars/qvr/vcs/parsers/HEAD/`` until the release is
-# tagged, at which point the snapshot directory gains the tag name.
-_TARGET_REV = "HEAD"
+# v0.15.0 is released and immutable.  Never validate this historical
+# hop against the working-tree HEAD parser: later additive syntax could
+# otherwise change the meaning or recovery behavior of an old migration.
+_TARGET_REV = "v0.15.0"
 
 _COMMENT_KINDS = frozenset({"line_comment", "doc_comment", "block_comment"})
 

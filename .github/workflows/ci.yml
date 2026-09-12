@@ -7,6 +7,24 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      probe: ${{ steps.filter.outputs.probe }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine whether release probes are required
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: every
+          filters: |
+            probe:
+              - "**"
+              - "!*.md"
+              - "!**/*.md"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -18,8 +36,8 @@ jobs:
       # linter release adds rules and every branch goes red at
       # once, for a change nobody in this repository made.
       - run: pip install 'ruff>=0.15,<0.16'
-      - run: ruff check src/ tests/
-      - run: ruff format --check src/ tests/
+      - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py
+      - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py
 
   typecheck:
     runs-on: ubuntu-latest
@@ -30,6 +48,38 @@ jobs:
           python-version: "3.14"
       - run: pip install -e ".[dev]"
       - run: pyright src/quivers
+
+  # Native parser assets are part of the wheel's executable compatibility
+  # contract. Exercise the installed artifact on every supported runner with
+  # compiler discovery disabled so neither current parsing nor migration can
+  # hide a missing bundled library behind a machine-local source build.
+  migration-assets:
+    name: migration-assets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Enable MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - run: python -m pip install build
+      - run: python -m build --wheel
+      - name: Install the built wheel
+        shell: bash
+        run: |
+          python -m pip install --force-reinstall \
+            "didactic==0.15.0" \
+            "panproto==0.74.2" \
+            "panproto-grammars-all==0.74.2" \
+            dist/*.whl
+      - name: Validate current and migration parsers without a compiler
+        run: python tools/release_wheel_smoke.py .
 
   # Fast tier. Everything that does not launch a probe container, which
   # is most of the suite by count and a small share of its runtime. This
@@ -77,6 +127,11 @@ jobs:
   # across runners: the shards are independent, so the wall clock is the
   # slowest shard rather than the sum.
   probe:
+    needs: changes
+    if: >-
+      always() &&
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.probe == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -102,12 +157,11 @@ jobs:
       - name: Load probe images
         if: steps.probe-images.outputs.cache-hit == 'true'
         run: gunzip -c ~/.cache/qvr-probe-images/images.tar.gz | docker load
-      # Memoised probe measurements, keyed on the image ID, the emitted
-      # source, the points and the probe scripts. Restored from the
-      # newest run that shares the prefix and saved under a key unique
-      # to this one, since the contents grow as cells run and a fixed
-      # key would never be updated.
-      - name: Restore probe measurements
+      # Pull requests may reuse memoised measurements for turnaround. A push to
+      # main is release-certifying, so it deliberately leaves the cache unset
+      # and executes every probe container against the merged tree.
+      - name: Restore probe measurements for pull requests
+        if: github.event_name == 'pull_request'
         uses: actions/cache@v4
         with:
           path: ~/.cache/qvr-probe-measurements
@@ -126,7 +180,9 @@ jobs:
           python -m pytest tests/ -q -m probe -n auto \
             --splits 4 --group ${{ matrix.shard }}
         env:
-          QUIVERS_PROBE_CACHE: ~/.cache/qvr-probe-measurements
+          QUIVERS_PROBE_CACHE: >-
+            ${{ github.event_name == 'pull_request' &&
+                '~/.cache/qvr-probe-measurements' || '' }}
       - name: Save probe images
         if: always() && steps.probe-images.outputs.cache-hit != 'true'
         run: |

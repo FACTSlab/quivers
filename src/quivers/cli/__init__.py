@@ -81,8 +81,8 @@ def main() -> int:
         "--from",
         dest="from_ref",
         default=None,
-        help="Source grammar revision (git tag or commit id). "
-        "Defaults to the most recent tagged release on the chain.",
+        help="Source grammar revision (git tag or commit id). Required when "
+        "migrating because QVR source does not yet carry a version marker.",
     )
     migrate.add_argument(
         "--to",
@@ -105,11 +105,10 @@ def main() -> int:
     migrate.add_argument(
         "--check",
         action="store_true",
-        help="Validate the migration chain against the panproto "
-        "VCS schema diff: report any rule removed in an adjacent "
-        "grammar revision that the corresponding hop migrator has "
-        "no converter for. Non-zero exit when any pair has "
-        "uncovered removals. Does not migrate any files.",
+        help="Validate the migration chain against the panproto VCS schema "
+        "diff, converter coverage, and asserted identity hops. Non-zero "
+        "exit on uncovered or unexpected drift. Does not migrate files and "
+        "does not require --from.",
     )
     migrate.add_argument(
         "paths",

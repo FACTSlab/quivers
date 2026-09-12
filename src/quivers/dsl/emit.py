@@ -146,6 +146,52 @@ from quivers.dsl.ast_nodes.program_steps import (
     ScoreStep,
     VectorisedObserveStep,
 )
+from quivers.dsl.ast_nodes.qiec import (
+    QiecBindComputation,
+    QiecBinder,
+    QiecCaseBranch,
+    QiecCaseComputation,
+    QiecComputation,
+    QiecComputationDecl,
+    QiecConstructorValue,
+    QiecContextSort,
+    QiecEffectBinder,
+    QiecEffectDecl,
+    QiecEffectInstanceDecl,
+    QiecEffectRef,
+    QiecEffectRequest,
+    QiecEffectRow,
+    QiecFamilyConstructor,
+    QiecFamilyDecl,
+    QiecFunctionType,
+    QiecHandleComputation,
+    QiecHandlerApplication,
+    QiecHandlerDecl,
+    QiecIndexApplication,
+    QiecIndexBinder,
+    QiecIndexConstructor,
+    QiecIndexDecl,
+    QiecIndexExpr,
+    QiecIndexLiteral,
+    QiecIndexName,
+    QiecIndexSort,
+    QiecLiteralValue,
+    QiecNatSort,
+    QiecPerformComputation,
+    QiecProductType,
+    QiecReturnComputation,
+    QiecSequenceComputation,
+    QiecShapeIndex,
+    QiecShapeSort,
+    QiecTypeApplication,
+    QiecTypeBinder,
+    QiecTypeExpr,
+    QiecTypeKind,
+    QiecTypeName,
+    QiecUserIndexSort,
+    QiecValue,
+    QiecVariableValue,
+)
 from quivers.dsl.ast_nodes.structural import (
     BinderDecl,
     BinderVar,
@@ -799,6 +845,18 @@ def _emit_bind_step(step: BindStep, indent: int) -> list[str]:
 
 
 def _emit_statement(stmt: Statement, indent: int) -> str:
+    if isinstance(stmt, QiecIndexDecl):
+        return _emit_qiec_index_decl(stmt, indent)
+    if isinstance(stmt, QiecFamilyDecl):
+        return _emit_qiec_family_decl(stmt, indent)
+    if isinstance(stmt, QiecEffectDecl):
+        return _emit_qiec_effect_decl(stmt, indent)
+    if isinstance(stmt, QiecEffectInstanceDecl):
+        return _emit_qiec_effect_instance_decl(stmt, indent)
+    if isinstance(stmt, QiecHandlerDecl):
+        return _emit_qiec_handler_decl(stmt, indent)
+    if isinstance(stmt, QiecComputationDecl):
+        return _emit_qiec_computation_decl(stmt, indent)
     if isinstance(stmt, CompositionDecl):
         return _emit_composition(stmt, indent)
     if isinstance(stmt, CategoryDecl):
@@ -834,6 +892,379 @@ def _emit_statement(stmt: Statement, indent: int) -> str:
     if isinstance(stmt, ProgramDecl):
         return _emit_program(stmt, indent)
     raise EmitError(f"emit: unknown Statement kind {type(stmt).__name__!r}")
+
+
+# ---------------------------------------------------------------------------
+# QIEC declarations and terms
+# ---------------------------------------------------------------------------
+
+
+def _emit_qiec_index_sort(sort: QiecIndexSort) -> str:
+    if isinstance(sort, QiecNatSort):
+        return "Nat"
+    if isinstance(sort, QiecShapeSort):
+        return "Shape" if sort.rank is None else f"Shape[{sort.rank}]"
+    if isinstance(sort, QiecContextSort):
+        return f"Context[{sort.signature}]"
+    if isinstance(sort, QiecUserIndexSort):
+        return sort.name
+    raise EmitError(f"emit: unknown QIEC index sort {type(sort).__name__!r}")
+
+
+def _emit_qiec_kind(kind) -> str:
+    if isinstance(kind, QiecTypeKind):
+        return "Type"
+    raise EmitError(f"emit: QIEC kind {type(kind).__name__!r} has no surface form")
+
+
+def _emit_qiec_binder(binder: QiecBinder) -> str:
+    if isinstance(binder, QiecTypeBinder):
+        return f"{binder.name} : {_emit_qiec_kind(binder.binder_kind)}"
+    if isinstance(binder, QiecIndexBinder):
+        return f"{binder.name} : {_emit_qiec_index_sort(binder.sort)}"
+    if isinstance(binder, QiecEffectBinder):
+        return f"{binder.name} : Effect"
+    raise EmitError(f"emit: unknown QIEC binder {type(binder).__name__!r}")
+
+
+def _emit_qiec_telescope(binders: tuple[QiecBinder, ...]) -> str:
+    if not binders:
+        return ""
+    return "[" + ", ".join(_emit_qiec_binder(binder) for binder in binders) + "]"
+
+
+def _emit_qiec_index_telescope(binders: tuple[QiecIndexBinder, ...]) -> str:
+    if not binders:
+        return ""
+    return "(" + ", ".join(_emit_qiec_binder(binder) for binder in binders) + ")"
+
+
+def _emit_qiec_index(index: QiecIndexExpr) -> str:
+    if isinstance(index, QiecIndexName):
+        return index.name
+    if isinstance(index, QiecIndexLiteral):
+        return str(index.value)
+    if isinstance(index, QiecIndexApplication):
+        if not index.arguments:
+            raise EmitError(
+                f"emit: QIEC index application {index.constructor!r} has no arguments"
+            )
+        arguments = ", ".join(_emit_qiec_index(arg) for arg in index.arguments)
+        return f"{index.constructor}({arguments})"
+    if isinstance(index, QiecShapeIndex):
+        return "[" + ", ".join(_emit_qiec_index(dim) for dim in index.dimensions) + "]"
+    raise EmitError(f"emit: unknown QIEC index term {type(index).__name__!r}")
+
+
+_QIEC_TYPE_PREC_FUNCTION = 1
+_QIEC_TYPE_PREC_PRODUCT = 2
+_QIEC_TYPE_PREC_ATOM = 3
+
+
+def _qiec_type_prec(type_expr: QiecTypeExpr) -> int:
+    if isinstance(type_expr, QiecFunctionType):
+        return _QIEC_TYPE_PREC_FUNCTION
+    if isinstance(type_expr, QiecProductType):
+        return _QIEC_TYPE_PREC_PRODUCT
+    return _QIEC_TYPE_PREC_ATOM
+
+
+def _emit_qiec_type_child(type_expr: QiecTypeExpr, minimum: int) -> str:
+    text = _emit_qiec_type(type_expr)
+    return f"({text})" if _qiec_type_prec(type_expr) < minimum else text
+
+
+def _emit_qiec_type(type_expr: QiecTypeExpr) -> str:
+    if isinstance(type_expr, QiecTypeName):
+        return type_expr.name
+    if isinstance(type_expr, QiecTypeApplication):
+        if not type_expr.static_arguments and not type_expr.indices:
+            raise EmitError(
+                f"emit: QIEC type application {type_expr.constructor!r} "
+                "requires a static argument or index"
+            )
+        head = type_expr.constructor
+        if type_expr.static_arguments:
+            arguments = ", ".join(
+                _emit_qiec_type(argument) for argument in type_expr.static_arguments
+            )
+            head += f"[{arguments}]"
+        if type_expr.indices:
+            indices = ", ".join(_emit_qiec_index(index) for index in type_expr.indices)
+            head += f"({indices})"
+        return head
+    if isinstance(type_expr, QiecProductType):
+        if len(type_expr.components) < 2:
+            raise EmitError("emit: QIEC product type requires at least two components")
+        return " * ".join(
+            _emit_qiec_type_child(component, _QIEC_TYPE_PREC_PRODUCT)
+            for component in type_expr.components
+        )
+    if isinstance(type_expr, QiecFunctionType):
+        parameter = _emit_qiec_type_child(
+            type_expr.parameter, _QIEC_TYPE_PREC_FUNCTION + 1
+        )
+        result = _emit_qiec_type_child(type_expr.result, _QIEC_TYPE_PREC_FUNCTION)
+        return f"{parameter} -> {result}"
+    raise EmitError(f"emit: unknown QIEC type {type(type_expr).__name__!r}")
+
+
+def _emit_qiec_effect_ref(effect: QiecEffectRef) -> str:
+    if not effect.arguments:
+        return effect.name
+    arguments = ", ".join(_emit_qiec_type(argument) for argument in effect.arguments)
+    return f"{effect.name}[{arguments}]"
+
+
+def _emit_qiec_row(row: QiecEffectRow) -> str:
+    entries = ", ".join(entry.instance for entry in row.entries)
+    if row.tail is None:
+        if row.lacks:
+            raise EmitError("emit: QIEC row lacks constraints require an open tail")
+        return f"!{{{entries}}}"
+    tail = row.tail
+    if row.lacks:
+        tail += " lacks " + ", ".join(row.lacks)
+    separator = " | " if entries else "| "
+    return f"!{{{entries}{separator}{tail}}}"
+
+
+def _emit_qiec_index_constructor(constructor: QiecIndexConstructor) -> str:
+    if not constructor.arguments:
+        return constructor.name
+    arguments = ", ".join(
+        _emit_qiec_index_sort(argument) for argument in constructor.arguments
+    )
+    return f"{constructor.name}({arguments})"
+
+
+def _emit_qiec_index_decl(decl: QiecIndexDecl, indent: int) -> str:
+    if not decl.constructors:
+        raise EmitError(f"emit: index {decl.name!r} has no constructors")
+    constructors = " | ".join(
+        _emit_qiec_index_constructor(constructor) for constructor in decl.constructors
+    )
+    return _with_docs(decl.docs, indent, f"index {decl.name} = {constructors}")
+
+
+def _emit_qiec_family_constructor(
+    constructor: QiecFamilyConstructor, indent: int
+) -> str:
+    head = f"{_pad(indent)}constructor {constructor.name}"
+    head += _emit_qiec_telescope(constructor.binders)
+    head += " : "
+    if constructor.arguments:
+        head += " * ".join(
+            _emit_qiec_type_child(argument, _QIEC_TYPE_PREC_PRODUCT + 1)
+            for argument in constructor.arguments
+        )
+        head += " -> "
+    return head + _emit_qiec_type(constructor.result)
+
+
+def _emit_qiec_family_decl(decl: QiecFamilyDecl, indent: int) -> str:
+    if not decl.constructors:
+        raise EmitError(f"emit: family {decl.name!r} has no constructors")
+    lines = _doc_lines(decl.docs, indent)
+    head = f"family {decl.name}{_emit_qiec_telescope(decl.parameters)}"
+    head += _emit_qiec_index_telescope(decl.indices)
+    head += f" : {_emit_qiec_kind(decl.result_kind)}"
+    lines.append(f"{_pad(indent)}{head}")
+    lines.extend(
+        _emit_qiec_family_constructor(constructor, indent + 1)
+        for constructor in decl.constructors
+    )
+    return "\n".join(lines)
+
+
+def _emit_qiec_operation(operation, indent: int) -> str:
+    head = f"{_pad(indent)}{operation.name}"
+    head += _emit_qiec_telescope(operation.binders)
+    head += " : "
+    if operation.arguments:
+        head += " * ".join(
+            _emit_qiec_type_child(argument, _QIEC_TYPE_PREC_PRODUCT + 1)
+            for argument in operation.arguments
+        )
+        head += " -> "
+    return head + _emit_qiec_type(operation.result)
+
+
+def _emit_qiec_effect_decl(decl: QiecEffectDecl, indent: int) -> str:
+    if not decl.operations:
+        raise EmitError(f"emit: effect {decl.name!r} has no operations")
+    options = f" [version={decl.interface_version}, evolution={decl.evolution}]"
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(
+        f"{_pad(indent)}effect {decl.name}{_emit_qiec_telescope(decl.binders)}{options}"
+    )
+    lines.extend(
+        _emit_qiec_operation(operation, indent + 1) for operation in decl.operations
+    )
+    return "\n".join(lines)
+
+
+def _emit_qiec_effect_instance_decl(decl: QiecEffectInstanceDecl, indent: int) -> str:
+    text = f"instance {decl.name} : {_emit_qiec_effect_ref(decl.effect)}"
+    return _with_docs(decl.docs, indent, text)
+
+
+def _emit_qiec_handler_decl(decl: QiecHandlerDecl, indent: int) -> str:
+    if not decl.clauses:
+        raise EmitError(f"emit: handler {decl.name!r} has no clauses")
+    options = [f"coverage={decl.coverage}"]
+    options.append(f"forwards={'unknown' if decl.forwards_unknown else 'none'}")
+    if decl.introduced.entries or decl.introduced.tail is not None:
+        options.append(f"introduces={_emit_qiec_row(decl.introduced)}")
+    head = f"handler {decl.name}{_emit_qiec_telescope(decl.binders)}"
+    head += f" for {_emit_qiec_effect_ref(decl.effect)}"
+    head += f" : {_emit_qiec_type(decl.input_type)}"
+    head += f" -> {_emit_qiec_type(decl.output_type)}"
+    head += " [" + ", ".join(options) + "]"
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(f"{_pad(indent)}{head}")
+    lines.extend(
+        f"{_pad(indent + 1)}{clause.operation} resumes {clause.grade}"
+        for clause in decl.clauses
+    )
+    return "\n".join(lines)
+
+
+def _emit_qiec_value(value: QiecValue) -> str:
+    if isinstance(value, QiecVariableValue):
+        return value.name
+    if isinstance(value, QiecLiteralValue):
+        if value.value is None:
+            return "unit"
+        if value.value is True:
+            return "true"
+        if value.value is False:
+            return "false"
+        if isinstance(value.value, str):
+            return _emit_string(value.value)
+        return repr(value.value)
+    if isinstance(value, QiecConstructorValue):
+        static = ""
+        if value.static_arguments:
+            static = (
+                "["
+                + ", ".join(
+                    _emit_qiec_type(argument) for argument in value.static_arguments
+                )
+                + "]"
+            )
+        fields = ", ".join(_emit_qiec_value(field) for field in value.fields)
+        return (
+            f"construct {value.constructor}{static}({fields}) as "
+            f"{_emit_qiec_type(value.result_type)}"
+        )
+    raise EmitError(f"emit: unknown QIEC value {type(value).__name__!r}")
+
+
+def _emit_qiec_request(request: QiecEffectRequest) -> str:
+    static = ""
+    if request.static_arguments:
+        static = (
+            "["
+            + ", ".join(
+                _emit_qiec_type(argument) for argument in request.static_arguments
+            )
+            + "]"
+        )
+    arguments = ", ".join(_emit_qiec_value(arg) for arg in request.arguments)
+    return f"{request.instance}.{request.operation}{static}({arguments})"
+
+
+def _emit_qiec_handler_application(handler: QiecHandlerApplication) -> str:
+    if not handler.static_arguments:
+        return handler.name
+    arguments = ", ".join(
+        _emit_qiec_type(argument) for argument in handler.static_arguments
+    )
+    return f"{handler.name}[{arguments}]"
+
+
+def _emit_qiec_computation(computation: QiecComputation, indent: int) -> list[str]:
+    pad = _pad(indent)
+    if isinstance(computation, QiecReturnComputation):
+        return [f"{pad}return {_emit_qiec_value(computation.value)}"]
+    if isinstance(computation, QiecPerformComputation):
+        return [f"{pad}perform {_emit_qiec_request(computation.request)}"]
+    if isinstance(computation, QiecBindComputation):
+        binding = computation.binder.name
+        if computation.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(computation.binder.type_expr)}"
+        first = _emit_qiec_inline_computation(computation.first)
+        return [
+            f"{pad}let {binding} <- {first}",
+            *_emit_qiec_computation(computation.then, indent),
+        ]
+    if isinstance(computation, QiecSequenceComputation):
+        first = _emit_qiec_inline_computation(computation.first)
+        return [f"{pad}{first}", *_emit_qiec_computation(computation.then, indent)]
+    if isinstance(computation, QiecHandleComputation):
+        head = _emit_qiec_handler_application(computation.handler)
+        return [
+            f"{pad}handle {computation.instance} with {head} in",
+            *_emit_qiec_computation(computation.body, indent + 1),
+        ]
+    if isinstance(computation, QiecCaseComputation):
+        motive = "motive"
+        if computation.motive.indices:
+            motive += " " + _emit_qiec_index_telescope(computation.motive.indices)
+        motive += f" => {_emit_qiec_type(computation.motive.result_type)}"
+        lines = [f"{pad}case {_emit_qiec_value(computation.scrutinee)} {motive}"]
+        for branch in computation.branches:
+            lines.extend(_emit_qiec_case_branch(branch, indent + 1))
+        return lines
+    raise EmitError(f"emit: unknown QIEC computation {type(computation).__name__!r}")
+
+
+def _emit_qiec_inline_computation(computation: QiecComputation) -> str:
+    if isinstance(computation, QiecPerformComputation):
+        return f"perform {_emit_qiec_request(computation.request)}"
+    raise EmitError(
+        "emit: QIEC bind/sequence left-hand side must be a perform computation"
+    )
+
+
+def _emit_qiec_case_branch(branch: QiecCaseBranch, indent: int) -> list[str]:
+    static = ""
+    if branch.static_arguments:
+        static = (
+            "["
+            + ", ".join(
+                _emit_qiec_type(argument) for argument in branch.static_arguments
+            )
+            + "]"
+        )
+    fields = ""
+    if branch.fields:
+        items: list[str] = []
+        for field in branch.fields:
+            item = field.name
+            if field.type_expr is not None:
+                item += f" : {_emit_qiec_type(field.type_expr)}"
+            items.append(item)
+        fields = "(" + ", ".join(items) + ")"
+    return [
+        f"{_pad(indent)}{branch.constructor}{static}{fields} =>",
+        *_emit_qiec_computation(branch.body, indent + 1),
+    ]
+
+
+def _emit_qiec_computation_decl(decl: QiecComputationDecl, indent: int) -> str:
+    parameters = ", ".join(
+        f"{parameter.name} : {_emit_qiec_type(parameter.type_expr)}"
+        for parameter in decl.parameters
+    )
+    head = f"define {decl.name}{_emit_qiec_telescope(decl.binders)}"
+    head += f"({parameters}) : {_emit_qiec_type(decl.result_type)}"
+    head += f" {_emit_qiec_row(decl.effects)} ="
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(f"{_pad(indent)}{head}")
+    lines.extend(_emit_qiec_computation(decl.body, indent + 1))
+    return "\n".join(lines)
 
 
 def _with_docs(docs: tuple[str, ...], indent: int, text: str) -> str:

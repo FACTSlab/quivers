@@ -161,20 +161,24 @@ def tokenize(
             )
         ]
 
-    leaves: list[tuple[Any, str | None]] = []
+    leaves: list[tuple[Any, str | None, str | None]] = []
 
-    def walk(node: Any, parent_kind: str | None) -> None:
+    def walk(
+        node: Any,
+        parent_kind: str | None,
+        field_name: str | None,
+    ) -> None:
         if not node.children:
-            leaves.append((node, parent_kind))
+            leaves.append((node, parent_kind, field_name))
             return
-        for c in node.children:
-            walk(c, node.type)
+        for index, child in enumerate(node.children):
+            walk(child, node.type, node.field_name_for_child(index))
 
-    walk(tree.root_node, None)
+    walk(tree.root_node, None, None)
 
     spans: list[Span] = []
     cursor = 0
-    for leaf, parent_kind in leaves:
+    for leaf, parent_kind, field_name in leaves:
         sb = leaf.start_byte
         eb = leaf.end_byte
         if sb > cursor:
@@ -186,7 +190,7 @@ def tokenize(
                 )
             )
         text = src_bytes[sb:eb].decode("utf-8", errors="replace")
-        token = _classify(leaf.type, text, parent_kind)
+        token = _classify(leaf.type, text, parent_kind, field_name)
         # Semantic upgrade: if the grammar produced a generic
         # "variable" classification but the env knows this name as a
         # type/function/namespace, paint it the env colour. This is
@@ -216,7 +220,12 @@ def tokenize(
     return spans
 
 
-def _classify(kind: str, text: str, parent_kind: str | None) -> str:
+def _classify(
+    kind: str,
+    text: str,
+    parent_kind: str | None,
+    field_name: str | None = None,
+) -> str:
     if kind == "doc_comment":
         return "comment"
     if kind == "line_comment":
@@ -230,18 +239,11 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
     if kind == "string":
         return "string"
     if kind == "identifier":
-        # When a tree-sitter parse error puts a known keyword in the
-        # 'identifier' bucket (because the surrounding production
-        # didn't match), the text still tells us what the user wrote.
-        # Treat that as a keyword so output stays self-consistent.
-        if text in _KEYWORD_TOKENS:
-            return "keyword"
-        if text in _BUILTIN_FUNCTION_TOKENS:
-            return "function"
-        if text in _BUILTIN_TYPE_TOKENS:
-            return "type"
-        if text in _ALGEBRA_NAMES:
-            return "namespace"
+        if parent_kind == "qiec_effect_request":
+            if field_name == "operation":
+                return "function"
+            if field_name == "instance":
+                return "variable"
         if parent_kind in {
             "object_atom",
             "object_effect_apply",
@@ -255,15 +257,59 @@ def _classify(kind: str, text: str, parent_kind: str | None) -> str:
             "vertex_kind_decl",
             "edge_kind_decl",
             "morphism_init_family",
+            "index_decl",
+            "indexed_family_decl",
+            "qiec_type_name",
+            "qiec_type_application",
+            "qiec_type_binder",
+            "qiec_effect_ref",
         }:
+            return "type"
+        if parent_kind in {
+            "qiec_index_constructor",
+            "qiec_constructor_decl",
+            "qiec_constructor_value",
+            "qiec_case_branch",
+            "qiec_operation_decl",
+            "qiec_handler_application",
+            "handler_decl",
+            "computation_decl",
+        }:
+            return "function"
+        if parent_kind == "effect_decl":
             return "type"
         if parent_kind in {"pragma_entry", "pragma_outer", "pragma_inner"}:
             return "decorator"
+        # When a tree-sitter parse error puts a known keyword in the
+        # identifier bucket, the literal text still tells us what the user
+        # wrote. Context wins first because QIEC permits declarations such as
+        # ``index Nat`` whose name also has a built-in spelling.
+        if text in _KEYWORD_TOKENS:
+            return "keyword"
+        if text in _BUILTIN_FUNCTION_TOKENS:
+            return "function"
+        if text in _BUILTIN_TYPE_TOKENS:
+            return "type"
+        if text in _ALGEBRA_NAMES:
+            return "namespace"
         return "variable"
     if kind in _PUNCT:
         return "punctuation"
     if kind in _OPERATOR_TOKENS:
         return "operator"
+    if kind in {
+        "qiec_type_kind",
+        "qiec_effect_kind",
+        "qiec_nat_sort",
+        "qiec_shape_sort",
+        "qiec_context_sort",
+        "qiec_user_index_sort",
+    }:
+        return "type"
+    if kind == "qiec_resumption_grade":
+        return "number"
+    if kind in {"qiec_bool_literal", "qiec_unit_literal"}:
+        return "keyword"
     if kind in _KEYWORD_TOKENS:
         return "keyword"
     # Anonymous string tokens (constructors / builtin function heads)
@@ -300,11 +346,15 @@ def _byte_to_line_col(source: bytes, byte_offset: int) -> tuple[int, int]:
     prefix = source[:byte_offset]
     line = prefix.count(b"\n")
     last_nl = prefix.rfind(b"\n")
-    if last_nl < 0:
-        col = byte_offset
-    else:
-        col = byte_offset - last_nl - 1
+    line_start = 0 if last_nl < 0 else last_nl + 1
+    line_prefix = source[line_start:byte_offset].decode("utf-8")
+    col = _utf16_length(line_prefix)
     return line, col
+
+
+def _utf16_length(text: str) -> int:
+    """Return the number of UTF-16 code units required by ``text``."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 # ---------------------------------------------------------------------------
@@ -425,10 +475,10 @@ def to_semantic_token_data(
         # Tokens that cross a newline aren't supported by the protocol;
         # split conservatively at the next newline.
         text = span.text
-        length = len(text.encode("utf-8"))
+        length = _utf16_length(text)
         if "\n" in text:
             first_segment = text.split("\n", 1)[0]
-            length = len(first_segment.encode("utf-8"))
+            length = _utf16_length(first_segment)
         out.extend(
             [
                 delta_line,

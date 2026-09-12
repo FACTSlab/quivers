@@ -72,28 +72,9 @@ def run_tui(session: "ReplSession") -> int:
         Tree,
     )
 
-    from quivers.cli.repl_complete import all_completions
-    from quivers.cli.repl_highlight import to_rich_text
+    from quivers.cli.repl_complete import all_completions, public_meta_commands
 
-    META_COMMANDS = (
-        "load",
-        "reload",
-        "type",
-        "kind",
-        "transpile",
-        "info",
-        "doc",
-        "browse",
-        "dump",
-        "edit",
-        "trace",
-        "save",
-        "watch",
-        "unwatch",
-        "set",
-        "help",
-        "quit",
-    )
+    META_COMMANDS = public_meta_commands()
 
     class _MetaCommandProvider(Provider):
         """Surface every meta-command in the Ctrl-P palette."""
@@ -519,7 +500,7 @@ def run_tui(session: "ReplSession") -> int:
                             log.write(_decorate_comment_line(line))
                         else:
                             log.write(
-                                to_rich_text(
+                                _to_tui_rich_text(
                                     line,
                                     env_kinds=env_kinds,
                                     link_action="info",
@@ -585,7 +566,7 @@ def run_tui(session: "ReplSession") -> int:
                 text.append("watch ", style="bold magenta")
                 text.append(expr, style="bold")
                 text.append(" => ", style="dim")
-                text.append(to_rich_text(line, env_kinds=env_kinds))
+                text.append(_to_tui_rich_text(line, env_kinds=env_kinds))
             panel.update(text)
             panel.add_class("has-content")
 
@@ -623,6 +604,11 @@ def run_tui(session: "ReplSession") -> int:
                     n = len(mapping)
                     if n:
                         parts.append(f"{n} {label}")
+                from quivers.dsl.qiec_tooling import qiec_bindings
+
+                qiec_count = len(qiec_bindings(self.session.module))
+                if qiec_count:
+                    parts.append(f"{qiec_count} qiec")
                 counts = " · ".join(parts) if parts else "empty env"
                 algebra = type(compiler.algebra).__name__
             text = Text()
@@ -674,6 +660,42 @@ def run_tui(session: "ReplSession") -> int:
 _LOCATION_RE = __import__("re").compile(r"(\S+\.qvr):(\d+):(\d+)")
 
 
+def _to_tui_rich_text(
+    source: str,
+    *,
+    env_kinds: dict[str, str] | None = None,
+    link_action: str | None = None,
+):  # type: ignore[no-untyped-def]
+    """Highlight TUI text, layering click metadata over colour styles.
+
+    Rich supports overlapping spans. Applying click metadata as its own span
+    keeps the highlighter's parsed true-colour style intact when Textual later
+    resolves the combined style for a cell.
+    """
+    from quivers.cli.repl_highlight import to_rich_text, tokenize
+
+    text = to_rich_text(source, env_kinds=env_kinds)
+    if link_action is None:
+        return text
+
+    interesting = {"type", "function", "namespace"}
+    offset = 0
+    for span in tokenize(source, env_kinds=env_kinds):
+        end = offset + len(span.text)
+        if (
+            span.token in interesting
+            and span.text.replace("_", "").isalnum()
+            and not span.text[0].isdigit()
+        ):
+            text.apply_meta(
+                {"@click": f"{link_action}('{span.text}')"},
+                start=offset,
+                end=end,
+            )
+        offset = end
+    return text
+
+
 def _decorate_comment_line(line: str):  # type: ignore[no-untyped-def]
     """Render a ``-- ...`` comment line, linking any path:line:col span."""
     from rich.style import Style
@@ -703,7 +725,7 @@ def _word_prefix(line: str, col: int) -> str:
     A leading ``:`` is preserved so meta-command completion works.
     """
     i = col
-    while i > 0 and (line[i - 1].isalnum() or line[i - 1] in "_:"):
+    while i > 0 and (line[i - 1].isalnum() or line[i - 1] in "_:."):
         i -= 1
     return line[i:col]
 
@@ -819,6 +841,33 @@ def _populate_scope_tree(root, session, keep, *, filter_text):  # type: ignore[n
                 node=mapping[name],
             )
             _add_ref_node(cat_node, session, ref)
+
+    from quivers.cli.repl_session import render_qiec_signature
+    from quivers.dsl.qiec_tooling import qiec_bindings
+
+    grouped: dict[str, list] = {}
+    for binding in qiec_bindings(session.module):
+        if keep(binding.qualified_name):
+            grouped.setdefault(binding.kind, []).append(binding)
+    headings = {
+        "index": "qiec indices",
+        "index-constructor": "qiec index constructors",
+        "family": "qiec families",
+        "constructor": "qiec constructors",
+        "effect": "qiec effects",
+        "operation": "qiec operations",
+        "instance": "qiec instances",
+        "handler": "qiec handlers",
+        "computation": "qiec computations",
+    }
+    for kind, bindings in grouped.items():
+        cat_node = root.add(headings[kind], expand=True)
+        for binding in bindings:
+            label = render_qiec_signature(session.module, binding.qualified_name)
+            cat_node.add_leaf(
+                label or binding.qualified_name,
+                data=binding.qualified_name,
+            )
 
 
 def _add_ref_node(parent, session, ref):  # type: ignore[no-untyped-def]

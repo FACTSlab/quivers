@@ -8,17 +8,34 @@ panproto's grammar-bound ``emit_pretty``.
 
 from __future__ import annotations
 
-from quivers.cli.migrations._common import DeclConverter, migrate_source
+from quivers.cli.migrations._common import (
+    DeclConverter,
+    MigrationError,
+    SchemaView,
+    migrate_source,
+)
 
 
-_DECL_CONVERTERS: dict[str, DeclConverter] = {}
+def _convert_quantale(view: SchemaView, vid: str) -> str:
+    lo, hi = view.span(vid)
+    source = view.source[lo:hi]
+    if source.startswith(b"quantale"):
+        source = b"algebra" + source[len(b"quantale") :]
+    elif not source.startswith(
+        (b"semigroupoid", b"bilinear_form", b"composition_rule")
+    ):
+        raise MigrationError("unrecognized v0.6.0 quantale declaration form")
+    text = source.decode("utf-8")
+    return text if text.endswith("\n") else text + "\n"
+
+
+_DECL_CONVERTERS: dict[str, DeclConverter] = {
+    "quantale_decl": _convert_quantale,
+}
 
 
 def migrate(source: bytes) -> bytes:
     return migrate_source(source, "v0.6.0", "v0.7.0", _DECL_CONVERTERS)
 
 
-# Identity hop or no converters declared yet. The chain-coverage
-# check will flag every removed source rule as uncovered until
-# the hop's converters are written.
-SOURCE_RULE_COVERAGE: frozenset[str] = frozenset()
+SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS)

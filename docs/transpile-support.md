@@ -23,6 +23,8 @@ Support is thus stated as a refusal boundary rather than as a feature list. A co
 
 Refusals are grouped by construct, not by program: the heading of each group is the identifier prefix of the reported `UnsupportedConstruct.kinds`, which is what a reader asking whether a feature of their own model is supported wants to match on.
 
+QIEC declarations take a separate checked route before this matrix. The structural IR retains declaration-only QIEC metadata as canonical `qiec-json/v1`; all 11 backends may then transpile an accompanying probabilistic `program`. A QIEC computation body is instead refused by the shared boundary as `qiec:computation-body:<name>`, because the probabilistic IR cannot represent `perform`, `handle`, indexed-case evidence, or resumption grades without changing their meaning.
+
 What this page does not cover is whether a rendered program's density agrees with QVR's own. That is the subject of the [transpilation-correctness contract](semantics/transpile-correctness/index.md), which states the evidence available for the programs that do render, and of the [transpilation architecture](semantics/transpile-architecture.md), which describes how a program reaches a target at all.
 
 ## Coverage at a glance

@@ -40,6 +40,12 @@ from quivers.dsl.compiler.structural import _StructuralMixin
 from quivers.dsl.compiler.deductions import _DeductionsMixin
 from quivers.dsl.compiler.resolution import _ResolutionMixin
 from quivers.dsl.compiler.expressions import _ExpressionsMixin
+from quivers.dsl.qiec_lowering import (
+    has_qiec_surface,
+    lower_qvr_to_qiec,
+    non_qiec_projection,
+)
+from quivers.qiec import QiecModule
 
 
 class Compiler(
@@ -67,7 +73,21 @@ class Compiler(
         The parsed AST.
     """
 
-    def __init__(self, module: Module) -> None:
+    def __init__(
+        self,
+        module: Module,
+        *,
+        module_name: str | None = None,
+        file_path: str = "<source>",
+    ) -> None:
+        self._qiec_module: QiecModule | None = None
+        if has_qiec_surface(module):
+            self._qiec_module = lower_qvr_to_qiec(
+                module,
+                module_name=module_name,
+                file_path=file_path,
+            )
+            module = non_qiec_projection(module)
         self._module = module
         self._algebra: Algebra = PRODUCT_FUZZY
         self._categories: list[str] = []
@@ -186,6 +206,12 @@ class Compiler(
         """User-declared transformation constructors / singletons."""
         return dict(self._transformations)
 
+    @property
+    def qiec_module(self) -> QiecModule | None:
+        """The checked QIEC projection, if the source contained v0.19 forms."""
+
+        return self._qiec_module
+
     def compile(self) -> Program:
         """Compile the module into a trainable Program.
 
@@ -240,6 +266,10 @@ class Compiler(
         program.encoders = getattr(self, "_encoders", {})
         program.decoders = getattr(self, "_decoders", {})
         program.losses = getattr(self, "_loss_registry", None)
+        # Preserve the checked projection on the compiled container.  A
+        # QIEC-only source thus becomes an inspection/evaluation container;
+        # its computation graph is never misrepresented as a PyTorch morphism.
+        object.__setattr__(program, "qiec", self._qiec_module)
         # Wire the loss registry into every compiled deduction so the
         # agenda's rule-firing and chart-completion paths can fire
         # rule-attached and chart-attached losses automatically.
@@ -299,6 +329,8 @@ class Compiler(
             self._compile_statement(stmt)
         env: dict = {}
         env["__algebra__"] = self._algebra
+        if self._qiec_module is not None:
+            env["__qiec__"] = self._qiec_module
         for name, obj in self._objects.items():
             env[name] = obj
         for name, space in self._spaces.items():

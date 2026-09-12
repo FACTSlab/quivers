@@ -64,19 +64,17 @@ _OPERATOR_EXTRAS = frozenset(
 
 
 def _grammar_json_path() -> Path:
-    # Prefer the package-local copy under
-    # ``quivers/dsl/_grammar_data/grammar.json`` (bundled with the
-    # wheel). Fall back to the canonical in-tree path
-    # ``grammars/qvr/src/grammar.json`` when running from a source
-    # checkout that hasn't synced the package copy yet.
+    # Prefer the canonical generated grammar in an editable checkout so
+    # highlighters see grammar edits immediately. An installed wheel falls
+    # back to its synchronized package-local copy.
     here = Path(__file__).resolve()
-    packaged = here.parent / "_grammar_data" / "grammar.json"
-    if packaged.is_file():
-        return packaged
     for parent in here.parents:
         candidate = parent / "grammars" / "qvr" / "src" / "grammar.json"
         if candidate.is_file():
             return candidate
+    packaged = here.parent / "_grammar_data" / "grammar.json"
+    if packaged.is_file():
+        return packaged
     raise FileNotFoundError(
         "grammar.json not found at "
         f"{packaged} or under any parent of {here}; "

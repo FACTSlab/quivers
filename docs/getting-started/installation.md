@@ -4,14 +4,15 @@
 
 - **Python** >= 3.14
 - **PyTorch** >= 2.0
-- **didactic** >= 0.7.1
-- **panproto** >= 0.58.0 (provides the schema/lens machinery)
-- **panproto-grammars-all** >= 0.58.0 (ships the QVR tree-sitter parser)
+- **didactic** >= 0.15.0
+- **panproto** >= 0.74.2 (provides the schema/lens machinery and historical-object validation)
+- **panproto-grammars-all** >= 0.58.0 (provides the eleven transpiler-target grammars)
 - **Pygments** >= 2.10, **tree-sitter** >= 0.21
 
 The didactic, panproto, panproto-grammars-all, Pygments, and
 tree-sitter packages are pulled in automatically by
-`pip install quivers`.
+`pip install quivers`. Supported platform wheels include the native QVR
+parsers and do not require a C compiler at installation time or first parse.
 
 ## From PyPI
 
@@ -28,6 +29,10 @@ git clone https://github.com/FACTSlab/quivers
 cd quivers
 pip install -e .
 ```
+
+A source or editable build requires a C compiler (`cc`, Clang, GCC, or MSVC).
+The build compiles the generated current parser; editable checkouts may also
+rebuild it into a content-addressed development cache after grammar changes.
 
 ## Development Installation
 
@@ -113,14 +118,23 @@ pytest tests/
 Quivers depends on:
 
 - **torch** (>= 2.0): differentiable tensors and automatic differentiation
-- **didactic** (>= 0.7.1): typed-data layer that backs every value-type in quivers (`dx.Model`, `dx.TaggedUnion`, `dx.Lens`)
-- **panproto** (>= 0.58.0): schema/theory machinery used to extract a `Schema` from each `.qvr` program for diff/migrate workflows
-- **panproto-grammars-all** (>= 0.58.0): ships the QVR tree-sitter parser registered with panproto; quivers does not run a hand-written lexer or recursive-descent parser
+- **didactic** (>= 0.15.0): typed-data, indexed-family checking, and exact extension-lowering boundary used by QVR-to-QIEC checking
+- **panproto** (>= 0.74.2): schema/theory machinery used to check indexed declarations and extract a `Schema` from each `.qvr` program for diff/migrate workflows
+- **panproto-grammars-all** (>= 0.58.0): supplies the eleven target-language grammars used by the transpiler pipeline; it is not the QVR v0.19 source of truth
 - **Pygments** (>= 2.10): in-tree `qvr` lexer for documentation and notebooks
 - **tree-sitter** (>= 0.21): runtime bindings for the QVR grammar
 
-All core functionality is built as pure Python atop PyTorch; no other
-system dependencies are required at runtime. The optional capability
+Quivers' platform wheels ship the generated QVR parser source together with a
+native library whose manifest binds it to that source and its tree-sitter
+metadata. The same source-bound pairing is included for every parser snapshot
+used by `qvr migrate`. Installed wheels load these verified libraries directly,
+so neither parsing, highlighting, nor migration launches a compiler. An
+editable checkout instead prefers its current `grammars/qvr/src` and may build a
+content-addressed library for development. Loading fails closed if a wheel's
+source, library, or manifest is absent or inconsistent; Quivers does not
+substitute the QVR parser from `panproto-grammars-all`.
+
+The optional capability
 extras (`[repl]`, `[lsp]`, `[data]`, `[diagnostics]`, `[formulas]`)
 pull in the interactive surfaces and data/diagnostics integrations
 described above.

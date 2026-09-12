@@ -1601,6 +1601,7 @@ def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
         inputs=new_inputs,
         body=tuple(new_body),
         cards=ir.cards,
+        qiec=ir.qiec,
     )
 
 

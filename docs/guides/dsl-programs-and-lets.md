@@ -64,6 +64,39 @@ program deterministic : X -> X [effects=[Pure]]
 See the [compositional effects guide](effects.md) for the algebraic
 basis of the effect surface.
 
+### QIEC typed computations
+
+The v0.19 **typed computation surface** is distinct from the probabilistic
+`program` block above. Its `define` header gives a value result and an instance
+row, while `perform` names an operation through a lexical effect instance:
+
+<!-- compile: qiec -->
+```qvr
+effect Tap [version=1, evolution=sealed]
+    ping : Int -> Int
+
+instance tap : Tap
+
+define echo(value : Int) : Int !{tap} =
+    let answer <- perform tap.ping(value)
+    return answer
+```
+
+The stable computation terms are `return`, `let ... <- perform ...`, bare
+`perform` sequencing, `handle ... with ... in`, and indexed `case` with an
+explicit motive. Rows contain lexical instance names, as in `!{tap}`; an open
+row has the form `!{tap | rho lacks tap}`. The tail and each `lacks`
+constraint are checked rather than treated as comments.
+
+QIEC computations currently have no source call or recursion term, no scoped
+instance-allocation term, and no authored handler-clause body. They nevertheless
+parse, type-check, and lower to the stable QIEC module. The eleven existing
+probabilistic transpilers refuse any module containing such a body because the
+shared probabilistic IR cannot preserve its effects or equality evidence. A module with
+QIEC declarations but no QIEC computation body may still use the probabilistic
+pipeline. The complete surface appears in
+[Quivers Indexed Effect Core](../developer/qiec.md).
+
 ### Kleisli bind syntax
 
 The `sample` keyword introduces a draw, and `<-` separates its

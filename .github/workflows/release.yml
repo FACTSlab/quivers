@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build distribution
+  build-sdist:
+    name: Build source distribution
     runs-on: ubuntu-latest
 
     steps:
@@ -32,8 +32,65 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
 
-      - name: Build sdist and wheel
-        run: python -m build
+      - name: Build source distribution
+        run: python -m build --sdist
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: distributions-sdist
+          path: dist/*.tar.gz
+
+  build-wheels:
+    name: Build wheel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build platform wheel
+        uses: pypa/cibuildwheel@v4.1.0
+        env:
+          CIBW_BUILD: cp314-*
+          CIBW_ARCHS: auto
+          CIBW_TEST_REQUIRES: >-
+            didactic==0.15.0
+            panproto==0.74.2
+            panproto-grammars-all==0.74.2
+          CIBW_TEST_COMMAND: >-
+            python "{project}/tools/release_wheel_smoke.py" "{project}"
+        with:
+          output-dir: wheelhouse
+
+      - name: Upload platform wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: distributions-wheel-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  verify-distributions:
+    name: Verify distributions
+    needs: [build-sdist, build-wheels]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: distributions-*
+          path: dist/
+          merge-multiple: true
 
       - name: Verify distribution metadata
         run: |
@@ -48,7 +105,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: build
+    needs: verify-distributions
     runs-on: ubuntu-latest
 
     environment:

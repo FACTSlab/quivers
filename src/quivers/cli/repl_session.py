@@ -21,7 +21,13 @@ from typing import Any, Literal
 
 import didactic.api as dx
 
-from quivers.dsl import Compiler, CompileError, ParseError, parse
+from quivers.dsl import (
+    Compiler,
+    CompileError,
+    ParseError,
+    non_qiec_projection,
+    parse,
+)
 from quivers.dsl.ast_nodes import (
     ExportDecl,
     ExprCompose,
@@ -42,9 +48,21 @@ from quivers.analysis.scope import (
 )
 from quivers.dsl.constraints import Violation, check_constraints
 from quivers.dsl.emit import module_to_source
+from quivers.dsl.qiec_tooling import (
+    analyze_module,
+    qiec_binding_candidates,
+    qiec_binding_map,
+    qiec_bindings,
+    qiec_env_kinds,
+    qiec_module_name,
+)
+from quivers.qiec import QiecModule
 
 
 Severity = Literal["error", "warning", "info", "ok"]
+
+
+_PARSE_POSITION = re.compile(r"line\s+(\d+),\s*col\s+(\d+)")
 
 
 class Diagnostic(dx.Model):
@@ -122,6 +140,7 @@ class ReplSession:
         self._loaded_source: str = ""
         self._module: Module = Module(statements=())
         self._compiler: Compiler | None = None
+        self._qiec_module: QiecModule | None = None
         self._env: dict[str, Any] = {}
         self._last_diags: tuple[Diagnostic, ...] = ()
         self.options = SessionOptions()
@@ -165,33 +184,33 @@ class ReplSession:
         in its env-known colour everywhere it appears, regardless of
         whether the surrounding grammar context parses cleanly.
         """
-        if self._compiler is None:
-            return {}
         kinds: dict[str, str] = {}
-        for name in self._compiler.objects:
-            kinds[name] = "type"
-        for name in self._compiler.spaces:
-            kinds[name] = "type"
-        for name in self._compiler.morphisms:
-            kinds[name] = "function"
-        for name in self._compiler.rules:
-            kinds[name] = "namespace"
-        for name in self._compiler.programs:
-            kinds[name] = "function"
-        for name in self._compiler.deductions:
-            kinds[name] = "namespace"
-        for name in self._compiler.signatures:
-            kinds[name] = "type"
-        for name in self._compiler.encoders:
-            kinds[name] = "function"
-        for name in self._compiler.decoders:
-            kinds[name] = "function"
-        for name in self._compiler.losses:
-            kinds[name] = "function"
-        for name in self._compiler.bundles:
-            kinds[name] = "namespace"
-        for name in self._compiler.contractions:
-            kinds[name] = "function"
+        if self._compiler is not None:
+            for name in self._compiler.objects:
+                kinds[name] = "type"
+            for name in self._compiler.spaces:
+                kinds[name] = "type"
+            for name in self._compiler.morphisms:
+                kinds[name] = "function"
+            for name in self._compiler.rules:
+                kinds[name] = "namespace"
+            for name in self._compiler.programs:
+                kinds[name] = "function"
+            for name in self._compiler.deductions:
+                kinds[name] = "namespace"
+            for name in self._compiler.signatures:
+                kinds[name] = "type"
+            for name in self._compiler.encoders:
+                kinds[name] = "function"
+            for name in self._compiler.decoders:
+                kinds[name] = "function"
+            for name in self._compiler.losses:
+                kinds[name] = "function"
+            for name in self._compiler.bundles:
+                kinds[name] = "namespace"
+            for name in self._compiler.contractions:
+                kinds[name] = "function"
+        kinds.update(qiec_env_kinds(self._module))
         return kinds
 
     # ----- entry points -------------------------------------------------
@@ -223,8 +242,15 @@ class ReplSession:
             source = p.read_bytes()
             module = parse(source, file_path=str(p))
         except ParseError as e:
+            match = _PARSE_POSITION.search(str(e))
             self._last_diags = (
-                Diagnostic(message=str(e), severity="error", code="parse"),
+                Diagnostic(
+                    message=str(e),
+                    severity="error",
+                    code="parse",
+                    line=int(match.group(1)) if match is not None else 0,
+                    col=int(match.group(2)) if match is not None else 0,
+                ),
             )
             return _resp("", self._last_diags)
         self._loaded_source = source.decode("utf-8", errors="replace")
@@ -249,26 +275,39 @@ class ReplSession:
     def _install_module(
         self, module: Module, *, source_path: Path | None = None
     ) -> ReplResponse:
+        analysis = analyze_module(
+            module,
+            module_name=qiec_module_name(source_path),
+            file_path=str(source_path) if source_path is not None else "<repl>",
+        )
         diags: list[Diagnostic] = [
-            _violation_to_diag(v) for v in check_constraints(module)
+            _violation_to_diag(v) for v in check_constraints(analysis.non_qiec_module)
         ]
-        compiler = Compiler(module)
-        env: dict[str, Any] = {}
-        try:
-            env = compiler.compile_env()
-        except CompileError as e:
+        for diagnostic in analysis.qiec_diagnostics:
             diags.append(
                 Diagnostic(
-                    message=str(e),
+                    message=diagnostic.message,
                     severity="error",
-                    line=getattr(e, "line", 0),
-                    col=getattr(e, "col", 0),
+                    line=diagnostic.line,
+                    col=diagnostic.col,
+                    code=diagnostic.code,
+                )
+            )
+        if analysis.compile_error is not None:
+            error = analysis.compile_error
+            diags.append(
+                Diagnostic(
+                    message=str(error),
+                    severity="error",
+                    line=getattr(error, "line", 0),
+                    col=getattr(error, "col", 0),
                     code="compile",
                 )
             )
         self._module = module
-        self._compiler = compiler
-        self._env = env
+        self._compiler = analysis.compiler
+        self._qiec_module = analysis.qiec_module
+        self._env = analysis.env
         self._last_diags = tuple(diags)
         if source_path is not None:
             self._loaded_path = source_path
@@ -278,9 +317,9 @@ class ReplSession:
                 self._loaded_mtime = None
         self._refresh_watches()
         body = (
-            f"loaded {source_path}: {_env_counts(env)}"
+            f"loaded {source_path}: {_env_counts(analysis.env)}"
             if source_path is not None
-            else f"installed module: {_env_counts(env)}"
+            else f"installed module: {_env_counts(analysis.env)}"
         )
         return _resp(body, tuple(diags))
 
@@ -322,6 +361,18 @@ class ReplSession:
             return _resp(self._type_signature_for_ref(ref), body_kind="qvr")
 
         bare = expr_source.strip()
+        qiec = qiec_binding_map(self._module).get(bare)
+        if qiec is not None:
+            if qiec.kind in {"index", "family", "effect"}:
+                return _err(f"{bare} is a type, not an expression; use :kind {bare}")
+            return _resp(
+                render_qiec_signature(self._module, bare) or f"{bare} :: {qiec.kind}",
+                body_kind="qvr",
+            )
+        qiec_candidates = qiec_binding_candidates(self._module, bare)
+        if len(qiec_candidates) > 1:
+            choices = ", ".join(item.qualified_name for item in qiec_candidates)
+            return _err(f"ambiguous QIEC name {bare!r}; use one of: {choices}")
         if bare.isidentifier():
             line = self._value_line_for_name(bare)
             if line is not None:
@@ -885,6 +936,19 @@ class ReplSession:
             return _resp(self._type_line_for_ref(ref), body_kind="qvr")
 
         bare = expr_source.strip()
+        qiec = qiec_binding_map(self._module).get(bare)
+        if qiec is not None:
+            if qiec.kind in {"index", "family", "effect"}:
+                return _resp(
+                    render_qiec_signature(self._module, bare)
+                    or f"{bare} :: {qiec.kind}",
+                    body_kind="qvr",
+                )
+            return _err(f"{bare} is an expression, not a type; use :type {bare}")
+        qiec_candidates = qiec_binding_candidates(self._module, bare)
+        if len(qiec_candidates) > 1:
+            choices = ", ".join(item.qualified_name for item in qiec_candidates)
+            return _err(f"ambiguous QIEC name {bare!r}; use one of: {choices}")
         if bare.isidentifier():
             line = self._type_line_for_name(bare)
             if line is not None:
@@ -931,6 +995,9 @@ class ReplSession:
                 return _err(f"unknown path: {name}")
             return self._info_for_scoped_ref(ref, python=python)
 
+        ambiguity = self._qiec_ambiguity(name)
+        if ambiguity is not None:
+            return _err(ambiguity)
         decl = self._find_decl(name)
         if decl is None:
             if name in self._env:
@@ -1001,7 +1068,7 @@ class ReplSession:
             body = f"{rendered}\n{footer}"
         return _resp(body, body_kind=body_kind)
 
-    def _render_decl_qvr(self, decl: Statement) -> str:
+    def _render_decl_qvr(self, decl: object) -> str:
         """Return the declaration as QVR source.
 
         Order of preference:
@@ -1017,7 +1084,7 @@ class ReplSession:
             return sliced.rstrip() + "\n"
         return _render_decl(decl)
 
-    def _slice_source_for(self, decl: Statement) -> str | None:
+    def _slice_source_for(self, decl: object) -> str | None:
         """Return the original source lines that produced ``decl``."""
         if not self._loaded_source:
             return None
@@ -1030,8 +1097,19 @@ class ReplSession:
         # Find the next declaration's start line; everything between
         # `start_line` and that line belongs to this declaration.
         end_line = len(lines) + 1
-        for other in self._module.statements:
-            if other is decl:
+        candidates: list[object] = list(self._module.statements)
+        binding = next(
+            (item for item in qiec_bindings(self._module) if item.declaration == decl),
+            None,
+        )
+        if binding is not None and binding.declaration is not binding.owner:
+            candidates.extend(
+                item.declaration
+                for item in qiec_bindings(self._module)
+                if item.owner is binding.owner and item.declaration is not item.owner
+            )
+        for other in candidates:
+            if other == decl:
                 continue
             other_line = getattr(other, "line", 0)
             if other_line > start_line and other_line < end_line:
@@ -1052,6 +1130,9 @@ class ReplSession:
             if not docs:
                 return _resp(f"{name}: (no doc comment)")
             return _resp("\n".join(docs), body_kind="markdown")
+        ambiguity = self._qiec_ambiguity(name)
+        if ambiguity is not None:
+            return _err(ambiguity)
         decl = self._find_decl(name)
         if decl is None:
             return _err(f"unknown name: {name}")
@@ -1224,6 +1305,49 @@ class ReplSession:
 
     def effects(self, name: str) -> ReplResponse:
         """Compare declared and inferred effect sets for a program."""
+        from quivers.dsl.ast_nodes.qiec import (
+            QiecComputationDecl,
+            QiecEffectDecl,
+            QiecHandlerDecl,
+        )
+
+        ambiguity = self._qiec_ambiguity(name)
+        if ambiguity is not None:
+            return _err(ambiguity)
+        qiec = qiec_binding_map(self._module).get(name)
+        if qiec is not None:
+            declaration = qiec.declaration
+            if isinstance(declaration, QiecEffectDecl):
+                operations = ", ".join(op.name for op in declaration.operations)
+                return _resp(
+                    f"effect {declaration.name} v{declaration.interface_version}\n"
+                    f"  evolution : {declaration.evolution}\n"
+                    f"  operations: {{{operations}}}"
+                )
+            if isinstance(declaration, QiecComputationDecl):
+                row = declaration.effects
+                entries = ", ".join(entry.instance for entry in row.entries)
+                tail = row.tail or "(closed)"
+                lacks = ", ".join(row.lacks) or "(none)"
+                return _resp(
+                    f"computation {declaration.name}:\n"
+                    f"  instances : {{{entries}}}\n"
+                    f"  tail      : {tail}\n"
+                    f"  lacks     : {{{lacks}}}"
+                )
+            if isinstance(declaration, QiecHandlerDecl):
+                grades = ", ".join(
+                    f"{clause.operation}:{clause.grade}"
+                    for clause in declaration.clauses
+                )
+                return _resp(
+                    f"handler {declaration.name} for {declaration.effect.name}:\n"
+                    f"  coverage  : {declaration.coverage}\n"
+                    f"  forwards  : {declaration.forwards_unknown}\n"
+                    f"  resumptions: {{{grades}}}"
+                )
+            return _err(f"{name!r} does not declare an effect row")
+
         from quivers.analysis.plate_graph import build_plate_graph
 
         if self._compiler is None:
@@ -1344,6 +1468,14 @@ class ReplSession:
             "losses": [],
             "bundles": [],
             "contractions": [],
+            "indices": [],
+            "families": [],
+            "constructors": [],
+            "effects": [],
+            "operations": [],
+            "instances": [],
+            "handlers": [],
+            "computations": [],
         }
         compiler = self._compiler
         if compiler is None:
@@ -1368,8 +1500,23 @@ class ReplSession:
                 head, children = builder(name, mapping[name])
                 entries.append((head, children))
             groups[ns] = entries
+        qiec_groups = {
+            "index": "indices",
+            "index-constructor": "constructors",
+            "family": "families",
+            "constructor": "constructors",
+            "effect": "effects",
+            "operation": "operations",
+            "instance": "instances",
+            "handler": "handlers",
+            "computation": "computations",
+        }
+        for binding in qiec_bindings(self._module):
+            namespace_name = qiec_groups[binding.kind]
+            signature = render_qiec_signature(self._module, binding.qualified_name)
+            groups[namespace_name].append((signature or binding.qualified_name, []))
         if namespace:
-            ns = namespace.rstrip("s") + "s"
+            ns = namespace if namespace in groups else namespace.rstrip("s") + "s"
             if ns not in groups:
                 return _err(f"unknown namespace: {namespace}")
             groups = {ns: groups[ns]}
@@ -1401,16 +1548,24 @@ class ReplSession:
     # ----- :dump --------------------------------------------------------
 
     def dump(self, name: str, *, as_json: bool = False) -> ReplResponse:
+        ambiguity = self._qiec_ambiguity(name)
+        if ambiguity is not None:
+            return _err(ambiguity)
         decl = self._find_decl(name)
         if decl is None:
             return _err(f"unknown name: {name}")
         if as_json:
+            if not isinstance(decl, dx.Model):
+                return _err(f"{name!r} has no serializable AST node")
             return _resp(decl.model_dump_json(indent=2), body_kind="json")
         return _resp(repr(decl))
 
     # ----- :edit --------------------------------------------------------
 
     def edit(self, name: str, *, editor: str | None = None) -> ReplResponse:
+        ambiguity = self._qiec_ambiguity(name)
+        if ambiguity is not None:
+            return _err(ambiguity)
         decl = self._find_decl(name)
         if decl is None:
             return _err(f"unknown name: {name}")
@@ -1570,7 +1725,14 @@ class ReplSession:
 
     # ----- helpers ------------------------------------------------------
 
-    def _find_decl(self, name: str) -> Statement | None:
+    def _find_decl(self, name: str) -> object | None:
+        qiec = qiec_binding_map(self._module).get(name)
+        if qiec is not None:
+            # Nested QIEC members are didactic models but not top-level
+            # ``Statement`` instances. Interactive inspection treats both
+            # uniformly; the narrow annotation is retained for compatibility
+            # with current call sites.
+            return qiec.declaration
         for stmt in self._module.statements:
             if getattr(stmt, "name", None) == name:
                 return stmt
@@ -1578,9 +1740,20 @@ class ReplSession:
                 return stmt
         return None
 
+    def _qiec_ambiguity(self, name: str) -> str | None:
+        """Explain an ambiguous bare QIEC member name, if any."""
+
+        if "." in name:
+            return None
+        candidates = qiec_binding_candidates(self._module, name)
+        if len(candidates) <= 1:
+            return None
+        choices = ", ".join(item.qualified_name for item in candidates)
+        return f"ambiguous QIEC name {name!r}; use one of: {choices}"
+
     def _scratch_compiler(self) -> Compiler:
         """A fresh Compiler with the current module already elaborated."""
-        c = Compiler(self._module)
+        c = Compiler(non_qiec_projection(self._module))
         try:
             c.compile_env()
         except CompileError:
@@ -2276,13 +2449,15 @@ def _pretty_morphism(m: Any) -> str:
     return f"{_pretty_object(dom)} -> {_pretty_object(cod)}"
 
 
-def _render_decl(decl: Statement) -> str:
+def _render_decl(decl: object) -> str:
     """Emit a declaration as canonical source, falling back to repr.
 
     `quivers.dsl.emit.module_to_source` covers the common declarations
     and raises NotImplementedError otherwise; we catch and fall back so
     :info / :edit never crash on a rare variant.
     """
+    if not isinstance(decl, Statement):
+        return repr(decl)
     try:
         return module_to_source(Module(statements=(decl,))).rstrip("\n")
     except NotImplementedError:
@@ -2314,6 +2489,40 @@ def render_signature(compiler: Compiler | None, name: str) -> str | None:
     if line is not None:
         return line
     return s._type_line_for_name(name)
+
+
+def render_qiec_signature(module: Module, name: str) -> str | None:
+    """Return a compact source signature for one QIEC binding.
+
+    This works from the authored AST rather than a backend compiler object, so
+    it remains available when a document contains only indexed families or
+    effect interfaces.
+    """
+
+    binding = qiec_binding_map(module).get(name)
+    if binding is None:
+        return None
+    if binding.kind == "index":
+        return f"index {name} :: Index"
+
+    rendered = _render_decl(binding.owner)
+    lines = [
+        line.strip()
+        for line in rendered.splitlines()
+        if line.strip() and not line.lstrip().startswith("#!")
+    ]
+    if binding.declaration is binding.owner:
+        return lines[0] if lines else f"{name} :: {binding.kind}"
+
+    pattern = re.compile(rf"\b{re.escape(binding.name)}\b")
+    for line in lines[1:]:
+        if pattern.search(line):
+            if line.startswith("constructor "):
+                line = line.removeprefix("constructor ")
+            if name != binding.name:
+                line = pattern.sub(name, line, count=1)
+            return line
+    return f"{name} :: {binding.kind}"
 
 
 def _extract_export_expr(mod: Module):
@@ -2503,4 +2712,6 @@ __all__ = [
     "ReplResponse",
     "ReplSession",
     "SessionOptions",
+    "render_qiec_signature",
+    "render_signature",
 ]

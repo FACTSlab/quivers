@@ -9,7 +9,7 @@ This guide covers setting up a development environment, understanding the projec
 - Python 3.14 or later
 - pip or conda
 - git
-- A C toolchain (the panproto-grammars-all wheel ships pre-built tree-sitter parsers; building it from source requires a working C compiler)
+- A C toolchain (`cc`, Clang, GCC, or MSVC) for editable parser builds
 
 ### Installation
 
@@ -230,7 +230,12 @@ The QVR DSL processes `.qvr` files through these stages:
 
 ### 1. Parsing
 
-`quivers.dsl.parser.parse(source)` and `parse_file(path)` delegate to panproto's tree-sitter–driven `AstParserRegistry`, which loads the QVR grammar from `panproto-grammars-all`. The parser walker then converts the parse tree into a tree of `dx.Model` AST nodes. Lexical and syntactic errors both raise `ParseError`.
+`quivers.dsl.parser.parse(source)` and `parse_file(path)` register Quivers'
+generated QVR grammar and its source-bound native parser with panproto's
+tree-sitter-driven `AstParserRegistry`. Platform wheels load the verified native
+pair directly; editable checkouts may compile a content-addressed development
+parser. The parser walker then converts the parse tree into a tree of `dx.Model`
+AST nodes. Lexical and syntactic errors both raise `ParseError`.
 
 ### 2. AST Nodes
 

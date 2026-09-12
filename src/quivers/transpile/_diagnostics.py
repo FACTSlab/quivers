@@ -637,6 +637,23 @@ def _render_node_kind(backend: str, tail: str, explained: bool) -> str:
     return f"{_cannot(backend, f'emit {surface}')}: {detail}"
 
 
+def _render_qiec_kind(backend: str, tail: str) -> str:
+    """``qiec:computation-body:<name>`` -- a checked QIEC computation
+    cannot be represented by the existing probabilistic IR."""
+    reason, _, name = tail.partition(":")
+    if reason == "computation-body":
+        subject = f"QIEC computation `{name}`" if name else "a QIEC computation"
+        return (
+            f"{subject} has passed QIEC type and effect checking, but "
+            f"{_language(backend)} cannot receive it through the existing "
+            f"probabilistic IR. That IR has no representation for QIEC "
+            f"`perform`, `handle`, indexed-case evidence, or resumption grades. "
+            f"Use the QIEC evaluator, or a future QIEC-capable lowering target; "
+            f"removing the body would change the program's meaning."
+        )
+    return f"{_cannot(backend, 'transpile this checked QIEC construct')}: {tail}"
+
+
 def _render_declare_kind(backend: str, tail: str) -> str:
     """`declare:<type>:<dimension-issue>` -- the variable declaration
     the target needs more shape information than the program gives."""
@@ -1601,6 +1618,8 @@ def _render_head(
         return _render_family_kind(backend, tail, explained)
     if head == "node":
         return _render_node_kind(backend, tail, explained)
+    if head == "qiec":
+        return _render_qiec_kind(backend, tail)
     if head == "declare":
         return _render_declare_kind(backend, tail)
     if head == "arg":
