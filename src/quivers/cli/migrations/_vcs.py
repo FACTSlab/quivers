@@ -21,12 +21,13 @@ migrations package:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-
 import panproto
 
+from quivers.cli.migrations._assets import vcs_root
+from quivers.cli.migrations._manifest import SCHEMA_COMMITS
 
-_VCS_ROOT = Path(__file__).resolve().parents[4] / "grammars" / "qvr" / "vcs"
+
+_VCS_ROOT = vcs_root()
 
 
 def _open_repo() -> panproto.Repository:
@@ -157,6 +158,35 @@ def diff_coverage(
         removed_rules=removed,
         uncovered_removed=uncovered,
     )
+
+
+def schemas_identical(from_ref: str, to_ref: str) -> bool:
+    """Whether two refs resolve to structurally identical grammar schemas."""
+    repo = _open_repo()
+    from_id = _manifest_commit(repo, from_ref)
+    to_id = _manifest_commit(repo, to_ref)
+    if not from_id or not to_id:
+        return False
+    if from_id == to_id:
+        return True
+    delta = panproto.diff_schemas(
+        repo.schema_at(from_id),
+        repo.schema_at(to_id),
+    ).to_dict()
+    return not any(delta.get(key) for key in delta)
+
+
+def _manifest_commit(repo: panproto.Repository, ref: str) -> str:
+    """Resolve a migration revision without guessing from adjacent tags."""
+    expected = SCHEMA_COMMITS.get(ref)
+    if expected is None:
+        return ""
+    direct = commit_id_for(ref)
+    if direct and direct != expected:
+        return ""
+    # Force validation that the pinned commit is present in this repository.
+    repo.schema_at(expected)
+    return expected
 
 
 def _semver_key(tag: str) -> tuple[int, ...]:

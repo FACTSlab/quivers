@@ -278,6 +278,34 @@ the inside score is the standard Lambek / CCG / multimodal-TLG
 chart-parser denotation. The effects framework is thus a strict
 extension over the bare grammar fragment.
 
+## 8. QIEC rows and lexical handlers
+
+QIEC v0.19 supplies a second, explicitly typed account of effects. An applied
+interface $E[\bar a]$ describes an operation family, while a lexical instance
+$i:E[\bar a]$ supplies the identity that appears in a row. This distinction
+means that two state cells with the same value type need not collapse into one
+capability. A row has the schematic form
+$\{i_1,\ldots,i_n\mid\rho\;\mathsf{lacks}\;j_1,\ldots,j_m\}$; its tail supports
+effect polymorphism, and its lacks set records negative constraints needed by
+row extension and handler elimination.
+
+The reference evaluator gives QIEC computations a deep, lexical handler
+semantics. Resuming a captured continuation reinstalls the matched handler,
+while an effect performed by the clause body is offered to outer handlers.
+Dispatch compares the lexical instance, applied interface, and operation.
+Thus an unrelated instance of the same interface cannot be intercepted by
+accident. Dynamic grade checks enforce the declared number of resumptions, and
+multi-shot resumptions extend their trace address with a branch path.
+
+This **row bridge** unifies the source contracts of state, abort, random choice,
+scoring, nondeterministic choice, and weighted accumulation. It does not yet
+identify the QIEC reference evaluator with the production implementations
+described in §§2–7. Runtime handlers remain process-local attachments, and the
+eleven probabilistic transpilers refuse QIEC computation bodies because
+their IR lacks the corresponding control and evidence forms. Establishing a
+backend-level adequacy theorem for a QIEC-aware IR remains a live possibility.
+The [QIEC developer note](../developer/qiec.md) gives the executable boundary.
+
 ## References
 
 - Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).

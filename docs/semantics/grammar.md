@@ -561,6 +561,50 @@ A `composition_decl` selects the module's underlying composition rule. With no b
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 
+## 11. QIEC v0.19 fragment
+
+The Quivers Indexed Effect Core (QIEC) adds a disjoint declaration and
+computation fragment to the module grammar. Square-bracket telescopes bind
+static type, index, or effect-interface variables; parenthesized telescopes bind
+family indices or computation values. The following compressed EBNF records
+the boundary, while `grammars/qvr/grammar.js` remains authoritative:
+
+```ebnf
+index_decl        := 'index' IDENT '=' index_constructor ('|' index_constructor)*
+family_decl       := 'family' IDENT [static_telescope] [index_telescope]
+                     ':' KIND constructor_decl+
+constructor_decl  := 'constructor' IDENT [static_telescope] ':'
+                     [type ('*' type)* '->'] type
+
+effect_decl       := 'effect' IDENT [static_telescope]
+                     '[' 'version=' INT ',' 'evolution=' EVOLUTION ']'
+                     operation_decl+
+operation_decl    := IDENT [static_telescope] ':' [type ('*' type)* '->'] type
+instance_decl     := 'instance' IDENT ':' effect_ref
+handler_decl      := 'handler' IDENT [static_telescope] 'for' effect_ref ':'
+                     type '->' type [handler_options] handler_clause+
+handler_clause    := IDENT 'resumes' ('0' | 'aff' | '1' | 'omega')
+
+computation_decl  := 'define' IDENT [static_telescope] ['(' value_params ')']
+                     ':' type effect_row '=' computation
+effect_row        := '!{' [IDENT (',' IDENT)*]
+                     ['|' IDENT ['lacks' IDENT (',' IDENT)*]] '}'
+computation       := 'return' value
+                   | 'let' local '<-' perform computation
+                   | perform computation
+                   | 'handle' IDENT 'with' handler_application 'in' computation
+                   | 'case' value 'motive' [index_telescope] '=>' type branch+
+perform           := 'perform' IDENT '.' IDENT [static_arguments]
+                     '(' [value (',' value)*] ')'
+```
+
+This fragment deliberately has no source-level computation-call production:
+`define` introduces a checked entry point, not an implicitly inlineable or
+recursive function. Handler declarations likewise carry stable signatures and
+resumption grades rather than authored clause bodies. The complete grammar,
+worked examples, and implementation limits appear in the
+[QIEC developer note](../developer/qiec.md).
+
 ## References
 
 - Shieber, Schabes & Pereira (1995). [*Principles and implementation of deductive parsing*](https://doi.org/10.1016/0743-1066(95)00035-I). Journal of Logic Programming 24(1–2):3–36.

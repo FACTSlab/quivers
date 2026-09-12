@@ -3,9 +3,9 @@
 The `QVR_PROGRAM_PROTOCOL` protocol describes the static structure of
 a compiled `.qvr` program — every object, space, morphism, and output the
 program declares — as a panproto `panproto.Schema`. This sits one
-layer above the syntactic ``qvr`` protocol from
-``panproto-grammars-all``: the syntactic protocol carries the AST as
-parsed, this protocol carries the AST after the resolution layer
+layer above the syntactic ``qvr`` protocol compiled from the in-tree
+QVR grammar: the syntactic protocol carries the AST as parsed, while
+this protocol carries the AST after the resolution layer
 (``_resolve_type``, ``_resolve_space``) has run.
 
 Why have it

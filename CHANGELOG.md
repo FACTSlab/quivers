@@ -4,6 +4,28 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.19.0] - Unreleased
+
+### Added
+
+- **QVR v0.19 indexed families and algebraic effects.** The typed QIEC surface adds closed index sorts, indexed-family constructors, heterogeneous static telescopes, parameterized effect interfaces, lexical instances, open effect rows with `lacks` constraints, handler contracts with resumption grades, and checked `return`, `perform`, `bind`, `handle`, and indexed-case computations.
+- **A stable indexed-effect kernel.** QIEC modules lower through Didactic's exact `qvr-source/v0.19` to `qiec-core/v1alpha1` route, serialize through the deterministic `qiec-json/v1` allowlist, and execute under a reference evaluator with deep lexical handlers. Runtime callables and mutable resources remain process-local attachments.
+- **QIEC-aware developer tooling.** The CLI, REPL, TUI, and language server share QIEC symbols, completions, source ranges, and stable diagnostic codes. The Pygments and tree-sitter highlighters recognize the same v0.19 surface. The panproto migration chain gains a validating, byte-preserving `v0.18.0 -> HEAD` hop because the new grammar is additive.
+
+### Changed
+
+- **Indexed declarations use Didactic 0.15 directly.** QVR families and constructors are projected through Didactic's public `GADT` API and compiled by Panproto before the QIEC-specific checker completes the exact lowering route. QIEC retains stable identities, effect rows, and the distinction between uniform family parameters and refinable indices.
+- **The current QVR grammar ships with Quivers and loads fail-closed.** Editable checkouts use their generated `grammars/qvr/src`; wheels carry the same generated parser source. `panproto-grammars-all` continues to provide the eleven transpiler-target grammars but is no longer the QVR source of truth.
+- **Platform wheels load QVR without a host compiler.** Each Linux, macOS, and Windows wheel contains a native current parser plus native libraries for every packaged migration snapshot. Source-binding manifests cover the generated parser and tree-sitter metadata as well as the library bytes; a missing or inconsistent pair fails closed. Source distributions and editable grammar development still compile during build or into the development cache, but an installed platform wheel does not compile on first parse, highlight, or migration.
+- **Probabilistic transpilers preserve the QIEC boundary.** Declaration-only QIEC metadata may accompany a probabilistic program. Every existing target centrally refuses a QIEC computation body because the shared probabilistic IR cannot preserve `perform`, `handle`, indexed-case evidence, or resumption grades.
+- **The transpiler has one renderer path.** The unused PyMC-only AST adapter and the public `SchemaTransform` / `realize` exports are removed; every target now enters through the registered Module → IR → renderer boundary.
+
+### Fixed
+
+- **Historical migration objects validate without being rewritten.** Panproto 0.74.2 checks persisted objects against the exact enum payload read from disk, restoring the original QVR migration chain while preserving tamper detection and content-addressed fixture identities.
+- **QIEC wire data is validated recursively.** Deserialization checks every allowlisted field against its runtime annotation, module effect instances must be closed, and request provenance must belong to its module and source protocol. Malformed modules and escaped static variables are rejected at the stable boundary.
+- **Static application respects lexical kinding.** Type binders shadow same-spelled primitive types, applied effect interfaces may instantiate `Effect` binders, and checked evaluation seeds its typing context from the supplied runtime environment.
+
 ## [0.18.0] - 2026-09-10
 
 ### Added

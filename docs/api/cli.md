@@ -29,6 +29,20 @@ Diagnostic codes:
   arguments or incompatible argument shapes.
 - `implicit-family-defaults`: a distribution call relies on deprecated
   implicit defaults. This diagnostic is a warning.
+- `qiec-route`: the exact `qvr-source/v0.19` to `qiec-core/v1alpha1`
+  Didactic route is unavailable or mismatched.
+- `qiec-kind`: a static argument or binder has the wrong kind.
+- `qiec-index`: an index expression has the wrong sort or constructor shape.
+- `qiec-row`: an effect row violates instance identity, unification, or a
+  `lacks` constraint.
+- `qiec-coverage`: indexed case branches are incomplete, duplicated, or not
+  justified by refinement.
+- `qiec-skolem-escape`: branch-local static evidence escapes its scope.
+- `qiec-handler`: a handler signature violates coverage, interface evolution,
+  or resumption requirements.
+- `qiec-unhandled-effect`: a computation performs an instance absent from its
+  declared row.
+- `qiec-backend`: a requested backend boundary cannot preserve a QIEC form.
 - `io`: a file-system error, such as a missing or unreadable file.
 
 ## `qvr migrate PATHS...`
@@ -41,8 +55,8 @@ have to know the intermediate versions; pinning the boundary with
 
 Flags:
 
-- `--from VERSION`: source revision in the chain (defaults to
-  the most recent release).
+- `--from VERSION`: required source revision in the chain. QVR files do not
+  encode an unambiguous grammar version.
 - `--to VERSION`: target revision (defaults to `HEAD`).
 - `--dry-run`: report which files would change without writing.
 - `--output DIR`: write migrated copies under `DIR` instead

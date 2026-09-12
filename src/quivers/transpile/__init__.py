@@ -32,18 +32,18 @@ from typing import TYPE_CHECKING
 
 from quivers.transpile._api import (
     CHURCH_LIKE,
+    QIEC_METADATA_IGNORABLE,
     PYTHON_DEEP,
     STAN_LIKE,
     Backend,
     UnsupportedConstruct,
     unsupported_for,
 )
+from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import (
     EmitPretty,
-    SchemaTransform,
     parser_registry,
-    realize,
     target_protocol,
 )
 from quivers.transpile.lower import Lower
@@ -108,6 +108,7 @@ def transpile(module: Module, *, target: str) -> bytes:
             [f"target:unknown:{target}:{','.join(sorted(_RENDERERS))}"],
         )
     renderer_cls, grammar, support_tier = _RENDERERS[target]
+    check_qiec_transpile_boundary(module, target=target)
     unsupported_for(f"qvr-{target}", module, allow=support_tier)
     expanded = expand_composite_lets(module, target=target)
     ir = Lower().forward(expanded)
@@ -123,14 +124,13 @@ def available_targets() -> list[str]:
 __all__ = [
     "CHURCH_LIKE",
     "PYTHON_DEEP",
+    "QIEC_METADATA_IGNORABLE",
     "STAN_LIKE",
     "Backend",
     "EmitPretty",
-    "SchemaTransform",
     "UnsupportedConstruct",
     "available_targets",
     "parser_registry",
-    "realize",
     "target_protocol",
     "transpile",
     "unsupported_for",

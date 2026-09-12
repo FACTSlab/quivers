@@ -110,6 +110,22 @@ CATEGORICAL_METADATA_IGNORABLE: frozenset[str] = frozenset(
     }
 )
 
+#: QIEC declarations that may accompany an existing probabilistic
+#: ``program_decl`` after the shared QIEC boundary has checked them. These
+#: declarations contribute static types and effect signatures; they do not
+#: denote executable target-language statements. A ``computation_decl`` is
+#: intentionally absent because the probabilistic IR has no executable node that can
+#: preserve an arbitrary QIEC computation body.
+QIEC_METADATA_IGNORABLE: frozenset[str] = frozenset(
+    {
+        "index_decl",
+        "indexed_family_decl",
+        "effect_decl",
+        "effect_instance_decl",
+        "handler_decl",
+    }
+)
+
 #: Adds encoder/decoder declarations for backends with a deep-learning
 #: idiom (Pyro modules, NumPyro/Flax modules, Edward2/TF, PyMC custom
 #: dists).
@@ -164,14 +180,20 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
     kinds (``composition_decl``, ``category_decl``, ``schema_decl``,
     ``bundle_decl``, ``rule_decl``, ``contraction_decl``,
     ``signature_decl``, ``deduction_decl``) are accepted ALONGSIDE a
-    ``program_decl``: when the module has at least one program, the
-    walker ignores these metadata declarations and transpiles the
-    program. Without a ``program_decl`` they remain in `bad` so the
-    contract surfaces "no probabilistic program here to transpile."
+    ``program_decl``. The declaration-only QIEC forms in
+    [`QIEC_METADATA_IGNORABLE`][quivers.transpile.QIEC_METADATA_IGNORABLE]
+    receive the same treatment, but only after the caller has lowered and
+    checked the QIEC submodule. Without a ``program_decl`` these forms remain
+    in `bad`, so the contract reports that there is no probabilistic program
+    to transpile.
     """
     kinds = {cast_kind(s) for s in module.statements}
     has_program = "program_decl" in kinds
-    effective_allow = allow | CATEGORICAL_METADATA_IGNORABLE if has_program else allow
+    effective_allow = (
+        allow | CATEGORICAL_METADATA_IGNORABLE | QIEC_METADATA_IGNORABLE
+        if has_program
+        else allow
+    )
     bad: set[str] = set()
     for statement in module.statements:
         kind = cast_kind(statement)

@@ -20,6 +20,7 @@ keyword / operator / builtin lists at the top are derived.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -74,6 +75,52 @@ NODE_PATTERNS = """\
 (enum_set_literal elements: (identifier) @constant)
 (free_residuated_expr generators: (identifier) @type)
 (free_monoid_expr generators: (identifier) @type)
+
+; QIEC indexed families and effects.
+(index_decl name: (identifier) @type)
+(qiec_index_constructor name: (identifier) @constructor)
+(indexed_family_decl name: (identifier) @type)
+(qiec_constructor_decl name: (identifier) @constructor)
+(effect_decl name: (identifier) @type)
+(qiec_operation_decl name: (identifier) @function.method)
+(effect_instance_decl name: (identifier) @variable)
+(handler_decl name: (identifier) @function)
+(qiec_handler_clause operation: (identifier) @function.method)
+(computation_decl name: (identifier) @function)
+
+; QIEC telescope, type, row, and term positions.
+(qiec_type_binder name: (identifier) @type.parameter)
+(qiec_index_binder name: (identifier) @variable.parameter)
+(qiec_effect_binder name: (identifier) @type.parameter)
+(qiec_type_name name: (identifier) @type)
+(qiec_type_application constructor: (identifier) @type)
+(qiec_effect_ref name: (identifier) @type)
+(qiec_row_entry name: (identifier) @variable)
+(qiec_effect_row_literal tail: (identifier) @variable)
+(qiec_effect_row_literal lacks: (identifier) @variable)
+(qiec_value_parameter name: (identifier) @variable.parameter)
+(qiec_local_binding name: (identifier) @variable)
+(qiec_effect_request instance: (identifier) @variable)
+(qiec_effect_request operation: (identifier) @function.method)
+(qiec_handler_application name: (identifier) @function)
+(qiec_case_branch constructor: (identifier) @constructor)
+(qiec_case_static_binder name: (identifier) @variable.parameter)
+(qiec_constructor_value constructor: (identifier) @constructor)
+(qiec_variable_value name: (identifier) @variable)
+
+; Handler option openers are lexically fused with ``[`` to keep them
+; disjoint from static type applications.
+(qiec_handler_coverage_key) @keyword
+(qiec_handler_forwards_key) @keyword
+(qiec_handler_introduces_key) @keyword
+(qiec_type_kind) @type.builtin
+(qiec_effect_kind) @type.builtin
+(qiec_nat_sort) @type.builtin
+(qiec_shape_sort) @type.builtin
+(qiec_context_sort) @type.builtin
+(qiec_resumption_grade) @constant.builtin
+(qiec_bool_literal) @boolean
+(qiec_unit_literal) @constant.builtin
 
 ; Constructor heads on object expressions.
 (discrete_constructor constructor: _ @type.builtin)
@@ -152,34 +199,54 @@ def _quote_list(items: list[str]) -> str:
     return f"[\n{rendered}\n]"
 
 
+def _queryable_literals(items: set[str]) -> list[str]:
+    """Keep literals Tree-sitter exposes as anonymous queryable nodes.
+
+    A grammar literal wrapped by a named rule (for instance ``Type`` inside
+    ``qiec_type_kind``) is present in grammar.json but intentionally absent
+    from node-types.json. Its named wrapper receives a structural capture
+    below; emitting the hidden literal in a query would make the query fail
+    to compile.
+    """
+    node_types = json.loads(
+        (REPO_ROOT / "grammars/qvr/src/node-types.json").read_text(encoding="utf-8")
+    )
+    anonymous = {
+        node["type"]
+        for node in node_types
+        if isinstance(node, dict) and node.get("named") is False
+    }
+    return sorted(items & anonymous)
+
+
 def render() -> str:
     keyword_lines = [
         "; ---------------------------------------------------------------------------",
         "; keywords (derived from grammar literals)",
         "; ---------------------------------------------------------------------------",
         "",
-        _quote_list(sorted(KEYWORDS - SORT_KINDS)) + " @keyword",
+        _quote_list(_queryable_literals(KEYWORDS - SORT_KINDS)) + " @keyword",
         "",
         "; Sort kinds in structural-compression signatures.",
-        _quote_list(sorted(SORT_KINDS)) + " @type.qualifier",
+        _quote_list(_queryable_literals(SORT_KINDS)) + " @type.qualifier",
         "",
         "; ---------------------------------------------------------------------------",
         "; builtin types (constructor / param-kind heads)",
         "; ---------------------------------------------------------------------------",
         "",
-        _quote_list(sorted(BUILTIN_TYPES)) + " @type.builtin",
+        _quote_list(_queryable_literals(BUILTIN_TYPES)) + " @type.builtin",
         "",
         "; ---------------------------------------------------------------------------",
         "; builtin functions (combinators, intrinsics)",
         "; ---------------------------------------------------------------------------",
         "",
-        _quote_list(sorted(BUILTIN_FUNCTIONS)) + " @function.builtin",
+        _quote_list(_queryable_literals(BUILTIN_FUNCTIONS)) + " @function.builtin",
         "",
         "; ---------------------------------------------------------------------------",
         "; operators",
         "; ---------------------------------------------------------------------------",
         "",
-        _quote_list(sorted(OPERATORS)) + " @operator",
+        _quote_list(_queryable_literals(OPERATORS)) + " @operator",
     ]
     return "\n".join([HEADER, *keyword_lines, "", NODE_PATTERNS])
 

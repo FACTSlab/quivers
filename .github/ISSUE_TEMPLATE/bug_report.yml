@@ -70,7 +70,7 @@ body:
     attributes:
       label: panproto / didactic versions
       description: Output of `pip show panproto didactic | grep -i version`.
-      placeholder: "e.g. panproto 0.45.0 / didactic 0.6.0"
+      placeholder: "e.g. panproto 0.74.2 / didactic 0.15.0"
 
   - type: textarea
     id: extra

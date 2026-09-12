@@ -869,6 +869,9 @@ class IRProgram(dx.Model):
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
     cards: dict[str, int] = dx.Field(default_factory=dict)
+    # Canonical QIEC JSON rather than a Python kernel object: every IR field
+    # must itself be translatable by Didactic/Panproto.
+    qiec: str | None = None
 
 
 __all__ = [

@@ -17,6 +17,8 @@
 ; ---------------------------------------------------------------------------
 
 [
+  "Nat"
+  "aff"
   "as"
   "atoms"
   "attention"
@@ -26,13 +28,17 @@
   "binds"
   "body"
   "bundle"
+  "case"
   "categories"
   "category"
   "ccg"
   "change_base"
   "composition"
+  "construct"
+  "constructor"
   "constructors"
   "contraction"
+  "coverage"
   "curry_left"
   "curry_right"
   "dagger"
@@ -42,15 +48,26 @@
   "depth"
   "dim"
   "edge_kinds"
+  "effect"
   "effect_depth"
   "encoder"
+  "evolution"
   "export"
   "factor"
+  "family"
+  "for"
+  "forwarding"
+  "forwards"
   "freeze"
   "from"
+  "handle"
+  "handler"
   "in"
   "init"
+  "instance"
+  "introduces"
   "iterations"
+  "lacks"
   "lambek"
   "let"
   "lex"
@@ -60,31 +77,42 @@
   "max_length"
   "message"
   "morphism"
+  "motive"
+  "none"
   "observe"
+  "omega"
   "op"
   "ops"
+  "partial"
+  "perform"
   "primitive"
   "program"
   "readout"
   "recurrent"
   "recursive"
+  "resumes"
   "return"
   "rule"
   "rules"
   "sample"
   "schema"
   "score"
+  "sealed"
   "signature"
   "sorts"
   "start"
   "structure"
   "terminal"
+  "total"
   "trace"
   "unary"
+  "unknown"
   "update"
   "var_init"
+  "version"
   "vertex_kinds"
   "where"
+  "with"
 ] @keyword
 
 ; Sort kinds in structural-compression signatures.
@@ -141,6 +169,7 @@
 ; ---------------------------------------------------------------------------
 
 [
+  "!"
   "*"
   "+"
   "-"
@@ -152,10 +181,12 @@
   "<-"
   "<<"
   "="
+  "=>"
   ">>"
   ">>>"
   "@"
   "\\"
+  "|"
   "|-"
   "|->"
   "~"
@@ -184,6 +215,52 @@
 (enum_set_literal elements: (identifier) @constant)
 (free_residuated_expr generators: (identifier) @type)
 (free_monoid_expr generators: (identifier) @type)
+
+; QIEC indexed families and effects.
+(index_decl name: (identifier) @type)
+(qiec_index_constructor name: (identifier) @constructor)
+(indexed_family_decl name: (identifier) @type)
+(qiec_constructor_decl name: (identifier) @constructor)
+(effect_decl name: (identifier) @type)
+(qiec_operation_decl name: (identifier) @function.method)
+(effect_instance_decl name: (identifier) @variable)
+(handler_decl name: (identifier) @function)
+(qiec_handler_clause operation: (identifier) @function.method)
+(computation_decl name: (identifier) @function)
+
+; QIEC telescope, type, row, and term positions.
+(qiec_type_binder name: (identifier) @type.parameter)
+(qiec_index_binder name: (identifier) @variable.parameter)
+(qiec_effect_binder name: (identifier) @type.parameter)
+(qiec_type_name name: (identifier) @type)
+(qiec_type_application constructor: (identifier) @type)
+(qiec_effect_ref name: (identifier) @type)
+(qiec_row_entry name: (identifier) @variable)
+(qiec_effect_row_literal tail: (identifier) @variable)
+(qiec_effect_row_literal lacks: (identifier) @variable)
+(qiec_value_parameter name: (identifier) @variable.parameter)
+(qiec_local_binding name: (identifier) @variable)
+(qiec_effect_request instance: (identifier) @variable)
+(qiec_effect_request operation: (identifier) @function.method)
+(qiec_handler_application name: (identifier) @function)
+(qiec_case_branch constructor: (identifier) @constructor)
+(qiec_case_static_binder name: (identifier) @variable.parameter)
+(qiec_constructor_value constructor: (identifier) @constructor)
+(qiec_variable_value name: (identifier) @variable)
+
+; Handler option openers are lexically fused with ``[`` to keep them
+; disjoint from static type applications.
+(qiec_handler_coverage_key) @keyword
+(qiec_handler_forwards_key) @keyword
+(qiec_handler_introduces_key) @keyword
+(qiec_type_kind) @type.builtin
+(qiec_effect_kind) @type.builtin
+(qiec_nat_sort) @type.builtin
+(qiec_shape_sort) @type.builtin
+(qiec_context_sort) @type.builtin
+(qiec_resumption_grade) @constant.builtin
+(qiec_bool_literal) @boolean
+(qiec_unit_literal) @constant.builtin
 
 ; Constructor heads on object expressions.
 (discrete_constructor constructor: _ @type.builtin)

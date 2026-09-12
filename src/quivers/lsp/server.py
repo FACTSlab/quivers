@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from typing import cast
 
 import didactic.api as dx
 from pygls.lsp.server import LanguageServer
@@ -33,7 +34,12 @@ from quivers.cli.repl_highlight import (
     SEMANTIC_TOKEN_TYPES,
     to_semantic_token_data,
 )
-from quivers.cli.repl_session import Diagnostic, ReplSession, render_signature
+from quivers.cli.repl_session import (
+    Diagnostic,
+    ReplSession,
+    render_qiec_signature,
+    render_signature,
+)
 from quivers.dsl.ast_nodes import (
     ContinuousConstructor,
     DefineDecl,
@@ -43,7 +49,16 @@ from quivers.dsl.ast_nodes import (
     TypeFromExpr,
     TypeInitializer,
 )
+from quivers.dsl.ast_nodes.qiec import (
+    QiecComputationDecl,
+    QiecEffectDecl,
+    QiecEffectInstanceDecl,
+    QiecFamilyDecl,
+    QiecHandlerDecl,
+    QiecIndexDecl,
+)
 from quivers.dsl.emit import module_to_source
+from quivers.dsl.qiec_tooling import qiec_bindings, qiec_env_kinds
 from quivers.lsp.document import DocumentState, decl_names
 
 SERVER_NAME = "qvr-lsp"
@@ -121,12 +136,17 @@ def build_server() -> LanguageServer:
     @server.feature(lsp.TEXT_DOCUMENT_HOVER)
     def _hover(_ls: LanguageServer, params: lsp.HoverParams) -> lsp.Hover | None:
         doc = docs.get(params.text_document.uri)
-        if doc is None or doc.compiler is None:
+        if doc is None:
             return None
         name = doc.name_at_position(params.position.line, params.position.character)
         if name is None:
             return None
-        body = _render_hover(doc, name)
+        body = _render_hover(
+            doc,
+            name,
+            line=params.position.line,
+            col=params.position.character,
+        )
         if body is None:
             return None
         return lsp.Hover(
@@ -145,7 +165,11 @@ def build_server() -> LanguageServer:
         name = doc.name_at_position(params.position.line, params.position.character)
         if name is None:
             return None
-        decl = doc.find_decl(name)
+        decl = doc.find_decl(
+            name,
+            line=params.position.line,
+            col=params.position.character,
+        )
         if decl is None:
             return None
         line, col = _name_position(doc, decl, name)
@@ -184,17 +208,18 @@ def build_server() -> LanguageServer:
 
     @server.feature(
         lsp.TEXT_DOCUMENT_COMPLETION,
-        lsp.CompletionOptions(trigger_characters=[":", " "]),
+        lsp.CompletionOptions(trigger_characters=[":", " ", "."]),
     )
     def _completion(
         _ls: LanguageServer, params: lsp.CompletionParams
     ) -> lsp.CompletionList:
         doc = docs.get(params.text_document.uri)
-        if doc is None or doc.compiler is None:
+        if doc is None:
             return lsp.CompletionList(is_incomplete=False, items=[])
         session = ReplSession()
         session._module = doc.module  # noqa: SLF001
         session._compiler = doc.compiler  # noqa: SLF001
+        session._qiec_module = doc.qiec_module  # noqa: SLF001
         session._env = doc.env  # noqa: SLF001
         prefix = _prefix_at(doc.source, params.position.line, params.position.character)
         items = [
@@ -214,22 +239,7 @@ def build_server() -> LanguageServer:
         _ls: LanguageServer, params: lsp.DocumentFormattingParams
     ) -> list[lsp.TextEdit] | None:
         doc = docs.get(params.text_document.uri)
-        if doc is None or not doc.module.statements:
-            return None
-        canonical = module_to_source(doc.module)
-        if canonical == doc.source:
-            return []
-        end_line = doc.source.count("\n")
-        end_col = len(doc.source.splitlines()[-1]) if doc.source else 0
-        return [
-            lsp.TextEdit(
-                range=lsp.Range(
-                    start=lsp.Position(line=0, character=0),
-                    end=lsp.Position(line=end_line, character=end_col),
-                ),
-                new_text=canonical,
-            )
-        ]
+        return _format_document(doc) if doc is not None else None
 
     # The pygls feature decorator registers each handler with the
     # server, but the resulting name is never referenced from this
@@ -262,9 +272,9 @@ def build_server() -> LanguageServer:
 def _env_kinds_for(doc: DocumentState) -> dict[str, str]:
     """Build the name -> semantic-token-type map from a document's env."""
     compiler = doc.compiler
+    kinds: dict[str, str] = qiec_env_kinds(doc.module)
     if compiler is None:
-        return {}
-    kinds: dict[str, str] = {}
+        return kinds
     for name in getattr(compiler, "objects", {}):
         kinds[name] = "type"
     for name in getattr(compiler, "spaces", {}):
@@ -295,8 +305,7 @@ def _to_lsp_diag(d: Diagnostic, doc: DocumentState) -> lsp.Diagnostic:
     end_col = max(col + 1, d.end_col or col + 1)
     if end_line == 0 and not d.line:
         # Whole-file diagnostic when position is unknown.
-        end_line = doc.source.count("\n")
-        end_col = len(doc.source.splitlines()[-1]) if doc.source else 0
+        end_line, end_col = _lsp_eof_position(doc.source)
     severity_map = {
         "error": lsp.DiagnosticSeverity.Error,
         "warning": lsp.DiagnosticSeverity.Warning,
@@ -315,6 +324,45 @@ def _to_lsp_diag(d: Diagnostic, doc: DocumentState) -> lsp.Diagnostic:
     )
 
 
+def _format_document(doc: DocumentState) -> list[lsp.TextEdit] | None:
+    """Return a safe whole-document canonical edit for ``doc``.
+
+    QIEC lowering errors can leave a useful recovery AST whose normalized
+    fields no longer contain every rejected token. Formatting such a document
+    could erase the evidence for the diagnostic, so the formatter declines it.
+    """
+
+    if not doc.module.statements:
+        return None
+    if any(
+        diagnostic.severity == "error"
+        and (diagnostic.code == "parse" or diagnostic.code.startswith("qiec-"))
+        for diagnostic in doc.diagnostics
+    ):
+        return None
+    canonical = module_to_source(doc.module)
+    if canonical == doc.source:
+        return []
+    end_line, end_col = _lsp_eof_position(doc.source)
+    return [
+        lsp.TextEdit(
+            range=lsp.Range(
+                start=lsp.Position(line=0, character=0),
+                end=lsp.Position(line=end_line, character=end_col),
+            ),
+            new_text=canonical,
+        )
+    ]
+
+
+def _lsp_eof_position(source: str) -> tuple[int, int]:
+    """Return the UTF-16 LSP position immediately after ``source``."""
+
+    lines = source.split("\n")
+    final_line = lines[-1] if lines else ""
+    return len(lines) - 1, len(final_line.encode("utf-16-le")) // 2
+
+
 def _apply_partial(source: str, change: lsp.TextDocumentContentChangePartial) -> str:
     """Apply one incremental change to ``source``."""
     rng = change.range
@@ -329,7 +377,13 @@ def _apply_partial(source: str, change: lsp.TextDocumentContentChangePartial) ->
     return source[:start] + change.text + source[end:]
 
 
-def _render_hover(doc: DocumentState, name: str) -> str | None:
+def _render_hover(
+    doc: DocumentState,
+    name: str,
+    *,
+    line: int | None = None,
+    col: int | None = None,
+) -> str | None:
     """Hover Markdown: GHCi-style signature, doc comment, QVR source,
     and the didactic AST.
 
@@ -356,23 +410,44 @@ def _render_hover(doc: DocumentState, name: str) -> str | None:
     ``role=`` shows no role, since the compiler infers one from
     program usage and the server does not run that inference.
     """
-    decl = doc.find_decl(name)
+    qiec_binding = doc.find_qiec_binding(name, line=line, col=col)
+    decl = (
+        qiec_binding.declaration
+        if qiec_binding is not None
+        else doc.find_decl(name, line=line, col=col)
+    )
     if decl is None:
         if name in doc.env:
             return f"```\n{name} :: {type(doc.env[name]).__name__}\n```"
         return None
     qvr = _slice_source(doc, decl)
     if qvr is None:
-        qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
+        if isinstance(decl, Statement):
+            qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
+        else:
+            qvr = render_qiec_signature(doc.module, name) or repr(decl)
     python_repr = _pretty_ast(decl)
     docs = getattr(decl, "docs", ())
 
     parts: list[str] = []
-    signature = render_signature(doc.compiler, name)
+    lookup_name = qiec_binding.qualified_name if qiec_binding is not None else name
+    signature = render_qiec_signature(doc.module, lookup_name) or render_signature(
+        doc.compiler, name
+    )
     if signature is not None:
         header = (
             "Kind"
-            if signature.startswith(("object ", "space ", "signature ", "category "))
+            if signature.startswith(
+                (
+                    "object ",
+                    "space ",
+                    "signature ",
+                    "category ",
+                    "index ",
+                    "family ",
+                    "effect ",
+                )
+            )
             else "Type"
         )
         parts.append(f"**{header}**")
@@ -406,7 +481,7 @@ type _AstValue = (
 or a container of the same."""
 
 
-def _pretty_ast(decl: Statement) -> str:
+def _pretty_ast(decl: object) -> str:
     """Pretty-print a didactic AST node, one field per line.
 
     Plain ``repr()`` puts the whole struct on one line; for deeply
@@ -417,7 +492,7 @@ def _pretty_ast(decl: Statement) -> str:
     standard ``pprint`` shape but preserving the keyword=value
     syntax that didactic uses.
     """
-    return _ast_lines(decl, indent=0)
+    return _ast_lines(cast(_AstValue, decl), indent=0)
 
 
 def _ast_lines(value: _AstValue, indent: int) -> str:
@@ -467,7 +542,7 @@ def _ast_lines(value: _AstValue, indent: int) -> str:
     return repr(value)
 
 
-def _decl_line_span(doc: DocumentState, decl: Statement) -> tuple[int, int] | None:
+def _decl_line_span(doc: DocumentState, decl: object) -> tuple[int, int] | None:
     """1-based ``[start, end)`` line span of ``decl``'s source slice.
 
     The span runs from the statement's recorded line to the line of
@@ -481,8 +556,19 @@ def _decl_line_span(doc: DocumentState, decl: Statement) -> tuple[int, int] | No
     if start_line - 1 >= len(lines):
         return None
     end_line = len(lines) + 1
-    for other in doc.module.statements:
-        if other is decl:
+    candidates: list[object] = list(doc.module.statements)
+    binding = next(
+        (item for item in qiec_bindings(doc.module) if item.declaration == decl),
+        None,
+    )
+    if binding is not None and binding.declaration is not binding.owner:
+        candidates.extend(
+            item.declaration
+            for item in qiec_bindings(doc.module)
+            if item.owner is binding.owner and item.declaration is not item.owner
+        )
+    for other in candidates:
+        if other == decl:
             continue
         other_line = getattr(other, "line", 0)
         if other_line > start_line and other_line < end_line:
@@ -490,7 +576,7 @@ def _decl_line_span(doc: DocumentState, decl: Statement) -> tuple[int, int] | No
     return start_line, end_line
 
 
-def _slice_source(doc: DocumentState, decl: Statement) -> str | None:
+def _slice_source(doc: DocumentState, decl: object) -> str | None:
     """Return the original source lines that produced ``decl``."""
     span = _decl_line_span(doc, decl)
     if span is None:
@@ -502,7 +588,7 @@ def _slice_source(doc: DocumentState, decl: Statement) -> str | None:
     return "\n".join(lines[start_line - 1 : end_line - 1])
 
 
-def _name_position(doc: DocumentState, decl: Statement, name: str) -> tuple[int, int]:
+def _name_position(doc: DocumentState, decl: object, name: str) -> tuple[int, int]:
     """0-based ``(line, col)`` of ``name``'s own binding token.
 
     A plural-name declaration binds several names in one statement, so
@@ -541,9 +627,7 @@ def _statement_symbols(
     """
     out: list[lsp.DocumentSymbol] = []
     for stmt in statements:
-        children = (
-            _statement_symbols(doc, stmt.where) if isinstance(stmt, DefineDecl) else []
-        )
+        children = _statement_symbol_children(doc, stmt)
         for name in decl_names(stmt):
             line, col = _name_position(doc, stmt, name)
             rng = lsp.Range(
@@ -559,6 +643,49 @@ def _statement_symbols(
                     children=children or None,
                 )
             )
+    return out
+
+
+def _statement_symbol_children(
+    doc: DocumentState, statement: Statement
+) -> list[lsp.DocumentSymbol]:
+    """Return nested declarations exposed by one top-level symbol."""
+
+    if isinstance(statement, DefineDecl):
+        return _statement_symbols(doc, statement.where)
+    members: tuple[object, ...] = ()
+    kind = lsp.SymbolKind.Variable
+    if isinstance(statement, QiecIndexDecl):
+        members = statement.constructors
+        kind = lsp.SymbolKind.EnumMember
+    elif isinstance(statement, QiecFamilyDecl):
+        members = statement.constructors
+        kind = lsp.SymbolKind.Constructor
+    elif isinstance(statement, QiecEffectDecl):
+        members = statement.operations
+        kind = lsp.SymbolKind.Method
+    elif isinstance(statement, QiecHandlerDecl):
+        members = statement.clauses
+        kind = lsp.SymbolKind.Method
+
+    out: list[lsp.DocumentSymbol] = []
+    for member in members:
+        name = getattr(member, "name", None) or getattr(member, "operation", None)
+        if not isinstance(name, str):
+            continue
+        line, col = _name_position(doc, member, name)
+        rng = lsp.Range(
+            start=lsp.Position(line=line, character=col),
+            end=lsp.Position(line=line, character=col + len(name)),
+        )
+        out.append(
+            lsp.DocumentSymbol(
+                name=name,
+                kind=kind,
+                range=rng,
+                selection_range=rng,
+            )
+        )
     return out
 
 
@@ -592,7 +719,7 @@ def _prefix_at(source: str, line: int, character: int) -> str:
         return ""
     text = lines[line][:character]
     i = len(text)
-    while i > 0 and (text[i - 1].isalnum() or text[i - 1] in "_:"):
+    while i > 0 and (text[i - 1].isalnum() or text[i - 1] in "_:."):
         i -= 1
     return text[i:]
 
@@ -615,6 +742,14 @@ def _symbol_kind(stmt: Statement) -> lsp.SymbolKind:
             return lsp.SymbolKind.Struct
         return lsp.SymbolKind.Class
     if isinstance(stmt, (MorphismDecl, DefineDecl)):
+        return lsp.SymbolKind.Function
+    if isinstance(stmt, (QiecIndexDecl, QiecFamilyDecl)):
+        return lsp.SymbolKind.Class
+    if isinstance(stmt, QiecEffectDecl):
+        return lsp.SymbolKind.Interface
+    if isinstance(stmt, QiecEffectInstanceDecl):
+        return lsp.SymbolKind.Object
+    if isinstance(stmt, (QiecHandlerDecl, QiecComputationDecl)):
         return lsp.SymbolKind.Function
     return lsp.SymbolKind.Variable
 

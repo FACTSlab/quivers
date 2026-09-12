@@ -1,0 +1,302 @@
+"""GADT branch refinement and conservative coverage interfaces."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+from quivers.qiec.declarations import ConstructorDecl, FamilyDecl
+from quivers.qiec.effects import EMPTY_ROW, EffectRow
+from quivers.qiec.evidence import BranchGiven
+from quivers.qiec.identifiers import (
+    ConstructorId,
+    EqualityId,
+    StaticScopeId,
+    StaticVariableId,
+)
+from quivers.qiec.kinds import (
+    EFFECT,
+    EffectBinder,
+    IndexBinder,
+    IndexSort,
+    Kind,
+    TypeBinder,
+)
+from quivers.qiec.substitution import (
+    StaticSubstitution,
+    instantiate_telescope,
+    substitute_static,
+)
+from quivers.qiec.types import (
+    EffectVariable,
+    EffectRef,
+    EqualityType,
+    IndexConstructor,
+    IndexLiteral,
+    IndexVariable,
+    StaticArgument,
+    TypeApplication,
+    TypeVariable,
+)
+
+
+class CoverageStatus(str, Enum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    UNKNOWN = "unknown"
+
+
+class Reachability(str, Enum):
+    REACHABLE = "reachable"
+    IMPOSSIBLE = "impossible"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class BranchPattern:
+    constructor: ConstructorId | None
+    guarded: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageResult:
+    status: CoverageStatus
+    missing: tuple[ConstructorId, ...] = ()
+    duplicates: tuple[ConstructorId, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BranchRefinement:
+    """Rigid skolems and local equalities available inside one branch."""
+
+    skolems: tuple[str, ...]
+    givens: tuple[BranchGiven, ...]
+    reachability: Reachability = Reachability.UNKNOWN
+
+
+def _binder_classifier(
+    binder: TypeBinder | IndexBinder | EffectBinder,
+) -> Kind | IndexSort:
+    if isinstance(binder, TypeBinder):
+        return binder.kind
+    if isinstance(binder, IndexBinder):
+        return binder.sort
+    return EFFECT
+
+
+def _closed_distinct(left: StaticArgument, right: StaticArgument) -> bool:
+    """Recognize only contradictions justified by free constructors."""
+    if isinstance(left, IndexLiteral) and isinstance(right, IndexLiteral):
+        return left.sort == right.sort and left.value != right.value
+    if isinstance(left, IndexConstructor) and isinstance(right, IndexConstructor):
+        return left.sort == right.sort and left.name != right.name
+    if isinstance(left, IndexLiteral) and isinstance(right, IndexConstructor):
+        return (
+            isinstance(left.value, str)
+            and left.sort == right.sort
+            and left.value != right.name
+        )
+    if isinstance(left, IndexConstructor) and isinstance(right, IndexLiteral):
+        return _closed_distinct(right, left)
+    if isinstance(left, TypeApplication) and isinstance(right, TypeApplication):
+        return left.constructor.id != right.constructor.id
+    if isinstance(left, EffectRef) and isinstance(right, EffectRef):
+        return left.id != right.id or left.interface_version != right.interface_version
+    return False
+
+
+def check_coverage(
+    family: FamilyDecl,
+    patterns: tuple[BranchPattern, ...],
+    *,
+    certified_impossible: frozenset[ConstructorId] = frozenset(),
+) -> CoverageResult:
+    """Check constructor coverage without pretending opaque cases are total."""
+    known = tuple(
+        pattern.constructor for pattern in patterns if pattern.constructor is not None
+    )
+    seen: set[ConstructorId] = set()
+    duplicates: list[ConstructorId] = []
+    for constructor in known:
+        if constructor in seen and constructor not in duplicates:
+            duplicates.append(constructor)
+        seen.add(constructor)
+
+    missing = tuple(
+        constructor
+        for constructor in family.constructors
+        if constructor not in seen and constructor not in certified_impossible
+    )
+    unresolved = (
+        not family.closed
+        or any(pattern.constructor is None or pattern.guarded for pattern in patterns)
+        or any(constructor not in family.constructors for constructor in known)
+    )
+    if unresolved:
+        status = CoverageStatus.UNKNOWN
+    elif missing or duplicates:
+        status = CoverageStatus.INCOMPLETE
+    else:
+        status = CoverageStatus.COMPLETE
+    return CoverageResult(status, missing, tuple(duplicates))
+
+
+def refine_branch(
+    family: FamilyDecl,
+    constructor: ConstructorDecl,
+    scrutinee: TypeApplication,
+    constructor_arguments: tuple[StaticArgument, ...],
+) -> BranchRefinement:
+    """Introduce constructor skolems and index equalities for a branch.
+
+    The equality solver is intentionally conservative.  Syntactically equal
+    indices are reachable; contradictory closed literals are impossible; all
+    other equations remain ``UNKNOWN`` and must still contribute branch
+    effects and coverage.
+    """
+    if constructor.family != family.id:
+        raise TypeError(f"constructor {constructor.name!r} belongs to another family")
+    if scrutinee.constructor != family.type_constructor:
+        raise TypeError("scrutinee does not inhabit the matched family")
+
+    parameter_count = len(family.parameters)
+    expected_count = parameter_count + len(family.indices)
+    if len(scrutinee.arguments) != expected_count:
+        raise TypeError(
+            f"family {family.name!r} expects {expected_count} arguments, "
+            f"got {len(scrutinee.arguments)}"
+        )
+    parameter_substitution = instantiate_telescope(
+        family.parameters,
+        scrutinee.arguments[:parameter_count],
+    )
+    local_substitution = instantiate_telescope(
+        constructor.telescope,
+        constructor_arguments,
+    )
+    substitution = StaticSubstitution(
+        (*parameter_substitution.types, *local_substitution.types),
+        (*parameter_substitution.indices, *local_substitution.indices),
+        (*parameter_substitution.effects, *local_substitution.effects),
+    )
+
+    actual_indices = scrutinee.arguments[parameter_count:]
+    if len(constructor.result_indices) != len(actual_indices):
+        raise TypeError(
+            f"constructor {constructor.name!r} returns the wrong number of indices"
+        )
+
+    givens: list[BranchGiven] = []
+    states: list[Reachability] = []
+    for position, (binder, actual, result) in enumerate(
+        zip(family.indices, actual_indices, constructor.result_indices, strict=True)
+    ):
+        result = substitute_static(result, substitution)
+        equality = EqualityType(_binder_classifier(binder), actual, result)
+        equality_id = EqualityId.derive(constructor.id, position, equality)
+        givens.append(BranchGiven(equality_id, equality))
+        if actual == result:
+            states.append(Reachability.REACHABLE)
+        elif _closed_distinct(actual, result):
+            states.append(Reachability.IMPOSSIBLE)
+        else:
+            states.append(Reachability.UNKNOWN)
+
+    if any(state is Reachability.IMPOSSIBLE for state in states):
+        reachability = Reachability.IMPOSSIBLE
+    elif all(state is Reachability.REACHABLE for state in states):
+        reachability = Reachability.REACHABLE
+    else:
+        reachability = Reachability.UNKNOWN
+    return BranchRefinement(
+        tuple(binder.name for binder in constructor.telescope),
+        tuple(givens),
+        reachability,
+    )
+
+
+def constructor_skolems(
+    constructor: ConstructorDecl,
+    scope: StaticScopeId,
+) -> tuple[StaticArgument, ...]:
+    """Create rigid static variables for a constructor's local telescope."""
+    from quivers.qiec.kinds import EffectBinder, IndexBinder, TypeBinder
+
+    arguments: list[StaticArgument] = []
+    for position, binder in enumerate(constructor.telescope):
+        identity = StaticVariableId.derive(
+            scope,
+            constructor.id,
+            position,
+            binder.tag,
+        )
+        if isinstance(binder, TypeBinder):
+            arguments.append(TypeVariable(binder.name, binder.kind, identity))
+        elif isinstance(binder, IndexBinder):
+            arguments.append(IndexVariable(binder.name, binder.sort, identity))
+        elif isinstance(binder, EffectBinder):
+            arguments.append(EffectVariable(binder.name, identity))
+    return tuple(arguments)
+
+
+def check_indexed_coverage(
+    family: FamilyDecl,
+    constructors: tuple[ConstructorDecl, ...],
+    scrutinee: TypeApplication,
+    patterns: tuple[BranchPattern, ...],
+) -> CoverageResult:
+    """Coverage with omissions justified by closed-index contradiction.
+
+    Only constructors that the small equality solver certifies as impossible
+    may be omitted.  An unknown result remains a required case.
+    """
+    impossible: set[ConstructorId] = set()
+    for constructor in constructors:
+        scope = StaticScopeId.derive(
+            "coverage",
+            family.id,
+            constructor.id,
+            scrutinee,
+        )
+        refinement = refine_branch(
+            family,
+            constructor,
+            scrutinee,
+            constructor_skolems(constructor, scope),
+        )
+        if refinement.reachability is Reachability.IMPOSSIBLE:
+            impossible.add(constructor.id)
+    return check_coverage(
+        family,
+        patterns,
+        certified_impossible=frozenset(impossible),
+    )
+
+
+def join_branch_rows(
+    branches: tuple[tuple[Reachability, EffectRow], ...],
+) -> EffectRow:
+    """Union effects of every possibly reachable branch.
+
+    ``UNKNOWN`` is intentionally treated as reachable.  Dropping it would make
+    an incomplete equality solver unsound for effect inference.
+    """
+    result = EMPTY_ROW
+    for reachability, row in branches:
+        if reachability is not Reachability.IMPOSSIBLE:
+            result = result.union(row)
+    return result
+
+
+__all__ = [
+    "BranchPattern",
+    "BranchRefinement",
+    "CoverageResult",
+    "CoverageStatus",
+    "Reachability",
+    "check_coverage",
+    "check_indexed_coverage",
+    "constructor_skolems",
+    "join_branch_rows",
+    "refine_branch",
+]

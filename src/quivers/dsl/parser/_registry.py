@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import ctypes
+import subprocess
 import warnings
 
 import panproto
 from panproto._native import AstParserRegistry
+
+from quivers.dsl._grammar_build import _parser_artifacts
 
 
 class ParseError(Exception):
@@ -17,19 +21,38 @@ class ParseError(Exception):
 # ---------------------------------------------------------------------------
 
 _REGISTRY: AstParserRegistry | None = None
+_GRAMMAR_LIBRARY: ctypes.CDLL | None = None
 
 
 def _registry() -> AstParserRegistry:
-    global _REGISTRY
+    global _GRAMMAR_LIBRARY, _REGISTRY
     if _REGISTRY is None:
+        try:
+            grammar_dir, library_path = _parser_artifacts()
+            source_dir = grammar_dir / "src"
+            library = ctypes.CDLL(str(library_path))
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            raise ParseError(
+                "Quivers' verified current QVR parser and source manifest "
+                f"could not be loaded: {error}"
+            ) from error
+        language_factory = library.tree_sitter_qvr
+        language_factory.argtypes = []
+        language_factory.restype = ctypes.c_void_p
+        language_ptr = language_factory()
+        if not language_ptr:
+            raise ParseError("the packaged qvr parser returned a null language")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             registry = panproto.AstParserRegistry()
-        if "qvr" not in registry.protocol_names():
-            raise ParseError(
-                "panproto registry has no `qvr` protocol; install "
-                "`panproto-grammars-all` (or a pack containing qvr)"
-            )
+        registry.override_grammar(
+            name="qvr",
+            extensions=["qvr"],
+            language_ptr=language_ptr,
+            node_types=(source_dir / "node-types.json").read_bytes(),
+            grammar_json=(source_dir / "grammar.json").read_bytes(),
+        )
+        _GRAMMAR_LIBRARY = library
         _REGISTRY = registry
     return _REGISTRY
 

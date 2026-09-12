@@ -50,7 +50,9 @@ _QVR_FILES = (_REPO_ROOT / "regression.qvr",)
 _DOC_ROOTS = (_REPO_ROOT / "docs", _REPO_ROOT / "README.md")
 
 _QVR_FENCE_RE = re.compile(r"^([ \t]*)```qvr\n(.*?)^\1```", re.M | re.S)
-_QVR_MARKER_RE = re.compile(r"<!--\s*compile:\s*(false|standalone|cumulative)\s*-->")
+_QVR_MARKER_RE = re.compile(
+    r"<!--\s*compile:\s*(false|standalone|cumulative|qiec)\s*-->"
+)
 
 
 def _collect_qvr_files() -> list[Path]:

@@ -309,5 +309,6 @@ nav:
     - Program: api/program.md
   - Developer Guide:
     - Overview: developer/contributing.md
+    - Indexed effects and GADTs: developer/qiec.md
     - Changelog: developer/changelog.md
     - Inference benchmarks: developer/inference-benchmarks.md

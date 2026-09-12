@@ -580,6 +580,15 @@ class Lower(dx.Mapping[Module, IRProgram]):
     """
 
     def forward(self, module: Module) -> IRProgram:
+        from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
+
+        qiec_module = check_qiec_transpile_boundary(module, target="ir")
+        if qiec_module is not None:
+            from quivers.qiec import dumps as dump_qiec
+
+            qiec_wire = dump_qiec(qiec_module)
+        else:
+            qiec_wire = None
         expanded = expand_composite_lets(module, target="stan")
         morphisms = build_morphism_table(expanded)
         lets = build_let_table(expanded)
@@ -634,6 +643,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             inputs=inputs,
             body=body,
             cards=dict(cards),
+            qiec=qiec_wire,
         )
 
     def _pick_program(self, module: Module) -> ProgramDecl:

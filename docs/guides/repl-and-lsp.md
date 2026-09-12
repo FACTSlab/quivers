@@ -143,6 +143,8 @@ The right-hand `Tree` widget groups bindings by namespace:
 - `spaces`, every `space` and `type` declaration
 - `morphisms`, `latent`, `observed`, `kernel`, `embed`, `program`, `let`
 - `rules`, `rule` declarations
+- `indices`, `families`, `constructors`, `effects`, `operations`, `instances`,
+  `handlers`, and `computations`, including compact QIEC signatures
 
 The root node auto-expands on every refresh; each namespace expands
 its leaves. Click a leaf (or arrow-key to it and press Enter) to fire
@@ -287,7 +289,14 @@ FinSet 20 :: FinSet 20
 
 > :kind Doc
 object Doc : FinSet 20
+
+> :kind Vec
+family Vec[A : Type](n : Nat) : Type
 ```
+
+QIEC index sorts, indexed families, and effect interfaces participate in the
+same kind lookup. `:type` likewise renders signatures for effect instances,
+handlers, constructors, operations, and typed computations.
 
 #### `:transpile TARGET`
 
@@ -301,6 +310,11 @@ data {
   // ...
 }
 ```
+
+All eleven targets accept a module that adds declaration-only QIEC metadata to
+a probabilistic program. They centrally refuse a QIEC computation body,
+with the same source-located backend diagnostic, because the shared
+probabilistic IR cannot encode its control and equality evidence.
 
 #### `:info NAME [--python]` / `:i NAME`
 
@@ -339,7 +353,8 @@ with scoped paths as well.
 Without an argument, lists every binding in the module grouped by
 top-level kind (objects / spaces / morphisms / rules / programs /
 deductions / signatures / encoders / decoders / losses / bundles
-/ contractions). With a `::`-path argument, lists the binding's
+/ contractions / indices / families / constructors / effects / operations /
+instances / handlers / computations). With a `::`-path argument, lists the binding's
 inner scope.
 
 ```
@@ -445,9 +460,9 @@ references to 'Doc':
   object         Doc
 ```
 
-#### `:effects PROGRAM`
+#### `:effects NAME`
 
-Compare PROGRAM's declared `[effects=[...]]` option block against
+For a probabilistic PROGRAM, compare its declared `[effects=[...]]` option block against
 the effect set the compiler infers from the body's step kinds
 (`Sample` from sample-sites, `Score` from observes, `Marginal`
 from marginalize blocks, `Pure` otherwise).
@@ -464,6 +479,24 @@ If the program declares `[effects=[Pure]]` but the body contains
 a sample site, the output flags a `! leak` line. If it declares
 `[effects=[Sample, Score]]` but the body never observes, the
 output flags an `! unused` line.
+
+For a QIEC name, the same command reports the corresponding stable contract:
+an effect's version, evolution policy, and operations; a handler's coverage,
+forwarding policy, and clause grades; or a computation's row entries, tail, and
+`lacks` constraints.
+
+```
+> :effects State
+effect State v1
+  evolution : sealed
+  operations: {get, put}
+
+> :effects exchange
+computation exchange:
+  instances : {left, right}
+  tail      : (closed)
+  lacks     : {(none)}
+```
 
 #### `:shape PROGRAM`
 
@@ -704,7 +737,9 @@ otherwise a TextArea action.
 
 1. Builds a candidate list from four sources:
    - Meta-command names (`:load`, `:type`, …) when the prefix starts with `:`.
-   - Env names: every object, space, morphism, rule in the live env, tagged with its namespace.
+   - Env names: every probabilistic declaration plus each QIEC declaration and nested
+     constructor or operation, tagged with its namespace. After a lexical
+     instance and `.`, completion offers that interface's operations.
    - QVR grammar keywords (`latent`, `observed`, `program`, `over`, `iid`, `via`, …) and builtins (`Normal`, `Euclidean`, `softmax`, …).
    - File-system paths after `:load`.
 2. Inserts the first candidate, replacing the prefix under the cursor.
@@ -953,12 +988,12 @@ Every capability advertised by `qvr-lsp`:
 
 | LSP method | What it returns |
 | --- | --- |
-| `textDocument/publishDiagnostics` | Parser, constraint-solver, and compiler diagnostics with source ranges |
-| `textDocument/hover` | The declaration as a fenced `qvr` block, with the didactic AST `repr()` stacked beneath under a collapsed `<details>` so both forms are always available |
+| `textDocument/publishDiagnostics` | Parser, constraint-solver, probabilistic-compiler, and stable QIEC diagnostics with source ranges and QIEC diagnostic codes |
+| `textDocument/hover` | The declaration and inferred kind or type as fenced `qvr` blocks, with the didactic AST `repr()` beneath a collapsed `<details>`; nested QIEC constructors and operations are addressable symbols |
 | `textDocument/definition` | Jump to the originating declaration |
 | `textDocument/references` | Every textual occurrence of the name |
-| `textDocument/documentSymbol` | All top-level declarations grouped by symbol kind (`Class` for objects/spaces, `Function` for morphisms, `Variable` otherwise) |
-| `textDocument/completion` | Env names + grammar keywords + builtins + paths, same source as the REPL completer |
+| `textDocument/documentSymbol` | All top-level declarations plus nested QIEC constructors, operations, and handler clauses, grouped by symbol kind |
+| `textDocument/completion` | Env names, QIEC members and qualified instance operations, grammar keywords, builtins, and paths, from the same source as the REPL completer |
 | `textDocument/semanticTokens/full` | Env-aware semantic token stream driven by the shared [`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) |
 | `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md) |
 | `textDocument/didOpen` / `didChange` / `didSave` / `didClose` | Incremental sync, full re-analysis per change |
