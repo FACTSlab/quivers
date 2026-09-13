@@ -1886,16 +1886,16 @@ def test_reconstruction_matches_the_oracle_per_site(
             f"{example!r} point {index} ({labels[index]}) site "
             f"{name!r}: the reconstruction is {measured!r}."
         )
-        atol = _gallery_tier.reference_pin_atol(expected)
+        atol = _gallery_tier.reference_roundoff_atol(expected)
         assert abs(measured - expected) <= atol, (
             f"{example!r} point {index} ({labels[index]}) site "
             f"{name!r}: oracle {expected!r} against independent "
             f"reconstruction {measured!r}, a gap of "
             f"{abs(measured - expected):.6g} nats past the "
-            f"{atol:.6g} round-off budget. One of the two computes a "
+            f"{atol:.6g} per-site round-off budget. One of the two computes a "
             f"different density. Re-derive the term from the `.qvr` "
-            f"source before touching either side; the tolerance is "
-            f"the equivalence floor and does not move."
+            f"source before touching either side; the ULP budget does "
+            f"not move."
         )
 
     total = sum(terms.values())

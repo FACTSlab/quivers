@@ -669,11 +669,11 @@ reduction kernel, SIMD width, or BLAS). The budget is calibrated
 against a direct measurement of that re-association effect rather than
 against a guess: the raw-`torch.distributions` reconstructions in
 `test_oracle_reference_strength.py` sum the same per-site terms in a
-different order and in different groupings, and across all six models
-and all six points their largest disagreement with the trace is
-**one** float32 ULP (`continuous_hmm`, 6.10e-05 at magnitude 736;
-`linear_gaussian_ssm`, 1.53e-05 at magnitude 219). Eight ULPs is three
-bits of headroom above the measured worst case.
+different order and in different groupings, and their largest
+disagreement with the trace is **one** float32 ULP (`seq2seq`,
+1.95e-03 at magnitude 15,730; `continuous_hmm`, 6.10e-05 at magnitude
+736). Eight ULPs is three bits of headroom above the measured worst
+case.
 
 This is a headroom figure, not a necessity: the oracle is bit-exact
 run to run and across `torch.set_num_threads`, both measured. A
@@ -701,8 +701,24 @@ def _float32_ulp(value: float) -> float:
     return math.ldexp(1.0, exponent - 24)
 
 
+def reference_roundoff_atol(reference: float) -> float:
+    """Float32 reassociation budget at `reference`.
+
+    This is the tolerance for an independently grouped summand, where
+    the only admissible difference is low-bit movement on the float32
+    grid. Unlike [`reference_pin_atol`][.], it is not capped by the
+    whole-joint backend-equivalence floor: a large individual summand
+    may have an ULP wider than that floor even when the final joint does
+    not.
+    """
+    return _REFERENCE_PIN_ULP_BUDGET * max(
+        _float32_ulp(reference),
+        _float32_ulp(1.0),
+    )
+
+
 def reference_pin_atol(reference: float) -> float:
-    """Absolute tolerance for the reference pin at `reference`.
+    """Absolute tolerance for a whole-joint reference pin.
 
     Two bounds, and the tighter one wins.
 
@@ -737,11 +753,10 @@ def reference_pin_atol(reference: float) -> float:
     times (`survival_weibull`) tighter than the
     `1e-3 * |reference| + 2e-2` relative band it replaces.
     """
-    ulp_bound = _REFERENCE_PIN_ULP_BUDGET * max(
-        _float32_ulp(reference),
-        _float32_ulp(1.0),
+    return min(
+        _equivalence.adaptive_atol(n_obs=0),
+        reference_roundoff_atol(reference),
     )
-    return min(_equivalence.adaptive_atol(n_obs=0), ulp_bound)
 
 
 # Gallery examples that genuinely carry no perturbable observation, so
