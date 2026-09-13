@@ -317,8 +317,10 @@ _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset(
 #    error, and neither can the constant-spread check when the same
 #    error rides on both sides, so between them that class would be
 #    invisible.
-# 3. **Tight.** The comparison runs at `reference_pin_atol`, which is
-#    never looser than the equivalence tolerance it underwrites.
+# 3. **Representable.** The comparison runs at `reference_pin_atol`,
+#    an eight-ULP bound on absolute float32 replay. The backend check
+#    separately bounds the centred spread of pairwise differences;
+#    its scalar floor cannot cap an absolute pin below one float32 ULP.
 #
 # Every value here is reproduced from an independent computation on
 # each run: an example with live backend cells is re-derived by those
@@ -666,18 +668,20 @@ a float32 accumulator. Two evaluations of the *same* density therefore
 agree exactly whenever they accumulate in the same order, and differ
 only in the low bits of that accumulator when they do not (a different
 reduction kernel, SIMD width, or BLAS). The budget is calibrated
-against a direct measurement of that re-association effect rather than
-against a guess: the raw-`torch.distributions` reconstructions in
+against direct measurements of that re-association effect rather than
+against a guess. The raw-`torch.distributions` reconstructions in
 `test_oracle_reference_strength.py` sum the same per-site terms in a
-different order and in different groupings, and their largest
-disagreement with the trace is **one** float32 ULP (`seq2seq`,
-1.95e-03 at magnitude 15,730; `continuous_hmm`, 6.10e-05 at magnitude
-736). Eight ULPs is three bits of headroom above the measured worst
-case.
+different order and grouping, while the CI probe replays the trace on
+independent runners. The largest observed difference is **two**
+float32 ULPs (`seq2seq`, 1.95e-03 at magnitude 15,836);
+`continuous_hmm`'s independent reconstruction differs by one ULP
+(6.10e-05 at magnitude 736). Eight ULPs is two bits of headroom above
+the measured worst case.
 
-This is a headroom figure, not a necessity: the oracle is bit-exact
-run to run and across `torch.set_num_threads`, both measured. A
-failure at this budget is a real change in the density, not noise."""
+This is a headroom figure, not a necessity: within each measured
+runtime and platform, the oracle is bit-exact run to run and across
+`torch.set_num_threads`. A failure at this budget is a real change in
+the density, not noise."""
 
 
 def _float32_ulp(value: float) -> float:
@@ -704,12 +708,11 @@ def _float32_ulp(value: float) -> float:
 def reference_roundoff_atol(reference: float) -> float:
     """Float32 reassociation budget at `reference`.
 
-    This is the tolerance for an independently grouped summand, where
-    the only admissible difference is low-bit movement on the float32
-    grid. Unlike [`reference_pin_atol`][.], it is not capped by the
-    whole-joint backend-equivalence floor: a large individual summand
-    may have an ULP wider than that floor even when the final joint does
-    not.
+    This is the tolerance for an independently grouped summand or
+    joint, where the only admissible difference is low-bit movement on
+    the float32 grid. It is not capped by the backend-equivalence
+    floor: a large float32 value may have an ULP wider than that scalar
+    floor.
     """
     return _REFERENCE_PIN_ULP_BUDGET * max(
         _float32_ulp(reference),
@@ -720,9 +723,7 @@ def reference_roundoff_atol(reference: float) -> float:
 def reference_pin_atol(reference: float) -> float:
     """Absolute tolerance for a whole-joint reference pin.
 
-    Two bounds, and the tighter one wins.
-
-    The first is
+    The bound is
     [`_REFERENCE_PIN_ULP_BUDGET`][tests.transpile.test_gallery_numeric_equivalence._REFERENCE_PIN_ULP_BUDGET]
     ULPs of the float32 grid at the pinned magnitude, floored at the
     same budget taken at magnitude 1. The floor keeps a joint that
@@ -730,33 +731,24 @@ def reference_pin_atol(reference: float) -> float:
     joint is still a sum of order-one terms, and the grid at 1 is the
     finest resolution those terms carry.
 
-    The second is the equivalence tolerance from
-    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol] at
-    its floor, which is the tolerance
+    This absolute replay bound and the tolerance used by
     [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
-    holds the backends to. Taking the minimum is the whole point of
-    the function: a constant oracle error is invisible on the backend
-    side, so the pin is the only defence against it, and a defence
-    looser than the check it underwrites defends nothing. It also ties
-    the two together in code, so the pin cannot be left behind if the
-    equivalence floor ever moves.
+    measure different quantities. The former bounds absolute drift
+    from an independently derived scalar. The latter bounds the
+    centred spread of pointwise backend-minus-QVR differences, after
+    quotienting out an additive constant. Its scalar floor therefore
+    cannot cap this function below a representable float32 step.
 
-    Across the 192 pinned values the ULP bound binds for every one.
-    The largest pinned magnitudes are `continuous_hmm`'s 717 to 736,
-    where eight float32 ULPs are 4.88e-04, still inside the 5e-04
-    equivalence floor, so the loosest pin in the registry is
-    4.88e-04. The tightest is 9.54e-07, the magnitude-1 floor, which
+    The largest pinned magnitudes are `seq2seq`'s roughly 15,800-nat
+    joints, where eight float32 ULPs are 7.81e-03. The tightest bound is
+    9.54e-07, the magnitude-1 floor, which
     binds wherever a joint lands below 2
     (`kumaraswamy_bounded_outcome` at its first latents point,
-    magnitude 1.20). Measured at the ground-truth point of every
-    registry entry, the band is between 1173 times (`hmm`) and 3190
-    times (`survival_weibull`) tighter than the
-    `1e-3 * |reference| + 2e-2` relative band it replaces.
+    magnitude 1.20). Thus the pin remains magnitude-aware without
+    demanding a sub-ULP comparison that no float32 accumulator can
+    satisfy portably.
     """
-    return min(
-        _equivalence.adaptive_atol(n_obs=0),
-        reference_roundoff_atol(reference),
-    )
+    return reference_roundoff_atol(reference)
 
 
 # Gallery examples that genuinely carry no perturbable observation, so
