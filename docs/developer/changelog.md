@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
+- **Historical parser manifests are platform-independent.** Git now preserves LF endings for hash-pinned parser snapshots on Windows, so Windows wheels validate the same immutable source bytes as Linux and macOS wheels.
 - **Historical migration objects validate without being rewritten.** Panproto 0.74.2 checks persisted objects against the exact enum payload read from disk, restoring the original QVR migration chain while preserving tamper detection and content-addressed fixture identities.
 - **QIEC wire data is validated recursively.** Deserialization checks every allowlisted field against its runtime annotation, module effect instances must be closed, and request provenance must belong to its module and source protocol. Malformed modules and escaped static variables are rejected at the stable boundary.
 - **Static application respects lexical kinding.** Type binders shadow same-spelled primitive types, applied effect interfaces may instantiate `Effect` binders, and checked evaluation seeds its typing context from the supplied runtime environment.
