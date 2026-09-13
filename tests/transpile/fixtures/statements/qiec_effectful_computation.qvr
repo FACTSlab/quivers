@@ -1,0 +1,7 @@
+# Exercises stable-ID effect requests in an executable QIEC computation.
+effect Ask
+    get : Unit -> Int
+instance ask : Ask
+define read() : Int !{ask} =
+    let value <- perform ask.get()
+    return value

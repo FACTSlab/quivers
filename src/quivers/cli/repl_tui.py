@@ -57,6 +57,14 @@ _HISTORY_PATH = (
 
 def run_tui(session: "ReplSession") -> int:
     """Run the Textual REPL App on ``session``."""
+    app = _build_tui_app(session)
+    app.run()  # type: ignore[attr-defined]
+    return 0
+
+
+def _build_tui_app(session: "ReplSession") -> object:
+    """Construct the real Textual app, with an in-process test seam."""
+
     from rich.text import Text
     from textual.app import App, ComposeResult
     from textual.binding import Binding
@@ -310,7 +318,9 @@ def run_tui(session: "ReplSession") -> int:
             yield Footer()
 
         def on_mount(self) -> None:
-            self.query_one("#input", TextArea).focus()
+            input_widget = self.query_one("#input", TextArea)
+            _enable_qvr_highlighting(input_widget)
+            input_widget.focus()
             self._refresh_status()
             self._refresh_env()
             if self.session.loaded_path is not None:
@@ -619,6 +629,16 @@ def run_tui(session: "ReplSession") -> int:
                 text.append(f" {algebra}", style="bold cyan")
             text.append("  ", style="dim")
             text.append(counts, style="dim")
+            runtime_status = _runtime_status(self.session)
+            text.append("  ", style="dim")
+            text.append(
+                runtime_status,
+                style=(
+                    "bold yellow"
+                    if self.session.runtime_label == "detached"
+                    else "bold green"
+                ),
+            )
             return text
 
         def _refresh_env(self, *, filter_text: str = "") -> None:
@@ -647,14 +667,50 @@ def run_tui(session: "ReplSession") -> int:
             # meta-commands use.
             _populate_scope_tree(tree.root, self.session, keep, filter_text=needle)
 
-    app = QvrRepl(session)
-    app.run()
-    return 0
+    return QvrRepl(session)
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _enable_qvr_highlighting(text_area: object) -> bool:
+    """Register the wheel-shipped QVR grammar with Textual's ``TextArea``."""
+
+    try:
+        from importlib.resources import files
+
+        from quivers.dsl.pygments_lexer import _load_parser
+
+        _, language, _library = _load_parser()
+        resource = files("quivers.dsl._grammar_data").joinpath("highlights.scm")
+        if resource.is_file():
+            query = resource.read_text()
+        else:
+            query = (
+                Path(__file__).resolve().parents[3]
+                / "grammars"
+                / "qvr"
+                / "queries"
+                / "highlights.scm"
+            ).read_text()
+        text_area.register_language("qvr", language, query)  # type: ignore[attr-defined]
+        text_area.language = "qvr"  # type: ignore[attr-defined]
+    except ImportError, OSError, AttributeError, RuntimeError, TypeError, ValueError:
+        return False
+    return True
+
+
+def _runtime_status(session: "ReplSession") -> str:
+    """Return the runtime/last-run fragment exposed by the TUI status bar."""
+
+    status = f"runtime:{session.runtime_label}"
+    result = session.last_run
+    if result is None:
+        return status
+    data = result.to_data()
+    return f"{status} last:{result.computation}={data['value']!r}:{data['result_type']}"
 
 
 _LOCATION_RE = __import__("re").compile(r"(\S+\.qvr):(\d+):(\d+)")

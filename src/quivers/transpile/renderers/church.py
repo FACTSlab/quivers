@@ -94,6 +94,7 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 _TARGET = "qvr-church"
@@ -258,9 +259,15 @@ class ChurchRenderer(RendererBase):
         return_form = self._return_form(ctx, ir.body)
         if return_form is not None:
             body_forms.append(return_form)
+        if not body_forms:
+            # Chez rejects an empty procedure body. QIEC-only and
+            # declaration-only modules retain the existing `model` ABI with a
+            # harmless scalar result before their named QIEC entry points.
+            body_forms.append(_num(ctx, 0.0))
 
         top_define = _list(ctx, (_sym(ctx, "define"), signature, *body_forms))
         _e(ctx, prog_id, top_define)
+        graft_qiec_dynamic(sb, ir, target=self.target, root=prog_id)
         return sb.build()
 
     # ----- IR-node dispatch -----

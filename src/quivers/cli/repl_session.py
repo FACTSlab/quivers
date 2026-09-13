@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 import re
+import json
+import shlex
 import subprocess
 import tempfile
 from collections.abc import Iterable
@@ -56,7 +58,16 @@ from quivers.dsl.qiec_tooling import (
     qiec_env_kinds,
     qiec_module_name,
 )
-from quivers.qiec import QiecModule
+from quivers.qiec import (
+    ExecutionFailure,
+    ExecutionResult,
+    RuntimeConfiguration,
+    RuntimeSelection,
+    QiecModule,
+    load_runtime_configuration,
+    parse_static_arguments,
+    run_named,
+)
 
 
 Severity = Literal["error", "warning", "info", "ok"]
@@ -143,6 +154,9 @@ class ReplSession:
         self._qiec_module: QiecModule | None = None
         self._env: dict[str, Any] = {}
         self._last_diags: tuple[Diagnostic, ...] = ()
+        self._runtime = RuntimeConfiguration()
+        self._runtime_source: str = "built-in core"
+        self._last_run: ExecutionResult | None = None
         self.options = SessionOptions()
         # Track when the loaded file was last read so :reload can be
         # auto-fired on a modified mtime.
@@ -172,6 +186,14 @@ class ReplSession:
     @property
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         return self._last_diags
+
+    @property
+    def runtime_label(self) -> str:
+        return self._runtime.label
+
+    @property
+    def last_run(self) -> ExecutionResult | None:
+        return self._last_run
 
     def watch_results(self) -> dict[str, str]:
         """Return the current ``expr -> rendered`` map for pinned watches."""
@@ -307,6 +329,7 @@ class ReplSession:
         self._module = module
         self._compiler = analysis.compiler
         self._qiec_module = analysis.qiec_module
+        self._last_run = None
         self._env = analysis.env
         self._last_diags = tuple(diags)
         if source_path is not None:
@@ -449,6 +472,111 @@ class ReplSession:
         except UnsupportedConstruct as e:
             return _err(str(e))
         return _resp(output.decode("utf-8"))
+
+    # ----- QIEC execution ----------------------------------------------
+
+    def runtime(self, specification: str = "") -> ReplResponse:
+        """Show or replace the explicit runtime-provider configuration."""
+
+        specification = specification.strip()
+        if not specification:
+            payload = self._runtime.to_data()
+            payload["source"] = self._runtime_source
+            return _resp(json.dumps(payload, indent=2), body_kind="json")
+        path = Path(specification).expanduser()
+        try:
+            if path.exists():
+                self._runtime = load_runtime_configuration(path)
+                self._runtime_source = str(path)
+            elif path.suffix.lower() == ".json" or "/" in specification:
+                return _err(
+                    f"runtime configuration not found: {path}", code="qiec-run-config"
+                )
+            else:
+                self._runtime = RuntimeConfiguration((RuntimeSelection(specification),))
+                # Instantiate now so a misspelled provider fails at :runtime,
+                # not after the next computation has been prepared.
+                self._runtime.instantiate()
+                self._runtime_source = f"provider {specification}"
+        except (ExecutionFailure, ValueError) as error:
+            if isinstance(error, ExecutionFailure):
+                return _execution_error(error)
+            return _err(str(error), code="qiec-run-config")
+        self._last_run = None
+        return _resp(f"runtime attached: {self._runtime.label}")
+
+    def detach_runtime(self) -> ReplResponse:
+        """Remove every runtime provider from this session."""
+
+        previous = self._runtime.label
+        self._runtime = RuntimeConfiguration(selections=())
+        self._runtime_source = "detached"
+        self._last_run = None
+        return _resp(f"runtime detached: {previous}")
+
+    def run_computation(self, invocation: str) -> ReplResponse:
+        """Execute ``NAME [JSON ...] [--static NAME=TERM]``."""
+
+        if self._qiec_module is None:
+            return _err("no checked QIEC module loaded", code="qiec-run-module")
+        try:
+            parts = shlex.split(invocation)
+        except ValueError as error:
+            return _err(f"invalid :run invocation: {error}", code="qiec-run-config")
+        if not parts:
+            return _err(
+                "usage: :run NAME [JSON ...] [--static NAME=TERM]",
+                code="qiec-run-config",
+            )
+        name = parts.pop(0)
+        statics: list[str] = []
+        values: list[object] = []
+        index = 0
+        try:
+            while index < len(parts):
+                if parts[index] == "--static":
+                    index += 1
+                    if index >= len(parts):
+                        raise ValueError("--static requires NAME=TERM")
+                    statics.append(parts[index])
+                elif parts[index].startswith("--static="):
+                    statics.append(parts[index].removeprefix("--static="))
+                else:
+                    values.append(_tuplify_json(json.loads(parts[index])))
+                index += 1
+            static_arguments = parse_static_arguments(
+                self._qiec_module, name, tuple(statics)
+            )
+            result = run_named(
+                self._qiec_module,
+                name,
+                tuple(values),
+                static_arguments=static_arguments,
+                runtime=self._runtime,
+            )
+        except json.JSONDecodeError as error:
+            return _err(
+                f"value arguments must be JSON: {error.msg}",
+                code="qiec-run-config",
+            )
+        except ValueError as error:
+            return _err(str(error), code="qiec-run-config")
+        except ExecutionFailure as error:
+            return _execution_error(error)
+        self._last_run = result
+        payload = result.to_data()
+        return _resp(
+            json.dumps(
+                {
+                    "value": payload["value"],
+                    "type": payload["result_type"],
+                    "runtime": payload["runtime"],
+                    "trace_events": len(result.trace),
+                },
+                indent=2,
+            ),
+            body_kind="json",
+        )
 
     def _value_line_for_name(self, bare: str) -> str | None:
         """Return the value-level signature for ``bare``, or None.
@@ -2055,6 +2183,20 @@ def _cmd_set(s: ReplSession, arg: str) -> ReplResponse:
     return s.set_option(arg)
 
 
+def _cmd_runtime(s: ReplSession, arg: str) -> ReplResponse:
+    return s.runtime(arg)
+
+
+def _cmd_run(s: ReplSession, arg: str) -> ReplResponse:
+    return s.run_computation(arg)
+
+
+def _cmd_detach(s: ReplSession, arg: str) -> ReplResponse:
+    if arg:
+        return _err("usage: :detach")
+    return s.detach_runtime()
+
+
 def _cmd_help(s: ReplSession, arg: str) -> ReplResponse:
     return s.help(arg)
 
@@ -2100,6 +2242,20 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
             (":watch EXPR", "pin EXPR; re-evaluate after every recompile"),
             (":unwatch [EXPR]", "remove EXPR (or all) from the watch list"),
             (":set KEY=VALUE", "toggle session options"),
+        ),
+    ),
+    (
+        "QIEC execution",
+        (
+            (
+                ":runtime [PROVIDER|FILE.json]",
+                "show or attach explicit runtime providers",
+            ),
+            (
+                ":run NAME [JSON ...] [--static NAME=TERM]",
+                "execute a named QIEC computation",
+            ),
+            (":detach", "detach every QIEC runtime provider"),
         ),
     ),
     (
@@ -2172,6 +2328,9 @@ _META_COMMANDS = {
     "w": _cmd_watch,
     "unwatch": _cmd_unwatch,
     "set": _cmd_set,
+    "runtime": _cmd_runtime,
+    "run": _cmd_run,
+    "detach": _cmd_detach,
     "help": _cmd_help,
     "h": _cmd_help,
     "quit": _cmd_quit,
@@ -2235,6 +2394,11 @@ _HELP: dict[str, str] = {
     "show_axes=true|false, paranoid=true|false, autoload_on_save=true|false.",
     "help": "Without an argument, list every command. With one, print its help.",
     "quit": "Leave the REPL.",
+    "runtime": "Show the active runtime, attach a registered provider by name, "
+    "or load a non-executable JSON provider configuration.",
+    "run": "Execute NAME with JSON value arguments. Polymorphic definitions "
+    "require one --static NAME=TERM assignment per static binder.",
+    "detach": "Remove every runtime provider. Attach one again with :runtime.",
 }
 
 
@@ -2252,10 +2416,40 @@ def _resp(
     return ReplResponse(body=body, diagnostics=tuple(diagnostics), body_kind=body_kind)
 
 
-def _err(message: str) -> ReplResponse:
+def _err(message: str, *, code: str = "repl") -> ReplResponse:
     return ReplResponse(
-        diagnostics=(Diagnostic(message=message, severity="error", code="repl"),)
+        diagnostics=(Diagnostic(message=message, severity="error", code=code),)
     )
+
+
+def _execution_error(error: ExecutionFailure) -> ReplResponse:
+    diagnostic = error.diagnostic
+    origin = diagnostic.origin
+    return ReplResponse(
+        diagnostics=(
+            Diagnostic(
+                message=diagnostic.message,
+                severity="error",
+                code=diagnostic.code,
+                line=origin.line
+                if origin is not None and origin.line is not None
+                else 0,
+                col=(
+                    origin.column
+                    if origin is not None and origin.column is not None
+                    else 0
+                ),
+            ),
+        )
+    )
+
+
+def _tuplify_json(value: object) -> object:
+    if isinstance(value, list):
+        return tuple(_tuplify_json(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _tuplify_json(item) for key, item in value.items()}
+    return value
 
 
 def _env_counts(env: dict[str, Any]) -> str:

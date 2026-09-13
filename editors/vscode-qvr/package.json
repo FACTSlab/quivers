@@ -59,6 +59,12 @@
           },
           "default": [],
           "description": "Extra arguments passed to the qvr-lsp executable."
+        },
+        "qvr.transpileTarget": {
+          "type": "string",
+          "default": "",
+          "enum": ["", "bugs", "church", "edward2", "gen", "jags", "numpyro", "pymc", "pyro", "stan", "turing", "webppl"],
+          "description": "Selected transpile target for live QIEC capability diagnostics."
         }
       }
     }
@@ -66,7 +72,8 @@
   "scripts": {
     "vscode:prepublish": "tsc -p ./",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile && vsce package --out vscode-qvr-${npm_package_version}.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -74,6 +81,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.6.2",
     "typescript": "^5.2.0"
   }
 }

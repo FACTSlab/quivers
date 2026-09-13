@@ -84,6 +84,7 @@ from quivers.transpile.renderers._base import (
     host_integer_input_names,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 _TARGET = "pyro"
@@ -173,6 +174,9 @@ class PyroRenderer(RendererBase):
 
         pctx.body = body
         pctx.observed = frozenset(observed_names)
+        if not ir.body:
+            noop = pctx.v(pctx.fresh("pass"), "pass_statement")
+            pctx.e(body, noop, "child_of")
 
         # torch's advanced indexing requires integer index tensors, so
         # every host-integer input the program subscripts with is
@@ -211,6 +215,7 @@ class PyroRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
 
+        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- per-node dispatch driving pctx body emission -----

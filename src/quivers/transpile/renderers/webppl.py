@@ -69,6 +69,7 @@ from quivers.transpile.renderers._base import (
     mixture_component_count,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 from quivers.transpile.renderers._javascript_helpers import (
     render_let_expr_javascript,
 )
@@ -306,6 +307,7 @@ class WebPPLRenderer(RendererBase):
         # no-op for WebPPL, so we dispatch only the body nodes.
         for node in ir.body:
             self._dispatch_node(ctx, node)
+        graft_qiec_dynamic(ctx.sb, ir, target=self.target, root="prog")
         return ctx.sb.build()
 
     # ----- declare dispatch -----

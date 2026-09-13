@@ -90,11 +90,11 @@ constraint are checked rather than treated as comments.
 
 QIEC computations currently have no source call or recursion term, no scoped
 instance-allocation term, and no authored handler-clause body. They nevertheless
-parse, type-check, and lower to the stable QIEC module. The eleven existing
-probabilistic transpilers refuse any module containing such a body because the
-shared probabilistic IR cannot preserve its effects or equality evidence. A module with
-QIEC declarations but no QIEC computation body may still use the probabilistic
-pipeline. The complete surface appears in
+parse, type-check, and lower to the stable QIEC module. Eight dynamic targets
+execute the full computation through generated target runtimes. Stan, BUGS, and
+JAGS lower closed monomorphic effect-free scalar computations and refuse other
+QIEC features before rendering. A module with QIEC declarations but no QIEC
+computation body remains valid on every target. The complete surface appears in
 [Quivers Indexed Effect Core](../developer/qiec.md).
 
 ### Kleisli bind syntax

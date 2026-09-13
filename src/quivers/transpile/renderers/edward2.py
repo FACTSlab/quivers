@@ -105,6 +105,7 @@ from quivers.transpile.renderers._base import (
     ir_uses_family,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 _TARGET = "edward2"
@@ -226,6 +227,9 @@ class Edward2Renderer(RendererBase):
         if _ir_has_marginalize(ir.body) or ir_uses_family(ir.body, "MixtureNormal"):
             self._emit_tfp_import(py)
         body_vid = py.v(py.fresh("body"), "block")
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(body_vid, noop, "child_of")
         param_names = tuple(inp.name for inp in ir.inputs)
         fn = function_def(
             py, name="model", default_params=param_names, body_vid=body_vid
@@ -264,6 +268,7 @@ class Edward2Renderer(RendererBase):
         for node in ir.body:
             self._emit_node(py, ctx, body_vid, node, input_specs, bindings)
 
+        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def emit_bytes(self, ir: IRProgram) -> bytes:

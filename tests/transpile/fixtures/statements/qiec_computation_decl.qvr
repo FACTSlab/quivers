@@ -1,0 +1,3 @@
+# Exercises a closed, monomorphic QIEC computation declaration.
+define answer() : Int !{} =
+    return 42

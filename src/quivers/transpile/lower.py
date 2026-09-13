@@ -581,14 +581,31 @@ class Lower(dx.Mapping[Module, IRProgram]):
 
     def forward(self, module: Module) -> IRProgram:
         from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
+        from quivers.transpile.qiec_ir import lower_qiec_ir
 
         qiec_module = check_qiec_transpile_boundary(module, target="ir")
         if qiec_module is not None:
-            from quivers.qiec import dumps as dump_qiec
-
-            qiec_wire = dump_qiec(qiec_module)
+            qiec_ir = lower_qiec_ir(qiec_module)
         else:
-            qiec_wire = None
+            qiec_ir = None
+
+        # QIEC is a first-class compilation route.  A source containing only
+        # indexed/effect declarations and computations needs no synthetic
+        # probabilistic ``program`` merely to enter the shared IR.
+        if not any(
+            isinstance(statement, ProgramDecl) for statement in module.statements
+        ):
+            if qiec_ir is None:
+                # Preserve the established precise ``program:absent`` error.
+                self._pick_program(module)
+            assert qiec_ir is not None
+            return IRProgram(
+                name=qiec_ir.module,
+                inputs=(),
+                body=(),
+                cards={},
+                qiec=qiec_ir,
+            )
         expanded = expand_composite_lets(module, target="stan")
         morphisms = build_morphism_table(expanded)
         lets = build_let_table(expanded)
@@ -643,7 +660,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
             inputs=inputs,
             body=body,
             cards=dict(cards),
-            qiec=qiec_wire,
+            qiec=qiec_ir,
         )
 
     def _pick_program(self, module: Module) -> ProgramDecl:

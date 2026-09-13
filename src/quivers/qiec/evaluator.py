@@ -65,6 +65,7 @@ type OperationClause = Callable[
 ]
 type ReturnClause = Callable[[object, "ClauseContext"], object]
 type ResponseHook = Callable[[object], object]
+type EvaluationTraceHook = Callable[[str, Mapping[str, object]], None]
 
 
 class EvaluationError(RuntimeError):
@@ -530,6 +531,15 @@ class Resumption:
             f"result of operation {self._request.operation}",
         )
         self._calls = next_call
+        self._evaluator._emit_trace(
+            "resumption.invoked",
+            {
+                "operation": str(self._request.operation),
+                "instance": str(self._request.instance),
+                "grade": self._grade.value,
+                "shot": next_call - 1,
+            },
+        )
         captured = (
             list(self._fork_owned(self._seed_stack))
             if self._grade is ResumptionGrade.UNRESTRICTED
@@ -620,10 +630,16 @@ class Evaluator:
         attachments: RuntimeAttachments | None = None,
         *,
         handler_manifest: HandlerManifest | None = None,
+        trace_hook: EvaluationTraceHook | None = None,
     ) -> None:
         self.attachments = attachments or RuntimeAttachments()
         self.handler_manifest = handler_manifest
+        self.trace_hook = trace_hook
         self._run_serial = 0
+
+    def _emit_trace(self, event: str, detail: Mapping[str, object]) -> None:
+        if self.trace_hook is not None:
+            self.trace_hook(event, detail)
 
     def evaluate(
         self,
@@ -776,6 +792,14 @@ class Evaluator:
                     current.static_arguments,
                 )
                 lifecycle = self._install_handler(handler)
+                self._emit_trace(
+                    "handler.entered",
+                    {
+                        "handler": definition.name,
+                        "handler_id": str(current.handler),
+                        "instance": str(current.instance),
+                    },
+                )
                 stack.append(
                     _HandlerFrame(
                         current.instance,
@@ -820,6 +844,14 @@ class Evaluator:
                         for argument in current.request.arguments
                     ),
                     resumption_path,
+                )
+                self._emit_trace(
+                    "operation.requested",
+                    {
+                        "operation": str(runtime_request.operation),
+                        "instance": str(runtime_request.instance),
+                        "address": runtime_request.address,
+                    },
                 )
                 return self._dispatch(runtime_request, env, stack, len(stack) - 1)
             raise TypeError(f"unsupported QIEC computation {type(current).__name__}")
@@ -877,6 +909,13 @@ class Evaluator:
                     frame.lifecycle.drop()
                     raise
                 frame.lifecycle.exit()
+                self._emit_trace(
+                    "handler.returned",
+                    {
+                        "handler": frame.definition.name,
+                        "instance": str(frame.instance),
+                    },
+                )
                 current = answer
                 env = dict(frame.environment)
                 continue
@@ -917,6 +956,15 @@ class Evaluator:
                 continue
 
             runtime_clause = handler.clauses[request.operation]
+            self._emit_trace(
+                "operation.handled",
+                {
+                    "operation": str(request.operation),
+                    "instance": str(request.instance),
+                    "handler": definition.name,
+                    "grade": structural_clause.grade.value,
+                },
+            )
             outer_stack = tuple(stack[:index])
             captured_stack = tuple(stack[index:])
             resumption = Resumption(
@@ -957,6 +1005,14 @@ class Evaluator:
                 resumption._release_forward_seed()
                 if answer.on_response is not None:
                     stack.append(_ResponseHookFrame(answer.on_response))
+                self._emit_trace(
+                    "operation.forwarded",
+                    {
+                        "operation": str(request.operation),
+                        "instance": str(request.instance),
+                        "handler": definition.name,
+                    },
+                )
                 index -= 1
                 continue
 
@@ -977,6 +1033,14 @@ class Evaluator:
                 list(outer_stack),
                 request.resumption_path,
             )
+        self._emit_trace(
+            "operation.unhandled",
+            {
+                "operation": str(request.operation),
+                "instance": str(request.instance),
+                "address": request.address,
+            },
+        )
         raise UnhandledEffectError(request.core)
 
     def _resolve_clause_answer(
@@ -1189,6 +1253,7 @@ __all__ = [
     "ClauseComputation",
     "ClauseContext",
     "EvaluationError",
+    "EvaluationTraceHook",
     "Evaluator",
     "Forward",
     "HandlerManifest",

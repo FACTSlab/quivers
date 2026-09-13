@@ -67,6 +67,7 @@ from quivers.transpile.renderers._base import (
     reorder_negbin_args,
     reorder_weibull_args,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_static
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
     CategoricalMixture,
@@ -403,6 +404,7 @@ class BUGSRenderer(RendererBase):
         ctx.block_id = mb_id
         for node in ir.body:
             self._dispatch_bugs_node(ctx, node)
+        graft_qiec_static(sb, ir, target=self.target, destination=mb_id)
         return sb.build()
 
     def _populate_decl_plates(self, ir: IRProgram, ctx: _BugsCtx) -> None:

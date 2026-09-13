@@ -96,6 +96,7 @@ from quivers.transpile.renderers._base import (
     reorder_negbin_args,
     reorder_weibull_args,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_static
 
 
 #: The backend key consulted in
@@ -398,6 +399,7 @@ class JAGSRenderer(RendererBase):
 
         self._finalise_model_block(jctx)
         self._finalise_data_block(jctx)
+        graft_qiec_static(sb, ir, target=self.target, destination=mb)
         return sb.build()
 
     def declare(

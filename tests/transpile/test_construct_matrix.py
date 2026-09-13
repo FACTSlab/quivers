@@ -37,6 +37,7 @@ from quivers.transpile import (
 from quivers.transpile._api import (
     CATEGORICAL_METADATA_IGNORABLE,
     CHURCH_LIKE,
+    QIEC_SURFACE,
     STAN_LIKE,
 )
 from tests.transpile.fixtures import _load
@@ -81,7 +82,9 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
     tier = _SUPPORT_TIER[backend]
     kinds = {str(stmt.kind) for stmt in module.statements}
     has_program = "program_decl" in kinds
-    effective_tier = tier | CATEGORICAL_METADATA_IGNORABLE if has_program else tier
+    effective_tier = tier | QIEC_SURFACE
+    if has_program:
+        effective_tier |= CATEGORICAL_METADATA_IGNORABLE
     return {k for k in kinds if k not in effective_tier}
 
 
@@ -100,6 +103,11 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
 # entry. A regression surfaces because the raised kinds match a
 # different prefix; either update the entry or fix the renderer.
 _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
+    # Static graphical targets preserve only the closed, monomorphic,
+    # effect-free scalar QIEC fragment.
+    ("stan", "statements", "qiec_effectful_computation"): "qiec:",
+    ("bugs", "statements", "qiec_effectful_computation"): "qiec:",
+    ("jags", "statements", "qiec_effectful_computation"): "qiec:",
     # Stan / BUGS / JAGS have no method-dispatch syntax for the
     # chart-parser `parser.parse(sentence)` method call. The
     # deduction graft that would supply the called function is

@@ -36,8 +36,15 @@ jobs:
       # linter release adds rules and every branch goes red at
       # once, for a change nobody in this repository made.
       - run: pip install 'ruff>=0.15,<0.16'
-      - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py
-      - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py
+      - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
+      - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
+      - name: Recompile VS Code extension from its lockfile
+        working-directory: editors/vscode-qvr
+        run: npm ci && npm run compile
+      - name: Verify checked-in extension output
+        run: git diff --exit-code -- editors/vscode-qvr/out
+      - name: Verify editor source/archive parity
+        run: python tools/check_editor_release.py --full
 
   typecheck:
     runs-on: ubuntu-latest
