@@ -23,7 +23,8 @@ RUN julia -e 'using Pkg; Pkg.add(["Turing", "Gen", "Distributions", "JSON3"]); \
 RUN julia -e 'using Pkg; Pkg.add("PackageCompiler")'
 RUN julia -e 'using PackageCompiler; \
               create_sysimage([:Turing, :Gen, :Distributions, :JSON3]; \
-                              sysimage_path="/opt/qvr-sysimage.so")'
+                              sysimage_path="/opt/qvr-sysimage.so", \
+                              cpu_target="generic")'
 
 ENTRYPOINT ["julia", "--sysimage=/opt/qvr-sysimage.so", \
             "--startup-file=no", "--quiet"]
