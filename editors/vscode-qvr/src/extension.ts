@@ -74,7 +74,11 @@ export function activate(context: vscode.ExtensionContext): void {
     return;
   }
   const command = resolveServerCommand();
-  const args = config.get<string[]>("lsp.args", []);
+  const args = [...config.get<string[]>("lsp.args", [])];
+  const target = config.get<string>("transpileTarget", "").trim();
+  if (target) {
+    args.push("--target", target);
+  }
 
   const serverOptions: ServerOptions = {
     command,
@@ -84,6 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "qvr" }],
     synchronize: {
+      configurationSection: "qvr",
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.qvr"),
     },
   };

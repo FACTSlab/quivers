@@ -3,6 +3,7 @@
 Capabilities (LSP 3.17):
 
 - ``textDocument/didOpen``, ``didChange``, ``didSave``, ``didClose``
+- ``workspace/didChangeConfiguration`` for live transpile-target diagnostics
 - ``textDocument/publishDiagnostics``
 - ``textDocument/semanticTokens/full``
 - ``textDocument/hover``
@@ -50,31 +51,57 @@ from quivers.dsl.ast_nodes import (
     TypeInitializer,
 )
 from quivers.dsl.ast_nodes.qiec import (
+    QiecBinder,
     QiecComputationDecl,
     QiecEffectDecl,
     QiecEffectInstanceDecl,
     QiecFamilyDecl,
     QiecHandlerDecl,
     QiecIndexDecl,
+    QiecLocalBinding,
+    QiecTypeName,
+    QiecValueParameter,
 )
-from quivers.dsl.emit import module_to_source
+from quivers.dsl.emit import _emit_qiec_binder, _emit_qiec_type, module_to_source
 from quivers.dsl.qiec_tooling import qiec_bindings, qiec_env_kinds
 from quivers.lsp.document import DocumentState, decl_names
 
 SERVER_NAME = "qvr-lsp"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
+_TARGET_UNCHANGED = object()
 
 
-def build_server() -> LanguageServer:
+def _target_from_settings(settings: object) -> str | None | object:
+    """Extract a target from a didChangeConfiguration payload."""
+
+    if not isinstance(settings, dict):
+        return _TARGET_UNCHANGED
+    section = settings.get("qvr", settings)
+    if not isinstance(section, dict):
+        return _TARGET_UNCHANGED
+    for key in ("transpileTarget", "transpile_target", "target"):
+        if key not in section:
+            continue
+        value = section[key]
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        return _TARGET_UNCHANGED
+    return _TARGET_UNCHANGED
+
+
+def build_server(*, target: str | None = None) -> LanguageServer:
     """Return a configured `pygls.server.LanguageServer`."""
     server = LanguageServer(name=SERVER_NAME, version=SERVER_VERSION)
     docs: dict[str, DocumentState] = {}
+    selected_target = target
 
     # ----- lifecycle ----------------------------------------------------
 
     @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
     def _did_open(ls: LanguageServer, params: lsp.DidOpenTextDocumentParams) -> None:
-        doc = DocumentState(uri=params.text_document.uri)
+        doc = DocumentState(uri=params.text_document.uri, target=selected_target)
         doc.update(
             source=params.text_document.text,
             version=params.text_document.version,
@@ -111,6 +138,28 @@ def build_server() -> LanguageServer:
     @server.feature(lsp.TEXT_DOCUMENT_DID_CLOSE)
     def _did_close(_ls: LanguageServer, params: lsp.DidCloseTextDocumentParams) -> None:
         docs.pop(params.text_document.uri, None)
+
+    @server.feature(lsp.WORKSPACE_DID_CHANGE_CONFIGURATION)
+    def _did_change_configuration(
+        ls: LanguageServer, params: lsp.DidChangeConfigurationParams
+    ) -> None:
+        """Refresh target-capability diagnostics for every open document.
+
+        Clients may send either the VS Code-shaped
+        ``{qvr: {transpileTarget: ...}}`` object or the section value
+        ``{transpileTarget: ...}``. An empty string disables target-specific
+        diagnostics. Settings unrelated to the target leave it unchanged.
+        """
+
+        nonlocal selected_target
+        configured = _target_from_settings(params.settings)
+        if configured is _TARGET_UNCHANGED:
+            return
+        selected_target = cast(str | None, configured)
+        for doc in docs.values():
+            doc.target = selected_target
+            doc.update(source=doc.source, version=doc.version)
+            _publish(ls, doc)
 
     # ----- semantic tokens ---------------------------------------------
 
@@ -193,7 +242,14 @@ def build_server() -> LanguageServer:
         name = doc.name_at_position(params.position.line, params.position.character)
         if name is None:
             return None
-        return list(_find_references(doc, name))
+        return list(
+            _find_references(
+                doc,
+                name,
+                line=params.position.line,
+                col=params.position.character,
+            )
+        )
 
     @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_SYMBOL)
     def _symbols(
@@ -222,14 +278,22 @@ def build_server() -> LanguageServer:
         session._qiec_module = doc.qiec_module  # noqa: SLF001
         session._env = doc.env  # noqa: SLF001
         prefix = _prefix_at(doc.source, params.position.line, params.position.character)
-        items = [
+        items = _qiec_local_completion_items(
+            doc,
+            prefix,
+            line=params.position.line,
+            col=params.position.character,
+        )
+        local_names = {item.label for item in items}
+        items.extend(
             lsp.CompletionItem(
-                label=c.text,
-                kind=_completion_kind(c.kind),
-                detail=c.detail,
+                label=completion.text,
+                kind=_completion_kind(completion.kind),
+                detail=completion.detail,
             )
-            for c in all_completions(session, prefix)
-        ]
+            for completion in all_completions(session, prefix)
+            if completion.text not in local_names
+        )
         return lsp.CompletionList(is_incomplete=False, items=items)
 
     # ----- formatting ---------------------------------------------------
@@ -251,6 +315,7 @@ def build_server() -> LanguageServer:
         _did_change,
         _did_save,
         _did_close,
+        _did_change_configuration,
         _semantic_tokens,
         _hover,
         _definition,
@@ -410,17 +475,38 @@ def _render_hover(
     ``role=`` shows no role, since the compiler infers one from
     program usage and the server does not run that inference.
     """
-    qiec_binding = doc.find_qiec_binding(name, line=line, col=col)
+    qiec_local = (
+        doc.find_qiec_local(name, line=line, col=col) if line is not None else None
+    )
+    qiec_binding = (
+        None
+        if qiec_local is not None
+        else doc.find_qiec_binding(name, line=line, col=col)
+    )
     decl = (
-        qiec_binding.declaration
-        if qiec_binding is not None
-        else doc.find_decl(name, line=line, col=col)
+        qiec_local
+        if qiec_local is not None
+        else (
+            qiec_binding.declaration
+            if qiec_binding is not None
+            else doc.find_decl(name, line=line, col=col)
+        )
     )
     if decl is None:
         if name in doc.env:
             return f"```\n{name} :: {type(doc.env[name]).__name__}\n```"
         return None
     qvr = _slice_source(doc, decl)
+    if isinstance(decl, QiecBinder | QiecValueParameter | QiecLocalBinding) or (
+        isinstance(decl, QiecTypeName) and qiec_local is decl
+    ):
+        source_lines = doc.source.splitlines()
+        source_line = max(0, getattr(decl, "line", 1) - 1)
+        qvr = (
+            source_lines[source_line].strip()
+            if source_line < len(source_lines)
+            else name
+        )
     if qvr is None:
         if isinstance(decl, Statement):
             qvr = module_to_source(type(doc.module)(statements=(decl,))).rstrip()
@@ -431,9 +517,12 @@ def _render_hover(
 
     parts: list[str] = []
     lookup_name = qiec_binding.qualified_name if qiec_binding is not None else name
-    signature = render_qiec_signature(doc.module, lookup_name) or render_signature(
-        doc.compiler, name
-    )
+    if qiec_local is decl:
+        signature = _qiec_local_signature(decl)
+    else:
+        signature = render_qiec_signature(doc.module, lookup_name) or render_signature(
+            doc.compiler, name
+        )
     if signature is not None:
         header = (
             "Kind"
@@ -689,20 +778,47 @@ def _statement_symbol_children(
     return out
 
 
-def _find_references(doc: DocumentState, name: str) -> Iterator[lsp.Location]:
-    """Locate every textual occurrence of ``name`` in the source."""
-    for lineno, line in enumerate(doc.source.splitlines()):
+def _find_references(
+    doc: DocumentState,
+    name: str,
+    *,
+    line: int | None = None,
+    col: int | None = None,
+) -> Iterator[lsp.Location]:
+    """Locate references that resolve to the selected declaration identity.
+
+    Merely matching text conflates branch locals, static binders, and repeated
+    operation names. Resolve every occurrence at its own lexical position and
+    retain it only when it names the exact selected AST declaration.
+    """
+
+    selected = doc.find_decl(name, line=line, col=col)
+    if selected is None:
+        return
+    selected_identity = _declaration_identity(selected, name)
+    for lineno, source_text in enumerate(doc.source.splitlines()):
         start = 0
         while True:
-            idx = line.find(name, start)
+            idx = source_text.find(name, start)
             if idx == -1:
                 break
             # Word-boundary check.
-            left_ok = idx == 0 or not (line[idx - 1].isalnum() or line[idx - 1] == "_")
-            right_ok = idx + len(name) == len(line) or not (
-                line[idx + len(name)].isalnum() or line[idx + len(name)] == "_"
+            left_ok = idx == 0 or not (
+                source_text[idx - 1].isalnum() or source_text[idx - 1] == "_"
             )
-            if left_ok and right_ok:
+            right_ok = idx + len(name) == len(source_text) or not (
+                source_text[idx + len(name)].isalnum()
+                or source_text[idx + len(name)] == "_"
+            )
+            resolved = (
+                doc.find_decl(name, line=lineno, col=idx)
+                if left_ok and right_ok
+                else None
+            )
+            if (
+                resolved is not None
+                and _declaration_identity(resolved, name) == selected_identity
+            ):
                 yield lsp.Location(
                     uri=doc.uri,
                     range=lsp.Range(
@@ -711,6 +827,67 @@ def _find_references(doc: DocumentState, name: str) -> Iterator[lsp.Location]:
                     ),
                 )
             start = idx + len(name)
+
+
+def _declaration_identity(declaration: object, name: str) -> tuple[object, ...]:
+    """Return a stable source identity despite Didactic's defensive copies."""
+
+    return (
+        type(declaration),
+        name,
+        getattr(declaration, "line", 0),
+        getattr(declaration, "col", 0),
+    )
+
+
+def _qiec_local_signature(local: object) -> str:
+    """Render one lexical QIEC binder for hover and completion details."""
+
+    name = str(getattr(local, "name", ""))
+    if isinstance(local, QiecBinder):
+        return _emit_qiec_binder(local)
+    if isinstance(local, QiecValueParameter):
+        return f"{name} : {_emit_qiec_type(local.type_expr)}"
+    if isinstance(local, QiecLocalBinding):
+        return (
+            f"{name} : {_emit_qiec_type(local.type_expr)}"
+            if local.type_expr is not None
+            else f"{name} : (inferred by QIEC)"
+        )
+    if isinstance(local, QiecTypeName):
+        return f"{name} : (branch static)"
+    raise TypeError(f"unsupported QIEC local {type(local).__name__}")
+
+
+def _qiec_local_completion_items(
+    doc: DocumentState,
+    prefix: str,
+    *,
+    line: int,
+    col: int,
+) -> list[lsp.CompletionItem]:
+    """Return position-visible QIEC locals, with shadowing de-duplicated."""
+
+    if any(separator in prefix for separator in (".", ":")):
+        return []
+    locals_by_name: dict[str, object] = {}
+    for local in doc.visible_qiec_locals(line=line, col=col):
+        name = getattr(local, "name", None)
+        if isinstance(name, str):
+            locals_by_name[name] = local
+    return [
+        lsp.CompletionItem(
+            label=name,
+            kind=(
+                lsp.CompletionItemKind.TypeParameter
+                if isinstance(local, QiecBinder | QiecTypeName)
+                else lsp.CompletionItemKind.Variable
+            ),
+            detail=_qiec_local_signature(local),
+        )
+        for name, local in locals_by_name.items()
+        if name.startswith(prefix)
+    ]
 
 
 def _prefix_at(source: str, line: int, character: int) -> str:

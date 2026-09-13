@@ -14,8 +14,9 @@ describes how the pieces fit together.
 
 ## 1. The shared pipeline
 
-The transpile pipeline uses one target-independent QIEC gate before the
-structural IR and target renderer:
+The transpile pipeline checks QIEC before lowering. The selected renderer then
+analyzes the typed QIEC IR immediately before grafting its target-specific QIEC
+definitions:
 
 $$
 \mathrm{Module}
@@ -23,7 +24,8 @@ $$
 \mathrm{Module}
 \;\xrightarrow{\;\mathsf{Lower}\;}\;
 \mathrm{IRProgram}
-\;\xrightarrow{\;\mathsf{Render}_{\mathsf{T}}\;}\;
+\;\xrightarrow{\;\mathsf{Render}_{\mathsf{T}}[
+  \mathsf{AnalyzeQIEC}_{\mathsf{T}};\mathsf{GraftQIEC}_{\mathsf{T}}]\;}\;
 \mathrm{panproto.Schema}
 \;\xrightarrow{\;\mathsf{Pretty}_{\mathsf{T}}\;}\;
 \mathrm{bytes}
@@ -35,10 +37,8 @@ because each arrow's correctness lemma is local to its file.
 
 * **`CheckQIEC`** compiles the indexed-family signature through Didactic's
   public `GADT` API, negotiates the exact route, validates the complete QIEC
-  projection, and applies the all-target preservation rule. The selected target
-  labels a refusal diagnostic but does not change this decision. A checked
-  declaration-only projection may continue; a QIEC computation yields
-  `qiec:computation-body:<name>` before target rendering begins.
+  projection, and returns its stable kernel module. This step is
+  target-independent and does not classify a checked computation as metadata.
 * **`Lower`** is
   target-independent. It walks the `Module`, resolves the probabilistic
   program's morphism and let tables, and emits an
@@ -46,15 +46,23 @@ because each arrow's correctness lemma is local to its file.
   the structural intent (sample, observe, marginalize, ...) plus
   the support and plate shape derived from
   `FAMILY_META` and
-  `torch.distributions.Distribution.arg_constraints`.
+  `torch.distributions.Distribution.arg_constraints`. It also projects the
+  complete stable kernel module into the typed `IRQiecModule` tree. A QIEC-only
+  source thus lowers without a synthetic probabilistic `program`.
 * **`Render[T]`**
   is one subclass per backend
   (`StanRenderer`,
   `NumPyroRenderer`,
   `PyMCRenderer`,
   ...). It consumes the IR and emits a target-specific
-  `panproto.Schema` using only the support
-  predicates of §2.3 and the `FAMILY_META` entries.
+  `panproto.Schema` using the support predicates of §2.3 and the `FAMILY_META`
+  entries. During its QIEC graft, `graft_qiec_dynamic` or `graft_qiec_static`
+  calls **`AnalyzeQIEC[T]`** over each named computation. The analysis records
+  open or effectful rows, static polymorphism, indexed cases, transport,
+  attachments, and resumption grades, then compares that set with the target's
+  declared capabilities. A mismatch has the stable form
+  `qiec:capability:<feature>:<computation>`, retains the computation's source
+  origin, and stops the QIEC graft.
 * **Pretty[T]** is
   `panproto.AstParserRegistry.emit_pretty`
   for the target's tree-sitter grammar. It renders the schema as
@@ -62,9 +70,11 @@ because each arrow's correctness lemma is local to its file.
 
 The ordinary compiler also checks the same QIEC projection and attaches its
 `QiecModule` to the compiler environment and produced `Program`. Transpilation
-does not depend on that runtime compiler object; it repeats the exact boundary
-from the source AST so direct calls to `transpile()` and `Lower.forward()` are
-checked.
+does not depend on that runtime compiler object. `transpile()` checks the exact
+boundary from the source AST before surface-support classification, and
+`Lower.forward()` repeats the check so direct lowering is also validated.
+Target capability analysis remains inside the renderer graft because it acts
+on `IRQiecModule`, not on the source or stable-core representation.
 
 ## 2. The IR
 
@@ -75,15 +85,32 @@ is a `dx.Model` or
 structural: no target-language strings, no schema vertices, no
 panproto types.
 
-### 2.1 QIEC metadata
+### 2.1 Typed QIEC module
 
-`IRProgram.qiec` is either `None` or a canonical `qiec-json/v1` string. This
-field preserves a checked declaration-only QIEC module without placing Python
-kernel objects inside a Didactic/Panproto-translatable record. All eleven
-renderers ignore this metadata because it has no target runtime meaning. They
-never receive a QIEC computation body: the shared boundary refuses that body
-before lowering rather than erasing `perform`, `handle`, indexed-case evidence,
-or resumption grades.
+`IRProgram.qiec` is either `None` or an `IRQiecModule`. The latter is a lossless
+structural projection of the checked kernel module: every declaration, stable
+identifier, source origin, row and lacks constraint, value, equality witness,
+transport, computation node, handler clause, and resumption grade has its own
+`dx.Model` or `dx.TaggedUnion` representation. Thus the IR remains
+Didactic/Panproto-translatable without asking a renderer to parse a
+`qiec-json/v1` string.
+
+The host-language targets Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL,
+and Church consume this tree through corresponding implementations of the QIEC
+runtime ABI. These implementations provide free computations, lexical
+handlers, stable request addresses, constructors, indexed case dispatch,
+attachments, and resumption-grade checks. Conformance tests reparse every
+target's emitted source and exercise the host ABI where its runtime is
+available; this evidence does not establish that the runtimes are equivalent.
+
+Stan, BUGS, and JAGS emit the analyzer-approved static subset. Each computation
+must have a closed, empty effect row and an empty static telescope, return a
+scalar, and contain only scalar `Return` and `Bind` forms. These restrictions do
+not rule out ordinary value parameters: Stan admits named `Bool`, `Int`, and
+`Real` parameters. BUGS and JAGS require parameterless computations because
+their graph-level definitions have no callable parameter ABI. Other QIEC
+features receive precise capability diagnostics; no renderer may treat an
+executable term as ignorable metadata.
 
 ### 2.2 `Plate`: event versus batch axes
 

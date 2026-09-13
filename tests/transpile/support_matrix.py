@@ -560,13 +560,13 @@ def render_page(cells: list[Cell]) -> str:
         "whether a feature of their own model is supported wants to "
         "match on.",
         "",
-        "QIEC declarations take a separate checked route before this matrix. "
-        "The structural IR retains declaration-only QIEC metadata as canonical "
-        "`qiec-json/v1`; all 11 backends may then transpile an accompanying "
-        "probabilistic `program`. A QIEC computation body is instead refused by "
-        "the shared boundary as `qiec:computation-body:<name>`, because the "
-        "probabilistic IR cannot represent `perform`, `handle`, indexed-case "
-        "evidence, or resumption grades without changing their meaning.",
+        "QIEC uses the same measured renderer boundary as probabilistic programs. "
+        "Its complete checked module is retained as typed `IRQiecModule` nodes. "
+        "Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church emit named "
+        "QIEC functions through a shared stable-ID runtime ABI. Stan, BUGS, and "
+        "JAGS emit the closed, monomorphic, effect-free scalar `Return`/`Bind` "
+        "fragment and report unsupported forms as "
+        "`qiec:capability:<feature>:<computation>`.",
         "",
         "What this page does not cover is whether a rendered program's "
         "density agrees with QVR's own. That is the subject of the "

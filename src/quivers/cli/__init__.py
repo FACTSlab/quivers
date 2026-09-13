@@ -12,6 +12,8 @@ Subcommands:
   source files from one tagged grammar revision to another, via
   panproto migrations composed from the in-tree
   ``grammars/qvr/vcs`` chain.
+- ``qvr run FILE COMPUTATION [ARGS...]`` — execute one checked QIEC
+  computation with JSON value arguments and an explicit runtime configuration.
 
 Output format: human-readable by default, structured JSON when
 ``--json`` is supplied. Each diagnostic carries:
@@ -44,6 +46,11 @@ def main() -> int:
         action="store_true",
         help="Emit structured JSON diagnostics on stdout.",
     )
+    check.add_argument(
+        "--target",
+        default=None,
+        help="Also diagnose QIEC features unsupported by this transpile target.",
+    )
 
     repl = sub.add_parser(
         "repl",
@@ -61,6 +68,41 @@ def main() -> int:
         help="Use the prompt_toolkit single-line front end instead of the TUI.",
     )
 
+    run = sub.add_parser(
+        "run",
+        help="Execute one named QIEC computation.",
+    )
+    run.add_argument("file", help="Path to the .qvr source file.")
+    run.add_argument("computation", help="Named `define` computation to execute.")
+    run.add_argument(
+        "arguments",
+        nargs="*",
+        help="Value arguments as JSON literals, in declaration order.",
+    )
+    run.add_argument(
+        "--static",
+        action="append",
+        default=[],
+        metavar="NAME=TERM",
+        help="Closed static specialization; repeat once per telescope binder.",
+    )
+    run.add_argument(
+        "--runtime",
+        default=None,
+        metavar="FILE.json",
+        help="Explicit JSON runtime-provider configuration.",
+    )
+    run.add_argument(
+        "--trace",
+        action="store_true",
+        help="Write stable execution trace events to stderr.",
+    )
+    run.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the result, diagnostics, and trace as JSON.",
+    )
+
     lsp = sub.add_parser(
         "lsp",
         help="Run the QVR Language Server (LSP 3.17 over stdio).",
@@ -71,6 +113,11 @@ def main() -> int:
         default=None,
         metavar="PORT",
         help="Bind to TCP port instead of stdio.",
+    )
+    lsp.add_argument(
+        "--target",
+        default=None,
+        help="Diagnose QIEC capabilities against this transpile target.",
     )
 
     migrate = sub.add_parser(
@@ -185,11 +232,15 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.cmd == "check":
-        return check_main(args.files, json_output=args.json)
+        return check_main(args.files, json_output=args.json, target=args.target)
     if args.cmd == "repl":
         from quivers.cli.repl import main as repl_main
 
         return repl_main(args)
+    if args.cmd == "run":
+        from quivers.cli.run import main as run_main
+
+        return run_main(args)
     if args.cmd == "lsp":
         from quivers.cli.lsp import main as lsp_main
 

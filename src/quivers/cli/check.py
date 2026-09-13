@@ -79,7 +79,7 @@ def _normalize_severity(value: str) -> Severity:
     raise ValueError(f"unknown severity {value!r}")
 
 
-def _check_one(path: Path) -> list[Diagnostic]:
+def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
     """Run the parse + constraint + compile pipeline on a single file."""
     try:
         source = path.read_bytes()
@@ -190,10 +190,31 @@ def _check_one(path: Path) -> list[Diagnostic]:
             )
         )
 
+    if target is not None and compiler.qiec_module is not None:
+        from quivers.transpile.qiec_ir import analyze_qiec_capabilities
+
+        for capability in analyze_qiec_capabilities(compiler.qiec_module, target):
+            origin = capability.origin
+            diags.append(
+                Diagnostic(
+                    file=str(path),
+                    line=(origin.line or 0) if origin is not None else 0,
+                    col=(origin.column or 0) if origin is not None else 0,
+                    severity="error",
+                    code=capability.kind,
+                    message=capability.message,
+                )
+            )
+
     return diags
 
 
-def main(files: list[str], *, json_output: bool = False) -> int:
+def main(
+    files: list[str],
+    *,
+    json_output: bool = False,
+    target: str | None = None,
+) -> int:
     """Run ``qvr check`` on a list of paths.
 
     Parameters
@@ -213,7 +234,7 @@ def main(files: list[str], *, json_output: bool = False) -> int:
     paths = [Path(f) for f in files]
     all_diags: list[Diagnostic] = []
     for p in paths:
-        all_diags.extend(_check_one(p))
+        all_diags.extend(_check_one(p, target=target))
 
     has_error = any(d.severity == "error" for d in all_diags)
 

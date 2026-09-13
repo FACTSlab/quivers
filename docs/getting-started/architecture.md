@@ -270,9 +270,11 @@ provides the standard effect interfaces and process-local runtime attachments.
 
 The package boundary is deliberate. Stable QIEC data may cross a process or
 Panproto boundary, while host callables, state cells, samplers, and handler
-implementations remain runtime attachments. The existing probabilistic IR does
-not encode QIEC computation terms, so its eleven transpilers centrally reject a
-module that contains one rather than dropping its control or equality evidence.
+implementations remain runtime attachments. The transpile layer projects that
+stable data into a typed `IRQiecModule`: eight host-language targets consume
+the complete computation tree through a common runtime ABI, while Stan, BUGS,
+and JAGS accept an analyzer-proven closed scalar subset. Unsupported features
+receive source-located capability diagnostics rather than being erased.
 See [Quivers Indexed Effect Core](../developer/qiec.md) for the source and ABI
 contracts.
 

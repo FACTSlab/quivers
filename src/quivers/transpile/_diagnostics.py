@@ -638,18 +638,20 @@ def _render_node_kind(backend: str, tail: str, explained: bool) -> str:
 
 
 def _render_qiec_kind(backend: str, tail: str) -> str:
-    """``qiec:computation-body:<name>`` -- a checked QIEC computation
-    cannot be represented by the existing probabilistic IR."""
+    """Render one selected-target QIEC capability mismatch."""
     reason, _, name = tail.partition(":")
-    if reason == "computation-body":
-        subject = f"QIEC computation `{name}`" if name else "a QIEC computation"
+    if reason == "capability":
+        feature, _, subject = name.partition(":")
+        where = (
+            f"QIEC computation `{subject}`"
+            if subject != "module"
+            else "the QIEC module"
+        )
         return (
-            f"{subject} has passed QIEC type and effect checking, but "
-            f"{_language(backend)} cannot receive it through the existing "
-            f"probabilistic IR. That IR has no representation for QIEC "
-            f"`perform`, `handle`, indexed-case evidence, or resumption grades. "
-            f"Use the QIEC evaluator, or a future QIEC-capable lowering target; "
-            f"removing the body would change the program's meaning."
+            f"{where} requires the `{feature}` QIEC capability, but "
+            f"{_language(backend)} has no semantics-preserving lowering for it. "
+            "Choose a target whose QIEC capability set includes this feature, "
+            "or change the computation; silently erasing it would change the program."
         )
     return f"{_cannot(backend, 'transpile this checked QIEC construct')}: {tail}"
 

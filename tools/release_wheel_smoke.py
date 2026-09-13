@@ -12,6 +12,7 @@ from quivers.cli.migrations import _grammar as migration_grammar
 from quivers.dsl import parse
 from quivers.dsl import _grammar_build as grammar_build
 from quivers.dsl.pygments_lexer import QvrLexer
+from quivers.transpile import available_targets, transpile
 
 
 _EXPECTED_DEPENDENCIES = {
@@ -59,6 +60,19 @@ def main() -> None:
         raise SystemExit("installed-wheel v0.19 parser returned the wrong module")
     if not list(QvrLexer().get_tokens("index Nat = Z | S(Nat)\n")):
         raise SystemExit("installed-wheel highlighter returned no tokens")
+
+    qiec_source = parse("define answer() : Int !{} =\n    return 42\n")
+    rendered: dict[str, bytes] = {}
+    for target in available_targets():
+        rendered[target] = transpile(qiec_source, target=target)
+        if b"qiec_answer" not in rendered[target]:
+            raise SystemExit(
+                f"installed-wheel {target} transpiler omitted QIEC computation"
+            )
+    namespace: dict[str, object] = {}
+    exec(rendered["pyro"], namespace)
+    if namespace["qiec_answer"]() != 42:  # type: ignore[operator]
+        raise SystemExit("installed-wheel Python QIEC runtime returned wrong value")
 
     available = set(migration_grammar.available_revisions())
     missing = set(CHAIN) - available

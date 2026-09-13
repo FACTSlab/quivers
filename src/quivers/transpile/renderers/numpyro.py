@@ -77,6 +77,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 #: The backend key used to look up `target_names` / `arg_aliases` in
@@ -198,6 +199,9 @@ class NumPyroRenderer(RendererBase):
         body = py.v(py.fresh("body"), "block")
         params = self._function_params(ir)
         func = self._build_function(py, body, params)
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(body, noop, "child_of")
 
         # Dispatch the body first so any ``LetExprCall`` records the
         # imports its symbol needs (jax.scipy.special / jax.nn), then emit
@@ -215,6 +219,7 @@ class NumPyroRenderer(RendererBase):
             _emit_runtime_helper(py, cls_name)
         py.e("mod", func, "child_of")
 
+        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def declare(

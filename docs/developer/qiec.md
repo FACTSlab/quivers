@@ -18,7 +18,7 @@ boundary** associates stable identifiers with process-local values and handler
 implementations. Host callables and mutable resources cannot cross the stable
 core boundary. This note first describes the static kernel; it then turns to
 serialization and evaluation, gives four complete v0.19 examples, and closes
-with the boundary that the existing probabilistic transpilers enforce.
+with the typed IR and target-capability contract used by the transpilers.
 
 ## Static kernel
 
@@ -95,6 +95,23 @@ the following interfaces:
 These handlers are executable specifications, not the optimized production
 implementations of a backend. Runtime samplers, observation tables, semiring
 operations, state cells, and trace recorders remain process-local attachments.
+
+### Named execution boundary
+
+`qvr run FILE COMPUTATION [JSON ...]` selects one checked
+`NamedComputation`, specializes its static telescope, validates its value
+arguments, and evaluates it with a fresh attachment table. `--static
+NAME=TERM` supplies a closed type, index, or effect application for each static
+binder. `--runtime FILE.json` selects the built-in `core` runtime or installed
+`quivers.qiec_runtime` providers without placing executable objects in the
+configuration file. `--trace` writes stable events in plain mode, while
+`--json` includes the result, specialized result type, runtime label, and trace
+in one document.
+
+The REPL exposes the same boundary through `:runtime`, `:run`, and `:detach`.
+The Textual status bar shows the active runtime and the most recent result.
+Argument, specialization, provider, validator, evaluation, and result failures
+retain their `qiec-run-*` diagnostic codes across the CLI, REPL, and TUI.
 
 ## QVR v0.19 surface
 
@@ -221,29 +238,107 @@ the first-order indexed-family projection, after which the Quivers kernel checks
 branch refinement, effect rows, handler coverage, and resumption contracts and
 lowers the surface into a serializable `QiecModule`. Third, the compiler
 attaches that checked module to its environment and produces a `Program` without
-mixing it into probabilistic elaboration. Fourth, the structural IR preserves
-declaration metadata as canonical JSON, while one central boundary gives every
-transpiler the same refusal for computation bodies. Fifth, the CLI, TUI, REPL,
-language server, Pygments and tree-sitter highlighters, TextMate grammar, and
-Panproto migration assets share the v0.19 surface and diagnostic vocabulary.
+mixing it into probabilistic elaboration. Fourth, `Lower` projects the complete
+module into `IRQiecModule`, whose typed nodes retain declarations, rows,
+provenance, values, evidence, computations, and resumption grades. Fifth, the
+CLI, TUI, REPL, language server, Pygments and tree-sitter highlighters, TextMate
+grammar, Panproto migration assets, and transpilers share the v0.19 surface and
+diagnostic vocabulary.
 
-A potential worry is that the probabilistic compiler and QIEC route now sit
-beside one another. This is an intentional boundary, but it is also a concrete
-limit. A mixed module may attach checked, declaration-only QIEC metadata to an
-ordinary probabilistic `program`; the shared IR retains that metadata as a
-canonical `qiec-json/v1` envelope, though the eleven target renderers do not
-interpret it. If the module contains a QIEC computation body, every target
-instead issues the same central `qiec:computation-body:<name>` refusal because
-the probabilistic IR cannot represent `perform`, `handle`, indexed-case
-evidence, or resumption grades. It never erases the body.
+A potential worry is that a common IR implies identical target capabilities.
+The **QIEC capability boundary** blocks that inference. Pyro, NumPyro, PyMC,
+Edward2, Turing, Gen, WebPPL, and Church lower the complete stable computation
+graph through corresponding target-language implementations of the QIEC
+runtime ABI. This route retains stable operation and instance identifiers,
+dynamic addresses, lexical handler scope, indexed constructors, equality
+transport, and the four resumption grades.
+
+Stan, BUGS, and JAGS instead accept a checked first-order subset. A computation
+must have a closed, empty effect row and an empty static telescope, return a
+scalar, and be composed only of scalar `Return` and `Bind` forms over literal
+or variable values. An empty static telescope does not prohibit ordinary value
+parameters: Stan may bind named `Bool`, `Int`, and `Real` parameters. BUGS and
+JAGS currently require a parameterless entry point because their emitted graph
+has no callable parameter ABI. During rendering, `graft_qiec_dynamic` or
+`graft_qiec_static` runs the analyzer immediately before the QIEC definitions
+are grafted into the target schema. It reports each missing feature as
+`qiec:capability:<feature>:<computation>` at that boundary. Thus the static
+targets reject only the construct they cannot preserve.
+
+### Target runtime ABI
+
+Each host-language renderer exports a QVR computation named `f` as
+`qiec_f`. Its source parameters come first. The entry point also accepts a
+static-specialization argument and three invocation-local mappings: `qiec_attachments`,
+`qiec_handlers`, and `qiec_operations`. The specialization argument instantiates
+the checked type, index, and effect telescope; a polymorphic entry point rejects
+an omitted argument, a wrong arity, or a static argument of the wrong kind.
+Python and Julia expose this ABI through optional or keyword arguments.
+JavaScript uses trailing positional arguments, and Church accepts an optional
+rest list. The generated `model` or `build_model` entry point is unchanged.
+
+The renderer tests check the corresponding implementations rather than assume
+their equivalence. Every target's emitted QIEC source is reparsed, external
+syntax checks run when the target toolchain is available, and runtime-backed
+tests exercise Python, Julia, JavaScript, and Scheme entry points. These tests
+cover stable-ID dispatch, indexed cases, attachments, resumption grades, and
+handler lifecycle behavior. They do not constitute a backend-level adequacy
+proof against the reference evaluator.
+
+Attachment entries are keyed by their `qiec:attachment:*` identifier and must
+be typed binding descriptors. The runtime checks the descriptor's structural
+type against the checked reference and invokes its validator before exposing
+its value; a raw host value is not an attachment. A mutable duplicable binding
+also declares a `fork` callback, which produces a fresh value from the pristine
+capture seed for each unrestricted shot.
+
+Handler entries are keyed by `qiec:handler:*`. The generated manifest, rather
+than the host attachment, fixes the handler's effect, coverage, forwarding
+policy, clause set, and resumption grades. The attachment's `operations` table
+is keyed by `qiec:operation:*`, and each clause receives `(request, resume,
+context)`. The request contains the stable instance, effect, operation, static
+arguments, value arguments, result type, source origin, and dynamic address.
+The context contains the specialized handler manifest, static arguments, and
+the current resumption-use count. A return clause receives
+`(value, context)`. Result validators check values passed into `resume`, while
+the handler output validator checks the clause or return-clause answer.
+
+A stateful handler attachment uses `context_factory` to construct one context
+per installation. Optional `on_enter`, `on_exit`, and `on_drop` callbacks form
+an exact-once lifecycle. An unrestricted resumption may capture a handler only
+when it declares `duplicable_context`; a mutable captured context must also
+provide `fork_context`. Each shot, including the first, forks from an untouched
+seed. Partial handlers forward structurally uncovered operations to an outer
+handler without changing the checked forwarding policy.
+
+Unhandled operations are keyed by the pair of `qiec:effect-instance:*` and
+`qiec:operation:*` identifiers and receive the complete `request`. Thus neither
+dispatch path assigns semantics to display names such as `Random`, `Score`, or
+`Choose`. An address contains the stable source-site identifier, dynamic
+frames, and the resumption path; each unrestricted shot appends its branch
+number before evaluating the captured continuation. Python stores active
+handler state in an invocation-local context, Julia stores it per task, and
+Scheme uses a dynamically scoped parameter. JavaScript evaluation is
+synchronous, so its scoped stack cannot overlap independent invocations.
+
+This boundary represents QIEC-only and mixed modules without requiring a
+synthetic probabilistic `program`; a mixed module retains both its probabilistic
+nodes and its typed `IRQiecModule`. Acceptance still depends on the selected
+target. Declaration-only modules remain valid on every target. The eight
+host-language targets accept executable QIEC-only modules, while the three
+static targets accept them only when every computation satisfies the subset
+above. Mixed modules must additionally satisfy the selected target's ordinary
+probabilistic support boundary. A renderer may omit declarations that have no
+runtime effect, but it cannot drop a computation body or erase an unsupported
+effect to make the module fit.
 
 For current purposes, QIEC also has no source term for recursive calls, scoped
 instance allocation, or authored handler-clause bodies. Handler bodies remain
 runtime attachments, and `NamedComputation` values are checked entry points
 rather than mutually recursive functions. These limits leave two live
-possibilities: a QIEC-aware backend may consume the stable module directly, or
-a later IR extension may preserve the missing control and evidence forms for
-the existing backend family.
+possibilities: target runtimes may acquire native, optimized implementations of
+particular handlers, and the static target subset may expand when a
+semantics-preserving encoding exists for additional value or control forms.
 
 Panproto 0.74.2 restores version-aware validation for persisted objects written
 by earlier releases. The migration gate reads the original QVR history without

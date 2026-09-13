@@ -131,13 +131,14 @@ Didactic then negotiates the exact route `qvr-source/v0.19` to
 `qiec-core/v1alpha1`; the QIEC checker retains the parameter/index distinction
 and validates effect rows, handler coverage, and branch-local evidence.
 
-The two routes may occur in one source module, but they do not yet have the same
-backend range. Declaration-only QIEC metadata may accompany a
-probabilistic `program`. A QIEC computation body is checked and lowered, then
-centrally refused by all eleven probabilistic transpilers because their shared
-IR cannot preserve `perform`, `handle`, indexed-case evidence, or resumption
-grades. See [Quivers Indexed Effect Core](../developer/qiec.md) for the complete
-surface and implementation boundary.
+The two routes may occur in one source module. Declaration-only QIEC metadata
+may accompany a probabilistic `program`, and each checked QIEC computation is
+retained beside the probabilistic IR. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
+WebPPL, and Church execute the complete QIEC graph through generated host
+runtimes. Stan, BUGS, and JAGS accept a checked, effect-free scalar subset and
+report a feature-specific capability diagnostic for other computations. See
+[Quivers Indexed Effect Core](../developer/qiec.md) for the complete surface and
+target boundary.
 
 ### Programs as panproto schemas
 

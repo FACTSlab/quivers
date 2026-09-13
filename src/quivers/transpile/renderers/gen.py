@@ -107,6 +107,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 # ---------------------------------------------------------------------------
@@ -1076,6 +1077,7 @@ class GenRenderer(RendererBase):
         if any(_ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
+        graft_qiec_dynamic(sb, ir, target=self.target, root=src)
         return sb.build()
 
     # ------------------------------------------------------------------

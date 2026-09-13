@@ -126,7 +126,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:
-    name: Attach distributions to GitHub release
+    name: Attach distributions and editor extension to GitHub release
     needs: publish-pypi
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
@@ -135,6 +135,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out release assets
+        uses: actions/checkout@v4
+
       - name: Download distributions
         uses: actions/download-artifact@v4
         with:
@@ -144,6 +147,8 @@ jobs:
       - name: Upload distributions to GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*
+            editors/vscode-qvr/vscode-qvr-0.6.0.vsix
           generate_release_notes: true
           tag_name: ${{ github.ref_name }}

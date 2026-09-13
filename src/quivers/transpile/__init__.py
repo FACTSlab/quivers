@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 from quivers.transpile._api import (
     CHURCH_LIKE,
-    QIEC_METADATA_IGNORABLE,
+    QIEC_SURFACE,
     PYTHON_DEEP,
     STAN_LIKE,
     Backend,
@@ -124,7 +124,7 @@ def available_targets() -> list[str]:
 __all__ = [
     "CHURCH_LIKE",
     "PYTHON_DEEP",
-    "QIEC_METADATA_IGNORABLE",
+    "QIEC_SURFACE",
     "STAN_LIKE",
     "Backend",
     "EmitPretty",

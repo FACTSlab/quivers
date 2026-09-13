@@ -71,6 +71,7 @@ mermaid.live.
 ```bash
 qvr --version
 qvr check docs/examples/source/lda.qvr      # batch-validate one or more files
+qvr run --help                              # inspect named QIEC execution
 qvr repl --help                              # confirm the TUI is reachable
 ```
 
@@ -81,9 +82,10 @@ qvr repl --help                              # confirm the TUI is reachable
 | `qvr repl` | Textual TUI (or prompt_toolkit fallback if stdin is not a TTY) |
 | `qvr repl --plain` | Force the single-line prompt_toolkit frontend |
 | `qvr repl FILE.qvr` | Load FILE on startup, then drop to the prompt |
-| `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config) |
+| `qvr run FILE.qvr NAME [JSON ...]` | Execute one named, checked QIEC computation |
+| `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config); add `--target TARGET` for live backend-capability diagnostics |
 | `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec named `quivers` |
-| `qvr check FILE...` | Batch parse + compile; non-zero exit code on any error |
+| `qvr check FILE...` | Batch parse + compile; add `--target TARGET` to check QIEC target capabilities; non-zero exit code on any error |
 
 ## The REPL
 
@@ -131,9 +133,11 @@ The top bar shows, separated by `·`:
 
 - the loaded file path (or `<no file>`),
 - the active algebra (`ProductFuzzyAlgebra`, `LogProbAlgebra`, …),
-- counts: `N obj · M space · K morph · J rule`.
+- counts such as `N obj · M space · K morph · J rule · L qiec`, and
+- the active QIEC runtime as `runtime:LABEL`. After `:run`, the same fragment
+  includes `last:NAME=VALUE:TYPE`; a detached runtime is shown in yellow.
 
-It refreshes after every evaluation, reload, or watch update.
+It refreshes after every evaluation, reload, runtime change, or watch update.
 
 ### Environment browser
 
@@ -200,6 +204,9 @@ column.
 | `:type EXPR` | `:t` | Print a value-level GHCi-style signature (`f :: A -> B`); type-level names are handled by `:kind` |
 | `:kind T` | `:k` | Resolve a type-level name or expression (`object X : FinSet 3`, `FinSet 3 :: FinSet 3`) |
 | `:transpile TARGET` |  | Emit the loaded module for `stan`, `numpyro`, `pyro`, `pymc`, `edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, or `jags` |
+| `:runtime [PROVIDER\|FILE.json]` |  | Show the current runtime, attach a registered provider, or load an explicit provider configuration |
+| `:run NAME [JSON ...] [--static NAME=TERM]` |  | Execute one named QIEC computation with checked value and static arguments |
+| `:detach` |  | Detach every QIEC runtime provider from the session |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` |  | Render only the doc comment(s) for NAME |
 | `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
@@ -311,10 +318,74 @@ data {
 }
 ```
 
-All eleven targets accept a module that adds declaration-only QIEC metadata to
-a probabilistic program. They centrally refuse a QIEC computation body,
-with the same source-located backend diagnostic, because the shared
-probabilistic IR cannot encode its control and equality evidence.
+All eleven targets accept QIEC declaration-only modules. Pyro, NumPyro, PyMC,
+Edward2, Turing, Gen, WebPPL, and Church also accept executable QIEC-only
+modules and emit named `qiec_*` functions through their corresponding
+target-language ABI implementations. They accept mixed modules when the
+probabilistic portion is already supported by that target. Stan, BUGS, and JAGS
+accept executable QIEC-only or mixed modules only when the same probabilistic
+condition holds and every computation is in their static subset: its effect row
+is closed and empty, its static telescope is empty, its result is scalar, and
+its body contains only scalar `Return` and `Bind` forms. Stan additionally
+permits named `Bool`, `Int`, and `Real` value parameters; BUGS and JAGS require
+parameterless computations. Each unsupported feature produces a source-located
+`qiec:capability:*` diagnostic.
+
+#### `:runtime [PROVIDER|FILE.json]`
+
+With no argument, show the active runtime-provider configuration and its
+source. A bare name selects the built-in `core` provider or an installed
+`quivers.qiec_runtime` entry point. A path loads the same non-executable JSON
+configuration accepted by `qvr run --runtime`:
+
+```json
+{
+  "providers": [
+    {
+      "name": "core",
+      "options": {
+        "handlers": {
+          "pass": {"kind": "passthrough"}
+        }
+      }
+    }
+  ]
+}
+```
+
+Provider names are resolved only when explicitly selected. The source handler
+declaration continues to determine its types, coverage, forwarding policy, and
+resumption grades; the runtime configuration supplies process-local behavior.
+
+#### `:run NAME [JSON ...] [--static NAME=TERM]`
+
+Execute a named computation from the checked QIEC module. Positional values
+must be JSON literals and appear in declaration order. A polymorphic
+computation requires one `--static NAME=TERM` assignment for every static
+binder; static terms must be closed types, indices, or effect applications
+declared in the module.
+
+```
+> :run identity 7 --static A=Int
+{
+  "value": 7,
+  "type": "Int",
+  "runtime": "core",
+  "trace_events": 5
+}
+```
+
+The command validates value arguments and the result against the specialized
+types, creates fresh runtime attachments for the invocation, and records a
+stable execution trace. Failures retain `qiec-run-*` diagnostic codes in both
+the plain and TUI frontends.
+
+#### `:detach`
+
+Remove every runtime provider from the session and clear the last-run status.
+Pure computations whose argument and result types require a provider validator
+will then fail with `qiec-run-validator`. Use `:runtime core`, another provider
+name, or a JSON configuration path to attach a runtime again.
 
 #### `:info NAME [--python]` / `:i NAME`
 
@@ -915,10 +986,19 @@ Notebook-side features:
 
 ## The Language Server
 
-`qvr-lsp` speaks LSP 3.17 over stdio. Pointed at any LSP-aware
-editor it provides hover, go-to-definition, references, document
+`qvr-lsp` speaks LSP 3.17 over stdio. Start it as `qvr lsp --target stan`
+or `qvr-lsp --target stan` to publish capability diagnostics for a selected
+backend from the first document analysis. With no target, it reports the
+target-independent parser, constraint, compiler, and QIEC diagnostics. Pointed
+at any LSP-aware editor, it provides hover, go-to-definition, references, document
 symbols, semantic highlighting, completion, formatting, and live
 diagnostics.
+
+The server also handles `workspace/didChangeConfiguration`. Either
+`{"qvr": {"transpileTarget": "stan"}}` or
+`{"transpileTarget": "stan"}` changes the selected backend and immediately
+reanalyzes every open document. An empty target disables target-specific
+diagnostics without restarting the server.
 
 ### VS Code / Cursor
 
@@ -942,6 +1022,7 @@ Settings:
 | `qvr.lsp.enabled` | `true` | Master toggle |
 | `qvr.lsp.path` | `qvr-lsp` | Override the executable path |
 | `qvr.lsp.args` | `[]` | Extra CLI arguments |
+| `qvr.transpileTarget` | `""` | Select one of the eleven transpile targets for live `qiec:capability:*` diagnostics; an empty string disables them |
 
 Install the packaged `.vsix` directly:
 
@@ -988,7 +1069,7 @@ Every capability advertised by `qvr-lsp`:
 
 | LSP method | What it returns |
 | --- | --- |
-| `textDocument/publishDiagnostics` | Parser, constraint-solver, probabilistic-compiler, and stable QIEC diagnostics with source ranges and QIEC diagnostic codes |
+| `textDocument/publishDiagnostics` | Parser, constraint-solver, probabilistic-compiler, stable QIEC, and selected-target `qiec:capability:*` diagnostics with source ranges |
 | `textDocument/hover` | The declaration and inferred kind or type as fenced `qvr` blocks, with the didactic AST `repr()` beneath a collapsed `<details>`; nested QIEC constructors and operations are addressable symbols |
 | `textDocument/definition` | Jump to the originating declaration |
 | `textDocument/references` | Every textual occurrence of the name |
@@ -997,6 +1078,7 @@ Every capability advertised by `qvr-lsp`:
 | `textDocument/semanticTokens/full` | Env-aware semantic token stream driven by the shared [`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) |
 | `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md) |
 | `textDocument/didOpen` / `didChange` / `didSave` / `didClose` | Incremental sync, full re-analysis per change |
+| `workspace/didChangeConfiguration` | Update the selected transpile target and republish diagnostics for every open document |
 
 ### Hover format
 

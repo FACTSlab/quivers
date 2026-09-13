@@ -13,6 +13,9 @@ Flags:
 
 - `--json`: emit a single JSON document on stdout containing the
   full diagnostic list, as expected by CI and pre-commit hooks.
+- `--target TARGET`: compare every checked QIEC computation with the selected
+  transpiler's capabilities. Unsupported features are errors, so this mode is
+  suitable for a target-specific release gate.
 
 Diagnostic codes:
 
@@ -43,6 +46,8 @@ Diagnostic codes:
 - `qiec-unhandled-effect`: a computation performs an instance absent from its
   declared row.
 - `qiec-backend`: a requested backend boundary cannot preserve a QIEC form.
+- `qiec:capability:FEATURE:COMPUTATION`: `--target` selected a backend that
+  cannot preserve `FEATURE` in the named computation.
 - `io`: a file-system error, such as a missing or unreadable file.
 
 ## `qvr migrate PATHS...`
@@ -75,11 +80,71 @@ Start the interactive REPL. Without a file, opens an empty
 session; with a file, loads and elaborates it before dropping to
 the prompt. See [REPL and Language Server](../guides/repl-and-lsp.md).
 
+## `qvr run FILE COMPUTATION [ARGUMENTS...]`
+
+Execute one named computation from a checked QIEC module. Each positional
+argument is a JSON literal and corresponds to one value parameter in
+declaration order. The command validates the arguments and result against the
+specialized QIEC types, gives the invocation a fresh runtime attachment table,
+and exits 0 only when evaluation succeeds.
+
+Flags:
+
+- `--static NAME=TERM`: specialize one static telescope binder with a closed
+  type, index, or effect term. Repeat the flag once for every binder.
+- `--runtime FILE.json`: select runtime providers and their options through a
+  non-executable JSON configuration.
+- `--trace`: write stable execution events to stderr in human-readable mode.
+- `--json`: emit the result, runtime label, and complete trace as JSON. A
+  failure instead emits a JSON diagnostic and exits 1.
+
+For instance, this command specializes `A` to `Int` and supplies the value
+argument `7`:
+
+```bash
+qvr run identity.qvr identity 7 --static A=Int --json
+```
+
+The default runtime configuration selects the built-in `core` provider. A
+configuration can select that provider with handler behavior or name an
+installed `quivers.qiec_runtime` entry point:
+
+```json
+{
+  "providers": [
+    {
+      "name": "core",
+      "options": {
+        "handlers": {
+          "pass": {"kind": "passthrough"}
+        }
+      }
+    }
+  ]
+}
+```
+
+The core provider accepts `passthrough`, `scripted`, and `state` handler
+configurations. These options supply process-local clause behavior; the source
+handler still fixes the checked effect, coverage, forwarding policy, clause
+set, and resumption grades. Runtime plugins are discoverable by name but are
+loaded only when the configuration explicitly selects them.
+
+Execution failures use stable codes including `qiec-run-computation`,
+`qiec-run-arity`, `qiec-run-static`, `qiec-run-provider`,
+`qiec-run-validator`, `qiec-run-argument`, `qiec-run-evaluation`, and
+`qiec-run-result`.
+
 ## `qvr lsp`
 
 Run the Language Server over stdio, or pass `--tcp PORT` to bind a
-TCP port. Editor extensions invoke this command; the protocol is LSP 3.17. See
-[REPL and Language Server](../guides/repl-and-lsp.md).
+TCP port. `--target TARGET` enables live `qiec:capability:*` diagnostics for
+the selected transpiler. Editor extensions invoke this command; the protocol
+is LSP 3.17. The server accepts later target changes through
+`workspace/didChangeConfiguration`, using either
+`{"qvr": {"transpileTarget": "TARGET"}}` or
+`{"transpileTarget": "TARGET"}`; an empty target disables these diagnostics.
+See [REPL and Language Server](../guides/repl-and-lsp.md).
 
 ## `qvr transpile FILE`
 
@@ -99,5 +164,6 @@ and `--prefix PREFIX` selects an explicit Jupyter prefix.
 
 ::: quivers.cli
 ::: quivers.cli.check
+::: quivers.cli.run
 ::: quivers.cli.migrate
 ::: quivers.cli.migrations

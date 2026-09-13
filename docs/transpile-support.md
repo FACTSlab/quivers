@@ -17,13 +17,13 @@
     regenerates the page and fails when the result differs from
     what is committed.
 
-`transpile(module, target=...)` has 11 registered backends. Given a program it either returns target source bytes or raises `UnsupportedConstruct` naming the constructs it cannot represent. This page records which of the two happens, for the 46 programs of the [examples gallery](examples/index.md) and for 46 construct fixtures, each isolating a single QVR surface construct.
+`transpile(module, target=...)` has 11 registered backends. Given a program it either returns target source bytes or raises `UnsupportedConstruct` naming the constructs it cannot represent. This page records which of the two happens, for the 46 programs of the [examples gallery](examples/index.md) and for 48 construct fixtures, each isolating a single QVR surface construct.
 
 Support is thus stated as a refusal boundary rather than as a feature list. A construct no backend accepts is a limit of the export surface itself, and reaching any target means writing the model differently; a construct one backend alone refuses is a limit of that target, and another target may take the program unchanged. Sections 2 and 3 separate the two, since the remedies differ.
 
 Refusals are grouped by construct, not by program: the heading of each group is the identifier prefix of the reported `UnsupportedConstruct.kinds`, which is what a reader asking whether a feature of their own model is supported wants to match on.
 
-QIEC declarations take a separate checked route before this matrix. The structural IR retains declaration-only QIEC metadata as canonical `qiec-json/v1`; all 11 backends may then transpile an accompanying probabilistic `program`. A QIEC computation body is instead refused by the shared boundary as `qiec:computation-body:<name>`, because the probabilistic IR cannot represent `perform`, `handle`, indexed-case evidence, or resumption grades without changing their meaning.
+QIEC uses the same measured renderer boundary as probabilistic programs. Its complete checked module is retained as typed `IRQiecModule` nodes. Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church emit named QIEC functions through a shared stable-ID runtime ABI. Stan, BUGS, and JAGS emit the closed, monomorphic, effect-free scalar `Return`/`Bind` fragment and report unsupported forms as `qiec:capability:<feature>:<computation>`.
 
 What this page does not cover is whether a rendered program's density agrees with QVR's own. That is the subject of the [transpilation-correctness contract](semantics/transpile-correctness/index.md), which states the evidence available for the programs that do render, and of the [transpilation architecture](semantics/transpile-architecture.md), which describes how a program reaches a target at all.
 
@@ -31,17 +31,17 @@ What this page does not cover is whether a rendered program's density agrees wit
 
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
-| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 38 / 46    |
-| [church](semantics/transpile-correctness/church.md)   | 23 / 46          | 41 / 46    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 41 / 46    |
-| [gen](semantics/transpile-correctness/gen.md)         | 29 / 46          | 40 / 46    |
-| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 38 / 46    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 46    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 41 / 46    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 43 / 46    |
-| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 39 / 46    |
-| [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 41 / 46    |
-| [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 41 / 46    |
+| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 39 / 48    |
+| [church](semantics/transpile-correctness/church.md)   | 23 / 46          | 43 / 48    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 43 / 48    |
+| [gen](semantics/transpile-correctness/gen.md)         | 29 / 46          | 42 / 48    |
+| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 39 / 48    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 45 / 48    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 43 / 48    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 45 / 48    |
+| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 40 / 48    |
+| [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 43 / 48    |
+| [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 43 / 48    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
 
@@ -106,25 +106,27 @@ One minimal program per surface construct, so a `no` here isolates the construct
 
 #### 1.2.1 Declarations
 
-| Program                                | bugs | church | edward2 | gen | jags | numpyro | pymc | pyro | stan | turing | webppl |
-|----------------------------------------|------|--------|---------|-----|------|---------|------|------|------|--------|--------|
-| `statements/bundle_decl`               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/category_decl`             | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/composition_decl`          | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/contraction_decl`          | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/decoder_decl`              | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
-| `statements/deduction_decl`            | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/encoder_decl`              | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
-| `statements/export_decl`               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/let_decl`                  | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/loss_decl`                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
-| `statements/morphism_decl_init_family` | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/object_decl_finset`        | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/object_decl_real`          | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/program_decl_scalar`       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/rule_decl`                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/schema_decl`               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/signature_decl`            | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| Program                                 | bugs | church | edward2 | gen | jags | numpyro | pymc | pyro | stan | turing | webppl |
+|-----------------------------------------|------|--------|---------|-----|------|---------|------|------|------|--------|--------|
+| `statements/bundle_decl`                | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/category_decl`              | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/composition_decl`           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/contraction_decl`           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/decoder_decl`               | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
+| `statements/deduction_decl`             | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/encoder_decl`               | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
+| `statements/export_decl`                | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/let_decl`                   | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/loss_decl`                  | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
+| `statements/morphism_decl_init_family`  | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/object_decl_finset`         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/object_decl_real`           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/program_decl_scalar`        | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/qiec_computation_decl`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/qiec_effectful_computation` | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
+| `statements/rule_decl`                  | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/schema_decl`                | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `statements/signature_decl`             | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 
 #### 1.2.2 Program steps
 
@@ -577,6 +579,27 @@ marginalize:ungrouped-over-plate:state
 
 ```text
 `marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density thus accumulates the body's rows and reduces over the latent once, and BUGS scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
+```
+
+**`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**
+
+Refused for: `statements/qiec_effectful_computation`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+qiec:capability:effectful-row:read
+qiec:capability:perform:read
+```
+
+`bugs` on `statements/qiec_effectful_computation` reports:
+
+```text
+bugs cannot transpile this program:
+  - QIEC computation `read` requires the `effectful-row` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `read` requires the `perform` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
 ```
 
 ### church
@@ -1075,6 +1098,27 @@ marginalize:ungrouped-over-plate:state
 `marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density thus accumulates the body's rows and reduces over the latent once, and JAGS scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
 ```
 
+**`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**
+
+Refused for: `statements/qiec_effectful_computation`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+qiec:capability:effectful-row:read
+qiec:capability:perform:read
+```
+
+`jags` on `statements/qiec_effectful_computation` reports:
+
+```text
+jags cannot transpile this program:
+  - QIEC computation `read` requires the `effectful-row` QIEC capability, but JAGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `read` requires the `perform` QIEC capability, but JAGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+```
+
 ### numpyro
 
 numpyro renders every program any other backend renders. Its remaining refusals are the language-level gaps of section 2.
@@ -1221,6 +1265,27 @@ let-expr:LetExprMethodCall:stan: Stan has no method dispatch syntax; the chart-p
 
 ```text
 stan-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: Stan has no method dispatch syntax; the chart-parser deduction graft that would supply the called function as a Stan `functions { ... }` block requires (a) plumbing `DeductionDecl` through the IR (currently dropped by `CATEGORICAL_METADATA_IGNORABLE`), and (b) a token-sequence input shape (the fixture's `sentence : Real` is a scalar)
+```
+
+**`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**
+
+Refused for: `statements/qiec_effectful_computation`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+qiec:capability:effectful-row:read
+qiec:capability:perform:read
+```
+
+`stan` on `statements/qiec_effectful_computation` reports:
+
+```text
+stan cannot transpile this program:
+  - QIEC computation `read` requires the `effectful-row` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `read` requires the `perform` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
 ```
 
 ### turing

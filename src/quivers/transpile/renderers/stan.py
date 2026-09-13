@@ -135,6 +135,10 @@ from quivers.transpile.renderers._base import (
     mixture_component_count,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import (
+    graft_qiec_static,
+    has_qiec_computations,
+)
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
     render_let_expr_stan,
@@ -367,6 +371,8 @@ class StanRenderer(RendererBase):
         self._class_index_widths_state.update(self._compute_class_index_widths(ir))
         # Program root.
         ctx.sb.vertex("prog", "program")
+        if has_qiec_computations(ir):
+            self._ensure_block(ctx, "function_body")
         # Stan ships `normal`, `beta`, `gamma`, ... as built-in
         # densities but lacks `kumaraswamy`. When the IR samples or
         # observes from a family whose Stan emit relies on a user-
@@ -400,6 +406,13 @@ class StanRenderer(RendererBase):
         # Walk the body.
         for node in ir.body:
             self._dispatch_node(ctx, node)
+        if has_qiec_computations(ir):
+            graft_qiec_static(
+                ctx.sb,
+                ir,
+                target=self.target,
+                destination=self._blocks["function_body"],
+            )
         return ctx.sb.build()
 
     @property

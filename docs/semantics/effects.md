@@ -256,12 +256,13 @@ $$
 \mathrm{arrow\_monad} \;:\; \mathrm{ThArrowApply} \;\to\; \mathrm{ThMonad}
 $$
 
-with $\mathrm{arrow\_monad} \circ \mathrm{kleisli} \;\cong\; \mathrm{id}_{\mathrm{ThMonad}}$
+These functions implement the ArrowApply/Monad constructions described by
+[Hughes (2000)](https://doi.org/10.1016/S0167-6423(99)00023-4). In Quivers,
+$\mathrm{arrow\_monad} \circ \mathrm{kleisli} \;\cong\; \mathrm{id}_{\mathrm{ThMonad}}$
 and $\mathrm{kleisli} \circ \mathrm{arrow\_monad} \;\cong\; \mathrm{id}_{\mathrm{ThArrowApply}}$
-naturally isomorphic (not equal) via the canonical
+are naturally isomorphic (not equal) via the canonical
 $1 \otimes A \cong A$ unitor that absorbs the
-``ArrowMonad(a)(A) = a(1, A)`` boxing
-([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently the
+``ArrowMonad(a)(A) = a(1, A)`` boxing. Consequently the
 arrow-side and monad-side presentations of any effect agree on
 denotation up to the canonical isomorphism. When the underlying
 monad is also a *monad-fix*, admitting a least-fixed-point
@@ -298,17 +299,24 @@ accident. Dynamic grade checks enforce the declared number of resumptions, and
 multi-shot resumptions extend their trace address with a branch path.
 
 This **row bridge** unifies the source contracts of state, abort, random choice,
-scoring, nondeterministic choice, and weighted accumulation. It does not yet
-identify the QIEC reference evaluator with the production implementations
-described in §§2–7. Runtime handlers remain process-local attachments, and the
-eleven probabilistic transpilers refuse QIEC computation bodies because
-their IR lacks the corresponding control and evidence forms. Establishing a
-backend-level adequacy theorem for a QIEC-aware IR remains a live possibility.
-The [QIEC developer note](../developer/qiec.md) gives the executable boundary.
+scoring, nondeterministic choice, and weighted accumulation. Runtime handlers
+remain process-local attachments. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
+WebPPL, and Church now lower the same typed computation graph through
+corresponding implementations of the stable-ID runtime ABI. Conformance tests
+exercise these implementations in available target runtimes, but do not prove
+them equivalent; each dispatches by stable instance and operation identifiers
+rather than by interface names. Stan, BUGS, and JAGS require an empty closed
+effect row, an empty static telescope, a scalar result, and scalar
+`Return`/`Bind` forms. Stan may still accept named scalar value parameters,
+while BUGS and JAGS require parameterless computations. The static targets
+issue precise capability diagnostics for the rest. Establishing a
+backend-level adequacy proof between each generated runtime and the reference
+evaluator remains a live possibility. The
+[QIEC developer note](../developer/qiec.md) gives the executable boundary.
 
 ## References
 
-- Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
-- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Bumford, D. and Charlow, S. (forthcoming, 2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
 - Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.

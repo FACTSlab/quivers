@@ -124,6 +124,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +544,7 @@ class TuringRenderer(RendererBase):
         if any(_ir_uses_family(ir.body, f) for f in _TURING_RUNTIME_HELPER_FAMILIES):
             _graft_runtime_turing_helper(sb, counter, source)
         sb.edge(source, macro, "child_of")
+        graft_qiec_dynamic(sb, ir, target=self.target, root=source)
         return sb.build()
 
     # ----- IRNode dispatch (overrides RendererBase._dispatch_node) -----

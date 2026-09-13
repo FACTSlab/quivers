@@ -85,6 +85,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     assert_no_dangling_refs,
 )
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic
 
 
 class PyMCRenderer(RendererBase):
@@ -166,6 +167,9 @@ class PyMCRenderer(RendererBase):
 
         # Walk the body, dispatching each node into the with-body block.
         bag.with_body = with_body
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(with_body, noop, "child_of")
         for node in ir.body:
             self._dispatch_pymc(bag, node)
 
@@ -193,6 +197,7 @@ class PyMCRenderer(RendererBase):
         )
         py.e("mod", fn, "child_of")
 
+        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- coord dict construction -----
