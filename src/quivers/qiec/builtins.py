@@ -1065,6 +1065,14 @@ def condition_handler(
                 -------
                 object
             What the resumed computation produced.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request's site has no observation, or the request does
+                not carry a site and a sampleable.
+            RuntimeTypeMismatch
+                If the observed value does not inhabit the site's type.
             """
             site, sampleable = _site_and_sampleable(request, definition.name)
             if site not in observations:
@@ -1105,6 +1113,13 @@ def condition_handler(
                 object
             What this handler answers with, which may pair the value with
             the state or total it accumulated.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If observations were supplied for sites the computation never
+                sampled. Reported rather than ignored, since an unused
+                observation usually means a site was renamed.
             """
             if extra is ExtraValuePolicy.ERROR:
                 extras = set(observations) - seen
@@ -1172,6 +1187,12 @@ def replay_handler(
     -------
     RuntimeHandler
         The attachment, ready to bind into a runtime environment.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the recorded values run out and the policy forbids it, or a
+        recorded value does not inhabit its site's type.
     """
     if policy is ReplayPolicy.CLAMP_AND_SCORE and score_instance is None:
         raise ValueError("scored replay requires a Score effect instance")
@@ -1262,6 +1283,11 @@ def replay_handler(
                 object
             What this handler answers with, which may pair the value with
             the state or total it accumulated.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If recorded values remain unconsumed and the policy forbids it.
             """
             if extra is ExtraValuePolicy.ERROR:
                 extras = set(values) - seen
@@ -1311,6 +1337,12 @@ class TraceRecorder:
             The value produced for the request.
         mode
             How the value was produced.
+
+        Returns
+        -------
+        object
+            The value, unchanged, after recording. Returned so the caller can
+            use this in place of the value it passed.
         """
         self.events.append(
             TraceEvent(
@@ -1381,6 +1413,11 @@ def trace_handler(
         -------
         RuntimeClause
         The clause and its result validator.
+
+        Raises
+        ------
+        ValueError
+            If the operation has no validator among those supplied.
         """
 
         def clause(
@@ -1443,20 +1480,22 @@ def trace_handler(
             def validate_and_record(result: object) -> object:
                 """Check a produced value and record it.
 
-                        Parameters
-                        ----------
-                        result
-                            The value produced for the request.
+                Parameters
+                ----------
+                result
+                    The value produced for the request.
 
-                        Returns
-                        -------
-                        object
-                The value, unchanged.
+                Returns
+                -------
+                object
+                    The value, unchanged, so the caller can use this in
+                    place of what it passed.
 
-                        Raises
-                        ------
-                        RuntimeTypeMismatch
-                If it does not inhabit the operation's result type.
+                Raises
+                ------
+                RuntimeTypeMismatch
+                    If the value does not inhabit the operation's result
+                    type.
                 """
                 _require(
                     result,
@@ -1773,6 +1812,11 @@ def choose_handler(
     -------
     RuntimeHandler
         The attachment, ready to bind into a runtime environment.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If a choice request's alternatives are not a finite iterable.
     """
     if combine is not None and combine_validator is None:
         raise ValueError("a custom Choose combine needs an output validator")
@@ -1806,6 +1850,11 @@ def choose_handler(
         -------
         object
         The combined result over every alternative.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the alternatives are not iterable, or are not finite.
         """
         (alternatives,) = _expect_arguments(request, 1, definition.name)
         if isinstance(alternatives, (str, bytes)):
