@@ -176,7 +176,20 @@ class CheckedQvrQiec:
 
 
 def has_qiec_surface(module: surface.Module) -> bool:
-    """Return whether a parsed module contains any v0.19 QIEC declaration."""
+    """Return whether a parsed module contains any v0.19 QIEC declaration.
+
+    Parameters
+    ----------
+    module : surface.Module
+        The parsed module to inspect.
+
+    Returns
+    -------
+    bool
+        True when at least one statement belongs to the QIEC surface.
+        Callers use this to decide whether the QIEC route runs at all,
+        so a module of ordinary declarations pays nothing for it.
+    """
 
     return any(
         isinstance(statement, QIEC_STATEMENT_TYPES) for statement in module.statements
@@ -184,7 +197,20 @@ def has_qiec_surface(module: surface.Module) -> bool:
 
 
 def qiec_projection(module: surface.Module) -> surface.Module:
-    """Project QIEC declarations from a module with multiple neighborhoods."""
+    """Project QIEC declarations from a module with multiple neighborhoods.
+
+    Parameters
+    ----------
+    module : surface.Module
+        The parsed module to project.
+
+    Returns
+    -------
+    surface.Module
+        A module of the QIEC statements alone, in source order. The
+        complement is `non_qiec_projection`, and the two partition the
+        input, so nothing is dropped between the two routes.
+    """
 
     return surface.Module(
         statements=tuple(
@@ -196,7 +222,19 @@ def qiec_projection(module: surface.Module) -> surface.Module:
 
 
 def non_qiec_projection(module: surface.Module) -> surface.Module:
-    """Project declarations consumed by the categorical/probabilistic compiler."""
+    """Project declarations consumed by the categorical/probabilistic compiler.
+
+    Parameters
+    ----------
+    module : surface.Module
+        The parsed module to project.
+
+    Returns
+    -------
+    surface.Module
+        A module of everything outside the QIEC surface, in source
+        order.
+    """
 
     return surface.Module(
         statements=tuple(
@@ -213,14 +251,70 @@ class QvrQiecLowerer:
     route = LoweringRoute(QVR_SOURCE_VERSION, QIEC_ABI)
 
     def check(self, source: QvrQiecSource, /) -> CheckedQvrQiec:
+        """Elaborate a source module and recheck the result.
+
+        The recheck is deliberate rather than redundant: it rebuilds a
+        registry from the lowered module alone, so a bug in elaboration
+        surfaces here instead of reaching a backend.
+
+        Parameters
+        ----------
+        source : QvrQiecSource
+            The QIEC projection, its module name, and its file path.
+
+        Returns
+        -------
+        CheckedQvrQiec
+            The checked module.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If elaboration rejects the source, carrying a stable code and
+            a source position.
+        KernelError
+            If the lowered module fails its independent recheck.
+        """
         module = _Elaborator(source).elaborate()
         validate_module(module)
         return CheckedQvrQiec(module)
 
     def lower(self, checked: CheckedQvrQiec, /) -> QiecModule:
+        """Return the checked module.
+
+        Checking and lowering are one step here, because the elaborator
+        produces the kernel module directly, so this unwraps rather than
+        transforms.
+
+        Parameters
+        ----------
+        checked : CheckedQvrQiec
+            The result of `check`.
+
+        Returns
+        -------
+        QiecModule
+            The lowered module.
+        """
         return checked.module
 
     def validate(self, target: QiecModule, /) -> None:
+        """Recheck a module and confirm it survives serialization.
+
+        Parameters
+        ----------
+        target : QiecModule
+            The module to validate.
+
+        Raises
+        ------
+        KernelError
+            If the module fails its recheck, or if a dump and load round
+            trip does not return an equal module. The second is checked
+            because identities downstream are content addressed: a module
+            that changed under serialization would hash differently on
+            the other side of the boundary.
+        """
         validate_module(target)
         decoded = loads(dumps(target))
         if decoded != target:
@@ -235,7 +329,35 @@ def lower_qvr_to_qiec(
     source_version: str = QVR_SOURCE_VERSION,
     target_version: str = QIEC_ABI,
 ) -> QiecModule:
-    """Check and lower the QIEC projection of one parsed QVR module."""
+    """Check and lower the QIEC projection of one parsed QVR module.
+
+    Parameters
+    ----------
+    module : surface.Module
+        The parsed module, which may mix QIEC and ordinary declarations.
+    module_name : str or None
+        Name the stable identities derive from. None takes it from
+        `file_path`, so two files of the same stem produce the same
+        identities and a rename is a deliberate act.
+    file_path : str
+        Path recorded on diagnostics.
+    source_version : str
+        The source protocol the module is written against.
+    target_version : str
+        The kernel ABI to lower to.
+
+    Returns
+    -------
+    QiecModule
+        The checked, lowered module.
+
+    Raises
+    ------
+    QiecDiagnosticError
+        If the source is rejected, with a stable code and a position.
+    KernelError
+        If the lowered module fails its independent recheck.
+    """
 
     if module_name is None:
         module_name = _module_name(file_path)
@@ -249,13 +371,42 @@ def lower_qvr_to_qiec(
 
 
 def _module_name(file_path: str) -> str:
+    """Derive a module name from a source path.
+
+    Parameters
+    ----------
+    file_path : str
+        The path, or the placeholder used for input with no file.
+
+    Returns
+    -------
+    str
+        The path's stem, or ``"source"`` when there is no usable one.
+        The name enters every derived identity, so it depends on the path
+        alone and not on how the path was spelled.
+    """
     if file_path == "<source>":
         return "source"
     return Path(file_path).stem or "source"
 
 
 def _didactic_name(category: str, identity: object) -> str:
-    """Return an injective identifier for Didactic's global GAT namespace."""
+    """Return an injective identifier for Didactic's global GAT namespace.
+
+    Parameters
+    ----------
+    category : str
+        What kind of declaration is being named.
+    identity : object
+        Its stable identity.
+
+    Returns
+    -------
+    str
+        A name unique to that category and identity. The identity is hex
+        encoded rather than interpolated, so two identities differing
+        only by a character the namespace treats specially cannot collide.
+    """
 
     encoded = str(identity).encode().hex()
     return f"qiec_{category}_{encoded}"
@@ -307,11 +458,31 @@ class _DidacticGadtProjection:
             self._declare_constructor(constructor)
 
     def compile(self) -> object:
-        """Compile and check the indexed signature with Panproto."""
+        """Compile and check the indexed signature with Panproto.
+
+        Returns
+        -------
+        object
+            The compiled signature. Panproto checks the projection here,
+            so a family or constructor this route cannot express is
+            rejected before the QIEC checker sees it.
+        """
 
         return self.language.compile()
 
     def _declare_family(self, family: FamilyDecl) -> None:
+        """Project one indexed family into the Didactic signature.
+
+        Parameters
+        ----------
+        family : FamilyDecl
+            The family to project.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If a binder uses a kind the projection cannot express.
+        """
         parameters = tuple(
             didactic_param(
                 _didactic_name("family_parameter", f"{position}:{binder.name}"),
@@ -326,6 +497,18 @@ class _DidacticGadtProjection:
         )
 
     def _declare_constructor(self, constructor: ConstructorDecl) -> None:
+        """Project one constructor into the Didactic signature.
+
+        Parameters
+        ----------
+        constructor : ConstructorDecl
+            The constructor to project.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If a field type or result index cannot be expressed.
+        """
         family = self._families[constructor.family]
         qiec_family = self._qiec_families[constructor.family]
         scope: dict[str, DidacticTerm] = {}
@@ -356,6 +539,23 @@ class _DidacticGadtProjection:
         )
 
     def _binder_sort(self, binder: TelescopeBinder) -> DidacticSortExpr:
+        """The Didactic sort a telescope binder ranges over.
+
+        Parameters
+        ----------
+        binder : TelescopeBinder
+            The binder to classify.
+
+        Returns
+        -------
+        DidacticSortExpr
+            The sort expression for the binder's namespace and kind.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If the binder's kind has no projection.
+        """
         if isinstance(binder, TypeBinder):
             if binder.kind == TYPE:
                 return self.type_codes()
@@ -369,6 +569,18 @@ class _DidacticGadtProjection:
         return self._sort_for(binder.sort)()
 
     def _sort_for(self, sort: IndexSort) -> DidacticFamily:
+        """The Didactic family standing for one index sort, memoised.
+
+        Parameters
+        ----------
+        sort : IndexSort
+            The index sort to project.
+
+        Returns
+        -------
+        DidacticFamily
+            The family, created on first request and reused after, so one sort projects to one family.
+        """
         existing = self._sorts.get(sort)
         if existing is not None:
             return existing
@@ -399,6 +611,18 @@ class _DidacticGadtProjection:
     def _value_sort(
         self, type_: TypeExpr, scope: Mapping[str, DidacticTerm]
     ) -> DidacticSortExpr:
+        """The Didactic sort of the values one index sort ranges over.
+
+        Parameters
+        ----------
+        sort : IndexSort
+            The index sort whose value space is wanted.
+
+        Returns
+        -------
+        DidacticSortExpr
+            The sort expression for those values.
+        """
         if isinstance(type_, TypeApplication):
             family = self._family_by_type_id.get(type_.constructor.id)
             if family is not None:
@@ -414,6 +638,23 @@ class _DidacticGadtProjection:
     def _type_term(
         self, type_: TypeExpr, scope: Mapping[str, DidacticTerm]
     ) -> DidacticTerm:
+        """Project a QIEC type into a Didactic term.
+
+        Parameters
+        ----------
+        type_ : TypeExpr
+            The type to project.
+
+        Returns
+        -------
+        DidacticTerm
+            The projected term.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If the type uses a construct the projection cannot express.
+        """
         if isinstance(type_, TypeVariable):
             return scope[type_.name]
         if isinstance(type_, TypeApplication):
@@ -454,6 +695,23 @@ class _DidacticGadtProjection:
         raise GADTDeclarationError(f"unsupported QIEC type projection: {type_!r}")
 
     def _static_sort(self, kind: Kind | IndexSort) -> DidacticSortExpr:
+        """The Didactic sort of a static argument.
+
+        Parameters
+        ----------
+        term : StaticArgument
+            The static argument to classify.
+
+        Returns
+        -------
+        DidacticSortExpr
+            The sort expression for its namespace.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If the argument is of a class with no projection.
+        """
         if kind == TYPE:
             return self.type_codes()
         if kind == EFFECT:
@@ -465,6 +723,23 @@ class _DidacticGadtProjection:
     def _static_term(
         self, term: StaticArgument, scope: Mapping[str, DidacticTerm]
     ) -> DidacticTerm:
+        """Project a static argument into a Didactic term.
+
+        Parameters
+        ----------
+        term : StaticArgument
+            The static argument to project.
+
+        Returns
+        -------
+        DidacticTerm
+            The projected term.
+
+        Raises
+        ------
+        GADTDeclarationError
+            If the argument cannot be expressed.
+        """
         if isinstance(
             term, (TypeVariable, TypeApplication, FunctionType, EqualityType)
         ):
@@ -513,6 +788,18 @@ class _DidacticGadtProjection:
         raise GADTDeclarationError(f"unsupported QIEC static projection: {term!r}")
 
     def _term_sort(self, term: StaticArgument) -> DidacticSortExpr:
+        """The Didactic sort of an index term.
+
+        Parameters
+        ----------
+        term : IndexTerm
+            The index term to classify.
+
+        Returns
+        -------
+        DidacticSortExpr
+            The sort expression for the term's own sort.
+        """
         if isinstance(
             term, (TypeVariable, TypeApplication, FunctionType, EqualityType)
         ):
@@ -528,6 +815,20 @@ class _DidacticGadtProjection:
         inputs: tuple[DidacticSortExpr, ...],
         output: DidacticSortExpr,
     ) -> DidacticOperation:
+        """Declare or reuse a Didactic operation encoding one QIEC construct.
+
+        Parameters
+        ----------
+        name : str
+            The operation's name.
+        arity : int
+            How many arguments it takes.
+
+        Returns
+        -------
+        DidacticOperation
+            The operation, created once per name and reused after.
+        """
         key = (category, str(identity))
         operation = self._code_operations.get(key)
         if operation is not None:
@@ -558,6 +859,26 @@ class _Elaborator:
         self.registry = KernelRegistry()
 
     def elaborate(self) -> QiecModule:
+        """Run every pass and return the checked kernel module.
+
+        Returns
+        -------
+        QiecModule
+            The lowered module.
+
+        Notes
+        -----
+        The order is load bearing. Declarations come first, then the
+        registry, then computation signatures, then handler bodies, then
+        computation bodies. A body may call a computation declared after
+        it, so every signature has to exist before the first body is
+        read.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If any pass rejects the source.
+        """
         self._declare_index_sorts()
         self._declare_family_headers()
         self._declare_effect_headers()
@@ -605,9 +926,28 @@ class _Elaborator:
             )
 
     def _items(self, type_: type[object]) -> tuple[object, ...]:
+        """Every statement of one class, in source order.
+
+        Parameters
+        ----------
+        kind : type
+            The statement class to select.
+
+        Returns
+        -------
+        tuple
+            The matching statements.
+        """
         return tuple(item for item in self.statements if isinstance(item, type_))
 
     def _declare_index_sorts(self) -> None:
+        """Collect every user index sort declared in the module.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two sorts share a name, or a sort is malformed. A sort's constructors are part of its identity, so a duplicate name with different constructors would make coverage answer against the wrong datatype.
+        """
         declarations = cast(
             tuple[surface.QiecIndexDecl, ...], self._items(surface.QiecIndexDecl)
         )
@@ -646,6 +986,13 @@ class _Elaborator:
                         )
 
     def _declare_family_headers(self) -> None:
+        """Collect each indexed family's header, before its constructors.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two families share a name, or a header's binders are malformed. Headers come first because a constructor's result indices mention the family's own binders.
+        """
         declarations = cast(
             tuple[surface.QiecFamilyDecl, ...], self._items(surface.QiecFamilyDecl)
         )
@@ -685,6 +1032,13 @@ class _Elaborator:
             )
 
     def _declare_constructors(self) -> None:
+        """Lower every constructor against the family that declares it.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a constructor is duplicated, names an unknown family, returns the wrong number of indices, or shadows a family binder.
+        """
         declarations = cast(
             tuple[surface.QiecFamilyDecl, ...], self._items(surface.QiecFamilyDecl)
         )
@@ -745,6 +1099,13 @@ class _Elaborator:
                 self.constructors[authored.name] = constructor
 
     def _declare_effect_headers(self) -> None:
+        """Collect each effect's name and static telescope.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two effects share a name, or a telescope is malformed.
+        """
         declarations = cast(
             tuple[surface.QiecEffectDecl, ...], self._items(surface.QiecEffectDecl)
         )
@@ -764,6 +1125,13 @@ class _Elaborator:
                 self._fail_kernel(declaration, error, fallback="qiec-handler")
 
     def _declare_effect_operations(self) -> None:
+        """Lower each effect's operations into its declaration.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If an operation is duplicated within its effect, shadows an interface binder, or has an ill-formed signature.
+        """
         declarations = cast(
             tuple[surface.QiecEffectDecl, ...], self._items(surface.QiecEffectDecl)
         )
@@ -812,6 +1180,13 @@ class _Elaborator:
                 self._fail_kernel(declaration, error, fallback="qiec-handler")
 
     def _declare_instances(self) -> None:
+        """Allocate the module-level lexical effect instances.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two instances share a name, or an instance names an unknown or wrongly applied interface.
+        """
         declarations = cast(
             tuple[surface.QiecEffectInstanceDecl, ...],
             self._items(surface.QiecEffectInstanceDecl),
@@ -836,6 +1211,13 @@ class _Elaborator:
             )
 
     def _declare_handlers(self) -> None:
+        """Lower every handler, including its authored clause bodies.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a handler is duplicated, claims both totality and forwarding, covers an unknown operation, binds the wrong number of arguments in a clause, or fails the kernel's own validation.
+        """
         declarations = cast(
             tuple[surface.QiecHandlerDecl, ...], self._items(surface.QiecHandlerDecl)
         )
@@ -994,6 +1376,13 @@ class _Elaborator:
             self.handlers[declaration.name] = handler
 
     def _build_registry(self) -> None:
+        """Register the families, constructors, and effects with the kernel.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If any declaration fails the kernel's validation, reported at the declaration's own source position.
+        """
         family_nodes = {
             item.name: item
             for item in cast(
@@ -1110,6 +1499,21 @@ class _Elaborator:
             self.computation_signatures[declaration.name] = signature
 
     def _declare_computations(self) -> tuple[NamedComputation, ...]:
+        """Lower every computation body against its declared signature.
+
+        Returns
+        -------
+        tuple[NamedComputation, ...]
+            The lowered computations, in source order. Their signatures
+            were registered in an earlier pass, so a body calling one
+            declared later resolves here.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a body fails to check, or its inferred type does not
+            conform to the declared one.
+        """
         declarations = cast(
             tuple[surface.QiecComputationDecl, ...],
             self._items(surface.QiecComputationDecl),
@@ -1194,6 +1598,23 @@ class _Elaborator:
         *,
         refinable: bool = False,
     ) -> Telescope:
+        """Lower a source telescope into kernel binders.
+
+        Parameters
+        ----------
+        binders : tuple
+            The authored binders.
+
+        Returns
+        -------
+        Telescope
+            The lowered binders, in order.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a binder is malformed or its sort is unknown.
+        """
         lowered: list[TelescopeBinder] = []
         seen: set[str] = set()
         for binder in binders:
@@ -1223,6 +1644,23 @@ class _Elaborator:
         return tuple(lowered)
 
     def _lower_sort(self, sort: surface.QiecIndexSort) -> IndexSort:
+        """Lower an authored index sort.
+
+        Parameters
+        ----------
+        authored : object
+            The authored sort.
+
+        Returns
+        -------
+        IndexSort
+            The lowered sort.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the sort is unknown.
+        """
         if isinstance(sort, surface.QiecNatSort):
             return self.index_sorts.get("Nat", NAT)
         if isinstance(sort, surface.QiecShapeSort):
@@ -1242,6 +1680,27 @@ class _Elaborator:
         scope: Telescope,
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> TypeExpr:
+        """Lower an authored type expression.
+
+        Parameters
+        ----------
+        authored : object
+            The authored type expression.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        TypeExpr
+            The lowered type.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the type is malformed, or names an unknown constructor or an unbound variable.
+        """
         if isinstance(authored, surface.QiecTypeName):
             bound = (static_bindings or {}).get(authored.name)
             if bound is not None:
@@ -1333,6 +1792,29 @@ class _Elaborator:
         scope: Telescope,
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> StaticArgument:
+        """Lower one static argument against the binder it instantiates.
+
+        Parameters
+        ----------
+        authored : object
+            The authored argument.
+        binder : TelescopeBinder
+            The binder it instantiates, which fixes the namespace expected.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        StaticArgument
+            The lowered argument.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument is of the wrong namespace for the binder, or is itself malformed.
+        """
         if isinstance(binder, TypeBinder):
             return self._lower_type(authored, scope, static_bindings)
         if isinstance(binder, IndexBinder):
@@ -1386,6 +1868,28 @@ class _Elaborator:
     def _type_syntax_as_index(
         self, authored: surface.QiecTypeExpr
     ) -> surface.QiecIndexExpr:
+        """Read type syntax in an index position.
+
+        The surface writes a type application and an index application
+        alike, so a name in an index position arrives as type syntax and
+        is reinterpreted here rather than being rejected.
+
+        Parameters
+        ----------
+        authored : object
+            Type syntax to reinterpret.
+        sort : IndexSort
+            The sort the position requires.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        IndexTerm or None
+            The index, or None when the syntax cannot be read as one.
+        """
         if isinstance(authored, surface.QiecTypeName):
             return surface.QiecIndexName(
                 name=authored.name, line=authored.line, col=authored.col
@@ -1414,6 +1918,29 @@ class _Elaborator:
         scope: Telescope,
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> IndexVariable | IndexLiteral | IndexConstructor | ShapeIndex:
+        """Lower an authored index term.
+
+        Parameters
+        ----------
+        authored : object
+            The authored index.
+        expected : IndexSort
+            The sort the position requires.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        IndexTerm
+            The lowered index.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the index is malformed, of the wrong sort, or names a constructor the sort does not declare.
+        """
         if isinstance(authored, surface.QiecIndexName):
             bound = (static_bindings or {}).get(authored.name)
             if bound is not None:
@@ -1492,6 +2019,27 @@ class _Elaborator:
         scope: Telescope,
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> EffectRef:
+        """Lower an authored effect interface application.
+
+        Parameters
+        ----------
+        authored : object
+            The authored interface application.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        EffectRef
+            The lowered application.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the interface is unknown, or its arguments do not saturate the telescope.
+        """
         definition = self.effects.get(authored.name)
         if definition is None:
             self._fail(authored, f"unknown effect interface {authored.name!r}")
@@ -1517,6 +2065,25 @@ class _Elaborator:
         authored: surface.QiecEffectRow,
         path: tuple[str | int, ...],
     ) -> EffectRow:
+        """Lower an authored effect row.
+
+        Parameters
+        ----------
+        authored : object
+            The authored row.
+        path : tuple[str | int, ...]
+            Structural path, for the row variable's derived identity.
+
+        Returns
+        -------
+        EffectRow
+            The lowered row, with its open tail when it has one.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If an entry names an unknown instance, or the row repeats one.
+        """
         entries: list[RowEntry] = []
         for item in authored.entries:
             instance = self.instances.get(item.instance)
@@ -1575,6 +2142,29 @@ class _Elaborator:
         context: CheckContext,
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ):
+        """Lower an authored value term.
+
+        Parameters
+        ----------
+        authored : object
+            The authored value.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        Value
+            The lowered value.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the value names an unbound local, applies a constructor wrongly, or is otherwise malformed.
+        """
         if isinstance(authored, surface.QiecVariableValue):
             local = next(
                 (
@@ -1642,6 +2232,31 @@ class _Elaborator:
         path: tuple[str | int, ...],
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> Computation:
+        """Lower an authored computation.
+
+        Parameters
+        ----------
+        authored : surface.QiecComputation
+            The authored computation.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        path : tuple[str | int, ...]
+            Structural path, entering derived identities and provenance.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        Computation
+            The lowered computation.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the computation is malformed, names something undeclared, or fails to check as it is built.
+        """
         if isinstance(authored, surface.QiecReturnComputation):
             return Return(
                 self._lower_value(authored.value, scope, context, static_bindings)
@@ -2010,6 +2625,35 @@ class _Elaborator:
         path: tuple[str | int, ...],
         static_bindings: Mapping[str, StaticArgument] | None = None,
     ) -> Case:
+        """Lower a case analysis, refining each branch.
+
+        Each branch gets its own static scope, whose identity derives
+        from the path, so two branches' skolems can never be confused and
+        a type mentioning one cannot escape its branch.
+
+        Parameters
+        ----------
+        authored : surface.QiecCaseComputation
+            The authored case.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        path : tuple[str | int, ...]
+            Structural path, entering each branch's scope identity.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        Case
+            The lowered case.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the scrutinee is not an indexed family, a branch names an unknown constructor, coverage is incomplete, or a branch body fails to check.
+        """
         scrutinee = self._lower_value(
             authored.scrutinee, scope, context, static_bindings
         )
@@ -2166,7 +2810,27 @@ class _Elaborator:
         binder: TelescopeBinder,
         name: str,
     ) -> TelescopeBinder:
-        """Give an authored branch name the constructor binder's exact kind."""
+        """Give an authored branch name the constructor binder's exact kind.
+
+        A case branch names the constructor's static binders itself, so
+        the authored name is substituted into the declared binder rather
+        than a new binder being invented. That keeps the kind or sort the
+        constructor declared, which is what the branch body is checked
+        against.
+
+        Parameters
+        ----------
+        binder : TelescopeBinder
+            The constructor's own binder, supplying the kind or sort.
+        name : str
+            The name the branch gives it.
+
+        Returns
+        -------
+        TelescopeBinder
+            A binder of the same class and classifier, under the new
+            name.
+        """
 
         if isinstance(binder, TypeBinder):
             return TypeBinder(name, binder.kind, binder.refinable)
@@ -2175,6 +2839,18 @@ class _Elaborator:
         return EffectBinder(name, binder.refinable)
 
     def _binder_variable(self, binder: TelescopeBinder) -> StaticArgument:
+        """The variable a binder introduces.
+
+        Parameters
+        ----------
+        binder : TelescopeBinder
+            The binder to reflect.
+
+        Returns
+        -------
+        StaticArgument
+            A variable of the binder's own name and namespace, carrying no identity, so substitution can reach it.
+        """
         if isinstance(binder, TypeBinder):
             return TypeVariable(binder.name, binder.kind)
         if isinstance(binder, IndexBinder):
@@ -2184,6 +2860,24 @@ class _Elaborator:
     def _fresh_sequence_name(
         self, context: CheckContext, path: tuple[str | int, ...]
     ) -> str:
+        """A local name for a sequenced computation's discarded result.
+
+        A sequence binds nothing in the source, but the core has one
+        sequencing form, so a name is needed. It is chosen not to collide
+        with anything the user wrote.
+
+        Parameters
+        ----------
+        context : CheckContext
+            Bindings already in scope, which the new name must avoid.
+        path : tuple[str | int, ...]
+            Structural path, making the stem readable in a diagnostic.
+
+        Returns
+        -------
+        str
+            The fresh name.
+        """
         stem = "__qiec_sequence_" + "_".join(str(item) for item in path[-3:])
         name = stem
         suffix = 0
@@ -2199,6 +2893,24 @@ class _Elaborator:
         path: tuple[str | int, ...],
         role: str,
     ) -> SourceOrigin:
+        """The source origin for one lowered construct.
+
+        Parameters
+        ----------
+        node : object
+            The source node, read for its line and column.
+        path : tuple[str | int, ...]
+            Structural path, which is what the identity derives from.
+        role : str
+            What this position is.
+
+        Returns
+        -------
+        SourceOrigin
+            The origin. Line and column are diagnostic only: the identity
+            comes from the path, so reformatting a file does not change
+            what the sites in it are.
+        """
         return SourceOrigin(
             self.source.module_name,
             path,
