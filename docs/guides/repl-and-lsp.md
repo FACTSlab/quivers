@@ -552,14 +552,12 @@ a sample site, the output flags a `! leak` line. If it declares
 output flags an `! unused` line.
 
 For a QIEC name, the same command reports the corresponding stable contract:
-an effect's version, evolution policy, and operations; a handler's coverage,
-forwarding policy, and clause grades; or a computation's row entries, tail, and
-`lacks` constraints.
+an effect's operations; a handler's coverage, forwarding policy, and clause
+grades; or a computation's row entries, tail, and `lacks` constraints.
 
 ```
 > :effects State
-effect State v1
-  evolution : sealed
+effect State
   operations: {get, put}
 
 > :effects exchange

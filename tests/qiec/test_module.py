@@ -17,7 +17,6 @@ from quivers.qiec import (
     HandlerClauseDef,
     HandlerDef,
     HandlerId,
-    InterfaceEvolution,
     LiteralValue,
     NamedComputation,
     NamedEffectInstance,
@@ -149,7 +148,7 @@ def test_module_rejects_undeclared_static_variable() -> None:
 
 
 def _effect_fixture() -> tuple[EffectDef, NamedEffectInstance, OperationDef]:
-    ref = EffectRef(EffectId.derive("example", "Reader", 1), "Reader", 1)
+    ref = EffectRef(EffectId.derive("example", "Reader"), "Reader")
     operation = OperationDef(
         OperationId.derive(ref.id, "read"),
         "read",
@@ -157,7 +156,7 @@ def _effect_fixture() -> tuple[EffectDef, NamedEffectInstance, OperationDef]:
         (),
         INT,
     )
-    effect = EffectDef(ref, (), (operation,), InterfaceEvolution.SEALED)
+    effect = EffectDef(ref, (), (operation,))
     entry = RowEntry(EffectInstanceId.derive("example", "reader"), ref)
     instance = NamedEffectInstance("reader", entry, _origin())
     return effect, instance, operation
@@ -247,7 +246,7 @@ def test_module_rejects_open_tail_that_does_not_prove_declared_lacks() -> None:
 
 def test_module_validates_unused_entries_in_declared_effect_row() -> None:
     effect, instance, _operation = _effect_fixture()
-    external = EffectRef(EffectId.derive("external", "Other", 1), "Other", 1)
+    external = EffectRef(EffectId.derive("external", "Other"), "Other")
     bad_entry = RowEntry(instance.entry.instance, external)
     computation = NamedComputation(
         "pure",
@@ -369,7 +368,7 @@ def test_module_rejects_non_string_identity_fields() -> None:
 def test_module_rejects_static_variables_in_module_effect_instances(
     argument: TypeVariable,
 ) -> None:
-    ref = EffectRef(EffectId.derive("example", "State", 1), "State", 1)
+    ref = EffectRef(EffectId.derive("example", "State"), "State")
     operation = OperationDef(
         OperationId.derive(ref.id, "get"),
         "get",

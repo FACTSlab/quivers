@@ -8,7 +8,7 @@ family Vec[A : Type](n : Nat) : Type
     constructor Nil : Vec[A](Z)
     constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
 
-effect State[S : Type] [version=1, evolution=sealed]
+effect State[S : Type]
     get : Unit -> S
     put : S -> Unit
 
@@ -81,10 +81,6 @@ handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total]
       (qiec_type_binder
         (identifier)
         (qiec_type_kind)))
-    (qiec_effect_options
-      (qiec_effect_option
-        (integer))
-      (qiec_effect_option))
     (qiec_operation_decl
       (identifier)
       (qiec_type_name

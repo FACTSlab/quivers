@@ -44,7 +44,7 @@ family Vec[A : Type](n : Nat) : Type
 
 
 EFFECTS = """\
-effect State[S : Type] [version=2, evolution=forwarding]
+effect State[S : Type]
     get : Unit -> S
     put : S -> Unit
 
@@ -107,8 +107,6 @@ def test_parameterized_effect_instances_and_handler_signature() -> None:
     module = parse(EFFECTS)
     effect, instance, handler = module.statements
     assert isinstance(effect, QiecEffectDecl)
-    assert effect.interface_version == 2
-    assert effect.evolution == "forwarding"
     assert [operation.name for operation in effect.operations] == ["get", "put"]
     assert all(operation.arguments for operation in effect.operations)
 

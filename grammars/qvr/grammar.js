@@ -176,28 +176,10 @@ module.exports = grammar({
       'effect',
       field('name', $.identifier),
       optional(field('binders', $.qiec_static_telescope)),
-      optional(field('options', $.qiec_effect_options)),
       $._newline,
       $._indent,
       repeat1(choice(field('operations', $.qiec_operation_decl), $._newline)),
       $._dedent,
-    ),
-
-    qiec_effect_options: $ => seq(
-      '[',
-      field('entries', $.qiec_effect_option),
-      repeat(seq(',', field('entries', $.qiec_effect_option))),
-      optional(','),
-      ']',
-    ),
-
-    qiec_effect_option: $ => choice(
-      seq('version', '=', field('version', $.integer)),
-      seq(
-        'evolution',
-        '=',
-        field('evolution', choice('sealed', 'forwarding')),
-      ),
     ),
 
     qiec_operation_decl: $ => seq(

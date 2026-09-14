@@ -22,11 +22,34 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class RowVariable:
+    """The open tail of an effect row, with the instances it excludes.
+
+    Parameters
+    ----------
+    name : str
+        Display name, used in diagnostics only. Two variables with the
+        same identity and different names are the same variable.
+    identity : RowVariableId
+        Stable identity. Equality and hashing are taken from this rather
+        than from `name`, so renaming for readability cannot silently
+        split one variable into two.
+    lacks : tuple[EffectInstanceId, ...]
+        Instances the tail is proven not to contain. Sorted at
+        construction, so equality is insensitive to the order given.
+    """
+
     name: str
     identity: RowVariableId
     lacks: tuple[EffectInstanceId, ...] = ()
 
     def __post_init__(self) -> None:
+        """Sort the lacks constraints and reject a malformed variable.
+
+        Raises
+        ------
+        ValueError
+            If `name` is empty, or `lacks` names one instance twice.
+        """
         if not self.name:
             raise ValueError("row variable name cannot be empty")
         ordered = tuple(sorted(self.lacks, key=str))
@@ -35,9 +58,35 @@ class RowVariable:
         object.__setattr__(self, "lacks", ordered)
 
     def proves_lacks(self, instance: EffectInstanceId) -> bool:
+        """Whether this tail is known not to contain `instance`.
+
+        Parameters
+        ----------
+        instance : EffectInstanceId
+            The lexical instance to test.
+
+        Returns
+        -------
+        bool
+            True when the constraint is carried, which is what permits an
+            explicit entry for `instance` to sit beside this tail.
+        """
         return instance in self.lacks
 
     def __eq__(self, other: object) -> bool:
+        """Compare by identity and constraints, ignoring the display name.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when `other` is a row variable with the same identity and
+            the same lacks constraints.
+        """
         return (
             isinstance(other, RowVariable)
             and self.identity == other.identity
@@ -45,23 +94,71 @@ class RowVariable:
         )
 
     def __hash__(self) -> int:
+        """Hash the fields that `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the identity and the lacks constraints.
+        """
         return hash((self.identity, self.lacks))
 
     def merge(self, other: RowVariable) -> RowVariable:
-        """Unify two occurrences, accumulating their lacks constraints."""
+        """Unify two occurrences, accumulating their lacks constraints.
+
+        Parameters
+        ----------
+        other : RowVariable
+            Another occurrence of the same variable.
+
+        Returns
+        -------
+        RowVariable
+            One variable carrying the union of both constraint sets, which
+            is sound because each occurrence's constraints hold of the
+            single variable they both name.
+
+        Raises
+        ------
+        ValueError
+            If the two variables have different identities, and so are not
+            occurrences of one variable at all.
+        """
         if self.identity != other.identity:
             raise ValueError("cannot unify distinct row variables")
         merged = tuple(sorted(set((*self.lacks, *other.lacks)), key=str))
         return RowVariable(self.name, self.identity, merged)
 
     def with_lacks(self, instances: tuple[EffectInstanceId, ...]) -> RowVariable:
+        """Return this variable with further instances excluded.
+
+        Parameters
+        ----------
+        instances : tuple[EffectInstanceId, ...]
+            Instances to add to the constraint set. Instances already
+            excluded are absorbed rather than repeated.
+
+        Returns
+        -------
+        RowVariable
+            A variable of the same identity carrying the wider constraint.
+        """
         merged = tuple(sorted(set((*self.lacks, *instances)), key=str))
         return RowVariable(self.name, self.identity, merged)
 
 
 @dataclass(frozen=True, slots=True)
 class RowEntry:
-    """One lexical effect instance and the interface it implements."""
+    """One lexical effect instance and the interface it implements.
+
+    Parameters
+    ----------
+    instance : EffectInstanceId
+        The lexical instance. Two instances of one interface stay
+        distinct, so this rather than `effect` is the row's key.
+    effect : EffectRef
+        The saturated interface application the instance implements.
+    """
 
     instance: EffectInstanceId
     effect: EffectRef
@@ -80,6 +177,16 @@ class EffectRow:
     tail: RowVariable | None = None
 
     def __post_init__(self) -> None:
+        """Sort the entries and reject a row that cannot be well formed.
+
+        Raises
+        ------
+        ValueError
+            If one lexical instance appears twice, or if the row is open
+            and its tail does not prove it lacks every explicit entry.
+            Without that proof the tail could later be instantiated to a
+            row repeating an instance already named here.
+        """
         ordered = tuple(sorted(self.entries, key=lambda entry: str(entry.instance)))
         instances = [entry.instance for entry in ordered]
         if len(set(instances)) != len(instances):
@@ -97,15 +204,65 @@ class EffectRow:
         object.__setattr__(self, "entries", ordered)
 
     def lookup(self, instance: EffectInstanceId) -> EffectRef | None:
+        """The interface an instance implements in this row.
+
+        Parameters
+        ----------
+        instance : EffectInstanceId
+            The lexical instance to resolve.
+
+        Returns
+        -------
+        EffectRef or None
+            The interface when the row carries the instance explicitly,
+            and None otherwise. An open tail is not consulted, so None
+            means absent from the explicit entries rather than absent
+            from every instantiation of the row.
+        """
         return next(
             (entry.effect for entry in self.entries if entry.instance == instance),
             None,
         )
 
     def contains(self, instance: EffectInstanceId) -> bool:
+        """Whether the row carries an explicit entry for an instance.
+
+        Parameters
+        ----------
+        instance : EffectInstanceId
+            The lexical instance to test.
+
+        Returns
+        -------
+        bool
+            True when an explicit entry names the instance.
+        """
         return self.lookup(instance) is not None
 
     def add(self, entry: RowEntry) -> EffectRow:
+        """Return this row extended with one entry.
+
+        Parameters
+        ----------
+        entry : RowEntry
+            The instance and interface to add. Re-adding an entry the row
+            already carries returns the row unchanged, so the operation is
+            idempotent.
+
+        Returns
+        -------
+        EffectRow
+            The extended row. When the row is open, its tail gains a lacks
+            constraint for the new instance, which keeps the invariant
+            `__post_init__` enforces.
+
+        Raises
+        ------
+        ValueError
+            If the row already binds this instance to a different
+            interface, since one lexical instance implements one
+            interface.
+        """
         existing = self.lookup(entry.instance)
         if existing is not None and existing != entry.effect:
             raise ValueError("one lexical instance cannot implement two interfaces")
@@ -117,6 +274,26 @@ class EffectRow:
         return EffectRow((*self.entries, entry), tail)
 
     def without(self, instance: EffectInstanceId) -> EffectRow:
+        """Return this row with one instance discharged.
+
+        Parameters
+        ----------
+        instance : EffectInstanceId
+            The lexical instance to remove, as a handler does when it
+            handles every operation of that instance.
+
+        Returns
+        -------
+        EffectRow
+            The row without that entry, keeping the tail as it was.
+
+        Raises
+        ------
+        KeyError
+            If the row carries no explicit entry for the instance. This
+            is an error rather than a no-op because discharging an effect
+            the row never had indicates the caller has the wrong row.
+        """
         if not self.contains(instance):
             raise KeyError(str(instance))
         return EffectRow(
@@ -125,7 +302,26 @@ class EffectRow:
         )
 
     def union(self, other: EffectRow) -> EffectRow:
-        """Union two rows, preserving a compatible open tail."""
+        """Union two rows, preserving a compatible open tail.
+
+        Parameters
+        ----------
+        other : EffectRow
+            The row to merge in.
+
+        Returns
+        -------
+        EffectRow
+            A row carrying every entry of both. When both are open their
+            tails are merged, and the surviving tail is constrained to
+            lack every explicit instance on either side.
+
+        Raises
+        ------
+        ValueError
+            If the two rows bind one instance to different interfaces, or
+            if their tails are distinct variables and so cannot merge.
+        """
         if self.tail is not None and other.tail is not None:
             tail = self.tail.merge(other.tail)
         else:
@@ -145,11 +341,29 @@ EMPTY_ROW = EffectRow()
 
 @dataclass(frozen=True, slots=True)
 class RowSubstitution:
-    """A finite, occurs-checked substitution for stable row variables."""
+    """A finite, occurs-checked substitution for stable row variables.
+
+    Parameters
+    ----------
+    bindings : tuple[tuple[RowVariableId, EffectRow], ...]
+        What each row variable stands for. At most one binding per
+        variable, and no binding whose row is tailed by the variable it
+        replaces.
+    """
 
     bindings: tuple[tuple[RowVariableId, EffectRow], ...] = ()
 
     def __post_init__(self) -> None:
+        """Reject a substitution that is ambiguous or immediately cyclic.
+
+        Raises
+        ------
+        ValueError
+            If one variable is bound twice, or if a variable is bound to
+            a row whose own tail is that same variable. The second is the
+            occurs check at depth one; deeper cycles are caught while
+            applying the substitution.
+        """
         identities = [identity for identity, _ in self.bindings]
         if len(set(identities)) != len(identities):
             raise ValueError("duplicate row substitution binding")
@@ -158,12 +372,44 @@ class RowSubstitution:
                 raise ValueError("recursive row substitution")
 
     def lookup(self, variable: RowVariable) -> EffectRow | None:
+        """The row a variable stands for under this substitution.
+
+        Parameters
+        ----------
+        variable : RowVariable
+            The variable to resolve, matched on its identity rather than
+            its display name.
+
+        Returns
+        -------
+        EffectRow or None
+            The bound row, or None when the variable is unbound and so
+            remains an open tail.
+        """
         return next(
             (row for identity, row in self.bindings if identity == variable.identity),
             None,
         )
 
     def apply(self, row: EffectRow) -> EffectRow:
+        """Replace this row's tail, and any tail it resolves to.
+
+        Parameters
+        ----------
+        row : EffectRow
+            The row to substitute into. A closed row is returned as is.
+
+        Returns
+        -------
+        EffectRow
+            The row with its tail resolved as far as the bindings reach.
+
+        Raises
+        ------
+        ValueError
+            If the bindings are cyclic, or if resolving a tail would
+            introduce an instance that tail was proven to lack.
+        """
         return self._apply(row, frozenset())
 
     def _apply(
@@ -171,6 +417,28 @@ class RowSubstitution:
         row: EffectRow,
         visiting: frozenset[RowVariableId],
     ) -> EffectRow:
+        """Resolve one tail, tracking the variables already entered.
+
+        Parameters
+        ----------
+        row : EffectRow
+            The row whose tail is being resolved.
+        visiting : frozenset[RowVariableId]
+            Variables on the current resolution path. This is the occurs
+            check: re-entering one of these means the bindings are
+            cyclic.
+
+        Returns
+        -------
+        EffectRow
+            The row with its tail resolved.
+
+        Raises
+        ------
+        ValueError
+            If resolution re-enters a variable already on the path, or if
+            the resolved row carries an instance the tail lacks.
+        """
         if row.tail is None:
             return row
         replacement = self.lookup(row.tail)
@@ -192,12 +460,52 @@ class RowSubstitution:
 
 @dataclass(frozen=True, slots=True)
 class RowUnification:
+    """The common row two rows unify to, and how their tails were bound.
+
+    Parameters
+    ----------
+    row : EffectRow
+        The unified row.
+    substitution : RowSubstitution
+        The bindings that carry each input row to `row`. Empty when the
+        rows already agreed.
+    """
+
     row: EffectRow
     substitution: RowSubstitution = RowSubstitution()
 
 
 def unify_effect_rows(left: EffectRow, right: EffectRow) -> RowUnification:
-    """Unify two rows, returning their common row and tail substitution."""
+    """Unify two rows, returning their common row and tail substitution.
+
+    Unification is symmetric and driven by the tails. Two closed rows
+    unify only when already equal. One open row unifies with a closed one
+    by binding its tail to the entries it lacks. Two open rows with
+    distinct tails unify by binding both to a fresh tail carrying every
+    instance either side names.
+
+    Parameters
+    ----------
+    left : EffectRow
+        One row to unify.
+    right : EffectRow
+        The other row. The result does not depend on the order of the two
+        arguments.
+
+    Returns
+    -------
+    RowUnification
+        The common row and the substitution taking both inputs to it.
+
+    Raises
+    ------
+    ValueError
+        If the rows bind one instance to different interfaces, if two
+        closed rows differ, if an open row carries an entry the closed
+        row lacks, if one side needs an instance the other's tail is
+        proven to lack, or if the computed substitution fails to carry
+        both inputs to the unified row.
+    """
     left_entries = {entry.instance: entry.effect for entry in left.entries}
     right_entries = {entry.instance: entry.effect for entry in right.entries}
     for instance in left_entries.keys() & right_entries.keys():
@@ -293,7 +601,24 @@ class ArgumentDef:
 
 @dataclass(frozen=True, slots=True)
 class OperationDef:
-    """One result-indexed request constructor in an effect interface."""
+    """One result-indexed request constructor in an effect interface.
+
+    Parameters
+    ----------
+    id : OperationId
+        Stable identity, derived from the owning effect and this
+        operation's name.
+    name : str
+        Source name, as written in the effect declaration.
+    telescope : Telescope
+        Static binders this operation introduces on top of the
+        interface's own. They may not shadow the interface binders.
+    arguments : tuple[ArgumentDef, ...]
+        Value arguments the request carries, named uniquely.
+    result_type : TypeExpr
+        What resuming the request supplies, possibly mentioning the
+        binders above.
+    """
 
     id: OperationId
     name: str
@@ -302,34 +627,55 @@ class OperationDef:
     result_type: TypeExpr
 
     def __post_init__(self) -> None:
+        """Validate the telescope and the argument names.
+
+        Raises
+        ------
+        ValueError
+            If the telescope is malformed, or two arguments share a name.
+        """
         validate_telescope(self.telescope)
         names = [argument.name for argument in self.arguments]
         if len(set(names)) != len(names):
             raise ValueError(f"duplicate argument in operation {self.name!r}")
 
 
-class InterfaceEvolution(str, Enum):
-    """How adding operations to an interface affects existing handlers."""
-
-    SEALED = "sealed"
-    FORWARDING = "forwarding"
-
-
 @dataclass(frozen=True, slots=True)
 class EffectDef:
-    """A versioned operation interface.
+    """An operation interface.
 
-    A sealed interface requires a new version and identity when its operation
-    set changes.  A forwarding interface permits extension only for handlers
-    that explicitly forward unknown requests.
+    Identity is nominal: the declaration is fixed by its module and its
+    own name, carried in `ref`. Static arguments distinguish applications
+    of the interface without changing which declaration they apply.
+
+    Parameters
+    ----------
+    ref : EffectRef
+        The declaration's own reference, which must be unsaturated: a
+        declaration names the interface, and applying it is what supplies
+        arguments.
+    telescope : Telescope
+        Static binders the interface takes.
+    operations : tuple[OperationDef, ...]
+        The declared operations, unique by both identity and name.
     """
 
     ref: EffectRef
     telescope: Telescope
     operations: tuple[OperationDef, ...]
-    evolution: InterfaceEvolution = InterfaceEvolution.SEALED
 
     def __post_init__(self) -> None:
+        """Validate the declaration against its operations.
+
+        Raises
+        ------
+        ValueError
+            If the telescope is malformed, if `ref` is saturated, if two
+            operations share an identity or a name, or if an operation's
+            telescope shadows an interface binder. Shadowing is rejected
+            rather than resolved so that a binder in an operation
+            signature always denotes the one thing.
+        """
         validate_telescope(self.telescope)
         if self.ref.arguments:
             raise ValueError("an effect declaration ref must be unsaturated")
@@ -348,23 +694,52 @@ class EffectDef:
                 )
 
     def apply(self, arguments: tuple[StaticArgument, ...]) -> EffectRef:
-        """Instantiate the interface telescope as a concrete effect."""
+        """Instantiate the interface telescope as a concrete effect.
+
+        Parameters
+        ----------
+        arguments : tuple[StaticArgument, ...]
+            Static arguments to saturate the telescope with.
+
+        Returns
+        -------
+        EffectRef
+            The saturated application, carrying this declaration's
+            identity together with the arguments given.
+
+        Raises
+        ------
+        TypeError
+            If an argument is of the wrong static class for its binder.
+        ValueError
+            If the argument count does not match the telescope, or an
+            argument is ill-kinded.
+        """
         from quivers.qiec.substitution import instantiate_telescope
 
         instantiate_telescope(self.telescope, arguments)
         return EffectRef(
             self.ref.id,
             self.ref.name,
-            self.ref.interface_version,
             arguments,
         )
 
     def matches(self, effect: EffectRef) -> bool:
-        """Whether a concrete effect is a well-kinded application here."""
-        if (
-            effect.id != self.ref.id
-            or effect.interface_version != self.ref.interface_version
-        ):
+        """Whether a concrete effect is a well-kinded application here.
+
+        Parameters
+        ----------
+        effect : EffectRef
+            The saturated application to test.
+
+        Returns
+        -------
+        bool
+            True when `effect` names this declaration and its arguments
+            saturate the telescope. False rather than raising, so callers
+            can test candidates; use `apply` when the reason matters.
+        """
+        if effect.id != self.ref.id:
             return False
         try:
             self.apply(effect.arguments)
@@ -373,6 +748,24 @@ class EffectDef:
         return True
 
     def operation(self, operation: OperationId) -> OperationDef:
+        """The declared operation with a given identity.
+
+        Parameters
+        ----------
+        operation : OperationId
+            The identity to resolve.
+
+        Returns
+        -------
+        OperationDef
+            The matching declaration.
+
+        Raises
+        ------
+        KeyError
+            If this interface declares no such operation, which is how a
+            request naming an operation another effect owns is caught.
+        """
         for candidate in self.operations:
             if candidate.id == operation:
                 return candidate
@@ -390,6 +783,17 @@ class ResumptionGrade(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class HandlerClauseDef:
+    """One operation a handler covers, and how it may resume.
+
+    Parameters
+    ----------
+    operation : OperationId
+        The operation this clause handles.
+    grade : ResumptionGrade
+        How often the clause may invoke its continuation. The grade is
+        part of the clause contract and is checked against the body.
+    """
+
     operation: OperationId
     grade: ResumptionGrade
 
@@ -414,6 +818,16 @@ class HandlerDef:
     telescope: Telescope = ()
 
     def __post_init__(self) -> None:
+        """Validate the clause set against the coverage claim.
+
+        Raises
+        ------
+        ValueError
+            If the telescope is malformed, if two clauses cover the same
+            operation, or if the handler claims to be both total and
+            forwarding. The last is contradictory: a total handler covers
+            every operation, so there is nothing left to forward.
+        """
         validate_telescope(self.telescope)
         operations = [clause.operation for clause in self.clauses]
         if len(set(operations)) != len(operations):
@@ -422,6 +836,20 @@ class HandlerDef:
             raise ValueError("a handler cannot be both total and forwarding")
 
     def clause(self, operation: OperationId) -> HandlerClauseDef | None:
+        """The clause covering an operation, if this handler has one.
+
+        Parameters
+        ----------
+        operation : OperationId
+            The operation to look for.
+
+        Returns
+        -------
+        HandlerClauseDef or None
+            The clause, or None when the operation is uncovered. For a
+            forwarding handler None means the request passes through
+            rather than that it is an error.
+        """
         return next(
             (clause for clause in self.clauses if clause.operation == operation),
             None,
@@ -448,10 +876,33 @@ def instantiate_effect(
     module: str,
     lexical_path: tuple[str | int, ...],
 ) -> RowEntry:
-    """Allocate a deterministic lexical instance of an effect interface."""
+    """Allocate a deterministic lexical instance of an effect interface.
+
+    The instance identity is derived rather than generated, so the same
+    interface allocated at the same place in the same module is the same
+    instance on every run. That is what lets a serialized row refer to an
+    instance across processes.
+
+    Parameters
+    ----------
+    effect : EffectRef
+        The saturated interface application to allocate.
+    module : str
+        Module the allocation occurs in. Part of the identity, so two
+        modules allocating at the same lexical path stay distinct.
+    lexical_path : tuple[str | int, ...]
+        Position of the allocation within the module. Two allocations of
+        one interface at different paths are different instances, which
+        is what makes two instances of the same effect distinguishable.
+
+    Returns
+    -------
+    RowEntry
+        The fresh instance paired with the interface it implements, ready
+        to add to a row.
+    """
     instance = EffectInstanceId.derive(
         str(effect.id),
-        effect.interface_version,
         effect.arguments,
         module,
         lexical_path,
@@ -468,7 +919,6 @@ __all__ = [
     "EffectRow",
     "HandlerClauseDef",
     "HandlerDef",
-    "InterfaceEvolution",
     "OperationDef",
     "ResumptionGrade",
     "RowEntry",

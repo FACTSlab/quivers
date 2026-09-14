@@ -210,7 +210,7 @@ def test_indexed_coverage_distinguishes_nullary_and_applied_index_constructors()
 
 def test_unknown_branch_refinement_retains_its_effect_row() -> None:
     registry, family, bool_constructor, _, any_constructor = _registry_with_expr()
-    effect_id = EffectId.derive("tests", "Ask", 1)
+    effect_id = EffectId.derive("tests", "Ask")
     operation = OperationDef(
         OperationId.derive(str(effect_id), "ask"),
         "ask",
@@ -218,7 +218,7 @@ def test_unknown_branch_refinement_retains_its_effect_row() -> None:
         (),
         STRING,
     )
-    effect = EffectDef(EffectRef(effect_id, "Ask", 1), (), (operation,))
+    effect = EffectDef(EffectRef(effect_id, "Ask"), (), (operation,))
     registry.register_effect(effect)
     instance = instantiate_effect(effect.ref, module="tests", lexical_path=("case",))
     request = EffectRequest(
@@ -393,7 +393,7 @@ def test_constructor_skolem_cannot_escape_through_a_case_motive() -> None:
     with pytest.raises(KernelError, match="escapes its case branch"):
         infer_computation(computation, registry)
 
-    effect_id = EffectId.derive("tests", "SkolemEffect", 1)
+    effect_id = EffectId.derive("tests", "SkolemEffect")
     operation = OperationDef(
         OperationId.derive(effect_id, "emit"),
         "emit",
@@ -402,7 +402,7 @@ def test_constructor_skolem_cannot_escape_through_a_case_motive() -> None:
         UNIT,
     )
     effect = EffectDef(
-        EffectRef(effect_id, "SkolemEffect", 1),
+        EffectRef(effect_id, "SkolemEffect"),
         (TypeBinder("payload"),),
         (operation,),
     )

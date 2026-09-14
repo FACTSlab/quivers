@@ -92,11 +92,11 @@ LOG_WEIGHT = TypeApplication(_constructor("LogWeight"))
 
 
 def _effect_ref(name: str) -> EffectRef:
-    return EffectRef(EffectId.derive("prelude", name, 1), name, 1)
+    return EffectRef(EffectId.derive("prelude", name), name)
 
 
 def _operation_id(effect: EffectRef, name: str) -> OperationId:
-    return OperationId.derive(str(effect.id), effect.interface_version, name)
+    return OperationId.derive(str(effect.id), name)
 
 
 RANDOM = _effect_ref("Random")

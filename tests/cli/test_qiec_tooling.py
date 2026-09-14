@@ -29,7 +29,7 @@ from lsprotocol import types as lsp
 SOURCE = """\
 index Nat = Z | S(Nat)
 
-effect State[S : Type] [version=1, evolution=sealed]
+effect State[S : Type]
     get : Unit -> S
     put : S -> Unit
 
@@ -38,10 +38,10 @@ instance cell : State[Int]
 
 
 SCOPED_OPERATIONS = """\
-effect Reader[T : Type] [version=1, evolution=sealed]
+effect Reader[T : Type]
     get : Unit -> T
 
-effect Writer[T : Type] [version=1, evolution=sealed]
+effect Writer[T : Type]
     get : T -> Unit
 
 instance reader : Reader[Int]
@@ -61,11 +61,7 @@ def test_check_accepts_a_qiec_module(tmp_path: Path) -> None:
 
 def test_check_exposes_stable_qiec_diagnostic_code(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.qvr"
-    path.write_text(
-        "effect E [version=1, evolution=sealed]\n"
-        "    go : Unit -> Unit\n"
-        "    go : Unit -> Unit\n"
-    )
+    path.write_text("effect E\n    go : Unit -> Unit\n    go : Unit -> Unit\n")
     diagnostics = _check_one(path)
     assert [(diagnostic.code, diagnostic.line) for diagnostic in diagnostics] == [
         ("qiec-handler", 1)
@@ -73,22 +69,30 @@ def test_check_exposes_stable_qiec_diagnostic_code(tmp_path: Path) -> None:
 
 
 def test_cli_and_repl_keep_parse_error_locations(tmp_path: Path) -> None:
+    """One malformed source, one location, reported the same way twice.
+
+    The operation here is missing its `:`, so the parse fails inside the
+    effect body rather than at the header. What the test pins is that
+    `qvr check` and a REPL load agree on where, since a diagnostic that
+    moves between the two sends a user to the wrong line.
+    """
     path = tmp_path / "parse-error.qvr"
-    path.write_text("effect E [version=1 evolution=sealed]\n    op : Unit -> Unit\n")
+    path.write_text("effect E\n    op Unit -> Unit\n")
+    expected = ("parse", 2, 4)
 
     check_diagnostic = _check_one(path)[0]
-    assert (check_diagnostic.code, check_diagnostic.line, check_diagnostic.col) == (
-        "parse",
-        1,
-        10,
-    )
+    assert (
+        check_diagnostic.code,
+        check_diagnostic.line,
+        check_diagnostic.col,
+    ) == expected
 
     load_diagnostic = ReplSession().load_file(path).diagnostics[0]
-    assert (load_diagnostic.code, load_diagnostic.line, load_diagnostic.col) == (
-        "parse",
-        1,
-        10,
-    )
+    assert (
+        load_diagnostic.code,
+        load_diagnostic.line,
+        load_diagnostic.col,
+    ) == expected
 
 
 def test_repl_installs_qiec_bindings_and_reports_kinds() -> None:
@@ -131,10 +135,7 @@ def test_completion_includes_qiec_members_and_qualified_operations() -> None:
 def test_completion_omits_ambiguous_bare_qiec_members() -> None:
     session = ReplSession()
     response = session.dispatch(
-        "effect Reader [version=1, evolution=sealed]\n"
-        "    get : Unit -> Int\n\n"
-        "effect Writer [version=1, evolution=sealed]\n"
-        "    get : Unit -> Int\n"
+        "effect Reader\n    get : Unit -> Int\n\neffect Writer\n    get : Unit -> Int\n"
     )
     assert response.ok, response.diagnostics
 
@@ -303,7 +304,7 @@ def test_qvr_run_and_repl_execute_named_polymorphic_computation(
 
 def test_lsp_resolves_qiec_parameters_and_let_binders() -> None:
     source = (
-        "effect Reader [version=1, evolution=sealed]\n"
+        "effect Reader\n"
         "    get : Unit -> Int\n\n"
         "instance reader : Reader\n\n"
         "define keep(x : Int) : Int !{reader} =\n"
@@ -342,7 +343,7 @@ def test_effectful_execution_crosses_cli_repl_and_tui_boundaries(
     tmp_path: Path, capsys
 ) -> None:
     source = (
-        "effect Echo [version=1, evolution=sealed]\n"
+        "effect Echo\n"
         "    ping : Int -> Int\n\n"
         "instance echo : Echo\n\n"
         "handler pass for Echo : Int -> Int [coverage=total]\n"

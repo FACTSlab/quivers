@@ -138,7 +138,7 @@ handlers, ending in an effect-pure target.
 QVR v0.19 adds the **QIEC effect calculus**, a source-level interface that is
 separate from both the Python typeclass tower and the probabilistic
 `program [effects=[...]]` check. An `effect` may take heterogeneous static
-parameters and declares versioned operations. An `instance` applies that
+parameters and declares operations. An `instance` applies that
 interface and receives a lexical identity, so two instances of `State[Int]`
 remain different row entries. A typed computation records those entries in an
 exact or open row, including row-tail `lacks` constraints.
@@ -146,9 +146,9 @@ exact or open row, including row-tail `lacks` constraints.
 Handlers match an applied interface and one lexical instance. Their stable
 declarations record total or partial coverage, forwarding policy, introduced
 effects, and a resumption grade for each operation. A total handler removes the
-matched instance from the residual row; a partial handler retains it. Unknown
-operations may pass through only when both the interface evolution policy and
-handler forwarding policy allow that case.
+matched instance from the residual row; a partial handler retains it. An
+explicitly forwarding partial handler passes structurally uncovered operations
+to an outer handler.
 
 This calculus unifies the types used by logic-style `Choose`, weighted
 accumulation, state, abort, random choice, and scoring. QIEC handler bodies

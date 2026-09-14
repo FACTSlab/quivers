@@ -194,7 +194,6 @@ class IRQiecEffectVariable(IRQiecStatic):
 class IRQiecEffectRef(IRQiecStatic):
     id: IRQiecId
     name: str
-    interface_version: int
     arguments: tuple[IRQiecStatic, ...] = ()
     kind: Literal["effect-ref"] = "effect-ref"
 
@@ -418,7 +417,6 @@ class IRQiecEffectDef(dx.Model):
     ref: IRQiecEffectRef
     telescope: tuple[IRQiecBinder, ...]
     operations: tuple[IRQiecOperationDef, ...]
-    evolution: Literal["sealed", "forwarding"] = "sealed"
 
 
 class IRQiecHandlerClauseDef(dx.Model):
@@ -625,7 +623,6 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
         return IRQiecEffectRef(
             id=_id(value.id),
             name=value.name,
-            interface_version=value.interface_version,
             arguments=cast(tuple[IRQiecStatic, ...], _convert(value.arguments)),
         )
     if isinstance(value, tm.Local):

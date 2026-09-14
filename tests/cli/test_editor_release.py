@@ -23,7 +23,7 @@ def test_textmate_recognizes_the_complete_qiec_vocabulary() -> None:
     source = (
         "index Nat = Z | S(Nat)\n"
         "family Vec[A : Type](n : Nat) : Type\n"
-        "effect State[S : Type] [version=1, evolution=sealed]\n"
+        "effect State[S : Type]\n"
         "instance cell : State[Int]\n"
         "handler run for State[Int] : Int -> Int [coverage=total]\n"
         "define read() : Int !{cell} = handle cell with run in\n"
@@ -44,9 +44,7 @@ def test_textmate_recognizes_the_complete_qiec_vocabulary() -> None:
     assert {"handle", "with", "let", "perform", "return"} <= set(
         control.findall(source)
     )
-    assert {"Type", "version", "evolution", "sealed", "coverage", "total"} <= set(
-        modifier.findall(source)
-    )
+    assert {"Type", "coverage", "total"} <= set(modifier.findall(source))
 
 
 def test_zed_uses_an_immutable_grammar_revision() -> None:

@@ -185,7 +185,6 @@ def substitute_effect(effect: EffectRef, substitution: StaticSubstitution) -> Ef
     return EffectRef(
         effect.id,
         effect.name,
-        effect.interface_version,
         tuple(substitute_static(arg, substitution) for arg in effect.arguments),
     )
 

@@ -72,7 +72,7 @@ row, while `perform` names an operation through a lexical effect instance:
 
 <!-- compile: qiec -->
 ```qvr
-effect Tap [version=1, evolution=sealed]
+effect Tap
     ping : Int -> Int
 
 instance tap : Tap

@@ -1448,8 +1448,7 @@ class ReplSession:
             if isinstance(declaration, QiecEffectDecl):
                 operations = ", ".join(op.name for op in declaration.operations)
                 return _resp(
-                    f"effect {declaration.name} v{declaration.interface_version}\n"
-                    f"  evolution : {declaration.evolution}\n"
+                    f"effect {declaration.name}\n"
                     f"  operations: {{{operations}}}"
                 )
             if isinstance(declaration, QiecComputationDecl):
