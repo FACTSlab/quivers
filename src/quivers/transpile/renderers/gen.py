@@ -107,7 +107,10 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic
+from quivers.transpile.renderers._qiec import (
+    graft_qiec_dynamic,
+    qiec_helper_families_used,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,7 +1077,9 @@ class GenRenderer(RendererBase):
         # carries its own `using Gen` / `using Distributions`
         # statements; subsequent `@gen` macrocalls see the imported
         # names through normal Julia name lookup.
-        if any(_ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES):
+        if any(
+            _ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES
+        ) or qiec_helper_families_used(ir, self.target):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
         graft_qiec_dynamic(sb, ir, target=self.target, root=src)

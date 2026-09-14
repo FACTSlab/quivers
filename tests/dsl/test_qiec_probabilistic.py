@@ -19,7 +19,10 @@ from quivers.qiec import (
     sampleable_type,
     seed_reference_rng,
     site_type,
+    tensor_type,
 )
+from quivers.qiec.kinds import NatSort
+from quivers.qiec.types import IndexLiteral
 
 _MODEL = """\
 instance random : Random
@@ -130,3 +133,77 @@ def test_an_annotated_binding_types_a_site() -> None:
     )
     module = lower_qvr_to_qiec(parse(source), file_path="probe.qvr")
     assert run_named(module, "probe").value == "count"
+
+
+def test_list_literals_lower_to_tensors_and_fix_event_shapes() -> None:
+    source = """\
+define probs() : Sampleable[Int] !{} =
+    return Categorical([0.2, 0.8])
+
+define simplex() : Sampleable[Tensor[Real]([3])] !{} =
+    return Dirichlet([1.0, 2.0, 3])
+
+define matrix() : Tensor[Real]([2, 2]) !{} =
+    return [[1.0, 2.0], [3.0, 4.0]]
+
+define counts() : Tensor[Int]([3]) !{} =
+    return [1, 2, 3]
+
+define mixed() : Tensor[Real]([2]) !{} =
+    return [1, 2.5]
+
+define scored() : LogWeight !{} =
+    let d = Categorical([0.2, 0.8])
+    return log_prob(d, 1)
+
+define correlation() : Sampleable[Tensor[Real]([3, 3])] !{} =
+    return LKJCholesky(2.0)
+"""
+    module = lower_qvr_to_qiec(parse(source), file_path="tensors.qvr")
+    assert run_named(module, "matrix").value == ((1.0, 2.0), (3.0, 4.0))
+    assert run_named(module, "counts").value == (1, 2, 3)
+    assert run_named(module, "mixed").value == (1.0, 2.5)
+    assert run_named(module, "scored").value == pytest.approx(math.log(0.8))
+    simplex = next(item for item in module.computations if item.name == "simplex")
+    assert simplex.type.result == sampleable_type(
+        tensor_type(REAL, (IndexLiteral(3, NatSort()),))
+    )
+    correlation = next(
+        item for item in module.computations if item.name == "correlation"
+    )
+    assert correlation.type.result == sampleable_type(
+        tensor_type(REAL, (IndexLiteral(3, NatSort()), IndexLiteral(3, NatSort())))
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "fragment"),
+    [
+        ("    return [1.0, true]\n", "share one type"),
+        ("    return []\n", "0 entries"),
+        ("    return Dirichlet([1.0, [2.0]])\n", "share one type"),
+    ],
+)
+def test_ill_formed_tensor_literals_are_source_located(
+    body: str, fragment: str
+) -> None:
+    source = "define probe() : Tensor[Real]([2]) !{} =\n" + body
+    with pytest.raises(QiecDiagnosticError) as captured:
+        lower_qvr_to_qiec(parse(source), file_path="probe.qvr")
+    assert fragment in str(captured.value), str(captured.value)
+
+
+def test_a_tensor_literal_against_the_wrong_expected_shape_is_rejected() -> None:
+    source = "define probe() : Tensor[Real]([3]) !{} =\n    return [1.0, 2.0]\n"
+    with pytest.raises(QiecDiagnosticError, match="2 entries"):
+        lower_qvr_to_qiec(parse(source), file_path="probe.qvr")
+    source = "define probe() : Sampleable[Tensor[Real]([2, 2])] !{} =\n    return LKJCholesky(2.0)\n"
+    module = lower_qvr_to_qiec(parse(source), file_path="probe.qvr")
+    assert module.computations[0].type.result == sampleable_type(
+        tensor_type(REAL, (IndexLiteral(2, NatSort()), IndexLiteral(2, NatSort())))
+    )
+    source = (
+        "define probe() : Real !{} =\n    let d = LKJCholesky(2.0)\n    return 1.0\n"
+    )
+    with pytest.raises(QiecDiagnosticError, match="no parameter carries"):
+        lower_qvr_to_qiec(parse(source), file_path="probe.qvr")

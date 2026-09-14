@@ -82,6 +82,7 @@ from quivers.qiec.terms import (
     Return,
     SiteValue,
     TransportValue,
+    TensorValue,
     TupleValue,
     Value,
     Var,
@@ -92,6 +93,7 @@ from quivers.qiec.canonical import (
     sampleable_type,
     sampled_element,
     tensor_shape,
+    tensor_type,
 )
 from quivers.qiec.families import FAMILIES, FamilyParameter
 from quivers.qiec.primitives import PRIMITIVES
@@ -1732,6 +1734,73 @@ def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str 
     return None
 
 
+def _infer_tensor(
+    value: TensorValue, registry: KernelRegistry, context: CheckContext
+) -> TypeExpr:
+    """Type a tensor construction against its claimed ``Tensor`` type.
+
+    Parameters
+    ----------
+    value : TensorValue
+        The construction.
+    registry : KernelRegistry
+        The module's declarations.
+    context : CheckContext
+        Value bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        The claimed type, once every entry has the slice type it fixes.
+
+    Raises
+    ------
+    KernelError
+        If the claimed type is not a literal-shaped ``Tensor``, the entry
+        count differs from the leading dimension, or an entry's type is
+        not the slice type (the element type at rank one, the tensor one
+        rank lower otherwise).
+    """
+    split = tensor_shape(value.result_type)
+    if split is None:
+        raise KernelError(
+            f"tensor construction claims non-tensor type {value.result_type!r}",
+            "qiec-primitive",
+        )
+    element, dimensions = split
+    if not dimensions:
+        raise KernelError(
+            "tensor construction claims a rank-zero tensor type", "qiec-primitive"
+        )
+    leading = dimensions[0]
+    if not (isinstance(leading, IndexLiteral) and isinstance(leading.value, int)):
+        raise KernelError(
+            f"tensor construction claims a leading dimension {leading!r} that is "
+            "not a literal",
+            "qiec-primitive",
+        )
+    if leading.value != len(value.items):
+        raise KernelError(
+            f"tensor construction has {len(value.items)} entries along a leading "
+            f"dimension of {leading.value}",
+            "qiec-primitive",
+        )
+    slice_type: TypeExpr = (
+        element if len(dimensions) == 1 else tensor_type(element, dimensions[1:])
+    )
+    for position, item in enumerate(value.items):
+        actual = infer_value(item, registry, context)
+        if actual != slice_type:
+            raise KernelError(
+                f"tensor entry {position} has type {actual!r}, not the slice type "
+                f"{slice_type!r}",
+                "qiec-primitive",
+            )
+    registry.validate_type(value.result_type)
+    _check_static_variable_scope(value.result_type, context, subject="tensor type")
+    return value.result_type
+
+
 def _infer_distribution(
     value: DistributionValue,
     registry: KernelRegistry,
@@ -1997,6 +2066,8 @@ def infer_value(
         registry.validate_type(expected)
         _check_static_variable_scope(expected, context, subject="tuple type")
         return expected
+    if isinstance(value, TensorValue):
+        return _infer_tensor(value, registry, context)
     if isinstance(value, Projection):
         source = infer_value(value.value, registry, context)
         if not (

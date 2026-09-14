@@ -220,6 +220,30 @@ class TupleValue:
 
 
 @dataclass(frozen=True, slots=True)
+class TensorValue:
+    """Construction of a tensor from its entries along the outermost axis.
+
+    A rank-one tensor lists its elements; a tensor of higher rank lists
+    the tensors one rank lower that are its slices, all of one shape, so
+    a matrix literal is a tensor of row tensors.
+
+    Parameters
+    ----------
+    items
+        The entries along the outermost axis, in order.
+    result_type
+        The ``Tensor`` type constructed, whose leading dimension is the
+        number of entries.
+    tag
+        The serialization discriminator; always ``"tensor"``.
+    """
+
+    items: tuple[Value, ...]
+    result_type: TypeExpr
+    tag: Literal["tensor"] = "tensor"
+
+
+@dataclass(frozen=True, slots=True)
 class Projection:
     """Selection of one component of a finite product.
 
@@ -327,6 +351,7 @@ type Value = (
     | TransportValue
     | PrimitiveApplication
     | TupleValue
+    | TensorValue
     | Projection
     | DistributionValue
     | LogDensity
@@ -631,6 +656,7 @@ __all__ = [
     "SiteValue",
     "TransportValue",
     "TupleValue",
+    "TensorValue",
     "Value",
     "Var",
 ]
