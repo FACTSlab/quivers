@@ -635,8 +635,9 @@ def draw_handler(
         Checks the value a resumption carries inhabits the
         operation's result type.
     draw
-        Supplies the drawn value. None uses the sampleable's own
-        reparameterised or plain sampling interface.
+        Supplies the drawn value, given the site, the sampleable, and
+        the request. None uses the sampleable's own reparameterised or
+        plain sampling interface.
     answer_type
         What the handler answers with.
     duplicable_context
@@ -682,6 +683,12 @@ def draw_handler(
         -------
         object
             What the resumed computation produced.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry a site and a sampleable, or the
+            default draw finds no sampling interface on the sampleable.
         """
         site, sampleable = _expect_arguments(request, 2, definition.name)
         value = (
@@ -739,7 +746,7 @@ def score_handler(
     answer_validator
         Checks the handled computation's answer.
     total_validator
-        Checks the accumulated total.
+        Checks the accumulated total; ``weight_validator`` when omitted.
     expose_total
         Whether the accumulated total is returned alongside the
         answer, rather than kept internal.
@@ -751,8 +758,10 @@ def score_handler(
 
     Returns
     -------
-    RuntimeHandler
-        The attachment, ready to bind into a runtime environment.
+    tuple[RuntimeHandler, ScoreAccumulator]
+        The attachment, ready to bind into a runtime environment, and
+        the accumulator each installation publishes into when its
+        computation completes.
     """
     accumulator = ScoreAccumulator(identity)
     checked_total = total_validator or weight_validator
@@ -802,6 +811,13 @@ def score_handler(
             -------
             object
                 What the resumed computation produced.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request does not carry exactly one argument.
+            RuntimeTypeMismatch
+                If the contribution does not inhabit the weight type.
             """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, LOG_WEIGHT, "score contribution")
@@ -822,13 +838,13 @@ def score_handler(
             Returns
             -------
             object
-                What this handler answers with, which may pair the value with
-                the state or total it accumulated.
+                The value paired with the accumulated total when
+                ``expose_total`` is set, else the value alone.
             """
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
-            """Hand the accumulated result to the configured sink."""
+            """Copy this installation's total and contributions to the shared accumulator."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
@@ -892,7 +908,9 @@ def _site_and_sampleable(
     Raises
     ------
     InvalidHandlerError
-        If the request does not carry exactly those two arguments.
+        If the request does not carry exactly those two arguments, or
+        if the site is not hashable and so cannot key an observation
+        or replay table.
     """
     site, sampleable = _expect_arguments(request, 2, handler)
     try:
@@ -910,7 +928,7 @@ def _log_density(sampleable: object, value: object) -> object:
     sampleable
         The host distribution.
     value
-        The value the handled computation returned.
+        The observed or replayed value to score.
 
     Returns
     -------
@@ -954,7 +972,9 @@ def _emit_score(
     weight_validator
         Checks the contribution.
     role
-        What the contribution is for, entering its derived identity.
+        What the contribution is for; it names the attachment and the
+        generated request's site, which is recorded as derived from the
+        original request's site.
 
     Raises
     ------
@@ -1020,17 +1040,18 @@ def condition_handler(
     observations
         The values to condition on, keyed by site.
     score_instance
-        The lexical `Score` instance the accumulated density is
+        The lexical `Score` instance each observation's log density is
         sent to.
     result_validator
-        Checks the value a resumption carries inhabits the
-        operation's result type.
+        Checks an observed value inhabits the request's result type.
     weight_validator
-        Checks an individual weight contribution.
+        Checks each log-density contribution.
     missing
-        What to do when a site has no observation.
+        Whether a sample request at a site with no observation is
+        forwarded outward or rejected.
     extra
-        What to do with an observation no site consumed.
+        What to do, when the handled computation returns, with an
+        observation at a site the computation never sampled.
     answer_type
         What the handler answers with.
     key
@@ -1084,13 +1105,15 @@ def condition_handler(
             Returns
             -------
             object
-                What the resumed computation produced.
+                What the resumed computation produced, or a `Forward` when
+                the site has no observation and ``missing`` forwards.
 
             Raises
             ------
             InvalidHandlerError
-                If the request's site has no observation, or the request does
-                not carry a site and a sampleable.
+                If the request's site has no observation and ``missing``
+                rejects, or the request does not carry a site and a
+                sampleable.
             RuntimeTypeMismatch
                 If the observed value does not inhabit the site's type.
             """
@@ -1131,8 +1154,7 @@ def condition_handler(
             Returns
             -------
             object
-                What this handler answers with, which may pair the value with
-                the state or total it accumulated.
+                The value, unchanged.
 
             Raises
             ------
@@ -1274,7 +1296,16 @@ def replay_handler(
             Returns
             -------
             object
-                What the resumed computation produced.
+                What the resumed computation produced, or a `Forward` when
+                the site has no recorded value.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request does not carry a site and a sampleable, or
+                the value is scored and the sampleable has no ``log_prob``.
+            RuntimeTypeMismatch
+                If the recorded value does not inhabit the site's type.
             """
             site, sampleable = _site_and_sampleable(request, definition.name)
             if site not in values:
@@ -1312,8 +1343,7 @@ def replay_handler(
             Returns
             -------
             object
-                What this handler answers with, which may pair the value with
-                the state or total it accumulated.
+                The value, unchanged.
 
             Raises
             ------
@@ -1495,7 +1525,8 @@ def trace_handler(
             Returns
             -------
             object
-                The handler's answer.
+                A `Forward` whose response hook records the outer
+                handler's reply.
             """
             return Forward(
                 lambda result: recorder.record(request, result, mode="forwarded")
@@ -1527,7 +1558,8 @@ def trace_handler(
             Returns
             -------
             object
-                What the resumed computation produced.
+                A `Forward` whose response hook validates the outer
+                handler's reply before recording it.
             """
             answer = clause(request, resume, context)
             assert isinstance(answer, Forward)
@@ -1602,7 +1634,7 @@ def state_handler(
     initial
         The state before any operation.
     state_validator
-        Checks the state after each update.
+        Checks the initial state, each value put, and each value got.
     state_type
         The type of the handler's state.
     expose_final
@@ -1617,8 +1649,15 @@ def state_handler(
 
     Returns
     -------
-    RuntimeHandler
-        The attachment, ready to bind into a runtime environment.
+    tuple[RuntimeHandler, StateCell]
+        The attachment, ready to bind into a runtime environment, and
+        the cell each installation publishes its final state into when
+        its computation completes.
+
+    Raises
+    ------
+    RuntimeTypeMismatch
+        If ``initial`` does not inhabit ``state_type``.
     """
     _require(initial, state_validator, state_type, "initial state")
     cell = StateCell(initial)
@@ -1674,6 +1713,11 @@ def state_handler(
             -------
             object
                 What the resumed computation produced.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request carries any argument.
             """
             _expect_arguments(request, 0, definition.name)
             return resume(local.value)
@@ -1698,6 +1742,13 @@ def state_handler(
             -------
             object
                 What the resumed computation produced.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request does not carry exactly one argument.
+            RuntimeTypeMismatch
+                If the new state does not inhabit ``state_type``.
             """
             (new_value,) = _expect_arguments(request, 1, definition.name)
             _require(new_value, state_validator, state_type, "state update")
@@ -1717,13 +1768,13 @@ def state_handler(
             Returns
             -------
             object
-                What this handler answers with, which may pair the value with
-                the state or total it accumulated.
+                The value paired with the final state when
+                ``expose_final`` is set, else the value alone.
             """
             return (value, local.value) if expose_final else value
 
         def publish() -> None:
-            """Hand the accumulated result to the configured sink."""
+            """Copy this installation's final state to the shared cell."""
             cell.value = local.value
 
         return RuntimeHandler(
@@ -1777,10 +1828,11 @@ def abort_handler(
     Parameters
     ----------
     on_abort
-        Receives the payload when the computation aborts.
+        Receives the payload when the computation aborts and supplies
+        the handler's answer; wraps it in `Aborted` by default.
     result_validator
-        Checks the value a resumption carries inhabits the
-        operation's result type.
+        The abort operation's result validator; never exercised, since
+        the clause does not resume.
     error_type
         The payload type an abort carries.
     input_type
@@ -1840,7 +1892,13 @@ def abort_handler(
         Returns
         -------
         object
-            The handler's answer, which discards the continuation.
+            What ``on_abort`` makes of the payload; the continuation is
+            discarded.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry exactly one argument.
         """
         (error,) = _expect_arguments(request, 1, definition.name)
         return on_abort(error)
@@ -1867,13 +1925,17 @@ def choose_handler(
     Parameters
     ----------
     choice_validator
-        Checks an individual choice.
+        Checks each alternative resumed with.
     combine
-        Folds a contribution into the running total.
+        Folds the per-alternative results into the handler's answer;
+        ``None`` concatenates them, the return clause having wrapped each
+        answer in a one-element tuple.
     combine_validator
-        Checks the combined result.
+        Checks the combined answer; required with a custom ``combine``,
+        and otherwise a tuple of ``answer_validator`` values.
     answer_type
-        What the handler answers with.
+        What the handled computation returns; the handler answers with
+        ``ChoiceResults`` of it.
     answer_validator
         Checks the handled computation's answer.
     key
@@ -1887,8 +1949,8 @@ def choose_handler(
 
     Raises
     ------
-    InvalidHandlerError
-        If a choice request's alternatives are not a finite iterable.
+    ValueError
+        If ``combine`` is given without ``combine_validator``.
     """
     if combine is not None and combine_validator is None:
         raise ValueError("a custom Choose combine needs an output validator")
@@ -1926,7 +1988,10 @@ def choose_handler(
         Raises
         ------
         InvalidHandlerError
-            If the alternatives are not iterable, or are not finite.
+            If the request does not carry exactly one argument, the
+            alternatives are a string, bytes, or not iterable, or, under
+            the default combination, the return clause's results are not
+            tuples.
         """
         (alternatives,) = _expect_arguments(request, 1, definition.name)
         if isinstance(alternatives, (str, bytes)):
@@ -2011,15 +2076,17 @@ def weight_handler(
     answer_validator
         Checks the handled computation's answer.
     total_validator
-        Checks the accumulated total.
+        Checks the accumulated total; ``weight_validator`` when omitted.
     key
         Distinguishes this handler from others of the same name,
         entering its derived identity.
 
     Returns
     -------
-    RuntimeHandler
-        The attachment, ready to bind into a runtime environment.
+    tuple[RuntimeHandler, WeightAccumulator]
+        The attachment, ready to bind into a runtime environment, and
+        the accumulator each installation publishes into when its
+        computation completes.
     """
     accumulator = WeightAccumulator(identity)
     checked_total = total_validator or weight_validator
@@ -2072,6 +2139,13 @@ def weight_handler(
             -------
             object
                 What the resumed computation produced.
+
+            Raises
+            ------
+            InvalidHandlerError
+                If the request does not carry exactly one argument.
+            RuntimeTypeMismatch
+                If the contribution does not inhabit the weight type.
             """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, weight_type, "semiring weight")
@@ -2092,13 +2166,13 @@ def weight_handler(
             Returns
             -------
             object
-                What this handler answers with, which may pair the value with
-                the state or total it accumulated.
+                The value paired with the accumulated total when
+                ``expose_total`` is set, else the value alone.
             """
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
-            """Hand the accumulated result to the configured sink."""
+            """Copy this installation's total and contributions to the shared accumulator."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
