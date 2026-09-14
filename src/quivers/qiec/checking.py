@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from quivers.qiec.declarations import ConstructorDecl, FamilyDecl
 from quivers.qiec.effects import (
+    ResumptionGrade,
     ComputationType,
     EMPTY_ROW,
     EffectDef,
@@ -606,7 +607,9 @@ class KernelRegistry:
             ill-formed, if the interface it names is unknown or wrongly
             applied, if a clause covers an operation the interface does
             not declare, or if the handler claims totality while leaving
-            an operation uncovered.
+            an operation uncovered, or if an authored clause body fails
+            to check, answers the wrong type, or resumes more often than
+            its grade allows.
         """
         if handler.id in self.handlers:
             raise KernelError(f"handler already registered: {handler.name!r}")
@@ -637,7 +640,96 @@ class KernelRegistry:
         if handler.total and clauses != declared:
             missing = declared - clauses
             raise KernelError(f"total handler is missing operations: {missing!r}")
+        self._check_handler_bodies(
+            handler,
+            effect,
+            substitution=instantiate_telescope(
+                effect.telescope, handler.effect.arguments
+            ),
+        )
         self.handlers[handler.id] = handler
+
+    def _check_handler_bodies(
+        self,
+        handler: HandlerDef,
+        effect: EffectDef,
+        *,
+        substitution: StaticSubstitution,
+    ) -> None:
+        """Type every authored clause body and hold it to its grade.
+
+        A clause body answers the handler's output type, and inside it
+        `resume` carries what the handled operation supplies. Those two
+        facts are what make the body checkable at all, and they come from
+        the interface rather than from the clause, so they are
+        established here rather than at the clause.
+
+        Parameters
+        ----------
+        handler : HandlerDef
+            The handler being registered.
+        effect : EffectDef
+            The interface it handles, already matched against its
+            application.
+        substitution : StaticSubstitution
+            The interface telescope instantiated at that application.
+
+        Raises
+        ------
+        KernelError
+            If a clause body fails to check, answers a type other than
+            the handler's output, or resumes more often than its grade
+            allows.
+        """
+        output = substitute_type(handler.output_type, substitution)
+        if handler.return_clause is not None:
+            clause = handler.return_clause
+            context = CheckContext().extend(clause.binder)
+            actual = infer_computation(clause.body, self, context)
+            if actual.result != output:
+                raise KernelError(
+                    f"return clause of handler {handler.name!r} answers "
+                    f"{actual.result!r}, not the declared {output!r}"
+                )
+        for clause in handler.clauses:
+            if clause.body is None:
+                continue
+            _, operation = self.operation(clause.operation)
+            parameter_types, resumed = instantiate_operation(
+                operation,
+                tuple(_binder_variable(binder) for binder in operation.telescope),
+                substitution,
+            )
+            if len(clause.parameters) != len(parameter_types):
+                raise KernelError(
+                    f"clause {operation.name!r} of handler {handler.name!r} "
+                    f"binds {len(clause.parameters)} argument(s); the "
+                    f"operation takes {len(parameter_types)}"
+                )
+            context = CheckContext().with_resumption(
+                Resumption(resumed, output, handler.introduced)
+            )
+            for parameter, declared in zip(
+                clause.parameters, parameter_types, strict=True
+            ):
+                if parameter.type != declared:
+                    raise KernelError(
+                        f"clause {operation.name!r} of handler "
+                        f"{handler.name!r} binds {parameter.name!r} at "
+                        f"{parameter.type!r}, not the declared {declared!r}"
+                    )
+                context = context.extend(parameter)
+            actual = infer_computation(clause.body, self, context)
+            if actual.result != output:
+                raise KernelError(
+                    f"clause {operation.name!r} of handler {handler.name!r} "
+                    f"answers {actual.result!r}, not the declared {output!r}"
+                )
+            check_resumption_grade(
+                clause.grade,
+                resumption_use(clause.body),
+                subject=f"clause {operation.name!r} of handler {handler.name!r}",
+            )
 
     def register_computation(self, signature: ComputationSignature) -> None:
         """Record a computation's signature so calls can resolve to it.
@@ -999,6 +1091,32 @@ class CheckContext:
             an appeal to a refinement outside its branch is caught.
         """
         return next((given for given in self.givens if given.id == equality), None)
+
+
+def _binder_variable(binder: TypeBinder | IndexBinder | EffectBinder) -> StaticArgument:
+    """The variable a binder introduces, for instantiating it by itself.
+
+    An operation's own telescope is instantiated at the variables it
+    binds when a clause body is checked, because the clause is checked
+    once for every instantiation rather than at a particular one.
+
+    Parameters
+    ----------
+    binder : TypeBinder or IndexBinder or EffectBinder
+        The binder to reflect.
+
+    Returns
+    -------
+    StaticArgument
+        A variable of the binder's own name, kind, and namespace. It
+        carries no identity, so it is a declaration binder rather than a
+        rigid one and substitution can reach it.
+    """
+    if isinstance(binder, TypeBinder):
+        return TypeVariable(binder.name, binder.kind)
+    if isinstance(binder, IndexBinder):
+        return IndexVariable(binder.name, binder.sort)
+    return EffectVariable(binder.name)
 
 
 def _sort_matches(expected: IndexSort, actual: IndexSort) -> bool:
@@ -2161,3 +2279,178 @@ __all__ = [
     "infer_computation",
     "infer_value",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class ResumptionUse:
+    """How many times a clause body may invoke its continuation.
+
+    An interval rather than a count, because a `case` splits the paths
+    through a body and different branches may resume different numbers of
+    times. `minimum` is what every path does at least, `maximum` what
+    some path does at most.
+
+    Parameters
+    ----------
+    minimum : int
+        The fewest invocations on any path.
+    maximum : int or None
+        The most on any path, or None for unbounded. None is the top of
+        the lattice and is used wherever the analysis cannot bound the
+        count, so an unbounded use is never mistaken for a small one.
+    """
+
+    minimum: int
+    maximum: int | None
+
+    def then(self, other: ResumptionUse) -> ResumptionUse:
+        """Sequential composition: both run, so the counts add.
+
+        Parameters
+        ----------
+        other : ResumptionUse
+            What runs after this.
+
+        Returns
+        -------
+        ResumptionUse
+            The combined use. Unbounded on either side stays unbounded.
+        """
+        maximum = (
+            None
+            if self.maximum is None or other.maximum is None
+            else self.maximum + other.maximum
+        )
+        return ResumptionUse(self.minimum + other.minimum, maximum)
+
+    def join(self, other: ResumptionUse) -> ResumptionUse:
+        """Alternation: one path or the other, so the interval widens.
+
+        Parameters
+        ----------
+        other : ResumptionUse
+            The alternative path's use.
+
+        Returns
+        -------
+        ResumptionUse
+            The interval covering both. The minimum drops to the smaller
+            because some path now does that few, and the maximum rises to
+            the larger for the same reason.
+        """
+        maximum = (
+            None
+            if self.maximum is None or other.maximum is None
+            else max(self.maximum, other.maximum)
+        )
+        return ResumptionUse(min(self.minimum, other.minimum), maximum)
+
+
+NEVER = ResumptionUse(0, 0)
+"""A computation that cannot invoke the continuation."""
+
+ONCE = ResumptionUse(1, 1)
+"""A computation that invokes the continuation exactly once."""
+
+
+def resumption_use(computation: Computation) -> ResumptionUse:
+    """Count the continuation invocations along the paths of a body.
+
+    A `resume` is lexical to the clause that encloses it, so a call
+    contributes nothing: the callee has no access to this clause's
+    continuation and cannot invoke it however it is written. That is what
+    keeps the analysis exact rather than conservative across recursion.
+
+    Parameters
+    ----------
+    computation : Computation
+        The clause body to analyse.
+
+    Returns
+    -------
+    ResumptionUse
+        The interval of invocation counts over the body's paths.
+
+    Raises
+    ------
+    KernelError
+        If the term is of an unknown computation class.
+    """
+    if isinstance(computation, Resume):
+        return ONCE
+    if isinstance(computation, Return | Perform | Call):
+        return NEVER
+    if isinstance(computation, Bind):
+        return resumption_use(computation.first).then(resumption_use(computation.then))
+    if isinstance(computation, NewInstance):
+        return resumption_use(computation.body)
+    if isinstance(computation, Handle):
+        # A `resume` inside a handled computation still names this
+        # clause's continuation: handling an instance does not introduce
+        # a new one, and the nested handler's own clauses are separate
+        # declarations analysed on their own.
+        return resumption_use(computation.computation)
+    if isinstance(computation, Case):
+        if not computation.branches:
+            return NEVER
+        uses = [resumption_use(branch.body) for branch in computation.branches]
+        result = uses[0]
+        for use in uses[1:]:
+            result = result.join(use)
+        return result
+    raise KernelError(f"unknown computation term {computation!r}")
+
+
+def check_resumption_grade(
+    grade: ResumptionGrade,
+    use: ResumptionUse,
+    *,
+    subject: str,
+) -> None:
+    """Hold a clause body to the grade its declaration promises.
+
+    Parameters
+    ----------
+    grade : ResumptionGrade
+        The declared grade.
+    use : ResumptionUse
+        What the body actually does, from `resumption_use`.
+    subject : str
+        What is being checked, named in any diagnostic.
+
+    Raises
+    ------
+    KernelError
+        If the body can resume more often than the grade allows, or, for
+        a linear grade, if some path fails to resume at all. A grade is a
+        promise other code relies on: a handler declared `0` may be
+        compiled without keeping the continuation alive, so resuming
+        anyway is not a stylistic matter.
+    """
+    maximum = use.maximum
+    if grade is ResumptionGrade.ZERO:
+        if maximum != 0:
+            raise KernelError(
+                f"{subject} declares grade 0 but can resume "
+                f"{'any number of' if maximum is None else maximum} time(s)"
+            )
+        return
+    if grade is ResumptionGrade.AFFINE:
+        if maximum is None or maximum > 1:
+            raise KernelError(
+                f"{subject} declares an affine grade but can resume "
+                f"{'any number of' if maximum is None else maximum} times"
+            )
+        return
+    if grade is ResumptionGrade.LINEAR:
+        if maximum is None or maximum > 1:
+            raise KernelError(
+                f"{subject} declares a linear grade but can resume "
+                f"{'any number of' if maximum is None else maximum} times"
+            )
+        if use.minimum < 1:
+            raise KernelError(
+                f"{subject} declares a linear grade but some path through "
+                f"its body does not resume at all"
+            )
+        return
