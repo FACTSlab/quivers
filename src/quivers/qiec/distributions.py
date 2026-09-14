@@ -69,6 +69,116 @@ class DistributionBackend(Protocol):
         ...
 
 
+def tensor_rank(value: object) -> int:
+    """The nesting depth of a host tensor.
+
+    Parameters
+    ----------
+    value : object
+        A host value: a scalar, or a tuple of values of one rank.
+
+    Returns
+    -------
+    int
+        Zero for a scalar, one more than the first entry's rank for a
+        tuple; an empty tuple has rank one.
+    """
+    if isinstance(value, tuple):
+        return 1 + (tensor_rank(value[0]) if value else 0)
+    return 0
+
+
+def _slice_at(value: object, position: Sequence[int], rank: int) -> object:
+    """Read an argument at one plate position, broadcasting shorter ranks.
+
+    Parameters
+    ----------
+    value : object
+        The argument, of tensor rank at most the parameter's rank plus
+        the plate's.
+    position : Sequence[int]
+        The plate position, outermost axis first.
+    rank : int
+        The parameter's own rank.
+
+    Returns
+    -------
+    object
+        The argument's entry for the position: the argument itself when
+        it carries no plate dimensions, else the slice its trailing plate
+        dimensions select.
+    """
+    leading = tensor_rank(value) - rank
+    if leading <= 0:
+        return value
+    for index in position[len(position) - leading :]:
+        value = value[index]  # type: ignore[index]
+    return value
+
+
+def _positions(shape: Sequence[int]) -> list[tuple[int, ...]]:
+    """Every position of a shape in row-major order.
+
+    Parameters
+    ----------
+    shape : Sequence[int]
+        The shape.
+
+    Returns
+    -------
+    list[tuple[int, ...]]
+        The positions; one empty position for the empty shape.
+    """
+    positions: list[tuple[int, ...]] = [()]
+    for extent in shape:
+        positions = [
+            (*position, index) for position in positions for index in range(extent)
+        ]
+    return positions
+
+
+def _nest(entries: Mapping[tuple[int, ...], object], shape: Sequence[int]) -> object:
+    """Arrange per-position entries as nested tuples.
+
+    Parameters
+    ----------
+    entries : Mapping[tuple[int, ...], object]
+        One entry per position of ``shape``.
+    shape : Sequence[int]
+        The shape.
+
+    Returns
+    -------
+    object
+        The entry at the empty position for the empty shape, else nested
+        tuples with the outermost axis first.
+    """
+
+    def build(prefix: tuple[int, ...], depth: int) -> object:
+        """Build the tuple at one prefix of the shape.
+
+        Parameters
+        ----------
+        prefix : tuple[int, ...]
+            The position so far.
+        depth : int
+            How many axes the prefix covers.
+
+        Returns
+        -------
+        object
+            The entry when every axis is covered, else a tuple over the
+            next axis.
+        """
+        if depth == len(shape):
+            return entries[prefix]
+        return tuple(
+            build((*prefix, index), depth + 1) for index in range(shape[depth])
+        )
+
+    return build((), 0)
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeDistribution:
     """A constructed distribution, as host data.
@@ -79,14 +189,57 @@ class RuntimeDistribution:
         The family's source name.
     arguments
         The named parameters as host values; frozen on construction.
+    batch
+        The plate's batch extents, outermost first; each position is an
+        independent draw scored on its own.
+    event
+        The plate's extended event extents, outermost first; draws along
+        them join one event and are scored together.
+    ranks
+        Each parameter's own tensor rank, from the family registry, so
+        an argument carrying plate dimensions can be told from one that
+        does not.
     """
 
     family: str
     arguments: Mapping[str, object]
+    batch: tuple[int, ...] = ()
+    event: tuple[int, ...] = ()
+    ranks: Mapping[str, int] = MappingProxyType({})
 
     def __post_init__(self) -> None:
         """Freeze the arguments so a distribution value cannot drift."""
         object.__setattr__(self, "arguments", MappingProxyType(dict(self.arguments)))
+        object.__setattr__(self, "ranks", MappingProxyType(dict(self.ranks)))
+
+    @property
+    def plated(self) -> bool:
+        """Whether the distribution is constructed over a plate.
+
+        Returns
+        -------
+        bool
+            ``True`` when it has batch or extended event axes.
+        """
+        return bool(self.batch or self.event)
+
+    def _at(self, position: tuple[int, ...]) -> Mapping[str, object]:
+        """The family's arguments at one plate position.
+
+        Parameters
+        ----------
+        position : tuple[int, ...]
+            A position of the batch and event axes together.
+
+        Returns
+        -------
+        Mapping[str, object]
+            The named parameters with their plate dimensions selected.
+        """
+        return {
+            name: _slice_at(value, position, self.ranks.get(name, 0))
+            for name, value in self.arguments.items()
+        }
 
     def sample(self, rng: random.Random | None = None) -> object:
         """Draw one value through the installed backend.
@@ -100,34 +253,71 @@ class RuntimeDistribution:
         Returns
         -------
         object
-            The drawn host value.
+            The drawn host value: one draw of the family, or nested
+            tuples of draws over the plate's batch and event axes.
 
         Raises
         ------
         DistributionError
             If the backend cannot sample the family.
         """
-        return _backend.sample(self.family, self.arguments, rng or _RNG)
+        generator = rng or _RNG
+        if not self.plated:
+            return _backend.sample(self.family, self.arguments, generator)
+        shape = (*self.batch, *self.event)
+        return _nest(
+            {
+                position: _backend.sample(self.family, self._at(position), generator)
+                for position in _positions(shape)
+            },
+            shape,
+        )
 
-    def log_prob(self, value: object) -> float:
+    def log_prob(self, value: object, keep_batch: bool = False) -> object:
         """Evaluate the log density at a value through the installed backend.
 
         Parameters
         ----------
         value : object
-            The point evaluated.
+            The point evaluated; over a plate, nested tuples of points
+            shaped like the plate.
+        keep_batch : bool
+            Whether to keep one weight per batch position rather than
+            total them.
 
         Returns
         -------
-        float
-            The log density.
+        object
+            The log density as a float, or, with ``keep_batch`` over a
+            batch, nested tuples of floats shaped like the batch axes.
 
         Raises
         ------
         DistributionError
-            If the backend cannot score the family.
+            If the backend cannot score the family, or the point is not
+            shaped like the plate.
         """
-        return _backend.log_prob(self.family, self.arguments, value)
+        if not self.plated:
+            return _backend.log_prob(self.family, self.arguments, value)
+        shape = (*self.batch, *self.event)
+        if tensor_rank(value) < len(shape):
+            raise DistributionError(
+                f"a point scored under a plate of rank {len(shape)} has rank "
+                f"{tensor_rank(value)}"
+            )
+        totals: dict[tuple[int, ...], float] = {
+            position: 0.0 for position in _positions(self.batch)
+        }
+        for position in _positions(shape):
+            point = value
+            for index in position:
+                point = point[index]  # type: ignore[index]
+            totals[position[: len(self.batch)]] += _backend.log_prob(
+                self.family, self._at(position), point
+            )
+        if keep_batch:
+            return _nest(totals, self.batch)
+        return math.fsum(totals.values())
 
 
 def _real(arguments: Mapping[str, object], name: str, family: str) -> float:

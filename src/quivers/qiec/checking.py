@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from dataclasses import dataclass, field
 
 from quivers.qiec.declarations import ConstructorDecl, FamilyDecl
@@ -48,6 +50,7 @@ from quivers.qiec.substitution import (
     substitute_type,
 )
 from quivers.qiec.kinds import (
+    NAT,
     TYPE,
     ContextSort,
     EffectBinder,
@@ -81,6 +84,12 @@ from quivers.qiec.terms import (
     Projection,
     Return,
     SiteValue,
+    PlateShape,
+    Gather,
+    WeightSum,
+    SegmentSum,
+    KernelMatrix,
+    AffineMap,
     TransportValue,
     TensorValue,
     TupleValue,
@@ -95,9 +104,10 @@ from quivers.qiec.canonical import (
     tensor_shape,
     tensor_type,
 )
-from quivers.qiec.families import FAMILIES, FamilyParameter
+from quivers.qiec.families import FAMILIES, DistributionFamily, FamilyParameter
 from quivers.qiec.primitives import PRIMITIVES
 from quivers.qiec.types import (
+    IndexTerm,
     BOOL,
     product_type,
     INT,
@@ -1695,7 +1705,9 @@ def _checked_computation_type(
     return type_
 
 
-def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str | None:
+def _parameter_expectation(
+    parameter: FamilyParameter, actual: TypeExpr, plate: PlateShape = PlateShape()
+) -> str | None:
     """Explain why a value's type does not fit a family parameter.
 
     Parameters
@@ -1705,6 +1717,10 @@ def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str 
         types.
     actual : TypeExpr
         The supplied value's type.
+    plate : PlateShape
+        The plate the family is constructed over. A parameter may carry
+        leading dimensions following a suffix of the plate's axes and
+        broadcast over the rest.
 
     Returns
     -------
@@ -1713,8 +1729,10 @@ def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str 
         parameter takes. A ``"sampleable"`` parameter takes any
         ``Sampleable``; a ``"transform"`` parameter takes a ``String``;
         an integer constraint takes ``Int`` and a Boolean one ``Bool``,
-        otherwise ``Real``; a parameter of rank ``r`` above zero takes a
-        ``Tensor`` of that element with ``r`` dimensions.
+        otherwise ``Real``; a parameter of rank ``r`` takes that element
+        under ``r`` dimensions, or, over a plate, a scalar broadcast to
+        every position or a tensor whose leading dimensions are a
+        suffix of the plate's axes.
     """
     if parameter.constraint == "sampleable":
         return None if sampled_element(actual) is not None else "a Sampleable"
@@ -1726,12 +1744,109 @@ def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str 
         element = INT
     else:
         element = REAL
-    if parameter.rank == 0:
-        return None if actual == element else f"a {element.constructor.name}"
+    axes = tuple(axis.size for axis in (*plate.batch, *plate.event))
+    if actual == element and (parameter.rank == 0 or axes):
+        return None
     shape = tensor_shape(actual)
-    if shape is None or shape[0] != element or len(shape[1]) != parameter.rank:
-        return f"a Tensor[{element.constructor.name}] of rank {parameter.rank}"
-    return None
+    if shape is not None and shape[0] == element:
+        leading = len(shape[1]) - parameter.rank
+        if leading == 0:
+            return None
+        if (
+            0 < leading <= len(axes)
+            and tuple(shape[1][:leading]) == axes[len(axes) - leading :]
+        ):
+            return None
+    if parameter.rank == 0 and not axes:
+        return f"a {element.constructor.name}"
+    return f"a Tensor[{element.constructor.name}] of rank {parameter.rank}" + (
+        ", or one whose leading dimensions follow the plate" if axes else ""
+    )
+
+
+def _plated_sample_type(
+    value: DistributionValue,
+    family: DistributionFamily,
+    argument_types: Mapping[str, TypeExpr],
+) -> TypeExpr:
+    """The sample type of a construction, from its plate and arguments.
+
+    Parameters
+    ----------
+    value : DistributionValue
+        The construction.
+    family : DistributionFamily
+        Its family.
+    argument_types : Mapping[str, TypeExpr]
+        The inferred types of the supplied parameters.
+
+    Returns
+    -------
+    TypeExpr
+        ``Sampleable[E]`` where ``E`` is the family's element under the
+        plate's batch axes, its event axes, and the family's own event
+        dimensions; the family's own dimensions come from the trailing
+        event axes when the plate names enough of them, else from the
+        parameter the registry names as their source.
+
+    Raises
+    ------
+    KernelError
+        If the event shape cannot be read off the plate or the source
+        parameter, or the two disagree.
+    """
+    element = family.element
+    element_name = (
+        element.constructor.name
+        if isinstance(element, TypeApplication)
+        else repr(element)
+    )
+    plate = value.plate
+    natural: tuple[IndexTerm, ...] | None = None
+    if family.event_source is not None and family.event_rank > 0:
+        source = argument_types.get(family.event_source)
+        if source is not None:
+            source_shape = tensor_shape(source)
+            if source_shape is not None and len(source_shape[1]) >= family.event_rank:
+                natural = tuple(
+                    source_shape[1][len(source_shape[1]) - family.event_rank :]
+                )
+    event_axes = tuple(axis.size for axis in plate.event)
+    if family.event_rank > 0:
+        if len(event_axes) >= family.event_rank:
+            trailing = event_axes[len(event_axes) - family.event_rank :]
+            if natural is not None and tuple(natural) != tuple(trailing):
+                raise KernelError(
+                    f"family {value.name!r} samples the trailing shape of "
+                    f"{family.event_source!r}, {natural!r}, but its plate's "
+                    f"event axes end in {trailing!r}",
+                    "qiec-distribution",
+                )
+            event: tuple[IndexTerm, ...] = event_axes
+        elif natural is not None and not event_axes:
+            event = natural
+        else:
+            claimed = sampled_element(value.result_type)
+            shape = tensor_shape(claimed) if claimed is not None else None
+            if (
+                shape is None
+                or shape[0] != element
+                or len(shape[1]) != len(plate.batch) + family.event_rank
+                or family.event_source is not None
+            ):
+                raise KernelError(
+                    f"family {value.name!r} samples a Tensor[{element_name}] of "
+                    f"rank {family.event_rank}, not {value.result_type!r}",
+                    "qiec-distribution",
+                )
+            event = tuple(shape[1][len(plate.batch) :])
+    else:
+        event = event_axes
+    batch = tuple(axis.size for axis in plate.batch)
+    dimensions = (*batch, *event)
+    if not dimensions:
+        return sampleable_type(element)
+    return sampleable_type(tensor_type(element, dimensions))
 
 
 def _infer_tensor(
@@ -1801,6 +1916,197 @@ def _infer_tensor(
     return value.result_type
 
 
+def _infer_gather(
+    value: Gather, registry: KernelRegistry, context: CheckContext
+) -> TypeExpr:
+    """Type a selection along a tensor's outermost axis.
+
+    Parameters
+    ----------
+    value : Gather
+        The selection.
+    registry : KernelRegistry
+        The module's declarations.
+    context : CheckContext
+        Value bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        The slice type for an ``Int`` index, or a tensor of slices shaped
+        like a ``Tensor[Int]`` index.
+
+    Raises
+    ------
+    KernelError
+        If the value is not a tensor, the index is neither an ``Int`` nor
+        a tensor of them, or the claimed type is not the selection's.
+    """
+    source = tensor_shape(infer_value(value.value, registry, context))
+    if source is None:
+        raise KernelError("gather selects from a Tensor", "qiec-primitive")
+    element, dimensions = source
+    rest = dimensions[1:]
+    index = infer_value(value.index, registry, context)
+    if index == INT:
+        expected: TypeExpr = element if not rest else tensor_type(element, rest)
+    else:
+        index_shape = tensor_shape(index)
+        if index_shape is None or index_shape[0] != INT:
+            raise KernelError(
+                f"gather indexes with an Int or a Tensor[Int], not {index!r}",
+                "qiec-primitive",
+            )
+        expected = tensor_type(element, (*index_shape[1], *rest))
+    if value.result_type != expected:
+        raise KernelError(
+            f"gather has type {expected!r}, not the claimed {value.result_type!r}",
+            "qiec-primitive",
+        )
+    registry.validate_type(expected)
+    _check_static_variable_scope(expected, context, subject="gather type")
+    return expected
+
+
+def _infer_segment_sum(
+    value: SegmentSum, registry: KernelRegistry, context: CheckContext
+) -> TypeExpr:
+    """Type per-group totals of a weight vector.
+
+    Parameters
+    ----------
+    value : SegmentSum
+        The totals.
+    registry : KernelRegistry
+        The module's declarations.
+    context : CheckContext
+        Value bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        ``Tensor[LogWeight]([groups])``.
+
+    Raises
+    ------
+    KernelError
+        If the weights and the index are not vectors of one length, or
+        the claimed type is not a weight vector over the groups.
+    """
+    weights = tensor_shape(infer_value(value.value, registry, context))
+    index = tensor_shape(infer_value(value.index, registry, context))
+    if (
+        weights is None
+        or index is None
+        or weights[0] != LOG_WEIGHT
+        or index[0] != INT
+        or len(weights[1]) != 1
+        or len(index[1]) != 1
+        or weights[1] != index[1]
+    ):
+        raise KernelError(
+            "a segment sum takes a Tensor[LogWeight] and a Tensor[Int] of one length",
+            "qiec-distribution",
+        )
+    expected = tensor_type(LOG_WEIGHT, (value.groups,))
+    if value.result_type != expected:
+        raise KernelError(
+            f"segment sum has type {expected!r}, not the claimed {value.result_type!r}",
+            "qiec-distribution",
+        )
+    registry.validate_type(expected)
+    _check_static_variable_scope(expected, context, subject="segment sum type")
+    return expected
+
+
+def _infer_affine_map(
+    value: AffineMap, registry: KernelRegistry, context: CheckContext
+) -> TypeExpr:
+    """Type one head of an affine parameter map.
+
+    Parameters
+    ----------
+    value : AffineMap
+        The head.
+    registry : KernelRegistry
+        The module's declarations.
+    context : CheckContext
+        Value bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        ``Tensor[Real]([rows])``, or ``Real`` for a one-row head.
+
+    Raises
+    ------
+    KernelError
+        If the weight is not a real matrix, the bias not a real vector,
+        a source not a real scalar or vector, the block lies outside the
+        weight, the sources' widths do not fill the weight's columns, or
+        the claimed type is not the head's.
+    """
+    weight = tensor_shape(infer_value(value.weight, registry, context))
+    bias = tensor_shape(infer_value(value.bias, registry, context))
+    if weight is None or weight[0] != REAL or len(weight[1]) != 2:
+        raise KernelError(
+            "an affine map's weight is a Tensor[Real] of rank 2", "qiec-primitive"
+        )
+    if bias is None or bias[0] != REAL or len(bias[1]) != 1:
+        raise KernelError(
+            "an affine map's bias is a Tensor[Real] of rank 1", "qiec-primitive"
+        )
+    if value.rows <= 0 or value.row_offset < 0:
+        raise KernelError(
+            "an affine map's block needs a nonnegative offset and positive height",
+            "qiec-primitive",
+        )
+    total_rows, columns = weight[1]
+    if isinstance(total_rows, IndexLiteral) and isinstance(total_rows.value, int):
+        if value.row_offset + value.rows > total_rows.value:
+            raise KernelError(
+                "an affine map's block lies outside its weight", "qiec-primitive"
+            )
+    if bias[1][0] != total_rows:
+        raise KernelError(
+            "an affine map's bias has one entry per weight row", "qiec-primitive"
+        )
+    width = 0
+    for source in value.sources:
+        actual = infer_value(source, registry, context)
+        if actual == REAL:
+            width += 1
+            continue
+        shape = tensor_shape(actual)
+        if (
+            shape is None
+            or shape[0] != REAL
+            or len(shape[1]) != 1
+            or not isinstance(shape[1][0], IndexLiteral)
+            or not isinstance(shape[1][0].value, int)
+        ):
+            raise KernelError(
+                "an affine map's sources are Reals and literal-width real vectors",
+                "qiec-primitive",
+            )
+        width += shape[1][0].value
+    if isinstance(columns, IndexLiteral) and columns.value != width:
+        raise KernelError(
+            f"an affine map's sources fill {width} columns of a {columns.value}-wide "
+            "weight",
+            "qiec-primitive",
+        )
+    expected: TypeExpr = (
+        REAL if value.rows == 1 else tensor_type(REAL, (IndexLiteral(value.rows, NAT),))
+    )
+    if value.result_type != expected:
+        raise KernelError(
+            f"affine map has type {expected!r}, not the claimed {value.result_type!r}",
+            "qiec-primitive",
+        )
+    return expected
+
+
 def _infer_distribution(
     value: DistributionValue,
     registry: KernelRegistry,
@@ -1859,7 +2165,7 @@ def _infer_distribution(
                 "qiec-distribution",
             ) from error
         actual = infer_value(argument, registry, context)
-        expectation = _parameter_expectation(parameter, actual)
+        expectation = _parameter_expectation(parameter, actual, value.plate)
         if expectation is not None:
             raise KernelError(
                 f"parameter {name!r} of {value.name!r} has type {actual!r}; it "
@@ -1872,46 +2178,7 @@ def _infer_distribution(
             f"family {value.name!r} is constructed with no parameters",
             "qiec-distribution",
         )
-    element = family.element
-    element_name = (
-        element.constructor.name
-        if isinstance(element, TypeApplication)
-        else repr(element)
-    )
-    if family.event_rank == 0:
-        expected: TypeExpr = sampleable_type(element)
-    else:
-        claimed = sampled_element(value.result_type)
-        shape = tensor_shape(claimed) if claimed is not None else None
-        if shape is None or shape[0] != element or len(shape[1]) != family.event_rank:
-            raise KernelError(
-                f"family {value.name!r} samples a Tensor[{element_name}] of rank "
-                f"{family.event_rank}, not {value.result_type!r}",
-                "qiec-distribution",
-            )
-        if family.event_source is not None:
-            source = argument_types.get(family.event_source)
-            if source is None:
-                raise KernelError(
-                    f"family {value.name!r} needs parameter "
-                    f"{family.event_source!r} to fix its event shape",
-                    "qiec-distribution",
-                )
-            source_shape = tensor_shape(source)
-            if source_shape is None:
-                raise KernelError(
-                    f"parameter {family.event_source!r} of {value.name!r} must "
-                    "be a Tensor with a literal shape",
-                    "qiec-distribution",
-                )
-            event = source_shape[1][len(source_shape[1]) - family.event_rank :]
-            if tuple(shape[1]) != tuple(event):
-                raise KernelError(
-                    f"family {value.name!r} samples the trailing shape of "
-                    f"{family.event_source!r}, {event!r}, not {shape[1]!r}",
-                    "qiec-distribution",
-                )
-        expected = value.result_type
+    expected = _plated_sample_type(value, family, argument_types)
     if value.result_type != expected:
         raise KernelError(
             f"family {value.name!r} produces {expected!r}, not the claimed "
@@ -2054,7 +2321,60 @@ def infer_value(
                 f"of type {actual!r}",
                 "qiec-distribution",
             )
+        if not value.batch:
+            return LOG_WEIGHT
+        if not (
+            isinstance(value.sampleable, DistributionValue)
+            and value.sampleable.plate.batch == value.batch
+        ):
+            raise KernelError(
+                "log_prob keeps its weights apart over batch axes only for a "
+                "construction plated over those axes",
+                "qiec-distribution",
+            )
+        return tensor_type(LOG_WEIGHT, tuple(axis.size for axis in value.batch))
+    if isinstance(value, Gather):
+        return _infer_gather(value, registry, context)
+    if isinstance(value, WeightSum):
+        actual = infer_value(value.value, registry, context)
+        shape = tensor_shape(actual)
+        if actual != LOG_WEIGHT and (shape is None or shape[0] != LOG_WEIGHT):
+            raise KernelError(
+                f"a weight sum totals log weights, not {actual!r}",
+                "qiec-distribution",
+            )
         return LOG_WEIGHT
+    if isinstance(value, SegmentSum):
+        return _infer_segment_sum(value, registry, context)
+    if isinstance(value, KernelMatrix):
+        actual = infer_value(value.inputs, registry, context)
+        shape = tensor_shape(actual)
+        if shape is None or shape[0] != REAL or len(shape[1]) != 1:
+            raise KernelError(
+                f"a kernel matrix takes a Tensor[Real] of rank 1, not {actual!r}",
+                "qiec-distribution",
+            )
+        if value.kernel != "rbf":
+            raise KernelError(
+                f"unknown kernel {value.kernel!r}; the kernels are rbf",
+                "qiec-distribution",
+            )
+        if not value.length_scale > 0 or value.jitter < 0:
+            raise KernelError(
+                "a kernel matrix needs a positive length scale and a "
+                "nonnegative jitter",
+                "qiec-distribution",
+            )
+        expected = tensor_type(REAL, (shape[1][0], shape[1][0]))
+        if value.result_type != expected:
+            raise KernelError(
+                f"kernel matrix has type {expected!r}, not the claimed "
+                f"{value.result_type!r}",
+                "qiec-distribution",
+            )
+        return expected
+    if isinstance(value, AffineMap):
+        return _infer_affine_map(value, registry, context)
     if isinstance(value, TupleValue):
         components = tuple(infer_value(item, registry, context) for item in value.items)
         expected = product_type(*components)

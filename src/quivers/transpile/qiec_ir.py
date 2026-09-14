@@ -411,6 +411,36 @@ class IRQiecNamedArgument(dx.Model):
     value: IRQiecValue
 
 
+class IRQiecPlateAxis(dx.Model):
+    """One axis of a plated distribution.
+
+    Parameters
+    ----------
+    name
+        The axis's source name.
+    size
+        Its extent, an index term.
+    """
+
+    name: str
+    size: IRQiecStatic
+
+
+class IRQiecPlateShape(dx.Model):
+    """The plate a distribution is constructed over.
+
+    Parameters
+    ----------
+    batch
+        The independent replication axes, outermost first.
+    event
+        The joint axes, outermost first.
+    """
+
+    batch: tuple[IRQiecPlateAxis, ...] = ()
+    event: tuple[IRQiecPlateAxis, ...] = ()
+
+
 class IRQiecDistributionValue(IRQiecValue):
     """Construction of a distribution from a family of the registry.
 
@@ -426,6 +456,8 @@ class IRQiecDistributionValue(IRQiecValue):
         The ``Sampleable`` type constructed.
     origin
         The construction's source location.
+    plate
+        The plate the construction ranges over; empty for one draw.
     kind
         The discriminator; always ``"distribution"``.
     """
@@ -435,6 +467,7 @@ class IRQiecDistributionValue(IRQiecValue):
     arguments: tuple[IRQiecNamedArgument, ...]
     result_type: IRQiecStatic
     origin: IRQiecSourceOrigin
+    plate: IRQiecPlateShape = IRQiecPlateShape()
     kind: Literal["distribution"] = "distribution"
 
 
@@ -449,6 +482,9 @@ class IRQiecLogDensity(IRQiecValue):
         The point evaluated.
     origin
         The evaluation's source location.
+    batch
+        The batch axes the weights are kept apart over; empty for one
+        total weight.
     kind
         The discriminator; always ``"log_density"``.
     """
@@ -456,7 +492,128 @@ class IRQiecLogDensity(IRQiecValue):
     sampleable: IRQiecValue
     value: IRQiecValue
     origin: IRQiecSourceOrigin
+    batch: tuple[IRQiecPlateAxis, ...] = ()
     kind: Literal["log_density"] = "log_density"
+
+
+class IRQiecGather(IRQiecValue):
+    """Selection along a tensor's outermost axis.
+
+    Parameters
+    ----------
+    value
+        The tensor selected from.
+    index
+        An integer or a tensor of integers.
+    result_type
+        The selection's type.
+    kind
+        The discriminator; always ``"gather"``.
+    """
+
+    value: IRQiecValue
+    index: IRQiecValue
+    result_type: IRQiecStatic
+    kind: Literal["gather"] = "gather"
+
+
+class IRQiecWeightSum(IRQiecValue):
+    """The total of a tensor of log weights.
+
+    Parameters
+    ----------
+    value
+        The weights.
+    kind
+        The discriminator; always ``"weight_sum"``.
+    """
+
+    value: IRQiecValue
+    kind: Literal["weight_sum"] = "weight_sum"
+
+
+class IRQiecSegmentSum(IRQiecValue):
+    """Per-group totals of a vector of log weights.
+
+    Parameters
+    ----------
+    value
+        The weights.
+    index
+        Each entry's group.
+    groups
+        The number of groups.
+    result_type
+        The totals' type.
+    kind
+        The discriminator; always ``"segment_sum"``.
+    """
+
+    value: IRQiecValue
+    index: IRQiecValue
+    groups: IRQiecStatic
+    result_type: IRQiecStatic
+    kind: Literal["segment_sum"] = "segment_sum"
+
+
+class IRQiecKernelMatrix(IRQiecValue):
+    """A covariance matrix over input locations.
+
+    Parameters
+    ----------
+    inputs
+        The locations.
+    kernel
+        The kernel's name.
+    length_scale
+        Its length scale.
+    jitter
+        The diagonal jitter.
+    result_type
+        The matrix type.
+    kind
+        The discriminator; always ``"kernel_matrix"``.
+    """
+
+    inputs: IRQiecValue
+    kernel: str
+    length_scale: float
+    jitter: float
+    result_type: IRQiecStatic
+    kind: Literal["kernel_matrix"] = "kernel_matrix"
+
+
+class IRQiecAffineMap(IRQiecValue):
+    """One head of an affine parameter map.
+
+    Parameters
+    ----------
+    weight
+        The weight matrix.
+    bias
+        The bias vector.
+    sources
+        The conditioning row's factors in order.
+    row_offset
+        The first row of the head's block.
+    rows
+        The block's height.
+    transform
+        ``"identity"`` or ``"exp"``.
+    result_type
+        The head's type.
+    kind
+        The discriminator; always ``"affine_map"``.
+    """
+
+    weight: IRQiecValue
+    bias: IRQiecValue
+    sources: tuple[IRQiecValue, ...]
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp"]
+    result_type: IRQiecStatic
+    kind: Literal["affine_map"] = "affine_map"
 
 
 class IRQiecSiteValue(IRQiecValue):
@@ -961,6 +1118,15 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             value=cast(IRQiecValue, _convert(value.value)),
             target_type=cast(IRQiecStatic, _convert(value.target_type)),
         )
+    if isinstance(value, tm.PlateAxis):
+        return IRQiecPlateAxis(
+            name=value.name, size=cast(IRQiecStatic, _convert(value.size))
+        )
+    if isinstance(value, tm.PlateShape):
+        return IRQiecPlateShape(
+            batch=cast(tuple[IRQiecPlateAxis, ...], _convert(value.batch)),
+            event=cast(tuple[IRQiecPlateAxis, ...], _convert(value.event)),
+        )
     if isinstance(value, tm.DistributionValue):
         return IRQiecDistributionValue(
             family=_id(value.family),
@@ -971,12 +1137,47 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             ),
             result_type=cast(IRQiecStatic, _convert(value.result_type)),
             origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+            plate=cast(IRQiecPlateShape, _convert(value.plate)),
         )
     if isinstance(value, tm.LogDensity):
         return IRQiecLogDensity(
             sampleable=cast(IRQiecValue, _convert(value.sampleable)),
             value=cast(IRQiecValue, _convert(value.value)),
             origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+            batch=cast(tuple[IRQiecPlateAxis, ...], _convert(value.batch)),
+        )
+    if isinstance(value, tm.Gather):
+        return IRQiecGather(
+            value=cast(IRQiecValue, _convert(value.value)),
+            index=cast(IRQiecValue, _convert(value.index)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.WeightSum):
+        return IRQiecWeightSum(value=cast(IRQiecValue, _convert(value.value)))
+    if isinstance(value, tm.SegmentSum):
+        return IRQiecSegmentSum(
+            value=cast(IRQiecValue, _convert(value.value)),
+            index=cast(IRQiecValue, _convert(value.index)),
+            groups=cast(IRQiecStatic, _convert(value.groups)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.KernelMatrix):
+        return IRQiecKernelMatrix(
+            inputs=cast(IRQiecValue, _convert(value.inputs)),
+            kernel=value.kernel,
+            length_scale=value.length_scale,
+            jitter=value.jitter,
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.AffineMap):
+        return IRQiecAffineMap(
+            weight=cast(IRQiecValue, _convert(value.weight)),
+            bias=cast(IRQiecValue, _convert(value.bias)),
+            sources=cast(tuple[IRQiecValue, ...], _convert(value.sources)),
+            row_offset=value.row_offset,
+            rows=value.rows,
+            transform=value.transform,
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
         )
     if isinstance(value, tm.SiteValue):
         return IRQiecSiteValue(
@@ -1141,8 +1342,13 @@ type QiecFeature = Literal[
     "tuple",
     "tensor",
     "distribution",
+    "plate",
     "log-density",
     "site",
+    "gather",
+    "segment-sum",
+    "kernel-matrix",
+    "affine-map",
     "evidence",
     "transport",
     "attachment",
@@ -1362,14 +1568,38 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
                 value(entry)
         elif isinstance(item, IRQiecDistributionValue):
             required.add("distribution")
+            if item.plate.batch or item.plate.event:
+                required.add("plate")
             for argument in item.arguments:
                 value(argument.value)
         elif isinstance(item, IRQiecLogDensity):
             required.add("log-density")
+            if item.batch:
+                required.add("plate")
             value(item.sampleable)
             value(item.value)
         elif isinstance(item, IRQiecSiteValue):
             required.add("site")
+        elif isinstance(item, IRQiecGather):
+            required.add("gather")
+            value(item.value)
+            value(item.index)
+        elif isinstance(item, IRQiecWeightSum):
+            required.add("log-density")
+            value(item.value)
+        elif isinstance(item, IRQiecSegmentSum):
+            required.add("segment-sum")
+            value(item.value)
+            value(item.index)
+        elif isinstance(item, IRQiecKernelMatrix):
+            required.add("kernel-matrix")
+            value(item.inputs)
+        elif isinstance(item, IRQiecAffineMap):
+            required.add("affine-map")
+            value(item.weight)
+            value(item.bias)
+            for source in item.sources:
+                value(source)
 
     def visit(item: IRQiecComputation) -> None:
         if isinstance(item, IRQiecReturn):
