@@ -103,7 +103,27 @@ from quivers.qiec.types import (
 
 
 class KernelError(TypeError):
-    """A static QIEC kernel rejection."""
+    """A static QIEC kernel rejection.
+
+    Carries a stable diagnostic code alongside its message. The code is
+    attached where the rejection is raised, because only that site knows
+    which condition fired; classifying by message text afterwards is a
+    guess that silently changes whenever the prose is reworded.
+
+    Parameters
+    ----------
+    message : str
+        What was rejected, in prose, for a human reader.
+    code : str
+        A member of the published code set. Defaults to ``"qiec-kind"``,
+        which is where a rejection with no more specific classification
+        belongs.
+    """
+
+    def __init__(self, message: str, code: str = "qiec-kind") -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,7 +709,8 @@ class KernelRegistry:
             if actual.result != output:
                 raise KernelError(
                     f"return clause of handler {handler.name!r} answers "
-                    f"{actual.result!r}, not the declared {output!r}"
+                    f"{actual.result!r}, not the declared {output!r}",
+                    "qiec-handler-body",
                 )
         for clause in handler.clauses:
             if clause.body is None:
@@ -704,7 +725,8 @@ class KernelRegistry:
                 raise KernelError(
                     f"clause {operation.name!r} of handler {handler.name!r} "
                     f"binds {len(clause.parameters)} argument(s); the "
-                    f"operation takes {len(parameter_types)}"
+                    f"operation takes {len(parameter_types)}",
+                    "qiec-handler-body",
                 )
             context = CheckContext().with_resumption(
                 Resumption(resumed, output, handler.introduced)
@@ -716,14 +738,16 @@ class KernelRegistry:
                     raise KernelError(
                         f"clause {operation.name!r} of handler "
                         f"{handler.name!r} binds {parameter.name!r} at "
-                        f"{parameter.type!r}, not the declared {declared!r}"
+                        f"{parameter.type!r}, not the declared {declared!r}",
+                        "qiec-handler-body",
                     )
                 context = context.extend(parameter)
             actual = infer_computation(clause.body, self, context)
             if actual.result != output:
                 raise KernelError(
                     f"clause {operation.name!r} of handler {handler.name!r} "
-                    f"answers {actual.result!r}, not the declared {output!r}"
+                    f"answers {actual.result!r}, not the declared {output!r}",
+                    "qiec-handler-body",
                 )
             check_resumption_grade(
                 clause.grade,
@@ -787,7 +811,9 @@ class KernelRegistry:
         try:
             return self.computations[computation]
         except KeyError as exc:
-            raise KernelError(f"unknown computation {computation}") from exc
+            raise KernelError(
+                f"unknown computation {computation}", "qiec-call"
+            ) from exc
 
     def constructor(self, constructor: ConstructorId) -> ConstructorDecl:
         """The registered constructor with a given identity.
@@ -2125,13 +2151,15 @@ def _infer_resume(
     if available is None:
         raise KernelError(
             "resume outside a handler clause body: there is no continuation "
-            "to invoke here"
+            "to invoke here",
+            "qiec-resumption",
         )
     actual = infer_value(resumption.value, registry, context)
     if actual != available.result:
         raise KernelError(
             f"resume carries {actual!r} but the operation it resumes supplies "
-            f"{available.result!r}"
+            f"{available.result!r}",
+            "qiec-resumption",
         )
     return _checked_computation_type(
         available.effects,
@@ -2184,13 +2212,15 @@ def _infer_call(
     if len(call.static_arguments) != len(signature.telescope):
         raise KernelError(
             f"call to {signature.name!r} supplies {len(call.static_arguments)} "
-            f"static argument(s); the declaration binds {len(signature.telescope)}"
+            f"static argument(s); the declaration binds {len(signature.telescope)}",
+            "qiec-call-arity",
         )
     substitution = instantiate_telescope(signature.telescope, call.static_arguments)
     if len(call.arguments) != len(signature.parameters):
         raise KernelError(
             f"call to {signature.name!r} supplies {len(call.arguments)} "
-            f"argument(s); the declaration takes {len(signature.parameters)}"
+            f"argument(s); the declaration takes {len(signature.parameters)}",
+            "qiec-call-arity",
         )
     for position, (argument, declared) in enumerate(
         zip(call.arguments, signature.parameters, strict=True)
@@ -2200,7 +2230,8 @@ def _infer_call(
         if actual != expected:
             raise KernelError(
                 f"call to {signature.name!r} argument {position}: expected "
-                f"{expected!r}, got {actual!r}"
+                f"{expected!r}, got {actual!r}",
+                "qiec-call",
             )
     result = substitute_type(signature.result, substitution)
     effects = substitute_row(signature.effects, substitution)
@@ -2210,12 +2241,14 @@ def _infer_call(
     if call.result_type != result:
         raise KernelError(
             f"call to {signature.name!r} records result {call.result_type!r} "
-            f"but the instantiated signature gives {result!r}"
+            f"but the instantiated signature gives {result!r}",
+            "qiec-call",
         )
     if call.effects != effects:
         raise KernelError(
             f"call to {signature.name!r} records row {call.effects!r} "
-            f"but the instantiated signature gives {effects!r}"
+            f"but the instantiated signature gives {effects!r}",
+            "qiec-call",
         )
     return _checked_computation_type(effects, result, registry, context)
 
@@ -2260,7 +2293,8 @@ def _infer_new_instance(
     if inner.effects.contains(allocation.instance):
         raise KernelError(
             f"local instance {allocation.instance} escapes its scope: the body "
-            f"still performs it, so nothing outside can discharge it"
+            f"still performs it, so nothing outside can discharge it",
+            "qiec-instance-escape",
         )
     return _checked_computation_type(
         inner.effects,
@@ -2432,25 +2466,29 @@ def check_resumption_grade(
         if maximum != 0:
             raise KernelError(
                 f"{subject} declares grade 0 but can resume "
-                f"{'any number of' if maximum is None else maximum} time(s)"
+                f"{'any number of' if maximum is None else maximum} time(s)",
+                "qiec-resumption",
             )
         return
     if grade is ResumptionGrade.AFFINE:
         if maximum is None or maximum > 1:
             raise KernelError(
                 f"{subject} declares an affine grade but can resume "
-                f"{'any number of' if maximum is None else maximum} times"
+                f"{'any number of' if maximum is None else maximum} times",
+                "qiec-resumption",
             )
         return
     if grade is ResumptionGrade.LINEAR:
         if maximum is None or maximum > 1:
             raise KernelError(
                 f"{subject} declares a linear grade but can resume "
-                f"{'any number of' if maximum is None else maximum} times"
+                f"{'any number of' if maximum is None else maximum} times",
+                "qiec-resumption",
             )
         if use.minimum < 1:
             raise KernelError(
                 f"{subject} declares a linear grade but some path through "
-                f"its body does not resume at all"
+                f"its body does not resume at all",
+                "qiec-resumption",
             )
         return
