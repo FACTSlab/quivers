@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, is_dataclass
 
 from quivers.qiec.checking import (
+    ComputationSignature,
     CheckContext,
     KernelError,
     KernelRegistry,
@@ -39,7 +40,7 @@ from quivers.qiec.kinds import (
     UserIndexSort,
     validate_telescope,
 )
-from quivers.qiec.terms import CaseMotive, Computation, Handle, Local
+from quivers.qiec.terms import CaseMotive, Computation, Handle, Local, NewInstance
 from quivers.qiec.types import EffectRef, EffectVariable, IndexVariable, TypeVariable
 
 
@@ -52,6 +53,14 @@ class NamedEffectInstance:
     origin: SourceOrigin
 
     def __post_init__(self) -> None:
+        """Reject an unnamed instance.
+
+        Raises
+        ------
+        ValueError
+            If the source name is empty. The name is how a request
+            resolves to this instance, so an empty one names nothing.
+        """
         if not self.name:
             raise ValueError("an effect instance name cannot be empty")
 
@@ -69,6 +78,16 @@ class NamedComputation:
     origin: SourceOrigin
 
     def __post_init__(self) -> None:
+        """Reject a computation whose names collide or are absent.
+
+        Raises
+        ------
+        ValueError
+            If the name is empty, the telescope is malformed, two
+            parameters share a name, or a parameter shadows a static
+            binder. Shadowing is rejected so a name inside the body
+            denotes one thing.
+        """
         if not self.name:
             raise ValueError("a computation name cannot be empty")
         validate_telescope(self.telescope)
@@ -105,6 +124,16 @@ class QiecModule:
     abi: str = QIEC_ABI
 
     def __post_init__(self) -> None:
+        """Reject a module whose identity or ABI is missing or wrong.
+
+        Raises
+        ------
+        ValueError
+            If the module name or source protocol is empty, or the ABI is
+            not the one this kernel speaks. The ABI is checked here as
+            well as at the wire envelope so a module built in process
+            cannot claim a version it was not built for.
+        """
         if not isinstance(self.module, str) or not self.module:
             raise ValueError("a QIEC module name cannot be empty")
         if not isinstance(self.source_protocol, str) or not self.source_protocol:
@@ -178,13 +207,52 @@ class QiecModule:
 
 
 def _require_unique(values: object, *, subject: str) -> None:
+    """Reject a repeated identity in a module-level collection.
+
+    Parameters
+    ----------
+    values : object
+        An iterable of hashable identities.
+    subject : str
+        What is being checked, named in the diagnostic.
+
+    Raises
+    ------
+    ValueError
+        If any value repeats. Two declarations sharing an identity would
+        make a reference to it ambiguous.
+    """
     materialized = tuple(values)  # type: ignore[arg-type]
     if len(set(materialized)) != len(materialized):
         raise ValueError(f"duplicate {subject} in QIEC module")
 
 
 def validate_module(module: QiecModule) -> KernelRegistry:
-    """Recheck a whole lowered module and return its resolved registry."""
+    """Recheck a whole lowered module and return its resolved registry.
+
+    This is deliberately independent of the lowerer. It rebuilds the
+    registry from the module's own declarations and rechecks every body
+    against it, so a module that arrived from elsewhere, or from a
+    lowerer with a bug, is held to the same standard as one just built.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The lowered module to recheck.
+
+    Returns
+    -------
+    KernelRegistry
+        The registry resolved from the module's declarations, for a
+        caller that wants to check further terms against it.
+
+    Raises
+    ------
+    KernelError
+        If the ABI does not match, a declaration is ill-formed, an
+        instance or index sort is undeclared, a body fails to check, or
+        an inferred type does not conform to the declared one.
+    """
 
     if module.abi != QIEC_ABI:
         raise KernelError(f"unsupported QIEC ABI {module.abi!r}")
@@ -204,6 +272,21 @@ def validate_module(module: QiecModule) -> KernelRegistry:
             raise KernelError(
                 f"unknown effect interface for instance {instance.name!r}"
             )
+    # Every computation signature is registered before any body is
+    # rechecked, for the same reason the lowerer collects them first: a
+    # body may call a computation declared after it, and two may call
+    # each other.
+    for computation in module.computations:
+        registry.register_computation(
+            ComputationSignature(
+                computation.id,
+                computation.name,
+                computation.telescope,
+                tuple(parameter.type for parameter in computation.parameters),
+                computation.type.result,
+                computation.type.effects,
+            )
+        )
     for handler in module.handlers:
         registry.register_handler(handler)
     instance_interfaces = {
@@ -257,6 +340,21 @@ def computation_type_conforms(
     every absence guaranteed by the declaration. Row-variable names and IDs
     are lexical identities, so conformance compares their constraints rather
     than treating unrelated tails as identical.
+
+    Parameters
+    ----------
+    actual : ComputationType
+        The type inferred from the body.
+    declared : ComputationType
+        The type the declaration states.
+
+    Returns
+    -------
+    bool
+        True when the body's type inhabits the declaration. The result
+        types must be equal; the rows may differ only by the inferred row
+        being weakened into a declared open one that it proves every
+        absence of.
     """
 
     if actual.result != declared.result:
@@ -293,13 +391,61 @@ def _validate_effect_instances(
     module: str,
     source_protocol: str,
 ) -> None:
-    """Validate every concrete lexical instance in a module-owned object."""
+    """Validate every concrete lexical instance in a module-owned object.
+
+    Parameters
+    ----------
+    value : object
+        The module-owned object to walk.
+    interfaces : dict[EffectInstanceId, EffectRef]
+        Module-level instances and the interfaces they implement.
+    subject : str
+        What is being validated, named in any diagnostic.
+    module : str
+        The module's name, which request provenance must match.
+    source_protocol : str
+        The source protocol, which request provenance must match.
+
+    Raises
+    ------
+    KernelError
+        If an instance is undeclared, if an entry assigns it the wrong
+        interface, or if a request carries provenance from another module
+        or another source protocol.
+
+    Notes
+    -----
+    Instances come from two places. A module-level `instance` declaration
+    is visible throughout, and a `NewInstance` allocation is visible only
+    inside its own body. The walk therefore carries a scope: entering an
+    allocation adds its instance, and leaving it drops the instance
+    again, so a reference outside is the undeclared-instance error it
+    should be.
+    """
 
     def require(
         instance: EffectInstanceId,
+        scope: dict[EffectInstanceId, EffectRef],
         effect: EffectRef | None = None,
     ) -> None:
-        declared = interfaces.get(instance)
+        """Require one instance to be in scope, and to match its interface.
+
+        Parameters
+        ----------
+        instance : EffectInstanceId
+            The instance referred to.
+        scope : dict[EffectInstanceId, EffectRef]
+            Locally allocated instances currently visible.
+        effect : EffectRef or None
+            The interface the reference claims, when it carries one.
+
+        Raises
+        ------
+        KernelError
+            If the instance is neither locally allocated nor declared at
+            module level, or the claimed interface disagrees.
+        """
+        declared = scope.get(instance, interfaces.get(instance))
         if declared is None:
             raise KernelError(f"{subject} uses an undeclared lexical effect instance")
         if effect is not None and declared != effect:
@@ -307,16 +453,40 @@ def _validate_effect_instances(
                 f"{subject} assigns the wrong interface to a lexical effect instance"
             )
 
-    def visit(node: object) -> None:
+    def visit(
+        node: object,
+        scope: dict[EffectInstanceId, EffectRef] | None = None,
+    ) -> None:
+        """Walk a node, carrying the locally allocated instances in scope.
+
+        Parameters
+        ----------
+        node : object
+            The node to walk.
+        scope : dict[EffectInstanceId, EffectRef] or None
+            Instances allocated by an enclosing `NewInstance`. None at
+            the top, where only module-level instances are visible.
+
+        Raises
+        ------
+        KernelError
+            If an instance reference is out of scope, or a request
+            carries foreign provenance.
+        """
+        scope = {} if scope is None else scope
+        if isinstance(node, NewInstance):
+            visit(node.effect, scope)
+            visit(node.body, {**scope, node.instance: node.effect})
+            return
         if isinstance(node, EffectRow):
             for entry in node.entries:
-                require(entry.instance, entry.effect)
+                require(entry.instance, scope, entry.effect)
             if node.tail is not None:
                 for instance in node.tail.lacks:
-                    require(instance)
+                    require(instance, scope)
             return
         if isinstance(node, EffectRequest):
-            require(node.instance, node.effect)
+            require(node.instance, scope, node.effect)
             if not isinstance(node.origin, SiteProvenance):
                 raise KernelError(f"{subject} has malformed request provenance")
             request_origin = node.origin.origin
@@ -331,22 +501,50 @@ def _validate_effect_instances(
                     f"{subject} has request provenance from another source protocol"
                 )
         elif isinstance(node, Handle):
-            require(node.instance)
+            require(node.instance, scope)
         if isinstance(node, tuple):
             for item in node:
-                visit(item)
+                visit(item, scope)
             return
         if is_dataclass(node) and not isinstance(node, type):
             for field in fields(node):
-                visit(getattr(node, field.name))
+                visit(getattr(node, field.name), scope)
 
     visit(value)
 
 
 def _validate_closed_effect_instance(instance: NamedEffectInstance) -> None:
-    """Require module-level effect applications to be fully closed."""
+    """Require module-level effect applications to be fully closed.
+
+    A module-level instance is visible everywhere, so its interface
+    application cannot mention a variable: there is no binder in scope at
+    module level for one to refer to.
+
+    Parameters
+    ----------
+    instance : NamedEffectInstance
+        The declared instance to check.
+
+    Raises
+    ------
+    KernelError
+        If the application contains any static variable, whether a free
+        named one or a rigid branch skolem that escaped.
+    """
 
     def visit(node: object) -> None:
+        """Reject a static variable anywhere beneath a node.
+
+        Parameters
+        ----------
+        node : object
+            The node to walk.
+
+        Raises
+        ------
+        KernelError
+            If a static variable is found.
+        """
         if isinstance(node, (TypeVariable, IndexVariable, EffectVariable)):
             identity = "identity-bearing" if node.identity is not None else "free named"
             raise KernelError(
@@ -365,11 +563,39 @@ def _validate_closed_effect_instance(instance: NamedEffectInstance) -> None:
 
 
 def _validate_index_sorts(module: QiecModule) -> None:
-    """Require every embedded user index sort to name its module declaration."""
+    """Require every embedded user index sort to name its module declaration.
+
+    A sort's constructors are part of its identity, so an embedded copy
+    that disagrees with the declaration would make coverage checking
+    answer against a different datatype than the one declared.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module to walk.
+
+    Raises
+    ------
+    KernelError
+        If an embedded sort is undeclared, or disagrees with the
+        declaration of the same name.
+    """
 
     declared = {sort.name: sort for sort in module.index_sorts}
 
     def visit(node: object) -> None:
+        """Check any user index sort beneath a node.
+
+        Parameters
+        ----------
+        node : object
+            The node to walk.
+
+        Raises
+        ------
+        KernelError
+            If an embedded sort is undeclared or disagrees.
+        """
         if isinstance(node, UserIndexSort):
             expected = declared.get(node.name)
             if expected is None:
@@ -399,7 +625,21 @@ def _validate_index_sorts(module: QiecModule) -> None:
 
 
 def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
-    """Reject source variables not introduced by a computation telescope."""
+    """Reject source variables not introduced by a computation telescope.
+
+    Parameters
+    ----------
+    value : object
+        The declaration to walk.
+    telescope : Telescope
+        The binders the declaration introduces.
+
+    Raises
+    ------
+    KernelError
+        If a free named variable is not bound by the telescope, or is
+        bound at a different kind or sort than it is used at.
+    """
 
     def bindings(
         scope: Telescope,
@@ -408,6 +648,19 @@ def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
         dict[str, IndexBinder],
         dict[str, EffectBinder],
     ]:
+        """Split a telescope into its three namespaces.
+
+        Parameters
+        ----------
+        scope : Telescope
+            The binders to index.
+
+        Returns
+        -------
+        tuple[dict[str, TypeBinder], dict[str, IndexBinder], dict[str, EffectBinder]]
+            Name-keyed maps of the type, index, and effect binders. The
+            namespaces are disjoint, so a name appears in at most one.
+        """
         return (
             {binder.name: binder for binder in scope if isinstance(binder, TypeBinder)},
             {
@@ -428,6 +681,25 @@ def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
         index_binders: dict[str, IndexBinder],
         effect_binders: dict[str, EffectBinder],
     ) -> None:
+        """Check every free named variable beneath a node.
+
+        Parameters
+        ----------
+        node : object
+            The node to walk.
+        type_binders : dict[str, TypeBinder]
+            Type binders in scope, by name.
+        index_binders : dict[str, IndexBinder]
+            Index binders in scope, by name.
+        effect_binders : dict[str, EffectBinder]
+            Effect binders in scope, by name.
+
+        Raises
+        ------
+        KernelError
+            If a free named variable is unbound, or is used at a kind or
+            sort other than the one its binder declares.
+        """
         if isinstance(node, TypeVariable) and node.identity is None:
             binder = type_binders.get(node.name)
             if binder is None or binder.kind != node.kind:

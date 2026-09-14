@@ -663,7 +663,7 @@ effect Abort[E : Type]
 
 instance stop : Abort[String]
 
-handler ignore[E : Type, A : Type] for Abort[E] : A -> A [coverage=partial]
+handler ignore[E : Type, A : Type] for Abort[E] : A -> A [coverage=partial, implementation=foreign]
     abort resumes 0
 ```
 

@@ -422,6 +422,13 @@ class IRQiecEffectDef(dx.Model):
 class IRQiecHandlerClauseDef(dx.Model):
     operation: IRQiecId
     grade: Literal["0", "aff", "1", "omega"]
+    parameters: tuple[IRQiecLocal, ...] = ()
+    body: IRQiecComputation | None = None
+
+
+class IRQiecHandlerReturnClauseDef(dx.Model):
+    binder: IRQiecLocal
+    body: IRQiecComputation
 
 
 class IRQiecHandlerDef(dx.Model):
@@ -435,6 +442,8 @@ class IRQiecHandlerDef(dx.Model):
     total: bool
     forwards_unknown: bool
     telescope: tuple[IRQiecBinder, ...]
+    return_clause: IRQiecHandlerReturnClauseDef | None = None
+    implementation: Literal["authored", "foreign"] = "foreign"
 
 
 class IRQiecNamedEffectInstance(dx.Model):
@@ -752,6 +761,7 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
         e.OperationDef: IRQiecOperationDef,
         e.EffectDef: IRQiecEffectDef,
         e.HandlerClauseDef: IRQiecHandlerClauseDef,
+        e.HandlerReturnClauseDef: IRQiecHandlerReturnClauseDef,
         e.HandlerDef: IRQiecHandlerDef,
         m.NamedEffectInstance: IRQiecNamedEffectInstance,
         m.NamedComputation: IRQiecNamedComputation,

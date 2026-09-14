@@ -47,7 +47,7 @@ effect State[S : Type]
 
 instance cell : State[Int]
 
-handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total]
+handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total, implementation=foreign]
     get resumes 1
     put resumes 0
 """
@@ -384,7 +384,7 @@ define rebuild[A : Type, n : Nat](xs : Vec[A](S(n))) : Vec[A](S(n)) !{} =
         (
             """effect E
     op : Unit -> Unit
-handler h for E : Unit -> Unit [coverage=total, coverage=partial]
+handler h for E : Unit -> Unit [coverage=total, coverage=partial, implementation=foreign]
     op resumes 0
 """,
             "duplicate handler option(s): coverage",
@@ -415,7 +415,7 @@ def test_duplicate_qiec_options_are_source_located(source: str, message: str) ->
         (
             """effect E
     op : Unit -> Unit
-handler h for E : Unit -> Unit [coverage=partial]
+handler h for E : Unit -> Unit [coverage=partial, implementation=foreign]
     op resumes 0
     op resumes 1
 """,
@@ -479,7 +479,7 @@ def test_open_row_lacks_must_be_proved_by_the_inferred_tail() -> None:
         """effect State[S : Type]
     get : Unit -> S
 instance cell : State[Int]
-handler h for State[Int] : Int -> Int [coverage=total, introduces=!{| sigma}]
+handler h for State[Int] : Int -> Int [coverage=total, introduces=!{| sigma}, implementation=foreign]
     get resumes 1
 define f() : Int !{| rho lacks cell} =
     handle cell with h in

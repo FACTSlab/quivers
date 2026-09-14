@@ -25,7 +25,7 @@ def test_textmate_recognizes_the_complete_qiec_vocabulary() -> None:
         "family Vec[A : Type](n : Nat) : Type\n"
         "effect State[S : Type]\n"
         "instance cell : State[Int]\n"
-        "handler run for State[Int] : Int -> Int [coverage=total]\n"
+        "handler run for State[Int] : Int -> Int [coverage=total, implementation=foreign]\n"
         "define read() : Int !{cell} = handle cell with run in\n"
         "    let x <- perform cell.get()\n"
         "    return x\n"

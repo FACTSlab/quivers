@@ -28,6 +28,12 @@ from panproto import GatError
 
 from quivers.dsl import ast_nodes as surface
 from quivers.qiec import (
+    ComputationSignature,
+    substitute_row,
+    Call,
+    NewInstance,
+    Resume,
+    HandlerReturnClauseDef,
     ComputationId,
     BOOL,
     EFFECT,
@@ -548,6 +554,7 @@ class _Elaborator:
         self.effects: dict[str, EffectDef] = {}
         self.instances: dict[str, NamedEffectInstance] = {}
         self.handlers: dict[str, HandlerDef] = {}
+        self.computation_signatures: dict[str, ComputationSignature] = {}
         self.registry = KernelRegistry()
 
     def elaborate(self) -> QiecModule:
@@ -558,8 +565,10 @@ class _Elaborator:
         self._declare_constructors()
         self._validate_indexed_language()
         self._declare_instances()
-        self._declare_handlers()
         self._build_registry()
+        self._declare_computation_signatures()
+        self._declare_handlers()
+        self._register_handlers()
         computations = self._declare_computations()
         return QiecModule(
             self.source.module_name,
@@ -852,9 +861,45 @@ class _Elaborator:
             operations = {
                 operation.name: operation for operation in definition.operations
             }
+            input_type = self._lower_type(declaration.input_type, telescope)
+            output_type = self._lower_type(declaration.output_type, telescope)
+            introduced = self._lower_row(
+                declaration.introduced,
+                ("handlers", declaration.name, "introduced"),
+            )
+            # The interface's own binders are instantiated at the
+            # application this handler names, so an operation signature
+            # mentioning them reads at the right types inside a clause.
+            try:
+                interface_substitution = instantiate_telescope(
+                    definition.telescope, effect.arguments
+                )
+            except (TypeError, ValueError) as error:
+                self._fail(declaration, str(error), code="qiec-handler")
             clauses: list[HandlerClauseDef] = []
+            return_clause: HandlerReturnClauseDef | None = None
             seen_clauses: set[str] = set()
-            for clause in declaration.clauses:
+            for position, clause in enumerate(declaration.clauses):
+                base = ("handlers", declaration.name, "clauses", position)
+                if isinstance(clause, surface.QiecHandlerReturnClause):
+                    if return_clause is not None:
+                        self._fail(
+                            clause,
+                            f"handler {declaration.name!r} has more than one "
+                            f"return clause",
+                            code="qiec-handler",
+                        )
+                    binder = Local(clause.binder.name, input_type)
+                    return_clause = HandlerReturnClauseDef(
+                        binder,
+                        self._lower_computation(
+                            clause.body,
+                            telescope,
+                            CheckContext((binder,)),
+                            (*base, "body"),
+                        ),
+                    )
+                    continue
                 if clause.operation in seen_clauses:
                     self._fail(
                         clause,
@@ -870,15 +915,63 @@ class _Elaborator:
                         f"effect {effect.name!r} has no operation {clause.operation!r}",
                         code="qiec-handler",
                     )
-                clauses.append(
-                    HandlerClauseDef(operation.id, ResumptionGrade(clause.grade))
+                clause_binders = self._lower_telescope(clause.binders)
+                if len(clause_binders) != len(operation.telescope):
+                    self._fail(
+                        clause,
+                        f"clause {clause.operation!r} binds "
+                        f"{len(clause_binders)} static argument(s); the "
+                        f"operation declares {len(operation.telescope)}",
+                        code="qiec-handler",
+                    )
+                clause_scope = (*telescope, *clause_binders)
+                try:
+                    parameter_types, _resumed = instantiate_operation(
+                        operation,
+                        tuple(
+                            self._binder_variable(binder) for binder in clause_binders
+                        ),
+                        interface_substitution,
+                    )
+                except (TypeError, ValueError) as error:
+                    self._fail(clause, str(error), code="qiec-handler")
+                # A signature-only clause binds nothing, because it has
+                # no body for a binder to be in scope of. Only an
+                # authored clause has to name every argument.
+                if clause.body is not None and len(clause.parameters) != len(
+                    parameter_types
+                ):
+                    self._fail(
+                        clause,
+                        f"clause {clause.operation!r} binds "
+                        f"{len(clause.parameters)} argument(s); the operation "
+                        f"takes {len(parameter_types)}",
+                        code="qiec-handler",
+                    )
+                parameters = tuple(
+                    Local(authored.name, declared)
+                    for authored, declared in zip(
+                        clause.parameters, parameter_types, strict=False
+                    )
                 )
-            input_type = self._lower_type(declaration.input_type, telescope)
-            output_type = self._lower_type(declaration.output_type, telescope)
-            introduced = self._lower_row(
-                declaration.introduced,
-                ("handlers", declaration.name, "introduced"),
-            )
+                body = (
+                    None
+                    if clause.body is None
+                    else self._lower_computation(
+                        clause.body,
+                        clause_scope,
+                        CheckContext(parameters),
+                        (*base, "body"),
+                    )
+                )
+                clauses.append(
+                    HandlerClauseDef(
+                        operation.id,
+                        ResumptionGrade(clause.grade),
+                        parameters,
+                        body,
+                    )
+                )
             try:
                 handler = HandlerDef(
                     HandlerId.derive(
@@ -893,6 +986,8 @@ class _Elaborator:
                     total=declaration.coverage == "total",
                     forwards_unknown=declaration.forwards_unknown,
                     telescope=telescope,
+                    return_clause=return_clause,
+                    implementation=declaration.implementation,
                 )
             except (TypeError, ValueError) as error:
                 self._fail(declaration, str(error), code="qiec-handler")
@@ -911,13 +1006,6 @@ class _Elaborator:
             for item in cast(
                 tuple[surface.QiecEffectDecl, ...],
                 self._items(surface.QiecEffectDecl),
-            )
-        }
-        handler_nodes = {
-            item.name: item
-            for item in cast(
-                tuple[surface.QiecHandlerDecl, ...],
-                self._items(surface.QiecHandlerDecl),
             )
         }
         for family in self.families.values():
@@ -939,11 +1027,81 @@ class _Elaborator:
                 self.registry.register_effect(effect)
             except (KernelError, TypeError, ValueError) as error:
                 self._fail(effect_nodes[effect.ref.name], str(error), code="qiec-kind")
+
+    def _register_handlers(self) -> None:
+        """Register built handlers, after their bodies have been lowered.
+
+        Separate from the rest of the registry build because a clause
+        body may call a computation or perform an effect, so it can only
+        be lowered once the families, effects, and computation
+        signatures are all present.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a handler fails the kernel's own validation, reported at
+            the declaration's source position.
+        """
+        handler_nodes = {
+            item.name: item
+            for item in cast(
+                tuple[surface.QiecHandlerDecl, ...],
+                self._items(surface.QiecHandlerDecl),
+            )
+        }
         for handler in self.handlers.values():
             try:
                 self.registry.register_handler(handler)
             except (KernelError, TypeError, ValueError) as error:
                 self._fail(handler_nodes[handler.name], str(error), code="qiec-handler")
+
+    def _declare_computation_signatures(self) -> None:
+        """Collect every computation signature before any body is lowered.
+
+        This is what makes a forward call ordinary. A body may call a
+        computation declared below it, and two computations may call each
+        other, because the table is complete before the first body is
+        read.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two computations share a name, if a parameter name
+            repeats, or if a declared type or row is ill-formed.
+        """
+        seen: set[str] = set()
+        for declaration in cast(
+            tuple[surface.QiecComputationDecl, ...],
+            self._items(surface.QiecComputationDecl),
+        ):
+            if declaration.name in seen:
+                self._fail(declaration, f"duplicate computation {declaration.name!r}")
+            seen.add(declaration.name)
+            telescope = self._lower_telescope(declaration.binders)
+            parameters = tuple(
+                self._lower_type(parameter.type_expr, telescope)
+                for parameter in declaration.parameters
+            )
+            signature = ComputationSignature(
+                ComputationId.derive(
+                    self.source.module_name,
+                    "computation",
+                    declaration.name,
+                ),
+                declaration.name,
+                telescope,
+                parameters,
+                self._lower_type(declaration.result_type, telescope),
+                self._lower_row(
+                    declaration.effects,
+                    ("computations", declaration.name, "effects"),
+                ),
+            )
+            try:
+                self.registry.register_computation(signature)
+            except (KernelError, TypeError, ValueError) as error:
+                self._fail(declaration, str(error), code="qiec-route")
+            self.computation_signatures[declaration.name] = signature
 
     def _declare_computations(self) -> tuple[NamedComputation, ...]:
         declarations = cast(
@@ -1635,7 +1793,208 @@ class _Elaborator:
             )
         if isinstance(authored, surface.QiecCaseComputation):
             return self._lower_case(authored, scope, context, path, static_bindings)
+        if isinstance(authored, surface.QiecPureBinding):
+            # A pure binding is a bind of a returned value. The core has
+            # one sequencing form, and keeping it that way means every
+            # later pass sees one shape rather than two that behave the
+            # same.
+            value = self._lower_value(authored.value, scope, context, static_bindings)
+            try:
+                inferred = infer_value(value, self.registry, context)
+            except (KernelError, TypeError, ValueError) as error:
+                self._fail(authored.value, str(error))
+            binder_type = (
+                inferred
+                if authored.binder.type_expr is None
+                else self._lower_type(authored.binder.type_expr, scope, static_bindings)
+            )
+            binder = Local(authored.binder.name, binder_type)
+            return Bind(
+                binder,
+                Return(value),
+                self._lower_computation(
+                    authored.then,
+                    scope,
+                    context.extend(binder),
+                    (*path, "then"),
+                    static_bindings,
+                ),
+            )
+        if isinstance(authored, surface.QiecResumeComputation):
+            return Resume(
+                (
+                    LiteralValue(None, UNIT)
+                    if authored.value is None
+                    else self._lower_value(
+                        authored.value, scope, context, static_bindings
+                    )
+                ),
+                self._origin(authored, path, "resume"),
+            )
+        if isinstance(authored, surface.QiecInstanceComputation):
+            return self._lower_local_instance(
+                authored, scope, context, path, static_bindings
+            )
+        if isinstance(authored, surface.QiecCallComputation):
+            return self._lower_call(authored, scope, context, path, static_bindings)
         self._fail(authored, "unknown QIEC computation")
+
+    def _lower_local_instance(
+        self,
+        authored: surface.QiecInstanceComputation,
+        scope: Telescope,
+        context: CheckContext,
+        path: tuple[str | int, ...],
+        static_bindings: Mapping[str, StaticArgument] | None,
+    ) -> NewInstance:
+        """Lower a scoped allocation and its body.
+
+        The instance identity is derived from the module and the lexical
+        path, so the same allocation site yields the same instance on
+        every run while two sites of one interface stay distinct. The
+        binder is registered only while the body is lowered, which is
+        what keeps a reference outside the body from resolving.
+
+        Parameters
+        ----------
+        authored : surface.QiecInstanceComputation
+            The source allocation.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        path : tuple[str | int, ...]
+            Structural path of this allocation, entering its identity.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Static bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        NewInstance
+            The lowered allocation.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the interface is unknown, wrongly applied, or the binder
+            shadows an instance already in scope. Shadowing is rejected
+            because a qualified operation would otherwise resolve to
+            whichever instance happened to be innermost.
+        """
+        effect = self._lower_effect_ref(authored.effect, scope, static_bindings)
+        if authored.name in self.instances:
+            self._fail(
+                authored,
+                f"local instance {authored.name!r} shadows an instance already "
+                f"in scope",
+                code="qiec-handler",
+            )
+        entry = instantiate_effect(
+            effect,
+            module=self.source.module_name,
+            lexical_path=path,
+        )
+        self.instances[authored.name] = NamedEffectInstance(
+            authored.name,
+            entry,
+            self._origin(authored, path, "effect-instance"),
+        )
+        try:
+            body = self._lower_computation(
+                authored.body,
+                scope,
+                context,
+                (*path, "body"),
+                static_bindings,
+            )
+        finally:
+            # The binder is lexical, so it leaves scope with the body
+            # whether lowering succeeded or failed.
+            del self.instances[authored.name]
+        return NewInstance(
+            entry.instance,
+            effect,
+            body,
+            self._origin(authored, path, "local-instance"),
+        )
+
+    def _lower_call(
+        self,
+        authored: surface.QiecCallComputation,
+        scope: Telescope,
+        context: CheckContext,
+        path: tuple[str | int, ...],
+        static_bindings: Mapping[str, StaticArgument] | None,
+    ) -> Call:
+        """Lower an application of a named computation.
+
+        The callee is resolved against the signature table, which is
+        complete before any body is lowered, so a call to a computation
+        declared later in the module resolves like any other.
+
+        Parameters
+        ----------
+        authored : surface.QiecCallComputation
+            The source call.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        path : tuple[str | int, ...]
+            Structural path of this call site.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Static bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        Call
+            The lowered call, carrying the instantiated result type and
+            effect row so a later check can compare them against the
+            callee's signature.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the callee is undeclared, or the static arguments do not
+            instantiate its telescope.
+        """
+        signature = self.computation_signatures.get(authored.callee)
+        if signature is None:
+            self._fail(
+                authored,
+                f"unknown computation {authored.callee!r}",
+                code="qiec-route",
+            )
+        if len(authored.static_arguments) != len(signature.telescope):
+            self._fail(
+                authored,
+                f"call to {authored.callee!r} supplies "
+                f"{len(authored.static_arguments)} static argument(s); the "
+                f"declaration binds {len(signature.telescope)}",
+                code="qiec-kind",
+            )
+        static_arguments = tuple(
+            self._lower_static_argument(argument, binder, scope, static_bindings)
+            for argument, binder in zip(
+                authored.static_arguments, signature.telescope, strict=True
+            )
+        )
+        try:
+            substitution = instantiate_telescope(signature.telescope, static_arguments)
+        except (TypeError, ValueError) as error:
+            self._fail(authored, str(error), code="qiec-kind")
+        return Call(
+            signature.id,
+            authored.callee,
+            static_arguments,
+            tuple(
+                self._lower_value(value, scope, context, static_bindings)
+                for value in authored.arguments
+            ),
+            substitute_type(signature.result, substitution),
+            substitute_row(signature.effects, substitution),
+            self._origin(authored, path, "call"),
+        )
 
     def _lower_case(
         self,

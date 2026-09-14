@@ -50,7 +50,7 @@ effect State[S : Type]
 
 instance cell : State[Int]
 
-handler run_state[S : Type, A : Type] for State[S] : A -> A [introduces=!{cell | rho lacks cell}, coverage=partial, forwards=unknown]
+handler run_state[S : Type, A : Type] for State[S] : A -> A [introduces=!{cell | rho lacks cell}, coverage=partial, forwards=unknown, implementation=foreign]
     get resumes 1
     put resumes 0
 """

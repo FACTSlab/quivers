@@ -346,7 +346,7 @@ def test_effectful_execution_crosses_cli_repl_and_tui_boundaries(
         "effect Echo\n"
         "    ping : Int -> Int\n\n"
         "instance echo : Echo\n\n"
-        "handler pass for Echo : Int -> Int [coverage=total]\n"
+        "handler pass for Echo : Int -> Int [coverage=total, implementation=foreign]\n"
         "    ping resumes 1\n\n"
         "define effectful(x : Int) : Int !{} =\n"
         "    handle echo with pass in\n"

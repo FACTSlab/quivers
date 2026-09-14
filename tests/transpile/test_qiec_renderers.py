@@ -91,7 +91,7 @@ HANDLED = """\
 effect Ask
     get : Unit -> Int
 instance ask : Ask
-handler answer for Ask : Int -> Int [coverage=total]
+handler answer for Ask : Int -> Int [coverage=total, implementation=foreign]
     get resumes 1
 define read() : Int !{} =
     handle ask with answer in
@@ -106,7 +106,7 @@ effect Trace
     record : Int -> Unit
 instance choice : Choose
 instance trace : Trace
-handler branch for Choose : Int -> Int [coverage=total]
+handler branch for Choose : Int -> Int [coverage=total, implementation=foreign]
     pick resumes omega
 define explored() : Int !{trace} =
     handle choice with branch in
@@ -131,10 +131,10 @@ effect Trace
 instance cell : State
 instance choice : Choose
 instance trace : Trace
-handler run_state for State : Int -> Int [coverage=total]
+handler run_state for State : Int -> Int [coverage=total, implementation=foreign]
     get resumes 1
     put resumes 1
-handler branch for Choose : Int -> Int [coverage=total]
+handler branch for Choose : Int -> Int [coverage=total, implementation=foreign]
     pick resumes omega
 define explored() : Int !{trace} =
     handle cell with run_state in
@@ -151,9 +151,9 @@ effect Forwarded
     a : Unit -> Int
     b : Unit -> Int
 instance forwarded : Forwarded
-handler inner for Forwarded : Int -> Int [coverage=partial]
+handler inner for Forwarded : Int -> Int [coverage=partial, implementation=foreign]
     a resumes 1
-handler outer for Forwarded : Int -> Int [coverage=total]
+handler outer for Forwarded : Int -> Int [coverage=total, implementation=foreign]
     a resumes 1
     b resumes 1
 define forwarded_result() : Int !{} =
@@ -176,7 +176,7 @@ PARAMETERIZED_HANDLER = """\
 effect Read[A : Type]
     get : Unit -> A
 instance read_int : Read[Int]
-handler run_read[A : Type] for Read[A] : A -> A [coverage=total]
+handler run_read[A : Type] for Read[A] : A -> A [coverage=total, implementation=foreign]
     get resumes 1
 define read_specialized() : Int !{} =
     handle read_int with run_read[Int] in
