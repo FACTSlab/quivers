@@ -587,6 +587,25 @@ def _require(
 
 
 def _default_draw(sampleable: object) -> object:
+    """Draw from a sampleable using whichever interface it offers.
+
+    Parameters
+    ----------
+    sampleable
+        The host distribution.
+
+    Returns
+    -------
+    object
+        The drawn value. A reparameterised draw is preferred where the
+        object offers one, since it keeps a gradient path a plain sample
+        would cut.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the object offers neither drawing interface.
+    """
     rsample = getattr(sampleable, "rsample", None)
     if callable(rsample):
         return rsample()
@@ -648,6 +667,22 @@ def draw_handler(
         resume: Resumption,
         _context: ClauseContext,
     ) -> object:
+        """Answer a `Random.sample` request.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+        What the resumed computation produced.
+        """
         site, sampleable = _expect_arguments(request, 2, definition.name)
         value = (
             draw(site, sampleable, request)
@@ -728,6 +763,14 @@ def score_handler(
     )
 
     def make_context() -> RuntimeHandler:
+        """Build a fresh per-installation handler.
+
+        Returns
+        -------
+        RuntimeHandler
+        A handler with its own state, so two installations of this
+        declaration do not share it.
+        """
         local = ScoreAccumulator(identity)
 
         def add(
@@ -735,6 +778,22 @@ def score_handler(
             resume: Resumption,
             _context: ClauseContext,
         ) -> object:
+            """Answer a `Score.add` request by accumulating the weight.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, LOG_WEIGHT, "score contribution")
             local.contributions.append(weight)
@@ -742,9 +801,25 @@ def score_handler(
             return resume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
+            """Answer the handled computation's return.
+
+                Parameters
+                ----------
+                value
+                    The value the handled computation returned.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What this handler answers with, which may pair the value with
+            the state or total it accumulated.
+            """
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
+            """Hand the accumulated result to the configured sink."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
@@ -780,6 +855,25 @@ class ExtraValuePolicy(str, Enum):
 def _site_and_sampleable(
     request: RuntimeRequest, handler: str
 ) -> tuple[object, object]:
+    """Read a sample request's site and sampleable arguments.
+
+    Parameters
+    ----------
+    request
+        The request being answered and its arguments.
+    handler
+        The handler's name, for any diagnostic.
+
+    Returns
+    -------
+    tuple[object, object]
+        The site and the sampleable.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the request does not carry exactly those two arguments.
+    """
     site, sampleable = _expect_arguments(request, 2, handler)
     try:
         hash(site)
@@ -789,6 +883,25 @@ def _site_and_sampleable(
 
 
 def _log_density(sampleable: object, value: object) -> object:
+    """Score a value under a host distribution.
+
+    Parameters
+    ----------
+    sampleable
+        The host distribution.
+    value
+        The value the handled computation returned.
+
+    Returns
+    -------
+    object
+        The log density.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the distribution offers no scoring interface.
+    """
     log_prob = getattr(sampleable, "log_prob", None)
     if not callable(log_prob):
         raise InvalidHandlerError(
@@ -806,6 +919,28 @@ def _emit_score(
     *,
     role: str,
 ) -> None:
+    """Send one log-density contribution to a `Score` instance.
+
+    Parameters
+    ----------
+    context
+        Runtime services available to the clause.
+    request
+        The request being answered and its arguments.
+    score_instance
+        The lexical `Score` instance to send the density to.
+    weight
+        The log density to contribute.
+    weight_validator
+        Checks the contribution.
+    role
+        What the contribution is for, entering its derived identity.
+
+    Raises
+    ------
+    RuntimeTypeMismatch
+        If the contribution does not inhabit the weight type.
+    """
     weight_ref = context.attach(
         weight,
         LOG_WEIGHT,
@@ -900,6 +1035,14 @@ def condition_handler(
     )
 
     def make_context() -> RuntimeHandler:
+        """Build a fresh per-installation handler.
+
+        Returns
+        -------
+        RuntimeHandler
+        A handler with its own state, so two installations of this
+        declaration do not share it.
+        """
         seen: set[object] = set()
 
         def sample(
@@ -907,6 +1050,22 @@ def condition_handler(
             resume: Resumption,
             context: ClauseContext,
         ) -> object:
+            """Answer a `Random.sample` request.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                context
+                    Runtime services available to the clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             site, sampleable = _site_and_sampleable(request, definition.name)
             if site not in observations:
                 if missing is MissingValuePolicy.ERROR:
@@ -932,6 +1091,21 @@ def condition_handler(
             return resume(value)
 
         def finish(value: object, _context: ClauseContext) -> object:
+            """Answer the handled computation's return.
+
+                Parameters
+                ----------
+                value
+                    The value the handled computation returned.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What this handler answers with, which may pair the value with
+            the state or total it accumulated.
+            """
             if extra is ExtraValuePolicy.ERROR:
                 extras = set(observations) - seen
                 if extras:
@@ -1019,6 +1193,14 @@ def replay_handler(
     )
 
     def make_context() -> RuntimeHandler:
+        """Build a fresh per-installation handler.
+
+        Returns
+        -------
+        RuntimeHandler
+        A handler with its own state, so two installations of this
+        declaration do not share it.
+        """
         seen: set[object] = set()
 
         def sample(
@@ -1026,6 +1208,22 @@ def replay_handler(
             resume: Resumption,
             context: ClauseContext,
         ) -> object:
+            """Answer a `Random.sample` request.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                context
+                    Runtime services available to the clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             site, sampleable = _site_and_sampleable(request, definition.name)
             if site not in values:
                 return Forward()
@@ -1050,6 +1248,21 @@ def replay_handler(
             return resume(value)
 
         def finish(value: object, _context: ClauseContext) -> object:
+            """Answer the handled computation's return.
+
+                Parameters
+                ----------
+                value
+                    The value the handled computation returned.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What this handler answers with, which may pair the value with
+            the state or total it accumulated.
+            """
             if extra is ExtraValuePolicy.ERROR:
                 extras = set(values) - seen
                 if extras:
@@ -1088,6 +1301,17 @@ class TraceRecorder:
     events: list[TraceEvent] = field(default_factory=list)
 
     def record(self, request: RuntimeRequest, result: object, *, mode: str) -> object:
+        """Record one request and the value produced for it.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        result
+            The value produced for the request.
+        mode
+            How the value was produced.
+        """
         self.events.append(
             TraceEvent(
                 request.address,
@@ -1146,11 +1370,40 @@ def trace_handler(
     )
 
     def make_clause(operation: OperationId):
+        """Build the clause implementing one operation.
+
+        Parameters
+        ----------
+        operation
+            The operation this clause is being built for.
+
+        Returns
+        -------
+        RuntimeClause
+        The clause and its result validator.
+        """
+
         def clause(
             request: RuntimeRequest,
             _resume: Resumption,
             _context: ClauseContext,
         ) -> object:
+            """Answer the request this clause covers.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                _resume
+                    The continuation, which this clause does not invoke.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            The handler's answer.
+            """
             return Forward(
                 lambda result: recorder.record(request, result, mode="forwarded")
             )
@@ -1167,11 +1420,44 @@ def trace_handler(
             resume: Resumption,
             context: ClauseContext,
         ) -> object:
+            """Answer the request, validating the resumed value.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                context
+                    Runtime services available to the clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             answer = clause(request, resume, context)
             assert isinstance(answer, Forward)
             hook = answer.on_response
 
             def validate_and_record(result: object) -> object:
+                """Check a produced value and record it.
+
+                        Parameters
+                        ----------
+                        result
+                            The value produced for the request.
+
+                        Returns
+                        -------
+                        object
+                The value, unchanged.
+
+                        Raises
+                        ------
+                        RuntimeTypeMismatch
+                If it does not inhabit the operation's result type.
+                """
                 _require(
                     result,
                     validator,
@@ -1255,6 +1541,14 @@ def state_handler(
     )
 
     def make_context() -> RuntimeHandler:
+        """Build a fresh per-installation handler.
+
+        Returns
+        -------
+        RuntimeHandler
+        A handler with its own state, so two installations of this
+        declaration do not share it.
+        """
         local = StateCell(initial)
 
         def get(
@@ -1262,6 +1556,22 @@ def state_handler(
             resume: Resumption,
             _context: ClauseContext,
         ) -> object:
+            """Answer a `State.get` request with the current state.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             _expect_arguments(request, 0, definition.name)
             return resume(local.value)
 
@@ -1270,15 +1580,47 @@ def state_handler(
             resume: Resumption,
             _context: ClauseContext,
         ) -> object:
+            """Answer a `State.put` request by replacing the state.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             (new_value,) = _expect_arguments(request, 1, definition.name)
             _require(new_value, state_validator, state_type, "state update")
             local.value = new_value
             return resume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
+            """Answer the handled computation's return.
+
+                Parameters
+                ----------
+                value
+                    The value the handled computation returned.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What this handler answers with, which may pair the value with
+            the state or total it accumulated.
+            """
             return (value, local.value) if expose_final else value
 
         def publish() -> None:
+            """Hand the accumulated result to the configured sink."""
             cell.value = local.value
 
         return RuntimeHandler(
@@ -1373,6 +1715,22 @@ def abort_handler(
         _resume: Resumption,
         _context: ClauseContext,
     ) -> object:
+        """Answer an abort request without resuming.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        _resume
+            The continuation, which this clause does not invoke.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+        The handler's answer, which discards the continuation.
+        """
         (error,) = _expect_arguments(request, 1, definition.name)
         return on_abort(error)
 
@@ -1433,6 +1791,22 @@ def choose_handler(
         resume: Resumption,
         _context: ClauseContext,
     ) -> object:
+        """Answer a choice request, resuming once per alternative.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+        The combined result over every alternative.
+        """
         (alternatives,) = _expect_arguments(request, 1, definition.name)
         if isinstance(alternatives, (str, bytes)):
             raise InvalidHandlerError("Choose alternatives must be a finite collection")
@@ -1536,6 +1910,14 @@ def weight_handler(
     )
 
     def make_context() -> RuntimeHandler:
+        """Build a fresh per-installation handler.
+
+        Returns
+        -------
+        RuntimeHandler
+        A handler with its own state, so two installations of this
+        declaration do not share it.
+        """
         local = WeightAccumulator(identity)
 
         def add(
@@ -1543,6 +1925,22 @@ def weight_handler(
             resume: Resumption,
             _context: ClauseContext,
         ) -> object:
+            """Answer a `Score.add` request by accumulating the weight.
+
+                Parameters
+                ----------
+                request
+                    The request being answered and its arguments.
+                resume
+                    The continuation, invoked within the clause's declared grade.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What the resumed computation produced.
+            """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, weight_type, "semiring weight")
             local.contributions.append(weight)
@@ -1550,9 +1948,25 @@ def weight_handler(
             return resume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
+            """Answer the handled computation's return.
+
+                Parameters
+                ----------
+                value
+                    The value the handled computation returned.
+                _context
+                    Runtime services, unused by this clause.
+
+                Returns
+                -------
+                object
+            What this handler answers with, which may pair the value with
+            the state or total it accumulated.
+            """
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
+            """Hand the accumulated result to the configured sink."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
