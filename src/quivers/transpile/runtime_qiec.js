@@ -54,6 +54,66 @@ var _qvr_qiec_instance = function(thunk) {
   return _qvr_qiec_call(thunk, [["instance", _qvr_qiec_serials.instance]], false);
 };
 var _qvr_qiec_resume = function(resume, value) { return _qvr_qiec_as_computation(resume(value)); };
+var _qvr_qiec_div_int = function(a, b) {
+  if (b === 0) { throw new Error("QIEC integer division by zero"); }
+  return Math.trunc(a / b);
+};
+// The closed primitive table. Names and semantics mirror the kernel registry;
+// integer division and remainder truncate toward zero on every host.
+var _qvr_qiec_primitives = {
+  add_int: function(a, b) { return a + b; },
+  sub_int: function(a, b) { return a - b; },
+  mul_int: function(a, b) { return a * b; },
+  div_int: _qvr_qiec_div_int,
+  mod_int: function(a, b) { return a - b * _qvr_qiec_div_int(a, b); },
+  neg_int: function(a) { return -a; },
+  abs_int: function(a) { return Math.abs(a); },
+  min_int: function(a, b) { return Math.min(a, b); },
+  max_int: function(a, b) { return Math.max(a, b); },
+  add_real: function(a, b) { return a + b; },
+  sub_real: function(a, b) { return a - b; },
+  mul_real: function(a, b) { return a * b; },
+  div_real: function(a, b) { return a / b; },
+  neg_real: function(a) { return -a; },
+  abs_real: function(a) { return Math.abs(a); },
+  min_real: function(a, b) { return Math.min(a, b); },
+  max_real: function(a, b) { return Math.max(a, b); },
+  pow_real: function(a, b) { return Math.pow(a, b); },
+  exp: function(a) { return Math.exp(a); },
+  log: function(a) { return Math.log(a); },
+  sqrt: function(a) { return Math.sqrt(a); },
+  eq_int: function(a, b) { return a === b; },
+  ne_int: function(a, b) { return a !== b; },
+  lt_int: function(a, b) { return a < b; },
+  le_int: function(a, b) { return a <= b; },
+  gt_int: function(a, b) { return a > b; },
+  ge_int: function(a, b) { return a >= b; },
+  eq_real: function(a, b) { return a === b; },
+  ne_real: function(a, b) { return a !== b; },
+  lt_real: function(a, b) { return a < b; },
+  le_real: function(a, b) { return a <= b; },
+  gt_real: function(a, b) { return a > b; },
+  ge_real: function(a, b) { return a >= b; },
+  eq_bool: function(a, b) { return a === b; },
+  ne_bool: function(a, b) { return a !== b; },
+  eq_string: function(a, b) { return a === b; },
+  ne_string: function(a, b) { return a !== b; },
+  and: function(a, b) { return a && b; },
+  or: function(a, b) { return a || b; },
+  not: function(a) { return !a; },
+  concat: function(a, b) { return a + b; },
+  int_to_real: function(a) { return a; },
+  real_to_int: function(a) { return Math.trunc(a); }
+};
+var _qvr_qiec_primitive = function(name, args) {
+  if (!Object.prototype.hasOwnProperty.call(_qvr_qiec_primitives, name)) { throw new Error("unknown QIEC primitive " + name); }
+  return _qvr_qiec_primitives[name].apply(null, args.map(_qvr_qiec_value));
+};
+var _qvr_qiec_project = function(value, position) {
+  value = _qvr_qiec_value(value);
+  if (!Array.isArray(value) || position >= value.length) { throw new Error("QIEC projection from a non-product runtime value"); }
+  return value[position];
+};
 var _qvr_qiec_authored = {};
 var _qvr_qiec_static_kind = function(argument) {
   var kind = argument && argument.kind;

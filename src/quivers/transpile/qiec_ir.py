@@ -18,6 +18,7 @@ import didactic.api as dx
 
 from quivers.qiec import QiecModule
 from quivers.qiec.identifiers import StableId
+from quivers.qiec.primitives import PRIMITIVES
 
 
 type IRScalar = None | bool | int | float | str
@@ -309,6 +310,72 @@ class IRQiecAttachmentRef(IRQiecValue):
     attachment: IRQiecId
     type: IRQiecStatic
     kind: Literal["attachment"] = "attachment"
+
+
+class IRQiecPrimitiveApplication(IRQiecValue):
+    """Application of a pure primitive from the closed registry.
+
+    Parameters
+    ----------
+    primitive
+        The primitive's stable identity.
+    name
+        The primitive's nominal name.
+    arguments
+        The value arguments, in order.
+    result_type
+        The primitive's result type.
+    origin
+        The application's source location.
+    kind
+        The discriminator; always ``"primitive"``.
+    """
+
+    primitive: IRQiecId
+    name: str
+    arguments: tuple[IRQiecValue, ...]
+    result_type: IRQiecStatic
+    origin: IRQiecSourceOrigin
+    kind: Literal["primitive"] = "primitive"
+
+
+class IRQiecTupleValue(IRQiecValue):
+    """Construction of a finite product from its components.
+
+    Parameters
+    ----------
+    items
+        The component values, in order.
+    result_type
+        The product type.
+    kind
+        The discriminator; always ``"tuple"``.
+    """
+
+    items: tuple[IRQiecValue, ...]
+    result_type: IRQiecStatic
+    kind: Literal["tuple"] = "tuple"
+
+
+class IRQiecProjection(IRQiecValue):
+    """Selection of one component of a finite product.
+
+    Parameters
+    ----------
+    value
+        The product value.
+    position
+        The zero-based component selected.
+    result_type
+        The component's type.
+    kind
+        The discriminator; always ``"projection"``.
+    """
+
+    value: IRQiecValue
+    position: int
+    result_type: IRQiecStatic
+    kind: Literal["projection"] = "projection"
 
 
 class IRQiecTransportValue(IRQiecValue):
@@ -774,6 +841,25 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             value=cast(IRQiecValue, _convert(value.value)),
             target_type=cast(IRQiecStatic, _convert(value.target_type)),
         )
+    if isinstance(value, tm.PrimitiveApplication):
+        return IRQiecPrimitiveApplication(
+            primitive=_id(value.primitive),
+            name=value.name,
+            arguments=cast(tuple[IRQiecValue, ...], _convert(value.arguments)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
+    if isinstance(value, tm.TupleValue):
+        return IRQiecTupleValue(
+            items=cast(tuple[IRQiecValue, ...], _convert(value.items)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.Projection):
+        return IRQiecProjection(
+            value=cast(IRQiecValue, _convert(value.value)),
+            position=value.position,
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
     if isinstance(value, e.EffectRequest):
         return IRQiecEffectRequest(
             instance=_id(value.instance),
@@ -892,6 +978,13 @@ type QiecFeature = Literal[
     "resume",
     "local-instance",
     "authored-handler",
+    "arithmetic",
+    "comparison",
+    "boolean",
+    "string",
+    "conversion",
+    "math",
+    "tuple",
     "evidence",
     "transport",
     "attachment",
@@ -960,6 +1053,13 @@ _GENERIC_RUNTIME = QiecTargetCapabilities(
             "resume",
             "local-instance",
             "authored-handler",
+            "arithmetic",
+            "comparison",
+            "boolean",
+            "string",
+            "conversion",
+            "math",
+            "tuple",
             "evidence",
             "transport",
             "attachment",
@@ -1082,6 +1182,17 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             required.add("structured-value")
             for field in item.fields:
                 value(field)
+        elif isinstance(item, IRQiecPrimitiveApplication):
+            required.add(_primitive_feature(item.name))
+            for argument in item.arguments:
+                value(argument)
+        elif isinstance(item, IRQiecTupleValue):
+            required.add("tuple")
+            for component in item.items:
+                value(component)
+        elif isinstance(item, IRQiecProjection):
+            required.add("tuple")
+            value(item.value)
 
     def visit(item: IRQiecComputation) -> None:
         if isinstance(item, IRQiecReturn):
@@ -1117,6 +1228,26 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
 
     visit(node)
     return required
+
+
+def _primitive_feature(name: str) -> QiecFeature:
+    """The capability feature a primitive's registry tag names.
+
+    Parameters
+    ----------
+    name
+        The primitive's nominal name.
+
+    Returns
+    -------
+    QiecFeature
+        The registry's capability for the primitive. An unknown name is
+        reported as ``arithmetic`` here only so the analysis can name the
+        computation; the kernel has already rejected the module if the
+        name is not in the registry.
+    """
+    signature = PRIMITIVES.get(name)
+    return cast(QiecFeature, signature.capability if signature else "arithmetic")
 
 
 def _callees(node: IRQiecComputation) -> set[str]:

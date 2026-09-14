@@ -6,6 +6,7 @@ override checked coverage, grades, or types.
 """
 
 import contextvars as _qvr_qiec_contextvars
+import math as _qvr_qiec_math
 
 
 def _qvr_qiec_pure(value):
@@ -112,6 +113,79 @@ def _qvr_qiec_instance(thunk):
 
 def _qvr_qiec_resume(resume, value):
     return _qvr_qiec_as_computation(resume(value))
+
+
+def _qvr_qiec_div_int(a, b):
+    quotient = abs(a) // abs(b)
+    return quotient if (a < 0) == (b < 0) else -quotient
+
+
+def _qvr_qiec_mod_int(a, b):
+    return a - b * _qvr_qiec_div_int(a, b)
+
+
+# The closed primitive table. Names and semantics mirror the kernel
+# registry; integer division and remainder truncate toward zero on every
+# host, which is why they are spelled out rather than borrowed.
+_qvr_qiec_primitives = {
+    "add_int": lambda a, b: a + b,
+    "sub_int": lambda a, b: a - b,
+    "mul_int": lambda a, b: a * b,
+    "div_int": _qvr_qiec_div_int,
+    "mod_int": _qvr_qiec_mod_int,
+    "neg_int": lambda a: -a,
+    "abs_int": abs,
+    "min_int": min,
+    "max_int": max,
+    "add_real": lambda a, b: a + b,
+    "sub_real": lambda a, b: a - b,
+    "mul_real": lambda a, b: a * b,
+    "div_real": lambda a, b: a / b,
+    "neg_real": lambda a: -a,
+    "abs_real": abs,
+    "min_real": min,
+    "max_real": max,
+    "pow_real": _qvr_qiec_math.pow,
+    "exp": _qvr_qiec_math.exp,
+    "log": _qvr_qiec_math.log,
+    "sqrt": _qvr_qiec_math.sqrt,
+    "eq_int": lambda a, b: a == b,
+    "ne_int": lambda a, b: a != b,
+    "lt_int": lambda a, b: a < b,
+    "le_int": lambda a, b: a <= b,
+    "gt_int": lambda a, b: a > b,
+    "ge_int": lambda a, b: a >= b,
+    "eq_real": lambda a, b: a == b,
+    "ne_real": lambda a, b: a != b,
+    "lt_real": lambda a, b: a < b,
+    "le_real": lambda a, b: a <= b,
+    "gt_real": lambda a, b: a > b,
+    "ge_real": lambda a, b: a >= b,
+    "eq_bool": lambda a, b: a == b,
+    "ne_bool": lambda a, b: a != b,
+    "eq_string": lambda a, b: a == b,
+    "ne_string": lambda a, b: a != b,
+    "and": lambda a, b: a and b,
+    "or": lambda a, b: a or b,
+    "not": lambda a: not a,
+    "concat": lambda a, b: a + b,
+    "int_to_real": float,
+    "real_to_int": _qvr_qiec_math.trunc,
+}
+
+
+def _qvr_qiec_primitive(name, arguments):
+    implementation = _qvr_qiec_primitives.get(name)
+    if implementation is None:
+        raise KeyError("unknown QIEC primitive " + name)
+    return implementation(*(_qvr_qiec_value(argument) for argument in arguments))
+
+
+def _qvr_qiec_project(value, position):
+    value = _qvr_qiec_value(value)
+    if not isinstance(value, tuple) or position >= len(value):
+        raise TypeError("QIEC projection from a non-product runtime value")
+    return value[position]
 
 
 def _qvr_qiec_static_kind(argument):

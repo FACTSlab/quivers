@@ -287,6 +287,12 @@ class RowVariableId(StableId):
     namespace = "row-variable"
 
 
+class PrimitiveId(StableId):
+    """Stable identity of a pure primitive."""
+
+    namespace = "primitive"
+
+
 @dataclass(frozen=True, slots=True)
 class SourceOrigin:
     """Stable structural source origin with optional diagnostic coordinates.
@@ -487,4 +493,5 @@ __all__ = [
     "StaticVariableId",
     "TypeId",
     "RowVariableId",
+    "PrimitiveId",
 ]
