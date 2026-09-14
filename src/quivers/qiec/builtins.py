@@ -700,7 +700,16 @@ def draw_handler(
 
 @dataclass(slots=True)
 class ScoreAccumulator:
-    """Mutable result owned by one installed Score handler."""
+    """Mutable result owned by one installed Score handler.
+
+    Parameters
+    ----------
+    total
+        The running combination of every contribution so far, starting at
+        the handler's identity.
+    contributions
+        Every contribution in the order it was added.
+    """
 
     total: object
     contributions: list[object] = field(default_factory=list)
@@ -843,11 +852,22 @@ def score_handler(
 
 
 class MissingValuePolicy(str, Enum):
+    """What a condition handler does with a sample site it has no observation for.
+
+    ``FORWARD`` passes the request to an outer handler; ``ERROR`` rejects it.
+    """
+
     FORWARD = "forward"
     ERROR = "error"
 
 
 class ExtraValuePolicy(str, Enum):
+    """What a handler does with a supplied value no sample site consumed.
+
+    ``IGNORE`` discards it; ``ERROR`` rejects the run when the handled
+    computation returns.
+    """
+
     IGNORE = "ignore"
     ERROR = "error"
 
@@ -1143,6 +1163,12 @@ def condition_handler(
 
 
 class ReplayPolicy(str, Enum):
+    """Whether a replayed value is scored as well as clamped.
+
+    ``CLAMP_AND_SCORE`` sends the replayed value's log density to a `Score`
+    instance; ``CLAMP_NO_SCORE`` and ``INTERVENE`` replay it without scoring.
+    """
+
     CLAMP_AND_SCORE = "clamp-and-score"
     CLAMP_NO_SCORE = "clamp-no-score"
     INTERVENE = "intervene"
@@ -1161,22 +1187,27 @@ def replay_handler(
 ) -> RuntimeHandler:
     """Replay selected sites under an explicit scoring/intervention policy.
 
+    A sample request at a site in ``values`` resumes with the recorded
+    value; a request at any other site is forwarded to an outer handler.
+
     Parameters
     ----------
     values
-        The recorded values to replay, in request order.
+        The recorded value for each replayed site, keyed by site.
     result_validator
-        Checks the value a resumption carries inhabits the
-        operation's result type.
+        Checks a replayed value inhabits the request's result type.
     policy
-        What to do when the recording runs out.
+        Whether a replayed value is also scored: ``CLAMP_AND_SCORE`` sends
+        its log density to ``score_instance``, while ``CLAMP_NO_SCORE``
+        and ``INTERVENE`` replay it without scoring.
     score_instance
-        The lexical `Score` instance the accumulated density is
-        sent to.
+        The lexical `Score` instance replayed densities are sent to;
+        required under ``CLAMP_AND_SCORE``.
     weight_validator
-        Checks an individual weight contribution.
+        Checks each log-density contribution.
     extra
-        What to do with an observation no site consumed.
+        What to do, when the handled computation returns, with a recorded
+        site the computation never sampled.
     answer_type
         What the handler answers with.
     key
@@ -1190,9 +1221,9 @@ def replay_handler(
 
     Raises
     ------
-    InvalidHandlerError
-        If the recorded values run out and the policy forbids it, or a
-        recorded value does not inhabit its site's type.
+    ValueError
+        If ``policy`` is ``CLAMP_AND_SCORE`` and no ``score_instance`` is
+        given.
     """
     if policy is ReplayPolicy.CLAMP_AND_SCORE and score_instance is None:
         raise ValueError("scored replay requires a Score effect instance")
@@ -1312,6 +1343,25 @@ def replay_handler(
 
 @dataclass(frozen=True, slots=True)
 class TraceEvent:
+    """One recorded request and the value produced for it.
+
+    Parameters
+    ----------
+    address
+        The request's dynamic key: its static site, address frames, and
+        resumption path.
+    instance
+        The effect instance the request was performed on.
+    operation
+        The operation requested.
+    arguments
+        The evaluated value arguments.
+    result
+        The value produced for the request.
+    mode
+        How the value was produced, such as ``"forwarded"``.
+    """
+
     address: tuple[str, tuple[tuple[str, str | int], ...], tuple[int, ...]]
     instance: EffectInstanceId
     operation: OperationId
@@ -1322,7 +1372,13 @@ class TraceEvent:
 
 @dataclass(slots=True)
 class TraceRecorder:
-    """Ordered trace; repeated dynamic addresses remain observable as events."""
+    """Ordered trace; repeated dynamic addresses remain observable as events.
+
+    Parameters
+    ----------
+    events
+        The recorded events, in order; empty to start.
+    """
 
     events: list[TraceEvent] = field(default_factory=list)
 
@@ -1518,6 +1574,14 @@ def trace_handler(
 
 @dataclass(slots=True)
 class StateCell:
+    """The mutable cell owned by one installed State handler.
+
+    Parameters
+    ----------
+    value
+        The current state.
+    """
+
     value: object
 
 
@@ -1686,6 +1750,14 @@ def state_handler(
 
 @dataclass(frozen=True, slots=True)
 class Aborted:
+    """The default answer of an abort handler, wrapping the abort payload.
+
+    Parameters
+    ----------
+    error
+        The payload the computation aborted with.
+    """
+
     error: object
 
 
@@ -1892,6 +1964,17 @@ def choose_handler(
 
 @dataclass(slots=True)
 class WeightAccumulator:
+    """Mutable result owned by one installed Weight handler.
+
+    Parameters
+    ----------
+    total
+        The running combination of every contribution so far, starting at
+        the handler's identity.
+    contributions
+        Every contribution in the order it was added.
+    """
+
     total: object
     contributions: list[object] = field(default_factory=list)
 
