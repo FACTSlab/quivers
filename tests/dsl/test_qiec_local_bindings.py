@@ -48,7 +48,6 @@ def test_every_local_binder_is_collected() -> None:
     kinds = {name: kind for name, (kind, _) in _bindings().items()}
     assert kinds == {
         "x": "parameter",
-        "u": "parameter",
         "s": "parameter",
         "seed": "parameter",
         "start": "local",
@@ -93,13 +92,13 @@ def test_a_scoped_instance_does_not_escape_its_body() -> None:
     assert cell.covers(start) and cell.covers(end)
 
 
-@pytest.mark.parametrize("name", ["x", "u", "s"])
+@pytest.mark.parametrize("name", ["x", "s"])
 def test_a_handler_clause_parameter_is_confined_to_its_clause(name: str) -> None:
     """One clause's parameter is not in scope in another clause.
 
-    The three clauses of the golden handler bind different names at
-    different lines, so a parameter leaking between them would show up as
-    a scope covering a neighbouring clause's body.
+    The return clause and the ``put`` clause of the golden handler bind
+    different names at different lines, so a parameter leaking between
+    them would show up as a scope covering the other clause's body.
     """
     bindings = qiec_local_bindings(parse(_GOLDEN.read_text()))
     subject = next(binding for binding in bindings if binding.name == name)

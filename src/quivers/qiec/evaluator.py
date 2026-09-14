@@ -26,6 +26,8 @@ from quivers.qiec.effects import (
 )
 from quivers.qiec.identifiers import (
     AttachmentId,
+    ComputationId,
+    DynamicAddressFrame,
     EffectInstanceId,
     HandlerId,
     OperationId,
@@ -33,6 +35,7 @@ from quivers.qiec.identifiers import (
 from quivers.qiec.terms import (
     AttachmentRef,
     Bind,
+    Call,
     Case,
     Computation,
     ConstructorValue,
@@ -40,7 +43,9 @@ from quivers.qiec.terms import (
     Handle,
     LiteralValue,
     Local,
+    NewInstance,
     Perform,
+    Resume,
     Return,
     TransportValue,
     Value,
@@ -48,6 +53,7 @@ from quivers.qiec.terms import (
 )
 from quivers.qiec.substitution import (
     instantiate_telescope,
+    substitute_computation,
     substitute_effect,
     substitute_row,
     substitute_type,
@@ -56,6 +62,7 @@ from quivers.qiec.types import StaticArgument, TypeExpr
 
 if TYPE_CHECKING:
     from quivers.qiec.checking import KernelRegistry
+    from quivers.qiec.module import NamedComputation, QiecModule
 
 
 type RuntimeValidator = Callable[[object], bool | None]
@@ -78,6 +85,29 @@ class MissingAttachmentError(EvaluationError):
 
 class RuntimeTypeMismatch(EvaluationError):
     """A host result failed the validator for its QIEC result type."""
+
+
+class FuelExhaustedError(EvaluationError):
+    """The step budget ran out before the computation finished.
+
+    General recursion is allowed to diverge, so a budget is the only way a
+    caller can bound a run. Exhaustion is reported as an ordinary evaluation
+    failure rather than a host recursion error, which the machine's explicit
+    stack never raises.
+
+    Parameters
+    ----------
+    steps
+        The budget that was exhausted; kept on the error as ``steps``.
+    """
+
+    def __init__(self, steps: int) -> None:
+        super().__init__(f"QIEC evaluation exceeded its budget of {steps} steps")
+        self.steps = steps
+
+
+class UnknownComputationError(EvaluationError):
+    """A call names a computation the evaluator was not given a body for."""
 
 
 class UnhandledEffectError(EvaluationError):
@@ -239,6 +269,36 @@ def _identity_return(value: object, _context: ClauseContext) -> object:
         specially behaves as though it were not there for them.
     """
     return value
+
+
+def _authored_clause(
+    request: RuntimeRequest,
+    _resume: Resumption,
+    _context: ClauseContext,
+) -> object:
+    """Mark a clause whose body is a checked term rather than host code.
+
+    The evaluator dispatches such a clause as machine frames and never
+    invokes this function; reaching it means an authored handler was
+    installed by something other than the evaluator's own dispatch.
+
+    Parameters
+    ----------
+    request : RuntimeRequest
+        The request that reached the clause.
+    _resume : Resumption
+        The continuation, unused.
+    _context : ClauseContext
+        The clause context, unused.
+
+    Raises
+    ------
+    InvalidHandlerError
+        Always.
+    """
+    raise InvalidHandlerError(
+        f"authored clause for {request.operation} was invoked as host code"
+    )
 
 
 def _accept(_value: object) -> bool:
@@ -468,11 +528,16 @@ class RuntimeRequest:
         The evaluated value arguments, in order.
     resumption_path
         The ordinal of each resumption taken to reach this request.
+    dynamic_path
+        The call and local-instance frames live when the request was
+        performed, outermost first, so one site reached through two
+        recursive iterations yields two addresses.
     """
 
     core: EffectRequest
     arguments: tuple[object, ...]
     resumption_path: tuple[int, ...]
+    dynamic_path: tuple[DynamicAddressFrame, ...] = ()
 
     @property
     def instance(self) -> EffectInstanceId:
@@ -515,7 +580,12 @@ class RuntimeRequest:
             is what lets a trace name each occurrence separately.
         """
         static, dynamic, declared_path = self.core.origin.dynamic_key()
-        return (static, dynamic, (*declared_path, *self.resumption_path))
+        runtime = tuple((frame.scope, frame.key) for frame in self.dynamic_path)
+        return (
+            static,
+            (*dynamic, *runtime),
+            (*declared_path, *self.resumption_path),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -667,7 +737,145 @@ class _DelimiterFrame:
     """Stop a nested clause evaluation before consuming its outer context."""
 
 
-type _Frame = _BindFrame | _HandlerFrame | _ResponseHookFrame | _DelimiterFrame
+@dataclass(frozen=True, slots=True)
+class _CallFrame:
+    """A stack frame marking an entered named computation.
+
+    Parameters
+    ----------
+    callee
+        The identity of the computation entered.
+    name
+        The callee's display name, for traces.
+    serial
+        The call's ordinal within the run, so two iterations of a
+        recursive computation address their requests differently.
+    environment
+        The caller's bindings, restored when the call returns.
+    """
+
+    callee: ComputationId
+    name: str
+    serial: int
+    environment: Mapping[Local, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _InstanceFrame:
+    """A stack frame marking a live local effect instance.
+
+    Parameters
+    ----------
+    instance
+        The static identity of the allocated instance.
+    serial
+        The allocation's ordinal within the run, which distinguishes
+        repeated allocations of one site reached through recursion.
+    """
+
+    instance: EffectInstanceId
+    serial: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ClauseFrame:
+    """A stack frame beneath an authored clause body while it runs.
+
+    The frame stands where the handler stood: the clause body's answer
+    flows through it into the handler's outer continuation, and a
+    ``resume`` inside the body finds its continuation here.
+
+    Parameters
+    ----------
+    resumption
+        The continuation captured for the clause.
+    definition
+        The instantiated handler declaration.
+    handler
+        The handler's runtime validators.
+    environment
+        The bindings in scope at the handler, restored after the answer.
+    resumption_path
+        The address the handler's continuation runs under, restored after
+        the answer.
+    """
+
+    resumption: Resumption
+    definition: HandlerDef
+    handler: RuntimeHandler
+    environment: Mapping[Local, object]
+    resumption_path: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _AnswerFrame:
+    """A stack frame beneath an authored return clause body while it runs.
+
+    Parameters
+    ----------
+    handler
+        The handler frame whose return clause is running.
+    """
+
+    handler: _HandlerFrame
+
+
+@dataclass(frozen=True, slots=True)
+class _PathFrame:
+    """A stack frame restoring the resumption address after a shot.
+
+    Parameters
+    ----------
+    resumption_path
+        The address in force before the shot began.
+    """
+
+    resumption_path: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Returned:
+    """A value flowing back into the stack, as the machine's other state.
+
+    Parameters
+    ----------
+    value
+        The host value being returned.
+    """
+
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
+class _Continue:
+    """An instruction from dispatch to keep driving in the caller's loop.
+
+    Parameters
+    ----------
+    current
+        The computation, or returned value, to continue with.
+    environment
+        The bindings to continue under.
+    resumption_path
+        The address to continue under.
+    """
+
+    current: Computation | _Returned
+    environment: dict[Local, object]
+    resumption_path: tuple[int, ...]
+
+
+type _Frame = (
+    _BindFrame
+    | _HandlerFrame
+    | _ResponseHookFrame
+    | _DelimiterFrame
+    | _CallFrame
+    | _InstanceFrame
+    | _ClauseFrame
+    | _AnswerFrame
+    | _PathFrame
+)
 
 
 class ClauseContext:
@@ -943,6 +1151,58 @@ class Resumption:
         RuntimeValidationError
             If the value does not inhabit the operation's result type.
         """
+        captured, path = self._begin_shot(value)
+        # Outer handlers remain visible to effects performed by the resumed
+        # continuation, but the delimiter prevents normal completion from
+        # consuming the continuation outside the handled expression.
+        stack = [*self._outer_stack, _DelimiterFrame(), *captured]
+        protected = (
+            *self._outer_stack,
+            *captured[: self._owned_start],
+        )
+        try:
+            return self._evaluator._drive_value(
+                value,
+                dict(self._captured_environment),
+                stack,
+                path,
+            )
+        finally:
+            # A normally returned shot has already exited every copied frame.
+            # Exceptional or delimited exits leave some frames live.  Lifecycle
+            # guards make this final sweep exact-once in either case.
+            self._evaluator._drop_local_handlers(
+                (*captured[self._owned_start :], *stack),
+                protected,
+            )
+
+    def _begin_shot(self, value: object) -> tuple[list[_Frame], tuple[int, ...]]:
+        """Check the grade and value, then produce the frames for one shot.
+
+        Parameters
+        ----------
+        value : object
+            What the resumed operation supplies.
+
+        Returns
+        -------
+        tuple[list[_Frame], tuple[int, ...]]
+            The captured frames to drive the value through, forked from
+            the pristine snapshot for an unrestricted resumption and the
+            live capture otherwise, and the resumption address the shot
+            runs under.
+
+        Raises
+        ------
+        ResumptionUsageError
+            If the grade is zero, or an affine or linear resumption is
+            invoked more than once.
+        NonDuplicableContinuationError
+            If an unrestricted resumption would have to copy a captured
+            value that is not duplicable.
+        RuntimeTypeMismatch
+            If the value does not inhabit the operation's result type.
+        """
         next_call = self._calls + 1
         if self._grade is ResumptionGrade.ZERO:
             raise ResumptionUsageError("a grade-0 clause cannot resume")
@@ -974,29 +1234,7 @@ class Resumption:
             if self._grade is ResumptionGrade.UNRESTRICTED
             else list(self._captured_stack)
         )
-        # Outer handlers remain visible to effects performed by the resumed
-        # continuation, but the delimiter prevents normal completion from
-        # consuming the continuation outside the handled expression.
-        stack = [*self._outer_stack, _DelimiterFrame(), *captured]
-        protected = (
-            *self._outer_stack,
-            *captured[: self._owned_start],
-        )
-        try:
-            return self._evaluator._drive_value(
-                value,
-                dict(self._captured_environment),
-                stack,
-                (*self._path, next_call - 1),
-            )
-        finally:
-            # A normally returned shot has already exited every copied frame.
-            # Exceptional or delimited exits leave some frames live.  Lifecycle
-            # guards make this final sweep exact-once in either case.
-            self._evaluator._drop_local_handlers(
-                (*captured[self._owned_start :], *stack),
-                protected,
-            )
+        return captured, (*self._path, next_call - 1)
 
     def _check_completed(self) -> None:
         """Confirm a linear resumption was actually used.
@@ -1127,6 +1365,20 @@ class Evaluator:
     trace_hook
         Called with each execution event's name and payload, or ``None``
         for no tracing.
+    module
+        The module whose named computations calls resolve to and whose
+        authored handlers ``handle`` may install without an attachment,
+        or ``None`` when the computation calls nothing and installs only
+        attached handlers.
+    fuel
+        The number of machine steps a run may take before failing with
+        :class:`FuelExhaustedError`, or ``None`` for no bound.
+    type_validator
+        Supplies the host validator for a type at an authored handler's
+        boundaries: the values it is resumed with, the handled
+        computation's result, and its answer. ``None`` accepts every host
+        value there, which is sound for values that only ever flowed
+        through checked terms.
     """
 
     def __init__(
@@ -1135,11 +1387,24 @@ class Evaluator:
         *,
         handler_manifest: HandlerManifest | None = None,
         trace_hook: EvaluationTraceHook | None = None,
+        module: QiecModule | None = None,
+        fuel: int | None = None,
+        type_validator: Callable[[TypeExpr], RuntimeValidator | None] | None = None,
     ) -> None:
         self.attachments = attachments or RuntimeAttachments()
         self.handler_manifest = handler_manifest
         self.trace_hook = trace_hook
+        self.fuel = fuel
+        self._type_validator = type_validator
+        self._computations: dict[ComputationId, NamedComputation] = {}
+        self._handler_definitions: dict[HandlerId, HandlerDef] = {}
+        if module is not None:
+            self._computations = {item.id: item for item in module.computations}
+            self._handler_definitions = {item.id: item for item in module.handlers}
         self._run_serial = 0
+        self._steps = 0
+        self._call_serial = 0
+        self._instance_serial = 0
 
     def _emit_trace(self, event: str, detail: Mapping[str, object]) -> None:
         """Report one execution event, when a hook is installed.
@@ -1183,7 +1448,7 @@ class Evaluator:
         """
         if self.handler_manifest is not None:
             self._validate_handler_manifest(self.handler_manifest)
-        self._run_serial += 1
+        self._begin_run()
         stack: list[_Frame] = []
         try:
             return self._drive_computation(
@@ -1237,7 +1502,7 @@ class Evaluator:
         )
         manifest = HandlerManifest.from_registry(registry)
         self._validate_handler_manifest(manifest)
-        self._run_serial += 1
+        self._begin_run()
         stack: list[_Frame] = []
         try:
             return self._drive_computation(
@@ -1364,6 +1629,69 @@ class Evaluator:
                     f"runtime handler {id} does not match its checked definition"
                 )
 
+    def _begin_run(self) -> None:
+        """Advance the run serial and reset the per-run counters."""
+        self._run_serial += 1
+        self._steps = 0
+        self._call_serial = 0
+        self._instance_serial = 0
+
+    def _tick(self) -> None:
+        """Spend one step of the run's budget.
+
+        Raises
+        ------
+        FuelExhaustedError
+            If the budget is spent. Checked before every machine step, so
+            a diverging computation stops within one step of its budget.
+        """
+        if self.fuel is None:
+            return
+        if self._steps >= self.fuel:
+            raise FuelExhaustedError(self.fuel)
+        self._steps += 1
+
+    def _validator_at(self, type_: TypeExpr) -> RuntimeValidator:
+        """The host validator an authored handler uses at one of its types.
+
+        Parameters
+        ----------
+        type_ : TypeExpr
+            The instantiated type at the boundary.
+
+        Returns
+        -------
+        RuntimeValidator
+            The configured validator, or one accepting everything when no
+            validator source was given or it does not cover the type.
+        """
+        if self._type_validator is None:
+            return _accept
+        validator = self._type_validator(type_)
+        return _accept if validator is None else validator
+
+    @staticmethod
+    def _dynamic_path(stack: list[_Frame]) -> tuple[DynamicAddressFrame, ...]:
+        """The call and local-instance frames live on a stack.
+
+        Parameters
+        ----------
+        stack : list[_Frame]
+            The machine stack.
+
+        Returns
+        -------
+        tuple[DynamicAddressFrame, ...]
+            One address frame per call or allocation, outermost first.
+        """
+        path: list[DynamicAddressFrame] = []
+        for frame in stack:
+            if isinstance(frame, _CallFrame):
+                path.append(DynamicAddressFrame("call", f"{frame.name}#{frame.serial}"))
+            elif isinstance(frame, _InstanceFrame):
+                path.append(DynamicAddressFrame("instance", frame.serial))
+        return tuple(path)
+
     def _drive_computation(
         self,
         computation: Computation,
@@ -1372,10 +1700,6 @@ class Evaluator:
         resumption_path: tuple[int, ...],
     ) -> object:
         """Run the machine until the computation and its stack are finished.
-
-        Explicitly stacked rather than recursive, so a deeply nested or
-        recursive computation is bounded by memory rather than by the
-        host's call depth.
 
         Parameters
         ----------
@@ -1398,31 +1722,196 @@ class Evaluator:
         EvaluationError
             If a request reaches no handler, or a runtime rule is broken.
         """
-        current = computation
+        return self._run(computation, environment, stack, resumption_path)
+
+    def _drive_value(
+        self,
+        value: object,
+        environment: dict[Local, object],
+        stack: list[_Frame],
+        resumption_path: tuple[int, ...],
+    ) -> object:
+        """Unwind frames with a returned value until the stack is empty.
+
+        Parameters
+        ----------
+        value : object
+            The value being returned.
+        environment : dict[Local, object]
+            Values in scope where the value was produced.
+        stack : list[_Frame]
+            The frame stack, mutated in place.
+        resumption_path : tuple[int, ...]
+            The current resumption address.
+
+        Returns
+        -------
+        object
+            The value that survives to the bottom, after every frame has
+            answered.
+
+        Raises
+        ------
+        EvaluationError
+            If a frame's finalizer or return clause fails.
+        """
+        return self._run(_Returned(value), environment, stack, resumption_path)
+
+    def _run(  # noqa: C901, PLR0912, PLR0915
+        self,
+        current: Computation | _Returned,
+        environment: dict[Local, object],
+        stack: list[_Frame],
+        resumption_path: tuple[int, ...],
+    ) -> object:
+        """The machine loop: reduce a computation or unwind a returned value.
+
+        Explicitly stacked rather than recursive, so a deeply nested or
+        recursive computation is bounded by memory rather than by the
+        host's call depth. Only a foreign handler clause re-enters the
+        machine, since its Python body must observe what its resumption
+        produced; an authored clause and its resumptions run as frames of
+        this loop.
+
+        Parameters
+        ----------
+        current : Computation or _Returned
+            The term to reduce, or the value flowing back into the stack.
+        environment : dict[Local, object]
+            Values in scope.
+        stack : list[_Frame]
+            The machine's frame stack, mutated in place.
+        resumption_path : tuple[int, ...]
+            Which shot of which resumption is running, for addressing.
+
+        Returns
+        -------
+        object
+            The final value, once the stack is empty or a delimiter is
+            reached.
+
+        Raises
+        ------
+        EvaluationError
+            If a request reaches no handler, a call names no computation,
+            a resumption breaks its grade, the budget runs out, or a host
+            value fails validation.
+        """
         env = environment
         while True:
+            self._tick()
+            if isinstance(current, _Returned):
+                value = current.value
+                if not stack:
+                    return value
+                frame = stack.pop()
+                if isinstance(frame, _DelimiterFrame):
+                    return value
+                if isinstance(frame, _ResponseHookFrame):
+                    current = _Returned(frame.hook(value))
+                    continue
+                if isinstance(frame, _BindFrame):
+                    env = dict(frame.environment)
+                    env[frame.binder] = value
+                    current = frame.then
+                    continue
+                if isinstance(frame, _PathFrame):
+                    resumption_path = frame.resumption_path
+                    continue
+                if isinstance(frame, _CallFrame):
+                    self._emit_trace(
+                        "call.returned",
+                        {"computation": frame.name, "serial": frame.serial},
+                    )
+                    env = dict(frame.environment)
+                    continue
+                if isinstance(frame, _InstanceFrame):
+                    self._emit_trace(
+                        "instance.released",
+                        {"instance": str(frame.instance), "serial": frame.serial},
+                    )
+                    continue
+                if isinstance(frame, _HandlerFrame):
+                    handler = frame.handler
+                    try:
+                        _validate(
+                            value,
+                            handler.input_validator,
+                            frame.definition.input_type,
+                            f"return input of handler {frame.definition.name!r}",
+                        )
+                    except BaseException:
+                        frame.lifecycle.drop()
+                        raise
+                    authored = frame.definition.return_clause
+                    if (
+                        frame.definition.implementation == "authored"
+                        and authored is not None
+                    ):
+                        stack.append(_AnswerFrame(frame))
+                        env = dict(frame.environment)
+                        env[authored.binder] = value
+                        current = authored.body
+                        continue
+                    try:
+                        context = ClauseContext(
+                            self,
+                            frame.environment,
+                            tuple(stack),
+                            resumption_path,
+                            None,
+                        )
+                        answer = handler.return_clause(value, context)
+                        answer = self._resolve_clause_answer(answer, context)
+                    except BaseException:
+                        frame.lifecycle.drop()
+                        raise
+                    self._finish_handler(frame, answer)
+                    current = _Returned(answer)
+                    env = dict(frame.environment)
+                    continue
+                if isinstance(frame, _AnswerFrame):
+                    self._finish_handler(frame.handler, value)
+                    env = dict(frame.handler.environment)
+                    continue
+                if isinstance(frame, _ClauseFrame):
+                    resumption = frame.resumption
+                    try:
+                        resumption._check_completed()
+                        _validate(
+                            value,
+                            frame.handler.output_validator,
+                            frame.definition.output_type,
+                            f"operation result of handler {frame.definition.name!r}",
+                        )
+                    finally:
+                        resumption._close_handled_capture()
+                    self._emit_trace(
+                        "clause.answered",
+                        {
+                            "handler": frame.definition.name,
+                            "operation": str(resumption._request.operation),
+                        },
+                    )
+                    env = dict(frame.environment)
+                    resumption_path = frame.resumption_path
+                    continue
+                raise AssertionError(f"unknown evaluator frame {frame!r}")
             if isinstance(current, Return):
-                return self._drive_value(
-                    self._value(current.value, env),
-                    env,
-                    stack,
-                    resumption_path,
-                )
+                current = _Returned(self._value(current.value, env))
+                continue
             if isinstance(current, Bind):
                 stack.append(_BindFrame(current.binder, current.then, dict(env)))
                 current = current.first
                 continue
             if isinstance(current, Handle):
-                try:
-                    handler = self.attachments.handlers[current.handler]
-                except KeyError as error:
-                    raise MissingAttachmentError(
-                        f"no runtime clauses are attached for handler {current.handler}"
-                    ) from error
+                handler = self._handler_for(current.handler)
                 definition = self._instantiate_handler_definition(
                     handler.definition,
                     current.static_arguments,
                 )
+                if definition.implementation == "authored":
+                    handler = self._authored_runtime(handler, definition)
                 lifecycle = self._install_handler(handler)
                 self._emit_trace(
                     "handler.entered",
@@ -1458,7 +1947,8 @@ class Evaluator:
                 )
                 if branch is None:
                     raise EvaluationError(
-                        f"no reachable case branch for constructor {scrutinee.constructor}"
+                        f"no reachable case branch for constructor "
+                        f"{scrutinee.constructor}"
                     )
                 if len(branch.fields) != len(scrutinee.fields):
                     raise EvaluationError(
@@ -1468,6 +1958,104 @@ class Evaluator:
                 env.update(zip(branch.fields, scrutinee.fields, strict=True))
                 current = branch.body
                 continue
+            if isinstance(current, Call):
+                callee = self._computations.get(current.callee)
+                if callee is None:
+                    raise UnknownComputationError(
+                        f"call to {current.name!r} names computation "
+                        f"{current.callee}, which this evaluator has no body for"
+                    )
+                try:
+                    substitution = instantiate_telescope(
+                        callee.telescope, current.static_arguments
+                    )
+                except (TypeError, ValueError) as error:
+                    raise EvaluationError(
+                        f"invalid static arguments in call to {current.name!r}: {error}"
+                    ) from error
+                if len(current.arguments) != len(callee.parameters):
+                    raise EvaluationError(
+                        f"call to {current.name!r} supplies "
+                        f"{len(current.arguments)} arguments; the computation "
+                        f"takes {len(callee.parameters)}"
+                    )
+                arguments = tuple(
+                    self._value(argument, env) for argument in current.arguments
+                )
+                parameters = tuple(
+                    Local(parameter.name, substitute_type(parameter.type, substitution))
+                    for parameter in callee.parameters
+                )
+                self._call_serial += 1
+                serial = self._call_serial
+                # A call with nothing pending in the caller is a tail call:
+                # the caller's frame has no further use, so it is left rather
+                # than kept beneath the callee, and a tail-recursive loop
+                # runs in constant stack.
+                if stack and isinstance(stack[-1], _CallFrame):
+                    finished = stack.pop()
+                    self._emit_trace(
+                        "call.returned",
+                        {
+                            "computation": finished.name,
+                            "serial": finished.serial,
+                            "tail": True,
+                        },
+                    )
+                    caller_environment = finished.environment
+                else:
+                    caller_environment = dict(env)
+                self._emit_trace(
+                    "call.entered",
+                    {
+                        "computation": callee.name,
+                        "callee": str(callee.id),
+                        "serial": serial,
+                        "site": str(current.origin.site_id()),
+                    },
+                )
+                stack.append(
+                    _CallFrame(callee.id, callee.name, serial, caller_environment)
+                )
+                env = dict(zip(parameters, arguments, strict=True))
+                current = substitute_computation(callee.body, substitution)
+                continue
+            if isinstance(current, NewInstance):
+                self._instance_serial += 1
+                serial = self._instance_serial
+                self._emit_trace(
+                    "instance.allocated",
+                    {
+                        "instance": str(current.instance),
+                        "effect": current.effect.name,
+                        "serial": serial,
+                        "site": str(current.origin.site_id()),
+                    },
+                )
+                stack.append(_InstanceFrame(current.instance, serial))
+                current = current.body
+                continue
+            if isinstance(current, Resume):
+                clause = next(
+                    (
+                        frame
+                        for frame in reversed(stack)
+                        if isinstance(frame, _ClauseFrame | _DelimiterFrame)
+                    ),
+                    None,
+                )
+                if not isinstance(clause, _ClauseFrame):
+                    raise ResumptionUsageError(
+                        "resume was reached outside an authored handler clause"
+                    )
+                value = self._value(current.value, env)
+                shot_frames, shot_path = clause.resumption._begin_shot(value)
+                stack.append(_PathFrame(resumption_path))
+                stack.extend(shot_frames)
+                env = dict(clause.resumption._captured_environment)
+                resumption_path = shot_path
+                current = _Returned(value)
+                continue
             if isinstance(current, Perform):
                 runtime_request = RuntimeRequest(
                     current.request,
@@ -1476,6 +2064,7 @@ class Evaluator:
                         for argument in current.request.arguments
                     ),
                     resumption_path,
+                    self._dynamic_path(stack),
                 )
                 self._emit_trace(
                     "operation.requested",
@@ -1485,95 +2074,127 @@ class Evaluator:
                         "address": runtime_request.address,
                     },
                 )
-                return self._dispatch(runtime_request, env, stack, len(stack) - 1)
+                outcome = self._dispatch(runtime_request, env, stack, len(stack) - 1)
+                if isinstance(outcome, _Continue):
+                    current = outcome.current
+                    env = outcome.environment
+                    resumption_path = outcome.resumption_path
+                    continue
+                return outcome
             raise TypeError(f"unsupported QIEC computation {type(current).__name__}")
 
-    def _drive_value(
-        self,
-        value: object,
-        environment: dict[Local, object],
-        stack: list[_Frame],
-        resumption_path: tuple[int, ...],
-    ) -> object:
-        """Unwind frames with a returned value until the stack is empty.
+    def _finish_handler(self, frame: _HandlerFrame, answer: object) -> None:
+        """Validate a handler's answer and finalize its installation.
 
         Parameters
         ----------
-        value : object
-            The value being returned.
-        stack : list[_Frame]
-            The frame stack, mutated in place.
-        resumption_path : tuple[int, ...]
-            The current resumption address.
-
-        Returns
-        -------
-        object
-            The value that survives to the bottom, after every frame has answered.
+        frame : _HandlerFrame
+            The handler frame being left.
+        answer : object
+            What the return clause produced.
 
         Raises
         ------
-        EvaluationError
-            If a frame's finalizer or return clause fails.
+        RuntimeTypeMismatch
+            If the answer does not inhabit the handler's output type. The
+            installation is dropped rather than exited before the error
+            propagates.
         """
-        current = value
-        env = environment
-        while stack:
-            frame = stack.pop()
-            if isinstance(frame, _DelimiterFrame):
-                return current
-            if isinstance(frame, _ResponseHookFrame):
-                current = frame.hook(current)
-                continue
-            if isinstance(frame, _BindFrame):
-                env = dict(frame.environment)
-                env[frame.binder] = current
-                return self._drive_computation(
-                    frame.then,
-                    env,
-                    stack,
-                    resumption_path,
-                )
-            if isinstance(frame, _HandlerFrame):
-                handler = frame.handler
-                try:
-                    _validate(
-                        current,
-                        handler.input_validator,
-                        frame.definition.input_type,
-                        f"return input of handler {frame.definition.name!r}",
-                    )
-                    context = ClauseContext(
-                        self,
-                        frame.environment,
-                        tuple(stack),
-                        resumption_path,
-                        None,
-                    )
-                    answer = handler.return_clause(current, context)
-                    answer = self._resolve_clause_answer(answer, context)
-                    _validate(
-                        answer,
-                        handler.output_validator,
-                        frame.definition.output_type,
-                        f"return result of handler {frame.definition.name!r}",
-                    )
-                except BaseException:
-                    frame.lifecycle.drop()
-                    raise
-                frame.lifecycle.exit()
-                self._emit_trace(
-                    "handler.returned",
-                    {
-                        "handler": frame.definition.name,
-                        "instance": str(frame.instance),
-                    },
-                )
-                current = answer
-                env = dict(frame.environment)
-                continue
-            raise AssertionError(f"unknown evaluator frame {frame!r}")
-        return current
+        try:
+            _validate(
+                answer,
+                frame.handler.output_validator,
+                frame.definition.output_type,
+                f"return result of handler {frame.definition.name!r}",
+            )
+        except BaseException:
+            frame.lifecycle.drop()
+            raise
+        frame.lifecycle.exit()
+        self._emit_trace(
+            "handler.returned",
+            {
+                "handler": frame.definition.name,
+                "instance": str(frame.instance),
+            },
+        )
+
+    def _handler_for(self, handler: HandlerId) -> RuntimeHandler:
+        """Find the runtime handler a ``handle`` installs.
+
+        Parameters
+        ----------
+        handler : HandlerId
+            The handler named by the term.
+
+        Returns
+        -------
+        RuntimeHandler
+            The attached handler, or, for an authored declaration with no
+            attachment, a handler carrying only the declaration and the
+            validators at its boundaries. An attachment for an authored
+            handler is honored when present, which is how an optimized
+            foreign implementation can stand in for the authored bodies.
+
+        Raises
+        ------
+        MissingAttachmentError
+            If the handler is neither attached nor an authored declaration
+            of the evaluator's module.
+        """
+        attached = self.attachments.handlers.get(handler)
+        if attached is not None:
+            return attached
+        definition = self._handler_definitions.get(handler)
+        if definition is None or definition.implementation != "authored":
+            raise MissingAttachmentError(
+                f"no runtime clauses are attached for handler {handler}"
+            )
+        return RuntimeHandler(
+            definition,
+            {
+                clause.operation: RuntimeClause(_authored_clause, _accept)
+                for clause in definition.clauses
+            },
+            duplicable_context=True,
+        )
+
+    def _authored_runtime(
+        self,
+        prototype: RuntimeHandler,
+        definition: HandlerDef,
+    ) -> RuntimeHandler:
+        """Attach validators to an authored handler at its instantiated types.
+
+        Parameters
+        ----------
+        prototype : RuntimeHandler
+            The handler as found, carrying the uninstantiated declaration.
+        definition : HandlerDef
+            The declaration with its telescope instantiated.
+
+        Returns
+        -------
+        RuntimeHandler
+            A handler over the instantiated declaration whose input and
+            output validators come from the evaluator's type validator.
+            The validator for a resumed value depends on the request's
+            own static arguments, so dispatch chooses it per request. A
+            foreign attachment standing in for an authored handler keeps
+            its own validators.
+        """
+        if any(
+            clause.invoke is not _authored_clause
+            for clause in prototype.clauses.values()
+        ):
+            return replace(prototype, definition=definition)
+        return RuntimeHandler(
+            definition,
+            dict(prototype.clauses),
+            input_validator=self._validator_at(definition.input_type),
+            output_validator=self._validator_at(definition.output_type),
+            duplicable_context=True,
+        )
 
     def _dispatch(
         self,
@@ -1586,7 +2207,10 @@ class Evaluator:
 
         The search runs outward from the request, so the innermost
         handler of the named instance answers, and a partial handler that
-        does not cover the operation forwards to the next one out.
+        does not cover the operation forwards to the next one out. A
+        foreign clause runs here as host code and its answer is handed
+        back to the machine; an authored clause is not run here at all,
+        but set up as machine frames for the caller's loop to reduce.
 
         Parameters
         ----------
@@ -1603,8 +2227,11 @@ class Evaluator:
 
         Returns
         -------
-        object
-            What the clause produced.
+        _Continue
+            The state the machine continues from: the clause's answer
+            flowing into the handler's outer continuation, or an authored
+            clause body about to run above its clause frame. The stack is
+            truncated to that continuation in place.
 
         Raises
         ------
@@ -1612,6 +2239,10 @@ class Evaluator:
             If no handler at or below `search_index` covers the request.
         ResumptionUsageError
             If the clause misuses its resumption.
+        InvalidHandlerError
+            If the handler disagrees with the request's interface, a total
+            handler lacks a clause or forwards, or an authored clause has
+            no body or the wrong arity.
         """
         index = search_index
         while index >= 0:
@@ -1651,6 +2282,52 @@ class Evaluator:
             )
             outer_stack = tuple(stack[:index])
             captured_stack = tuple(stack[index:])
+            if runtime_clause.invoke is _authored_clause:
+                body = structural_clause.body
+                if body is None:
+                    raise InvalidHandlerError(
+                        f"authored handler {definition.name!r} has no body for "
+                        f"operation {request.operation}"
+                    )
+                if len(structural_clause.parameters) != len(request.arguments):
+                    raise InvalidHandlerError(
+                        f"clause for {request.operation} binds "
+                        f"{len(structural_clause.parameters)} parameters; the "
+                        f"request carries {len(request.arguments)}"
+                    )
+                resumption = Resumption(
+                    self,
+                    request,
+                    structural_clause.grade,
+                    dict(environment),
+                    captured_stack,
+                    outer_stack,
+                    self._validator_at(request.core.result_type),
+                    request.resumption_path,
+                )
+                del stack[index:]
+                stack.append(
+                    _ClauseFrame(
+                        resumption,
+                        definition,
+                        handler,
+                        frame.environment,
+                        request.resumption_path,
+                    )
+                )
+                self._emit_trace(
+                    "clause.entered",
+                    {
+                        "handler": definition.name,
+                        "operation": str(request.operation),
+                        "grade": structural_clause.grade.value,
+                    },
+                )
+                clause_environment = dict(frame.environment)
+                clause_environment.update(
+                    zip(structural_clause.parameters, request.arguments, strict=True)
+                )
+                return _Continue(body, clause_environment, request.resumption_path)
             resumption = Resumption(
                 self,
                 request,
@@ -1711,11 +2388,9 @@ class Evaluator:
                 )
             finally:
                 resumption._close_handled_capture()
-            return self._drive_value(
-                answer,
-                dict(frame.environment),
-                list(outer_stack),
-                request.resumption_path,
+            del stack[index:]
+            return _Continue(
+                _Returned(answer), dict(frame.environment), request.resumption_path
             )
         self._emit_trace(
             "operation.unhandled",
@@ -2011,9 +2686,10 @@ class Evaluator:
         Returns
         -------
         HandlerDef
-            The handler with its interface, input, output, and introduced
-            row substituted, so the clause bodies are checked and run at
-            the types this installation uses.
+            The handler with its interface, input, output, introduced
+            row, clause parameters and bodies, and return clause
+            substituted, so the bodies run at the types this installation
+            uses.
 
         Raises
         ------
@@ -2033,10 +2709,41 @@ class Evaluator:
         return replace(
             definition,
             effect=substitute_effect(definition.effect, substitution),
+            clauses=tuple(
+                replace(
+                    clause,
+                    parameters=tuple(
+                        Local(local.name, substitute_type(local.type, substitution))
+                        for local in clause.parameters
+                    ),
+                    body=(
+                        None
+                        if clause.body is None
+                        else substitute_computation(clause.body, substitution)
+                    ),
+                )
+                for clause in definition.clauses
+            ),
             input_type=substitute_type(definition.input_type, substitution),
             output_type=substitute_type(definition.output_type, substitution),
             introduced=substitute_row(definition.introduced, substitution),
             telescope=(),
+            return_clause=(
+                None
+                if definition.return_clause is None
+                else replace(
+                    definition.return_clause,
+                    binder=Local(
+                        definition.return_clause.binder.name,
+                        substitute_type(
+                            definition.return_clause.binder.type, substitution
+                        ),
+                    ),
+                    body=substitute_computation(
+                        definition.return_clause.body, substitution
+                    ),
+                )
+            ),
         )
 
     @staticmethod
