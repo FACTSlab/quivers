@@ -25,6 +25,7 @@ from quivers.qiec.effects import (
     RowEntry,
 )
 from quivers.qiec.identifiers import (
+    ComputationId,
     EffectInstanceId,
     QIEC_ABI,
     SiteProvenance,
@@ -59,6 +60,7 @@ class NamedEffectInstance:
 class NamedComputation:
     """One named QVR computation and its checked QIEC type."""
 
+    id: ComputationId
     name: str
     telescope: Telescope
     parameters: tuple[Local, ...]

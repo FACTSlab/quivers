@@ -9,17 +9,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from quivers.qiec.effects import EffectRequest
+from quivers.qiec.effects import EffectRequest, EffectRow
 from quivers.qiec.evidence import EqualityEvidence
 from quivers.qiec.identifiers import (
     AttachmentId,
+    ComputationId,
     ConstructorId,
     EffectInstanceId,
     HandlerId,
+    SourceOrigin,
     StaticScopeId,
 )
 from quivers.qiec.kinds import Telescope
-from quivers.qiec.types import StaticArgument, TypeExpr
+from quivers.qiec.types import EffectRef, StaticArgument, TypeExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,13 +146,67 @@ class Case:
     tag: Literal["case"] = "case"
 
 
-type Computation = Return | Bind | Perform | Handle | Case
+@dataclass(frozen=True, slots=True)
+class Call:
+    """Application of a named computation.
+
+    The callee is a stable identifier rather than an inlined body, which
+    is what lets a recursive or mutually recursive call graph serialize
+    as a finite tree.
+    """
+
+    callee: ComputationId
+    name: str
+    static_arguments: tuple[StaticArgument, ...]
+    arguments: tuple[Value, ...]
+    result_type: TypeExpr
+    effects: EffectRow
+    origin: SourceOrigin
+    tag: Literal["call"] = "call"
+
+
+@dataclass(frozen=True, slots=True)
+class Resume:
+    """Invocation of the enclosing handler clause's continuation.
+
+    The resumption is not a value and cannot be stored, so it is a term
+    of its own rather than a call to a bound name. That is what makes a
+    clause's grade checkable by counting invocations along the paths
+    through its body.
+    """
+
+    value: Value
+    origin: SourceOrigin
+    tag: Literal["resume"] = "resume"
+
+
+@dataclass(frozen=True, slots=True)
+class NewInstance:
+    """Lexically scoped allocation of an effect instance.
+
+    The identity is derived from the module, the enclosing computation,
+    the lexical path, and the applied interface, so the same allocation
+    site yields the same instance on every run while two sites of the
+    same interface stay distinct.
+    """
+
+    instance: EffectInstanceId
+    effect: EffectRef
+    body: Computation
+    origin: SourceOrigin
+    tag: Literal["new_instance"] = "new_instance"
+
+
+type Computation = Return | Bind | Perform | Handle | Case | Call | Resume | NewInstance
 
 
 __all__ = [
     "AttachmentRef",
     "Bind",
     "Case",
+    "Resume",
+    "NewInstance",
+    "Call",
     "CaseBranch",
     "CaseMotive",
     "Computation",

@@ -28,6 +28,7 @@ from panproto import GatError
 
 from quivers.dsl import ast_nodes as surface
 from quivers.qiec import (
+    ComputationId,
     BOOL,
     EFFECT,
     INT,
@@ -980,6 +981,11 @@ class _Elaborator:
             path = ("computations", declaration.name, "body")
             body = self._lower_computation(declaration.body, telescope, context, path)
             computation = NamedComputation(
+                ComputationId.derive(
+                    self.source.module_name,
+                    "computation",
+                    declaration.name,
+                ),
                 declaration.name,
                 telescope,
                 parameters,

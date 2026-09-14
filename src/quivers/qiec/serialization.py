@@ -58,6 +58,7 @@ from quivers.qiec.identifiers import (
     EffectInstanceId,
     EqualityId,
     FamilyId,
+    ComputationId,
     HandlerId,
     OperationId,
     QIEC_ABI,
@@ -137,6 +138,7 @@ def _class_tag(class_: type[object]) -> str:
 
 _ID_CLASSES = (
     TypeId,
+    ComputationId,
     FamilyId,
     ConstructorId,
     EffectId,
