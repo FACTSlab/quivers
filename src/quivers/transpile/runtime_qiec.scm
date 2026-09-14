@@ -5,6 +5,76 @@
   (cons (cons key value)
         (filter (lambda (entry) (not (equal? (car entry) key))) container)))
 (define (_qvr-qiec-pure value) (list 'pure value))
+;; A deferred computation. Calls are forced by the trampolines in _qvr-qiec-run and
+;; the handler walk rather than when they are built, so a recursive QIEC computation
+;; does not consume host stack per call. The frames are the dynamic address frames the
+;; result runs under, and the tail flag records that the call retires the frame of the
+;; computation that made it.
+(define (_qvr-qiec-call thunk . rest)
+  (let ((frames (if (pair? rest) (car rest) '()))
+        (tail (and (pair? rest) (pair? (cdr rest)) (cadr rest))))
+    (list 'call thunk frames tail)))
+(define (_qvr-qiec-join-frames outer inner tail)
+  (if (and tail (pair? outer) (equal? (car (list-ref outer (- (length outer) 1))) "call"))
+      (append (list-head outer (- (length outer) 1)) inner)
+      (append outer inner)))
+(define (_qvr-qiec-scoped computation frames)
+  (cond
+    ((or (null? frames) (eq? (car computation) 'pure)) computation)
+    ((eq? (car computation) 'call)
+     (list 'call (cadr computation)
+           (_qvr-qiec-join-frames frames (caddr computation) (cadddr computation))
+           #f))
+    ((eq? (car computation) 'bind)
+     (list 'bind (_qvr-qiec-scoped (cadr computation) frames)
+           (lambda (value) (_qvr-qiec-scoped ((caddr computation) value) frames))
+           (cadddr computation)))
+    (else
+     (let* ((request (cadr computation))
+            (address (_qvr-qiec-get request "address"))
+            (updated (list (car address) (append frames (cadr address)) (caddr address))))
+       (list 'effect (_qvr-qiec-set request "address" updated)
+             (lambda (value) (_qvr-qiec-scoped ((caddr computation) value) frames)))))))
+;; The trampoline. Deferred calls are forced and deferred binds are unfolded onto an
+;; explicit continuation stack, so however deep a recursion is, the host stack stays
+;; flat. A request surfacing beneath pending binds carries them in its continuation,
+;; and their captures, so a multi-shot resumption still sees everything it copies.
+(define (_qvr-qiec-force computation . rest)
+  (let loop ((current computation) (stack (if (pair? rest) (car rest) '())))
+    (cond
+      ((eq? (car current) 'call)
+       (loop (_qvr-qiec-scoped ((cadr current)) (caddr current)) stack))
+      ((eq? (car current) 'bind)
+       (loop (cadr current) (cons (cons (caddr current) (cadddr current)) stack)))
+      ((eq? (car current) 'pure)
+       (if (null? stack)
+           current
+           (loop ((caar stack) (cadr current)) (cdr stack))))
+      (else
+       (if (null? stack)
+           current
+           (let* ((request (cadr current))
+                  (captures (apply append (_qvr-qiec-get request "captures" '())
+                                   (map cdr stack)))
+                  (resume-effect (caddr current)))
+             (list 'effect (_qvr-qiec-set request "captures" captures)
+                   (lambda (value) (_qvr-qiec-force (resume-effect value) stack)))))))))
+(define _qvr-qiec-call-serial 0)
+(define _qvr-qiec-instance-serial 0)
+(define (_qvr-qiec-enter-call name thunk tail)
+  (set! _qvr-qiec-call-serial (+ _qvr-qiec-call-serial 1))
+  (_qvr-qiec-call thunk
+                  (list (list "call" (string-append name "#" (number->string _qvr-qiec-call-serial))))
+                  tail))
+(define (_qvr-qiec-instance thunk)
+  (set! _qvr-qiec-instance-serial (+ _qvr-qiec-instance-serial 1))
+  (_qvr-qiec-call thunk (list (list "instance" _qvr-qiec-instance-serial)) #f))
+(define (_qvr-qiec-resume resume value) (_qvr-qiec-as-computation (resume value)))
+(define _qvr-qiec-authored '())
+(define (_qvr-qiec-register-authored handler-id handler)
+  (set! _qvr-qiec-authored (_qvr-qiec-set _qvr-qiec-authored handler-id handler)))
+(define (_qvr-qiec-member container key)
+  (_qvr-qiec-get container key #f))
 (define (_qvr-qiec-static-kind argument)
   (let ((kind (_qvr-qiec-get argument "kind" #f)))
     (cond
@@ -75,15 +145,19 @@
     (list 'effect request _qvr-qiec-pure)))
 (define (_qvr-qiec-bind computation continuation . capture-rest)
   (let ((captures (if (pair? capture-rest) (car capture-rest) '())))
-    (if (eq? (car computation) 'pure)
-        (continuation (cadr computation))
+    (cond
+      ((eq? (car computation) 'pure)
+        (continuation (cadr computation)))
+      ((or (eq? (car computation) 'call) (eq? (car computation) 'bind))
+        (list 'bind computation continuation captures))
+      (else
         (let ((request (_qvr-qiec-set
                          (cadr computation)
                          "captures"
                          (append (_qvr-qiec-get (cadr computation) "captures" '()) captures))))
           (list 'effect request
                 (lambda (value)
-                  (_qvr-qiec-bind ((caddr computation) value) continuation captures)))))))
+                  (_qvr-qiec-bind ((caddr computation) value) continuation captures))))))))
 (define (_qvr-qiec-binding? value)
   (and (pair? value)
        (equal? (_qvr-qiec-get value "qiec" #f) "binding")
@@ -153,7 +227,7 @@
                    (cons branch-environment (_qvr-qiec-get value "fields" '())))))
         (error 'qiec "no QIEC case branch" constructor))))
 (define (_qvr-qiec-as-computation value)
-  (if (and (pair? value) (or (eq? (car value) 'pure) (eq? (car value) 'effect)))
+  (if (and (pair? value) (memq (car value) '(pure effect call bind)))
       value
       (_qvr-qiec-pure value)))
 (define (_qvr-qiec-validate validator value label)
@@ -240,6 +314,7 @@
             (append (_qvr-qiec-get request "handler_captures" '())
                     (list current-handler))))))
 (define (_qvr-qiec-readdress computation shot)
+  (set! computation (_qvr-qiec-force computation))
   (if (eq? (car computation) 'pure)
       computation
       (let* ((request (cadr computation))
@@ -298,7 +373,7 @@
   (for-each _qvr-qiec-lifecycle-drop
             (_qvr-qiec-get request "lifecycles" '())))
 (define (_qvr-qiec-finalize computation lifecycle)
-  (let ((current (_qvr-qiec-as-computation computation)))
+  (let ((current (_qvr-qiec-force (_qvr-qiec-as-computation computation))))
     (if (eq? (car current) 'pure)
         (begin (_qvr-qiec-lifecycle-exit lifecycle) current)
         (let ((request
@@ -311,15 +386,17 @@
                   (_qvr-qiec-finalize ((caddr current) value) lifecycle)))))))
 (define (_qvr-qiec-invoke entry . arguments)
   (apply (if (procedure? entry) entry (_qvr-qiec-get entry "invoke")) arguments))
-(define (_qvr-qiec-handle computation instance manifest static-arguments computation-static-environment handlers)
-  (set! static-arguments (_qvr-qiec-specialize static-arguments computation-static-environment))
-  (let ((handler-static-environment
-          (_qvr-qiec-static-environment
-            (_qvr-qiec-get manifest "telescope" '()) static-arguments)))
-    (set! manifest (_qvr-qiec-specialize manifest handler-static-environment))
-    (set! manifest (_qvr-qiec-set manifest "telescope" '())))
-  (let* ((handler-id (_qvr-qiec-get manifest "id"))
-         (handler-entry (assoc handler-id handlers)))
+(define (_qvr-qiec-handle computation instance manifest raw-static-arguments computation-static-environment handlers . rest)
+  (let* ((static-arguments (_qvr-qiec-specialize raw-static-arguments computation-static-environment))
+         (handler-static-environment
+           (_qvr-qiec-static-environment
+             (_qvr-qiec-get manifest "telescope" '()) static-arguments))
+         (manifest (_qvr-qiec-set (_qvr-qiec-specialize manifest handler-static-environment) "telescope" '()))
+         (attachments (if (pair? rest) (car rest) '()))
+         (operations (if (and (pair? rest) (pair? (cdr rest))) (cadr rest) '()))
+         (handler-id (_qvr-qiec-get manifest "id"))
+         (handler-entry (or (assoc handler-id handlers)
+                            (assoc handler-id _qvr-qiec-authored))))
     (if (not handler-entry) (error 'qiec "missing QIEC handler attachment" handler-id))
     (let* ((prototype (cdr handler-entry))
            (factory (_qvr-qiec-get prototype "context_factory" #f))
@@ -373,10 +450,15 @@
              (list (cons "handler" handler-id)
                    (cons "definition" manifest)
                    (cons "static_arguments" static-arguments)
+                   (cons "static" handler-static-environment)
+                   (cons "attachments" attachments)
+                   (cons "handlers" handlers)
+                   (cons "operations" operations)
                    (cons "resumption_uses" 0))))
       (letrec
         ((walk
           (lambda (current)
+            (set! current (_qvr-qiec-force current))
             (if (and (eq? (car current) 'effect)
                      (pair? (_qvr-qiec-get (cadr current) "handler_states" '())))
                 (for-each
@@ -502,9 +584,11 @@
                          (vector-ref lifecycle-ref 0))
                        (_qvr-qiec-lifecycle-drop root-lifecycle)
                        (raise condition)))
-          (walk (_qvr-qiec-with-ambient controller computation)))))))
-(define (_qvr-qiec-run computation operations)
-  (let loop ((current computation))
+          (walk (_qvr-qiec-with-ambient controller (lambda () (_qvr-qiec-force (computation))))))))))
+(define (_qvr-qiec-run build operations)
+  (set! _qvr-qiec-call-serial 0)
+  (set! _qvr-qiec-instance-serial 0)
+  (let loop ((current (_qvr-qiec-force (build))))
     (if (eq? (car current) 'pure)
         (_qvr-qiec-value (cadr current))
         (let* ((request (cadr current))
@@ -521,7 +605,8 @@
           (guard (condition
                    (else (_qvr-qiec-drop-request request) (raise condition)))
             (let ((result (_qvr-qiec-invoke entry request)))
-              (loop ((caddr current)
-                     (_qvr-qiec-validate
-                       (_qvr-qiec-get entry "result_validator" #f)
-                       result "operation result type")))))))))
+              (loop (_qvr-qiec-force
+                      ((caddr current)
+                       (_qvr-qiec-validate
+                         (_qvr-qiec-get entry "result_validator" #f)
+                         result "operation result type"))))))))))

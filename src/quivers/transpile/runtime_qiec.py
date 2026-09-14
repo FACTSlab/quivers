@@ -12,6 +12,108 @@ def _qvr_qiec_pure(value):
     return ("pure", value)
 
 
+def _qvr_qiec_call(thunk, frames=(), tail=False):
+    # A deferred computation. Calls are forced by the trampolines in
+    # _qvr_qiec_run and the handler walk rather than when they are built, so
+    # a recursive QIEC computation does not consume host stack per call.
+    # ``frames`` are the dynamic address frames the result runs under, and
+    # ``tail`` records that the call retires the frame of the computation
+    # that made it.
+    return ("call", thunk, tuple(frames), tail)
+
+
+def _qvr_qiec_join_frames(outer, inner, tail):
+    # A tail call replaces the innermost enclosing call frame, so a
+    # tail-recursive loop names its requests under one frame at a time; a
+    # local instance beneath the call is not a call frame and stays.
+    if tail and outer and outer[-1][0] == "call":
+        return (*outer[:-1], *inner)
+    return (*outer, *inner)
+
+
+def _qvr_qiec_scoped(computation, frames):
+    if not frames or computation[0] == "pure":
+        return computation
+    if computation[0] == "call":
+        _, thunk, inner, tail = computation
+        return ("call", thunk, _qvr_qiec_join_frames(frames, inner, tail), False)
+    if computation[0] == "bind":
+        _, inner, continuation, captures = computation
+        return (
+            "bind",
+            _qvr_qiec_scoped(inner, frames),
+            lambda value: _qvr_qiec_scoped(continuation(value), frames),
+            captures,
+        )
+    request = dict(computation[1])
+    static, dynamic, resumptions = request["address"]
+    # Outer scopes stamp their frames after inner ones did, so they go in
+    # front to keep the address outermost first.
+    request["address"] = (static, (*frames, *dynamic), resumptions)
+    return (
+        "effect",
+        request,
+        lambda value: _qvr_qiec_scoped(computation[2](value), frames),
+    )
+
+
+def _qvr_qiec_force(computation, pending=()):
+    # The trampoline. Deferred calls are forced and deferred binds are
+    # unfolded onto an explicit continuation stack, so however deep a
+    # recursion is, the host stack stays flat. A request surfacing beneath
+    # pending binds carries them in its continuation, and their captures,
+    # so a multi-shot resumption still sees everything it copies.
+    stack = list(pending)
+    current = computation
+    while True:
+        tag = current[0]
+        if tag == "call":
+            _, thunk, frames, _ = current
+            current = _qvr_qiec_scoped(thunk(), frames)
+        elif tag == "bind":
+            _, inner, continuation, captures = current
+            stack.append((continuation, captures))
+            current = inner
+        elif tag == "pure":
+            if not stack:
+                return current
+            continuation, _ = stack.pop()
+            current = continuation(current[1])
+        else:
+            if not stack:
+                return current
+            request = dict(current[1])
+            request["captures"] = (
+                *request.get("captures", ()),
+                *(capture for _, captures in stack for capture in captures),
+            )
+            rest = tuple(stack)
+            resume_effect = current[2]
+            return (
+                "effect",
+                request,
+                lambda value: _qvr_qiec_force(resume_effect(value), rest),
+            )
+
+
+_qvr_qiec_serials = {"call": 0, "instance": 0}
+
+
+def _qvr_qiec_enter_call(name, thunk, tail):
+    _qvr_qiec_serials["call"] += 1
+    serial = _qvr_qiec_serials["call"]
+    return _qvr_qiec_call(thunk, (("call", name + "#" + str(serial)),), tail)
+
+
+def _qvr_qiec_instance(thunk):
+    _qvr_qiec_serials["instance"] += 1
+    return _qvr_qiec_call(thunk, (("instance", _qvr_qiec_serials["instance"]),))
+
+
+def _qvr_qiec_resume(resume, value):
+    return _qvr_qiec_as_computation(resume(value))
+
+
 def _qvr_qiec_static_kind(argument):
     kind = argument.get("kind") if isinstance(argument, dict) else None
     if kind in {
@@ -107,6 +209,8 @@ def _qvr_qiec_effect(request, static_environment):
 def _qvr_qiec_bind(computation, continuation, captures=()):
     if computation[0] == "pure":
         return continuation(computation[1])
+    if computation[0] in ("call", "bind"):
+        return ("bind", computation, continuation, tuple(captures))
     request = dict(computation[1])
     request["captures"] = (*request.get("captures", ()), *captures)
     return (
@@ -202,7 +306,11 @@ def _qvr_qiec_member(container, key, default=None):
 
 
 def _qvr_qiec_as_computation(value):
-    if isinstance(value, tuple) and value and value[0] in ("pure", "effect"):
+    if (
+        isinstance(value, tuple)
+        and value
+        and value[0] in ("pure", "effect", "call", "bind")
+    ):
         return value
     return _qvr_qiec_pure(value)
 
@@ -303,6 +411,7 @@ def _qvr_qiec_fork_capture(request, current_handler, shot):
 
 
 def _qvr_qiec_readdress(computation, shot):
+    computation = _qvr_qiec_force(computation)
     if computation[0] == "pure":
         return computation
     request = dict(computation[1])
@@ -355,7 +464,7 @@ def _qvr_qiec_drop_request(request):
 
 
 def _qvr_qiec_finalize(computation, lifecycle):
-    current = _qvr_qiec_as_computation(computation)
+    current = _qvr_qiec_force(_qvr_qiec_as_computation(computation))
     if current[0] == "pure":
         _qvr_qiec_lifecycle_exit(lifecycle)
         return current
@@ -432,6 +541,9 @@ def _qvr_qiec_invoke(entry, *arguments):
     return invoke(*arguments)
 
 
+_qvr_qiec_authored = {}
+
+
 def _qvr_qiec_handle(
     computation,
     instance,
@@ -439,6 +551,8 @@ def _qvr_qiec_handle(
     static_arguments,
     computation_static_environment,
     handlers,
+    attachments=None,
+    operations=None,
 ):
     static_arguments = _qvr_qiec_specialize(
         static_arguments, computation_static_environment
@@ -449,9 +563,15 @@ def _qvr_qiec_handle(
     manifest = _qvr_qiec_specialize(manifest, handler_static_environment)
     manifest["telescope"] = []
     handler_id = manifest["id"]
-    if handler_id not in handlers:
+    if handler_id in handlers:
+        prototype = handlers[handler_id]
+    elif handler_id in _qvr_qiec_authored:
+        # An authored handler's clauses are generated code beside this
+        # runtime; an attachment under the same identity is an explicit
+        # foreign stand-in and takes precedence.
+        prototype = _qvr_qiec_authored[handler_id]
+    else:
         raise KeyError("missing QIEC handler attachment " + handler_id)
-    prototype = handlers[handler_id]
     handler = prototype
     factory = _qvr_qiec_member(prototype, "context_factory")
     if callable(factory):
@@ -468,11 +588,16 @@ def _qvr_qiec_handle(
         "handler": handler_id,
         "definition": manifest,
         "static_arguments": static_arguments,
+        "static": handler_static_environment,
+        "attachments": {} if attachments is None else attachments,
+        "handlers": handlers,
+        "operations": {} if operations is None else operations,
         "resumption_uses": 0,
     }
 
     def walk(current):
         handler = handler_ref[0]
+        current = _qvr_qiec_force(current)
         if current[0] == "pure":
             value = _qvr_qiec_validate(
                 _qvr_qiec_member(handler, "input_validator"),
@@ -604,7 +729,9 @@ def _qvr_qiec_handle(
         )
 
     try:
-        computation = _qvr_qiec_with_ambient(controller, computation)
+        computation = _qvr_qiec_with_ambient(
+            controller, lambda: _qvr_qiec_force(computation())
+        )
         return walk(computation)
     except BaseException:
         _qvr_qiec_lifecycle_drop(lifecycle_ref[0])
@@ -633,11 +760,18 @@ def _qvr_qiec_operation(operations, request):
     )
 
 
-def _qvr_qiec_run(computation, operations):
-    current = computation
+def _qvr_qiec_run(build, operations):
+    # The entry builds its body after the serials reset, so every call and
+    # allocation in a run is numbered from one and two identical runs
+    # address their requests identically.
+    _qvr_qiec_serials["call"] = 0
+    _qvr_qiec_serials["instance"] = 0
+    current = _qvr_qiec_force(build())
     while current[0] == "effect":
         try:
-            current = current[2](_qvr_qiec_operation(operations, current[1]))
+            current = _qvr_qiec_force(
+                current[2](_qvr_qiec_operation(operations, current[1]))
+            )
         except BaseException:
             _qvr_qiec_drop_request(current[1])
             raise

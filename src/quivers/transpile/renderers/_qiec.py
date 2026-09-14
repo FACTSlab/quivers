@@ -24,6 +24,7 @@ from quivers.transpile.qiec_ir import (
     IRQiecBind,
     IRQiecBoolLiteral,
     IRQiecBytesLiteral,
+    IRQiecCall,
     IRQiecCase,
     IRQiecComputation,
     IRQiecConstructorValue,
@@ -33,10 +34,13 @@ from quivers.transpile.qiec_ir import (
     IRQiecIntLiteral,
     IRQiecLiteral,
     IRQiecLiteralValue,
+    IRQiecHandlerDef,
     IRQiecModule,
     IRQiecNamedComputation,
+    IRQiecNewInstance,
     IRQiecNullLiteral,
     IRQiecPerform,
+    IRQiecResume,
     IRQiecReturn,
     IRQiecStringLiteral,
     IRQiecTransportValue,
@@ -220,6 +224,101 @@ def _function_name(computation: IRQiecNamedComputation) -> str:
     return "qiec_" + _safe_name(computation.name)
 
 
+def _body_name(computation: IRQiecNamedComputation) -> str:
+    """The generated function that builds a computation's body unrun.
+
+    A call needs the callee's computation as data the caller's handlers
+    can interpret, not its final value, so every named computation is
+    generated twice: this builder, and the public entry that runs it.
+
+    Parameters
+    ----------
+    computation
+        The named computation.
+
+    Returns
+    -------
+    str
+        The builder's host-language name.
+    """
+    return "qiec_body_" + _safe_name(computation.name)
+
+
+def _clause_name(handler: IRQiecHandlerDef, operation: str) -> str:
+    """The generated function holding one authored clause body.
+
+    Parameters
+    ----------
+    handler
+        The authored handler.
+    operation
+        The clause's operation, by display name.
+
+    Returns
+    -------
+    str
+        The clause function's host-language name.
+    """
+    return "qiec_clause_" + _safe_name(handler.name) + "_" + _safe_name(operation)
+
+
+def _return_clause_name(handler: IRQiecHandlerDef) -> str:
+    """The generated function holding an authored return clause body.
+
+    Parameters
+    ----------
+    handler
+        The authored handler.
+
+    Returns
+    -------
+    str
+        The return clause function's host-language name.
+    """
+    return "qiec_return_" + _safe_name(handler.name)
+
+
+def _computation_by_id(module: IRQiecModule, callee: str) -> IRQiecNamedComputation:
+    """Find a named computation by stable identity.
+
+    Parameters
+    ----------
+    module
+        The module the call is being rendered from.
+    callee
+        The callee identity, as :attr:`IRQiecId.text`.
+
+    Returns
+    -------
+    IRQiecNamedComputation
+        The computation a call refers to.
+    """
+    return next(item for item in module.computations if item.id.text == callee)
+
+
+def _operation_name(module: IRQiecModule, operation: str) -> str:
+    """The display name of an operation, by stable identity.
+
+    Parameters
+    ----------
+    module
+        The module declaring the operation's interface.
+    operation
+        The operation identity, as :attr:`IRQiecId.text`.
+
+    Returns
+    -------
+    str
+        The declared name, or the identity text when no interface in the
+        module declares it.
+    """
+    for effect in module.effects:
+        for item in effect.operations:
+            if item.id.text == operation:
+                return item.name
+    return operation
+
+
 def _ir_data(value: object) -> object:
     """Project typed QIEC IR to lossless host-runtime metadata.
 
@@ -245,7 +344,25 @@ def _dynamic_definitions(module: IRQiecModule, grammar: str) -> str:
         "javascript": _javascript_definition,
         "scheme": _scheme_definition,
     }
-    return "\n".join(generators[grammar](item, module) for item in module.computations)
+    handler_generators: dict[str, Callable[[IRQiecHandlerDef, IRQiecModule], str]] = {
+        "python": _python_authored_handler,
+        "julia": _julia_authored_handler,
+        "javascript": _javascript_authored_handler,
+        "scheme": _scheme_authored_handler,
+    }
+    # Clause bodies are generated before the computations that install
+    # them, so a handler is registered by the time any entry point runs.
+    authored = [
+        handler_generators[grammar](handler, module)
+        for handler in module.handlers
+        if handler.implementation == "authored"
+    ]
+    return "\n".join(
+        (
+            *authored,
+            *(generators[grammar](item, module) for item in module.computations),
+        )
+    )
 
 
 def _handler_grades(module: IRQiecModule, handler_id: str) -> dict[str, str]:
@@ -321,9 +438,43 @@ def _free_runtime_capture(
                     branch.body,
                     locally_bound | {field.name for field in branch.fields},
                 )
+        elif isinstance(item, IRQiecCall):
+            for argument in item.arguments:
+                value(argument, locally_bound)
+        elif isinstance(item, IRQiecResume):
+            value(item.value, locally_bound)
+        elif isinstance(item, IRQiecNewInstance):
+            computation(item.body, locally_bound)
 
     computation(node, bound)
     return tuple(sorted(locals_)), tuple(sorted(attachments))
+
+
+def _branch_static(rendered: str, identifier: str) -> str:
+    """Point a branch body's static environment at the branch's own.
+
+    Only the bare identifier moves; runtime helper names that contain it,
+    such as the static-environment constructor a nested call uses, are
+    left alone.
+
+    Parameters
+    ----------
+    rendered
+        The rendered branch body.
+    identifier
+        The host-language spelling of the static environment name.
+
+    Returns
+    -------
+    str
+        The body with every bare occurrence renamed to the branch's
+        environment.
+    """
+    pattern = r"(?<![\w-])" + re.escape(identifier) + r"(?![\w-])"
+    replacement = identifier.replace("static", "branch-static", 1)
+    if "_" in identifier:
+        replacement = identifier.replace("static", "branch_static", 1)
+    return re.sub(pattern, replacement, rendered)
 
 
 def _case_metadata(node: IRQiecCase) -> dict[str, object]:
@@ -340,6 +491,9 @@ def _case_metadata(node: IRQiecCase) -> dict[str, object]:
     }
 
 
+_PYTHON_ABI = "qiec_static, qiec_attachments, qiec_handlers, qiec_operations"
+
+
 def _python_definition(item: IRQiecNamedComputation, module: IRQiecModule) -> str:
     params = [_local_name(parameter.name) for parameter in item.parameters]
     abi = [
@@ -350,16 +504,79 @@ def _python_definition(item: IRQiecNamedComputation, module: IRQiecModule) -> st
     ]
     body = _python_computation(item.body, module)
     return (
+        f"def {_body_name(item)}({', '.join((*params, _PYTHON_ABI))}):\n"
+        f"    return {body}\n"
         f"def {_function_name(item)}({', '.join((*params, *abi))}):\n"
         f"    qiec_static = _qvr_qiec_static_environment({_ir_data(item.telescope)!r}, qiec_static_arguments)\n"
         "    qiec_attachments = {} if qiec_attachments is None else qiec_attachments\n"
         "    qiec_handlers = {} if qiec_handlers is None else qiec_handlers\n"
         "    qiec_operations = {} if qiec_operations is None else qiec_operations\n"
-        f"    return _qvr_qiec_run({body}, qiec_operations)\n"
+        f"    return _qvr_qiec_run(lambda: {_body_name(item)}({', '.join((*params, _PYTHON_ABI))}), qiec_operations)\n"
     )
 
 
-def _python_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
+def _python_authored_handler(handler: IRQiecHandlerDef, module: IRQiecModule) -> str:
+    """Generate an authored handler's clause bodies and register them.
+
+    Each clause becomes a function with the foreign-clause calling
+    convention, so the runtime installs authored and foreign handlers
+    alike; the difference is only where the body came from.
+
+    Parameters
+    ----------
+    handler
+        The authored handler declaration.
+    module
+        The module it belongs to, for resolving names.
+
+    Returns
+    -------
+    str
+        Host-language source defining the clause functions and registering
+        the handler under its stable identity.
+    """
+    lines: list[str] = []
+    operations: list[str] = []
+    for clause in handler.clauses:
+        name = _clause_name(handler, _operation_name(module, clause.operation.text))
+        if clause.body is None:
+            continue
+        params = ", ".join(_local_name(local.name) for local in clause.parameters)
+        unpack = f"    ({params},) = qiec_request['arguments']\n" if params else ""
+        lines.append(
+            f"def {name}(qiec_request, qiec_resume, qiec_context):\n"
+            "    qiec_static = qiec_context['static']\n"
+            "    qiec_attachments = qiec_context['attachments']\n"
+            "    qiec_handlers = qiec_context['handlers']\n"
+            "    qiec_operations = qiec_context['operations']\n"
+            f"{unpack}"
+            f"    return {_python_computation(clause.body, module)}\n"
+        )
+        operations.append(f"{clause.operation.text!r}: {{'invoke': {name}}}")
+    return_entry = "None"
+    if handler.return_clause is not None:
+        name = _return_clause_name(handler)
+        binder = _local_name(handler.return_clause.binder.name)
+        lines.append(
+            f"def {name}({binder}, qiec_context):\n"
+            "    qiec_static = qiec_context['static']\n"
+            "    qiec_attachments = qiec_context['attachments']\n"
+            "    qiec_handlers = qiec_context['handlers']\n"
+            "    qiec_operations = qiec_context['operations']\n"
+            f"    return {_python_computation(handler.return_clause.body, module)}\n"
+        )
+        return_entry = name
+    lines.append(
+        f"_qvr_qiec_authored[{handler.id.text!r}] = {{"
+        f"'operations': {{{', '.join(operations)}}}, "
+        f"'return': {return_entry}, 'duplicable_context': True}}\n"
+    )
+    return "".join(lines)
+
+
+def _python_computation(
+    node: IRQiecComputation, module: IRQiecModule, tail: bool = True
+) -> str:
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_python_value(node.value)})"
     if isinstance(node, IRQiecBind):
@@ -373,7 +590,7 @@ def _python_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
             + "}"
         )
         return (
-            f"_qvr_qiec_bind({_python_computation(node.first, module)}, "
+            f"_qvr_qiec_bind({_python_computation(node.first, module, tail=False)}, "
             f"lambda {binder}: {_python_computation(node.then, module)}, "
             f"_qvr_qiec_capture({captures}, {attachment_ids!r}, qiec_attachments))"
         )
@@ -391,14 +608,31 @@ def _python_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
         return (
             f"_qvr_qiec_handle(lambda: {_python_computation(node.computation, module)}, "
             f"{node.instance.text!r}, {_ir_data(handler)!r}, "
-            f"{_ir_data(node.static_arguments)!r}, qiec_static, qiec_handlers)"
+            f"{_ir_data(node.static_arguments)!r}, qiec_static, qiec_handlers, "
+            "qiec_attachments, qiec_operations)"
         )
+    if isinstance(node, IRQiecCall):
+        callee = _computation_by_id(module, node.callee.text)
+        arguments = "".join(
+            f"{_python_value(argument)}, " for argument in node.arguments
+        )
+        return (
+            f"_qvr_qiec_enter_call({callee.name!r}, lambda: {_body_name(callee)}("
+            f"{arguments}"
+            f"_qvr_qiec_static_environment({_ir_data(callee.telescope)!r}, "
+            f"_qvr_qiec_specialize({_ir_data(node.static_arguments)!r}, qiec_static)), "
+            f"qiec_attachments, qiec_handlers, qiec_operations), {tail!r})"
+        )
+    if isinstance(node, IRQiecResume):
+        return f"_qvr_qiec_resume(qiec_resume, {_python_value(node.value)})"
+    if isinstance(node, IRQiecNewInstance):
+        return f"_qvr_qiec_instance(lambda: {_python_computation(node.body, module)})"
     if isinstance(node, IRQiecCase):
         branches = []
         for branch in node.branches:
             params = ", ".join(_local_name(field.name) for field in branch.fields)
-            body = _python_computation(branch.body, module).replace(
-                "qiec_static", "qiec_branch_static"
+            body = _branch_static(
+                _python_computation(branch.body, module), "qiec_static"
             )
             separator = ", " if params else ""
             branches.append(
@@ -450,19 +684,94 @@ def _python_literal(node: IRQiecLiteral) -> str:
     return repr(node.value)  # type: ignore[attr-defined]
 
 
+_JULIA_ABI = "qiec_static, qiec_attachments, qiec_handlers, qiec_operations"
+
+
 def _julia_definition(item: IRQiecNamedComputation, module: IRQiecModule) -> str:
     params = ", ".join(_local_name(parameter.name) for parameter in item.parameters)
     separator = "; " if params else "; "
+    body_params = f"{params}, {_JULIA_ABI}" if params else _JULIA_ABI
     return (
+        f"function {_body_name(item)}({body_params})\n"
+        f"    return {_julia_computation(item.body, module)}\n"
+        "end\n"
         f"function {_function_name(item)}({params}{separator}qiec_attachments=Dict(), "
         "qiec_handlers=Dict(), qiec_operations=Dict(), qiec_static_arguments=nothing)\n"
         f"    qiec_static = _qvr_qiec_static_environment({_julia_data(_ir_data(item.telescope))}, qiec_static_arguments)\n"
-        f"    return _qvr_qiec_run({_julia_computation(item.body, module)}, qiec_operations)\n"
+        f"    return _qvr_qiec_run(() -> {_body_name(item)}({body_params}), qiec_operations)\n"
         "end\n"
     )
 
 
-def _julia_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
+def _julia_authored_handler(handler: IRQiecHandlerDef, module: IRQiecModule) -> str:
+    """Generate an authored handler's clause bodies and register them.
+
+    Each clause becomes a function with the foreign-clause calling
+    convention, so the runtime installs authored and foreign handlers
+    alike; the difference is only where the body came from.
+
+    Parameters
+    ----------
+    handler
+        The authored handler declaration.
+    module
+        The module it belongs to, for resolving names.
+
+    Returns
+    -------
+    str
+        Host-language source defining the clause functions and registering
+        the handler under its stable identity.
+    """
+    lines: list[str] = []
+    operations: list[str] = []
+    for clause in handler.clauses:
+        if clause.body is None:
+            continue
+        name = _clause_name(handler, _operation_name(module, clause.operation.text))
+        params = [_local_name(local.name) for local in clause.parameters]
+        unpack = "".join(
+            f'    {param} = qiec_request["arguments"][{index + 1}]\n'
+            for index, param in enumerate(params)
+        )
+        lines.append(
+            f"function {name}(qiec_request, qiec_resume, qiec_context)\n"
+            '    qiec_static = qiec_context["static"]\n'
+            '    qiec_attachments = qiec_context["attachments"]\n'
+            '    qiec_handlers = qiec_context["handlers"]\n'
+            '    qiec_operations = qiec_context["operations"]\n'
+            f"{unpack}"
+            f"    return {_julia_computation(clause.body, module)}\n"
+            "end\n"
+        )
+        operations.append(
+            f'{_julia_string(clause.operation.text)} => Dict("invoke" => {name})'
+        )
+    return_entry = "nothing"
+    if handler.return_clause is not None:
+        name = _return_clause_name(handler)
+        binder = _local_name(handler.return_clause.binder.name)
+        lines.append(
+            f"function {name}({binder}, qiec_context)\n"
+            '    qiec_static = qiec_context["static"]\n'
+            '    qiec_attachments = qiec_context["attachments"]\n'
+            '    qiec_handlers = qiec_context["handlers"]\n'
+            '    qiec_operations = qiec_context["operations"]\n'
+            f"    return {_julia_computation(handler.return_clause.body, module)}\n"
+            "end\n"
+        )
+        return_entry = name
+    lines.append(
+        f"_qvr_qiec_authored[{_julia_string(handler.id.text)}] = Dict("
+        f'"operations" => Dict{{String, Any}}({", ".join(operations)}), '
+        f'"return" => {return_entry}, "duplicable_context" => true)\n'
+    )
+    return "".join(lines)
+
+
+def _julia_computation(
+    node: IRQiecComputation, module: IRQiecModule, tail: bool = True
+) -> str:
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_julia_value(node.value)})"
     if isinstance(node, IRQiecBind):
@@ -477,7 +786,7 @@ def _julia_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
             captures = captures.replace(
                 _julia_string(f"__QVR_LOCAL__{_local_name(name)}"), _local_name(name)
             )
-        return f"_qvr_qiec_bind({_julia_computation(node.first, module)}, {binder} -> {_julia_computation(node.then, module)}, _qvr_qiec_capture({captures}, {_julia_data(attachment_ids)}, qiec_attachments))"
+        return f"_qvr_qiec_bind({_julia_computation(node.first, module, tail=False)}, {binder} -> {_julia_computation(node.then, module)}, _qvr_qiec_capture({captures}, {_julia_data(attachment_ids)}, qiec_attachments))"
     if isinstance(node, IRQiecPerform):
         args = ", ".join(_julia_value(value) for value in node.request.arguments)
         request = _runtime_request(node)
@@ -488,13 +797,29 @@ def _julia_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
         return f"_qvr_qiec_effect({rendered}, qiec_static)"
     if isinstance(node, IRQiecHandle):
         handler = _handler(module, node.handler.text)
-        return f"_qvr_qiec_handle(() -> {_julia_computation(node.computation, module)}, {_julia_string(node.instance.text)}, {_julia_data(_ir_data(handler))}, {_julia_data(_ir_data(node.static_arguments))}, qiec_static, qiec_handlers)"
+        return f"_qvr_qiec_handle(() -> {_julia_computation(node.computation, module)}, {_julia_string(node.instance.text)}, {_julia_data(_ir_data(handler))}, {_julia_data(_ir_data(node.static_arguments))}, qiec_static, qiec_handlers, qiec_attachments, qiec_operations)"
+    if isinstance(node, IRQiecCall):
+        callee = _computation_by_id(module, node.callee.text)
+        arguments = "".join(
+            f"{_julia_value(argument)}, " for argument in node.arguments
+        )
+        return (
+            f"_qvr_qiec_enter_call({_julia_string(callee.name)}, () -> {_body_name(callee)}("
+            f"{arguments}"
+            f"_qvr_qiec_static_environment({_julia_data(_ir_data(callee.telescope))}, "
+            f"_qvr_qiec_specialize({_julia_data(_ir_data(node.static_arguments))}, qiec_static)), "
+            f"qiec_attachments, qiec_handlers, qiec_operations), {'true' if tail else 'false'})"
+        )
+    if isinstance(node, IRQiecResume):
+        return f"_qvr_qiec_resume(qiec_resume, {_julia_value(node.value)})"
+    if isinstance(node, IRQiecNewInstance):
+        return f"_qvr_qiec_instance(() -> {_julia_computation(node.body, module)})"
     if isinstance(node, IRQiecCase):
         pairs = []
         for branch in node.branches:
             params = ", ".join(_local_name(field.name) for field in branch.fields)
-            body = _julia_computation(branch.body, module).replace(
-                "qiec_static", "qiec_branch_static"
+            body = _branch_static(
+                _julia_computation(branch.body, module), "qiec_static"
             )
             branch_params = ", ".join(
                 item for item in ("qiec_branch_static", params) if item
@@ -574,18 +899,96 @@ def _javascript_definition(item: IRQiecNamedComputation, module: IRQiecModule) -
             "qiec_operations",
         )
     )
+    body_params = [
+        *(_local_name(parameter.name) for parameter in item.parameters),
+        "qiec_static",
+        "qiec_attachments",
+        "qiec_handlers",
+        "qiec_operations",
+    ]
     return (
+        f"var {_body_name(item)} = function({', '.join(body_params)}) {{\n"
+        f"  return {_javascript_computation(item.body, module)};\n"
+        "};\n"
         f"var {_function_name(item)} = function({', '.join(params)}) {{\n"
         f"  var qiec_static = _qvr_qiec_static_environment({json.dumps(_ir_data(item.telescope), ensure_ascii=False)}, qiec_static_arguments);\n"
         "  qiec_attachments = qiec_attachments || {};\n"
         "  qiec_handlers = qiec_handlers || {};\n"
         "  qiec_operations = qiec_operations || {};\n"
-        f"  return _qvr_qiec_run({_javascript_computation(item.body, module)}, qiec_operations);\n"
+        f"  return _qvr_qiec_run(function() {{ return {_body_name(item)}({', '.join(body_params)}); }}, qiec_operations);\n"
         "};\n"
     )
 
 
-def _javascript_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
+def _javascript_authored_handler(
+    handler: IRQiecHandlerDef, module: IRQiecModule
+) -> str:
+    """Generate an authored handler's clause bodies and register them.
+
+    Each clause becomes a function with the foreign-clause calling
+    convention, so the runtime installs authored and foreign handlers
+    alike; the difference is only where the body came from.
+
+    Parameters
+    ----------
+    handler
+        The authored handler declaration.
+    module
+        The module it belongs to, for resolving names.
+
+    Returns
+    -------
+    str
+        Host-language source defining the clause functions and registering
+        the handler under its stable identity.
+    """
+    lines: list[str] = []
+    operations: list[str] = []
+    for clause in handler.clauses:
+        if clause.body is None:
+            continue
+        name = _clause_name(handler, _operation_name(module, clause.operation.text))
+        params = [_local_name(local.name) for local in clause.parameters]
+        unpack = "".join(
+            f"  var {param} = qiec_request.arguments[{index}];\n"
+            for index, param in enumerate(params)
+        )
+        lines.append(
+            f"var {name} = function(qiec_request, qiec_resume, qiec_context) {{\n"
+            "  var qiec_static = qiec_context.static;\n"
+            "  var qiec_attachments = qiec_context.attachments;\n"
+            "  var qiec_handlers = qiec_context.handlers;\n"
+            "  var qiec_operations = qiec_context.operations;\n"
+            f"{unpack}"
+            f"  return {_javascript_computation(clause.body, module)};\n"
+            "};\n"
+        )
+        operations.append(f"{json.dumps(clause.operation.text)}: {{ invoke: {name} }}")
+    return_entry = "null"
+    if handler.return_clause is not None:
+        name = _return_clause_name(handler)
+        binder = _local_name(handler.return_clause.binder.name)
+        lines.append(
+            f"var {name} = function({binder}, qiec_context) {{\n"
+            "  var qiec_static = qiec_context.static;\n"
+            "  var qiec_attachments = qiec_context.attachments;\n"
+            "  var qiec_handlers = qiec_context.handlers;\n"
+            "  var qiec_operations = qiec_context.operations;\n"
+            f"  return {_javascript_computation(handler.return_clause.body, module)};\n"
+            "};\n"
+        )
+        return_entry = name
+    lines.append(
+        f"_qvr_qiec_authored[{json.dumps(handler.id.text)}] = {{ operations: "
+        f'{{ {", ".join(operations)} }}, "return": {return_entry}, '
+        "duplicable_context: true };\n"
+    )
+    return "".join(lines)
+
+
+def _javascript_computation(
+    node: IRQiecComputation, module: IRQiecModule, tail: bool = True
+) -> str:
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_javascript_value(node.value)})"
     if isinstance(node, IRQiecBind):
@@ -600,7 +1003,7 @@ def _javascript_computation(node: IRQiecComputation, module: IRQiecModule) -> st
             )
             + "}"
         )
-        return f"_qvr_qiec_bind({_javascript_computation(node.first, module)}, function({binder}) {{ return {_javascript_computation(node.then, module)}; }}, _qvr_qiec_capture({captures}, {json.dumps(attachment_ids)}, qiec_attachments))"
+        return f"_qvr_qiec_bind({_javascript_computation(node.first, module, tail=False)}, function({binder}) {{ return {_javascript_computation(node.then, module)}; }}, _qvr_qiec_capture({captures}, {json.dumps(attachment_ids)}, qiec_attachments))"
     if isinstance(node, IRQiecPerform):
         args = ", ".join(_javascript_value(value) for value in node.request.arguments)
         request = _runtime_request(node)
@@ -611,13 +1014,29 @@ def _javascript_computation(node: IRQiecComputation, module: IRQiecModule) -> st
         return f"_qvr_qiec_effect({rendered}, qiec_static)"
     if isinstance(node, IRQiecHandle):
         handler = _handler(module, node.handler.text)
-        return f"_qvr_qiec_handle(function() {{ return {_javascript_computation(node.computation, module)}; }}, {json.dumps(node.instance.text)}, {json.dumps(_ir_data(handler), ensure_ascii=False)}, {json.dumps(_ir_data(node.static_arguments), ensure_ascii=False)}, qiec_static, qiec_handlers)"
+        return f"_qvr_qiec_handle(function() {{ return {_javascript_computation(node.computation, module)}; }}, {json.dumps(node.instance.text)}, {json.dumps(_ir_data(handler), ensure_ascii=False)}, {json.dumps(_ir_data(node.static_arguments), ensure_ascii=False)}, qiec_static, qiec_handlers, qiec_attachments, qiec_operations)"
+    if isinstance(node, IRQiecCall):
+        callee = _computation_by_id(module, node.callee.text)
+        arguments = "".join(
+            f"{_javascript_value(argument)}, " for argument in node.arguments
+        )
+        return (
+            f"_qvr_qiec_enter_call({json.dumps(callee.name)}, function() {{ return {_body_name(callee)}("
+            f"{arguments}"
+            f"_qvr_qiec_static_environment({json.dumps(_ir_data(callee.telescope), ensure_ascii=False)}, "
+            f"_qvr_qiec_specialize({json.dumps(_ir_data(node.static_arguments), ensure_ascii=False)}, qiec_static)), "
+            f"qiec_attachments, qiec_handlers, qiec_operations); }}, {'true' if tail else 'false'})"
+        )
+    if isinstance(node, IRQiecResume):
+        return f"_qvr_qiec_resume(qiec_resume, {_javascript_value(node.value)})"
+    if isinstance(node, IRQiecNewInstance):
+        return f"_qvr_qiec_instance(function() {{ return {_javascript_computation(node.body, module)}; }})"
     if isinstance(node, IRQiecCase):
         branches = []
         for branch in node.branches:
             params = ", ".join(_local_name(field.name) for field in branch.fields)
-            body = _javascript_computation(branch.body, module).replace(
-                "qiec_static", "qiec_branch_static"
+            body = _branch_static(
+                _javascript_computation(branch.body, module), "qiec_static"
             )
             branches.append(
                 f"{json.dumps(branch.constructor.text)}: function(qiec_branch_static{', ' if params else ''}{params}) {{ return {body}; }}"
@@ -661,17 +1080,85 @@ def _scheme_definition(item: IRQiecNamedComputation, module: IRQiecModule) -> st
     if params:
         params += " "
     return (
+        f"(define ({_body_name(item)} {params}qiec-static qiec-attachments qiec-handlers qiec-operations)\n"
+        f"  {_scheme_computation(item.body, module)})\n"
         f"(define ({_function_name(item)} {params}. qiec-abi)\n"
         "  (let* ((qiec-static-arguments (if (pair? qiec-abi) (car qiec-abi) #f))\n"
         f"         (qiec-static (_qvr-qiec-static-environment {_scheme_data(_ir_data(item.telescope))} qiec-static-arguments))\n"
         "         (qiec-attachments (if (and (pair? qiec-abi) (pair? (cdr qiec-abi))) (cadr qiec-abi) '()))\n"
         "         (qiec-handlers (if (and (pair? qiec-abi) (pair? (cdr qiec-abi)) (pair? (cddr qiec-abi))) (caddr qiec-abi) '()))\n"
         "         (qiec-operations (if (and (pair? qiec-abi) (pair? (cdr qiec-abi)) (pair? (cddr qiec-abi)) (pair? (cdddr qiec-abi))) (cadddr qiec-abi) '())))\n"
-        f"    (_qvr-qiec-run {_scheme_computation(item.body, module)} qiec-operations)))\n"
+        f"    (_qvr-qiec-run (lambda () ({_body_name(item)} {params}qiec-static qiec-attachments qiec-handlers qiec-operations)) qiec-operations)))\n"
     )
 
 
-def _scheme_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
+def _scheme_authored_handler(handler: IRQiecHandlerDef, module: IRQiecModule) -> str:
+    """Generate an authored handler's clause bodies and register them.
+
+    Each clause becomes a function with the foreign-clause calling
+    convention, so the runtime installs authored and foreign handlers
+    alike; the difference is only where the body came from.
+
+    Parameters
+    ----------
+    handler
+        The authored handler declaration.
+    module
+        The module it belongs to, for resolving names.
+
+    Returns
+    -------
+    str
+        Host-language source defining the clause functions and registering
+        the handler under its stable identity.
+    """
+    lines: list[str] = []
+    operations: list[str] = []
+    for clause in handler.clauses:
+        if clause.body is None:
+            continue
+        name = _clause_name(handler, _operation_name(module, clause.operation.text))
+        params = [_local_name(local.name) for local in clause.parameters]
+        bindings = " ".join(
+            f'({param} (list-ref (_qvr-qiec-member qiec-request "arguments") {index}))'
+            for index, param in enumerate(params)
+        )
+        lines.append(
+            f"(define ({name} qiec-request qiec-resume qiec-context)\n"
+            f'  (let* ((qiec-static (_qvr-qiec-member qiec-context "static"))\n'
+            f'         (qiec-attachments (_qvr-qiec-member qiec-context "attachments"))\n'
+            f'         (qiec-handlers (_qvr-qiec-member qiec-context "handlers"))\n'
+            f'         (qiec-operations (_qvr-qiec-member qiec-context "operations"))'
+            f"{(' ' + bindings) if bindings else ''})\n"
+            f"    {_scheme_computation(clause.body, module)}))\n"
+        )
+        operations.append(
+            f'(cons {_scheme_string(clause.operation.text)} (list (cons "invoke" {name})))'
+        )
+    return_entry = "#f"
+    if handler.return_clause is not None:
+        name = _return_clause_name(handler)
+        binder = _local_name(handler.return_clause.binder.name)
+        lines.append(
+            f"(define ({name} {binder} qiec-context)\n"
+            f'  (let* ((qiec-static (_qvr-qiec-member qiec-context "static"))\n'
+            f'         (qiec-attachments (_qvr-qiec-member qiec-context "attachments"))\n'
+            f'         (qiec-handlers (_qvr-qiec-member qiec-context "handlers"))\n'
+            f'         (qiec-operations (_qvr-qiec-member qiec-context "operations")))\n'
+            f"    {_scheme_computation(handler.return_clause.body, module)}))\n"
+        )
+        return_entry = name
+    lines.append(
+        f"(_qvr-qiec-register-authored {_scheme_string(handler.id.text)} "
+        f'(list (cons "operations" (list {" ".join(operations)})) '
+        f'(cons "return" {return_entry}) (cons "duplicable_context" #t)))\n'
+    )
+    return "".join(lines)
+
+
+def _scheme_computation(
+    node: IRQiecComputation, module: IRQiecModule, tail: bool = True
+) -> str:
     if isinstance(node, IRQiecReturn):
         return f"(_qvr-qiec-pure {_scheme_value(node.value)})"
     if isinstance(node, IRQiecBind):
@@ -687,7 +1174,7 @@ def _scheme_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
             )
             + ")"
         )
-        return f"(_qvr-qiec-bind {_scheme_computation(node.first, module)} (lambda ({binder}) {_scheme_computation(node.then, module)}) (_qvr-qiec-capture {captures} {_scheme_data(attachment_ids)} qiec-attachments))"
+        return f"(_qvr-qiec-bind {_scheme_computation(node.first, module, tail=False)} (lambda ({binder}) {_scheme_computation(node.then, module)}) (_qvr-qiec-capture {captures} {_scheme_data(attachment_ids)} qiec-attachments))"
     if isinstance(node, IRQiecPerform):
         args = " ".join(_scheme_value(value) for value in node.request.arguments)
         request = _runtime_request(node)
@@ -698,13 +1185,31 @@ def _scheme_computation(node: IRQiecComputation, module: IRQiecModule) -> str:
         return f"(_qvr-qiec-effect {rendered} qiec-static)"
     if isinstance(node, IRQiecHandle):
         handler = _handler(module, node.handler.text)
-        return f"(_qvr-qiec-handle (lambda () {_scheme_computation(node.computation, module)}) {_scheme_string(node.instance.text)} {_scheme_data(_ir_data(handler))} {_scheme_data(_ir_data(node.static_arguments))} qiec-static qiec-handlers)"
+        return f"(_qvr-qiec-handle (lambda () {_scheme_computation(node.computation, module)}) {_scheme_string(node.instance.text)} {_scheme_data(_ir_data(handler))} {_scheme_data(_ir_data(node.static_arguments))} qiec-static qiec-handlers qiec-attachments qiec-operations)"
+    if isinstance(node, IRQiecCall):
+        callee = _computation_by_id(module, node.callee.text)
+        arguments = "".join(
+            f"{_scheme_value(argument)} " for argument in node.arguments
+        )
+        return (
+            f"(_qvr-qiec-enter-call {_scheme_string(callee.name)} (lambda () ({_body_name(callee)} "
+            f"{arguments}"
+            f"(_qvr-qiec-static-environment {_scheme_data(_ir_data(callee.telescope))} "
+            f"(_qvr-qiec-specialize {_scheme_data(_ir_data(node.static_arguments))} qiec-static)) "
+            f"qiec-attachments qiec-handlers qiec-operations)) {'#t' if tail else '#f'})"
+        )
+    if isinstance(node, IRQiecResume):
+        return f"(_qvr-qiec-resume qiec-resume {_scheme_value(node.value)})"
+    if isinstance(node, IRQiecNewInstance):
+        return (
+            f"(_qvr-qiec-instance (lambda () {_scheme_computation(node.body, module)}))"
+        )
     if isinstance(node, IRQiecCase):
         rendered_branches = []
         for branch in node.branches:
             params = " ".join(_local_name(field.name) for field in branch.fields)
-            body = _scheme_computation(branch.body, module).replace(
-                "qiec-static", "qiec-branch-static"
+            body = _branch_static(
+                _scheme_computation(branch.body, module), "qiec-static"
             )
             rendered_branches.append(
                 f"(cons {_scheme_string(branch.constructor.text)} (lambda (qiec-branch-static{' ' if params else ''}{params}) {body}))"
