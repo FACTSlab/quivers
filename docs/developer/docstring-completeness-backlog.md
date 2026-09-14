@@ -13,7 +13,10 @@ The rule it enforces:
 > none of those needs only a summary line.
 
 Constructor parameters are documented on the **class** docstring, not on
-`__init__`. `__init__` carries no separate parameter list.
+`__init__`. `__init__` carries no separate parameter list. A dataclass or
+didactic model's fields are its constructor parameters, so its class
+docstring lists them under `Parameters` too; the audit counts a class that
+lacks this.
 
 ## Why this matters more than it looks
 
@@ -43,28 +46,28 @@ target style.
 
 ## Measured state
 
-At the time of writing: **4303 incomplete docstrings across 20 subpackages**.
+At the time of writing: **4689 incomplete docstrings across 20 subpackages**.
 
 | Subpackage | Incomplete |
 | --- | ---: |
-| `src/quivers/transpile` | 1537 |
-| `src/quivers/dsl` | 531 |
-| `src/quivers/continuous` | 497 |
-| `src/quivers/cli` | 376 |
-| `src/quivers/core` | 314 |
-| `src/quivers/stochastic` | 244 |
-| `src/quivers/inference` | 209 |
-| `src/quivers/monadic` | 198 |
-| `src/quivers/structural` | 106 |
-| `src/quivers/analysis` | 57 |
-| `src/quivers/effects` | 56 |
+| `src/quivers/transpile` | 1682 |
+| `src/quivers/dsl` | 568 |
+| `src/quivers/continuous` | 535 |
+| `src/quivers/cli` | 390 |
+| `src/quivers/core` | 325 |
+| `src/quivers/stochastic` | 257 |
+| `src/quivers/inference` | 230 |
+| `src/quivers/monadic` | 216 |
+| `src/quivers/structural` | 123 |
+| `src/quivers/analysis` | 66 |
+| `src/quivers/effects` | 57 |
 | `src/quivers/categorical` | 53 |
-| `src/quivers/lsp` | 50 |
-| `src/quivers/enriched` | 41 |
-| `src/quivers/arrows` | 30 |
-| `src/quivers/formulas` | 22 |
-| `src/quivers/kernel` | 10 |
-| `src/quivers/data` | 9 |
+| `src/quivers/lsp` | 51 |
+| `src/quivers/enriched` | 42 |
+| `src/quivers/arrows` | 33 |
+| `src/quivers/formulas` | 30 |
+| `src/quivers/kernel` | 11 |
+| `src/quivers/data` | 10 |
 | `src/quivers` | 5 |
 | `src/quivers/diagnostics` | 5 |
 
