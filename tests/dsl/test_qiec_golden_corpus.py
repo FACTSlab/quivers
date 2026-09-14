@@ -156,3 +156,31 @@ def test_golden_module_is_already_canonical(path: pathlib.Path) -> None:
         f"`module_to_source(parse(source))` produces it, or fix the "
         f"emitter if the canonical form is wrong."
     )
+
+
+@pytest.mark.parametrize("path", _golden_paths(), ids=lambda p: p.stem)
+def test_golden_module_lowers_serializes_and_projects(path: pathlib.Path) -> None:
+    """A golden survives every stable pass downstream of the parser.
+
+    Parsing alone proves the surface is unambiguous; it does not prove the
+    forms it freezes are handled. Each golden is lowered to the kernel,
+    rechecked independently of the lowerer, round-tripped through the wire
+    format, projected into the transpiler IR, and analyzed for every
+    target, so a form that a later pass silently cannot handle fails here
+    with that pass named.
+    """
+    from quivers.dsl.qiec_lowering import lower_qvr_to_qiec
+    from quivers.qiec import validate_module
+    from quivers.qiec.serialization import dumps, loads
+    from quivers.transpile import available_targets
+    from quivers.transpile.qiec_ir import analyze_qiec_capabilities, lower_qiec_ir
+
+    module = lower_qvr_to_qiec(parse(path.read_text()), file_path=str(path))
+    validate_module(module)
+    assert loads(dumps(module)) == module
+    ir = lower_qiec_ir(module)
+    assert ir.computations, f"{path.name} lowered to no computations"
+    for target in available_targets():
+        diagnostics = analyze_qiec_capabilities(ir, target)
+        for diagnostic in diagnostics:
+            assert diagnostic.feature, diagnostic.message

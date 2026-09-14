@@ -377,6 +377,81 @@ class IRQiecCase(IRQiecComputation):
     kind: Literal["case"] = "case"
 
 
+class IRQiecCall(IRQiecComputation):
+    """Application of a named computation by stable identity.
+
+    Parameters
+    ----------
+    callee
+        The identity of the computation called.
+    name
+        The callee's display name.
+    static_arguments
+        The callee's telescope instantiation, in binder order.
+    arguments
+        The value arguments, one per callee parameter.
+    result_type
+        The callee's result type under the instantiation.
+    effects
+        The callee's effect row under the instantiation.
+    origin
+        The call site's source location.
+    kind
+        The discriminator; always ``"call"``.
+    """
+
+    callee: IRQiecId
+    name: str
+    static_arguments: tuple[IRQiecStatic, ...]
+    arguments: tuple[IRQiecValue, ...]
+    result_type: IRQiecStatic
+    effects: IRQiecEffectRow
+    origin: IRQiecSourceOrigin
+    kind: Literal["call"] = "call"
+
+
+class IRQiecResume(IRQiecComputation):
+    """Invocation of the enclosing handler clause's continuation.
+
+    Parameters
+    ----------
+    value
+        The value returned to the suspended computation.
+    origin
+        The resumption's source location.
+    kind
+        The discriminator; always ``"resume"``.
+    """
+
+    value: IRQiecValue
+    origin: IRQiecSourceOrigin
+    kind: Literal["resume"] = "resume"
+
+
+class IRQiecNewInstance(IRQiecComputation):
+    """Lexically scoped allocation of an effect instance.
+
+    Parameters
+    ----------
+    instance
+        The scope-derived identity of the allocated instance.
+    effect
+        The applied interface the instance provides.
+    body
+        The computation within which the instance is in scope.
+    origin
+        The allocation's source location.
+    kind
+        The discriminator; always ``"new_instance"``.
+    """
+
+    instance: IRQiecId
+    effect: IRQiecEffectRef
+    body: IRQiecComputation
+    origin: IRQiecSourceOrigin
+    kind: Literal["new_instance"] = "new_instance"
+
+
 class IRQiecFieldDef(dx.Model):
     name: str
     type: IRQiecStatic
@@ -751,6 +826,30 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             motive=cast(IRQiecCaseMotive, _convert(value.motive)),
             branches=cast(tuple[IRQiecCaseBranch, ...], _convert(value.branches)),
         )
+    if isinstance(value, tm.Call):
+        return IRQiecCall(
+            callee=_id(value.callee),
+            name=value.name,
+            static_arguments=cast(
+                tuple[IRQiecStatic, ...], _convert(value.static_arguments)
+            ),
+            arguments=cast(tuple[IRQiecValue, ...], _convert(value.arguments)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+            effects=cast(IRQiecEffectRow, _convert(value.effects)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
+    if isinstance(value, tm.Resume):
+        return IRQiecResume(
+            value=cast(IRQiecValue, _convert(value.value)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
+    if isinstance(value, tm.NewInstance):
+        return IRQiecNewInstance(
+            instance=_id(value.instance),
+            effect=cast(IRQiecEffectRef, _convert(value.effect)),
+            body=cast(IRQiecComputation, _convert(value.body)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
     if not is_dataclass(value) or isinstance(value, type):
         raise TypeError(f"unsupported QIEC kernel value {value!r}")
     model_map: dict[type[object], type[dx.Model]] = {
@@ -788,6 +887,11 @@ type QiecFeature = Literal[
     "perform",
     "handle",
     "case",
+    "call",
+    "recursion",
+    "resume",
+    "local-instance",
+    "authored-handler",
     "evidence",
     "transport",
     "attachment",
@@ -906,6 +1010,20 @@ def capabilities_for_target(target: str) -> QiecTargetCapabilities:
 
 
 def _required_features(computation: IRQiecNamedComputation) -> set[QiecFeature]:
+    """The features a computation's signature and body need a target to have.
+
+    Parameters
+    ----------
+    computation
+        The named computation to inspect.
+
+    Returns
+    -------
+    set[QiecFeature]
+        Every feature the signature or body uses. Recursion is a property
+        of the call graph rather than of one body, so it is added by
+        :func:`analyze_qiec_capabilities`, which sees the whole module.
+    """
     required: set[QiecFeature] = {"return"}
     if computation.parameters:
         required.add("named-parameter")
@@ -924,48 +1042,177 @@ def _required_features(computation: IRQiecNamedComputation) -> set[QiecFeature]:
         required.add("non-scalar-result")
     if any(not _is_scalar_type(parameter.type) for parameter in computation.parameters):
         required.add("non-scalar-parameter")
+    required.update(_body_features(computation.body))
+    return required
 
-    def value(node: IRQiecValue) -> None:
-        if isinstance(node, IRQiecLiteralValue) and isinstance(
-            node.value, IRQiecTupleLiteral
+
+def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
+    """The features one computation body needs a target to have.
+
+    Parameters
+    ----------
+    node
+        The body to walk.
+
+    Returns
+    -------
+    set[QiecFeature]
+        Every feature a term in the body uses.
+    """
+    required: set[QiecFeature] = set()
+
+    def value(item: IRQiecValue) -> None:
+        if isinstance(item, IRQiecLiteralValue) and isinstance(
+            item.value, IRQiecTupleLiteral
         ):
             required.add("structured-value")
-        elif isinstance(node, IRQiecEvidenceValue):
+        elif isinstance(item, IRQiecEvidenceValue):
             required.add("evidence")
-        elif isinstance(node, IRQiecTransportValue):
+        elif isinstance(item, IRQiecTransportValue):
             required.update(("evidence", "transport"))
-            value(node.value)
-        elif isinstance(node, IRQiecAttachmentRef):
+            value(item.value)
+        elif isinstance(item, IRQiecAttachmentRef):
             required.add("attachment")
-        elif isinstance(node, IRQiecConstructorValue):
+        elif isinstance(item, IRQiecConstructorValue):
             required.add("structured-value")
-            for field in node.fields:
+            for field in item.fields:
                 value(field)
 
-    def visit(node: IRQiecComputation) -> None:
-        if isinstance(node, IRQiecReturn):
-            value(node.value)
-        elif isinstance(node, IRQiecBind):
+    def visit(item: IRQiecComputation) -> None:
+        if isinstance(item, IRQiecReturn):
+            value(item.value)
+        elif isinstance(item, IRQiecBind):
             required.add("bind")
-            if not _is_scalar_type(node.binder.type):
+            if not _is_scalar_type(item.binder.type):
                 required.add("non-scalar-parameter")
-            visit(node.first)
-            visit(node.then)
-        elif isinstance(node, IRQiecPerform):
+            visit(item.first)
+            visit(item.then)
+        elif isinstance(item, IRQiecPerform):
             required.add("perform")
-            for argument in node.request.arguments:
+            for argument in item.request.arguments:
                 value(argument)
-        elif isinstance(node, IRQiecHandle):
+        elif isinstance(item, IRQiecHandle):
             required.add("handle")
-            visit(node.computation)
-        elif isinstance(node, IRQiecCase):
+            visit(item.computation)
+        elif isinstance(item, IRQiecCase):
             required.add("case")
-            value(node.scrutinee)
-            for branch in node.branches:
+            value(item.scrutinee)
+            for branch in item.branches:
                 visit(branch.body)
+        elif isinstance(item, IRQiecCall):
+            required.add("call")
+            for argument in item.arguments:
+                value(argument)
+        elif isinstance(item, IRQiecResume):
+            required.add("resume")
+            value(item.value)
+        elif isinstance(item, IRQiecNewInstance):
+            required.add("local-instance")
+            visit(item.body)
 
-    visit(computation.body)
+    visit(node)
     return required
+
+
+def _callees(node: IRQiecComputation) -> set[str]:
+    """The identities of every computation a body calls.
+
+    Parameters
+    ----------
+    node
+        The body to walk.
+
+    Returns
+    -------
+    set[str]
+        The callee identities, as :attr:`IRQiecId.text`.
+    """
+    out: set[str] = set()
+    if isinstance(node, IRQiecCall):
+        out.add(node.callee.text)
+    elif isinstance(node, IRQiecBind):
+        out.update(_callees(node.first))
+        out.update(_callees(node.then))
+    elif isinstance(node, IRQiecHandle):
+        out.update(_callees(node.computation))
+    elif isinstance(node, IRQiecCase):
+        for branch in node.branches:
+            out.update(_callees(branch.body))
+    elif isinstance(node, IRQiecNewInstance):
+        out.update(_callees(node.body))
+    return out
+
+
+def _recursive_computations(module: IRQiecModule) -> frozenset[str]:
+    """The computations on a cycle of the module's call graph.
+
+    Parameters
+    ----------
+    module
+        The module whose named computations form the graph.
+
+    Returns
+    -------
+    frozenset[str]
+        The identity of every computation that can reach itself through
+        calls, directly or through other computations. Tarjan's algorithm
+        finds the strongly connected components; a component is recursive
+        when it has more than one member or its single member calls itself.
+    """
+    graph = {
+        computation.id.text: _callees(computation.body)
+        for computation in module.computations
+    }
+    index: dict[str, int] = {}
+    lowlink: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    recursive: set[str] = set()
+    counter = 0
+
+    def strongconnect(root: str) -> None:
+        nonlocal counter
+        # An explicit work list rather than recursion, so a long call chain
+        # is bounded by memory rather than by the host's call depth.
+        work: list[tuple[str, list[str]]] = [(root, sorted(graph.get(root, ())))]
+        index[root] = lowlink[root] = counter
+        counter += 1
+        stack.append(root)
+        on_stack.add(root)
+        while work:
+            node, pending = work[-1]
+            if pending:
+                successor = pending.pop(0)
+                if successor not in graph:
+                    continue
+                if successor not in index:
+                    index[successor] = lowlink[successor] = counter
+                    counter += 1
+                    stack.append(successor)
+                    on_stack.add(successor)
+                    work.append((successor, sorted(graph[successor])))
+                elif successor in on_stack:
+                    lowlink[node] = min(lowlink[node], index[successor])
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                lowlink[parent] = min(lowlink[parent], lowlink[node])
+            if lowlink[node] == index[node]:
+                component: list[str] = []
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                    if member == node:
+                        break
+                if len(component) > 1 or node in graph[node]:
+                    recursive.update(component)
+
+    for name in graph:
+        if name not in index:
+            strongconnect(name)
+    return frozenset(recursive)
 
 
 def _is_scalar_type(type_: IRQiecStatic) -> bool:
@@ -1009,8 +1256,11 @@ def analyze_qiec_capabilities(
         "1": "linear-resumption",
         "omega": "unrestricted-resumption",
     }
+    recursive = _recursive_computations(module)
     for computation in module.computations:
         required = _required_features(computation)
+        if computation.id.text in recursive:
+            required.add("recursion")
         handler_ids = _handled_ids(computation.body)
         for handler in module.handlers:
             if handler.id.text not in handler_ids:
@@ -1019,6 +1269,13 @@ def analyze_qiec_capabilities(
                 cast(QiecFeature, grade_features[clause.grade])
                 for clause in handler.clauses
             )
+            if handler.implementation == "authored":
+                required.add("authored-handler")
+                for clause in handler.clauses:
+                    if clause.body is not None:
+                        required.update(_body_features(clause.body))
+                if handler.return_clause is not None:
+                    required.update(_body_features(handler.return_clause.body))
         for feature in sorted(required):
             if supported.supports(feature):
                 continue
@@ -1045,6 +1302,8 @@ def _handled_ids(node: IRQiecComputation) -> set[str]:
     elif isinstance(node, IRQiecCase):
         for branch in node.branches:
             out.update(_handled_ids(branch.body))
+    elif isinstance(node, IRQiecNewInstance):
+        out.update(_handled_ids(node.body))
     return out
 
 

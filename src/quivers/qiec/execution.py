@@ -14,7 +14,7 @@ or ambient attachment registry is consulted by ``run_named``.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 import json
 from pathlib import Path
@@ -46,27 +46,12 @@ from quivers.qiec.module import NamedComputation, QiecModule, validate_module
 from quivers.qiec.substitution import (
     StaticSubstitution,
     instantiate_telescope,
-    substitute_effect,
-    substitute_static,
+    substitute_computation,
     substitute_type,
 )
 from quivers.qiec.terms import (
-    AttachmentRef,
-    Bind,
-    Case,
-    CaseBranch,
-    CaseMotive,
     Computation,
-    ConstructorValue,
-    EvidenceValue,
-    Handle,
-    LiteralValue,
     Local,
-    Perform,
-    Return,
-    TransportValue,
-    Value,
-    Var,
 )
 from quivers.qiec.types import (
     BOOL,
@@ -1537,185 +1522,16 @@ def _specialize_computation(
     Returns
     -------
     tuple[tuple[Local, ...], Computation]
-        Fresh parameter locals at their specialized types, and the body
-        rewritten to bind and reference them.
+        The parameter locals at their specialized types, and the body
+        with every static position substituted. A body's references to a
+        parameter are rewritten to the same specialized local, so an
+        environment keyed by the returned parameters binds them.
     """
-
-    local_map: dict[Local, Local] = {}
-    parameters: list[Local] = []
-    for parameter in computation.parameters:
-        specialized = Local(
-            parameter.name, substitute_type(parameter.type, substitution)
-        )
-        local_map[parameter] = specialized
-        parameters.append(specialized)
-
-    def evidence(item):  # type: ignore[no-untyped-def]
-        """Substitute into the equality an evidence term witnesses.
-
-        Parameters
-        ----------
-        item
-            The evidence term.
-
-        Returns
-        -------
-        EqualityEvidence
-            The same evidence over the substituted equality sides.
-        """
-        return replace(
-            item,
-            equality=replace(
-                item.equality,
-                left=substitute_static(item.equality.left, substitution),
-                right=substitute_static(item.equality.right, substitution),
-            ),
-        )
-
-    def value(item: Value, locals_: Mapping[Local, Local]) -> Value:
-        """Specialize one value term.
-
-        Parameters
-        ----------
-        item
-            The value to rewrite.
-        locals_
-            Original locals mapped to their specialized replacements.
-
-        Returns
-        -------
-        Value
-            The value with types substituted and locals replaced.
-
-        Raises
-        ------
-        TypeError
-            If the value form is not one the evaluator executes.
-        """
-        if isinstance(item, Var):
-            return Var(locals_.get(item.local, item.local))
-        if isinstance(item, LiteralValue):
-            return LiteralValue(item.value, substitute_type(item.type, substitution))
-        if isinstance(item, ConstructorValue):
-            return ConstructorValue(
-                item.constructor,
-                tuple(
-                    substitute_static(argument, substitution)
-                    for argument in item.static_arguments
-                ),
-                tuple(value(field, locals_) for field in item.fields),
-                substitute_type(item.result_type, substitution),
-            )
-        if isinstance(item, EvidenceValue):
-            return EvidenceValue(evidence(item.evidence))
-        if isinstance(item, AttachmentRef):
-            return AttachmentRef(
-                item.attachment, substitute_type(item.type, substitution)
-            )
-        if isinstance(item, TransportValue):
-            return TransportValue(
-                evidence(item.evidence),
-                value(item.value, locals_),
-                substitute_type(item.target_type, substitution),
-            )
-        raise TypeError(f"unsupported QIEC value {type(item).__name__}")
-
-    def body(item: Computation, locals_: Mapping[Local, Local]) -> Computation:
-        """Specialize one computation term.
-
-        Parameters
-        ----------
-        item
-            The computation to rewrite.
-        locals_
-            Original locals mapped to their specialized replacements.
-
-        Returns
-        -------
-        Computation
-            The computation with types substituted, binders refreshed at their
-            specialized types, and locals replaced.
-
-        Raises
-        ------
-        TypeError
-            If the computation form is not one the evaluator executes.
-        """
-        if isinstance(item, Return):
-            return Return(value(item.value, locals_))
-        if isinstance(item, Bind):
-            binder = Local(
-                item.binder.name,
-                substitute_type(item.binder.type, substitution),
-            )
-            nested = dict(locals_)
-            nested[item.binder] = binder
-            return Bind(
-                binder,
-                body(item.first, locals_),
-                body(item.then, nested),
-            )
-        if isinstance(item, Perform):
-            request = item.request
-            return Perform(
-                replace(
-                    request,
-                    effect=substitute_effect(request.effect, substitution),
-                    static_arguments=tuple(
-                        substitute_static(argument, substitution)
-                        for argument in request.static_arguments
-                    ),
-                    arguments=tuple(
-                        value(argument, locals_) for argument in request.arguments
-                    ),
-                    result_type=substitute_type(request.result_type, substitution),
-                )
-            )
-        if isinstance(item, Handle):
-            return Handle(
-                item.instance,
-                item.handler,
-                body(item.computation, locals_),
-                tuple(
-                    substitute_static(argument, substitution)
-                    for argument in item.static_arguments
-                ),
-            )
-        if isinstance(item, Case):
-            branches: list[CaseBranch] = []
-            for branch in item.branches:
-                nested = dict(locals_)
-                fields: list[Local] = []
-                for field in branch.fields:
-                    specialized = Local(
-                        field.name,
-                        substitute_type(field.type, substitution),
-                    )
-                    nested[field] = specialized
-                    fields.append(specialized)
-                branches.append(
-                    CaseBranch(
-                        branch.constructor,
-                        tuple(
-                            substitute_static(argument, substitution)
-                            for argument in branch.static_arguments
-                        ),
-                        tuple(fields),
-                        body(branch.body, nested),
-                        branch.scope,
-                    )
-                )
-            return Case(
-                value(item.scrutinee, locals_),
-                CaseMotive(
-                    item.motive.indices,
-                    substitute_type(item.motive.result_type, substitution),
-                ),
-                tuple(branches),
-            )
-        raise TypeError(f"unsupported QIEC computation {type(item).__name__}")
-
-    return tuple(parameters), body(computation.body, local_map)
+    parameters = tuple(
+        Local(parameter.name, substitute_type(parameter.type, substitution))
+        for parameter in computation.parameters
+    )
+    return parameters, substitute_computation(computation.body, substitution)
 
 
 def _validator_for(
