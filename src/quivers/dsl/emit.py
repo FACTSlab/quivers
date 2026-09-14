@@ -165,6 +165,13 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecFamilyDecl,
     QiecFunctionType,
     QiecHandleComputation,
+    QiecHandlerClause,
+    QiecCallComputation,
+    QiecHandlerOperationClause,
+    QiecHandlerReturnClause,
+    QiecInstanceComputation,
+    QiecPureBinding,
+    QiecResumeComputation,
     QiecHandlerApplication,
     QiecHandlerDecl,
     QiecIndexApplication,
@@ -1016,6 +1023,25 @@ def _emit_qiec_effect_ref(effect: QiecEffectRef) -> str:
     return f"{effect.name}[{arguments}]"
 
 
+def _emit_qiec_static_arguments(arguments: tuple[QiecTypeExpr, ...]) -> str:
+    """Emit a bracketed static argument list, or nothing when empty.
+
+    Parameters
+    ----------
+    arguments : tuple[QiecTypeExpr, ...]
+        The static arguments.
+
+    Returns
+    -------
+    str
+        ``[a, b]`` for a non-empty list, and the empty string otherwise,
+        so a caller can concatenate it unconditionally.
+    """
+    if not arguments:
+        return ""
+    return "[" + ", ".join(_emit_qiec_type(argument) for argument in arguments) + "]"
+
+
 def _emit_qiec_row(row: QiecEffectRow) -> str:
     entries = ", ".join(entry.instance for entry in row.entries)
     if row.tail is None:
@@ -1115,6 +1141,7 @@ def _emit_qiec_handler_decl(decl: QiecHandlerDecl, indent: int) -> str:
     options.append(f"forwards={'unknown' if decl.forwards_unknown else 'none'}")
     if decl.introduced.entries or decl.introduced.tail is not None:
         options.append(f"introduces={_emit_qiec_row(decl.introduced)}")
+    options.append(f"implementation={decl.implementation}")
     head = f"handler {decl.name}{_emit_qiec_telescope(decl.binders)}"
     head += f" for {_emit_qiec_effect_ref(decl.effect)}"
     head += f" : {_emit_qiec_type(decl.input_type)}"
@@ -1122,11 +1149,57 @@ def _emit_qiec_handler_decl(decl: QiecHandlerDecl, indent: int) -> str:
     head += " [" + ", ".join(options) + "]"
     lines = _doc_lines(decl.docs, indent)
     lines.append(f"{_pad(indent)}{head}")
-    lines.extend(
-        f"{_pad(indent + 1)}{clause.operation} resumes {clause.grade}"
-        for clause in decl.clauses
-    )
+    for clause in decl.clauses:
+        lines.extend(_emit_qiec_handler_clause(clause, indent + 1))
     return "\n".join(lines)
+
+
+def _emit_qiec_handler_clause(clause: QiecHandlerClause, indent: int) -> list[str]:
+    """Emit one handler clause, of either shape.
+
+    Parameters
+    ----------
+    clause : QiecHandlerClause
+        The return clause or operation clause to emit.
+    indent : int
+        Indentation level of the clause header. A body, where present,
+        is emitted one level deeper.
+
+    Returns
+    -------
+    list[str]
+        The clause's lines. An operation clause without a body is one
+        line; every other form opens an indented block.
+
+    Raises
+    ------
+    EmitError
+        If the clause is of an unknown class.
+    """
+    pad = _pad(indent)
+    if isinstance(clause, QiecHandlerReturnClause):
+        binding = clause.binder.name
+        if clause.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(clause.binder.type_expr)}"
+        return [
+            f"{pad}return {binding} =>",
+            *_emit_qiec_computation(clause.body, indent + 1),
+        ]
+    if not isinstance(clause, QiecHandlerOperationClause):
+        raise EmitError(f"emit: unknown QIEC handler clause {type(clause).__name__!r}")
+    header = f"{pad}{clause.operation}{_emit_qiec_telescope(clause.binders)}"
+    if clause.parameters:
+        parameters = ", ".join(
+            parameter.name
+            if parameter.type_expr is None
+            else f"{parameter.name} : {_emit_qiec_type(parameter.type_expr)}"
+            for parameter in clause.parameters
+        )
+        header += f"({parameters})"
+    header += f" resumes {clause.grade}"
+    if clause.body is None:
+        return [header]
+    return [f"{header} =>", *_emit_qiec_computation(clause.body, indent + 1)]
 
 
 def _emit_qiec_value(value: QiecValue) -> str:
@@ -1207,6 +1280,23 @@ def _emit_qiec_computation(computation: QiecComputation, indent: int) -> list[st
             f"{pad}handle {computation.instance} with {head} in",
             *_emit_qiec_computation(computation.body, indent + 1),
         ]
+    if isinstance(computation, QiecPureBinding):
+        binding = computation.binder.name
+        if computation.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(computation.binder.type_expr)}"
+        value = _emit_qiec_value(computation.value)
+        return [
+            f"{pad}let {binding} = {value}",
+            *_emit_qiec_computation(computation.then, indent),
+        ]
+    if isinstance(computation, QiecCallComputation | QiecResumeComputation):
+        return [f"{pad}{_emit_qiec_inline_computation(computation)}"]
+    if isinstance(computation, QiecInstanceComputation):
+        effect = _emit_qiec_effect_ref(computation.effect)
+        return [
+            f"{pad}with instance {computation.name} : {effect} in",
+            *_emit_qiec_computation(computation.body, indent + 1),
+        ]
     if isinstance(computation, QiecCaseComputation):
         motive = "motive"
         if computation.motive.indices:
@@ -1220,10 +1310,40 @@ def _emit_qiec_computation(computation: QiecComputation, indent: int) -> list[st
 
 
 def _emit_qiec_inline_computation(computation: QiecComputation) -> str:
+    """Emit a one-line computation.
+
+    Parameters
+    ----------
+    computation : QiecComputation
+        The computation to emit. Only the inline forms are legal here:
+        an effect request, a call, or a resumption.
+
+    Returns
+    -------
+    str
+        The emitted line, without indentation.
+
+    Raises
+    ------
+    EmitError
+        If the computation is a block form. A `handle`, `case`, `with
+        instance`, or binding opens an indented body and cannot sit on
+        the right of a `let ... <-` or at the head of a sequence.
+    """
     if isinstance(computation, QiecPerformComputation):
         return f"perform {_emit_qiec_request(computation.request)}"
+    if isinstance(computation, QiecCallComputation):
+        static = _emit_qiec_static_arguments(computation.static_arguments)
+        arguments = ", ".join(
+            _emit_qiec_value(argument) for argument in computation.arguments
+        )
+        return f"{computation.callee}{static}({arguments})"
+    if isinstance(computation, QiecResumeComputation):
+        value = "" if computation.value is None else _emit_qiec_value(computation.value)
+        return f"resume({value})"
     raise EmitError(
-        "emit: QIEC bind/sequence left-hand side must be a perform computation"
+        f"emit: {type(computation).__name__!r} is a block computation and "
+        f"cannot appear inline; only a request, a call, or a resumption can"
     )
 
 

@@ -1,0 +1,19 @@
+effect State[S : Type]
+    get : Unit -> S
+    put : S -> Unit
+
+handler run_state for State[Int] : Int -> Int [coverage=total, forwards=none, implementation=authored]
+    return x =>
+        return x
+    get(u : Unit) resumes 1 =>
+        resume(u)
+    put(s : Int) resumes 1 =>
+        resume(unit)
+
+define counted(seed : Int) : Int !{} =
+    let start = seed
+    with instance cell : State[Int] in
+        handle cell with run_state in
+            perform cell.put(start)
+            let current <- perform cell.get()
+            return current

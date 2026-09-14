@@ -121,10 +121,10 @@ handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total]
     (qiec_handler_options
       (qiec_handler_first_option
         (qiec_handler_coverage_key)))
-    (qiec_handler_clause
+    (qiec_handler_operation_clause
       (identifier)
       (qiec_resumption_grade))
-    (qiec_handler_clause
+    (qiec_handler_operation_clause
       (identifier)
       (qiec_resumption_grade))))
 
@@ -370,3 +370,167 @@ define negative_real() : Real !{} =
       (qiec_literal_value
         (signed_number
           (float))))))
+
+==================
+QIEC computation calls and pure bindings
+==================
+
+define helper(value : Int) : Int !{} =
+    return value
+
+define caller(value : Int) : Int !{} =
+    let doubled = value
+    let result <- helper(doubled)
+    return result
+
+---
+
+(source_file
+  (computation_decl
+    (identifier)
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_return_computation
+      (qiec_variable_value
+        (identifier))))
+  (computation_decl
+    (identifier)
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_pure_binding
+      (qiec_local_binding
+        (identifier))
+      (qiec_variable_value
+        (identifier))
+      (qiec_bind_computation
+        (qiec_local_binding
+          (identifier))
+        (qiec_call_computation
+          (identifier)
+          (qiec_variable_value
+            (identifier)))
+        (qiec_return_computation
+          (qiec_variable_value
+            (identifier)))))))
+
+==================
+QIEC authored handler clauses and scoped instances
+==================
+
+handler tracked for State[Int] : Int -> Int [coverage=total, implementation=authored]
+    return x =>
+        return x
+    get(u : Unit) resumes 1 =>
+        resume(u)
+
+define scoped(seed : Int) : Int !{} =
+    with instance cell : State[Int] in
+        handle cell with tracked in
+            return seed
+
+---
+
+(source_file
+  (handler_decl
+    (identifier)
+    (qiec_effect_ref
+      (identifier)
+      (qiec_static_argument
+        (qiec_type_name
+          (identifier))))
+    (qiec_type_name
+      (identifier))
+    (qiec_type_name
+      (identifier))
+    (qiec_handler_options
+      (qiec_handler_first_option
+        (qiec_handler_coverage_key))
+      (qiec_handler_option))
+    (qiec_handler_return_clause
+      (qiec_local_binding
+        (identifier))
+      (qiec_return_computation
+        (qiec_variable_value
+          (identifier))))
+    (qiec_handler_operation_clause
+      (identifier)
+      (qiec_local_binding
+        (identifier)
+        (qiec_type_name
+          (identifier)))
+      (qiec_resumption_grade)
+      (qiec_resume_computation
+        (qiec_variable_value
+          (identifier)))))
+  (computation_decl
+    (identifier)
+    (qiec_value_parameter
+      (identifier)
+      (qiec_type_name
+        (identifier)))
+    (qiec_type_name
+      (identifier))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_instance_computation
+      (identifier)
+      (qiec_effect_ref
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier))))
+      (qiec_handle_computation
+        (identifier)
+        (qiec_handler_application
+          (identifier))
+        (qiec_return_computation
+          (qiec_variable_value
+            (identifier)))))))
+
+==================
+QIEC computation without an effect row is rejected
+:error
+==================
+
+define missing_row(x : Int) : Int =
+    return x
+
+---
+
+(ERROR)
+
+==================
+QIEC static telescope without a binder name is rejected
+:error
+==================
+
+define nameless[: Type](x : Int) : Int !{} =
+    return x
+
+---
+
+(ERROR)
+
+==================
+QIEC handler clause arrow without a body is rejected
+:error
+==================
+
+handler broken for State[Int] : Int -> Int
+    get(u : Unit) resumes 1 =>
+
+---
+
+(ERROR)

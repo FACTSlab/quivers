@@ -1,0 +1,23 @@
+effect Trace
+    note : Real -> Unit
+
+instance journal : Trace
+
+handler record for Trace : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return x =>
+        return x
+    note(weight : Real) resumes 1 =>
+        resume(unit)
+
+define scored(weight : Real) : Real !{journal} =
+    perform journal.note(weight)
+    return weight
+
+object Resp : FinSet 4
+
+program tagged : Resp -> Resp
+    sample theta <- Beta(2.0, 2.0)
+    observe y <- Bernoulli(theta)
+    return theta
+
+export tagged
