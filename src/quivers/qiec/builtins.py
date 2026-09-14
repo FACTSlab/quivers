@@ -57,6 +57,22 @@ from quivers.qiec.types import (
 
 
 def _constructor(name: str, *binders: TypeBinder) -> TypeConstructorRef:
+    """A type constructor in the prelude's own namespace.
+
+    Parameters
+    ----------
+    name : str
+        The constructor's name.
+    *binders : TypeBinder
+        Its kinding telescope.
+
+    Returns
+    -------
+    TypeConstructorRef
+        The constructor. Its identity derives from the ``builtin``
+        namespace, so `Site` means the same type in every module without
+        being declared in any of them.
+    """
     return TypeConstructorRef(
         TypeId.derive("builtin", name),
         name,
@@ -92,10 +108,38 @@ LOG_WEIGHT = TypeApplication(_constructor("LogWeight"))
 
 
 def _effect_ref(name: str) -> EffectRef:
+    """An unsaturated reference to a prelude effect interface.
+
+    Parameters
+    ----------
+    name : str
+        The interface's name.
+
+    Returns
+    -------
+    EffectRef
+        The declaration reference, in the ``prelude`` namespace so it
+        names the same interface in every module.
+    """
     return EffectRef(EffectId.derive("prelude", name), name)
 
 
 def _operation_id(effect: EffectRef, name: str) -> OperationId:
+    """The identity of one operation on a prelude interface.
+
+    Parameters
+    ----------
+    effect : EffectRef
+        The interface that declares it.
+    name : str
+        The operation's name.
+
+    Returns
+    -------
+    OperationId
+        The identity, derived from the interface and the name, so two
+        interfaces may each declare `get` without collision.
+    """
     return OperationId.derive(str(effect.id), name)
 
 
@@ -202,25 +246,107 @@ _RUNTIME_ADD = cast(Callable[[object, object], object], operator.add)
 
 
 def state_effect(state_type: TypeExpr) -> EffectRef:
-    """Construct the concrete ``State[state_type]`` interface."""
+    """Construct the concrete ``State[state_type]`` interface.
+
+    Parameters
+    ----------
+    state_type : TypeExpr
+        The type to instantiate the interface's binder at.
+
+    Returns
+    -------
+    EffectRef
+        The saturated application.
+
+    Raises
+    ------
+    TypeError
+        If the argument is not a type.
+    ValueError
+        If it is ill-kinded.
+    """
     return STATE_EFFECT.apply((state_type,))
 
 
 def abort_effect(error_type: TypeExpr) -> EffectRef:
-    """Construct the concrete ``Abort[error_type]`` interface."""
+    """Construct the concrete ``Abort[error_type]`` interface.
+
+    Parameters
+    ----------
+    error_type : TypeExpr
+        The type to instantiate the interface's binder at.
+
+    Returns
+    -------
+    EffectRef
+        The saturated application.
+
+    Raises
+    ------
+    TypeError
+        If the argument is not a type.
+    ValueError
+        If it is ill-kinded.
+    """
     return ABORT_EFFECT.apply((error_type,))
 
 
 def weight_effect(weight_type: TypeExpr) -> EffectRef:
-    """Construct the concrete ``Weight[weight_type]`` interface."""
+    """Construct the concrete ``Weight[weight_type]`` interface.
+
+    Parameters
+    ----------
+    weight_type : TypeExpr
+        The type to instantiate the interface's binder at.
+
+    Returns
+    -------
+    EffectRef
+        The saturated application.
+
+    Raises
+    ------
+    TypeError
+        If the argument is not a type.
+    ValueError
+        If it is ill-kinded.
+    """
     return WEIGHT_EFFECT.apply((weight_type,))
 
 
 def _unit(value: object) -> bool:
+    """Whether a host value inhabits `Unit`.
+
+    Parameters
+    ----------
+    value : object
+        The value to test.
+
+    Returns
+    -------
+    bool
+        True only for None, which is `Unit`'s single inhabitant.
+    """
     return value is None
 
 
 def _accepts(validator: RuntimeValidator, value: object) -> bool:
+    """Whether a validator admits a value.
+
+    Parameters
+    ----------
+    validator : RuntimeValidator
+        The predicate to apply.
+    value : object
+        The value to test.
+
+    Returns
+    -------
+    bool
+        True unless the validator returned False exactly. A validator
+        returning None reads as acceptance, so one written for its side
+        effect does not reject everything.
+    """
     return validator(value) is not False
 
 
