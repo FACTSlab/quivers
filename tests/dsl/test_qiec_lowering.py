@@ -610,3 +610,76 @@ handler search for Choose : Int -> Int [coverage=total, implementation=authored]
         lower_qvr_to_qiec(authored, file_path="search.qvr")
     assert captured.value.code == "qiec-handler"
     assert "static argument" in str(captured.value)
+
+
+_OBS = """\
+index Phase = Emitted | Silent
+
+family Obs[A : Type](p : Phase) : Type
+    constructor Missing : Obs[A](Silent)
+    constructor Seen : A -> Obs[A](Emitted)
+
+effect Trace
+    note : Int -> Unit
+
+instance journal : Trace
+
+define noted(value : Int) : Int !{journal} =
+    perform journal.note(value)
+    return value
+"""
+
+
+def test_an_effectful_call_in_an_impossible_branch_is_excluded_by_evidence() -> None:
+    """A branch the indices refute contributes no effects; an open one does.
+
+    The row of ``case`` is the join of its reachable branches. When the
+    scrutinee's index is the closed ``Emitted``, the ``Missing`` branch is
+    refuted by the constructor's result index and its effectful call does
+    not reach the row. When the index is a variable, nothing refutes the
+    branch, so the same call has to be declared.
+    """
+    closed = parse(
+        _OBS
+        + """
+define weight(o : Obs[Int](Emitted)) : Int !{} =
+    case o motive (q : Phase) => Int
+        Missing =>
+            noted(0)
+        Seen(value) =>
+            return value
+""",
+        "obs.qvr",
+    )
+    module = lower_qvr_to_qiec(closed, file_path="obs.qvr")
+    assert {item.name for item in module.computations} == {"noted", "weight"}
+
+    open_index = parse(
+        _OBS
+        + """
+define weight[p : Phase](o : Obs[Int](p)) : Int !{} =
+    case o motive (q : Phase) => Int
+        Missing =>
+            noted(0)
+        Seen(value) =>
+            return value
+""",
+        "obs.qvr",
+    )
+    with pytest.raises(QiecDiagnosticError) as captured:
+        lower_qvr_to_qiec(open_index, file_path="obs.qvr")
+    assert captured.value.code == "qiec-row"
+
+    declared = parse(
+        _OBS
+        + """
+define weight[p : Phase](o : Obs[Int](p)) : Int !{journal} =
+    case o motive (q : Phase) => Int
+        Missing =>
+            noted(0)
+        Seen(value) =>
+            return value
+""",
+        "obs.qvr",
+    )
+    assert lower_qvr_to_qiec(declared, file_path="obs.qvr").computations

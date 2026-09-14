@@ -6,7 +6,75 @@ struct _QvrQiecEffect <: _QvrQiecComputation
     request
     continuation
 end
+# A deferred computation. Calls are forced by the trampolines in _qvr_qiec_run and
+# the handler walk rather than when they are built, so a recursive QIEC computation
+# does not consume host stack per call. `frames` are the dynamic address frames the
+# result runs under, and `tail` records that the call retires the frame of the
+# computation that made it.
+struct _QvrQiecCall <: _QvrQiecComputation
+    thunk
+    frames
+    tail
+end
+struct _QvrQiecBind <: _QvrQiecComputation
+    inner
+    continuation
+    captures
+end
 _qvr_qiec_pure(value) = _QvrQiecPure(value)
+_qvr_qiec_call(thunk, frames=Any[], tail=false) = _QvrQiecCall(thunk, Any[frames...], tail)
+function _qvr_qiec_join_frames(outer, inner, tail)
+    if tail && !isempty(outer) && outer[end][1] == "call"
+        return Any[outer[1:end-1]..., inner...]
+    end
+    return Any[outer..., inner...]
+end
+function _qvr_qiec_scoped(comp, frames)
+    (isempty(frames) || comp isa _QvrQiecPure) && return comp
+    comp isa _QvrQiecCall && return _QvrQiecCall(comp.thunk, _qvr_qiec_join_frames(frames, comp.frames, comp.tail), false)
+    comp isa _QvrQiecBind && return _QvrQiecBind(_qvr_qiec_scoped(comp.inner, frames), value -> _qvr_qiec_scoped(comp.continuation(value), frames), comp.captures)
+    request = copy(comp.request)
+    request["address"] = Any[request["address"][1], Any[frames..., request["address"][2]...], request["address"][3]]
+    return _QvrQiecEffect(request, value -> _qvr_qiec_scoped(comp.continuation(value), frames))
+end
+# The trampoline. Deferred calls are forced and deferred binds are unfolded onto an
+# explicit continuation stack, so however deep a recursion is, the host stack stays
+# flat. A request surfacing beneath pending binds carries them in its continuation,
+# and their captures, so a multi-shot resumption still sees everything it copies.
+function _qvr_qiec_force(comp, pending=Any[])
+    stack = Any[pending...]
+    current = comp
+    while true
+        if current isa _QvrQiecCall
+            current = _qvr_qiec_scoped(current.thunk(), current.frames)
+        elseif current isa _QvrQiecBind
+            push!(stack, (current.continuation, current.captures))
+            current = current.inner
+        elseif current isa _QvrQiecPure
+            isempty(stack) && return current
+            continuation, _ = pop!(stack)
+            current = continuation(current.value)
+        else
+            isempty(stack) && return current
+            request = copy(current.request)
+            request["captures"] = Any[get(request, "captures", Any[])..., (capture for (_, captures) in stack for capture in captures)...]
+            rest = Any[stack...]
+            resume_effect = current.continuation
+            return _QvrQiecEffect(request, value -> _qvr_qiec_force(resume_effect(value), rest))
+        end
+    end
+end
+const _qvr_qiec_serials = Dict("call" => 0, "instance" => 0)
+function _qvr_qiec_enter_call(name, thunk, tail)
+    _qvr_qiec_serials["call"] += 1
+    return _qvr_qiec_call(thunk, Any[Any["call", name * "#" * string(_qvr_qiec_serials["call"])]], tail)
+end
+function _qvr_qiec_instance(thunk)
+    _qvr_qiec_serials["instance"] += 1
+    return _qvr_qiec_call(thunk, Any[Any["instance", _qvr_qiec_serials["instance"]]], false)
+end
+_qvr_qiec_resume(resume, value) = _qvr_qiec_as_computation(resume(value))
+const _qvr_qiec_authored = Dict{String, Any}()
 function _qvr_qiec_static_kind(argument)
     kind = argument isa AbstractDict ? get(argument, "kind", nothing) : nothing
     kind in ("type-variable", "type-application", "function-type", "equality-type") && return "type"
@@ -70,6 +138,7 @@ function _qvr_qiec_effect(request, static_environment)
 end
 function _qvr_qiec_bind(comp, continuation, captures=Any[])
     comp isa _QvrQiecPure && return continuation(comp.value)
+    (comp isa _QvrQiecCall || comp isa _QvrQiecBind) && return _QvrQiecBind(comp, continuation, Any[captures...])
     request = copy(comp.request)
     request["captures"] = Any[get(request, "captures", Any[])..., captures...]
     return _QvrQiecEffect(request, value -> _qvr_qiec_bind(comp.continuation(value), continuation, captures))
@@ -159,6 +228,7 @@ function _qvr_qiec_fork_capture(request, current_handler, shot)
     end
 end
 function _qvr_qiec_readdress(comp, shot)
+    comp = _qvr_qiec_force(comp)
     comp isa _QvrQiecPure && return comp
     request = copy(comp.request)
     request["address"] = Any[request["address"][1], request["address"][2], Any[request["address"][3]..., shot]]
@@ -199,7 +269,7 @@ function _qvr_qiec_drop_request(request)
     foreach(_qvr_qiec_lifecycle_drop, get(request, "lifecycles", Any[]))
 end
 function _qvr_qiec_finalize(comp, lifecycle)
-    current = _qvr_qiec_as_computation(comp)
+    current = _qvr_qiec_force(_qvr_qiec_as_computation(comp))
     if current isa _QvrQiecPure
         _qvr_qiec_lifecycle_exit(lifecycle)
         return current
@@ -209,14 +279,19 @@ function _qvr_qiec_finalize(comp, lifecycle)
     return _QvrQiecEffect(request, value -> _qvr_qiec_finalize(current.continuation(value), lifecycle))
 end
 _qvr_qiec_invoke(entry, arguments...) = (entry isa AbstractDict ? entry["invoke"] : entry)(arguments...)
-function _qvr_qiec_handle(comp, instance, manifest, static_arguments, computation_static_environment, handlers)
+function _qvr_qiec_handle(comp, instance, manifest, static_arguments, computation_static_environment, handlers, attachments=Dict(), operations=Dict())
     static_arguments = _qvr_qiec_specialize(static_arguments, computation_static_environment)
     handler_static_environment = _qvr_qiec_static_environment(manifest["telescope"], static_arguments)
     manifest = _qvr_qiec_specialize(manifest, handler_static_environment)
     manifest["telescope"] = Any[]
     handler_id = manifest["id"]
-    haskey(handlers, handler_id) || error("missing QIEC handler attachment " * handler_id)
-    prototype = handlers[handler_id]
+    prototype = if haskey(handlers, handler_id)
+        handlers[handler_id]
+    elseif haskey(_qvr_qiec_authored, handler_id)
+        _qvr_qiec_authored[handler_id]
+    else
+        error("missing QIEC handler attachment " * handler_id)
+    end
     handler = prototype
     get(prototype, "context_factory", nothing) isa Function && (handler = prototype["context_factory"]())
     handler === prototype && get(prototype, "mutable_context", false) && error("QIEC mutable handler requires context_factory")
@@ -251,9 +326,10 @@ function _qvr_qiec_handle(comp, instance, manifest, static_arguments, computatio
         end),
     )
     grades = Dict(clause["operation"] => clause["grade"] for clause in manifest["clauses"])
-    context = Dict("handler" => handler_id, "definition" => manifest, "static_arguments" => static_arguments, "resumption_uses" => 0)
+    context = Dict("handler" => handler_id, "definition" => manifest, "static_arguments" => static_arguments, "static" => handler_static_environment, "attachments" => attachments, "handlers" => handlers, "operations" => operations, "resumption_uses" => 0)
     function walk(current)
         handler = handler_ref[1]
+        current = _qvr_qiec_force(current)
         if current isa _QvrQiecPure
             value = _qvr_qiec_validate(get(handler, "input_validator", nothing), current.value, "handler input type")
             return_clause = get(handler, "return", nothing)
@@ -321,7 +397,7 @@ function _qvr_qiec_handle(comp, instance, manifest, static_arguments, computatio
         return _qvr_qiec_finalize(_qvr_qiec_validate_computation(result, get(handler, "output_validator", nothing), "handler output type"), clause_lifecycle)
     end
     try
-        comp = _qvr_qiec_with_ambient(controller, comp)
+        comp = _qvr_qiec_with_ambient(controller, () -> _qvr_qiec_force(comp()))
         return walk(comp)
     catch
         _qvr_qiec_lifecycle_drop(lifecycle_ref[1])
@@ -329,8 +405,10 @@ function _qvr_qiec_handle(comp, instance, manifest, static_arguments, computatio
         rethrow()
     end
 end
-function _qvr_qiec_run(comp, operations)
-    current = comp
+function _qvr_qiec_run(build, operations)
+    _qvr_qiec_serials["call"] = 0
+    _qvr_qiec_serials["instance"] = 0
+    current = _qvr_qiec_force(build())
     while current isa _QvrQiecEffect
         request = current.request
         key = (request["instance"], request["operation"])
@@ -340,7 +418,7 @@ function _qvr_qiec_run(comp, operations)
         try
             result = _qvr_qiec_invoke(entry, request)
             validator = entry isa AbstractDict ? get(entry, "result_validator", nothing) : nothing
-            current = current.continuation(_qvr_qiec_validate(validator, result, "operation result type"))
+            current = _qvr_qiec_force(current.continuation(_qvr_qiec_validate(validator, result, "operation result type")))
         catch
             _qvr_qiec_drop_request(request)
             rethrow()
