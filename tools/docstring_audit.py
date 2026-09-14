@@ -129,6 +129,84 @@ def required_sections(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]
     return required
 
 
+def documented_parameters(doc: str) -> list[str]:
+    """The parameter names a docstring's `Parameters` section lists.
+
+    Parameters
+    ----------
+    doc : str
+        The docstring body.
+
+    Returns
+    -------
+    list[str]
+        Names in documented order. A name is the text before the first
+        colon on a line at the section's own indentation, so an indented
+        continuation describing the previous parameter is not mistaken
+        for a new one.
+    """
+    lines = doc.splitlines()
+    start = None
+    for index, line in enumerate(lines[:-1]):
+        if line.strip() == "Parameters" and set(lines[index + 1].strip()) == {"-"}:
+            start = index
+            break
+    if start is None:
+        return []
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    names: list[str] = []
+    for line in lines[start + 2 :]:
+        if not line.strip():
+            continue
+        current = len(line) - len(line.lstrip())
+        if current < indent:
+            break
+        if current > indent:
+            continue
+        if set(line.strip()) == {"-"}:
+            names.pop()
+            break
+        # numpydoc writes a variadic as `*args` or `**kwargs`, while the
+        # signature carries the bare name, so the stars are stripped
+        # before comparing. A documented name may also list several
+        # parameters sharing one description, separated by commas.
+        entry = line.strip().split(":")[0].strip()
+        names.extend(
+            part.strip().lstrip("*") for part in entry.split(",") if part.strip()
+        )
+    return names
+
+
+def signature_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """The parameter names a callable actually takes.
+
+    Parameters
+    ----------
+    node : ast.FunctionDef or ast.AsyncFunctionDef
+        The callable to inspect.
+
+    Returns
+    -------
+    list[str]
+        Names excluding `self` and `cls`, with any variadic parameters
+        under their bare names.
+    """
+    names = [
+        argument.arg
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if argument.arg not in ("self", "cls")
+    ]
+    if node.args.vararg is not None:
+        names.append(node.args.vararg.arg)
+    if node.args.kwarg is not None:
+        names.append(node.args.kwarg.arg)
+    return names
+
+
 def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
     """Find every incomplete docstring in one module.
 
@@ -164,6 +242,14 @@ def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
         missing = [
             section for section in required_sections(node) if section not in have
         ]
+        # A documented parameter the callable does not take is worse than
+        # an undocumented one: it describes a contract that does not
+        # exist, and a reader cannot tell without checking the signature.
+        invented = sorted(
+            set(documented_parameters(doc)) - set(signature_parameters(node))
+        )
+        if invented:
+            missing.append(f"documents absent parameters: {', '.join(invented)}")
         if missing:
             findings.append((node.name, node.lineno, missing))
     return sorted(findings, key=lambda finding: finding[1])

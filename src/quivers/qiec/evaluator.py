@@ -108,6 +108,13 @@ class HandlerManifest:
     definitions: Mapping[HandlerId, HandlerDef]
 
     def __post_init__(self) -> None:
+        """Freeze the definitions behind a read-only view.
+
+        The manifest is what a runtime resolves a handler through, so it
+        is copied and wrapped rather than aliased: a caller mutating the
+        mapping it passed in would otherwise change which handler a
+        running computation reaches.
+        """
         object.__setattr__(
             self,
             "definitions",
@@ -116,6 +123,18 @@ class HandlerManifest:
 
     @classmethod
     def from_registry(cls, registry: KernelRegistry) -> HandlerManifest:
+        """Build a manifest from a checked registry.
+
+        Parameters
+        ----------
+        registry : KernelRegistry
+            A registry whose handlers have already been checked.
+
+        Returns
+        -------
+        HandlerManifest
+            A manifest over those handlers.
+        """
         return cls(registry.handlers)
 
 
@@ -161,10 +180,38 @@ class RuntimeClause:
 
 
 def _identity_return(value: object, _context: ClauseContext) -> object:
+    """The default return clause: hand the value back unchanged.
+
+    Parameters
+    ----------
+    value : object
+        What the handled computation returned.
+    _context : ClauseContext
+        The clause context, unused by the identity.
+
+    Returns
+    -------
+    object
+        The value, unchanged. A handler that does not answer returns
+        specially behaves as though it were not there for them.
+    """
     return value
 
 
 def _accept(_value: object) -> bool:
+    """The default validator: accept anything.
+
+    Parameters
+    ----------
+    _value : object
+        The value to validate.
+
+    Returns
+    -------
+    bool
+        Always True. A clause that declares no runtime validator is
+        checked statically and needs no further gate.
+    """
     return True
 
 
@@ -191,6 +238,18 @@ class RuntimeHandler:
     on_drop: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
+        """Check the executable clauses against the checked declaration.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the runtime implements an operation the declaration does
+            not cover, or leaves a declared one unimplemented. Both
+            directions matter: an extra clause would never be dispatched
+            to, and a missing one would fail only when that operation was
+            first performed, perhaps long after the handler was
+            installed.
+        """
         structural = {clause.operation for clause in self.definition.clauses}
         executable = set(self.clauses)
         unknown = executable - structural
@@ -235,7 +294,41 @@ class RuntimeAttachments:
         validator: RuntimeValidator = _accept,
         duplicable: bool = False,
     ) -> AttachmentRef:
-        """Attach a host value and return its stable core reference."""
+        """Attach a host value and return its stable core reference.
+
+        Parameters
+        ----------
+        attachment : AttachmentId
+            The identity the core term refers to the value by.
+        value : object
+            The host value.
+        type : TypeExpr
+            The type the core ascribes to it.
+        validator : RuntimeValidator
+            Checks the value really inhabits that type. The default
+            accepts anything, for a value the static check already
+            settles.
+        duplicable : bool
+            Whether the value may be copied. This is an assertion about
+            the value, not a guess: a multi-shot resumption capturing a
+            non-duplicable attachment is refused, because copying it
+            would give two continuations a shared mutable thing.
+
+        Returns
+        -------
+        AttachmentRef
+            The core reference to use in a term.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the identity is already bound to a different value, type,
+            validator, or duplicability. Rebinding is refused rather than
+            overwriting, since a term already built would silently start
+            meaning something else.
+        RuntimeValidationError
+            If the validator rejects the value.
+        """
         _validate(value, validator, type, f"attachment {attachment}")
         binding = AttachmentBinding(value, type, validator, duplicable)
         previous = self.values.get(attachment)
@@ -254,7 +347,24 @@ class RuntimeAttachments:
         return AttachmentRef(attachment, type)
 
     def bind_handler(self, handler: RuntimeHandler) -> HandlerId:
-        """Attach executable clauses to their structural handler identity."""
+        """Attach executable clauses to their structural handler identity.
+
+        Parameters
+        ----------
+        handler : RuntimeHandler
+            The executable handler, already checked against its
+            declaration.
+
+        Returns
+        -------
+        HandlerId
+            The identity it was bound under.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If a different handler is already bound to that identity.
+        """
         id = handler.definition.id
         previous = self.handlers.get(id)
         if previous is not None and previous is not handler:
@@ -273,10 +383,24 @@ class RuntimeRequest:
 
     @property
     def instance(self) -> EffectInstanceId:
+        """The lexical instance this request was performed on.
+
+        Returns
+        -------
+        EffectInstanceId
+            The instance, which decides which handler answers.
+        """
         return self.core.instance
 
     @property
     def operation(self) -> OperationId:
+        """The operation requested.
+
+        Returns
+        -------
+        OperationId
+            The operation, which decides which clause answers.
+        """
         return self.core.operation
 
     @property
@@ -287,7 +411,16 @@ class RuntimeRequest:
         tuple[tuple[str, str | int], ...],
         tuple[int, ...],
     ]:
-        """Return the static, dynamic, and multi-shot address components."""
+        """Return the static, dynamic, and multi-shot address components.
+
+        Returns
+        -------
+        tuple[str, tuple[tuple[str, str | int], ...], tuple[int, ...]]
+            The source site, the dynamic address frames, and the
+            resumption path. One request site reached twice, under a loop
+            or under a resumed continuation, yields two addresses, which
+            is what lets a trace name each occurrence separately.
+        """
         static, dynamic, declared_path = self.core.origin.dynamic_key()
         return (static, dynamic, (*declared_path, *self.resumption_path))
 
@@ -325,6 +458,13 @@ class _HandlerLifecycle:
     finalized: list[bool] = field(default_factory=lambda: [False])
 
     def exit(self) -> None:
+        """Finalize the handler because its computation completed.
+
+        Idempotent, and exclusive with `drop`: a handler is finalized
+        once, and which hook fires records whether its computation ran to
+        completion or was abandoned. A handler holding a resource needs
+        that distinction to know whether to commit or discard.
+        """
         if self.finalized[0]:
             return
         self.finalized[0] = True
@@ -332,6 +472,12 @@ class _HandlerLifecycle:
             self.handler.on_exit()
 
     def drop(self) -> None:
+        """Finalize the handler because its computation was abandoned.
+
+        Idempotent, and exclusive with `exit`. Abandonment happens when
+        an enclosing clause does not resume, so the handled computation
+        never reaches its end.
+        """
         if self.finalized[0]:
             return
         self.finalized[0] = True
@@ -348,6 +494,14 @@ class _HandlerFrame:
 
     @property
     def handler(self) -> RuntimeHandler:
+        """The executable handler this frame installed.
+
+        Returns
+        -------
+        RuntimeHandler
+            The handler, reached through its lifecycle so the two cannot
+            drift apart.
+        """
         return self.lifecycle.handler
 
 
@@ -391,10 +545,25 @@ class ClauseContext:
 
     @property
     def request(self) -> RuntimeRequest | None:
+        """The request this clause is answering.
+
+        Returns
+        -------
+        RuntimeRequest or None
+            The request, or None in a return clause, which answers a
+            completed computation rather than an operation.
+        """
         return self._request
 
     @property
     def attachments(self) -> RuntimeAttachments:
+        """The host values available to this clause.
+
+        Returns
+        -------
+        RuntimeAttachments
+            The evaluator's attachment table.
+        """
         return self._evaluator.attachments
 
     def evaluate(self, computation: Computation) -> object:
@@ -404,6 +573,16 @@ class ClauseContext:
         outside the handled expression.  Effects performed here can reach only
         handlers outside the matched handler, which is the chosen deep-handler
         semantics.
+
+        Parameters
+        ----------
+        computation : Computation
+            The clause body to run.
+
+        Returns
+        -------
+        object
+            What the body produced.
         """
         stack = [*self._outer_stack, _DelimiterFrame()]
         return self._evaluator._evaluate_delimited(
@@ -423,7 +602,28 @@ class ClauseContext:
         validator: RuntimeValidator = _accept,
         duplicable: bool = False,
     ) -> AttachmentRef:
-        """Install a generated host value under a deterministic runtime ID."""
+        """Install a generated host value under a deterministic runtime ID.
+
+        Parameters
+        ----------
+        value : object
+            The host value to attach.
+        type : TypeExpr
+            The type the core ascribes to it.
+        role : str
+            What the value is for, which enters its derived identity.
+        validator : RuntimeValidator
+            Checks the value inhabits the type.
+        duplicable : bool
+            Whether the value may be copied by a multi-shot resumption.
+
+        Returns
+        -------
+        AttachmentRef
+            A reference usable in a core term. The identity derives from
+            the run, the request, and the role rather than being
+            generated, so a trace can name the same attachment twice.
+        """
         if self._request is None:
             seed: tuple[object, ...] = (
                 self._evaluator._run_serial,
@@ -507,13 +707,56 @@ class Resumption:
 
     @property
     def grade(self) -> ResumptionGrade:
+        """The grade this resumption is held to.
+
+        Returns
+        -------
+        ResumptionGrade
+            The declared grade, checked statically and again here.
+        """
         return self._grade
 
     @property
     def calls(self) -> int:
+        """How many times this resumption has been invoked so far.
+
+        Returns
+        -------
+        int
+            The count, which the grade bounds.
+        """
         return self._calls
 
     def __call__(self, value: object) -> object:
+        """Resume the suspended computation with a value.
+
+        The static analysis already rejects a clause that can exceed its
+        grade. This guard stays because it protects against a foreign
+        handler, whose body the analysis never saw, and against a
+        compiler bug: a grade is what lets a runtime discard a
+        continuation, so exceeding it is not recoverable.
+
+        Parameters
+        ----------
+        value : object
+            What the resumed operation supplies.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced.
+
+        Raises
+        ------
+        ResumptionUsageError
+            If the grade is zero, or an affine or linear resumption is
+            invoked more than once.
+        NonDuplicableContinuationError
+            If an unrestricted resumption would have to copy a captured
+            value that is not duplicable.
+        RuntimeValidationError
+            If the value does not inhabit the operation's result type.
+        """
         next_call = self._calls + 1
         if self._grade is ResumptionGrade.ZERO:
             raise ResumptionUsageError("a grade-0 clause cannot resume")
@@ -570,13 +813,35 @@ class Resumption:
             )
 
     def _check_completed(self) -> None:
+        """Confirm a linear resumption was actually used.
+
+        Raises
+        ------
+        ResumptionUsageError
+            If a linear clause finished without resuming exactly once.
+            Checked at completion rather than at the call, because
+            failing to resume can only be observed once the clause is
+            over.
+        """
         if self._grade is ResumptionGrade.LINEAR and self._calls != 1:
             raise ResumptionUsageError(
                 "a grade-'1' resumption must be invoked exactly once"
             )
 
     def _close_handled_capture(self) -> None:
-        """Finalize continuations consumed by this handler clause."""
+        """Finalize continuations consumed by this handler clause.
+
+        Idempotent. Every owned frame is dropped even if an earlier drop
+        raised, and the first failure is re-raised afterwards, so one
+        handler's failing finalizer cannot leave the rest of the captured
+        stack un-finalized.
+
+        Raises
+        ------
+        BaseException
+            The first failure raised by any finalizer, after the rest
+            have run.
+        """
         if self._closed:
             return
         self._closed = True
@@ -599,6 +864,24 @@ class Resumption:
             self._evaluator._drop_stack(self._seed_stack[self._owned_start :])
 
     def _fork_owned(self, stack: tuple[_Frame, ...]) -> tuple[_Frame, ...]:
+        """Copy the frames this clause owns, sharing the rest.
+
+        A multi-shot resumption needs its own copy of what it captured,
+        or two shots would share one handler's state. Frames below the
+        owned region belong to an enclosing context and are shared rather
+        than copied, since the clause does not control their lifetime.
+
+        Parameters
+        ----------
+        stack : tuple[_Frame, ...]
+            The stack to fork.
+
+        Returns
+        -------
+        tuple[_Frame, ...]
+            The shared prefix followed by forked copies of the owned
+            frames.
+        """
         prefix = stack[: self._owned_start]
         owned = stack[self._owned_start :]
         return (*prefix, *self._evaluator._fork_stack(owned, fork=True))
@@ -610,6 +893,27 @@ def _validate(
     expected: TypeExpr,
     subject: str,
 ) -> None:
+    """Check a host value against the type the core ascribes to it.
+
+    Parameters
+    ----------
+    value : object
+        The host value.
+    validator : RuntimeValidator
+        The predicate to apply.
+    expected : TypeExpr
+        The type the core believes the value has, named in any
+        diagnostic.
+    subject : str
+        What is being validated.
+
+    Raises
+    ------
+    RuntimeTypeMismatch
+        If the validator returns False, or raises. A raising validator is
+        reported as a mismatch rather than propagating, so a caller need
+        handle only one failure class at the boundary.
+    """
     try:
         accepted = validator(value)
     except Exception as error:
@@ -638,6 +942,15 @@ class Evaluator:
         self._run_serial = 0
 
     def _emit_trace(self, event: str, detail: Mapping[str, object]) -> None:
+        """Report one execution event, when a hook is installed.
+
+        Parameters
+        ----------
+        event : str
+            The event name.
+        detail : Mapping[str, object]
+            Its payload.
+        """
         if self.trace_hook is not None:
             self.trace_hook(event, detail)
 
@@ -646,7 +959,28 @@ class Evaluator:
         computation: Computation,
         environment: Mapping[Local, object] | None = None,
     ) -> object:
-        """Evaluate a closed or explicitly supplied computation."""
+        """Evaluate a closed or explicitly supplied computation.
+
+        Parameters
+        ----------
+        computation : Computation
+            The computation to run.
+        environment : Mapping[Local, object] or None
+            Values for the computation's free locals. None means it is
+            closed.
+
+        Returns
+        -------
+        object
+            What the computation produced.
+
+        Raises
+        ------
+        EvaluationError
+            If a request reaches no handler, a handler is missing from
+            the manifest, a resumption exceeds its grade, or a host value
+            fails validation.
+        """
         if self.handler_manifest is not None:
             self._validate_handler_manifest(self.handler_manifest)
         self._run_serial += 1
@@ -668,7 +1002,28 @@ class Evaluator:
         registry: KernelRegistry,
         environment: Mapping[Local, object] | None = None,
     ) -> object:
-        """Kernel-check a computation and fail closed on handler attachments."""
+        """Kernel-check a computation and fail closed on handler attachments.
+        Parameters
+        ----------
+        computation : Computation
+            The computation to run.
+        registry : KernelRegistry
+            Declarations to check it against.
+        environment : Mapping[Local, object] or None
+            Values for its free locals.
+
+        Returns
+        -------
+        object
+            What the computation produced.
+
+        Raises
+        ------
+        KernelError
+            If the computation does not check.
+        EvaluationError
+            If execution fails, as in `evaluate`.
+        """
         from quivers.qiec.checking import CheckContext, infer_computation
 
         runtime_environment = dict(environment or {})
@@ -700,10 +1055,45 @@ class Evaluator:
         value: Value,
         environment: Mapping[Local, object] | None = None,
     ) -> object:
-        """Erase and evaluate a checked QIEC value."""
+        """Erase and evaluate a checked QIEC value.
+        Parameters
+        ----------
+        value : Value
+            The value to evaluate.
+        environment : Mapping[Local, object] or None
+            Values for its free locals.
+
+        Returns
+        -------
+        object
+            The host representation of the value.
+        """
         return self._value(value, environment or {})
 
     def _value(self, value: Value, environment: Mapping[Local, object]) -> object:
+        """Reduce a core value to its host representation.
+
+        Parameters
+        ----------
+        value : Value
+            The core value.
+        environment : Mapping[Local, object]
+            Values for its free locals.
+
+        Returns
+        -------
+        object
+            The host value.
+
+        Raises
+        ------
+        MissingAttachmentError
+            If an attachment reference names nothing.
+        RuntimeTypeMismatch
+            If an attachment's bound type disagrees with the reference, or a host value fails its validator.
+        EvaluationError
+            If a local is unbound.
+        """
         if isinstance(value, Var):
             try:
                 return environment[value.local]
@@ -748,6 +1138,18 @@ class Evaluator:
         raise TypeError(f"unsupported QIEC value {type(value).__name__}")
 
     def _validate_handler_manifest(self, manifest: HandlerManifest) -> None:
+        """Require every attached handler to match its declared signature.
+
+        Parameters
+        ----------
+        manifest : HandlerManifest
+            The manifest to check.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If an attached handler's definition differs from the manifest's. A provider that supplied a handler for one signature must not answer for another, however alike the two look.
+        """
         for id, runtime in self.attachments.handlers.items():
             expected = manifest.definitions.get(id)
             if expected is None:
@@ -766,6 +1168,33 @@ class Evaluator:
         stack: list[_Frame],
         resumption_path: tuple[int, ...],
     ) -> object:
+        """Run the machine until the computation and its stack are finished.
+
+        Explicitly stacked rather than recursive, so a deeply nested or
+        recursive computation is bounded by memory rather than by the
+        host's call depth.
+
+        Parameters
+        ----------
+        computation : Computation
+            The term to run.
+        environment : Mapping[Local, object]
+            Values in scope.
+        stack : list[_Frame]
+            The machine's frame stack, mutated in place.
+        resumption_path : tuple[int, ...]
+            Which shot of which resumption is running, for addressing.
+
+        Returns
+        -------
+        object
+            The final value.
+
+        Raises
+        ------
+        EvaluationError
+            If a request reaches no handler, or a runtime rule is broken.
+        """
         current = computation
         env = environment
         while True:
@@ -863,6 +1292,27 @@ class Evaluator:
         stack: list[_Frame],
         resumption_path: tuple[int, ...],
     ) -> object:
+        """Unwind frames with a returned value until the stack is empty.
+
+        Parameters
+        ----------
+        value : object
+            The value being returned.
+        stack : list[_Frame]
+            The frame stack, mutated in place.
+        resumption_path : tuple[int, ...]
+            The current resumption address.
+
+        Returns
+        -------
+        object
+            The value that survives to the bottom, after every frame has answered.
+
+        Raises
+        ------
+        EvaluationError
+            If a frame's finalizer or return clause fails.
+        """
         current = value
         env = environment
         while stack:
@@ -929,6 +1379,37 @@ class Evaluator:
         stack: list[_Frame],
         search_index: int,
     ) -> object:
+        """Find the handler for a request and run its clause.
+
+        The search runs outward from the request, so the innermost
+        handler of the named instance answers, and a partial handler that
+        does not cover the operation forwards to the next one out.
+
+        Parameters
+        ----------
+        request : EffectRequest
+            The request to answer.
+        environment : Mapping[Local, object]
+            Values in scope at the request.
+        stack : list[_Frame]
+            The frame stack, searched outward for a handler.
+        search_index : int
+            Where in the stack to begin looking, so a forwarded request
+            resumes the search outside the handler that forwarded it
+            rather than finding that handler again.
+
+        Returns
+        -------
+        object
+            What the clause produced.
+
+        Raises
+        ------
+        UnhandledEffectError
+            If no handler at or below `search_index` covers the request.
+        ResumptionUsageError
+            If the clause misuses its resumption.
+        """
         index = search_index
         while index >= 0:
             frame = stack[index]
@@ -1048,6 +1529,26 @@ class Evaluator:
         answer: object,
         context: ClauseContext,
     ) -> object:
+        """Interpret a clause's answer, forwarding it when asked.
+
+        Parameters
+        ----------
+        answer : object
+            What the clause returned, which may be a forwarding request.
+        context : ClauseContext
+            The clause's runtime context, carrying the request it was
+            answering and the stack outside the handler.
+
+        Returns
+        -------
+        object
+            The value the clause ultimately produced.
+
+        Raises
+        ------
+        UnhandledEffectError
+            If a forward finds no outer handler.
+        """
         if not isinstance(answer, ClauseComputation):
             return answer
         env = dict(context._environment)
@@ -1069,7 +1570,26 @@ class Evaluator:
         protected: tuple[_Frame, ...],
         resumption_path: tuple[int, ...],
     ) -> object:
-        """Evaluate a local computation and finalize only frames it installs."""
+        """Evaluate a local computation and finalize only frames it installs.
+        Parameters
+        ----------
+        computation : Computation
+            The body to run.
+        environment : Mapping[Local, object]
+            Values in scope.
+        stack : list[_Frame]
+            The stack to run against, ending in a delimiter.
+        protected : tuple[_Frame, ...]
+            Frames the body borrows rather than owns, which must survive
+            when it finishes.
+        resumption_path : tuple[int, ...]
+            The current resumption address.
+
+        Returns
+        -------
+        object
+            What the body produced. The delimiter stops normal completion from consuming the continuation outside the handled expression, which is what makes these deep handlers rather than shallow ones.
+        """
         try:
             return self._drive_computation(
                 computation,
@@ -1085,6 +1605,20 @@ class Evaluator:
         environment: Mapping[Local, object],
         stack: tuple[_Frame, ...],
     ) -> None:
+        """Refuse a multi-shot capture of a value that cannot be copied.
+
+        Parameters
+        ----------
+        environment : Mapping[Local, object]
+            Values the continuation closed over.
+        stack : tuple[_Frame, ...]
+            The frames a multi-shot resumption would copy.
+
+        Raises
+        ------
+        NonDuplicableContinuationError
+            If a captured attachment is not marked duplicable. Copying it would give two shots a shared mutable value, which is a data race rather than two independent continuations.
+        """
         for local, value in environment.items():
             if not self._duplicable_value(value):
                 raise NonDuplicableContinuationError(
@@ -1101,6 +1635,18 @@ class Evaluator:
                 )
 
     def _duplicable_value(self, value: object) -> bool:
+        """Whether one captured value may be copied for another shot.
+
+        Parameters
+        ----------
+        value : object
+            The captured value.
+
+        Returns
+        -------
+        bool
+            True when the value is a scalar, or an attachment explicitly marked duplicable. Duplicability is asserted rather than inferred, because `copy.copy` succeeding says nothing about whether copying is sound.
+        """
         if value is None or isinstance(value, (bool, int, float, str, bytes)):
             return True
         if isinstance(value, tuple):
@@ -1115,6 +1661,25 @@ class Evaluator:
         )
 
     def _fork_stack(self, stack: tuple[_Frame, ...], *, fork: bool) -> list[_Frame]:
+        """Copy a run of frames for an independent continuation.
+
+        Parameters
+        ----------
+        stack : tuple[_Frame, ...]
+            The frames to fork.
+        fork : bool
+            Whether to copy handler state, or share it.
+
+        Returns
+        -------
+        tuple[_Frame, ...]
+            The forked frames.
+
+        Raises
+        ------
+        NonDuplicableContinuationError
+            If a frame holds a value that cannot be copied.
+        """
         if not fork:
             return list(stack)
         result: list[_Frame] = []
@@ -1164,7 +1729,38 @@ class Evaluator:
 
     @staticmethod
     def _install_handler(prototype: RuntimeHandler) -> _HandlerLifecycle:
-        """Allocate one runtime context for a dynamic Handle installation."""
+        """Allocate one runtime context for a dynamic Handle installation.
+
+        A handler with a context factory gets a fresh instance per
+        installation, so two `handle` expressions over one declaration do
+        not share state. One without is installed as it stands.
+
+        Parameters
+        ----------
+        prototype : RuntimeHandler
+            The attached handler, or the factory that makes one.
+
+        Returns
+        -------
+        _HandlerLifecycle
+            The installed handler paired with its finalization state, so
+            it is exited or dropped exactly once.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If a context factory returned a handler for a different
+            checked definition, or if a handler holding mutable state was
+            installed without a factory. The second is the one that
+            matters: sharing one mutable handler between two
+            installations would let them see each other's state.
+
+        Notes
+        -----
+        A failure here drops the lifecycle before propagating, so a
+        handler whose entry hook raised is still finalized rather than
+        left half-installed.
+        """
         handler = (
             prototype.context_factory()
             if prototype.context_factory is not None
@@ -1194,7 +1790,28 @@ class Evaluator:
         definition: HandlerDef,
         arguments: tuple[StaticArgument, ...],
     ) -> HandlerDef:
-        """Apply one structural handler telescope at its dynamic installation."""
+        """Apply one structural handler telescope at its dynamic installation.
+
+        Parameters
+        ----------
+        definition : HandlerDef
+            The declared handler.
+        arguments : tuple[StaticArgument, ...]
+            Static arguments supplied where it is installed.
+
+        Returns
+        -------
+        HandlerDef
+            The handler with its interface, input, output, and introduced
+            row substituted, so the clause bodies are checked and run at
+            the types this installation uses.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the arguments do not saturate the telescope, or are
+            ill-kinded.
+        """
         try:
             substitution = instantiate_telescope(
                 definition.telescope,
@@ -1218,7 +1835,20 @@ class Evaluator:
         candidates: tuple[_Frame, ...],
         protected: tuple[_Frame, ...],
     ) -> None:
-        """Drop candidate handler frames except explicitly borrowed lifecycles."""
+        """Drop candidate handler frames except explicitly borrowed lifecycles.
+
+        A forwarded or resumed continuation borrows frames it did not
+        install, and those must outlive this unwind. Comparing lifecycle
+        identity rather than frame equality is what distinguishes a
+        borrowed frame from a structurally identical one this clause owns.
+
+        Parameters
+        ----------
+        candidates : tuple[_Frame, ...]
+            Frames being unwound.
+        protected : tuple[_Frame, ...]
+            Frames whose lifecycles are borrowed and must not be dropped.
+        """
         protected_lifecycles = {
             id(frame.lifecycle)
             for frame in protected
@@ -1235,7 +1865,24 @@ class Evaluator:
 
     @staticmethod
     def _drop_stack(stack: tuple[_Frame, ...]) -> None:
-        """Finalize each captured handler context once, inner-first."""
+        """Finalize each captured handler context once, inner-first.
+
+        Inner-first because a handler installed later may depend on one
+        installed earlier, so it has to finish first. Every frame is
+        attempted even if an earlier finalizer raised, and the first
+        failure is re-raised afterwards, so one failing handler cannot
+        leave the rest un-finalized.
+
+        Parameters
+        ----------
+        stack : tuple[_Frame, ...]
+            The frames to finalize.
+
+        Raises
+        ------
+        BaseException
+            The first failure any finalizer raised, after all have run.
+        """
         pending: list[BaseException] = []
         for frame in reversed(stack):
             if not isinstance(frame, _HandlerFrame):

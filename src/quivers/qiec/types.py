@@ -23,6 +23,25 @@ class IndexVariable:
     tag: Literal["index_variable"] = "index_variable"
 
     def __eq__(self, other: object) -> bool:
+        """Compare by identity when either side is rigid, else by name.
+
+        A variable carrying a `StaticVariableId` is rigid: a case branch's
+        skolem, distinct from every other even where the names agree. One
+        without is a declaration binder, which two occurrences share by
+        name. Comparing a rigid variable to a free one is therefore
+        false, which is what stops a branch's skolem from unifying with
+        an enclosing binder.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when both denote the same variable at the same sort.
+        """
         if not isinstance(other, IndexVariable) or self.sort != other.sort:
             return False
         if self.identity is not None or other.identity is not None:
@@ -30,6 +49,14 @@ class IndexVariable:
         return self.name == other.name
 
     def __hash__(self) -> int:
+        """Hash the fields `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the sort with the identity when rigid, and with
+            the name otherwise, so equal variables hash alike.
+        """
         return hash(
             (self.sort, self.identity if self.identity is not None else self.name)
         )
@@ -42,6 +69,17 @@ class IndexLiteral:
     tag: Literal["index_literal"] = "index_literal"
 
     def __post_init__(self) -> None:
+        """Check the literal inhabits the sort it claims.
+
+        Raises
+        ------
+        ValueError
+            If a `Nat` literal is not a nonnegative integer, if a user
+            sort's literal names a constructor that sort does not
+            declare, or if it names one that takes arguments. The last is
+            the subtle case: a nullary constructor is a literal, while
+            one with arguments has to be applied.
+        """
         from quivers.qiec.kinds import NatSort, UserIndexSort
 
         if isinstance(self.sort, NatSort):
@@ -70,6 +108,17 @@ class IndexConstructor:
     tag: Literal["index_constructor"] = "index_constructor"
 
     def __post_init__(self) -> None:
+        """Check the constructor belongs to its sort and is fully applied.
+
+        Raises
+        ------
+        ValueError
+            If the sort is not a user-defined one, if it declares no such
+            constructor, or if the argument count differs from the
+            declared arity. A partially applied index constructor is
+            rejected rather than curried, since an index is a value of
+            its sort and a partial application is not one.
+        """
         from quivers.qiec.kinds import UserIndexSort
 
         if not isinstance(self.sort, UserIndexSort):
@@ -104,6 +153,25 @@ class TypeVariable:
     tag: Literal["type_variable"] = "type_variable"
 
     def __eq__(self, other: object) -> bool:
+        """Compare by identity when either side is rigid, else by name.
+
+        A variable carrying a `StaticVariableId` is rigid: a case branch's
+        skolem, distinct from every other even where the names agree. One
+        without is a declaration binder, which two occurrences share by
+        name. Comparing a rigid variable to a free one is therefore
+        false, which is what stops a branch's skolem from unifying with
+        an enclosing binder.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when both denote the same variable at the same kind.
+        """
         if not isinstance(other, TypeVariable) or self.kind != other.kind:
             return False
         if self.identity is not None or other.identity is not None:
@@ -111,6 +179,14 @@ class TypeVariable:
         return self.name == other.name
 
     def __hash__(self) -> int:
+        """Hash the fields `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the kind with the identity when rigid, and with
+            the name otherwise, so equal variables hash alike.
+        """
         return hash(
             (self.kind, self.identity if self.identity is not None else self.name)
         )
@@ -126,13 +202,47 @@ class TypeConstructorRef:
 
     @classmethod
     def builtin(cls, name: str) -> TypeConstructorRef:
+        """A constructor for one of the language's own types.
+
+        Parameters
+        ----------
+        name : str
+            The builtin's name.
+
+        Returns
+        -------
+        TypeConstructorRef
+            A nullary constructor whose identity derives from the
+            ``builtin`` namespace, so `Int` means the same type in every
+            module without being declared in any of them.
+        """
         return cls(TypeId.derive("builtin", name), name)
 
     def __eq__(self, other: object) -> bool:
-        """Compare semantic identity, excluding diagnostic presentation data."""
+        """Compare semantic identity, excluding diagnostic presentation data.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when both name the same declaration. The display name
+            and the telescope are presentation, so a constructor read
+            back under a different spelling is still the same type.
+        """
         return isinstance(other, TypeConstructorRef) and self.id == other.id
 
     def __hash__(self) -> int:
+        """Hash the identity `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the declaration identity alone.
+        """
         return hash(self.id)
 
 
@@ -175,6 +285,20 @@ class EffectVariable:
     tag: Literal["effect_variable"] = "effect_variable"
 
     def __eq__(self, other: object) -> bool:
+        """Compare by identity when either side is rigid, else by name.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when both denote the same effect variable. A rigid
+            variable never equals a free one, which is what keeps a
+            branch's skolem from unifying with an enclosing binder.
+        """
         if not isinstance(other, EffectVariable):
             return False
         if self.identity is not None or other.identity is not None:
@@ -182,6 +306,14 @@ class EffectVariable:
         return self.name == other.name
 
     def __hash__(self) -> int:
+        """Hash the fields `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the identity when the variable is rigid, and of the
+            name otherwise.
+        """
         return hash(self.identity if self.identity is not None else self.name)
 
 
@@ -195,7 +327,21 @@ class EffectRef:
     tag: Literal["effect_ref"] = "effect_ref"
 
     def __eq__(self, other: object) -> bool:
-        """Compare a concrete interface application by stable identity."""
+        """Compare a concrete interface application by stable identity.
+
+        Parameters
+        ----------
+        other : object
+            The value to compare against.
+
+        Returns
+        -------
+        bool
+            True when both name the same declaration and supply equal
+            static arguments. The display name is ignored, and identity
+            is nominal, so two applications of one interface differ only
+            by their arguments.
+        """
         return (
             isinstance(other, EffectRef)
             and self.id == other.id
@@ -203,6 +349,13 @@ class EffectRef:
         )
 
     def __hash__(self) -> int:
+        """Hash the fields `__eq__` compares.
+
+        Returns
+        -------
+        int
+            A hash of the declaration identity and the arguments.
+        """
         return hash((self.id, self.arguments))
 
 
@@ -217,7 +370,21 @@ STRING = TypeApplication(TypeConstructorRef.builtin("String"))
 
 
 def product_type(*components: TypeExpr) -> TypeApplication:
-    """Construct the canonical finite-product type of the given arity."""
+    """Construct the canonical finite-product type of the given arity.
+
+    Parameters
+    ----------
+    components : TypeExpr
+        The component types, in order.
+
+    Returns
+    -------
+    TypeApplication
+        The product. Its constructor identity derives from the arity, so
+        every two-component product in every module is the same type
+        constructor and two products of different arity are different
+        ones.
+    """
 
     arity = len(components)
     constructor = TypeConstructorRef(
@@ -233,6 +400,24 @@ def static_kind(term: StaticArgument) -> Kind:
 
     Index sorts are deliberately not collapsed into ``Type``: callers that
     validate an index binder compare the term's concrete ``sort`` separately.
+
+    Parameters
+    ----------
+    term : StaticArgument
+        The static term to classify.
+
+    Returns
+    -------
+    Kind
+        The term's kind.
+
+    Raises
+    ------
+    TypeError
+        If the term is an index, which carries a sort rather than a kind.
+        Raising rather than returning a placeholder is what keeps a
+        caller from comparing an index against a kind and finding them
+        equal.
     """
     from quivers.qiec.kinds import EFFECT
 
@@ -246,7 +431,27 @@ def static_kind(term: StaticArgument) -> Kind:
 
 
 def index_sort(term: IndexTerm) -> IndexSort:
-    """Return an index term's sort, checking shape dimensions."""
+    """Return an index term's sort, checking shape dimensions.
+
+    Parameters
+    ----------
+    term : IndexTerm
+        The index whose sort is wanted.
+
+    Returns
+    -------
+    IndexSort
+        The term's sort. A shape reports its concrete rank, which is what
+        lets a rank-polymorphic binder accept it while a binder of a
+        fixed rank does not.
+
+    Raises
+    ------
+    TypeError
+        If a shape dimension is not of `Nat` sort. A dimension is a
+        count, so admitting anything else would let a shape be indexed by
+        a value that cannot be one.
+    """
     from quivers.qiec.kinds import NAT, ShapeSort
 
     if isinstance(term, ShapeIndex):

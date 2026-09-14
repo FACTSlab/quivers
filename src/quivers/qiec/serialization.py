@@ -136,6 +136,19 @@ class SerializationError(ValueError):
 
 
 def _class_tag(class_: type[object]) -> str:
+    """The wire tag naming one allowlisted class.
+
+    Parameters
+    ----------
+    class_ : type
+        The class to name.
+
+    Returns
+    -------
+    str
+        ``<module>.<qualname>`` with the package prefix trimmed, which is
+        what a payload carries in its ``$type`` field.
+    """
     module = class_.__module__.removeprefix("quivers.qiec.")
     return f"{module}.{class_.__qualname__}"
 
@@ -246,6 +259,28 @@ _NODES: dict[str, type[object]] = {
 
 
 def _encode(value: object) -> JsonValue:
+    """Encode one stable QIEC value.
+
+    Parameters
+    ----------
+    value : object
+        The value to encode. Only allowlisted identifiers, enums, and
+        records may cross the boundary, along with the JSON scalars and
+        the tuples that hold them.
+
+    Returns
+    -------
+    JsonValue
+        The encoded value.
+
+    Raises
+    ------
+    SerializationError
+        If the value is of a class not on the allowlist, or is a
+        non-finite float. Refusing an unknown class is the point of the
+        boundary: a Python callable or a mutable resource must not be
+        able to ride across it.
+    """
     if isinstance(value, StableId):
         tag = _class_tag(type(value))
         if tag not in _IDS:
@@ -288,6 +323,25 @@ def _encode(value: object) -> JsonValue:
 
 
 def _exact_keys(value: dict[str, JsonValue], expected: set[str], subject: str) -> None:
+    """Require an object to carry exactly the expected keys.
+
+    Parameters
+    ----------
+    value : dict[str, JsonValue]
+        The decoded object.
+    expected : set[str]
+        The keys it must have, no more and no fewer.
+    subject : str
+        What is being checked, named in the diagnostic.
+
+    Raises
+    ------
+    SerializationError
+        If a key is missing or extra. Extra keys are rejected rather than
+        ignored, because a payload from a later version carrying a field
+        this one does not understand would otherwise decode into a record
+        missing information the sender considered essential.
+    """
     if set(value) != expected:
         raise SerializationError(
             f"malformed {subject}: expected keys {sorted(expected)!r}, "
@@ -297,7 +351,26 @@ def _exact_keys(value: dict[str, JsonValue], expected: set[str], subject: str) -
 
 @cache
 def _resolved_field_types(class_: type[object]) -> dict[str, object]:
-    """Resolve one allowlisted record's annotations, including cyclic aliases."""
+    """Resolve one allowlisted record's annotations, including cyclic aliases.
+
+    Parameters
+    ----------
+    class_ : type
+        The record whose fields to resolve.
+
+    Returns
+    -------
+    dict[str, object]
+        Field name to its resolved annotation. Memoised, since resolution
+        walks the module namespace and the same records are decoded
+        repeatedly.
+
+    Raises
+    ------
+    SerializationError
+        If an annotation cannot be resolved, which means a name the
+        record refers to is not importable at runtime.
+    """
 
     namespace = dict(vars(sys.modules[class_.__module__]))
     # ``effects`` imports ``Value`` only while type checking to break its
@@ -322,6 +395,19 @@ def _resolved_field_types(class_: type[object]) -> dict[str, object]:
 
 
 def _shape_name(annotation: object) -> str:
+    """A readable name for an annotation, for use in a diagnostic.
+
+    Parameters
+    ----------
+    annotation : object
+        The annotation to name.
+
+    Returns
+    -------
+    str
+        The alias's own name where there is one, and otherwise the
+        annotation's string form with the ``typing.`` prefix trimmed.
+    """
     if isinstance(annotation, TypeAliasType):
         return annotation.__name__
     return str(annotation).removeprefix("typing.")
@@ -333,7 +419,25 @@ def _validate_runtime_shape(
     *,
     path: str,
 ) -> None:
-    """Reject decoded values that do not inhabit their declared wire type."""
+    """Reject decoded values that do not inhabit their declared wire type.
+
+    Parameters
+    ----------
+    value : object
+        The decoded value.
+    annotation : object
+        The field's declared type.
+    path : str
+        Where in the payload this value sits, for the diagnostic.
+
+    Raises
+    ------
+    SerializationError
+        If the value does not inhabit the annotation. Decoding checks the
+        shape as well as the tags, so a payload whose field carries the
+        right tag but the wrong contents is refused rather than becoming
+        a record that fails later somewhere less informative.
+    """
 
     if annotation is Any:
         return
@@ -421,6 +525,25 @@ def _validate_runtime_shape(
 
 
 def _decode(value: JsonValue) -> object:
+    """Decode one value from the wire form.
+
+    Parameters
+    ----------
+    value : JsonValue
+        The decoded JSON to interpret.
+
+    Returns
+    -------
+    object
+        The reconstructed value.
+
+    Raises
+    ------
+    SerializationError
+        If a tag is unknown, a record's keys do not match its fields, a
+        field's contents do not inhabit its declared type, an identifier
+        is malformed, or a float is non-finite.
+    """
     if value is None or isinstance(value, (bool, int, str)):
         return value
     if isinstance(value, float):
@@ -528,7 +651,25 @@ def _decode(value: JsonValue) -> object:
 
 
 def to_data(value: object) -> dict[str, JsonValue]:
-    """Encode a stable QIEC graph in its versioned wire envelope."""
+    """Encode a stable QIEC graph in its versioned wire envelope.
+
+    Parameters
+    ----------
+    value : object
+        The graph to encode.
+
+    Returns
+    -------
+    dict[str, JsonValue]
+        The envelope, carrying the wire format and the ABI alongside the
+        graph. Both are recorded because neither can be guessed from the
+        payload, and a reader that guessed wrong would misread it.
+
+    Raises
+    ------
+    SerializationError
+        If the graph contains a value that may not cross the boundary.
+    """
     return {
         "$schema": QIEC_WIRE_FORMAT,
         "abi": QIEC_ABI,
@@ -537,7 +678,26 @@ def to_data(value: object) -> dict[str, JsonValue]:
 
 
 def from_data(data: object) -> object:
-    """Decode a QIEC graph, rejecting other ABIs and unknown node tags."""
+    """Decode a QIEC graph, rejecting other ABIs and unknown node tags.
+
+    Parameters
+    ----------
+    data : object
+        The decoded envelope.
+
+    Returns
+    -------
+    object
+        The reconstructed graph.
+
+    Raises
+    ------
+    SerializationError
+        If the envelope is malformed, declares another wire format or
+        ABI, or holds a graph that fails to decode. An ABI mismatch is
+        refused rather than attempted, since a payload from another
+        version may use the same tags for different shapes.
+    """
     if not isinstance(data, dict) or any(not isinstance(key, str) for key in data):
         raise SerializationError("QIEC wire envelope must be an object")
     typed = cast(dict[str, JsonValue], data)
@@ -552,7 +712,25 @@ def from_data(data: object) -> object:
 
 
 def dumps(value: object) -> str:
-    """Serialize a QIEC graph as deterministic UTF-8-compatible JSON text."""
+    """Serialize a QIEC graph as deterministic UTF-8-compatible JSON text.
+
+    Parameters
+    ----------
+    value : object
+        The graph to serialize.
+
+    Returns
+    -------
+    str
+        Compact, key-sorted JSON. Determinism matters because identities
+        downstream are content addressed: the same graph must produce the
+        same bytes on every run and every platform.
+
+    Raises
+    ------
+    SerializationError
+        If the graph contains a value that may not cross the boundary.
+    """
     return json.dumps(
         to_data(value),
         ensure_ascii=False,
@@ -563,7 +741,24 @@ def dumps(value: object) -> str:
 
 
 def loads(text: str | bytes | bytearray) -> object:
-    """Deserialize one canonical QIEC JSON document."""
+    """Deserialize one canonical QIEC JSON document.
+
+    Parameters
+    ----------
+    text : str or bytes or bytearray
+        The document to read.
+
+    Returns
+    -------
+    object
+        The reconstructed graph.
+
+    Raises
+    ------
+    SerializationError
+        If the text is not valid JSON, repeats an object key at any
+        depth, or fails any of the decoding checks.
+    """
     try:
         data = json.loads(text, object_pairs_hook=_unique_object)
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
@@ -572,7 +767,25 @@ def loads(text: str | bytes | bytearray) -> object:
 
 
 def _unique_object(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
-    """Build a JSON object while rejecting duplicate keys at every depth."""
+    """Build a JSON object while rejecting duplicate keys at every depth.
+
+    Parameters
+    ----------
+    pairs : list[tuple[str, JsonValue]]
+        The key and value pairs as the parser found them, in order.
+
+    Returns
+    -------
+    dict[str, JsonValue]
+        The object.
+
+    Raises
+    ------
+    SerializationError
+        If a key repeats. The JSON parser would otherwise keep the last
+        occurrence silently, so a payload could carry two values for one
+        field and decode to whichever came second.
+    """
 
     result: dict[str, JsonValue] = {}
     for key, value in pairs:
