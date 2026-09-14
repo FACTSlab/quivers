@@ -64,8 +64,14 @@ QIEC_DIAGNOSTIC_CODES = frozenset(
         "qiec-coverage",
         "qiec-skolem-escape",
         "qiec-handler",
+        "qiec-handler-body",
         "qiec-unhandled-effect",
         "qiec-backend",
+        "qiec-call",
+        "qiec-call-arity",
+        "qiec-recursion",
+        "qiec-resumption",
+        "qiec-instance-escape",
     }
 )
 

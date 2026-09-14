@@ -631,7 +631,7 @@ class _Elaborator:
                     tuple(len(item.arguments) for item in declaration.constructors),
                 )
             except (TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-index")
+                self._fail_kernel(declaration, error, fallback="qiec-index")
         for declaration in declarations:
             current = self.index_sorts[declaration.name]
             for constructor in declaration.constructors:
@@ -761,7 +761,7 @@ class _Elaborator:
             try:
                 self.effects[declaration.name] = EffectDef(ref, telescope, ())
             except (TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-handler")
+                self._fail_kernel(declaration, error, fallback="qiec-handler")
 
     def _declare_effect_operations(self) -> None:
         declarations = cast(
@@ -809,7 +809,7 @@ class _Elaborator:
                     operations,
                 )
             except (TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-handler")
+                self._fail_kernel(declaration, error, fallback="qiec-handler")
 
     def _declare_instances(self) -> None:
         declarations = cast(
@@ -875,7 +875,7 @@ class _Elaborator:
                     definition.telescope, effect.arguments
                 )
             except (TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-handler")
+                self._fail_kernel(declaration, error, fallback="qiec-handler")
             clauses: list[HandlerClauseDef] = []
             return_clause: HandlerReturnClauseDef | None = None
             seen_clauses: set[str] = set()
@@ -934,7 +934,7 @@ class _Elaborator:
                         interface_substitution,
                     )
                 except (TypeError, ValueError) as error:
-                    self._fail(clause, str(error), code="qiec-handler")
+                    self._fail_kernel(clause, error, fallback="qiec-handler")
                 # A signature-only clause binds nothing, because it has
                 # no body for a binder to be in scope of. Only an
                 # authored clause has to name every argument.
@@ -990,7 +990,7 @@ class _Elaborator:
                     implementation=declaration.implementation,
                 )
             except (TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-handler")
+                self._fail_kernel(declaration, error, fallback="qiec-handler")
             self.handlers[declaration.name] = handler
 
     def _build_registry(self) -> None:
@@ -1012,21 +1012,25 @@ class _Elaborator:
             try:
                 self.registry.register_family(family)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(family_nodes[family.name], str(error), code="qiec-index")
+                self._fail_kernel(
+                    family_nodes[family.name], error, fallback="qiec-index"
+                )
         for constructor in self.constructors.values():
             try:
                 self.registry.register_constructor(constructor)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(
+                self._fail_kernel(
                     family_nodes[self.registry.families[constructor.family].name],
-                    str(error),
-                    code="qiec-index",
+                    error,
+                    fallback="qiec-index",
                 )
         for effect in self.effects.values():
             try:
                 self.registry.register_effect(effect)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(effect_nodes[effect.ref.name], str(error), code="qiec-kind")
+                self._fail_kernel(
+                    effect_nodes[effect.ref.name], error, fallback="qiec-kind"
+                )
 
     def _register_handlers(self) -> None:
         """Register built handlers, after their bodies have been lowered.
@@ -1053,7 +1057,9 @@ class _Elaborator:
             try:
                 self.registry.register_handler(handler)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(handler_nodes[handler.name], str(error), code="qiec-handler")
+                self._fail_kernel(
+                    handler_nodes[handler.name], error, fallback="qiec-handler"
+                )
 
     def _declare_computation_signatures(self) -> None:
         """Collect every computation signature before any body is lowered.
@@ -1100,7 +1106,7 @@ class _Elaborator:
             try:
                 self.registry.register_computation(signature)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(declaration, str(error), code="qiec-route")
+                self._fail_kernel(declaration, error, fallback="qiec-route")
             self.computation_signatures[declaration.name] = signature
 
     def _declare_computations(self) -> tuple[NamedComputation, ...]:
@@ -1164,7 +1170,7 @@ class _Elaborator:
             try:
                 actual = infer_computation(body, self.registry, context)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(declaration.body, str(error), code="qiec-kind")
+                self._fail_kernel(declaration.body, error, fallback="qiec-kind")
             if actual.result != computation.type.result:
                 self._fail(
                     declaration,
@@ -1451,7 +1457,7 @@ class _Elaborator:
             try:
                 return IndexLiteral(authored.value, expected)
             except (TypeError, ValueError) as error:
-                self._fail(authored, str(error), code="qiec-index")
+                self._fail_kernel(authored, error, fallback="qiec-index")
         if isinstance(authored, surface.QiecIndexApplication):
             if not isinstance(expected, UserIndexSort):
                 self._fail(
@@ -1470,7 +1476,7 @@ class _Elaborator:
                     expected,
                 )
             except (TypeError, ValueError) as error:
-                self._fail(authored, str(error), code="qiec-index")
+                self._fail_kernel(authored, error, fallback="qiec-index")
         if isinstance(authored, surface.QiecShapeIndex):
             return ShapeIndex(
                 tuple(
@@ -1504,7 +1510,7 @@ class _Elaborator:
         try:
             return definition.apply(arguments)
         except (KernelError, TypeError, ValueError) as error:
-            self._fail(authored, str(error), code="qiec-kind")
+            self._fail_kernel(authored, error, fallback="qiec-kind")
 
     def _lower_row(
         self,
@@ -1651,7 +1657,7 @@ class _Elaborator:
             try:
                 inferred = infer_computation(first, self.registry, context)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(authored.first, str(error))
+                self._fail_kernel(authored.first, error)
             binder_type = (
                 inferred.result
                 if authored.binder.type_expr is None
@@ -1681,7 +1687,7 @@ class _Elaborator:
             try:
                 inferred = infer_computation(first, self.registry, context)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(authored.first, str(error))
+                self._fail_kernel(authored.first, error)
             name = self._fresh_sequence_name(context, path)
             binder = Local(name, inferred.result)
             return Bind(
@@ -1802,7 +1808,7 @@ class _Elaborator:
             try:
                 inferred = infer_value(value, self.registry, context)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail(authored.value, str(error))
+                self._fail_kernel(authored.value, error)
             binder_type = (
                 inferred
                 if authored.binder.type_expr is None
@@ -1982,7 +1988,7 @@ class _Elaborator:
         try:
             substitution = instantiate_telescope(signature.telescope, static_arguments)
         except (TypeError, ValueError) as error:
-            self._fail(authored, str(error), code="qiec-kind")
+            self._fail_kernel(authored, error, fallback="qiec-kind")
         return Call(
             signature.id,
             authored.callee,
@@ -2010,7 +2016,7 @@ class _Elaborator:
         try:
             scrutinee_type = infer_value(scrutinee, self.registry, context)
         except (KernelError, TypeError, ValueError) as error:
-            self._fail(authored.scrutinee, str(error), code="qiec-index")
+            self._fail_kernel(authored.scrutinee, error, fallback="qiec-index")
         if not isinstance(scrutinee_type, TypeApplication):
             self._fail(
                 authored.scrutinee,
@@ -2203,6 +2209,38 @@ class _Elaborator:
             getattr(node, "col", None),
         )
 
+    def _fail_kernel(
+        self,
+        node: object,
+        error: Exception,
+        *,
+        fallback: str = "qiec-kind",
+    ) -> NoReturn:
+        """Re-raise a kernel rejection at a source position.
+
+        The kernel classifies its own rejections, so its code is kept
+        rather than replaced. Overriding it would collapse a precise
+        condition, such as a call arity mismatch, into whichever code the
+        surrounding lowering pass happens to use.
+
+        Parameters
+        ----------
+        node : object
+            The source node to blame.
+        error : Exception
+            The rejection to report.
+        fallback : str
+            The code to use when the error carries none, as a plain
+            `TypeError` or `ValueError` does.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            Always.
+        """
+        code = getattr(error, "code", None)
+        self._fail(node, str(error), code=code if isinstance(code, str) else fallback)
+
     def _fail(
         self,
         node: object,
@@ -2210,6 +2248,23 @@ class _Elaborator:
         *,
         code: str = "qiec-kind",
     ) -> NoReturn:
+        """Raise a source-located diagnostic and stop lowering.
+
+        Parameters
+        ----------
+        node : object
+            The source node to blame, read for its line and column.
+        message : str
+            What went wrong, in prose.
+        code : str
+            The stable diagnostic code.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            Always. The return type is `NoReturn` so callers need no
+            unreachable branch after calling it.
+        """
         raise QiecDiagnosticError(
             message,
             code=code,
