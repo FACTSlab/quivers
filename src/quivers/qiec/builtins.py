@@ -681,7 +681,7 @@ def draw_handler(
         Returns
         -------
         object
-        What the resumed computation produced.
+            What the resumed computation produced.
         """
         site, sampleable = _expect_arguments(request, 2, definition.name)
         value = (
@@ -768,8 +768,8 @@ def score_handler(
         Returns
         -------
         RuntimeHandler
-        A handler with its own state, so two installations of this
-        declaration do not share it.
+            A handler with its own state, so two installations of this
+            declaration do not share it.
         """
         local = ScoreAccumulator(identity)
 
@@ -780,19 +780,19 @@ def score_handler(
         ) -> object:
             """Answer a `Score.add` request by accumulating the weight.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, LOG_WEIGHT, "score contribution")
@@ -803,18 +803,18 @@ def score_handler(
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
 
-                Parameters
-                ----------
-                value
-                    The value the handled computation returned.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            value
+                The value the handled computation returned.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What this handler answers with, which may pair the value with
-            the state or total it accumulated.
+            Returns
+            -------
+            object
+                What this handler answers with, which may pair the value with
+                the state or total it accumulated.
             """
             return (value, local.total) if expose_total else value
 
@@ -1040,8 +1040,8 @@ def condition_handler(
         Returns
         -------
         RuntimeHandler
-        A handler with its own state, so two installations of this
-        declaration do not share it.
+            A handler with its own state, so two installations of this
+            declaration do not share it.
         """
         seen: set[object] = set()
 
@@ -1052,19 +1052,19 @@ def condition_handler(
         ) -> object:
             """Answer a `Random.sample` request.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                context
-                    Runtime services available to the clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            context
+                Runtime services available to the clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
 
             Raises
             ------
@@ -1101,18 +1101,18 @@ def condition_handler(
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
 
-                Parameters
-                ----------
-                value
-                    The value the handled computation returned.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            value
+                The value the handled computation returned.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What this handler answers with, which may pair the value with
-            the state or total it accumulated.
+            Returns
+            -------
+            object
+                What this handler answers with, which may pair the value with
+                the state or total it accumulated.
 
             Raises
             ------
@@ -1219,8 +1219,8 @@ def replay_handler(
         Returns
         -------
         RuntimeHandler
-        A handler with its own state, so two installations of this
-        declaration do not share it.
+            A handler with its own state, so two installations of this
+            declaration do not share it.
         """
         seen: set[object] = set()
 
@@ -1231,19 +1231,19 @@ def replay_handler(
         ) -> object:
             """Answer a `Random.sample` request.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                context
-                    Runtime services available to the clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            context
+                Runtime services available to the clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             site, sampleable = _site_and_sampleable(request, definition.name)
             if site not in values:
@@ -1271,18 +1271,18 @@ def replay_handler(
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
 
-                Parameters
-                ----------
-                value
-                    The value the handled computation returned.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            value
+                The value the handled computation returned.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What this handler answers with, which may pair the value with
-            the state or total it accumulated.
+            Returns
+            -------
+            object
+                What this handler answers with, which may pair the value with
+                the state or total it accumulated.
 
             Raises
             ------
@@ -1412,7 +1412,7 @@ def trace_handler(
         Returns
         -------
         RuntimeClause
-        The clause and its result validator.
+            The clause and its result validator.
 
         Raises
         ------
@@ -1427,19 +1427,19 @@ def trace_handler(
         ) -> object:
             """Answer the request this clause covers.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                _resume
-                    The continuation, which this clause does not invoke.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            _resume
+                The continuation, which this clause does not invoke.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            The handler's answer.
+            Returns
+            -------
+            object
+                The handler's answer.
             """
             return Forward(
                 lambda result: recorder.record(request, result, mode="forwarded")
@@ -1459,19 +1459,19 @@ def trace_handler(
         ) -> object:
             """Answer the request, validating the resumed value.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                context
-                    Runtime services available to the clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            context
+                Runtime services available to the clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             answer = clause(request, resume, context)
             assert isinstance(answer, Forward)
@@ -1585,8 +1585,8 @@ def state_handler(
         Returns
         -------
         RuntimeHandler
-        A handler with its own state, so two installations of this
-        declaration do not share it.
+            A handler with its own state, so two installations of this
+            declaration do not share it.
         """
         local = StateCell(initial)
 
@@ -1597,19 +1597,19 @@ def state_handler(
         ) -> object:
             """Answer a `State.get` request with the current state.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             _expect_arguments(request, 0, definition.name)
             return resume(local.value)
@@ -1621,19 +1621,19 @@ def state_handler(
         ) -> object:
             """Answer a `State.put` request by replacing the state.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             (new_value,) = _expect_arguments(request, 1, definition.name)
             _require(new_value, state_validator, state_type, "state update")
@@ -1643,18 +1643,18 @@ def state_handler(
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
 
-                Parameters
-                ----------
-                value
-                    The value the handled computation returned.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            value
+                The value the handled computation returned.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What this handler answers with, which may pair the value with
-            the state or total it accumulated.
+            Returns
+            -------
+            object
+                What this handler answers with, which may pair the value with
+                the state or total it accumulated.
             """
             return (value, local.value) if expose_final else value
 
@@ -1768,7 +1768,7 @@ def abort_handler(
         Returns
         -------
         object
-        The handler's answer, which discards the continuation.
+            The handler's answer, which discards the continuation.
         """
         (error,) = _expect_arguments(request, 1, definition.name)
         return on_abort(error)
@@ -1849,7 +1849,7 @@ def choose_handler(
         Returns
         -------
         object
-        The combined result over every alternative.
+            The combined result over every alternative.
 
         Raises
         ------
@@ -1964,8 +1964,8 @@ def weight_handler(
         Returns
         -------
         RuntimeHandler
-        A handler with its own state, so two installations of this
-        declaration do not share it.
+            A handler with its own state, so two installations of this
+            declaration do not share it.
         """
         local = WeightAccumulator(identity)
 
@@ -1976,19 +1976,19 @@ def weight_handler(
         ) -> object:
             """Answer a `Score.add` request by accumulating the weight.
 
-                Parameters
-                ----------
-                request
-                    The request being answered and its arguments.
-                resume
-                    The continuation, invoked within the clause's declared grade.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            request
+                The request being answered and its arguments.
+            resume
+                The continuation, invoked within the clause's declared grade.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What the resumed computation produced.
+            Returns
+            -------
+            object
+                What the resumed computation produced.
             """
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, weight_type, "semiring weight")
@@ -1999,18 +1999,18 @@ def weight_handler(
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
 
-                Parameters
-                ----------
-                value
-                    The value the handled computation returned.
-                _context
-                    Runtime services, unused by this clause.
+            Parameters
+            ----------
+            value
+                The value the handled computation returned.
+            _context
+                Runtime services, unused by this clause.
 
-                Returns
-                -------
-                object
-            What this handler answers with, which may pair the value with
-            the state or total it accumulated.
+            Returns
+            -------
+            object
+                What this handler answers with, which may pair the value with
+                the state or total it accumulated.
             """
             return (value, local.total) if expose_total else value
 
