@@ -43,30 +43,42 @@ target style.
 
 ## Measured state
 
-At the time of writing: **4638 incomplete docstrings across 243 files**, by
-subpackage.
+At the time of writing: **4530 incomplete docstrings across 21 subpackages**.
 
 | Subpackage | Incomplete |
 | --- | ---: |
 | `src/quivers/transpile` | 1537 |
-| `src/quivers/dsl` | 546 |
+| `src/quivers/dsl` | 531 |
 | `src/quivers/continuous` | 497 |
 | `src/quivers/cli` | 376 |
 | `src/quivers/core` | 314 |
-| `src/quivers/qiec` | 273 |
 | `src/quivers/stochastic` | 244 |
 | `src/quivers/inference` | 209 |
 | `src/quivers/monadic` | 198 |
+| `src/quivers/qiec` | 180 |
 | `src/quivers/structural` | 106 |
 | `src/quivers/analysis` | 57 |
 | `src/quivers/effects` | 56 |
+| `src/quivers/categorical` | 53 |
+| `src/quivers/lsp` | 50 |
+| `src/quivers/enriched` | 41 |
+| `src/quivers/arrows` | 30 |
+| `src/quivers/formulas` | 22 |
+| `src/quivers/kernel` | 10 |
+| `src/quivers/data` | 9 |
+| `src/quivers` | 5 |
+| `src/quivers/diagnostics` | 5 |
 
-The heaviest single files are `transpile/lower.py` (135),
-`continuous/families.py` (133), `cli/repl_session.py` (128), and
-`core/algebras.py` (127).
+The heaviest single files are `transpile/lower.py`,
+`continuous/families.py`, `cli/repl_session.py`, and `core/algebras.py`,
+each carrying well over a hundred.
 
-`src/quivers/qiec/effects.py` is already complete and is the reference for
-the intended depth: it documents what each argument is *for*, what a `None`
+A nested helper's `return`, `yield`, and `raise` belong to the helper, not
+to the function enclosing it. The audit accounts for that, so a function
+whose only `return` is inside an inner closure is not asked for a
+`Returns` section it does not need.
+
+The QIEC kernel is complete and is the reference for the intended depth: it documents what each argument is *for*, what a `None`
 return distinguishes, and why each raise is an error rather than a silent
 fallback.
 

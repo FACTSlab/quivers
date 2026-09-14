@@ -9,6 +9,7 @@ Didactic and Panproto check its first-order indexed-family projection.
 import quivers.qiec.builtins as builtins
 
 from quivers.qiec.checking import (
+    ComputationSignature,
     CheckContext,
     KernelError,
     KernelRegistry,
@@ -41,6 +42,7 @@ from quivers.qiec.effects import (
     EffectRow,
     HandlerClauseDef,
     HandlerDef,
+    HandlerReturnClauseDef,
     OperationDef,
     ResumptionGrade,
     RowEntry,
@@ -241,6 +243,7 @@ __all__ = [
     "EffectBinder",
     "EffectDef",
     "ComputationId",
+    "ComputationSignature",
     "EffectId",
     "EffectInstanceId",
     "EffectKind",
@@ -266,6 +269,7 @@ __all__ = [
     "Handle",
     "HandlerClauseDef",
     "HandlerDef",
+    "HandlerReturnClauseDef",
     "HandlerId",
     "HandlerManifest",
     "INT",

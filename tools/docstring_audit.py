@@ -57,6 +57,36 @@ def documented_sections(doc: str) -> set[str]:
     }
 
 
+def _own_nodes(node: ast.AST) -> list[ast.AST]:
+    """Every node belonging to one callable, excluding nested callables.
+
+    A nested helper has its own contract, so its `return`, `yield`, and
+    `raise` must not be attributed to the function enclosing it. Walking
+    blindly reports an enclosing function as returning a value when only
+    its inner helper does.
+
+    Parameters
+    ----------
+    node : ast.AST
+        The callable whose own body to collect.
+
+    Returns
+    -------
+    list[ast.AST]
+        Nodes reachable from `node` without entering a nested function,
+        async function, or class definition.
+    """
+    own: list[ast.AST] = []
+    stack: list[ast.AST] = list(ast.iter_child_nodes(node))
+    while stack:
+        current = stack.pop()
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        own.append(current)
+        stack.extend(ast.iter_child_nodes(current))
+    return own
+
+
 def required_sections(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     """The sections a callable's signature and body oblige it to document.
 
@@ -79,16 +109,13 @@ def required_sections(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]
     ]
     if node.args.vararg is not None or node.args.kwarg is not None:
         arguments.append("*")
+    body = _own_nodes(node)
     returns = any(
-        isinstance(inner, ast.Return) and inner.value is not None
-        for inner in ast.walk(node)
+        isinstance(inner, ast.Return) and inner.value is not None for inner in body
     )
-    yields = any(
-        isinstance(inner, ast.Yield | ast.YieldFrom) for inner in ast.walk(node)
-    )
+    yields = any(isinstance(inner, ast.Yield | ast.YieldFrom) for inner in body)
     raises = any(
-        isinstance(inner, ast.Raise) and inner.exc is not None
-        for inner in ast.walk(node)
+        isinstance(inner, ast.Raise) and inner.exc is not None for inner in body
     )
     required = []
     if arguments:

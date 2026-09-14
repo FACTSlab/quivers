@@ -792,10 +792,42 @@ class HandlerClauseDef:
     grade : ResumptionGrade
         How often the clause may invoke its continuation. The grade is
         part of the clause contract and is checked against the body.
+    parameters : tuple[Local, ...]
+        Binders for the operation's value arguments, in declaration
+        order. The body refers to the request's arguments through these.
+    body : Computation or None
+        What the clause does. ``None`` is a signature rather than an
+        implementation, and is legal only for a handler whose
+        implementation is supplied at runtime. An absent body never means
+        "look up a callback": the declaration has to say so.
     """
 
     operation: OperationId
     grade: ResumptionGrade
+    parameters: tuple[Local, ...] = ()
+    body: Computation | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HandlerReturnClauseDef:
+    """What a handler does with a value its computation returns.
+
+    Separate from an operation clause because it answers a different
+    thing: an operation clause responds to a request and may resume,
+    while this responds to the computation finishing and has no
+    continuation to invoke.
+
+    Parameters
+    ----------
+    binder : Local
+        Names the returned value inside the body.
+    body : Computation
+        What the handler produces from it. There is no signature-only
+        form: a handler that answers returns at all has to say how.
+    """
+
+    binder: Local
+    body: Computation
 
 
 @dataclass(frozen=True, slots=True)
@@ -816,6 +848,8 @@ class HandlerDef:
     total: bool = True
     forwards_unknown: bool = False
     telescope: Telescope = ()
+    return_clause: HandlerReturnClauseDef | None = None
+    implementation: Literal["authored", "foreign"] = "foreign"
 
     def __post_init__(self) -> None:
         """Validate the clause set against the coverage claim.
@@ -824,9 +858,13 @@ class HandlerDef:
         ------
         ValueError
             If the telescope is malformed, if two clauses cover the same
-            operation, or if the handler claims to be both total and
-            forwarding. The last is contradictory: a total handler covers
-            every operation, so there is nothing left to forward.
+            operation, if the handler claims to be both total and
+            forwarding, or if its bodies disagree with its declared
+            implementation. A total handler covering every operation has
+            nothing left to forward. An authored handler missing a body
+            has nowhere for that operation's behavior to live, and a body
+            on a foreign handler would be ignored in favour of its
+            runtime provider; both are worse than being rejected.
         """
         validate_telescope(self.telescope)
         operations = [clause.operation for clause in self.clauses]
@@ -834,6 +872,28 @@ class HandlerDef:
             raise ValueError(f"duplicate clause in handler {self.name!r}")
         if self.total and self.forwards_unknown:
             raise ValueError("a handler cannot be both total and forwarding")
+        authored = self.implementation == "authored"
+        missing = [clause.operation for clause in self.clauses if clause.body is None]
+        if authored and missing:
+            raise ValueError(
+                f"authored handler {self.name!r} has clauses without a body: "
+                f"{missing!r}; write the bodies, or declare the handler "
+                f"foreign if its behavior comes from a runtime provider"
+            )
+        supplied = [
+            clause.operation for clause in self.clauses if clause.body is not None
+        ]
+        if not authored and supplied:
+            raise ValueError(
+                f"foreign handler {self.name!r} carries authored clause bodies: "
+                f"{supplied!r}; a foreign handler's behavior comes from its "
+                f"runtime provider, so a body here would be ignored"
+            )
+        if not authored and self.return_clause is not None:
+            raise ValueError(
+                f"foreign handler {self.name!r} carries a return clause; its "
+                f"answer comes from its runtime provider"
+            )
 
     def clause(self, operation: OperationId) -> HandlerClauseDef | None:
         """The clause covering an operation, if this handler has one.
@@ -925,6 +985,15 @@ __all__ = [
     "RowSubstitution",
     "RowUnification",
     "RowVariable",
+    "HandlerReturnClauseDef",
     "instantiate_effect",
     "unify_effect_rows",
 ]
+
+# Handler clauses carry computations, and the serializer resolves a
+# record's annotations at runtime, so `Computation` and `Local` have to
+# be real names in this module rather than `TYPE_CHECKING` ones. The
+# import sits at the foot of the file because `terms` imports the effect
+# records defined above it: by the time control reaches here they exist,
+# so the cycle closes rather than deadlocking.
+from quivers.qiec.terms import Computation, Local  # noqa: E402

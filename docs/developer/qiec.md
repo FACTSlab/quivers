@@ -157,7 +157,7 @@ effect State[S : Type]
 instance left : State[Int]
 instance right : State[Int]
 
-handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total]
+handler run_state[S : Type, A : Type] for State[S] : A -> A [coverage=total, implementation=foreign]
     get resumes 1
     put resumes 0
 
@@ -190,7 +190,7 @@ effect Score
 instance random : Random
 instance score : Score
 
-handler replay for Random : Real -> Real [coverage=total]
+handler replay for Random : Real -> Real [coverage=total, implementation=foreign]
     draw resumes 1
 
 define replayed_model() : Real !{score} =
@@ -217,7 +217,7 @@ effect Weight[K : Type]
 instance choice : Choose
 instance weight : Weight[Real]
 
-handler depth_first[A : Type] for Choose : A -> A [coverage=total]
+handler depth_first[A : Type] for Choose : A -> A [coverage=total, implementation=foreign]
     choose resumes omega
 
 define searched() : Int !{weight} =

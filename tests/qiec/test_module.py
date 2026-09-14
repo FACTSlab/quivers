@@ -135,6 +135,14 @@ def test_module_checks_computation_static_scope() -> None:
 
 
 def test_module_rejects_undeclared_static_variable() -> None:
+    """A result type mentioning a variable no telescope binds is rejected.
+
+    The rejection now happens while the computation's signature is
+    registered, before any body is rechecked, and names the offending
+    variable. Registering signatures first is what lets a call resolve
+    to a computation declared later, so this check moved earlier with
+    them.
+    """
     a = TypeVariable("a")
     computation = NamedComputation(
         ComputationId.derive("tests", "bad"),
@@ -146,7 +154,7 @@ def test_module_rejects_undeclared_static_variable() -> None:
         _origin(),
     )
 
-    with pytest.raises(Exception, match="unbound or mistyped type variable"):
+    with pytest.raises(Exception, match="unbound type variable 'a'"):
         validate_module(
             QiecModule("example", SOURCE_PROTOCOL, computations=(computation,))
         )
