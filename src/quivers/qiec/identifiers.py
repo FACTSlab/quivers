@@ -103,6 +103,12 @@ class StableId:
     identifier.  Renaming display labels must not silently alter equality;
     callers choose the declaration path supplied to :meth:`derive` and record
     renames explicitly in a migration map.
+
+    Parameters
+    ----------
+    digest
+        The 64-character lowercase hex SHA-256 digest; usually produced by
+        :meth:`derive` rather than written by hand.
     """
 
     digest: str
@@ -198,58 +204,86 @@ class StableId:
 
 
 class TypeId(StableId):
+    """Stable identity of a type."""
+
     namespace = "type"
 
 
 class FamilyId(StableId):
+    """Stable identity of an indexed type family."""
+
     namespace = "family"
 
 
 class ConstructorId(StableId):
+    """Stable identity of a family constructor."""
+
     namespace = "constructor"
 
 
 class EffectId(StableId):
+    """Stable identity of an effect interface."""
+
     namespace = "effect"
 
 
 class OperationId(StableId):
+    """Stable identity of an effect operation."""
+
     namespace = "operation"
 
 
 class EffectInstanceId(StableId):
+    """Stable identity of an effect instance."""
+
     namespace = "effect-instance"
 
 
 class ComputationId(StableId):
+    """Stable identity of a named computation."""
+
     namespace = "computation"
 
 
 class HandlerId(StableId):
+    """Stable identity of a handler."""
+
     namespace = "handler"
 
 
 class AttachmentId(StableId):
+    """Stable identity of a runtime attachment."""
+
     namespace = "attachment"
 
 
 class SiteId(StableId):
+    """Stable identity of a source site."""
+
     namespace = "site"
 
 
 class EqualityId(StableId):
+    """Stable identity of an equality proposition."""
+
     namespace = "equality"
 
 
 class StaticScopeId(StableId):
+    """Stable identity of a static scope."""
+
     namespace = "static-scope"
 
 
 class StaticVariableId(StableId):
+    """Stable identity of a static variable."""
+
     namespace = "static-variable"
 
 
 class RowVariableId(StableId):
+    """Stable identity of a row variable."""
+
     namespace = "row-variable"
 
 
@@ -260,6 +294,23 @@ class SourceOrigin:
     ``structural_path`` is the protocol path after parsing and name
     resolution.  Line and column are diagnostic metadata and therefore do not
     participate in :meth:`site_id`.
+
+    Parameters
+    ----------
+    module
+        The module the site belongs to.
+    structural_path
+        The path of names and positions from the module root to the site.
+    role
+        What the site is, such as ``"sample"`` or ``"call"``.
+    source_protocol
+        The source language or protocol the path is expressed in.
+    file
+        The file the site was read from, if any.
+    line
+        The one-based line of the site, if known.
+    column
+        The one-based column of the site, if known.
     """
 
     module: str
@@ -319,7 +370,16 @@ type AddressRelation = Literal[
 
 @dataclass(frozen=True, slots=True)
 class DynamicAddressFrame:
-    """One serializable component of a dynamic effect address."""
+    """One serializable component of a dynamic effect address.
+
+    Parameters
+    ----------
+    scope
+        What kind of frame this is, such as a call, a handler clause, a
+        resumption, or a local instance.
+    key
+        The frame's position within its scope: a name or an ordinal.
+    """
 
     scope: str
     key: str | int
@@ -327,7 +387,25 @@ class DynamicAddressFrame:
 
 @dataclass(frozen=True, slots=True)
 class SiteProvenance:
-    """Static and dynamic provenance of an effect request."""
+    """Static and dynamic provenance of an effect request.
+
+    Parameters
+    ----------
+    origin
+        The source site the request was written at.
+    dynamic_path
+        The address frames entered to reach this occurrence of the site,
+        outermost first.
+    resumption_path
+        The ordinal of each resumption taken to reach this occurrence, so a
+        site reached twice under a multi-shot handler yields two keys.
+    relation
+        How this request relates to the source site: ``"preserve"`` for the
+        request as written, ``"split"`` or ``"duplicate"`` for a request a
+        handler derived from it, and ``"eliminate"`` for one it discharged.
+    parents
+        The static sites a derived request was generated from.
+    """
 
     origin: SourceOrigin
     dynamic_path: tuple[DynamicAddressFrame, ...] = ()

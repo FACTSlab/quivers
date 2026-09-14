@@ -46,7 +46,17 @@ from quivers.qiec.types import EffectRef, EffectVariable, IndexVariable, TypeVar
 
 @dataclass(frozen=True, slots=True)
 class NamedEffectInstance:
-    """A source name for one deterministically allocated lexical instance."""
+    """A source name for one deterministically allocated lexical instance.
+
+    Parameters
+    ----------
+    name
+        The name requests resolve through; must be non-empty.
+    entry
+        The allocated instance and its interface application.
+    origin
+        Where the instance was declared.
+    """
 
     name: str
     entry: RowEntry
@@ -67,7 +77,26 @@ class NamedEffectInstance:
 
 @dataclass(frozen=True, slots=True)
 class NamedComputation:
-    """One named QVR computation and its checked QIEC type."""
+    """One named QVR computation and its checked QIEC type.
+
+    Parameters
+    ----------
+    id
+        The computation's stable identity, which calls refer to.
+    name
+        The display name; must be non-empty and unique within the module.
+    telescope
+        The static parameters the computation abstracts over, in order.
+    parameters
+        The value parameters, in order; their names must be distinct and
+        must not reuse a telescope binder's name.
+    body
+        The computation's body, with the parameters in scope.
+    type
+        The checked effect row and result type of ``body``.
+    origin
+        Where the computation was declared.
+    """
 
     id: ComputationId
     name: str
@@ -110,6 +139,30 @@ class QiecModule:
     ``source_protocol`` records the exact source route that produced the
     module.  The wire envelope separately records :data:`QIEC_ABI`, so neither
     endpoint can be guessed during deserialization or compiler integration.
+
+    Parameters
+    ----------
+    module
+        The module's name, from which every stable identity in it derives.
+    source_protocol
+        The source route that produced the module.
+    index_sorts
+        The user-defined closed index sorts.
+    families
+        The indexed data families.
+    constructors
+        The family constructors.
+    effects
+        The effect interfaces.
+    instances
+        The module-scoped named effect instances.
+    handlers
+        The handler declarations.
+    computations
+        The named computations.
+    abi
+        The kernel ABI the module is expressed against; must equal
+        :data:`QIEC_ABI`.
     """
 
     module: str

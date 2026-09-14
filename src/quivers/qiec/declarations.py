@@ -11,6 +11,16 @@ from quivers.qiec.types import StaticArgument, TypeConstructorRef, TypeExpr
 
 @dataclass(frozen=True, slots=True)
 class FieldDef:
+    """One named, typed field of a constructor.
+
+    Parameters
+    ----------
+    name
+        The field's display name.
+    type
+        The field's type, which may mention the constructor's telescope.
+    """
+
     name: str
     type: TypeExpr
 

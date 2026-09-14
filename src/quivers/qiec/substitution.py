@@ -152,7 +152,18 @@ def validate_static_argument(term: StaticArgument) -> None:
 
 @dataclass(frozen=True, slots=True)
 class StaticSubstitution:
-    """A deterministic substitution split by static namespace."""
+    """A deterministic substitution split by static namespace.
+
+    Parameters
+    ----------
+    types
+        Bindings from type-variable names to types.
+    indices
+        Bindings from index-variable names to index terms.
+    effects
+        Bindings from effect-variable names to interface applications or
+        other effect variables.
+    """
 
     types: tuple[tuple[str, TypeExpr], ...] = ()
     indices: tuple[tuple[str, IndexTerm], ...] = ()

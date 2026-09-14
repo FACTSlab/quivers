@@ -26,12 +26,35 @@ from quivers.qiec.types import EffectRef, StaticArgument, TypeExpr
 
 @dataclass(frozen=True, slots=True)
 class Local:
+    """A typed binder for a runtime value.
+
+    Locals are compared by identity of name and type together, so two
+    binders of the same name at different types are distinct.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    type
+        The type of every value bound to it.
+    """
+
     name: str
     type: TypeExpr
 
 
 @dataclass(frozen=True, slots=True)
 class Var:
+    """Reference to a bound local.
+
+    Parameters
+    ----------
+    local
+        The binder being referenced.
+    tag
+        The serialization discriminator; always ``"var"``.
+    """
+
     local: Local
     tag: Literal["var"] = "var"
 
@@ -41,6 +64,19 @@ type LiteralData = None | bool | int | float | str | bytes | tuple[LiteralData, 
 
 @dataclass(frozen=True, slots=True)
 class LiteralValue:
+    """A literal host value at a primitive or tuple type.
+
+    Parameters
+    ----------
+    value
+        The literal's data: ``None``, a bool, int, float, str, bytes, or a
+        tuple of literal data.
+    type
+        The literal's type.
+    tag
+        The serialization discriminator; always ``"literal"``.
+    """
+
     value: LiteralData
     type: TypeExpr
     tag: Literal["literal"] = "literal"
@@ -48,6 +84,22 @@ class LiteralValue:
 
 @dataclass(frozen=True, slots=True)
 class ConstructorValue:
+    """Application of a declared constructor to static and value arguments.
+
+    Parameters
+    ----------
+    constructor
+        The stable identity of the constructor applied.
+    static_arguments
+        The constructor's telescope instantiation, in binder order.
+    fields
+        The field values, in declaration order.
+    result_type
+        The indexed family type the application inhabits.
+    tag
+        The serialization discriminator; always ``"constructor"``.
+    """
+
     constructor: ConstructorId
     static_arguments: tuple[StaticArgument, ...]
     fields: tuple[Value, ...]
@@ -57,13 +109,33 @@ class ConstructorValue:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceValue:
+    """Kernel-checked equality evidence used as a value.
+
+    Parameters
+    ----------
+    evidence
+        The evidence term.
+    tag
+        The serialization discriminator; always ``"evidence"``.
+    """
+
     evidence: EqualityEvidence
     tag: Literal["evidence"] = "evidence"
 
 
 @dataclass(frozen=True, slots=True)
 class AttachmentRef:
-    """A stable reference to a runtime-owned host value."""
+    """A stable reference to a runtime-owned host value.
+
+    Parameters
+    ----------
+    attachment
+        The identity under which a runtime provider binds the host value.
+    type
+        The type the bound value must inhabit.
+    tag
+        The serialization discriminator; always ``"attachment"``.
+    """
 
     attachment: AttachmentId
     type: TypeExpr
@@ -72,7 +144,20 @@ class AttachmentRef:
 
 @dataclass(frozen=True, slots=True)
 class TransportValue:
-    """Transport a value along kernel-checked equality evidence."""
+    """Transport a value along kernel-checked equality evidence.
+
+    Parameters
+    ----------
+    evidence
+        The equality the value is carried across.
+    value
+        The value at the equality's left type.
+    target_type
+        The type the transported value inhabits, which the equality's right
+        side determines.
+    tag
+        The serialization discriminator; always ``"transport"``.
+    """
 
     evidence: EqualityEvidence
     value: Value
@@ -92,12 +177,36 @@ type Value = (
 
 @dataclass(frozen=True, slots=True)
 class Return:
+    """Return a value with no effects.
+
+    Parameters
+    ----------
+    value
+        The value produced.
+    tag
+        The serialization discriminator; always ``"return"``.
+    """
+
     value: Value
     tag: Literal["return"] = "return"
 
 
 @dataclass(frozen=True, slots=True)
 class Bind:
+    """Sequence two computations, binding the first's result in the second.
+
+    Parameters
+    ----------
+    binder
+        The local the first computation's result is bound to.
+    first
+        The computation run first.
+    then
+        The computation run second, with ``binder`` in scope.
+    tag
+        The serialization discriminator; always ``"bind"``.
+    """
+
     binder: Local
     first: Computation
     then: Computation
@@ -106,12 +215,39 @@ class Bind:
 
 @dataclass(frozen=True, slots=True)
 class Perform:
+    """Perform one effect operation.
+
+    Parameters
+    ----------
+    request
+        The operation, its instance, static arguments, value arguments, and
+        result type.
+    tag
+        The serialization discriminator; always ``"perform"``.
+    """
+
     request: EffectRequest
     tag: Literal["perform"] = "perform"
 
 
 @dataclass(frozen=True, slots=True)
 class Handle:
+    """Run a computation under a handler installed for one effect instance.
+
+    Parameters
+    ----------
+    instance
+        The effect instance whose operations the handler intercepts.
+    handler
+        The stable identity of the handler installed.
+    computation
+        The handled computation.
+    static_arguments
+        The handler's telescope instantiation, in binder order.
+    tag
+        The serialization discriminator; always ``"handle"``.
+    """
+
     instance: EffectInstanceId
     handler: HandlerId
     computation: Computation
@@ -121,7 +257,15 @@ class Handle:
 
 @dataclass(frozen=True, slots=True)
 class CaseMotive:
-    """The result family of an indexed case expression."""
+    """The result family of an indexed case expression.
+
+    Parameters
+    ----------
+    indices
+        The binders abstracting the scrutinee's indices in ``result_type``.
+    result_type
+        The type every branch must produce, over ``indices``.
+    """
 
     indices: Telescope
     result_type: TypeExpr
@@ -129,7 +273,23 @@ class CaseMotive:
 
 @dataclass(frozen=True, slots=True)
 class CaseBranch:
-    """One stable GADT branch with no host-language closure."""
+    """One stable GADT branch with no host-language closure.
+
+    Parameters
+    ----------
+    constructor
+        The constructor this branch matches.
+    static_arguments
+        The constructor's static arguments as bound by the pattern, in
+        binder order.
+    fields
+        The locals binding the constructor's fields, in declaration order.
+    body
+        The computation run when the branch is selected.
+    scope
+        The static scope identity under which the branch's skolems and
+        equality evidence are minted.
+    """
 
     constructor: ConstructorId
     static_arguments: tuple[StaticArgument, ...]
@@ -140,6 +300,21 @@ class CaseBranch:
 
 @dataclass(frozen=True, slots=True)
 class Case:
+    """Case analysis over an indexed family value.
+
+    Parameters
+    ----------
+    scrutinee
+        The value analyzed.
+    motive
+        The result family, over the scrutinee's indices.
+    branches
+        One branch per constructor considered; coverage is checked against
+        the exact applied family.
+    tag
+        The serialization discriminator; always ``"case"``.
+    """
+
     scrutinee: Value
     motive: CaseMotive
     branches: tuple[CaseBranch, ...]
@@ -153,6 +328,25 @@ class Call:
     The callee is a stable identifier rather than an inlined body, which
     is what lets a recursive or mutually recursive call graph serialize
     as a finite tree.
+
+    Parameters
+    ----------
+    callee
+        The stable identity of the computation called.
+    name
+        The callee's display name, for diagnostics and traces.
+    static_arguments
+        The callee's telescope instantiation, in binder order.
+    arguments
+        The value arguments, one per callee parameter.
+    result_type
+        The callee's result type under the instantiation.
+    effects
+        The callee's effect row under the instantiation.
+    origin
+        The call site's source location.
+    tag
+        The serialization discriminator; always ``"call"``.
     """
 
     callee: ComputationId
@@ -173,6 +367,16 @@ class Resume:
     of its own rather than a call to a bound name. That is what makes a
     clause's grade checkable by counting invocations along the paths
     through its body.
+
+    Parameters
+    ----------
+    value
+        The value returned to the suspended computation as the operation's
+        result.
+    origin
+        The resumption's source location.
+    tag
+        The serialization discriminator; always ``"resume"``.
     """
 
     value: Value
@@ -188,6 +392,19 @@ class NewInstance:
     the lexical path, and the applied interface, so the same allocation
     site yields the same instance on every run while two sites of the
     same interface stay distinct.
+
+    Parameters
+    ----------
+    instance
+        The scope-derived stable identity of the allocated instance.
+    effect
+        The applied interface the instance provides.
+    body
+        The computation within which the instance is in scope.
+    origin
+        The allocation's source location.
+    tag
+        The serialization discriminator; always ``"new_instance"``.
     """
 
     instance: EffectInstanceId

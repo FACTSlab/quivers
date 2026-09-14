@@ -8,7 +8,9 @@ summary.
 
 Constructor parameters are documented on the **class**, per this
 repository's convention, so ``__init__`` is skipped here and its class is
-judged instead.
+judged instead: a class whose constructor takes parameters, whether through
+an explicit ``__init__`` or through the fields of a dataclass or didactic
+model, needs a ``Parameters`` section on the class docstring.
 
 Run over the whole package, or over the paths being edited:
 
@@ -207,6 +209,53 @@ def signature_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[s
     return names
 
 
+def constructor_parameters(node: ast.ClassDef) -> list[str]:
+    """The parameter names a class's constructor takes.
+
+    Parameters
+    ----------
+    node : ast.ClassDef
+        The class to inspect.
+
+    Returns
+    -------
+    list[str]
+        The parameters of an explicit ``__init__`` excluding ``self``, or,
+        for a class built by ``dataclass`` or by a didactic ``Model``,
+        ``TaggedUnion``, or ``NamedTuple`` base, its annotated fields
+        excluding ``ClassVar`` annotations and ``field(init=False)``
+        assignments. Any other class takes no parameters of its own.
+    """
+    for item in node.body:
+        if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+            return signature_parameters(item)
+    decorated = any(
+        ast.unparse(decorator).startswith("dataclass")
+        for decorator in node.decorator_list
+    )
+    based = any(
+        ast.unparse(base).endswith(("Model", "TaggedUnion", "NamedTuple"))
+        for base in node.bases
+    )
+    if not decorated and not based:
+        return []
+    names: list[str] = []
+    for item in node.body:
+        if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+            continue
+        if ast.unparse(item.annotation).startswith("ClassVar"):
+            continue
+        if isinstance(item.value, ast.Call) and any(
+            keyword.arg == "init"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is False
+            for keyword in item.value.keywords
+        ):
+            continue
+        names.append(item.target.id)
+    return names
+
+
 def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
     """Find every incomplete docstring in one module.
 
@@ -218,7 +267,8 @@ def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
     Returns
     -------
     list[tuple[str, int, list[str]]]
-        One ``(name, line, missing)`` triple per incomplete callable, where
+        One ``(name, line, missing)`` triple per incomplete callable or
+        class, where
         ``missing`` is either the absent section names or the single entry
         ``"<no docstring>"``. A file that cannot be parsed yields nothing,
         since a syntax error is the linter's report to make, not this
@@ -230,7 +280,7 @@ def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
         return []
     findings: list[tuple[str, int, list[str]]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             continue
         if node.name == "__init__":
             continue
@@ -239,15 +289,17 @@ def audit(path: pathlib.Path) -> list[tuple[str, int, list[str]]]:
             findings.append((node.name, node.lineno, ["<no docstring>"]))
             continue
         have = documented_sections(doc)
-        missing = [
-            section for section in required_sections(node) if section not in have
-        ]
+        if isinstance(node, ast.ClassDef):
+            taken = constructor_parameters(node)
+            required = ["Parameters"] if taken else []
+        else:
+            taken = signature_parameters(node)
+            required = required_sections(node)
+        missing = [section for section in required if section not in have]
         # A documented parameter the callable does not take is worse than
         # an undocumented one: it describes a contract that does not
         # exist, and a reader cannot tell without checking the signature.
-        invented = sorted(
-            set(documented_parameters(doc)) - set(signature_parameters(node))
-        )
+        invented = sorted(set(documented_parameters(doc)) - set(taken))
         if invented:
             missing.append(f"documents absent parameters: {', '.join(invented)}")
         if missing:
