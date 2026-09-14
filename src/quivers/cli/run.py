@@ -91,12 +91,16 @@ def main(args: object) -> int:
             tuple(getattr(args, "static", ()) or ()),
         )
         arguments = tuple(_argument(item) for item in getattr(args, "arguments", ()))
+        fuel = getattr(args, "fuel", None)
+        if fuel is not None and fuel <= 0:
+            raise ValueError("--fuel must be a positive number of steps")
         result = run_named(
             module,
             computation,
             arguments,
             static_arguments=static_arguments,
             runtime=runtime,
+            fuel=fuel,
         )
     except ExecutionFailure as error:
         return _emit_failure(error.diagnostic, json_output=json_output)

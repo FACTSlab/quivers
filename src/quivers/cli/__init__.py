@@ -93,6 +93,16 @@ def main() -> int:
         help="Explicit JSON runtime-provider configuration.",
     )
     run.add_argument(
+        "--fuel",
+        type=int,
+        default=None,
+        metavar="STEPS",
+        help=(
+            "Stop after this many evaluation steps with a qiec-run-fuel "
+            "diagnostic; recursion may otherwise run forever."
+        ),
+    )
+    run.add_argument(
         "--trace",
         action="store_true",
         help="Write stable execution trace events to stderr.",

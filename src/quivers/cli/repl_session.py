@@ -525,12 +525,13 @@ class ReplSession:
             return _err(f"invalid :run invocation: {error}", code="qiec-run-config")
         if not parts:
             return _err(
-                "usage: :run NAME [JSON ...] [--static NAME=TERM]",
+                "usage: :run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]",
                 code="qiec-run-config",
             )
         name = parts.pop(0)
         statics: list[str] = []
         values: list[object] = []
+        fuel: int | None = None
         index = 0
         try:
             while index < len(parts):
@@ -541,6 +542,13 @@ class ReplSession:
                     statics.append(parts[index])
                 elif parts[index].startswith("--static="):
                     statics.append(parts[index].removeprefix("--static="))
+                elif parts[index] == "--fuel":
+                    index += 1
+                    if index >= len(parts):
+                        raise ValueError("--fuel requires a number of steps")
+                    fuel = _fuel(parts[index])
+                elif parts[index].startswith("--fuel="):
+                    fuel = _fuel(parts[index].removeprefix("--fuel="))
                 else:
                     values.append(_tuplify_json(json.loads(parts[index])))
                 index += 1
@@ -553,6 +561,7 @@ class ReplSession:
                 tuple(values),
                 static_arguments=static_arguments,
                 runtime=self._runtime,
+                fuel=fuel,
             )
         except json.JSONDecodeError as error:
             return _err(
@@ -2250,7 +2259,7 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
                 "show or attach explicit runtime providers",
             ),
             (
-                ":run NAME [JSON ...] [--static NAME=TERM]",
+                ":run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]",
                 "execute a named QIEC computation",
             ),
             (":detach", "detach every QIEC runtime provider"),
@@ -2440,6 +2449,33 @@ def _execution_error(error: ExecutionFailure) -> ReplResponse:
             ),
         )
     )
+
+
+def _fuel(text: str) -> int:
+    """Read a ``--fuel`` step budget.
+
+    Parameters
+    ----------
+    text : str
+        The budget as typed.
+
+    Returns
+    -------
+    int
+        The budget.
+
+    Raises
+    ------
+    ValueError
+        If the text is not a positive integer.
+    """
+    try:
+        steps = int(text)
+    except ValueError as error:
+        raise ValueError(f"--fuel must be a positive integer, got {text!r}") from error
+    if steps <= 0:
+        raise ValueError("--fuel must be a positive number of steps")
+    return steps
 
 
 def _tuplify_json(value: object) -> object:
