@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 import operator
 from typing import cast
 
@@ -33,6 +34,8 @@ from quivers.qiec.effects import (
     ResumptionGrade,
     RowEntry,
 )
+from quivers.qiec.distributions import RuntimeDistribution
+from quivers.qiec.families import family
 from quivers.qiec.evaluator import (
     ClauseContext,
     Forward,
@@ -683,6 +686,254 @@ def draw_handler(
         definition,
         {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)},
         duplicable_context=duplicable_context,
+    )
+
+
+def add_weights(left: object, right: object) -> object:
+    """Add two log weights, entrywise over tensors of them.
+
+    Parameters
+    ----------
+    left : object
+        A float, or nested tuples of floats.
+    right : object
+        A float, or nested tuples of floats shaped like ``left`` when
+        both are tensors.
+
+    Returns
+    -------
+    object
+        The entrywise sum; a scalar broadcasts over a tensor.
+
+    Raises
+    ------
+    RuntimeTypeMismatch
+        If two tensors differ in shape.
+    """
+    if isinstance(left, tuple) and isinstance(right, tuple):
+        if len(left) != len(right):
+            raise RuntimeTypeMismatch(
+                f"weights of lengths {len(left)} and {len(right)} cannot be added"
+            )
+        return tuple(add_weights(a, b) for a, b in zip(left, right, strict=True))
+    if isinstance(left, tuple):
+        return tuple(add_weights(item, right) for item in left)
+    if isinstance(right, tuple):
+        return tuple(add_weights(left, item) for item in right)
+    return cast(float, left) + cast(float, right)
+
+
+def _weight_shape(value: object) -> tuple[int, ...]:
+    """The shape of a host tensor of weights.
+
+    Parameters
+    ----------
+    value : object
+        A float or nested tuples of floats.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The extents, outermost first; empty for a float.
+    """
+    if isinstance(value, tuple):
+        return (len(value), *(_weight_shape(value[0]) if value else ()))
+    return ()
+
+
+def _entries(value: object) -> list[float]:
+    """Every entry of a host tensor of weights in row-major order.
+
+    Parameters
+    ----------
+    value : object
+        A float or nested tuples of floats.
+
+    Returns
+    -------
+    list[float]
+        The entries.
+    """
+    if isinstance(value, tuple):
+        return [entry for item in value for entry in _entries(item)]
+    return [cast(float, value)]
+
+
+def _reshape(entries: list[float], shape: tuple[int, ...]) -> object:
+    """Arrange entries as nested tuples of a shape.
+
+    Parameters
+    ----------
+    entries : list[float]
+        The entries in row-major order.
+    shape : tuple[int, ...]
+        The shape.
+
+    Returns
+    -------
+    object
+        The single entry for the empty shape, else nested tuples.
+    """
+    if not shape:
+        return entries[0]
+    stride = len(entries) // shape[0] if shape[0] else 0
+    return tuple(
+        _reshape(entries[index * stride : (index + 1) * stride], shape[1:])
+        for index in range(shape[0])
+    )
+
+
+def _log_sum_exp(values: list[float]) -> float:
+    """The log of a sum of exponentials, stably.
+
+    Parameters
+    ----------
+    values : list[float]
+        The logarithms summed.
+
+    Returns
+    -------
+    float
+        ``log(sum(exp(v)))``; negative infinity for an empty list or
+        one of only negative infinities.
+    """
+    finite = [value for value in values if value != float("-inf")]
+    if not finite:
+        return float("-inf")
+    peak = max(finite)
+    return peak + math.log(math.fsum(math.exp(value - peak) for value in finite))
+
+
+def _support(sampleable: object) -> tuple[object, ...]:
+    """The finite support a distribution is enumerated over.
+
+    Parameters
+    ----------
+    sampleable : object
+        A runtime distribution.
+
+    Returns
+    -------
+    tuple[object, ...]
+        The values one draw can take: the family's declared finite
+        support, or the class indices of a ``Categorical``.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the value is no runtime distribution or its family has no
+        finite support.
+    """
+    if not isinstance(sampleable, RuntimeDistribution):
+        raise InvalidHandlerError("enumeration needs a runtime distribution")
+    record = family(sampleable.family)
+    if record.finite_support is not None:
+        return tuple(record.finite_support)
+    if sampleable.family == "Categorical":
+        probs = sampleable.arguments.get("probs")
+        classes = _weight_shape(probs)
+        if not classes:
+            raise InvalidHandlerError("Categorical enumeration needs its probabilities")
+        return tuple(range(classes[-1]))
+    raise InvalidHandlerError(
+        f"family {sampleable.family!r} has no finite support to enumerate"
+    )
+
+
+def enumerate_handler(
+    result_validator: RuntimeValidator,
+    *,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "enumerate",
+) -> RuntimeHandler:
+    """Interpret ``Random.sample`` by summing over a finite support.
+
+    The handled computation must answer with its value paired with the
+    log weight it accumulated, as the collecting ``Weight`` handler
+    answers. The clause resumes once per support value, adds each shot's
+    weight to the prior log probability of its value, and answers with
+    the log of the summed probabilities, totalled over the plate's
+    positions when the latent is plated.
+
+    Parameters
+    ----------
+    result_validator
+        Checks the value a resumption carries inhabits the operation's
+        result type.
+    answer_type
+        What the handled computation answers with.
+    key
+        Distinguishes this handler from others of the same name.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment.
+    """
+    definition = _handler_def(
+        "Random.enumerate",
+        RANDOM,
+        ((RANDOM_SAMPLE, ResumptionGrade.UNRESTRICTED),),
+        key=key,
+        input_type=answer_type,
+        output_type=LOG_WEIGHT,
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def sample(
+        request: RuntimeRequest,
+        resume: Resumption,
+        _context: ClauseContext,
+    ) -> object:
+        """Answer a `Random.sample` request by enumeration.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, resumed once per support value.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        float
+            The log of the marginal likelihood the scope accumulates.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry a site and a sampleable, the
+            family has no finite support, or a shot answers with
+            something other than a value paired with its weight.
+        """
+        _site, sampleable = _expect_arguments(request, 2, definition.name)
+        support = _support(sampleable)
+        distribution = cast(RuntimeDistribution, sampleable)
+        shape = (*distribution.batch, *distribution.event)
+        totals: list[list[float]] = []
+        for choice in support:
+            value = _reshape([choice] * math.prod(shape), shape) if shape else choice  # type: ignore[list-item]
+            prior = distribution.log_prob(value, keep_batch=True)
+            answer = resume(value)
+            if not isinstance(answer, tuple) or len(answer) != 2:
+                raise InvalidHandlerError(
+                    "enumeration expects each shot to answer with a value and "
+                    "its accumulated weight"
+                )
+            weight = add_weights(prior, answer[1])
+            totals.append(_entries(weight))
+        width = max(len(entries) for entries in totals)
+        return math.fsum(
+            _log_sum_exp([entries[position] for entries in totals])
+            for position in range(width)
+        )
+
+    return RuntimeHandler(
+        definition,
+        {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)},
+        duplicable_context=True,
     )
 
 
@@ -2178,6 +2429,8 @@ def weight_handler(
 
 __all__ = [
     "A",
+    "add_weights",
+    "enumerate_handler",
     "ABORT",
     "ABORT_ABORT",
     "ABORT_EFFECT",

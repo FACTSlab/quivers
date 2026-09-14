@@ -15,6 +15,7 @@ handler boundary.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -56,10 +57,17 @@ from quivers.qiec.terms import (
     TransportValue,
     TensorValue,
     TupleValue,
+    PlateAxis,
+    Gather,
+    WeightSum,
+    SegmentSum,
+    KernelMatrix,
+    AffineMap,
     Value,
     Var,
 )
 from quivers.qiec.distributions import RuntimeDistribution
+from quivers.qiec.families import family
 from quivers.qiec.primitives import IMPLEMENTATIONS
 from quivers.qiec.substitution import (
     instantiate_telescope,
@@ -69,6 +77,7 @@ from quivers.qiec.substitution import (
     substitute_type,
 )
 from quivers.qiec.types import StaticArgument, TypeExpr
+from quivers.qiec.types import IndexLiteral
 
 if TYPE_CHECKING:
     from quivers.qiec.checking import KernelRegistry
@@ -1399,6 +1408,126 @@ def _validate(
         )
 
 
+def _extent(axis: PlateAxis) -> int:
+    """The literal extent of a plate axis.
+
+    Parameters
+    ----------
+    axis : PlateAxis
+        The axis.
+
+    Returns
+    -------
+    int
+        Its size.
+
+    Raises
+    ------
+    EvaluationError
+        If the size is not a literal natural number at evaluation time.
+    """
+    if isinstance(axis.size, IndexLiteral) and isinstance(axis.size.value, int):
+        return axis.size.value
+    raise EvaluationError(f"plate axis {axis.name!r} has no literal extent")
+
+
+def _gather(source: object, index: object) -> object:
+    """Select along a host tensor's outermost axis.
+
+    Parameters
+    ----------
+    source : object
+        The tensor, a tuple.
+    index : object
+        An integer, or a nested tuple of integers.
+
+    Returns
+    -------
+    object
+        The selected slice, or nested tuples of slices shaped like the
+        index.
+
+    Raises
+    ------
+    EvaluationError
+        If the source is not a tuple or an index is out of range.
+    """
+    if not isinstance(source, tuple):
+        raise EvaluationError("gather selects from a non-tensor runtime value")
+    if isinstance(index, tuple):
+        return tuple(_gather(source, item) for item in index)
+    if not isinstance(index, int) or not 0 <= index < len(source):
+        raise EvaluationError(f"gather index {index!r} is outside {len(source)} slices")
+    return source[index]
+
+
+def _total(value: object) -> float:
+    """Sum every entry of a host tensor of weights.
+
+    Parameters
+    ----------
+    value : object
+        A float or nested tuples of floats.
+
+    Returns
+    -------
+    float
+        The total.
+    """
+    if isinstance(value, tuple):
+        return math.fsum(_total(item) for item in value)
+    return float(value)  # type: ignore[arg-type]
+
+
+def _affine(
+    head: AffineMap,
+    evaluate: Callable[[Value, Mapping[Local, object]], object],
+    environment: Mapping[Local, object],
+) -> object:
+    """Apply one head of an affine map to its sources.
+
+    Parameters
+    ----------
+    head : AffineMap
+        The head.
+    evaluate : Callable[[Value, Mapping[Local, object]], object]
+        Evaluates a value term.
+    environment : Mapping[Local, object]
+        The runtime environment.
+
+    Returns
+    -------
+    object
+        The head's coordinates as a tuple, or a float for a one-row head.
+
+    Raises
+    ------
+    EvaluationError
+        If the weight, bias, or a source is not shaped as typed.
+    """
+    weight = evaluate(head.weight, environment)
+    bias = evaluate(head.bias, environment)
+    row: list[float] = []
+    for source in head.sources:
+        entry = evaluate(source, environment)
+        if isinstance(entry, tuple):
+            row.extend(float(item) for item in entry)  # type: ignore[arg-type]
+        else:
+            row.append(float(entry))  # type: ignore[arg-type]
+    if not isinstance(weight, tuple) or not isinstance(bias, tuple):
+        raise EvaluationError("an affine map's weight and bias are tensors")
+    coordinates = []
+    for offset in range(head.rows):
+        index = head.row_offset + offset
+        weights = weight[index]
+        if not isinstance(weights, tuple) or len(weights) != len(row):
+            raise EvaluationError("an affine map's weight row does not fit its sources")
+        total = math.fsum(float(w) * x for w, x in zip(weights, row, strict=True))  # type: ignore[arg-type]
+        total += float(bias[index])  # type: ignore[arg-type]
+        coordinates.append(math.exp(total) if head.transform == "exp" else total)
+    return coordinates[0] if head.rows == 1 else tuple(coordinates)
+
+
 class Evaluator:
     """Execute QIEC computations with explicit runtime attachments.
 
@@ -1679,26 +1808,69 @@ class Evaluator:
                 )
             return source[value.position]
         if isinstance(value, DistributionValue):
+            record = family(value.name)
             return RuntimeDistribution(
                 value.name,
                 {
                     name: self._value(argument, environment)
                     for name, argument in value.arguments
                 },
+                tuple(_extent(axis) for axis in value.plate.batch),
+                tuple(_extent(axis) for axis in value.plate.event)[
+                    : max(len(value.plate.event) - record.event_rank, 0)
+                ],
+                {parameter.name: parameter.rank for parameter in record.parameters},
             )
         if isinstance(value, LogDensity):
             sampleable = self._value(value.sampleable, environment)
-            log_prob = getattr(sampleable, "log_prob", None)
-            if not callable(log_prob):
+            if not isinstance(sampleable, RuntimeDistribution):
                 raise EvaluationError(
                     "log_prob was given a runtime value with no log density"
                 )
             try:
-                return log_prob(self._value(value.value, environment))
+                return sampleable.log_prob(
+                    self._value(value.value, environment), bool(value.batch)
+                )
             except (ArithmeticError, ValueError) as error:
                 raise EvaluationError(f"log_prob failed: {error}") from error
         if isinstance(value, SiteValue):
             return value.label
+        if isinstance(value, Gather):
+            return _gather(
+                self._value(value.value, environment),
+                self._value(value.index, environment),
+            )
+        if isinstance(value, WeightSum):
+            return _total(self._value(value.value, environment))
+        if isinstance(value, SegmentSum):
+            groups = _extent(PlateAxis("groups", value.groups))
+            totals = [0.0] * groups
+            weights = self._value(value.value, environment)
+            index = self._value(value.index, environment)
+            if not isinstance(weights, tuple) or not isinstance(index, tuple):
+                raise EvaluationError("segment sum takes two vectors")
+            for weight, group in zip(weights, index, strict=True):
+                if not isinstance(group, int) or not 0 <= group < groups:
+                    raise EvaluationError(
+                        f"segment sum index {group!r} is outside {groups} groups"
+                    )
+                totals[group] += weight  # type: ignore[operator]
+            return tuple(totals)
+        if isinstance(value, KernelMatrix):
+            inputs = self._value(value.inputs, environment)
+            if not isinstance(inputs, tuple):
+                raise EvaluationError("a kernel matrix takes a vector of inputs")
+            points = [float(item) for item in inputs]  # type: ignore[arg-type]
+            return tuple(
+                tuple(
+                    math.exp(-0.5 * ((a - b) / value.length_scale) ** 2)
+                    + (value.jitter if i == j else 0.0)
+                    for j, b in enumerate(points)
+                )
+                for i, a in enumerate(points)
+            )
+        if isinstance(value, AffineMap):
+            return _affine(value, self._value, environment)
         raise TypeError(f"unsupported QIEC value {type(value).__name__}")
 
     def _validate_handler_manifest(self, manifest: HandlerManifest) -> None:

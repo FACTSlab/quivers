@@ -52,8 +52,13 @@ from quivers.transpile.qiec_ir import (
     IRQiecProjection,
     IRQiecResume,
     IRQiecReturn,
+    IRQiecAffineMap,
     IRQiecDistributionValue,
+    IRQiecGather,
+    IRQiecKernelMatrix,
     IRQiecLogDensity,
+    IRQiecSegmentSum,
+    IRQiecWeightSum,
     IRQiecShapeIndex,
     IRQiecSiteValue,
     IRQiecStatic,
@@ -476,6 +481,18 @@ def _free_runtime_capture(
         elif isinstance(item, IRQiecLogDensity):
             value(item.sampleable, locally_bound)
             value(item.value, locally_bound)
+        elif isinstance(item, IRQiecGather | IRQiecSegmentSum):
+            value(item.value, locally_bound)
+            value(item.index, locally_bound)
+        elif isinstance(item, IRQiecWeightSum):
+            value(item.value, locally_bound)
+        elif isinstance(item, IRQiecKernelMatrix):
+            value(item.inputs, locally_bound)
+        elif isinstance(item, IRQiecAffineMap):
+            value(item.weight, locally_bound)
+            value(item.bias, locally_bound)
+            for source in item.sources:
+                value(source, locally_bound)
 
     def computation(item: IRQiecComputation, locally_bound: frozenset[str]) -> None:
         if isinstance(item, IRQiecReturn):
@@ -538,6 +555,18 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
         elif isinstance(item, IRQiecLogDensity):
             value(item.sampleable)
             value(item.value)
+        elif isinstance(item, IRQiecGather | IRQiecSegmentSum):
+            value(item.value)
+            value(item.index)
+        elif isinstance(item, IRQiecWeightSum):
+            value(item.value)
+        elif isinstance(item, IRQiecKernelMatrix):
+            value(item.inputs)
+        elif isinstance(item, IRQiecAffineMap):
+            value(item.weight)
+            value(item.bias)
+            for source in item.sources:
+                value(source)
         elif isinstance(item, IRQiecConstructorValue):
             for field in item.fields:
                 value(field)

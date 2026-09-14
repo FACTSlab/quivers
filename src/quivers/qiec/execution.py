@@ -34,7 +34,14 @@ from quivers.qiec.evaluator import (
     RuntimeValidator,
     Resumption,
 )
-from quivers.qiec.builtins import BUILTIN_EFFECTS, draw_handler, score_handler
+from quivers.qiec.builtins import (
+    BUILTIN_EFFECTS,
+    add_weights,
+    draw_handler,
+    enumerate_handler,
+    score_handler,
+    weight_handler,
+)
 from quivers.qiec.canonical import (
     LOG_WEIGHT,
     SAMPLEABLE_CONSTRUCTOR,
@@ -245,6 +252,76 @@ class RuntimeProvider(Protocol):
         ...
 
 
+def _weights(value: object) -> bool:
+    """Whether a host value is a log weight or a tensor of them.
+
+    Parameters
+    ----------
+    value : object
+        The host value.
+
+    Returns
+    -------
+    bool
+        ``True`` for a float, an integer, or nested tuples of them.
+    """
+    if isinstance(value, tuple):
+        return all(_weights(item) for item in value)
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _weights_validator(type_: TypeExpr) -> RuntimeValidator:
+    """The validator of a weight type a collecting handler may leave open.
+
+    Parameters
+    ----------
+    type_ : TypeExpr
+        The declared type: ``LogWeight``, a tensor of it, a unit answer,
+        or a type variable a telescope binds.
+
+    Returns
+    -------
+    RuntimeValidator
+        The core validator when the type is closed; otherwise a
+        structural check that the value is a weight or a tensor of
+        weights, since the shape is fixed only at instantiation.
+    """
+    validator = _core_validator(type_)
+    return validator if validator is not None else _weights
+
+
+def _weight_type(definition: HandlerDef) -> TypeExpr:
+    """The weight type a ``Weight[K]`` handler declaration accumulates.
+
+    Parameters
+    ----------
+    definition
+        A handler declaration for a saturated ``Weight`` interface.
+
+    Returns
+    -------
+    TypeExpr
+        The interface's type argument.
+
+    Raises
+    ------
+    ValueError
+        If the declaration does not handle ``Weight[K]`` for a type
+        ``K``.
+    """
+    effect = definition.effect
+    if effect.name != "Weight" or len(effect.arguments) != 1:
+        raise ValueError(
+            f"core handler {definition.name!r} must handle Weight[K] to collect"
+        )
+    argument = effect.arguments[0]
+    if not isinstance(argument, TypeApplication | TypeVariable):
+        raise ValueError(
+            f"core handler {definition.name!r} handles Weight at a non-type argument"
+        )
+    return argument
+
+
 @dataclass(frozen=True, slots=True)
 class CoreRuntimeProvider:
     """Primitive validators plus explicitly configured structural handlers.
@@ -316,6 +393,21 @@ class CoreRuntimeProvider:
                 runtime = self._state(definition, raw_options, operation_names)
             elif kind == "draw":
                 runtime = self._prelude(definition, draw_handler, "Random")
+            elif kind == "enumerate":
+                runtime = self._prelude(definition, enumerate_handler, "Random")
+            elif kind == "collect":
+                runtime = self._prelude(
+                    definition,
+                    lambda **_: weight_handler(
+                        0.0,
+                        add_weights,
+                        _weights_validator(_weight_type(definition)),
+                        weight_type=_weight_type(definition),
+                        answer_type=definition.input_type,
+                        answer_validator=_weights_validator(definition.input_type),
+                    )[0],
+                    "Weight",
+                )
             elif kind == "score":
                 runtime = self._prelude(
                     definition,
@@ -383,6 +475,11 @@ class CoreRuntimeProvider:
             )
         else:
             built = factory()
+        if interface == "Weight" and built.definition.effect != definition.effect:
+            raise ValueError(
+                f"core handler {definition.name!r} handles {definition.effect!r}, "
+                "not the weight interface its implementation serves"
+            )
         expected = {
             (clause.operation, clause.grade) for clause in built.definition.clauses
         }

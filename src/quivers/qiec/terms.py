@@ -23,7 +23,7 @@ from quivers.qiec.identifiers import (
     StaticScopeId,
 )
 from quivers.qiec.kinds import Telescope
-from quivers.qiec.types import EffectRef, StaticArgument, TypeExpr
+from quivers.qiec.types import EffectRef, IndexTerm, StaticArgument, TypeExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,12 +266,70 @@ class Projection:
 
 
 @dataclass(frozen=True, slots=True)
+class PlateAxis:
+    """One axis of a plated distribution.
+
+    Parameters
+    ----------
+    name
+        The axis's source name, the object it ranges over.
+    size
+        The axis's extent, an index term of the nat sort.
+    tag
+        The serialization discriminator; always ``"plate_axis"``.
+    """
+
+    name: str
+    size: IndexTerm
+    tag: Literal["plate_axis"] = "plate_axis"
+
+
+@dataclass(frozen=True, slots=True)
+class PlateShape:
+    """The plate a distribution is constructed over.
+
+    Batch axes replicate the distribution independently, one draw per
+    position, each scored on its own; event axes join the draws along
+    them into one event, scored together. The trailing event axes are
+    the family's own event dimensions when it has any; any leading ones
+    extend a scalar family's event.
+
+    Parameters
+    ----------
+    batch
+        The independent replication axes, outermost first.
+    event
+        The joint axes, outermost first.
+    tag
+        The serialization discriminator; always ``"plate_shape"``.
+    """
+
+    batch: tuple[PlateAxis, ...] = ()
+    event: tuple[PlateAxis, ...] = ()
+    tag: Literal["plate_shape"] = "plate_shape"
+
+    @property
+    def empty(self) -> bool:
+        """Whether the plate has no axes at all.
+
+        Returns
+        -------
+        bool
+            ``True`` when neither batch nor event axes are declared.
+        """
+        return not self.batch and not self.event
+
+
+@dataclass(frozen=True, slots=True)
 class DistributionValue:
     """Construction of a distribution from a family of the semantic registry.
 
     The family is named nominally and its parameters are supplied by name,
     so the term records which parameterization the source used and a
-    backend renders the spelling it knows without inspecting values.
+    backend renders the spelling it knows without inspecting values. A
+    plate replicates the family over batch axes and joins draws along
+    event axes; a parameter may then be a tensor whose leading dimensions
+    follow a suffix of the plate's axes and broadcast over the rest.
 
     Parameters
     ----------
@@ -285,6 +343,9 @@ class DistributionValue:
         The ``Sampleable`` type of the constructed distribution.
     origin
         The construction's source location.
+    plate
+        The plate the distribution is constructed over; empty for one
+        draw of the family.
     tag
         The serialization discriminator; always ``"distribution"``.
     """
@@ -294,7 +355,141 @@ class DistributionValue:
     arguments: tuple[tuple[str, Value], ...]
     result_type: TypeExpr
     origin: SourceOrigin
+    plate: PlateShape = PlateShape()
     tag: Literal["distribution"] = "distribution"
+
+
+@dataclass(frozen=True, slots=True)
+class Gather:
+    """Selection along the outermost axis of a tensor.
+
+    Parameters
+    ----------
+    value
+        The tensor selected from.
+    index
+        An ``Int`` selecting one slice, or a ``Tensor[Int]`` selecting a
+        slice per entry.
+    result_type
+        The selection's type: the slice type for an integer index, or
+        a tensor of slices shaped like the index tensor.
+    tag
+        The serialization discriminator; always ``"gather"``.
+    """
+
+    value: Value
+    index: Value
+    result_type: TypeExpr
+    tag: Literal["gather"] = "gather"
+
+
+@dataclass(frozen=True, slots=True)
+class WeightSum:
+    """The total of a tensor of log weights.
+
+    Parameters
+    ----------
+    value
+        A ``Tensor[LogWeight]`` of any shape, or a ``LogWeight``.
+    tag
+        The serialization discriminator; always ``"weight_sum"``.
+    """
+
+    value: Value
+    tag: Literal["weight_sum"] = "weight_sum"
+
+
+@dataclass(frozen=True, slots=True)
+class SegmentSum:
+    """Per-group totals of a vector of log weights.
+
+    Parameters
+    ----------
+    value
+        A ``Tensor[LogWeight]([n])``.
+    index
+        A ``Tensor[Int]([n])`` naming each entry's group.
+    groups
+        The number of groups, an index term of the nat sort.
+    result_type
+        ``Tensor[LogWeight]([groups])``.
+    tag
+        The serialization discriminator; always ``"segment_sum"``.
+    """
+
+    value: Value
+    index: Value
+    groups: IndexTerm
+    result_type: TypeExpr
+    tag: Literal["segment_sum"] = "segment_sum"
+
+
+@dataclass(frozen=True, slots=True)
+class KernelMatrix:
+    """A positive-definite covariance over input locations.
+
+    Parameters
+    ----------
+    inputs
+        A ``Tensor[Real]([n])`` of locations.
+    kernel
+        The kernel's name; ``"rbf"`` is the squared-exponential kernel.
+    length_scale
+        The kernel's length scale.
+    jitter
+        The diagonal added for numerical positive definiteness.
+    result_type
+        ``Tensor[Real]([n, n])``.
+    tag
+        The serialization discriminator; always ``"kernel_matrix"``.
+    """
+
+    inputs: Value
+    kernel: str
+    length_scale: float
+    jitter: float
+    result_type: TypeExpr
+    tag: Literal["kernel_matrix"] = "kernel_matrix"
+
+
+@dataclass(frozen=True, slots=True)
+class AffineMap:
+    """One head of an affine parameter map, ``W x + b`` on a row block.
+
+    For ``i`` below ``rows`` the head's coordinate ``i`` is the sum over
+    ``j`` of ``weight[row_offset + i, j] * x[j]`` plus
+    ``bias[row_offset + i]``, where ``x`` concatenates the sources in
+    order; ``exp`` exponentiates every coordinate afterwards.
+
+    Parameters
+    ----------
+    weight
+        A ``Tensor[Real]([total_rows, columns])``.
+    bias
+        A ``Tensor[Real]([total_rows])``.
+    sources
+        The conditioning row's factors in order, each a ``Real`` or a
+        ``Tensor[Real]([width])``.
+    row_offset
+        The first row of the head's block.
+    rows
+        The block's height.
+    transform
+        ``"identity"`` or ``"exp"``.
+    result_type
+        ``Tensor[Real]([rows])``, or ``Real`` for a one-row head.
+    tag
+        The serialization discriminator; always ``"affine_map"``.
+    """
+
+    weight: Value
+    bias: Value
+    sources: tuple[Value, ...]
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp"]
+    result_type: TypeExpr
+    tag: Literal["affine_map"] = "affine_map"
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +527,11 @@ class LogDensity:
         The point evaluated, of type ``A``.
     origin
         The evaluation's source location.
+    batch
+        The batch axes the density is kept apart over: empty for one
+        ``LogWeight`` totalling every draw, else the batch axes of the
+        plated construction ``sampleable`` must be, for one weight per
+        position.
     tag
         The serialization discriminator; always ``"log_density"``.
     """
@@ -339,6 +539,7 @@ class LogDensity:
     sampleable: Value
     value: Value
     origin: SourceOrigin
+    batch: tuple[PlateAxis, ...] = ()
     tag: Literal["log_density"] = "log_density"
 
 
@@ -356,6 +557,11 @@ type Value = (
     | DistributionValue
     | LogDensity
     | SiteValue
+    | Gather
+    | WeightSum
+    | SegmentSum
+    | KernelMatrix
+    | AffineMap
 )
 
 
@@ -657,6 +863,13 @@ __all__ = [
     "TransportValue",
     "TupleValue",
     "TensorValue",
+    "PlateAxis",
+    "PlateShape",
+    "Gather",
+    "WeightSum",
+    "SegmentSum",
+    "KernelMatrix",
+    "AffineMap",
     "Value",
     "Var",
 ]

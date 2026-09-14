@@ -37,6 +37,13 @@ from quivers.qiec.terms import (
     TransportValue,
     TensorValue,
     TupleValue,
+    PlateAxis,
+    PlateShape,
+    Gather,
+    WeightSum,
+    SegmentSum,
+    KernelMatrix,
+    AffineMap,
     Value,
     Var,
 )
@@ -367,6 +374,33 @@ def substitute_effect(effect: EffectRef, substitution: StaticSubstitution) -> Ef
     )
 
 
+def substitute_plate(plate: PlateShape, substitution: StaticSubstitution) -> PlateShape:
+    """Substitute static variables in a plate's axis sizes.
+
+    Parameters
+    ----------
+    plate : PlateShape
+        The plate.
+    substitution : StaticSubstitution
+        The static substitution.
+
+    Returns
+    -------
+    PlateShape
+        The plate with every axis size substituted.
+    """
+    return PlateShape(
+        tuple(
+            PlateAxis(axis.name, substitute_index(axis.size, substitution))
+            for axis in plate.batch
+        ),
+        tuple(
+            PlateAxis(axis.name, substitute_index(axis.size, substitution))
+            for axis in plate.event
+        ),
+    )
+
+
 def substitute_type(type_: TypeExpr, substitution: StaticSubstitution) -> TypeExpr:
     """Substitute into a type expression.
 
@@ -518,6 +552,7 @@ def instantiate_operation(
 
 
 __all__ = [
+    "substitute_plate",
     "StaticSubstitution",
     "instantiate_operation",
     "instantiate_telescope",
@@ -655,6 +690,40 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
             ),
             substitute_type(value.result_type, substitution),
             value.origin,
+            substitute_plate(value.plate, substitution),
+        )
+    if isinstance(value, Gather):
+        return Gather(
+            substitute_value(value.value, substitution),
+            substitute_value(value.index, substitution),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, WeightSum):
+        return WeightSum(substitute_value(value.value, substitution))
+    if isinstance(value, SegmentSum):
+        return SegmentSum(
+            substitute_value(value.value, substitution),
+            substitute_value(value.index, substitution),
+            substitute_index(value.groups, substitution),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, KernelMatrix):
+        return KernelMatrix(
+            substitute_value(value.inputs, substitution),
+            value.kernel,
+            value.length_scale,
+            value.jitter,
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, AffineMap):
+        return AffineMap(
+            substitute_value(value.weight, substitution),
+            substitute_value(value.bias, substitution),
+            tuple(substitute_value(item, substitution) for item in value.sources),
+            value.row_offset,
+            value.rows,
+            value.transform,
+            substitute_type(value.result_type, substitution),
         )
     if isinstance(value, LogDensity):
         return LogDensity(
