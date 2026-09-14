@@ -508,7 +508,8 @@ class CoreRuntimeProvider:
                     Parameters
                     ----------
                     _request
-                        The performed operation, used only to validate the response type.
+                        The performed operation, used only to validate the response
+                        type.
                     resume
                         The continuation into the handled computation.
                     _context
