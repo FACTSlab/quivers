@@ -608,7 +608,31 @@ def draw_handler(
     duplicable_context: bool = False,
     key: str = "draw",
 ) -> RuntimeHandler:
-    """Interpret ``Random.sample`` by drawing exactly once."""
+    """Interpret ``Random.sample`` by drawing exactly once.
+
+    Parameters
+    ----------
+    result_validator
+        Checks the value a resumption carries inhabits the
+        operation's result type.
+    draw
+        Supplies the drawn value. None uses the sampleable's own
+        reparameterised or plain sampling interface.
+    answer_type
+        What the handler answers with.
+    duplicable_context
+        Whether the handler's own state may be copied for a
+        multi-shot resumption. Asserted rather than inferred: copying a
+        handler owning mutable state would let two shots share it.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     definition = _handler_def(
         "Random.draw",
         RANDOM,
@@ -658,7 +682,34 @@ def score_handler(
     answer_type: TypeExpr = ANSWER,
     key: str = "score",
 ) -> tuple[RuntimeHandler, ScoreAccumulator]:
-    """Accumulate ``Score.add`` contributions in their evaluation order."""
+    """Accumulate ``Score.add`` contributions in their evaluation order.
+
+    Parameters
+    ----------
+    identity
+        The accumulator's value before any contribution.
+    combine
+        Folds a contribution into the running total.
+    weight_validator
+        Checks an individual weight contribution.
+    answer_validator
+        Checks the handled computation's answer.
+    total_validator
+        Checks the accumulated total.
+    expose_total
+        Whether the accumulated total is returned alongside the
+        answer, rather than kept internal.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     accumulator = ScoreAccumulator(identity)
     checked_total = total_validator or weight_validator
     output_type = (
@@ -808,6 +859,33 @@ def condition_handler(
     Unobserved sites forward to the next ``Random`` handler.  The explicit
     introduced Score row distinguishes likelihood observation from intervention
     and unscored replay.
+
+    Parameters
+    ----------
+    observations
+        The values to condition on, keyed by site.
+    score_instance
+        The lexical `Score` instance the accumulated density is
+        sent to.
+    result_validator
+        Checks the value a resumption carries inhabits the
+        operation's result type.
+    weight_validator
+        Checks an individual weight contribution.
+    missing
+        What to do when a site has no observation.
+    extra
+        What to do with an observation no site consumed.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
     """
     definition = _handler_def(
         "Random.condition",
@@ -892,7 +970,35 @@ def replay_handler(
     answer_type: TypeExpr = ANSWER,
     key: str = "replay",
 ) -> RuntimeHandler:
-    """Replay selected sites under an explicit scoring/intervention policy."""
+    """Replay selected sites under an explicit scoring/intervention policy.
+
+    Parameters
+    ----------
+    values
+        The recorded values to replay, in request order.
+    result_validator
+        Checks the value a resumption carries inhabits the
+        operation's result type.
+    policy
+        What to do when the recording runs out.
+    score_instance
+        The lexical `Score` instance the accumulated density is
+        sent to.
+    weight_validator
+        Checks an individual weight contribution.
+    extra
+        What to do with an observation no site consumed.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     if policy is ReplayPolicy.CLAMP_AND_SCORE and score_instance is None:
         raise ValueError("scored replay requires a Score effect instance")
     introduced = (
@@ -1004,7 +1110,29 @@ def trace_handler(
     answer_type: TypeExpr = ANSWER,
     key: str = "trace",
 ) -> RuntimeHandler:
-    """Observe forwarded operation replies without interpreting the effect."""
+    """Observe forwarded operation replies without interpreting the effect.
+
+    Parameters
+    ----------
+    effect
+        The interface whose operations are recorded.
+    operations
+        Which operations to record.
+    recorder
+        Receives each recorded request.
+    validators
+        Per-operation result validators.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     operation_tuple = tuple(operations)
     definition = _handler_def(
         f"{effect.name}.trace",
@@ -1078,7 +1206,31 @@ def state_handler(
     answer_validator: RuntimeValidator = lambda _value: True,
     key: str = "state",
 ) -> tuple[RuntimeHandler, StateCell]:
-    """Interpret lexical State.get/put with a nonduplicable mutable cell."""
+    """Interpret lexical State.get/put with a nonduplicable mutable cell.
+
+    Parameters
+    ----------
+    initial
+        The state before any operation.
+    state_validator
+        Checks the state after each update.
+    state_type
+        The type of the handler's state.
+    expose_final
+        Whether the final state is returned alongside the answer.
+    answer_type
+        What the handler answers with.
+    answer_validator
+        Checks the handled computation's answer.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     _require(initial, state_validator, state_type, "initial state")
     cell = StateCell(initial)
     effect = state_effect(state_type)
@@ -1167,7 +1319,36 @@ def abort_handler(
     duplicable_context: bool = False,
     key: str = "abort",
 ) -> RuntimeHandler:
-    """Handle Abort.abort without resuming the discarded continuation."""
+    """Handle Abort.abort without resuming the discarded continuation.
+
+    Parameters
+    ----------
+    on_abort
+        Receives the payload when the computation aborts.
+    result_validator
+        Checks the value a resumption carries inhabits the
+        operation's result type.
+    error_type
+        The payload type an abort carries.
+    input_type
+        What the handled computation returns.
+    output_type
+        What the handler answers with.
+    output_validator
+        Checks the handler's answer.
+    duplicable_context
+        Whether the handler's own state may be copied for a
+        multi-shot resumption. Asserted rather than inferred: copying a
+        handler owning mutable state would let two shots share it.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     effect = abort_effect(error_type)
     definition = _handler_def(
         "Abort.run",
@@ -1212,7 +1393,29 @@ def choose_handler(
     answer_validator: RuntimeValidator = lambda _value: True,
     key: str = "choose",
 ) -> RuntimeHandler:
-    """Enumerate finite choices using an unrestricted deep resumption."""
+    """Enumerate finite choices using an unrestricted deep resumption.
+
+    Parameters
+    ----------
+    choice_validator
+        Checks an individual choice.
+    combine
+        Folds a contribution into the running total.
+    combine_validator
+        Checks the combined result.
+    answer_type
+        What the handler answers with.
+    answer_validator
+        Checks the handled computation's answer.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     if combine is not None and combine_validator is None:
         raise ValueError("a custom Choose combine needs an output validator")
     definition = _handler_def(
@@ -1282,7 +1485,36 @@ def weight_handler(
     total_validator: RuntimeValidator | None = None,
     key: str = "weight",
 ) -> tuple[RuntimeHandler, WeightAccumulator]:
-    """Accumulate values in a caller-supplied semiring multiplication."""
+    """Accumulate values in a caller-supplied semiring multiplication.
+
+    Parameters
+    ----------
+    identity
+        The accumulator's value before any contribution.
+    combine
+        Folds a contribution into the running total.
+    weight_validator
+        Checks an individual weight contribution.
+    weight_type
+        The type of an individual weight.
+    expose_total
+        Whether the accumulated total is returned alongside the
+        answer, rather than kept internal.
+    answer_type
+        What the handler answers with.
+    answer_validator
+        Checks the handled computation's answer.
+    total_validator
+        Checks the accumulated total.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
     accumulator = WeightAccumulator(identity)
     checked_total = total_validator or weight_validator
     effect = weight_effect(weight_type)
