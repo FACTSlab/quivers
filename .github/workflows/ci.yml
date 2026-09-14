@@ -38,6 +38,7 @@ jobs:
       - run: pip install 'ruff>=0.15,<0.16'
       - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
       - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
+      - run: python tools/docstring_audit.py --check src/quivers/qiec
       - name: Recompile VS Code extension from its lockfile
         working-directory: editors/vscode-qvr
         run: npm ci && npm run compile

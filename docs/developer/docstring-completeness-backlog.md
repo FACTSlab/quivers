@@ -43,7 +43,7 @@ target style.
 
 ## Measured state
 
-At the time of writing: **4530 incomplete docstrings across 21 subpackages**.
+At the time of writing: **4303 incomplete docstrings across 20 subpackages**.
 
 | Subpackage | Incomplete |
 | --- | ---: |
@@ -55,7 +55,6 @@ At the time of writing: **4530 incomplete docstrings across 21 subpackages**.
 | `src/quivers/stochastic` | 244 |
 | `src/quivers/inference` | 209 |
 | `src/quivers/monadic` | 198 |
-| `src/quivers/qiec` | 180 |
 | `src/quivers/structural` | 106 |
 | `src/quivers/analysis` | 57 |
 | `src/quivers/effects` | 56 |
@@ -78,7 +77,8 @@ to the function enclosing it. The audit accounts for that, so a function
 whose only `return` is inside an inner closure is not asked for a
 `Returns` section it does not need.
 
-The QIEC kernel is complete and is the reference for the intended depth: it documents what each argument is *for*, what a `None`
+`src/quivers/qiec` is complete and gated in CI; it is the reference for the
+intended depth. It documents what each argument is *for*, what a `None`
 return distinguishes, and why each raise is an error rather than a silent
 fallback.
 
@@ -116,7 +116,8 @@ costs a user rather than a maintainer.
 
 ## Gate
 
-Once a subpackage reads zero, add it to CI so the gap cannot reopen:
+Once a subpackage reads zero, add it to the `lint` job in
+`.github/workflows/ci.yml` so the gap cannot reopen:
 
 ```yaml
 - run: python tools/docstring_audit.py --check src/quivers/qiec
