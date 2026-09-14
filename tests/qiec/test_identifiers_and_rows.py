@@ -4,6 +4,7 @@ import pytest
 
 from quivers.qiec import (
     BOOL,
+    INT,
     NAT,
     AttachmentId,
     DynamicAddressFrame,
@@ -33,8 +34,8 @@ from quivers.qiec import (
 
 
 def test_identifiers_are_namespaced_stable_and_round_trip() -> None:
-    first = EffectId.derive("example", "Reader", 1)
-    second = EffectId.derive("example", "Reader", 1)
+    first = EffectId.derive("example", "Reader")
+    second = EffectId.derive("example", "Reader")
     operation = OperationId.derive("example", "Reader", 1)
 
     assert first == second
@@ -74,8 +75,8 @@ def test_site_identity_uses_structural_origin_not_diagnostic_coordinates() -> No
 
 
 def test_effect_rows_are_finite_maps_over_lexical_instances() -> None:
-    effect_id = EffectId.derive("example", "State", 1)
-    effect = EffectRef(effect_id, "State", 1)
+    effect_id = EffectId.derive("example", "State")
+    effect = EffectRef(effect_id, "State")
     left_id = EffectInstanceId.derive("scope", "left")
     right_id = EffectInstanceId.derive("scope", "right")
     tail_id = RowVariableId.derive("tests", "rho")
@@ -99,7 +100,7 @@ def test_effect_rows_are_finite_maps_over_lexical_instances() -> None:
     assert added.tail is not None
     assert added.tail.proves_lacks(left_id)
     assert added.add(RowEntry(left_id, effect)) is added
-    conflicting = EffectRef(EffectId.derive("example", "Other", 1), "Other", 1)
+    conflicting = EffectRef(EffectId.derive("example", "Other"), "Other")
     with pytest.raises(ValueError, match="two interfaces"):
         added.add(RowEntry(left_id, conflicting))
 
@@ -130,7 +131,7 @@ def test_effect_rows_are_finite_maps_over_lexical_instances() -> None:
 
 
 def test_open_row_unification_produces_stable_capture_free_substitutions() -> None:
-    effect = EffectRef(EffectId.derive("tests", "Unified", 1), "Unified", 1)
+    effect = EffectRef(EffectId.derive("tests", "Unified"), "Unified")
     left_instance = EffectInstanceId.derive("tests", "left-entry")
     right_instance = EffectInstanceId.derive("tests", "right-entry")
     left_tail = RowVariable(
@@ -173,11 +174,14 @@ def test_stable_references_ignore_diagnostic_names() -> None:
     assert hash(left_type) == hash(right_type)
 
     effect_id = EffectId.derive("tests", "semantic-effect")
-    left_effect = EffectRef(effect_id, "Before", 1, (BOOL,))
-    right_effect = EffectRef(effect_id, "After", 1, (BOOL,))
+    left_effect = EffectRef(effect_id, "Before", (BOOL,))
+    right_effect = EffectRef(effect_id, "After", (BOOL,))
     assert left_effect == right_effect
     assert hash(left_effect) == hash(right_effect)
-    assert left_effect != EffectRef(effect_id, "After", 2, (BOOL,))
+    # Identity is the declaration plus its static arguments, so the
+    # display name is ignored on both sides while a different argument
+    # separates two applications of the same interface.
+    assert left_effect != EffectRef(effect_id, "After", (INT,))
 
 
 def test_user_index_constructors_validate_membership_and_arity() -> None:
@@ -194,7 +198,7 @@ def test_user_index_constructors_validate_membership_and_arity() -> None:
 
 
 def test_telescope_instantiation_preserves_static_namespaces() -> None:
-    effect = EffectRef(EffectId.derive("example", "Reader", 1), "Reader", 1)
+    effect = EffectRef(EffectId.derive("example", "Reader"), "Reader")
     telescope = (
         TypeBinder("a"),
         IndexBinder("n", NAT),

@@ -47,8 +47,8 @@ The kernel records coverage (`total` or `partial`) separately from
 unknown-operation forwarding, as well as each clause's resumption grade `0`,
 `aff`, `1`, or `omega`; the reference evaluator enforces these grades
 dynamically. A total handler removes exactly the matched lexical instance from
-the row; a partial handler retains it; and a handler may forward future
-operations only when its interface declares that evolution policy.
+the row; a partial handler retains it; and an explicitly forwarding partial
+handler passes structurally uncovered operations to an outer handler.
 
 ## Stable serialization
 
@@ -59,6 +59,10 @@ and JSON scalars. It rejects unknown node tags, malformed records, non-finite
 floats, runtime attachments, and host callables. Encoding is deterministic, so
 the same core graph yields the same serialized JSON text; UTF-8 encoding thus
 yields the same bytes.
+
+These format and ABI identifiers belong to the serialization boundary. An
+authored effect declaration contains only its name, static telescope, and
+operation signatures.
 
 This format is intentionally independent of Didactic's internal model and
 Panproto's generic carrier. Didactic checks an ephemeral GADT projection and
@@ -146,7 +150,7 @@ interface but different lexical identities:
 
 <!-- compile: qiec -->
 ```qvr
-effect State[S : Type] [version=1, evolution=sealed]
+effect State[S : Type]
     get : Unit -> S
     put : S -> Unit
 
@@ -177,10 +181,10 @@ Probabilistic operations become instances of the same effect calculus:
 
 <!-- compile: qiec -->
 ```qvr
-effect Random [version=1, evolution=forwarding]
+effect Random
     draw : Real -> Real
 
-effect Score [version=1, evolution=sealed]
+effect Score
     score : Real -> Unit
 
 instance random : Random
@@ -196,19 +200,18 @@ define replayed_model() : Real !{score} =
         return x
 ```
 
-`Random` permits interface evolution, but `replay` is total for version 1 and
-handles the exact `random` instance. The remaining `score` entry makes the
-residual effect explicit. Runtime replay tables, samplers, and trace recorders
-do not enter the stable module.
+`replay` is total and handles the exact `random` instance. The remaining
+`score` entry makes the residual effect explicit. Runtime replay tables,
+samplers, and trace recorders do not enter the stable module.
 
 Logic programming uses the same handler and resumption rules:
 
 <!-- compile: qiec -->
 ```qvr
-effect Choose [version=1, evolution=sealed]
+effect Choose
     choose[A : Type] : A -> A
 
-effect Weight[K : Type] [version=1, evolution=sealed]
+effect Weight[K : Type]
     add : K -> Unit
 
 instance choice : Choose

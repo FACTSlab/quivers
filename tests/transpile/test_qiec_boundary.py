@@ -37,7 +37,7 @@ export prog
 """
 
 _ILL_TYPED_QIEC_METADATA = """\
-effect Broken [version=1, evolution=sealed]
+effect Broken
     ask : Unit -> Missing
 
 object Resp : FinSet 4
@@ -48,7 +48,7 @@ export prog
 """
 
 _EFFECTFUL_QIEC = """\
-effect State[S : Type] [version=1, evolution=sealed]
+effect State[S : Type]
     get : Unit -> S
 
 instance cell : State[Int]

@@ -2,7 +2,7 @@
 
 Generated functions carry the checked structural ABI with every request and
 handler delimiter. Process-local callbacks supply code only; they cannot
-override checked coverage, grades, types, or forwarding policy.
+override checked coverage, grades, or types.
 """
 
 import contextvars as _qvr_qiec_contextvars

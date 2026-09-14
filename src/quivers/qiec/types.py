@@ -187,29 +187,23 @@ class EffectVariable:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class EffectRef:
-    """One versioned, closed effect interface application."""
+    """One closed effect interface application."""
 
     id: EffectId
     name: str
-    interface_version: int
     arguments: tuple[StaticArgument, ...] = ()
     tag: Literal["effect_ref"] = "effect_ref"
-
-    def __post_init__(self) -> None:
-        if self.interface_version < 1:
-            raise ValueError("effect interface versions start at one")
 
     def __eq__(self, other: object) -> bool:
         """Compare a concrete interface application by stable identity."""
         return (
             isinstance(other, EffectRef)
             and self.id == other.id
-            and self.interface_version == other.interface_version
             and self.arguments == other.arguments
         )
 
     def __hash__(self) -> int:
-        return hash((self.id, self.interface_version, self.arguments))
+        return hash((self.id, self.arguments))
 
 
 type StaticArgument = TypeExpr | IndexTerm | EffectRef | EffectVariable

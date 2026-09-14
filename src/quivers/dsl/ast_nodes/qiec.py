@@ -404,16 +404,10 @@ class QiecFamilyDecl(Statement):
     kind: Literal["indexed_family_decl"] = "indexed_family_decl"
 
 
-type QiecInterfaceEvolution = Literal["sealed", "forwarding"]
-
-
 class QiecEffectDecl(Statement):
     name: str
     binders: tuple[QiecBinder, ...] = ()
-    interface_version: int = 1
-    evolution: QiecInterfaceEvolution = "sealed"
     operations: tuple[QiecOperationDecl, ...] = ()
-    duplicate_options: tuple[str, ...] = ()
     docs: tuple[str, ...] = ()
     line: int = 0
     col: int = 0

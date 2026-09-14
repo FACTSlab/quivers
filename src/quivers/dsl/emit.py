@@ -1093,10 +1093,9 @@ def _emit_qiec_operation(operation, indent: int) -> str:
 def _emit_qiec_effect_decl(decl: QiecEffectDecl, indent: int) -> str:
     if not decl.operations:
         raise EmitError(f"emit: effect {decl.name!r} has no operations")
-    options = f" [version={decl.interface_version}, evolution={decl.evolution}]"
     lines = _doc_lines(decl.docs, indent)
     lines.append(
-        f"{_pad(indent)}effect {decl.name}{_emit_qiec_telescope(decl.binders)}{options}"
+        f"{_pad(indent)}effect {decl.name}{_emit_qiec_telescope(decl.binders)}"
     )
     lines.extend(
         _emit_qiec_operation(operation, indent + 1) for operation in decl.operations

@@ -41,8 +41,8 @@ Diagnostic codes:
 - `qiec-coverage`: indexed case branches are incomplete, duplicated, or not
   justified by refinement.
 - `qiec-skolem-escape`: branch-local static evidence escapes its scope.
-- `qiec-handler`: a handler signature violates coverage, interface evolution,
-  or resumption requirements.
+- `qiec-handler`: a handler signature violates coverage, forwarding, or
+  resumption requirements.
 - `qiec-unhandled-effect`: a computation performs an instance absent from its
   declared row.
 - `qiec-backend`: a requested backend boundary cannot preserve a QIEC form.

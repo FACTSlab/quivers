@@ -106,18 +106,12 @@ def _walk_qiec_statement(t: _Tree, vid: str):
             col=col,
         )
     if kind == "effect_decl":
-        version, evolution, duplicate_options = _walk_effect_options(
-            t, t.field(vid, "options")
-        )
         return QiecEffectDecl(
             name=_field_text(t, vid, "name"),
             binders=_walk_telescope_field(t, vid, "binders"),
-            interface_version=version,
-            evolution=evolution,
             operations=tuple(
                 _walk_operation(t, child) for child in t.fields(vid, "operations")
             ),
-            duplicate_options=duplicate_options,
             docs=docs,
             line=line,
             col=col,
@@ -401,29 +395,6 @@ def _walk_operation(t: _Tree, vid: str) -> QiecOperationDecl:
         line=line,
         col=col,
     )
-
-
-def _walk_effect_options(t: _Tree, vid: str | None) -> tuple[int, str, tuple[str, ...]]:
-    version = 1
-    evolution = "sealed"
-    if vid is None:
-        return version, evolution, ()
-    seen: set[str] = set()
-    duplicates: list[str] = []
-    for entry in t.fields(vid, "entries"):
-        version_vid = t.field(entry, "version")
-        if version_vid is not None:
-            if "version" in seen and "version" not in duplicates:
-                duplicates.append("version")
-            seen.add("version")
-            version = int(t.text(version_vid))
-        value = t.consts(entry).get("field:evolution")
-        if value is not None:
-            if "evolution" in seen and "evolution" not in duplicates:
-                duplicates.append("evolution")
-            seen.add("evolution")
-            evolution = value
-    return version, evolution, tuple(duplicates)
 
 
 def _walk_handler_options(

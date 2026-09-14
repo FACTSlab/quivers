@@ -576,9 +576,7 @@ family_decl       := 'family' IDENT [static_telescope] [index_telescope]
 constructor_decl  := 'constructor' IDENT [static_telescope] ':'
                      [type ('*' type)* '->'] type
 
-effect_decl       := 'effect' IDENT [static_telescope]
-                     '[' 'version=' INT ',' 'evolution=' EVOLUTION ']'
-                     operation_decl+
+effect_decl       := 'effect' IDENT [static_telescope] operation_decl+
 operation_decl    := IDENT [static_telescope] ':' [type ('*' type)* '->'] type
 instance_decl     := 'instance' IDENT ':' effect_ref
 handler_decl      := 'handler' IDENT [static_telescope] 'for' effect_ref ':'

@@ -41,7 +41,7 @@ family Vec[A : Type](n : Nat) : Type
     constructor Nil : Vec[A](Z)
     constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
 
-effect State[S : Type] [version=1, evolution=sealed]
+effect State[S : Type]
     get : Unit -> S
     put : S -> Unit
 
@@ -382,12 +382,6 @@ define rebuild[A : Type, n : Nat](xs : Vec[A](S(n))) : Vec[A](S(n)) !{} =
     ("source", "message"),
     [
         (
-            """effect E [version=1, version=2]
-    op : Unit -> Unit
-""",
-            "duplicate effect option(s): version",
-        ),
-        (
             """effect E
     op : Unit -> Unit
 handler h for E : Unit -> Unit [coverage=total, coverage=partial]
@@ -482,7 +476,7 @@ define negative_real() : Real !{} =
 
 def test_open_row_lacks_must_be_proved_by_the_inferred_tail() -> None:
     parsed = parse(
-        """effect State[S : Type] [version=1, evolution=sealed]
+        """effect State[S : Type]
     get : Unit -> S
 instance cell : State[Int]
 handler h for State[Int] : Int -> Int [coverage=total, introduces=!{| sigma}]

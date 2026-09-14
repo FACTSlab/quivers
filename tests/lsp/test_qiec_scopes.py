@@ -19,10 +19,10 @@ family Vec[A : Type](n : Nat) : Type
     constructor Nil : Vec[A](Z)
     constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
 
-effect Reader[T : Type] [version=1, evolution=sealed]
+effect Reader[T : Type]
     get[X : Type] : X -> T
 
-effect Writer[T : Type] [version=1, evolution=sealed]
+effect Writer[T : Type]
     get[X : Type] : X -> Unit
 
 instance reader : Reader[Int]

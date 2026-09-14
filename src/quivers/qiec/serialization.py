@@ -42,7 +42,6 @@ from quivers.qiec.effects import (
     EffectRow,
     HandlerClauseDef,
     HandlerDef,
-    InterfaceEvolution,
     OperationDef,
     ResumptionGrade,
     RowEntry,
@@ -153,7 +152,6 @@ _ID_CLASSES = (
 )
 
 _ENUM_CLASSES = (
-    InterfaceEvolution,
     ResumptionGrade,
     CoverageStatus,
     Reachability,

@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
+- **Effect declarations are unversioned source contracts.** An `effect` now
+  contains only its name, static telescope, and operation signatures. QIEC ABI
+  and package compatibility remain external to authored QVR declarations.
 - **Indexed declarations use Didactic 0.15 directly.** QVR families and constructors are projected through Didactic's public `GADT` API and compiled by Panproto before the QIEC-specific checker completes the exact lowering route. QIEC retains stable identities, effect rows, and the distinction between uniform family parameters and refinable indices.
 - **The current QVR grammar ships with Quivers and loads fail-closed.** Editable checkouts use their generated `grammars/qvr/src`; wheels carry the same generated parser source. `panproto-grammars-all` continues to provide the eleven transpiler-target grammars but is no longer the QVR source of truth. Panproto 0.74.2 validates persisted historical objects against the enum payload read from disk, so the migration chain retains its content-addressed fixture identities without rewriting stored hashes.
 - **Platform wheels load QVR without a host compiler.** Each Linux, macOS, and Windows wheel contains a native current parser plus native libraries for every packaged migration snapshot. Source-binding manifests cover the generated parser and tree-sitter metadata as well as the library bytes; a missing or inconsistent pair fails closed. Source distributions and editable grammar development still compile during build or into the development cache, but an installed platform wheel does not compile on first parse, highlight, or migration.

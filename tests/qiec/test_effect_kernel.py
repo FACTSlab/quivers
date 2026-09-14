@@ -18,7 +18,6 @@ from quivers.qiec import (
     HandlerClauseDef,
     HandlerDef,
     HandlerId,
-    InterfaceEvolution,
     IndexBinder,
     KernelError,
     KernelRegistry,
@@ -42,7 +41,7 @@ from quivers.qiec import (
 
 
 def _reader() -> tuple[EffectDef, OperationDef]:
-    effect_id = EffectId.derive("tests", "Reader", 1)
+    effect_id = EffectId.derive("tests", "Reader")
     operation = OperationDef(
         OperationId.derive(str(effect_id), "ask"),
         "ask",
@@ -51,7 +50,7 @@ def _reader() -> tuple[EffectDef, OperationDef]:
         TypeVariable("a"),
     )
     effect = EffectDef(
-        EffectRef(effect_id, "Reader", 1),
+        EffectRef(effect_id, "Reader"),
         (),
         (operation,),
     )
@@ -103,11 +102,17 @@ def test_typed_request_and_total_handler_remove_only_the_matched_instance() -> N
     assert handled.effects.entries == ()
 
 
-def test_request_rejects_an_operation_from_another_interface_version() -> None:
+def test_request_rejects_an_operation_another_effect_does_not_own() -> None:
+    """An operation belongs to the effect that declared it.
+
+    Effect identity is nominal, derived from the module and the effect's
+    own name, so a request naming a different effect cannot carry this
+    operation however alike the two interfaces look.
+    """
     effect, operation = _reader()
     registry = KernelRegistry()
     registry.register_effect(effect)
-    wrong = EffectRef(EffectId.derive("tests", "Reader", 2), "Reader", 2)
+    wrong = EffectRef(EffectId.derive("tests", "OtherReader"), "OtherReader")
     request = EffectRequest(
         instantiate_effect(wrong, module="tests", lexical_path=(0,)).instance,
         wrong,
@@ -118,12 +123,13 @@ def test_request_rejects_an_operation_from_another_interface_version() -> None:
         _origin(),
     )
 
-    with pytest.raises(KernelError, match="interface/version"):
+    with pytest.raises(KernelError, match="does not own the operation"):
         infer_computation(Perform(request), registry)
 
 
-def test_total_and_forwarding_handler_contracts_are_checked() -> None:
-    effect, operation = _reader()
+def test_a_total_handler_must_cover_every_declared_operation() -> None:
+    """Totality is a claim about coverage, and the registry checks it."""
+    effect, _operation = _reader()
     registry = KernelRegistry()
     registry.register_effect(effect)
     missing = HandlerDef(
@@ -137,6 +143,19 @@ def test_total_and_forwarding_handler_contracts_are_checked() -> None:
     with pytest.raises(KernelError, match="missing operations"):
         registry.register_handler(missing)
 
+
+def test_a_partial_handler_may_forward_operations_it_does_not_cover() -> None:
+    """Forwarding is a property of the handler, not of the interface.
+
+    An effect declares operations and nothing more, so whether unknown
+    requests pass through is settled by the handler that admits them.
+    A partial handler covering one operation and forwarding the rest
+    registers on the same interface a total handler would have to cover
+    completely.
+    """
+    effect, operation = _reader()
+    registry = KernelRegistry()
+    registry.register_effect(effect)
     forwarding = HandlerDef(
         HandlerId.derive("tests", "forward"),
         "forward",
@@ -147,27 +166,8 @@ def test_total_and_forwarding_handler_contracts_are_checked() -> None:
         total=False,
         forwards_unknown=True,
     )
-    with pytest.raises(KernelError, match="forwarding interface"):
-        registry.register_handler(forwarding)
-
-    open_effect = EffectDef(
-        EffectRef(EffectId.derive("tests", "OpenReader", 1), "OpenReader", 1),
-        (),
-        (),
-        InterfaceEvolution.FORWARDING,
-    )
-    registry.register_effect(open_effect)
-    open_handler = HandlerDef(
-        HandlerId.derive("tests", "open_forward"),
-        "open_forward",
-        open_effect.ref,
-        (),
-        INT,
-        INT,
-        total=False,
-        forwards_unknown=True,
-    )
-    registry.register_handler(open_handler)
+    registry.register_handler(forwarding)
+    assert registry.handlers[forwarding.id].forwards_unknown
 
 
 def test_partial_handler_retains_the_instance_row() -> None:
@@ -203,7 +203,7 @@ def test_partial_handler_retains_the_instance_row() -> None:
 
 
 def test_parameterized_effect_applications_are_distinct_and_checked() -> None:
-    effect_id = EffectId.derive("tests", "State", 1)
+    effect_id = EffectId.derive("tests", "State")
     get = OperationDef(
         OperationId.derive(str(effect_id), "get"),
         "get",
@@ -212,7 +212,7 @@ def test_parameterized_effect_applications_are_distinct_and_checked() -> None:
         TypeVariable("state"),
     )
     state = EffectDef(
-        EffectRef(effect_id, "State", 1),
+        EffectRef(effect_id, "State"),
         (TypeBinder("state"),),
         (get,),
     )
@@ -272,7 +272,7 @@ def test_parameterized_effect_applications_are_distinct_and_checked() -> None:
 
 
 def test_effect_registration_checks_interface_and_operation_scope() -> None:
-    effect_id = EffectId.derive("tests", "ScopedEffect", 1)
+    effect_id = EffectId.derive("tests", "ScopedEffect")
     valid_operation = OperationDef(
         OperationId.derive(str(effect_id), "valid"),
         "valid",
@@ -283,13 +283,13 @@ def test_effect_registration_checks_interface_and_operation_scope() -> None:
     registry = KernelRegistry()
     registry.register_effect(
         EffectDef(
-            EffectRef(effect_id, "ScopedEffect", 1),
+            EffectRef(effect_id, "ScopedEffect"),
             (TypeBinder("state"),),
             (valid_operation,),
         )
     )
 
-    bad_id = EffectId.derive("tests", "BadScope", 1)
+    bad_id = EffectId.derive("tests", "BadScope")
     unbound_operation = OperationDef(
         OperationId.derive(str(bad_id), "bad"),
         "bad",
@@ -300,7 +300,7 @@ def test_effect_registration_checks_interface_and_operation_scope() -> None:
     with pytest.raises(KernelError, match="unbound type variable"):
         KernelRegistry().register_effect(
             EffectDef(
-                EffectRef(bad_id, "BadScope", 1),
+                EffectRef(bad_id, "BadScope"),
                 (TypeBinder("state"),),
                 (unbound_operation,),
             )
@@ -308,7 +308,7 @@ def test_effect_registration_checks_interface_and_operation_scope() -> None:
 
     with pytest.raises(ValueError, match="shadows interface binders"):
         EffectDef(
-            EffectRef(EffectId.derive("tests", "Shadow", 1), "Shadow", 1),
+            EffectRef(EffectId.derive("tests", "Shadow"), "Shadow"),
             (TypeBinder("a"),),
             (
                 OperationDef(
@@ -375,7 +375,7 @@ def test_effect_application_deeply_validates_nested_static_arguments() -> None:
         (INT,),
     )
     effect = EffectDef(
-        EffectRef(EffectId.derive("tests", "Deep", 1), "Deep", 1),
+        EffectRef(EffectId.derive("tests", "Deep"), "Deep"),
         (TypeBinder("value"),),
         (),
     )
@@ -421,7 +421,7 @@ def test_type_constructor_metadata_is_canonical_per_stable_id() -> None:
             ),
             INT,
         )
-        return EffectDef(EffectRef(effect_id, label, 1), (), (operation,))
+        return EffectDef(EffectRef(effect_id, label), (), (operation,))
 
     registry = KernelRegistry()
     registry.register_effect(
@@ -442,9 +442,9 @@ def test_type_constructor_metadata_is_canonical_per_stable_id() -> None:
 
 def test_handle_rejects_an_unsaturated_known_effect_static_argument() -> None:
     reader, operation = _reader()
-    unary_id = EffectId.derive("tests", "UnaryEffect", 1)
+    unary_id = EffectId.derive("tests", "UnaryEffect")
     unary = EffectDef(
-        EffectRef(unary_id, "UnaryEffect", 1),
+        EffectRef(unary_id, "UnaryEffect"),
         (TypeBinder("value"),),
         (),
     )
@@ -472,7 +472,7 @@ def test_handle_rejects_an_unsaturated_known_effect_static_argument() -> None:
     )
     registry.register_handler(handler)
 
-    with pytest.raises(KernelError, match="invalid application or version"):
+    with pytest.raises(KernelError, match="invalid application"):
         infer_computation(
             Handle(entry.instance, handler.id, Perform(request), (unary.ref,)),
             registry,
@@ -481,9 +481,9 @@ def test_handle_rejects_an_unsaturated_known_effect_static_argument() -> None:
 
 def test_registry_validates_effect_references_on_every_static_surface() -> None:
     reader, reader_operation = _reader()
-    state_id = EffectId.derive("tests", "SurfaceState", 1)
+    state_id = EffectId.derive("tests", "SurfaceState")
     state = EffectDef(
-        EffectRef(state_id, "SurfaceState", 1),
+        EffectRef(state_id, "SurfaceState"),
         (TypeBinder("state"),),
         (),
     )
@@ -497,13 +497,14 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
     )
 
     invalid_references = (
+        # Unsaturated: the declaration binds one type and none is given.
         state.ref,
-        EffectRef(state_id, "SurfaceState", 1, (reader.ref,)),
-        EffectRef(state_id, "SurfaceState", 2, (INT,)),
+        # Saturated but ill-kinded: an effect where a type is required.
+        EffectRef(state_id, "SurfaceState", (reader.ref,)),
     )
     for position, invalid in enumerate(invalid_references):
         invalid_type = TypeApplication(carrier, (invalid,))
-        with pytest.raises(KernelError, match="invalid application or version"):
+        with pytest.raises(KernelError, match="invalid application"):
             infer_value(
                 AttachmentRef(
                     AttachmentId.derive("tests", "invalid-effect", position),
@@ -511,6 +512,20 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
                 ),
                 registry,
             )
+
+    # And the check accepts a well-kinded application, so the rejections
+    # above are the rule discriminating rather than refusing everything
+    # that reaches this surface.
+    well_kinded = TypeApplication(
+        carrier, (EffectRef(state_id, "SurfaceState", (INT,)),)
+    )
+    infer_value(
+        AttachmentRef(
+            AttachmentId.derive("tests", "valid-effect"),
+            well_kinded,
+        ),
+        registry,
+    )
 
     unsaturated_type = TypeApplication(carrier, (state.ref,))
 
@@ -523,10 +538,10 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
             () if in_result else (ArgumentDef("bad", unsaturated_type),),
             unsaturated_type if in_result else INT,
         )
-        return EffectDef(EffectRef(effect_id, label, 1), (), (operation,))
+        return EffectDef(EffectRef(effect_id, label), (), (operation,))
 
     for label, in_result in (("argument", False), ("result", True)):
-        with pytest.raises(KernelError, match="invalid application or version"):
+        with pytest.raises(KernelError, match="invalid application"):
             registry.register_effect(malformed_declaration(label, in_result=in_result))
 
     entry = instantiate_effect(
@@ -543,7 +558,7 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
         unsaturated_type,
         _origin(),
     )
-    with pytest.raises(KernelError, match="invalid application or version"):
+    with pytest.raises(KernelError, match="invalid application"):
         infer_computation(Perform(bad_result_request), registry)
 
     static_operation_id = OperationId.derive("tests", "surface-static-operation")
@@ -555,7 +570,7 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
         INT,
     )
     static_effect = EffectDef(
-        EffectRef(EffectId.derive("tests", "StaticSurface", 1), "StaticSurface", 1),
+        EffectRef(EffectId.derive("tests", "StaticSurface"), "StaticSurface"),
         (),
         (static_operation,),
     )
@@ -574,7 +589,7 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
         INT,
         _origin(),
     )
-    with pytest.raises(KernelError, match="invalid application or version"):
+    with pytest.raises(KernelError, match="invalid application"):
         infer_computation(Perform(bad_static_request), registry)
 
     clause = (HandlerClauseDef(reader_operation.id, ResumptionGrade.LINEAR),)
@@ -617,18 +632,18 @@ def test_registry_validates_effect_references_on_every_static_surface() -> None:
         ),
     )
     for handler in handler_surfaces:
-        with pytest.raises(KernelError, match="invalid application or version"):
+        with pytest.raises(KernelError, match="invalid application"):
             registry.register_handler(handler)
 
     invalid_row = handler_surfaces[-1].introduced
-    with pytest.raises(KernelError, match="invalid application or version"):
+    with pytest.raises(KernelError, match="invalid application"):
         registry.validate_effect_row(invalid_row)
-    with pytest.raises(KernelError, match="invalid application or version"):
+    with pytest.raises(KernelError, match="invalid application"):
         registry.validate_computation_type(
             ComputationType(EffectRow(), unsaturated_type)
         )
 
-    unknown = EffectRef(EffectId.derive("tests", "External", 1), "External", 1)
+    unknown = EffectRef(EffectId.derive("tests", "External"), "External")
     external_type = TypeApplication(carrier, (unknown,))
     attachment = AttachmentRef(AttachmentId.derive("tests", "external"), external_type)
     assert infer_value(attachment, registry) == external_type

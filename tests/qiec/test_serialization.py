@@ -57,12 +57,12 @@ from quivers.qiec.evaluator import RuntimeAttachments
 
 
 def _representative_graph() -> tuple[object, ...]:
-    state_id = EffectId.derive("serialization", "State", 1)
+    state_id = EffectId.derive("serialization", "State")
     get_id = OperationId.derive(state_id, "get")
     state_variable = TypeVariable("state")
     get = OperationDef(get_id, "get", (), (), state_variable)
     state = EffectDef(
-        EffectRef(state_id, "State", 1),
+        EffectRef(state_id, "State"),
         (TypeBinder("state"),),
         (get,),
     )

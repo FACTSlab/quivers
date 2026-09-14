@@ -72,7 +72,6 @@ from quivers.qiec import (
     IndexLiteral,
     IndexSort,
     IndexVariable,
-    InterfaceEvolution,
     Kind,
     KernelError,
     KernelRegistry,
@@ -742,38 +741,15 @@ class _Elaborator:
         for declaration in declarations:
             if declaration.name in self.effects:
                 self._fail(declaration, f"duplicate effect {declaration.name!r}")
-            if declaration.duplicate_options:
-                self._fail(
-                    declaration,
-                    "duplicate effect option(s): "
-                    f"{', '.join(declaration.duplicate_options)}",
-                    code="qiec-handler",
-                )
-            if declaration.interface_version < 1:
-                self._fail(
-                    declaration,
-                    "effect interface versions start at one",
-                    code="qiec-handler",
-                )
             effect_id = EffectId.derive(
                 self.source.module_name,
                 "effect",
                 declaration.name,
-                declaration.interface_version,
             )
             telescope = self._lower_telescope(declaration.binders)
-            ref = EffectRef(
-                effect_id,
-                declaration.name,
-                declaration.interface_version,
-            )
+            ref = EffectRef(effect_id, declaration.name)
             try:
-                self.effects[declaration.name] = EffectDef(
-                    ref,
-                    telescope,
-                    (),
-                    InterfaceEvolution(declaration.evolution),
-                )
+                self.effects[declaration.name] = EffectDef(ref, telescope, ())
             except (TypeError, ValueError) as error:
                 self._fail(declaration, str(error), code="qiec-handler")
 
@@ -800,8 +776,7 @@ class _Elaborator:
                 lowered_operations.append(
                     OperationDef(
                         OperationId.derive(
-                            effect_id,
-                            declaration.interface_version,
+                            str(effect_id),
                             operation.name,
                         ),
                         operation.name,
@@ -822,7 +797,6 @@ class _Elaborator:
                     header.ref,
                     telescope,
                     operations,
-                    header.evolution,
                 )
             except (TypeError, ValueError) as error:
                 self._fail(declaration, str(error), code="qiec-handler")

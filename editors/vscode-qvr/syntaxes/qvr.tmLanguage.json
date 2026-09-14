@@ -123,9 +123,9 @@
       "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss|define|index|family|constructor|effect|instance|handler)\\b"
     },
     "keyword-qiec-modifier": {
-      "comment": "QIEC kinds, handler coverage, interface evolution, and resumption grades.",
+      "comment": "QIEC kinds, handler coverage, forwarding, and resumption grades.",
       "name": "storage.modifier.qvr",
-      "match": "\\b(Type|Effect|Row|Shape|Context|sealed|forwarding|total|partial|aff|omega|version|evolution|coverage|forwards|introduces)\\b"
+      "match": "\\b(Type|Effect|Row|Shape|Context|total|partial|aff|omega|coverage|forwards|introduces)\\b"
     },
     "keyword-composition-level": {
       "comment": "Composition-level names carried by `[level=...]` option values.",
@@ -199,7 +199,7 @@
       "match": "\\b(Normal|LogitNormal|Beta|TruncatedNormal|Truncated|Dirichlet|Bernoulli|Categorical|Uniform|Cauchy|Laplace|Gumbel|LogNormal|StudentT|Exponential|Gamma|Chi2|HalfCauchy|HalfNormal|InverseGamma|Weibull|Pareto|Kumaraswamy|ContinuousBernoulli|FisherSnedecor|MultivariateNormal|LowRankMVN|RelaxedBernoulli|RelaxedOneHotCategorical|Wishart|Flow|LKJCorrelationFactor)\\b"
     },
     "qiec-option-value": {
-      "comment": "QIEC option values for omitted compatibility and evolution metadata.",
+      "comment": "QIEC handler-forwarding option values.",
       "name": "constant.language.qvr",
       "match": "\\b(unknown|none)\\b"
     },

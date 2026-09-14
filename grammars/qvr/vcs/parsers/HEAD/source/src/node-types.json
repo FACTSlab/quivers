@@ -2178,16 +2178,6 @@
             "named": true
           }
         ]
-      },
-      "options": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "qiec_effect_options",
-            "named": true
-          }
-        ]
       }
     }
   },
@@ -6833,52 +6823,6 @@
     }
   },
   {
-    "type": "qiec_effect_option",
-    "named": true,
-    "fields": {
-      "evolution": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "forwarding",
-            "named": false
-          },
-          {
-            "type": "sealed",
-            "named": false
-          }
-        ]
-      },
-      "version": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "integer",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "qiec_effect_options",
-    "named": true,
-    "fields": {
-      "entries": {
-        "multiple": true,
-        "required": true,
-        "types": [
-          {
-            "type": "qiec_effect_option",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "qiec_effect_ref",
     "named": true,
     "fields": {
@@ -9926,10 +9870,6 @@
     "named": false
   },
   {
-    "type": "evolution",
-    "named": false
-  },
-  {
     "type": "export",
     "named": false
   },
@@ -9951,10 +9891,6 @@
   },
   {
     "type": "for",
-    "named": false
-  },
-  {
-    "type": "forwarding",
     "named": false
   },
   {
@@ -10199,10 +10135,6 @@
     "named": false
   },
   {
-    "type": "sealed",
-    "named": false
-  },
-  {
     "type": "signature",
     "named": false
   },
@@ -10252,10 +10184,6 @@
   },
   {
     "type": "var_init",
-    "named": false
-  },
-  {
-    "type": "version",
     "named": false
   },
   {
