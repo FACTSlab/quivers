@@ -55,6 +55,7 @@ from quivers.dsl.ast_nodes.declarations import (
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
+    LetExprBool,
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
@@ -64,6 +65,8 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprMethodCall,
     LetExprNode,
     LetExprString,
+    LetExprTuple,
+    LetExprUnit,
     LetExprUnaryOp,
     LetExprVar,
     LetFactorBinder,
@@ -568,6 +571,76 @@ def _floor_expr(name: str, coordinate: int) -> LetExprNode:
         ),
         right=LetExprLiteral(value=2.0),
     )
+
+
+_ARITHMETIC_OPERATORS = frozenset(("+", "-", "*", "/"))
+
+
+def _require_arithmetic_expression(expr: LetExprNode) -> None:
+    """Refuse a program-step expression the renderers cannot spell.
+
+    The shared expression tree admits comparison, Boolean, and tuple
+    forms because QIEC values use them, but a ``program`` let or score
+    step reaches the eleven renderers through their arithmetic lowering
+    alone. Refusing here names the construct precisely instead of letting
+    a renderer emit an operator its target reads differently.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The step's expression.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the expression uses an operator outside ``+ - * /``, Boolean
+        negation, a tuple, or a Boolean or unit literal.
+    """
+    kinds: set[str] = set()
+
+    def visit(node: LetExprNode) -> None:
+        if isinstance(node, LetExprBinOp):
+            if node.op not in _ARITHMETIC_OPERATORS:
+                kinds.add(f"let:operator:{node.op}")
+            visit(node.left)
+            visit(node.right)
+        elif isinstance(node, LetExprUnaryOp):
+            if node.op != "-":
+                kinds.add("let:operator:not")
+            visit(node.operand)
+        elif isinstance(node, LetExprTuple):
+            kinds.add("let:tuple")
+            for item in node.items:
+                visit(item)
+        elif isinstance(node, LetExprBool | LetExprUnit):
+            kinds.add(
+                f"let:literal:{type(node).__name__.removeprefix('LetExpr').lower()}"
+            )
+        elif isinstance(node, LetExprCall):
+            for argument in node.args:
+                visit(argument)
+        elif isinstance(node, LetExprIndex):
+            visit(node.array)
+            for index in node.indices:
+                visit(index)
+        elif isinstance(node, LetExprList):
+            for item in node.items:
+                visit(item)
+        elif isinstance(node, LetExprLambda):
+            visit(node.body)
+        elif isinstance(node, LetExprMethodCall):
+            visit(node.receiver)
+            for argument in node.args:
+                visit(argument)
+        elif isinstance(node, LetExprFactor):
+            if node.body is not None:
+                visit(node.body)
+            for case in node.cases:
+                visit(case.value)
+
+    visit(expr)
+    if kinds:
+        raise UnsupportedConstruct("qvr-lower", sorted(kinds))
 
 
 class Lower(dx.Mapping[Module, IRProgram]):
@@ -1269,6 +1342,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         dims). Renderers use the plate to choose the declared type
         (`array[...] real` vs `real`).
         """
+        _require_arithmetic_expression(step.value)
         plate = _let_step_plate(step.value, ctx)
         return IRDeterministic(
             name=step.name,
@@ -1278,6 +1352,7 @@ class Lower(dx.Mapping[Module, IRProgram]):
         )
 
     def _lower_score(self, step: ScoreStep) -> IRScore:
+        _require_arithmetic_expression(step.value)
         return IRScore(name=step.name, expr=step.value)
 
     def _lower_args(

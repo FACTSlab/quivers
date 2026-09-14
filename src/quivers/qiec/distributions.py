@@ -1,0 +1,1235 @@
+"""Runtime distributions for the reference evaluator.
+
+A :class:`DistributionValue` evaluates to a :class:`RuntimeDistribution`: the
+family's name and its named arguments as host values, with no host library
+behind it. Sampling and log densities go through a backend. The reference
+backend here implements the scalar and simplex families in plain Python, so
+the reference machine can run a model end to end and be compared against
+an independent oracle; a host provider may install a backend that covers
+every family through its own library.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+import math
+import random
+from types import MappingProxyType
+from typing import Protocol
+
+
+class DistributionError(ValueError):
+    """A distribution could not be constructed, sampled, or scored."""
+
+
+class DistributionBackend(Protocol):
+    """What a host must supply to sample and score a family."""
+
+    def sample(
+        self, family: str, arguments: Mapping[str, object], rng: random.Random
+    ) -> object:
+        """Draw one value.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+        rng : random.Random
+            The generator to draw from.
+
+        Returns
+        -------
+        object
+            The drawn host value.
+        """
+        ...
+
+    def log_prob(
+        self, family: str, arguments: Mapping[str, object], value: object
+    ) -> float:
+        """Evaluate the log density at a value.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+        value : object
+            The point evaluated.
+
+        Returns
+        -------
+        float
+            The log density.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeDistribution:
+    """A constructed distribution, as host data.
+
+    Parameters
+    ----------
+    family
+        The family's source name.
+    arguments
+        The named parameters as host values; frozen on construction.
+    """
+
+    family: str
+    arguments: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        """Freeze the arguments so a distribution value cannot drift."""
+        object.__setattr__(self, "arguments", MappingProxyType(dict(self.arguments)))
+
+    def sample(self, rng: random.Random | None = None) -> object:
+        """Draw one value through the installed backend.
+
+        Parameters
+        ----------
+        rng : random.Random | None
+            The generator to draw from; the module generator by default,
+            which :func:`seed_reference_rng` controls.
+
+        Returns
+        -------
+        object
+            The drawn host value.
+
+        Raises
+        ------
+        DistributionError
+            If the backend cannot sample the family.
+        """
+        return _backend.sample(self.family, self.arguments, rng or _RNG)
+
+    def log_prob(self, value: object) -> float:
+        """Evaluate the log density at a value through the installed backend.
+
+        Parameters
+        ----------
+        value : object
+            The point evaluated.
+
+        Returns
+        -------
+        float
+            The log density.
+
+        Raises
+        ------
+        DistributionError
+            If the backend cannot score the family.
+        """
+        return _backend.log_prob(self.family, self.arguments, value)
+
+
+def _real(arguments: Mapping[str, object], name: str, family: str) -> float:
+    """Read one real-valued parameter.
+
+    Parameters
+    ----------
+    arguments : Mapping[str, object]
+        The named parameters.
+    name : str
+        The parameter wanted.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    float
+        The parameter as a float.
+
+    Raises
+    ------
+    DistributionError
+        If the parameter is absent or not a number.
+    """
+    try:
+        value = arguments[name]
+    except KeyError as error:
+        raise DistributionError(
+            f"reference backend needs parameter {name!r} of {family}"
+        ) from error
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise DistributionError(f"parameter {name!r} of {family} is not a number")
+    return float(value)
+
+
+def _vector(
+    arguments: Mapping[str, object], name: str, family: str
+) -> tuple[float, ...]:
+    """Read one vector-valued parameter.
+
+    Parameters
+    ----------
+    arguments : Mapping[str, object]
+        The named parameters.
+    name : str
+        The parameter wanted.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    tuple[float, ...]
+        The parameter's components.
+
+    Raises
+    ------
+    DistributionError
+        If the parameter is absent or not a sequence of numbers.
+    """
+    try:
+        value = arguments[name]
+    except KeyError as error:
+        raise DistributionError(
+            f"reference backend needs parameter {name!r} of {family}"
+        ) from error
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise DistributionError(f"parameter {name!r} of {family} is not a vector")
+    return tuple(float(item) for item in value)
+
+
+def _probabilities(arguments: Mapping[str, object], family: str) -> float:
+    """The success probability of a Bernoulli-like family.
+
+    Parameters
+    ----------
+    arguments : Mapping[str, object]
+        The named parameters, holding ``probs`` or ``logits``.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    float
+        The probability, from ``probs`` directly or ``logits`` through the
+        logistic function.
+
+    Raises
+    ------
+    DistributionError
+        If neither parameterization is supplied.
+    """
+    if "probs" in arguments:
+        return _real(arguments, "probs", family)
+    if "logits" in arguments:
+        return 1.0 / (1.0 + math.exp(-_real(arguments, "logits", family)))
+    raise DistributionError(f"{family} needs probs or logits")
+
+
+def _simplex(arguments: Mapping[str, object], family: str) -> tuple[float, ...]:
+    """The category probabilities of a categorical-like family.
+
+    Parameters
+    ----------
+    arguments : Mapping[str, object]
+        The named parameters, holding ``probs`` or ``logits``.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    tuple[float, ...]
+        Probabilities summing to one, from ``probs`` normalized or
+        ``logits`` through the softmax.
+
+    Raises
+    ------
+    DistributionError
+        If neither parameterization is supplied.
+    """
+    if "probs" in arguments:
+        probs = _vector(arguments, "probs", family)
+        total = sum(probs)
+        return tuple(item / total for item in probs)
+    if "logits" in arguments:
+        logits = _vector(arguments, "logits", family)
+        peak = max(logits)
+        weights = [math.exp(item - peak) for item in logits]
+        total = sum(weights)
+        return tuple(item / total for item in weights)
+    raise DistributionError(f"{family} needs probs or logits")
+
+
+def _log_choose(n: float, k: float) -> float:
+    """``log C(n, k)`` through the log-gamma function.
+
+    Parameters
+    ----------
+    n : float
+        The number of trials.
+    k : float
+        The number of successes.
+
+    Returns
+    -------
+    float
+        The log binomial coefficient.
+    """
+    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+
+
+def _normal_log_prob(value: float, loc: float, scale: float) -> float:
+    """The log density of a normal distribution.
+
+    Parameters
+    ----------
+    value : float
+        The point.
+    loc : float
+        The mean.
+    scale : float
+        The standard deviation.
+
+    Returns
+    -------
+    float
+        The log density.
+    """
+    return (
+        -0.5 * ((value - loc) / scale) ** 2
+        - math.log(scale)
+        - 0.5 * math.log(2 * math.pi)
+    )
+
+
+type Sampler = Callable[[Mapping[str, object], random.Random], object]
+type Density = Callable[[Mapping[str, object], object], float]
+
+
+def _finite_value(value: object, family: str) -> float:
+    """Read the point a scalar family is scored at.
+
+    Parameters
+    ----------
+    value : object
+        The point.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    float
+        The point as a float.
+
+    Raises
+    ------
+    DistributionError
+        If the point is not a number.
+    """
+    if isinstance(value, bool):
+        return float(value)
+    if not isinstance(value, int | float):
+        raise DistributionError(f"{family} is scored at a non-numeric value {value!r}")
+    return float(value)
+
+
+def _normal_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Normal``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.gauss(_real(a, "loc", "Normal"), _real(a, "scale", "Normal"))
+
+
+def _normal_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Normal`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    return _normal_log_prob(
+        _finite_value(value, "Normal"),
+        _real(a, "loc", "Normal"),
+        _real(a, "scale", "Normal"),
+    )
+
+
+def _lognormal_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``LogNormal``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return math.exp(
+        rng.gauss(_real(a, "loc", "LogNormal"), _real(a, "scale", "LogNormal"))
+    )
+
+
+def _lognormal_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``LogNormal`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "LogNormal")
+    if point <= 0:
+        return -math.inf
+    return _normal_log_prob(
+        math.log(point),
+        _real(a, "loc", "LogNormal"),
+        _real(a, "scale", "LogNormal"),
+    ) - math.log(point)
+
+
+def _halfnormal_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``HalfNormal``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return abs(rng.gauss(0.0, _real(a, "scale", "HalfNormal")))
+
+
+def _halfnormal_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``HalfNormal`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "HalfNormal")
+    if point < 0:
+        return -math.inf
+    return math.log(2.0) + _normal_log_prob(point, 0.0, _real(a, "scale", "HalfNormal"))
+
+
+def _bernoulli_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Bernoulli``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.random() < _probabilities(a, "Bernoulli")
+
+
+def _bernoulli_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Bernoulli`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    probability = _probabilities(a, "Bernoulli")
+    hit = bool(_finite_value(value, "Bernoulli"))
+    chance = probability if hit else 1.0 - probability
+    return math.log(chance) if chance > 0 else -math.inf
+
+
+def _categorical_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Categorical``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    probs = _simplex(a, "Categorical")
+    draw = rng.random()
+    cumulative = 0.0
+    for index, probability in enumerate(probs):
+        cumulative += probability
+        if draw < cumulative:
+            return index
+    return len(probs) - 1
+
+
+def _categorical_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Categorical`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    probs = _simplex(a, "Categorical")
+    index = int(_finite_value(value, "Categorical"))
+    if not 0 <= index < len(probs) or probs[index] <= 0:
+        return -math.inf
+    return math.log(probs[index])
+
+
+def _beta_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Beta``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.betavariate(
+        _real(a, "concentration1", "Beta"), _real(a, "concentration0", "Beta")
+    )
+
+
+def _beta_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Beta`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Beta")
+    alpha = _real(a, "concentration1", "Beta")
+    beta = _real(a, "concentration0", "Beta")
+    if not 0 < point < 1:
+        return -math.inf
+    return (
+        (alpha - 1) * math.log(point)
+        + (beta - 1) * math.log1p(-point)
+        + math.lgamma(alpha + beta)
+        - math.lgamma(alpha)
+        - math.lgamma(beta)
+    )
+
+
+def _gamma_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Gamma``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.gammavariate(
+        _real(a, "concentration", "Gamma"), 1.0 / _real(a, "rate", "Gamma")
+    )
+
+
+def _gamma_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Gamma`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Gamma")
+    shape = _real(a, "concentration", "Gamma")
+    rate = _real(a, "rate", "Gamma")
+    if point <= 0:
+        return -math.inf
+    return (
+        shape * math.log(rate)
+        + (shape - 1) * math.log(point)
+        - rate * point
+        - math.lgamma(shape)
+    )
+
+
+def _exponential_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Exponential``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.expovariate(_real(a, "rate", "Exponential"))
+
+
+def _exponential_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Exponential`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Exponential")
+    rate = _real(a, "rate", "Exponential")
+    return math.log(rate) - rate * point if point >= 0 else -math.inf
+
+
+def _uniform_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Uniform``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    return rng.uniform(_real(a, "low", "Uniform"), _real(a, "high", "Uniform"))
+
+
+def _uniform_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Uniform`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Uniform")
+    low = _real(a, "low", "Uniform")
+    high = _real(a, "high", "Uniform")
+    return -math.log(high - low) if low <= point < high else -math.inf
+
+
+def _poisson_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Poisson``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    rate = _real(a, "rate", "Poisson")
+    # Knuth's method, exact for the moderate rates a reference run uses.
+    limit = math.exp(-rate)
+    count = 0
+    product = rng.random()
+    while product > limit:
+        count += 1
+        product *= rng.random()
+    return count
+
+
+def _poisson_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Poisson`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    count = int(_finite_value(value, "Poisson"))
+    rate = _real(a, "rate", "Poisson")
+    if count < 0:
+        return -math.inf
+    return count * math.log(rate) - rate - math.lgamma(count + 1)
+
+
+def _binomial_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Binomial``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    trials = int(_real(a, "total_count", "Binomial"))
+    probability = _probabilities(a, "Binomial")
+    return sum(1 for _ in range(trials) if rng.random() < probability)
+
+
+def _binomial_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Binomial`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    count = int(_finite_value(value, "Binomial"))
+    trials = int(_real(a, "total_count", "Binomial"))
+    probability = _probabilities(a, "Binomial")
+    if not 0 <= count <= trials:
+        return -math.inf
+    return (
+        _log_choose(trials, count)
+        + count * math.log(probability)
+        + (trials - count) * math.log1p(-probability)
+    )
+
+
+def _geometric_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Geometric``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    probability = _probabilities(a, "Geometric")
+    failures = 0
+    while rng.random() >= probability:
+        failures += 1
+    return failures
+
+
+def _geometric_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Geometric`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    failures = int(_finite_value(value, "Geometric"))
+    probability = _probabilities(a, "Geometric")
+    if failures < 0:
+        return -math.inf
+    return failures * math.log1p(-probability) + math.log(probability)
+
+
+def _laplace_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Laplace``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    loc = _real(a, "loc", "Laplace")
+    scale = _real(a, "scale", "Laplace")
+    draw = rng.random() - 0.5
+    return loc - scale * math.copysign(1.0, draw) * math.log1p(-2 * abs(draw))
+
+
+def _laplace_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Laplace`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Laplace")
+    scale = _real(a, "scale", "Laplace")
+    return -abs(point - _real(a, "loc", "Laplace")) / scale - math.log(2 * scale)
+
+
+def _cauchy_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Cauchy``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    loc = _real(a, "loc", "Cauchy")
+    scale = _real(a, "scale", "Cauchy")
+    return loc + scale * math.tan(math.pi * (rng.random() - 0.5))
+
+
+def _cauchy_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Cauchy`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "Cauchy")
+    loc = _real(a, "loc", "Cauchy")
+    scale = _real(a, "scale", "Cauchy")
+    return -math.log(math.pi * scale) - math.log1p(((point - loc) / scale) ** 2)
+
+
+def _studentt_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``StudentT``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    df = _real(a, "df", "StudentT")
+    loc = _real(a, "loc", "StudentT")
+    scale = _real(a, "scale", "StudentT")
+    draw = rng.gauss(0.0, 1.0)
+    chi = rng.gammavariate(df / 2.0, 2.0)
+    return loc + scale * draw / math.sqrt(chi / df)
+
+
+def _studentt_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``StudentT`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+    """
+    point = _finite_value(value, "StudentT")
+    df = _real(a, "df", "StudentT")
+    loc = _real(a, "loc", "StudentT")
+    scale = _real(a, "scale", "StudentT")
+    standardized = (point - loc) / scale
+    return (
+        math.lgamma((df + 1) / 2)
+        - math.lgamma(df / 2)
+        - 0.5 * math.log(df * math.pi)
+        - math.log(scale)
+        - (df + 1) / 2 * math.log1p(standardized**2 / df)
+    )
+
+
+def _dirichlet_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Dirichlet``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        The drawn value.
+    """
+    concentration = _vector(a, "concentration", "Dirichlet")
+    draws = [rng.gammavariate(item, 1.0) for item in concentration]
+    total = sum(draws)
+    return tuple(item / total for item in draws)
+
+
+def _dirichlet_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Dirichlet`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The log density, ``-inf`` outside the support.
+
+    Raises
+    ------
+    DistributionError
+        If the point is not a vector of the concentration's length.
+    """
+    concentration = _vector(a, "concentration", "Dirichlet")
+    if not isinstance(value, Sequence) or len(value) != len(concentration):
+        raise DistributionError("Dirichlet is scored at a non-vector value")
+    point = tuple(float(item) for item in value)
+    if any(item <= 0 for item in point):
+        return -math.inf
+    return (
+        math.lgamma(sum(concentration))
+        - sum(math.lgamma(item) for item in concentration)
+        + sum(
+            (alpha - 1) * math.log(item)
+            for alpha, item in zip(concentration, point, strict=True)
+        )
+    )
+
+
+#: Reference samplers by family name.
+_SAMPLERS: Mapping[str, Sampler] = MappingProxyType(
+    {
+        "Normal": _normal_sample,
+        "LogNormal": _lognormal_sample,
+        "HalfNormal": _halfnormal_sample,
+        "Bernoulli": _bernoulli_sample,
+        "Categorical": _categorical_sample,
+        "Beta": _beta_sample,
+        "Gamma": _gamma_sample,
+        "Exponential": _exponential_sample,
+        "Uniform": _uniform_sample,
+        "Poisson": _poisson_sample,
+        "Binomial": _binomial_sample,
+        "Geometric": _geometric_sample,
+        "Laplace": _laplace_sample,
+        "Cauchy": _cauchy_sample,
+        "StudentT": _studentt_sample,
+        "Dirichlet": _dirichlet_sample,
+    }
+)
+
+#: Reference log densities by family name.
+_DENSITIES: Mapping[str, Density] = MappingProxyType(
+    {
+        "Normal": _normal_density,
+        "LogNormal": _lognormal_density,
+        "HalfNormal": _halfnormal_density,
+        "Bernoulli": _bernoulli_density,
+        "Categorical": _categorical_density,
+        "Beta": _beta_density,
+        "Gamma": _gamma_density,
+        "Exponential": _exponential_density,
+        "Uniform": _uniform_density,
+        "Poisson": _poisson_density,
+        "Binomial": _binomial_density,
+        "Geometric": _geometric_density,
+        "Laplace": _laplace_density,
+        "Cauchy": _cauchy_density,
+        "StudentT": _studentt_density,
+        "Dirichlet": _dirichlet_density,
+    }
+)
+
+
+class ReferenceBackend:
+    """Plain-Python sampling and scoring for the scalar and simplex families.
+
+    The tables cover what a reference run of an ordinary model needs; a
+    family outside them is reported by name rather than approximated, so a
+    host provider can be installed for it.
+    """
+
+    @property
+    def families(self) -> frozenset[str]:
+        """The families this backend implements.
+
+        Returns
+        -------
+        frozenset[str]
+            The family names.
+        """
+        return frozenset(_SAMPLERS)
+
+    def sample(
+        self, family: str, arguments: Mapping[str, object], rng: random.Random
+    ) -> object:
+        """Draw one value from an implemented family.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+        rng : random.Random
+            The generator to draw from.
+
+        Returns
+        -------
+        object
+            The drawn value: a float, an int, a bool, or a tuple of floats.
+
+        Raises
+        ------
+        DistributionError
+            If the family is not implemented here or a parameter is
+            missing or malformed.
+        """
+        sampler = _SAMPLERS.get(family)
+        if sampler is None:
+            raise DistributionError(
+                f"the reference backend cannot sample {family}; install a "
+                "distribution backend for it"
+            )
+        return sampler(arguments, rng)
+
+    def log_prob(
+        self, family: str, arguments: Mapping[str, object], value: object
+    ) -> float:
+        """Evaluate the log density of an implemented family.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+        value : object
+            The point evaluated.
+
+        Returns
+        -------
+        float
+            The log density, ``-inf`` outside the support.
+
+        Raises
+        ------
+        DistributionError
+            If the family is not implemented here or a parameter or the
+            point is malformed.
+        """
+        density = _DENSITIES.get(family)
+        if density is None:
+            raise DistributionError(
+                f"the reference backend cannot score {family}; install a "
+                "distribution backend for it"
+            )
+        return density(arguments, value)
+
+
+_RNG = random.Random(0)
+_backend: DistributionBackend = ReferenceBackend()
+
+
+def seed_reference_rng(seed: int) -> None:
+    """Reseed the generator reference draws use by default.
+
+    Parameters
+    ----------
+    seed : int
+        The seed; two runs seeded alike draw alike.
+    """
+    _RNG.seed(seed)
+
+
+def distribution_backend() -> DistributionBackend:
+    """The backend distribution values currently sample and score through.
+
+    Returns
+    -------
+    DistributionBackend
+        The installed backend; the reference backend until replaced.
+    """
+    return _backend
+
+
+def install_distribution_backend(backend: DistributionBackend) -> DistributionBackend:
+    """Replace the backend distribution values sample and score through.
+
+    Parameters
+    ----------
+    backend : DistributionBackend
+        The backend to install, such as one over a host library that
+        covers every family.
+
+    Returns
+    -------
+    DistributionBackend
+        The backend that was installed before, so a caller can restore it.
+    """
+    global _backend
+    previous = _backend
+    _backend = backend
+    return previous
+
+
+__all__ = [
+    "DistributionBackend",
+    "DistributionError",
+    "ReferenceBackend",
+    "RuntimeDistribution",
+    "distribution_backend",
+    "install_distribution_backend",
+    "seed_reference_rng",
+]

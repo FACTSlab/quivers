@@ -19,6 +19,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecBinder,
     QiecBindComputation,
     QiecCaseComputation,
+    QiecIfComputation,
     QiecComputation,
     QiecComputationDecl,
     QiecEffectDecl,
@@ -430,6 +431,14 @@ def _visible_computation_locals(
         return _visible_computation_locals(child, source_line, source_col)
     if isinstance(computation, QiecHandleComputation):
         return _visible_computation_locals(computation.body, source_line, source_col)
+    if isinstance(computation, QiecIfComputation):
+        otherwise_line = getattr(computation.otherwise, "line", 0)
+        branch = (
+            computation.otherwise
+            if otherwise_line and source_line >= otherwise_line
+            else computation.then
+        )
+        return _visible_computation_locals(branch, source_line, source_col)
     if isinstance(computation, QiecCaseComputation):
         # Motive indices scope only over the motive result on the case line;
         # branches receive fresh constructor-pattern statics instead.

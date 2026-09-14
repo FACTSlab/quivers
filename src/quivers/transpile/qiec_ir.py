@@ -378,6 +378,87 @@ class IRQiecProjection(IRQiecValue):
     kind: Literal["projection"] = "projection"
 
 
+class IRQiecNamedArgument(dx.Model):
+    """One named argument of a distribution construction.
+
+    Parameters
+    ----------
+    name
+        The family parameter supplied.
+    value
+        The value supplied for it.
+    """
+
+    name: str
+    value: IRQiecValue
+
+
+class IRQiecDistributionValue(IRQiecValue):
+    """Construction of a distribution from a family of the registry.
+
+    Parameters
+    ----------
+    family
+        The family's stable identity.
+    name
+        The family's source name.
+    arguments
+        The named parameters, in source order.
+    result_type
+        The ``Sampleable`` type constructed.
+    origin
+        The construction's source location.
+    kind
+        The discriminator; always ``"distribution"``.
+    """
+
+    family: IRQiecId
+    name: str
+    arguments: tuple[IRQiecNamedArgument, ...]
+    result_type: IRQiecStatic
+    origin: IRQiecSourceOrigin
+    kind: Literal["distribution"] = "distribution"
+
+
+class IRQiecLogDensity(IRQiecValue):
+    """Evaluation of a distribution's log density at a value.
+
+    Parameters
+    ----------
+    sampleable
+        The distribution.
+    value
+        The point evaluated.
+    origin
+        The evaluation's source location.
+    kind
+        The discriminator; always ``"log_density"``.
+    """
+
+    sampleable: IRQiecValue
+    value: IRQiecValue
+    origin: IRQiecSourceOrigin
+    kind: Literal["log_density"] = "log_density"
+
+
+class IRQiecSiteValue(IRQiecValue):
+    """A named sample site.
+
+    Parameters
+    ----------
+    label
+        The site's source name.
+    result_type
+        The ``Site`` type of the value it produces.
+    kind
+        The discriminator; always ``"site"``.
+    """
+
+    label: str
+    result_type: IRQiecStatic
+    kind: Literal["site"] = "site"
+
+
 class IRQiecTransportValue(IRQiecValue):
     evidence: IRQiecEvidence
     value: IRQiecValue
@@ -442,6 +523,27 @@ class IRQiecCase(IRQiecComputation):
     motive: IRQiecCaseMotive
     branches: tuple[IRQiecCaseBranch, ...]
     kind: Literal["case"] = "case"
+
+
+class IRQiecIf(IRQiecComputation):
+    """Branch on a Boolean value.
+
+    Parameters
+    ----------
+    condition
+        The Boolean value branched on.
+    then
+        The computation run when the condition holds.
+    otherwise
+        The computation run when it does not.
+    kind
+        The discriminator; always ``"if"``.
+    """
+
+    condition: IRQiecValue
+    then: IRQiecComputation
+    otherwise: IRQiecComputation
+    kind: Literal["if"] = "if"
 
 
 class IRQiecCall(IRQiecComputation):
@@ -841,6 +943,28 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             value=cast(IRQiecValue, _convert(value.value)),
             target_type=cast(IRQiecStatic, _convert(value.target_type)),
         )
+    if isinstance(value, tm.DistributionValue):
+        return IRQiecDistributionValue(
+            family=_id(value.family),
+            name=value.name,
+            arguments=tuple(
+                IRQiecNamedArgument(name=name, value=cast(IRQiecValue, _convert(item)))
+                for name, item in value.arguments
+            ),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
+    if isinstance(value, tm.LogDensity):
+        return IRQiecLogDensity(
+            sampleable=cast(IRQiecValue, _convert(value.sampleable)),
+            value=cast(IRQiecValue, _convert(value.value)),
+            origin=cast(IRQiecSourceOrigin, _convert(value.origin)),
+        )
+    if isinstance(value, tm.SiteValue):
+        return IRQiecSiteValue(
+            label=value.label,
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
     if isinstance(value, tm.PrimitiveApplication):
         return IRQiecPrimitiveApplication(
             primitive=_id(value.primitive),
@@ -912,6 +1036,12 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             motive=cast(IRQiecCaseMotive, _convert(value.motive)),
             branches=cast(tuple[IRQiecCaseBranch, ...], _convert(value.branches)),
         )
+    if isinstance(value, tm.If):
+        return IRQiecIf(
+            condition=cast(IRQiecValue, _convert(value.condition)),
+            then=cast(IRQiecComputation, _convert(value.then)),
+            otherwise=cast(IRQiecComputation, _convert(value.otherwise)),
+        )
     if isinstance(value, tm.Call):
         return IRQiecCall(
             callee=_id(value.callee),
@@ -973,6 +1103,7 @@ type QiecFeature = Literal[
     "perform",
     "handle",
     "case",
+    "if",
     "call",
     "recursion",
     "resume",
@@ -985,6 +1116,9 @@ type QiecFeature = Literal[
     "conversion",
     "math",
     "tuple",
+    "distribution",
+    "log-density",
+    "site",
     "evidence",
     "transport",
     "attachment",
@@ -1048,6 +1182,7 @@ _GENERIC_RUNTIME = QiecTargetCapabilities(
             "perform",
             "handle",
             "case",
+            "if",
             "call",
             "recursion",
             "resume",
@@ -1193,6 +1328,16 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
         elif isinstance(item, IRQiecProjection):
             required.add("tuple")
             value(item.value)
+        elif isinstance(item, IRQiecDistributionValue):
+            required.add("distribution")
+            for argument in item.arguments:
+                value(argument.value)
+        elif isinstance(item, IRQiecLogDensity):
+            required.add("log-density")
+            value(item.sampleable)
+            value(item.value)
+        elif isinstance(item, IRQiecSiteValue):
+            required.add("site")
 
     def visit(item: IRQiecComputation) -> None:
         if isinstance(item, IRQiecReturn):
@@ -1215,6 +1360,11 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             value(item.scrutinee)
             for branch in item.branches:
                 visit(branch.body)
+        elif isinstance(item, IRQiecIf):
+            required.add("if")
+            value(item.condition)
+            visit(item.then)
+            visit(item.otherwise)
         elif isinstance(item, IRQiecCall):
             required.add("call")
             for argument in item.arguments:
@@ -1274,6 +1424,9 @@ def _callees(node: IRQiecComputation) -> set[str]:
     elif isinstance(node, IRQiecCase):
         for branch in node.branches:
             out.update(_callees(branch.body))
+    elif isinstance(node, IRQiecIf):
+        out.update(_callees(node.then))
+        out.update(_callees(node.otherwise))
     elif isinstance(node, IRQiecNewInstance):
         out.update(_callees(node.body))
     return out
@@ -1438,6 +1591,9 @@ def _handled_ids(node: IRQiecComputation) -> set[str]:
     elif isinstance(node, IRQiecCase):
         for branch in node.branches:
             out.update(_handled_ids(branch.body))
+    elif isinstance(node, IRQiecIf):
+        out.update(_handled_ids(node.then))
+        out.update(_handled_ids(node.otherwise))
     elif isinstance(node, IRQiecNewInstance):
         out.update(_handled_ids(node.body))
     return out

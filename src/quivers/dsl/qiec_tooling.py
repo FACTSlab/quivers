@@ -22,6 +22,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecHandlerOperationClause,
     QiecHandleComputation,
     QiecCaseComputation,
+    QiecIfComputation,
     QiecBindComputation,
     QiecEffectDecl,
     QiecEffectInstanceDecl,
@@ -500,6 +501,10 @@ def _walk_computation_bindings(
         return
     if isinstance(computation, QiecHandleComputation):
         _walk_computation_bindings(computation.body, owner, out)
+        return
+    if isinstance(computation, QiecIfComputation):
+        _walk_computation_bindings(computation.then, owner, out)
+        _walk_computation_bindings(computation.otherwise, owner, out)
         return
     if isinstance(computation, QiecCaseComputation):
         for branch in computation.branches:

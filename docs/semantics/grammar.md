@@ -598,7 +598,19 @@ computation       := 'return' value
                    | 'handle' IDENT 'with' handler_application 'in' computation
                    | 'with' 'instance' IDENT ':' effect_ref 'in' computation
                    | 'case' value 'motive' [index_telescope] '=>' type branch+
+                   | 'if' expression 'then' computation 'else' computation
 inline            := perform | call | resume
+value             := 'construct' IDENT [static_arguments] '(' [value (',' value)*] ')'
+                     'as' type
+                   | expression
+expression        := expression binop expression | ('-' | 'not') atom | atom
+atom              := IDENT | NUMBER | STRING | 'true' | 'false' | 'unit'
+                   | '(' expression ')'
+                   | '(' expression ',' expression (',' expression)* ')'
+                   | IDENT '[' INT ']'
+                   | IDENT '(' [expression (',' expression)*] ')'
+binop             := '||' | '&&' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '+'
+                   | '-' | '*' | '/' | '%'
 perform           := 'perform' IDENT '.' IDENT [static_arguments]
                      '(' [value (',' value)*] ')'
 call              := IDENT [static_arguments] '(' [value (',' value)*] ')'
@@ -626,6 +638,25 @@ first.
 `let x = VALUE` binds a pure expression and `let x <- COMPUTATION` binds a
 computation's result. They are separate productions with separate typing
 rules, and neither is sugar for the other.
+
+### Pure expressions
+
+QIEC values and `program` let and score steps share one expression grammar.
+Operators bind from loosest to tightest as `||`, `&&`, comparison, `+ -`,
+`* / %`, then unary `-` and `not`; equal precedence associates left. A
+comparison against a negative literal needs parentheses, `x < (-1)`, because
+`<-` is the binding arrow.
+
+In a QIEC value every operator resolves to one primitive of the closed
+registry by the type of its operands, and both operands must have the same
+type: `+` is integer, real, or string concatenation; `%` is integer only;
+`==` and `!=` compare integers, reals, Booleans, or strings; `&&`, `||`, and
+`not` take Booleans. Integer division and remainder truncate toward zero on
+every target. The builtin applications `real`, `int`, `exp`, `log`, `sqrt`,
+`pow`, `abs`, `min`, and `max` resolve the same way. A tuple `(a, b)` builds a
+finite product and `t[i]` with an integer literal selects its component.
+`if COND then ... else ...` branches on a Boolean at computation level, so the
+untaken branch is never entered and a recursive computation can stop.
 
 ### Layout
 

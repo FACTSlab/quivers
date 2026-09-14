@@ -39,21 +39,26 @@ from quivers.qiec.terms import (
     Case,
     Computation,
     ConstructorValue,
+    DistributionValue,
     EvidenceValue,
     Handle,
+    If,
     LiteralValue,
     Local,
+    LogDensity,
     NewInstance,
     Perform,
     PrimitiveApplication,
     Projection,
     Resume,
     Return,
+    SiteValue,
     TransportValue,
     TupleValue,
     Value,
     Var,
 )
+from quivers.qiec.distributions import RuntimeDistribution
 from quivers.qiec.primitives import IMPLEMENTATIONS
 from quivers.qiec.substitution import (
     instantiate_telescope,
@@ -736,9 +741,40 @@ class _ResponseHookFrame:
     hook: ResponseHook
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class _DelimiterFrame:
-    """Stop a nested clause evaluation before consuming its outer context."""
+    """Stop a nested clause evaluation before consuming its outer context.
+
+    Compared by identity: each host resumption or clause evaluation
+    installs its own delimiter, and a value reaching one must return to
+    exactly the host frame that installed it.
+    """
+
+
+class _HostUnwind(BaseException):
+    """A value reached a delimiter installed by an enclosing host resumption.
+
+    A foreign clause resumes by re-entering the machine, and a request in
+    the resumed continuation may be handled by a frame outside that
+    clause's delimited region. When that outer clause in turn resumes and
+    the value comes back to the inner delimiter, the inner host clause is
+    the one that must receive it, and it is below on the host stack. The
+    machine unwinds to it with this signal; the clauses passed over treat
+    the resumed value as their answer, which is what a foreign clause is
+    held to.
+
+    Parameters
+    ----------
+    delimiter
+        The delimiter reached.
+    value
+        The value that reached it.
+    """
+
+    def __init__(self, delimiter: _DelimiterFrame, value: object) -> None:
+        super().__init__("value reached a delimiter of an enclosing host resumption")
+        self.delimiter = delimiter
+        self.value = value
 
 
 @dataclass(frozen=True, slots=True)
@@ -962,13 +998,15 @@ class ClauseContext:
         object
             What the body produced.
         """
-        stack = [*self._outer_stack, _DelimiterFrame()]
+        delimiter = _DelimiterFrame()
+        stack = [*self._outer_stack, delimiter]
         return self._evaluator._evaluate_delimited(
             computation,
             dict(self._environment),
             stack,
             self._outer_stack,
             self._resumption_path,
+            delimiter,
         )
 
     def attach(
@@ -1159,7 +1197,8 @@ class Resumption:
         # Outer handlers remain visible to effects performed by the resumed
         # continuation, but the delimiter prevents normal completion from
         # consuming the continuation outside the handled expression.
-        stack = [*self._outer_stack, _DelimiterFrame(), *captured]
+        delimiter = _DelimiterFrame()
+        stack = [*self._outer_stack, delimiter, *captured]
         protected = (
             *self._outer_stack,
             *captured[: self._owned_start],
@@ -1170,7 +1209,12 @@ class Resumption:
                 dict(self._captured_environment),
                 stack,
                 path,
+                delimiter,
             )
+        except _HostUnwind as unwind:
+            if unwind.delimiter is not delimiter:
+                raise
+            return unwind.value
         finally:
             # A normally returned shot has already exited every copied frame.
             # Exceptional or delimited exits leave some frames live.  Lifecycle
@@ -1461,6 +1505,11 @@ class Evaluator:
                 stack,
                 (),
             )
+        except _HostUnwind as unwind:
+            self._drop_stack(tuple(stack))
+            raise EvaluationError(
+                "a value reached a host delimiter no resumption was waiting on"
+            ) from unwind
         except BaseException:
             self._drop_stack(tuple(stack))
             raise
@@ -1628,6 +1677,27 @@ class Evaluator:
                     f"projection {value.position} from a non-product runtime value"
                 )
             return source[value.position]
+        if isinstance(value, DistributionValue):
+            return RuntimeDistribution(
+                value.name,
+                {
+                    name: self._value(argument, environment)
+                    for name, argument in value.arguments
+                },
+            )
+        if isinstance(value, LogDensity):
+            sampleable = self._value(value.sampleable, environment)
+            log_prob = getattr(sampleable, "log_prob", None)
+            if not callable(log_prob):
+                raise EvaluationError(
+                    "log_prob was given a runtime value with no log density"
+                )
+            try:
+                return log_prob(self._value(value.value, environment))
+            except (ArithmeticError, ValueError) as error:
+                raise EvaluationError(f"log_prob failed: {error}") from error
+        if isinstance(value, SiteValue):
+            return value.label
         raise TypeError(f"unsupported QIEC value {type(value).__name__}")
 
     def _validate_handler_manifest(self, manifest: HandlerManifest) -> None:
@@ -1757,6 +1827,7 @@ class Evaluator:
         environment: dict[Local, object],
         stack: list[_Frame],
         resumption_path: tuple[int, ...],
+        delimiter: _DelimiterFrame | None = None,
     ) -> object:
         """Unwind frames with a returned value until the stack is empty.
 
@@ -1770,6 +1841,10 @@ class Evaluator:
             The frame stack, mutated in place.
         resumption_path : tuple[int, ...]
             The current resumption address.
+        delimiter : _DelimiterFrame or None
+            The delimiter this drive installed and returns at; any other
+            delimiter reached belongs to an enclosing host resumption and
+            unwinds to it.
 
         Returns
         -------
@@ -1782,7 +1857,9 @@ class Evaluator:
         EvaluationError
             If a frame's finalizer or return clause fails.
         """
-        return self._run(_Returned(value), environment, stack, resumption_path)
+        return self._run(
+            _Returned(value), environment, stack, resumption_path, delimiter
+        )
 
     def _run(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -1790,6 +1867,7 @@ class Evaluator:
         environment: dict[Local, object],
         stack: list[_Frame],
         resumption_path: tuple[int, ...],
+        delimiter: _DelimiterFrame | None = None,
     ) -> object:
         """The machine loop: reduce a computation or unwind a returned value.
 
@@ -1810,12 +1888,17 @@ class Evaluator:
             The machine's frame stack, mutated in place.
         resumption_path : tuple[int, ...]
             Which shot of which resumption is running, for addressing.
+        delimiter : _DelimiterFrame or None
+            The delimiter this run returns at. A different delimiter
+            reached belongs to an enclosing host resumption, and the value
+            unwinds to it; ``None`` returns at any delimiter, which is
+            what a clause context's delimited evaluation wants.
 
         Returns
         -------
         object
-            The final value, once the stack is empty or a delimiter is
-            reached.
+            The final value, once the stack is empty or the run's
+            delimiter is reached.
 
         Raises
         ------
@@ -1833,6 +1916,8 @@ class Evaluator:
                     return value
                 frame = stack.pop()
                 if isinstance(frame, _DelimiterFrame):
+                    if delimiter is not None and frame is not delimiter:
+                        raise _HostUnwind(frame, value)
                     return value
                 if isinstance(frame, _ResponseHookFrame):
                     current = _Returned(frame.hook(value))
@@ -1957,6 +2042,14 @@ class Evaluator:
                     )
                 )
                 current = current.computation
+                continue
+            if isinstance(current, If):
+                condition = self._value(current.condition, env)
+                if not isinstance(condition, bool):
+                    raise EvaluationError(
+                        "QIEC if condition did not evaluate to a Boolean"
+                    )
+                current = current.then if condition else current.otherwise
                 continue
             if isinstance(current, Case):
                 scrutinee = self._value(current.scrutinee, env)
@@ -2458,13 +2551,15 @@ class Evaluator:
             return answer
         env = dict(context._environment)
         env.update(answer.bindings)
-        stack = [*context._outer_stack, _DelimiterFrame()]
+        delimiter = _DelimiterFrame()
+        stack = [*context._outer_stack, delimiter]
         return self._evaluate_delimited(
             answer.computation,
             env,
             stack,
             context._outer_stack,
             context._resumption_path,
+            delimiter,
         )
 
     def _evaluate_delimited(
@@ -2474,6 +2569,7 @@ class Evaluator:
         stack: list[_Frame],
         protected: tuple[_Frame, ...],
         resumption_path: tuple[int, ...],
+        delimiter: _DelimiterFrame,
     ) -> object:
         """Evaluate a local computation and finalize only frames it installs.
         Parameters
@@ -2489,6 +2585,10 @@ class Evaluator:
             when it finishes.
         resumption_path : tuple[int, ...]
             The current resumption address.
+        delimiter : _DelimiterFrame
+            The delimiter ending ``stack``, which this evaluation returns
+            at, whether the value arrives by unwinding or by ordinary
+            popping.
 
         Returns
         -------
@@ -2498,12 +2598,13 @@ class Evaluator:
             deep handlers rather than shallow ones.
         """
         try:
-            return self._drive_computation(
-                computation,
-                environment,
-                stack,
-                resumption_path,
+            return self._run(
+                computation, environment, stack, resumption_path, delimiter
             )
+        except _HostUnwind as unwind:
+            if unwind.delimiter is not delimiter:
+                raise
+            return unwind.value
         finally:
             self._drop_local_handlers(tuple(stack), protected)
 

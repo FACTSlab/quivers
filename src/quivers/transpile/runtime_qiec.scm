@@ -1,5 +1,7 @@
 (define (_qvr-qiec-get container key . rest)
-  (let ((entry (and (pair? container) (assoc key container))))
+  ;; Only an association list holds keys; a tuple's item list or any
+  ;; other list answers with the default rather than failing in assoc.
+  (let ((entry (and (_qvr-qiec-alist? container) (assoc key container))))
     (if entry (cdr entry) (if (pair? rest) (car rest) #f))))
 (define (_qvr-qiec-set container key value)
   (cons (cons key value)
@@ -70,6 +72,10 @@
   (set! _qvr-qiec-instance-serial (+ _qvr-qiec-instance-serial 1))
   (_qvr-qiec-call thunk (list (list "instance" _qvr-qiec-instance-serial)) #f))
 (define (_qvr-qiec-resume resume value) (_qvr-qiec-as-computation (resume value)))
+(define (_qvr-qiec-if condition then otherwise)
+  (let ((flag (_qvr-qiec-value condition)))
+    (if (not (boolean? flag)) (error 'qiec "QIEC if condition is not a Boolean"))
+    (if flag (then) (otherwise))))
 ;; The closed primitive table. Names and semantics mirror the kernel registry;
 ;; integer division and remainder truncate toward zero on every host.
 (define _qvr-qiec-primitives

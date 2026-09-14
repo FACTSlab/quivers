@@ -74,6 +74,11 @@ function _qvr_qiec_instance(thunk)
     return _qvr_qiec_call(thunk, Any[Any["instance", _qvr_qiec_serials["instance"]]], false)
 end
 _qvr_qiec_resume(resume, value) = _qvr_qiec_as_computation(resume(value))
+function _qvr_qiec_if(condition, then, otherwise)
+    condition = _qvr_qiec_value(condition)
+    condition isa Bool || error("QIEC if condition is not a Boolean")
+    return condition ? then() : otherwise()
+end
 # The closed primitive table. Names and semantics mirror the kernel registry;
 # integer division and remainder truncate toward zero on every host.
 const _qvr_qiec_primitives = Dict{String, Any}(

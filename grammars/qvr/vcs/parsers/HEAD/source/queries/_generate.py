@@ -85,8 +85,12 @@ NODE_PATTERNS = """\
 (qiec_operation_decl name: (identifier) @function.method)
 (effect_instance_decl name: (identifier) @variable)
 (handler_decl name: (identifier) @function)
-(qiec_handler_clause operation: (identifier) @function.method)
+(qiec_handler_operation_clause operation: (identifier) @function.method)
+(qiec_handler_operation_clause parameters: (qiec_local_binding name: (identifier) @variable.parameter))
+(qiec_handler_return_clause binder: (qiec_local_binding name: (identifier) @variable.parameter))
 (computation_decl name: (identifier) @function)
+(qiec_call_computation callee: (identifier) @function.call)
+(qiec_instance_computation name: (identifier) @variable)
 
 ; QIEC telescope, type, row, and term positions.
 (qiec_type_binder name: (identifier) @type.parameter)
@@ -106,7 +110,6 @@ NODE_PATTERNS = """\
 (qiec_case_branch constructor: (identifier) @constructor)
 (qiec_case_static_binder name: (identifier) @variable.parameter)
 (qiec_constructor_value constructor: (identifier) @constructor)
-(qiec_variable_value name: (identifier) @variable)
 
 ; Handler option openers are lexically fused with ``[`` to keep them
 ; disjoint from static type applications.
@@ -119,8 +122,6 @@ NODE_PATTERNS = """\
 (qiec_shape_sort) @type.builtin
 (qiec_context_sort) @type.builtin
 (qiec_resumption_grade) @constant.builtin
-(qiec_bool_literal) @boolean
-(qiec_unit_literal) @constant.builtin
 
 ; Constructor heads on object expressions.
 (discrete_constructor constructor: _ @type.builtin)
@@ -172,6 +173,9 @@ NODE_PATTERNS = """\
 ; Identifier roles in expressions.
 (expr_ident (identifier) @variable)
 (let_var    (identifier) @variable)
+(let_call   func: (identifier) @function.builtin)
+(let_bool)  @boolean
+(let_unit)  @constant.builtin
 
 ; Sort-kind tokens highlight as type qualifiers.
 (sort_kind) @type.qualifier

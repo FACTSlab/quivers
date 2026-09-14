@@ -51,9 +51,11 @@
   "edge_kinds"
   "effect"
   "effect_depth"
+  "else"
   "encoder"
   "export"
   "factor"
+  "false"
   "family"
   "for"
   "foreign"
@@ -62,6 +64,7 @@
   "from"
   "handle"
   "handler"
+  "if"
   "implementation"
   "in"
   "init"
@@ -80,6 +83,7 @@
   "morphism"
   "motive"
   "none"
+  "not"
   "observe"
   "omega"
   "op"
@@ -104,8 +108,10 @@
   "start"
   "structure"
   "terminal"
+  "then"
   "total"
   "trace"
+  "true"
   "unary"
   "unknown"
   "update"
@@ -170,6 +176,9 @@
 
 [
   "!"
+  "!="
+  "%"
+  "&&"
   "*"
   "+"
   "-"
@@ -178,10 +187,15 @@
   "."
   "/"
   ":"
+  "<"
   "<-"
   "<<"
+  "<="
   "="
+  "=="
   "=>"
+  ">"
+  ">="
   ">>"
   ">>>"
   "@"
@@ -189,6 +203,7 @@
   "|"
   "|-"
   "|->"
+  "||"
   "~"
   "⊢"
 ] @operator
@@ -250,7 +265,6 @@
 (qiec_case_branch constructor: (identifier) @constructor)
 (qiec_case_static_binder name: (identifier) @variable.parameter)
 (qiec_constructor_value constructor: (identifier) @constructor)
-(qiec_variable_value name: (identifier) @variable)
 
 ; Handler option openers are lexically fused with ``[`` to keep them
 ; disjoint from static type applications.
@@ -263,8 +277,6 @@
 (qiec_shape_sort) @type.builtin
 (qiec_context_sort) @type.builtin
 (qiec_resumption_grade) @constant.builtin
-(qiec_bool_literal) @boolean
-(qiec_unit_literal) @constant.builtin
 
 ; Constructor heads on object expressions.
 (discrete_constructor constructor: _ @type.builtin)
@@ -316,6 +328,9 @@
 ; Identifier roles in expressions.
 (expr_ident (identifier) @variable)
 (let_var    (identifier) @variable)
+(let_call   func: (identifier) @function.builtin)
+(let_bool)  @boolean
+(let_unit)  @constant.builtin
 
 ; Sort-kind tokens highlight as type qualifiers.
 (sort_kind) @type.qualifier

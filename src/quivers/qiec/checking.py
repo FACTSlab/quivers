@@ -69,19 +69,31 @@ from quivers.qiec.terms import (
     Case,
     Computation,
     ConstructorValue,
+    DistributionValue,
     EvidenceValue,
     Handle,
+    If,
     LiteralValue,
     Local,
+    LogDensity,
     Perform,
     PrimitiveApplication,
     Projection,
     Return,
+    SiteValue,
     TransportValue,
     TupleValue,
     Value,
     Var,
 )
+from quivers.qiec.canonical import (
+    LOG_WEIGHT,
+    SITE_CONSTRUCTOR,
+    sampleable_type,
+    sampled_element,
+    tensor_shape,
+)
+from quivers.qiec.families import FAMILIES, FamilyParameter
 from quivers.qiec.primitives import PRIMITIVES
 from quivers.qiec.types import (
     BOOL,
@@ -1543,6 +1555,11 @@ def _computation_static_scopes(computation: Computation) -> tuple[StaticScopeId,
         )
     if isinstance(computation, Handle):
         return _computation_static_scopes(computation.computation)
+    if isinstance(computation, If):
+        return (
+            *_computation_static_scopes(computation.then),
+            *_computation_static_scopes(computation.otherwise),
+        )
     if isinstance(computation, Case):
         return tuple(
             scope
@@ -1676,6 +1693,167 @@ def _checked_computation_type(
     return type_
 
 
+def _parameter_expectation(parameter: FamilyParameter, actual: TypeExpr) -> str | None:
+    """Explain why a value's type does not fit a family parameter.
+
+    Parameters
+    ----------
+    parameter : FamilyParameter
+        The parameter, whose constraint and rank fix the admissible
+        types.
+    actual : TypeExpr
+        The supplied value's type.
+
+    Returns
+    -------
+    str | None
+        ``None`` when the type fits, else a description of what the
+        parameter takes. A ``"sampleable"`` parameter takes any
+        ``Sampleable``; a ``"transform"`` parameter takes a ``String``;
+        an integer constraint takes ``Int`` and a Boolean one ``Bool``,
+        otherwise ``Real``; a parameter of rank ``r`` above zero takes a
+        ``Tensor`` of that element with ``r`` dimensions.
+    """
+    if parameter.constraint == "sampleable":
+        return None if sampled_element(actual) is not None else "a Sampleable"
+    if parameter.constraint == "transform":
+        return None if actual == STRING else "a String naming the transforms"
+    if parameter.constraint == "boolean":
+        element: TypeApplication = BOOL
+    elif "integer" in parameter.constraint:
+        element = INT
+    else:
+        element = REAL
+    if parameter.rank == 0:
+        return None if actual == element else f"a {element.constructor.name}"
+    shape = tensor_shape(actual)
+    if shape is None or shape[0] != element or len(shape[1]) != parameter.rank:
+        return f"a Tensor[{element.constructor.name}] of rank {parameter.rank}"
+    return None
+
+
+def _infer_distribution(
+    value: DistributionValue,
+    registry: KernelRegistry,
+    context: CheckContext,
+) -> TypeExpr:
+    """Check a distribution construction against the family registry.
+
+    Parameters
+    ----------
+    value : DistributionValue
+        The construction.
+    registry : KernelRegistry
+        Declarations the argument values are checked against.
+    context : CheckContext
+        Bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        The ``Sampleable`` type the construction claims, once verified.
+
+    Raises
+    ------
+    KernelError
+        If the family is unknown or applied under another family's
+        identity, an argument names no parameter or is repeated, an
+        argument's type does not fit its parameter, the family's event
+        shape cannot be read off the argument that determines it, or the
+        claimed result type disagrees with the family's sample type.
+    """
+    family = FAMILIES.get(value.name)
+    if family is None:
+        raise KernelError(
+            f"unknown distribution family {value.name!r}", "qiec-distribution"
+        )
+    if family.id != value.family:
+        raise KernelError(
+            f"family {value.name!r} is applied under the identity of another family",
+            "qiec-distribution",
+        )
+    seen: set[str] = set()
+    argument_types: dict[str, TypeExpr] = {}
+    for name, argument in value.arguments:
+        if name in seen:
+            raise KernelError(
+                f"family {value.name!r} is given parameter {name!r} twice",
+                "qiec-distribution",
+            )
+        seen.add(name)
+        try:
+            parameter = family.parameter(name)
+        except KeyError as error:
+            raise KernelError(
+                f"family {value.name!r} has no parameter {name!r}; it takes "
+                f"{', '.join(family.parameter_names)}",
+                "qiec-distribution",
+            ) from error
+        actual = infer_value(argument, registry, context)
+        expectation = _parameter_expectation(parameter, actual)
+        if expectation is not None:
+            raise KernelError(
+                f"parameter {name!r} of {value.name!r} has type {actual!r}; it "
+                f"takes {expectation}",
+                "qiec-distribution",
+            )
+        argument_types[name] = actual
+    if not value.arguments:
+        raise KernelError(
+            f"family {value.name!r} is constructed with no parameters",
+            "qiec-distribution",
+        )
+    element = family.element
+    element_name = (
+        element.constructor.name
+        if isinstance(element, TypeApplication)
+        else repr(element)
+    )
+    if family.event_rank == 0:
+        expected: TypeExpr = sampleable_type(element)
+    else:
+        claimed = sampled_element(value.result_type)
+        shape = tensor_shape(claimed) if claimed is not None else None
+        if shape is None or shape[0] != element or len(shape[1]) != family.event_rank:
+            raise KernelError(
+                f"family {value.name!r} samples a Tensor[{element_name}] of rank "
+                f"{family.event_rank}, not {value.result_type!r}",
+                "qiec-distribution",
+            )
+        if family.event_source is not None:
+            source = argument_types.get(family.event_source)
+            if source is None:
+                raise KernelError(
+                    f"family {value.name!r} needs parameter "
+                    f"{family.event_source!r} to fix its event shape",
+                    "qiec-distribution",
+                )
+            source_shape = tensor_shape(source)
+            if source_shape is None:
+                raise KernelError(
+                    f"parameter {family.event_source!r} of {value.name!r} must "
+                    "be a Tensor with a literal shape",
+                    "qiec-distribution",
+                )
+            event = source_shape[1][len(source_shape[1]) - family.event_rank :]
+            if tuple(shape[1]) != tuple(event):
+                raise KernelError(
+                    f"family {value.name!r} samples the trailing shape of "
+                    f"{family.event_source!r}, {event!r}, not {shape[1]!r}",
+                    "qiec-distribution",
+                )
+        expected = value.result_type
+    if value.result_type != expected:
+        raise KernelError(
+            f"family {value.name!r} produces {expected!r}, not the claimed "
+            f"{value.result_type!r}",
+            "qiec-distribution",
+        )
+    registry.validate_type(expected)
+    _check_static_variable_scope(expected, context, subject="distribution type")
+    return expected
+
+
 def infer_value(
     value: Value,
     registry: KernelRegistry,
@@ -1775,6 +1953,39 @@ def infer_value(
                 "qiec-primitive",
             )
         return signature.result
+    if isinstance(value, DistributionValue):
+        return _infer_distribution(value, registry, context)
+    if isinstance(value, SiteValue):
+        if not value.label:
+            raise KernelError("a site label cannot be empty", "qiec-distribution")
+        if not (
+            isinstance(value.result_type, TypeApplication)
+            and value.result_type.constructor == SITE_CONSTRUCTOR
+            and len(value.result_type.arguments) == 1
+        ):
+            raise KernelError(
+                f"site {value.label!r} claims {value.result_type!r}, not a Site",
+                "qiec-distribution",
+            )
+        registry.validate_type(value.result_type)
+        _check_static_variable_scope(value.result_type, context, subject="site type")
+        return value.result_type
+    if isinstance(value, LogDensity):
+        sampleable = infer_value(value.sampleable, registry, context)
+        element = sampled_element(sampleable)
+        if element is None:
+            raise KernelError(
+                f"log_prob takes a Sampleable, not {sampleable!r}",
+                "qiec-distribution",
+            )
+        actual = infer_value(value.value, registry, context)
+        if actual != element:
+            raise KernelError(
+                f"log_prob evaluates a distribution over {element!r} at a value "
+                f"of type {actual!r}",
+                "qiec-distribution",
+            )
+        return LOG_WEIGHT
     if isinstance(value, TupleValue):
         components = tuple(infer_value(item, registry, context) for item in value.items)
         expected = product_type(*components)
@@ -2020,6 +2231,26 @@ def infer_computation(
         )
         return _checked_computation_type(
             first.effects.union(then.effects),
+            then.result,
+            registry,
+            context,
+        )
+    if isinstance(computation, If):
+        condition = infer_value(computation.condition, registry, context)
+        if condition != BOOL:
+            raise KernelError(
+                f"if condition has type {condition!r}, not Bool", "qiec-primitive"
+            )
+        then = infer_computation(computation.then, registry, context)
+        otherwise = infer_computation(computation.otherwise, registry, context)
+        if then.result != otherwise.result:
+            raise KernelError(
+                f"if branches return {then.result!r} and {otherwise.result!r}; "
+                "both must agree",
+                "qiec-primitive",
+            )
+        return _checked_computation_type(
+            then.effects.union(otherwise.effects),
             then.result,
             registry,
             context,
@@ -2531,6 +2762,10 @@ def resumption_use(computation: Computation) -> ResumptionUse:
         # a new one, and the nested handler's own clauses are separate
         # declarations analysed on their own.
         return resumption_use(computation.computation)
+    if isinstance(computation, If):
+        return resumption_use(computation.then).join(
+            resumption_use(computation.otherwise)
+        )
     if isinstance(computation, Case):
         if not computation.branches:
             return NEVER

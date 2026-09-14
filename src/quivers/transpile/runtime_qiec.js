@@ -54,6 +54,11 @@ var _qvr_qiec_instance = function(thunk) {
   return _qvr_qiec_call(thunk, [["instance", _qvr_qiec_serials.instance]], false);
 };
 var _qvr_qiec_resume = function(resume, value) { return _qvr_qiec_as_computation(resume(value)); };
+var _qvr_qiec_if = function(condition, then, otherwise) {
+  condition = _qvr_qiec_value(condition);
+  if (typeof condition !== "boolean") { throw new Error("QIEC if condition is not a Boolean"); }
+  return condition ? then() : otherwise();
+};
 var _qvr_qiec_div_int = function(a, b) {
   if (b === 0) { throw new Error("QIEC integer division by zero"); }
   return Math.trunc(a / b);

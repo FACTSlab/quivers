@@ -293,6 +293,12 @@ class PrimitiveId(StableId):
     namespace = "primitive"
 
 
+class DistributionId(StableId):
+    """Stable identity of a distribution family."""
+
+    namespace = "distribution"
+
+
 @dataclass(frozen=True, slots=True)
 class SourceOrigin:
     """Stable structural source origin with optional diagnostic coordinates.
@@ -494,4 +500,5 @@ __all__ = [
     "TypeId",
     "RowVariableId",
     "PrimitiveId",
+    "DistributionId",
 ]

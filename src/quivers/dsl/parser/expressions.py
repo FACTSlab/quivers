@@ -36,6 +36,7 @@ from quivers.dsl.ast_nodes import (
     ExprTrace,
     ExprTransCompose,
     LetExprBinOp,
+    LetExprBool,
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
@@ -45,7 +46,9 @@ from quivers.dsl.ast_nodes import (
     LetExprMethodCall,
     LetExprNode,
     LetExprString,
+    LetExprTuple,
     LetExprUnaryOp,
+    LetExprUnit,
     LetExprVar,
     LetFactorBinder,
     LetFactorCase,
@@ -545,31 +548,70 @@ def _ident_list_to_tuple(t: _Tree, vid: str) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
+_BINARY_OPERATORS = frozenset(
+    ("+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||")
+)
+
+
 def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
-    """Walk a let-arithmetic vertex into the LetExprNode AST family."""
+    """Walk a pure-expression vertex into the shared expression tree.
+
+    Parameters
+    ----------
+    t : _Tree
+        The parse tree.
+    vid : str
+        The expression vertex.
+
+    Returns
+    -------
+    LetExprNode
+        The expression node, carrying the vertex's line and column.
+
+    Raises
+    ------
+    ParseError
+        If a required field is absent, an operator is outside the
+        grammar's set, or the vertex is not an expression form.
+    """
     k = t.kind(vid)
+    line, col = t.line_col(vid)
     if k == "let_paren":
         return _walk_let_arith(t, t.positional(vid)[0])
     if k == "let_var":
-        return LetExprVar(name=t.text(vid))
+        return LetExprVar(name=t.text(vid), line=line, col=col)
     if k in ("integer", "float", "signed_number", "let_literal"):
         text = t.text(vid)
-        return LetExprLiteral(value=float(text))
-    if k == "let_string":
+        integral = not any(character in text for character in ".eE")
+        return LetExprLiteral(value=float(text), integral=integral, line=line, col=col)
+    if k == "let_bool":
+        return LetExprBool(value=t.text(vid) == "true", line=line, col=col)
+    if k == "let_unit":
+        return LetExprUnit(line=line, col=col)
+    if k == "let_tuple":
+        return LetExprTuple(
+            items=tuple(_walk_let_arith(t, iv) for iv in t.fields(vid, "items")),
+            line=line,
+            col=col,
+        )
+    if k in ("let_string", "string"):
         text = t.text(vid)
         if text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
-        return LetExprString(value=text)
-    if k == "string":
-        text = t.text(vid)
-        if text.startswith('"') and text.endswith('"'):
-            text = text[1:-1]
-        return LetExprString(value=text)
+        return LetExprString(value=text, line=line, col=col)
     if k == "let_unary":
         operand_vid = t.field(vid, "operand")
         if operand_vid is None:
             raise ParseError(f"let_unary missing operand at {vid}")
-        return LetExprUnaryOp(operand=_walk_let_arith(t, operand_vid))
+        op = t.consts(vid).get("field:op", "-")
+        if op not in ("-", "not"):
+            raise ParseError(f"unexpected let_unary op {op!r} at {vid}")
+        return LetExprUnaryOp(
+            operand=_walk_let_arith(t, operand_vid),
+            op=op,  # type: ignore[arg-type]
+            line=line,
+            col=col,
+        )
     if k == "let_binop":
         left_vid = t.field(vid, "left")
         right_vid = t.field(vid, "right")
@@ -578,12 +620,14 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         op = t.consts(vid).get("field:op")
         if op is None:
             raise ParseError(f"let_binop at {vid} missing field:op constant")
-        if op not in ("+", "-", "*", "/"):
+        if op not in _BINARY_OPERATORS:
             raise ParseError(f"unexpected let_binop op {op!r} at {vid}")
         return LetExprBinOp(
             op=op,  # type: ignore[arg-type]
             left=_walk_let_arith(t, left_vid),
             right=_walk_let_arith(t, right_vid),
+            line=line,
+            col=col,
         )
     if k == "let_call":
         func_vid = t.field(vid, "func")
@@ -592,6 +636,8 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprCall(
             func=t.text(func_vid),
             args=tuple(_walk_let_arith(t, av) for av in t.fields(vid, "args")),
+            line=line,
+            col=col,
         )
     if k == "let_index":
         array_vid = t.field(vid, "array")
@@ -600,10 +646,14 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprIndex(
             array=_walk_let_arith(t, array_vid),
             indices=tuple(_walk_let_arith(t, iv) for iv in t.fields(vid, "indices")),
+            line=line,
+            col=col,
         )
     if k == "let_list":
         kids = t.positional(vid)
-        return LetExprList(items=tuple(_walk_let_arith(t, c) for c in kids))
+        return LetExprList(
+            items=tuple(_walk_let_arith(t, c) for c in kids), line=line, col=col
+        )
     if k == "let_lambda":
         param_vid = t.field(vid, "param")
         body_vid = t.field(vid, "body")
@@ -612,6 +662,8 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         return LetExprLambda(
             param=t.text(param_vid),
             body=_walk_let_arith(t, body_vid),
+            line=line,
+            col=col,
         )
     if k == "let_method_call":
         receiver_vid = t.field(vid, "receiver")
@@ -622,6 +674,8 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
             receiver=_walk_let_arith(t, receiver_vid),
             method=t.text(method_vid),
             args=tuple(_walk_let_arith(t, av) for av in t.fields(vid, "args")),
+            line=line,
+            col=col,
         )
     if k == "let_factor":
         binders = tuple(
@@ -640,5 +694,7 @@ def _walk_let_arith(t: _Tree, vid: str) -> LetExprNode:
         )
         body_vid = t.field(vid, "body")
         body = _walk_let_arith(t, body_vid) if body_vid else None
-        return LetExprFactor(binders=binders, body=body, cases=cases)
+        return LetExprFactor(
+            binders=binders, body=body, cases=cases, line=line, col=col
+        )
     raise ParseError(f"unexpected let-expression kind: {k}")

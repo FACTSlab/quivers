@@ -115,6 +115,13 @@ def _qvr_qiec_resume(resume, value):
     return _qvr_qiec_as_computation(resume(value))
 
 
+def _qvr_qiec_if(condition, then, otherwise):
+    condition = _qvr_qiec_value(condition)
+    if not isinstance(condition, bool):
+        raise TypeError("QIEC if condition is not a Boolean")
+    return then() if condition else otherwise()
+
+
 def _qvr_qiec_div_int(a, b):
     quotient = abs(a) // abs(b)
     return quotient if (a < 0) == (b < 0) else -quotient

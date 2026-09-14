@@ -35,6 +35,7 @@ from quivers.transpile.qiec_ir import (
     IRQiecLiteral,
     IRQiecLiteralValue,
     IRQiecHandlerDef,
+    IRQiecIf,
     IRQiecModule,
     IRQiecNamedComputation,
     IRQiecNewInstance,
@@ -449,6 +450,10 @@ def _free_runtime_capture(
                     branch.body,
                     locally_bound | {field.name for field in branch.fields},
                 )
+        elif isinstance(item, IRQiecIf):
+            value(item.condition, locally_bound)
+            computation(item.then, locally_bound)
+            computation(item.otherwise, locally_bound)
         elif isinstance(item, IRQiecCall):
             for argument in item.arguments:
                 value(argument, locally_bound)
@@ -633,6 +638,12 @@ def _python_computation(
             f"_qvr_qiec_static_environment({_ir_data(callee.telescope)!r}, "
             f"_qvr_qiec_specialize({_ir_data(node.static_arguments)!r}, qiec_static)), "
             f"qiec_attachments, qiec_handlers, qiec_operations), {tail!r})"
+        )
+    if isinstance(node, IRQiecIf):
+        return (
+            f"_qvr_qiec_if({_python_value(node.condition)}, "
+            f"lambda: {_python_computation(node.then, module, tail=tail)}, "
+            f"lambda: {_python_computation(node.otherwise, module, tail=tail)})"
         )
     if isinstance(node, IRQiecResume):
         return f"_qvr_qiec_resume(qiec_resume, {_python_value(node.value)})"
@@ -829,6 +840,8 @@ def _julia_computation(
             f"_qvr_qiec_specialize({_julia_data(_ir_data(node.static_arguments))}, qiec_static)), "
             f"qiec_attachments, qiec_handlers, qiec_operations), {'true' if tail else 'false'})"
         )
+    if isinstance(node, IRQiecIf):
+        return f"_qvr_qiec_if({_julia_value(node.condition)}, () -> {_julia_computation(node.then, module, tail=tail)}, () -> {_julia_computation(node.otherwise, module, tail=tail)})"
     if isinstance(node, IRQiecResume):
         return f"_qvr_qiec_resume(qiec_resume, {_julia_value(node.value)})"
     if isinstance(node, IRQiecNewInstance):
@@ -1054,6 +1067,8 @@ def _javascript_computation(
             f"_qvr_qiec_specialize({json.dumps(_ir_data(node.static_arguments), ensure_ascii=False)}, qiec_static)), "
             f"qiec_attachments, qiec_handlers, qiec_operations); }}, {'true' if tail else 'false'})"
         )
+    if isinstance(node, IRQiecIf):
+        return f"_qvr_qiec_if({_javascript_value(node.condition)}, function() {{ return {_javascript_computation(node.then, module, tail=tail)}; }}, function() {{ return {_javascript_computation(node.otherwise, module, tail=tail)}; }})"
     if isinstance(node, IRQiecResume):
         return f"_qvr_qiec_resume(qiec_resume, {_javascript_value(node.value)})"
     if isinstance(node, IRQiecNewInstance):
@@ -1235,6 +1250,8 @@ def _scheme_computation(
             f"(_qvr-qiec-specialize {_scheme_data(_ir_data(node.static_arguments))} qiec-static)) "
             f"qiec-attachments qiec-handlers qiec-operations)) {'#t' if tail else '#f'})"
         )
+    if isinstance(node, IRQiecIf):
+        return f"(_qvr-qiec-if {_scheme_value(node.condition)} (lambda () {_scheme_computation(node.then, module, tail=tail)}) (lambda () {_scheme_computation(node.otherwise, module, tail=tail)}))"
     if isinstance(node, IRQiecResume):
         return f"(_qvr-qiec-resume qiec-resume {_scheme_value(node.value)})"
     if isinstance(node, IRQiecNewInstance):
