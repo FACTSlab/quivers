@@ -63,6 +63,7 @@ from quivers.qiec.identifiers import (
     HandlerId,
     OperationId,
     QIEC_ABI,
+    PrimitiveId,
     RowVariableId,
     SiteId,
     SiteProvenance,
@@ -102,8 +103,11 @@ from quivers.qiec.terms import (
     LiteralValue,
     Local,
     Perform,
+    PrimitiveApplication,
+    Projection,
     Return,
     TransportValue,
+    TupleValue,
     Computation,
     LiteralData,
     Value,
@@ -168,6 +172,7 @@ _ID_CLASSES = (
     StaticScopeId,
     StaticVariableId,
     RowVariableId,
+    PrimitiveId,
 )
 
 _ENUM_CLASSES = (
@@ -239,6 +244,9 @@ _NODE_CLASSES = (
     EvidenceValue,
     AttachmentRef,
     TransportValue,
+    PrimitiveApplication,
+    TupleValue,
+    Projection,
     Return,
     Bind,
     Perform,

@@ -74,6 +74,62 @@ function _qvr_qiec_instance(thunk)
     return _qvr_qiec_call(thunk, Any[Any["instance", _qvr_qiec_serials["instance"]]], false)
 end
 _qvr_qiec_resume(resume, value) = _qvr_qiec_as_computation(resume(value))
+# The closed primitive table. Names and semantics mirror the kernel registry;
+# integer division and remainder truncate toward zero on every host.
+const _qvr_qiec_primitives = Dict{String, Any}(
+    "add_int" => (a, b) -> a + b,
+    "sub_int" => (a, b) -> a - b,
+    "mul_int" => (a, b) -> a * b,
+    "div_int" => (a, b) -> div(a, b),
+    "mod_int" => (a, b) -> rem(a, b),
+    "neg_int" => a -> -a,
+    "abs_int" => abs,
+    "min_int" => min,
+    "max_int" => max,
+    "add_real" => (a, b) -> a + b,
+    "sub_real" => (a, b) -> a - b,
+    "mul_real" => (a, b) -> a * b,
+    "div_real" => (a, b) -> a / b,
+    "neg_real" => a -> -a,
+    "abs_real" => abs,
+    "min_real" => min,
+    "max_real" => max,
+    "pow_real" => (a, b) -> Float64(a) ^ Float64(b),
+    "exp" => exp,
+    "log" => log,
+    "sqrt" => sqrt,
+    "eq_int" => (a, b) -> a == b,
+    "ne_int" => (a, b) -> a != b,
+    "lt_int" => (a, b) -> a < b,
+    "le_int" => (a, b) -> a <= b,
+    "gt_int" => (a, b) -> a > b,
+    "ge_int" => (a, b) -> a >= b,
+    "eq_real" => (a, b) -> a == b,
+    "ne_real" => (a, b) -> a != b,
+    "lt_real" => (a, b) -> a < b,
+    "le_real" => (a, b) -> a <= b,
+    "gt_real" => (a, b) -> a > b,
+    "ge_real" => (a, b) -> a >= b,
+    "eq_bool" => (a, b) -> a == b,
+    "ne_bool" => (a, b) -> a != b,
+    "eq_string" => (a, b) -> a == b,
+    "ne_string" => (a, b) -> a != b,
+    "and" => (a, b) -> a && b,
+    "or" => (a, b) -> a || b,
+    "not" => a -> !a,
+    "concat" => (a, b) -> a * b,
+    "int_to_real" => a -> Float64(a),
+    "real_to_int" => a -> Int(trunc(a)),
+)
+function _qvr_qiec_primitive(name, arguments)
+    haskey(_qvr_qiec_primitives, name) || error("unknown QIEC primitive " * name)
+    return _qvr_qiec_primitives[name]((_qvr_qiec_value(argument) for argument in arguments)...)
+end
+function _qvr_qiec_project(value, position)
+    value = _qvr_qiec_value(value)
+    (value isa Tuple && position < length(value)) || error("QIEC projection from a non-product runtime value")
+    return value[position + 1]
+end
 const _qvr_qiec_authored = Dict{String, Any}()
 function _qvr_qiec_static_kind(argument)
     kind = argument isa AbstractDict ? get(argument, "kind", nothing) : nothing

@@ -74,13 +74,18 @@ from quivers.qiec.terms import (
     LiteralValue,
     Local,
     Perform,
+    PrimitiveApplication,
+    Projection,
     Return,
     TransportValue,
+    TupleValue,
     Value,
     Var,
 )
+from quivers.qiec.primitives import PRIMITIVES
 from quivers.qiec.types import (
     BOOL,
+    product_type,
     INT,
     REAL,
     STRING,
@@ -1737,6 +1742,75 @@ def infer_value(
         if equality.left != source or equality.right != value.target_type:
             raise KernelError("transport endpoints do not match value and target types")
         return value.target_type
+    if isinstance(value, PrimitiveApplication):
+        signature = PRIMITIVES.get(value.name)
+        if signature is None:
+            raise KernelError(f"unknown primitive {value.name!r}", "qiec-primitive")
+        if signature.id != value.primitive:
+            raise KernelError(
+                f"primitive {value.name!r} is applied under the identity of "
+                "another primitive",
+                "qiec-primitive",
+            )
+        if len(value.arguments) != len(signature.parameters):
+            raise KernelError(
+                f"primitive {value.name!r} takes {len(signature.parameters)} "
+                f"argument(s), got {len(value.arguments)}",
+                "qiec-primitive",
+            )
+        for position, (argument, expected) in enumerate(
+            zip(value.arguments, signature.parameters, strict=True)
+        ):
+            actual = infer_value(argument, registry, context)
+            if actual != expected:
+                raise KernelError(
+                    f"argument {position} of primitive {value.name!r} has type "
+                    f"{actual!r}; the primitive takes {expected!r}",
+                    "qiec-primitive",
+                )
+        if value.result_type != signature.result:
+            raise KernelError(
+                f"primitive {value.name!r} produces {signature.result!r}, not "
+                f"the claimed {value.result_type!r}",
+                "qiec-primitive",
+            )
+        return signature.result
+    if isinstance(value, TupleValue):
+        components = tuple(infer_value(item, registry, context) for item in value.items)
+        expected = product_type(*components)
+        if value.result_type != expected:
+            raise KernelError(
+                f"tuple has type {expected!r}, not the claimed {value.result_type!r}",
+                "qiec-primitive",
+            )
+        registry.validate_type(expected)
+        _check_static_variable_scope(expected, context, subject="tuple type")
+        return expected
+    if isinstance(value, Projection):
+        source = infer_value(value.value, registry, context)
+        if not (
+            isinstance(source, TypeApplication)
+            and source.constructor.name.startswith("Product")
+            and source.constructor.id == product_type(*source.arguments).constructor.id  # type: ignore[arg-type]
+        ):
+            raise KernelError(
+                f"projection from a value of non-product type {source!r}",
+                "qiec-primitive",
+            )
+        if not 0 <= value.position < len(source.arguments):
+            raise KernelError(
+                f"projection position {value.position} is outside a product of "
+                f"{len(source.arguments)} components",
+                "qiec-primitive",
+            )
+        component = source.arguments[value.position]
+        if value.result_type != component:
+            raise KernelError(
+                f"projection {value.position} has type {component!r}, not the "
+                f"claimed {value.result_type!r}",
+                "qiec-primitive",
+            )
+        return component  # type: ignore[return-value]
     if isinstance(value, ConstructorValue):
         constructor = registry.constructor(value.constructor)
         family = registry.families[constructor.family]

@@ -106,6 +106,7 @@ from quivers.qiec.identifiers import (
     OperationId,
     QIEC_ABI,
     RowVariableId,
+    PrimitiveId,
     SiteId,
     SiteProvenance,
     SourceOrigin,
@@ -144,6 +145,12 @@ from quivers.qiec.module import (
     computation_type_conforms,
     validate_module,
 )
+from quivers.qiec.primitives import (
+    IMPLEMENTATIONS,
+    PRIMITIVES,
+    PrimitiveSignature,
+    primitive,
+)
 from quivers.qiec.serialization import (
     QIEC_WIRE_FORMAT,
     SerializationError,
@@ -181,6 +188,9 @@ from quivers.qiec.terms import (
     Perform,
     Return,
     TransportValue,
+    PrimitiveApplication,
+    TupleValue,
+    Projection,
     Value,
     Var,
 )
@@ -314,6 +324,11 @@ __all__ = [
     "RowUnification",
     "RowVariable",
     "RowVariableId",
+    "PrimitiveId",
+    "IMPLEMENTATIONS",
+    "PRIMITIVES",
+    "PrimitiveSignature",
+    "primitive",
     "RuntimeAttachments",
     "RuntimeConfiguration",
     "RuntimeClause",
@@ -343,6 +358,9 @@ __all__ = [
     "TraceRecorder",
     "available_runtime_providers",
     "TransportValue",
+    "PrimitiveApplication",
+    "TupleValue",
+    "Projection",
     "TypeApplication",
     "TypeBinder",
     "TypeConstructorRef",

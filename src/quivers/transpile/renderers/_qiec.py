@@ -40,11 +40,14 @@ from quivers.transpile.qiec_ir import (
     IRQiecNewInstance,
     IRQiecNullLiteral,
     IRQiecPerform,
+    IRQiecPrimitiveApplication,
+    IRQiecProjection,
     IRQiecResume,
     IRQiecReturn,
     IRQiecStringLiteral,
     IRQiecTransportValue,
     IRQiecTupleLiteral,
+    IRQiecTupleValue,
     IRQiecTypeApplication,
     IRQiecValue,
     IRQiecVar,
@@ -419,6 +422,14 @@ def _free_runtime_capture(
             attachments.add(item.attachment.text)
         elif isinstance(item, IRQiecTransportValue):
             value(item.value, locally_bound)
+        elif isinstance(item, IRQiecPrimitiveApplication):
+            for argument in item.arguments:
+                value(argument, locally_bound)
+        elif isinstance(item, IRQiecTupleValue):
+            for component in item.items:
+                value(component, locally_bound)
+        elif isinstance(item, IRQiecProjection):
+            value(item.value, locally_bound)
 
     def computation(item: IRQiecComputation, locally_bound: frozenset[str]) -> None:
         if isinstance(item, IRQiecReturn):
@@ -670,6 +681,14 @@ def _python_value(node: IRQiecValue) -> str:
             f"_qvr_qiec_transport({_ir_data(node.evidence)!r}, "
             f"{_python_value(node.value)}, {_ir_data(node.target_type)!r}, qiec_static)"
         )
+    if isinstance(node, IRQiecPrimitiveApplication):
+        arguments = ", ".join(_python_value(argument) for argument in node.arguments)
+        return f"_qvr_qiec_primitive({node.name!r}, ({arguments},))"
+    if isinstance(node, IRQiecTupleValue):
+        items = ", ".join(_python_value(item) for item in node.items)
+        return f"({items},)" if len(node.items) == 1 else f"({items})"
+    if isinstance(node, IRQiecProjection):
+        return f"_qvr_qiec_project({_python_value(node.value)}, {node.position})"
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -846,6 +865,14 @@ def _julia_value(node: IRQiecValue) -> str:
         return f"_qvr_qiec_attachment(qiec_attachments, {_julia_string(node.attachment.text)}, {_julia_data(_ir_data(node.type))}, qiec_static)"
     if isinstance(node, IRQiecTransportValue):
         return f"_qvr_qiec_transport({_julia_data(_ir_data(node.evidence))}, {_julia_value(node.value)}, {_julia_data(_ir_data(node.target_type))}, qiec_static)"
+    if isinstance(node, IRQiecPrimitiveApplication):
+        arguments = ", ".join(_julia_value(argument) for argument in node.arguments)
+        return f"_qvr_qiec_primitive({_julia_string(node.name)}, Any[{arguments}])"
+    if isinstance(node, IRQiecTupleValue):
+        items = ", ".join(_julia_value(item) for item in node.items)
+        return f"({items},)" if len(node.items) == 1 else f"({items})"
+    if isinstance(node, IRQiecProjection):
+        return f"_qvr_qiec_project({_julia_value(node.value)}, {node.position})"
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1058,6 +1085,16 @@ def _javascript_value(node: IRQiecValue) -> str:
         return f"_qvr_qiec_attachment(qiec_attachments, {json.dumps(node.attachment.text)}, {json.dumps(_ir_data(node.type), ensure_ascii=False)}, qiec_static)"
     if isinstance(node, IRQiecTransportValue):
         return f"_qvr_qiec_transport({json.dumps(_ir_data(node.evidence), ensure_ascii=False)}, {_javascript_value(node.value)}, {json.dumps(_ir_data(node.target_type), ensure_ascii=False)}, qiec_static)"
+    if isinstance(node, IRQiecPrimitiveApplication):
+        arguments = ", ".join(
+            _javascript_value(argument) for argument in node.arguments
+        )
+        return f"_qvr_qiec_primitive({json.dumps(node.name)}, [{arguments}])"
+    if isinstance(node, IRQiecTupleValue):
+        items = ", ".join(_javascript_value(item) for item in node.items)
+        return f"Object.freeze([{items}])"
+    if isinstance(node, IRQiecProjection):
+        return f"_qvr_qiec_project({_javascript_value(node.value)}, {node.position})"
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1234,6 +1271,14 @@ def _scheme_value(node: IRQiecValue) -> str:
         return f"(_qvr-qiec-attachment qiec-attachments {_scheme_string(node.attachment.text)} {_scheme_data(_ir_data(node.type))} qiec-static)"
     if isinstance(node, IRQiecTransportValue):
         return f"(_qvr-qiec-transport {_scheme_data(_ir_data(node.evidence))} {_scheme_value(node.value)} {_scheme_data(_ir_data(node.target_type))} qiec-static)"
+    if isinstance(node, IRQiecPrimitiveApplication):
+        arguments = " ".join(_scheme_value(argument) for argument in node.arguments)
+        return f"(_qvr-qiec-primitive {_scheme_string(node.name)} (list {arguments}))"
+    if isinstance(node, IRQiecTupleValue):
+        items = " ".join(_scheme_value(item) for item in node.items)
+        return f"(_qvr-qiec-tuple (list {items}))"
+    if isinstance(node, IRQiecProjection):
+        return f"(_qvr-qiec-project {_scheme_value(node.value)} {node.position})"
     raise TypeError(f"unknown QIEC value {node!r}")
 
 

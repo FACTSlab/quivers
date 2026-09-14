@@ -17,6 +17,7 @@ from quivers.qiec.identifiers import (
     ConstructorId,
     EffectInstanceId,
     HandlerId,
+    PrimitiveId,
     SourceOrigin,
     StaticScopeId,
 )
@@ -165,6 +166,80 @@ class TransportValue:
     tag: Literal["transport"] = "transport"
 
 
+@dataclass(frozen=True, slots=True)
+class PrimitiveApplication:
+    """Application of a pure primitive from the closed registry.
+
+    The primitive is named nominally and its signature is fixed, so the
+    checker validates the arguments against the registry and a backend
+    renders the name it knows or refuses the capability; nothing is
+    resolved by inspecting a runtime value.
+
+    Parameters
+    ----------
+    primitive
+        The stable identity of the primitive applied.
+    name
+        The primitive's nominal name, as the registry spells it.
+    arguments
+        The value arguments, one per parameter.
+    result_type
+        The primitive's result type.
+    origin
+        The application's source location.
+    tag
+        The serialization discriminator; always ``"primitive"``.
+    """
+
+    primitive: PrimitiveId
+    name: str
+    arguments: tuple[Value, ...]
+    result_type: TypeExpr
+    origin: SourceOrigin
+    tag: Literal["primitive"] = "primitive"
+
+
+@dataclass(frozen=True, slots=True)
+class TupleValue:
+    """Construction of a finite product from its components.
+
+    Parameters
+    ----------
+    items
+        The component values, in order.
+    result_type
+        The product type of the components.
+    tag
+        The serialization discriminator; always ``"tuple"``.
+    """
+
+    items: tuple[Value, ...]
+    result_type: TypeExpr
+    tag: Literal["tuple"] = "tuple"
+
+
+@dataclass(frozen=True, slots=True)
+class Projection:
+    """Selection of one component of a finite product.
+
+    Parameters
+    ----------
+    value
+        The product value projected from.
+    position
+        The zero-based component selected.
+    result_type
+        The selected component's type.
+    tag
+        The serialization discriminator; always ``"projection"``.
+    """
+
+    value: Value
+    position: int
+    result_type: TypeExpr
+    tag: Literal["projection"] = "projection"
+
+
 type Value = (
     Var
     | LiteralValue
@@ -172,6 +247,9 @@ type Value = (
     | EvidenceValue
     | AttachmentRef
     | TransportValue
+    | PrimitiveApplication
+    | TupleValue
+    | Projection
 )
 
 
@@ -434,8 +512,11 @@ __all__ = [
     "LiteralValue",
     "Local",
     "Perform",
+    "PrimitiveApplication",
+    "Projection",
     "Return",
     "TransportValue",
+    "TupleValue",
     "Value",
     "Var",
 ]

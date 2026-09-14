@@ -45,12 +45,16 @@ from quivers.qiec.terms import (
     Local,
     NewInstance,
     Perform,
+    PrimitiveApplication,
+    Projection,
     Resume,
     Return,
     TransportValue,
+    TupleValue,
     Value,
     Var,
 )
+from quivers.qiec.primitives import IMPLEMENTATIONS
 from quivers.qiec.substitution import (
     instantiate_telescope,
     substitute_computation,
@@ -1558,7 +1562,8 @@ class Evaluator:
             If an attachment's bound type disagrees with the reference, or a host value
             fails its validator.
         EvaluationError
-            If a local is unbound.
+            If a local is unbound, a primitive is unknown or fails on its
+            arguments, or a projection meets a non-product value.
         """
         if isinstance(value, Var):
             try:
@@ -1601,6 +1606,28 @@ class Evaluator:
             # The kernel has already checked the evidence.  Transport is erased
             # dynamically but remains explicit in serialized QIEC.
             return self._value(value.value, environment)
+        if isinstance(value, PrimitiveApplication):
+            implementation = IMPLEMENTATIONS.get(value.name)
+            if implementation is None:
+                raise EvaluationError(f"unknown QIEC primitive {value.name!r}")
+            arguments = tuple(
+                self._value(argument, environment) for argument in value.arguments
+            )
+            try:
+                return implementation(*arguments)
+            except (ArithmeticError, ValueError) as error:
+                raise EvaluationError(
+                    f"primitive {value.name!r} failed: {error}"
+                ) from error
+        if isinstance(value, TupleValue):
+            return tuple(self._value(item, environment) for item in value.items)
+        if isinstance(value, Projection):
+            source = self._value(value.value, environment)
+            if not isinstance(source, tuple) or value.position >= len(source):
+                raise EvaluationError(
+                    f"projection {value.position} from a non-product runtime value"
+                )
+            return source[value.position]
         raise TypeError(f"unsupported QIEC value {type(value).__name__}")
 
     def _validate_handler_manifest(self, manifest: HandlerManifest) -> None:

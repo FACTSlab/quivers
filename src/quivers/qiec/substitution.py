@@ -26,9 +26,12 @@ from quivers.qiec.terms import (
     Local,
     NewInstance,
     Perform,
+    PrimitiveApplication,
+    Projection,
     Resume,
     Return,
     TransportValue,
+    TupleValue,
     Value,
     Var,
 )
@@ -612,6 +615,25 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
             substitute_evidence(value.evidence, substitution),
             substitute_value(value.value, substitution),
             substitute_type(value.target_type, substitution),
+        )
+    if isinstance(value, PrimitiveApplication):
+        return PrimitiveApplication(
+            value.primitive,
+            value.name,
+            tuple(substitute_value(item, substitution) for item in value.arguments),
+            substitute_type(value.result_type, substitution),
+            value.origin,
+        )
+    if isinstance(value, TupleValue):
+        return TupleValue(
+            tuple(substitute_value(item, substitution) for item in value.items),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, Projection):
+        return Projection(
+            substitute_value(value.value, substitution),
+            value.position,
+            substitute_type(value.result_type, substitution),
         )
     raise TypeError(f"unknown value term {value!r}")
 
