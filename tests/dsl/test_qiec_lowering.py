@@ -566,3 +566,47 @@ def test_compiler_preserves_checked_qiec_projection() -> None:
         "head",
         "handled",
     ]
+
+
+def test_signature_only_clause_may_omit_a_polymorphic_operations_binders() -> None:
+    """A foreign clause has no body, so it need not name the operation's telescope.
+
+    An authored clause must bind the operation's static arguments, since
+    its body is in their scope; a signature-only clause binds nothing,
+    and demanding binders there would only make foreign declarations
+    spell names nothing can refer to.
+    """
+    parsed = parse(
+        """\
+effect Choose
+    choose[A : Type] : A -> A
+
+handler search for Choose : Int -> Int [coverage=total, implementation=foreign]
+    choose resumes omega
+
+handler named for Choose : Int -> Int [coverage=total, implementation=foreign]
+    choose[B : Type] resumes omega
+""",
+        "search.qvr",
+    )
+    module = lower_qvr_to_qiec(parsed, file_path="search.qvr")
+    assert {handler.name for handler in module.handlers} == {"search", "named"}
+    assert all(
+        clause.body is None for handler in module.handlers for clause in handler.clauses
+    )
+
+    authored = parse(
+        """\
+effect Choose
+    choose[A : Type] : A -> A
+
+handler search for Choose : Int -> Int [coverage=total, implementation=authored]
+    choose(value : Int) resumes 1 =>
+        resume(value)
+""",
+        "search.qvr",
+    )
+    with pytest.raises(QiecDiagnosticError) as captured:
+        lower_qvr_to_qiec(authored, file_path="search.qvr")
+    assert captured.value.code == "qiec-handler"
+    assert "static argument" in str(captured.value)

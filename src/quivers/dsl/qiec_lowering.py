@@ -1307,6 +1307,11 @@ class _Elaborator:
                         code="qiec-handler",
                     )
                 clause_binders = self._lower_telescope(clause.binders)
+                # A signature-only clause has no body for a static binder
+                # to be in scope of, so it need not name the operation's
+                # telescope; an authored clause has to bind all of it.
+                if clause.body is None and not clause_binders:
+                    clause_binders = operation.telescope
                 if len(clause_binders) != len(operation.telescope):
                     self._fail(
                         clause,
