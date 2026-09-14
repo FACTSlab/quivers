@@ -18,6 +18,30 @@ QIEC_ABI = "qiec-core/v1alpha1"
 
 
 def _canonical_value(value: object) -> object:
+    """Reduce a value to the JSON shape identifier derivation hashes.
+
+    Parameters
+    ----------
+    value : object
+        The value to encode. Scalars pass through, bytes become a tagged
+        hex string, identifiers and enums become their wire forms,
+        sequences and mappings recurse, and a dataclass becomes its
+        fields under a tag naming its type.
+
+    Returns
+    -------
+    object
+        A JSON-encodable value. Mappings are key-sorted and dataclasses
+        carry their qualified type name, so structurally distinct values
+        cannot collide once encoded.
+
+    Raises
+    ------
+    TypeError
+        If the value is of a class with no canonical encoding. This is
+        deliberate: silently stringifying an unknown value would make two
+        different values hash alike and give them one identity.
+    """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, bytes):
@@ -45,7 +69,24 @@ def _canonical_value(value: object) -> object:
 
 
 def _canonical_bytes(parts: tuple[object, ...]) -> bytes:
-    """Encode identifier inputs in the canonical QIEC representation."""
+    """Encode identifier inputs in the canonical QIEC representation.
+
+    Parameters
+    ----------
+    parts : tuple[object, ...]
+        The values contributing to an identifier, in order.
+
+    Returns
+    -------
+    bytes
+        Their UTF-8 JSON encoding, compact and key-sorted so the same
+        inputs produce the same bytes on every run and every platform.
+
+    Raises
+    ------
+    TypeError
+        If any part has no canonical encoding.
+    """
     return json.dumps(
         _canonical_value(parts),
         ensure_ascii=False,
@@ -68,6 +109,14 @@ class StableId:
     namespace: ClassVar[str] = "id"
 
     def __post_init__(self) -> None:
+        """Reject a digest that is not 64 lowercase hex characters.
+
+        Raises
+        ------
+        ValueError
+            If the digest is the wrong length or contains a character
+            outside ``0-9a-f``.
+        """
         if len(self.digest) != 64 or any(
             c not in "0123456789abcdef" for c in self.digest
         ):
@@ -75,21 +124,76 @@ class StableId:
 
     @classmethod
     def derive(cls, *parts: object) -> Self:
+        """Derive an identifier from the values that determine it.
+
+        Parameters
+        ----------
+        parts : object
+            The determining values, in order. Order matters, so two
+            identifiers built from the same values differently arranged
+            are distinct.
+
+        Returns
+        -------
+        Self
+            The derived identifier. The ABI version and the namespace are
+            mixed in, so an identifier from one namespace can never equal
+            one from another, and a future ABI change re-derives rather
+            than silently reusing.
+
+        Raises
+        ------
+        TypeError
+            If a part has no canonical encoding.
+        """
         payload = (QIEC_ABI, cls.namespace, *parts)
         return cls(sha256(_canonical_bytes(payload)).hexdigest())
 
     @classmethod
     def parse(cls, text: str) -> Self:
+        """Read an identifier back from its wire form.
+
+        Parameters
+        ----------
+        text : str
+            The wire form, ``qiec:<namespace>:<digest>``.
+
+        Returns
+        -------
+        Self
+            The parsed identifier.
+
+        Raises
+        ------
+        ValueError
+            If the text carries another namespace's prefix, or the
+            remainder is not a valid digest. Parsing is namespace-checked
+            so a handler identifier cannot be read as an effect one.
+        """
         prefix = f"qiec:{cls.namespace}:"
         if not text.startswith(prefix):
             raise ValueError(f"expected {prefix!r} identifier, got {text!r}")
         return cls(text.removeprefix(prefix))
 
     def __str__(self) -> str:
+        """The wire form of this identifier.
+
+        Returns
+        -------
+        str
+            ``qiec:<namespace>:<digest>``, which `parse` accepts.
+        """
         return f"qiec:{self.namespace}:{self.digest}"
 
     def to_data(self) -> str:
-        """Return the stable wire representation."""
+        """Return the stable wire representation.
+
+        Returns
+        -------
+        str
+            The same string as `__str__`, named for the serialization
+            protocol the rest of the kernel uses.
+        """
         return str(self)
 
 
@@ -163,6 +267,16 @@ class SourceOrigin:
     column: int | None = None
 
     def site_id(self) -> SiteId:
+        """The stable identity of the source site this origin describes.
+
+        Returns
+        -------
+        SiteId
+            An identity derived from the protocol, module, structural
+            path, and role. The file, line, and column are deliberately
+            excluded, so reformatting a source file does not change the
+            identity of the sites within it.
+        """
         return SiteId.derive(
             self.source_protocol,
             self.module,
@@ -171,6 +285,15 @@ class SourceOrigin:
         )
 
     def to_data(self) -> dict[str, object]:
+        """Return the serializable form of this origin.
+
+        Returns
+        -------
+        dict[str, object]
+            Every field, including the diagnostic coordinates. Those do
+            not enter `site_id` but are carried here so a deserialized
+            origin can still point at a line.
+        """
         return {
             "module": self.module,
             "structural_path": list(self.structural_path),
@@ -210,11 +333,29 @@ class SiteProvenance:
 
     @property
     def static_site(self) -> SiteId:
+        """The source site this request was written at.
+
+        Returns
+        -------
+        SiteId
+            The static identity, shared by every dynamic occurrence of
+            the request.
+        """
         return self.origin.site_id()
 
     def dynamic_key(
         self,
     ) -> tuple[str, tuple[tuple[str, str | int], ...], tuple[int, ...]]:
+        """A hashable key distinguishing occurrences of one static site.
+
+        Returns
+        -------
+        tuple[str, tuple[tuple[str, str | int], ...], tuple[int, ...]]
+            The static site, the dynamic address frames, and the
+            resumption path. One site reached twice, under a loop or
+            under a resumed continuation, yields two keys, which is what
+            lets a trace name each occurrence separately.
+        """
         return (
             str(self.static_site),
             tuple((frame.scope, frame.key) for frame in self.dynamic_path),
@@ -222,6 +363,15 @@ class SiteProvenance:
         )
 
     def to_data(self) -> dict[str, object]:
+        """Return the serializable form of this provenance.
+
+        Returns
+        -------
+        dict[str, object]
+            The origin, the static site, and the dynamic address. The
+            static site is written out alongside the origin it derives
+            from so a reader need not re-derive it.
+        """
         return {
             "origin": self.origin.to_data(),
             "static_site": self.static_site.to_data(),

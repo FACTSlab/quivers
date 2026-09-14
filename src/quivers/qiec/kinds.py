@@ -42,12 +42,29 @@ class NatSort:
 
 @dataclass(frozen=True, slots=True)
 class ShapeSort:
-    """The sort of shapes, optionally restricted to a fixed rank."""
+    """The sort of shapes, optionally restricted to a fixed rank.
+
+    Parameters
+    ----------
+    rank : int or None
+        The number of dimensions, or None for any rank. A binder of
+        unspecified rank accepts a shape of any rank, which is what makes
+        a rank-polymorphic signature expressible.
+    tag : Literal["shape"]
+        Discriminator for the index-sort union.
+    """
 
     rank: int | None = None
     tag: Literal["shape"] = "shape"
 
     def __post_init__(self) -> None:
+        """Reject a negative rank.
+
+        Raises
+        ------
+        ValueError
+            If `rank` is negative.
+        """
         if self.rank is not None and self.rank < 0:
             raise ValueError("shape rank cannot be negative")
 
@@ -67,6 +84,20 @@ class UserIndexSort:
     Constructor names are part of the sort identity.  Open index sorts are
     deliberately absent from the first kernel because they make coverage
     unstable under separate compilation.
+
+    Parameters
+    ----------
+    name : str
+        The sort's name, part of its identity.
+    constructors : tuple[str, ...]
+        Constructor names, unique and part of the identity. Two sorts
+        with the same name and different constructors are different
+        sorts, which is what keeps coverage decidable.
+    arities : tuple[int, ...]
+        Argument count per constructor, positionally aligned with
+        `constructors`. Empty defaults to all-nullary.
+    tag : Literal["user"]
+        Discriminator for the index-sort union.
     """
 
     name: str
@@ -75,6 +106,15 @@ class UserIndexSort:
     tag: Literal["user"] = "user"
 
     def __post_init__(self) -> None:
+        """Default the arities and reject a malformed sort.
+
+        Raises
+        ------
+        ValueError
+            If the name is empty, there are no constructors, a
+            constructor name repeats, the arities do not align with the
+            constructors, or an arity is negative.
+        """
         if not self.name:
             raise ValueError("user index sort name cannot be empty")
         if not self.constructors:
@@ -89,6 +129,24 @@ class UserIndexSort:
             raise ValueError("index constructor arities cannot be negative")
 
     def constructor_arity(self, name: str) -> int:
+        """The number of arguments one constructor takes.
+
+        Parameters
+        ----------
+        name : str
+            The constructor name.
+
+        Returns
+        -------
+        int
+            Its arity, zero for a nullary constructor.
+
+        Raises
+        ------
+        ValueError
+            If the sort has no such constructor. The sort is closed, so
+            an unknown name is an error rather than an open extension.
+        """
         try:
             position = self.constructors.index(name)
         except ValueError as error:
@@ -132,7 +190,19 @@ type Telescope = tuple[TelescopeBinder, ...]
 
 
 def validate_telescope(telescope: Telescope) -> None:
-    """Reject duplicate names in one dependent telescope."""
+    """Reject duplicate names in one dependent telescope.
+
+    Parameters
+    ----------
+    telescope : Telescope
+        The binders to check, in order.
+
+    Raises
+    ------
+    ValueError
+        If a binder name is empty or repeats. Later binders may depend on
+        earlier ones, so a repeated name would make a reference ambiguous.
+    """
     seen: set[str] = set()
     for binder in telescope:
         if not binder.name:

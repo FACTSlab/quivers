@@ -12,7 +12,6 @@ from quivers.qiec.effects import (
     EffectRequest,
     EffectRow,
     HandlerDef,
-    InterfaceEvolution,
     OperationDef,
     RowEntry,
 )
@@ -111,6 +110,15 @@ class _StaticScope:
 
     @property
     def names(self) -> frozenset[str]:
+        """Every static name bound here, across all three namespaces.
+
+        Returns
+        -------
+        frozenset[str]
+            The union of the type, index, and effect binder names. The
+            namespaces are disjoint by construction, so this is what
+            shadowing is tested against.
+        """
         return frozenset(
             (
                 *[name for name, _ in self.types],
@@ -120,6 +128,28 @@ class _StaticScope:
         )
 
     def extend(self, telescope: tuple[object, ...], *, subject: str) -> _StaticScope:
+        """Return this scope widened by a telescope's binders.
+
+        Parameters
+        ----------
+        telescope : tuple[object, ...]
+            Binders to add. Each must be a type, index, or effect binder.
+        subject : str
+            What is being extended, named in any diagnostic so the error
+            points at the declaration rather than at the scope.
+
+        Returns
+        -------
+        _StaticScope
+            A scope carrying the original binders and the new ones.
+
+        Raises
+        ------
+        KernelError
+            If a binder is of an unknown class, or if its name is already
+            bound. Shadowing is rejected rather than resolved so a static
+            name always denotes one thing within a declaration.
+        """
         types = list(self.types)
         indices = list(self.indices)
         effects = list(self.effects)
@@ -142,9 +172,36 @@ class _StaticScope:
         return _StaticScope(tuple(types), tuple(indices), tuple(effects))
 
     def type_kind(self, name: str) -> object | None:
+        """The kind of a type binder in scope.
+
+        Parameters
+        ----------
+        name : str
+            The binder name to resolve.
+
+        Returns
+        -------
+        object or None
+            The binder's kind, or None when `name` is not a type binder
+            here. None does not mean unbound: the name may be an index or
+            effect binder instead.
+        """
         return next((kind for candidate, kind in self.types if candidate == name), None)
 
     def index_sort(self, name: str) -> IndexSort | None:
+        """The sort of an index binder in scope.
+
+        Parameters
+        ----------
+        name : str
+            The binder name to resolve.
+
+        Returns
+        -------
+        IndexSort or None
+            The binder's sort, or None when `name` is not an index binder
+            here.
+        """
         return next(
             (sort for candidate, sort in self.indices if candidate == name), None
         )
@@ -164,6 +221,21 @@ class KernelRegistry:
     type_constructors: dict[TypeId, TypeConstructorRef] = field(default_factory=dict)
 
     def _record_type_constructor(self, constructor: TypeConstructorRef) -> None:
+        """Remember one type constructor's telescope, or confirm it.
+
+        Parameters
+        ----------
+        constructor : TypeConstructorRef
+            The constructor whose telescope metadata to record. A
+            constructor already recorded is checked for agreement rather
+            than overwritten.
+
+        Raises
+        ------
+        KernelError
+            If the constructor is already known with a different
+            telescope, which would make one identity mean two arities.
+        """
         existing = self.type_constructors.get(constructor.id)
         if existing is not None and existing.telescope != constructor.telescope:
             raise KernelError(
@@ -173,6 +245,21 @@ class KernelRegistry:
             self.type_constructors[constructor.id] = constructor
 
     def _record_type_constructors(self, term: StaticArgument) -> None:
+        """Record every type constructor reachable from a static term.
+
+        Parameters
+        ----------
+        term : StaticArgument
+            The term to walk. Structures that carry no constructor are
+            ignored rather than rejected, since this collects metadata
+            and does not validate.
+
+        Raises
+        ------
+        KernelError
+            If a constructor found here disagrees with one already
+            recorded under the same identity.
+        """
         if isinstance(term, TypeApplication):
             self._record_type_constructor(term.constructor)
             for argument in term.arguments:
@@ -199,6 +286,25 @@ class KernelRegistry:
         term: StaticArgument,
         additional: tuple[EffectDef, ...] = (),
     ) -> None:
+        """Check every interface application reachable from a static term.
+
+        Parameters
+        ----------
+        term : StaticArgument
+            The term to walk.
+        additional : tuple[EffectDef, ...]
+            Declarations not yet in the registry to consider alongside it.
+            This is what lets a declaration's own signature mention the
+            interface being declared. An application naming a declaration
+            found in neither is left alone rather than rejected, since an
+            unregistered interface is resolved elsewhere.
+
+        Raises
+        ------
+        KernelError
+            If an application names a known declaration but does not
+            saturate its telescope, or supplies an ill-kinded argument.
+        """
         if isinstance(term, EffectRef):
             for argument in term.arguments:
                 self._validate_effect_references(argument, additional)
@@ -208,7 +314,7 @@ class KernelRegistry:
             )
             if definition is not None and not definition.matches(term):
                 raise KernelError(
-                    f"invalid application or version of effect interface {term.name!r}"
+                    f"invalid application of effect interface {term.name!r}"
                 )
             return
         if isinstance(term, TypeApplication | IndexConstructor):
@@ -232,7 +338,22 @@ class KernelRegistry:
         term: StaticArgument,
         scope: _StaticScope | None = None,
     ) -> None:
-        """Validate a static term against every declaration known to the registry."""
+        """Validate a static term against every declaration known here.
+
+        Parameters
+        ----------
+        term : StaticArgument
+            The static term to check.
+        scope : _StaticScope or None
+            Binders in scope at the term's position. None means the empty
+            scope, so any variable reference is out of scope.
+
+        Raises
+        ------
+        KernelError
+            If the term is ill-kinded, references an unbound static
+            variable, or applies a known declaration wrongly.
+        """
         check_static(term, scope, registry=self)
         self._record_type_constructors(term)
 
@@ -241,21 +362,74 @@ class KernelRegistry:
         type_: TypeExpr,
         scope: _StaticScope | None = None,
     ) -> None:
-        """Validate a value type against every declaration known to the registry."""
+        """Validate a value type against every declaration known here.
+
+        Parameters
+        ----------
+        type_ : TypeExpr
+            The value type to check.
+        scope : _StaticScope or None
+            Binders in scope at the type's position. None means the empty
+            scope.
+
+        Raises
+        ------
+        KernelError
+            If the type is ill-kinded or references an unbound variable.
+        """
         check_type(type_, scope, registry=self)
         self._record_type_constructors(type_)
 
     def validate_effect_row(self, row: EffectRow) -> None:
-        """Validate all concrete interface applications in an effect row."""
+        """Validate all concrete interface applications in an effect row.
+
+        Parameters
+        ----------
+        row : EffectRow
+            The row whose entries to check. An open tail carries no
+            application and so is not checked here.
+
+        Raises
+        ------
+        KernelError
+            If an entry applies its interface wrongly.
+        """
         for entry in row.entries:
             self.validate_static(entry.effect)
 
     def validate_computation_type(self, type_: ComputationType) -> None:
-        """Validate both strata of a computation type."""
+        """Validate both strata of a computation type.
+
+        Parameters
+        ----------
+        type_ : ComputationType
+            The computation type whose effect row and result type to
+            check.
+
+        Raises
+        ------
+        KernelError
+            If either stratum is ill-formed.
+        """
         self.validate_effect_row(type_.effects)
         self.validate_type(type_.result)
 
     def register_family(self, family: FamilyDecl) -> None:
+        """Record an indexed family declaration.
+
+        Parameters
+        ----------
+        family : FamilyDecl
+            The family to register, with its uniform parameters and its
+            refinable indices.
+
+        Raises
+        ------
+        KernelError
+            If a family with this identity is already registered, if two
+            of its binders share a name, or if its type constructor
+            disagrees with one already recorded.
+        """
         if family.id in self.families:
             raise KernelError(f"family already registered: {family.name!r}")
         _StaticScope().extend(
@@ -266,6 +440,22 @@ class KernelRegistry:
         self.families[family.id] = family
 
     def register_constructor(self, constructor: ConstructorDecl) -> None:
+        """Record a constructor against the family that declares it.
+
+        Parameters
+        ----------
+        constructor : ConstructorDecl
+            The constructor to register. Its family must already be
+            registered and must list this constructor.
+
+        Raises
+        ------
+        KernelError
+            If the constructor is already registered, if its family is
+            unknown or does not declare it, if it returns the wrong
+            number of result indices, if its telescope shadows a family
+            binder, or if a field type or result index is ill-formed.
+        """
         if constructor.id in self.constructors:
             raise KernelError(f"constructor already registered: {constructor.name!r}")
         family = self.families.get(constructor.family)
@@ -314,6 +504,24 @@ class KernelRegistry:
         self.constructors[constructor.id] = constructor
 
     def register_effect(self, effect: EffectDef) -> None:
+        """Record an effect interface and index its operations.
+
+        Each operation's signature is checked in a scope carrying the
+        interface binders and then its own, and may mention the interface
+        being declared.
+
+        Parameters
+        ----------
+        effect : EffectDef
+            The interface to register.
+
+        Raises
+        ------
+        KernelError
+            If the interface or one of its operations is already
+            registered, if a binder is shadowed, or if an argument or
+            result type is ill-formed.
+        """
         if effect.ref.id in self.effects:
             raise KernelError(f"effect already registered: {effect.ref.name!r}")
         interface_scope = _StaticScope().extend(
@@ -337,6 +545,27 @@ class KernelRegistry:
             self.operations[operation.id] = (effect, operation)
 
     def register_handler(self, handler: HandlerDef) -> None:
+        """Record a handler against the interface it handles.
+
+        Coverage is checked here rather than at construction, because it
+        is a claim about the interface's operations and only the registry
+        knows those.
+
+        Parameters
+        ----------
+        handler : HandlerDef
+            The handler signature to register.
+
+        Raises
+        ------
+        KernelError
+            If the handler is already registered, if its telescope
+            shadows a binder, if its input, output, or introduced row is
+            ill-formed, if the interface it names is unknown or wrongly
+            applied, if a clause covers an operation the interface does
+            not declare, or if the handler claims totality while leaving
+            an operation uncovered.
+        """
         if handler.id in self.handlers:
             raise KernelError(f"handler already registered: {handler.name!r}")
         scope = _StaticScope().extend(
@@ -366,34 +595,101 @@ class KernelRegistry:
         if handler.total and clauses != declared:
             missing = declared - clauses
             raise KernelError(f"total handler is missing operations: {missing!r}")
-        if (
-            handler.forwards_unknown
-            and effect.evolution is not InterfaceEvolution.FORWARDING
-        ):
-            raise KernelError(
-                "only a forwarding interface may forward future operations"
-            )
         self.handlers[handler.id] = handler
 
     def constructor(self, constructor: ConstructorId) -> ConstructorDecl:
+        """The registered constructor with a given identity.
+
+        Parameters
+        ----------
+        constructor : ConstructorId
+            The identity to resolve.
+
+        Returns
+        -------
+        ConstructorDecl
+            The registered declaration.
+
+        Raises
+        ------
+        KernelError
+            If no constructor is registered under that identity. The
+            underlying `KeyError` is wrapped so callers handle one
+            kernel error class rather than two.
+        """
         try:
             return self.constructors[constructor]
         except KeyError as exc:
             raise KernelError(f"unknown constructor {constructor}") from exc
 
     def handler(self, handler: HandlerId) -> HandlerDef:
+        """The registered handler with a given identity.
+
+        Parameters
+        ----------
+        handler : HandlerId
+            The identity to resolve.
+
+        Returns
+        -------
+        HandlerDef
+            The registered signature.
+
+        Raises
+        ------
+        KernelError
+            If no handler is registered under that identity.
+        """
         try:
             return self.handlers[handler]
         except KeyError as exc:
             raise KernelError(f"unknown handler {handler}") from exc
 
     def operation(self, operation: OperationId) -> tuple[EffectDef, OperationDef]:
+        """The operation with a given identity, and its owning interface.
+
+        Parameters
+        ----------
+        operation : OperationId
+            The identity to resolve.
+
+        Returns
+        -------
+        tuple[EffectDef, OperationDef]
+            The interface that declares the operation, and the operation
+            itself. The interface comes back too because checking a
+            request needs both.
+
+        Raises
+        ------
+        KernelError
+            If no operation is registered under that identity.
+        """
         try:
             return self.operations[operation]
         except KeyError as exc:
             raise KernelError(f"unknown operation {operation}") from exc
 
     def family_for_type(self, type_: TypeApplication) -> FamilyDecl:
+        """The indexed family a type application is an instance of.
+
+        Parameters
+        ----------
+        type_ : TypeApplication
+            The applied type whose family to find.
+
+        Returns
+        -------
+        FamilyDecl
+            The family whose type constructor the application names.
+
+        Raises
+        ------
+        KernelError
+            If the application is ill-formed, or names a constructor no
+            registered family declares, which is how a case analysis on
+            a non-family type is rejected.
+        """
         self.validate_static(type_)
         for family in self.families.values():
             if family.type_constructor == type_.constructor:
@@ -403,12 +699,46 @@ class KernelRegistry:
 
 @dataclass(frozen=True, slots=True)
 class CheckContext:
+    """What is in scope at one point in a term being checked.
+
+    Parameters
+    ----------
+    locals : tuple[Local, ...]
+        Value bindings, innermost last.
+    givens : tuple[BranchGiven, ...]
+        Equality evidence introduced by enclosing case branches, which is
+        what makes an index refinement usable in the branch body.
+    static_scopes : tuple[StaticScopeId, ...]
+        Static scopes already entered. Tracked so a branch cannot reuse
+        an enclosing scope's identity and silently capture its variables.
+    static_variables : tuple[StaticVariableId, ...]
+        Rigid variables currently active, tracked for the same reason.
+    """
+
     locals: tuple[Local, ...] = ()
     givens: tuple[BranchGiven, ...] = ()
     static_scopes: tuple[StaticScopeId, ...] = ()
     static_variables: tuple[StaticVariableId, ...] = ()
 
     def extend(self, local: Local) -> CheckContext:
+        """Return this context with one more value binding.
+
+        Parameters
+        ----------
+        local : Local
+            The binding to add.
+
+        Returns
+        -------
+        CheckContext
+            A context carrying the new binding innermost.
+
+        Raises
+        ------
+        KernelError
+            If the name is already bound. Rebinding is rejected rather
+            than shadowed, so a name denotes one value throughout a body.
+        """
         if any(existing.name == local.name for existing in self.locals):
             raise KernelError(f"local already bound: {local.name!r}")
         return CheckContext(
@@ -419,6 +749,18 @@ class CheckContext:
         )
 
     def with_givens(self, givens: tuple[BranchGiven, ...]) -> CheckContext:
+        """Return this context with further equality evidence in scope.
+
+        Parameters
+        ----------
+        givens : tuple[BranchGiven, ...]
+            Evidence a case branch introduces by matching a constructor.
+
+        Returns
+        -------
+        CheckContext
+            A context in which that evidence may be appealed to.
+        """
         return CheckContext(
             self.locals,
             (*self.givens, *givens),
@@ -431,6 +773,28 @@ class CheckContext:
         scope: StaticScopeId,
         variables: tuple[StaticVariableId, ...] = (),
     ) -> CheckContext:
+        """Return this context inside a fresh static scope.
+
+        Parameters
+        ----------
+        scope : StaticScopeId
+            Identity of the scope being entered.
+        variables : tuple[StaticVariableId, ...]
+            Rigid variables the scope introduces.
+
+        Returns
+        -------
+        CheckContext
+            A context recording the scope and its variables as active.
+
+        Raises
+        ------
+        KernelError
+            If the scope or one of its variables is already active. Reuse
+            would let a branch's rigid variable be confused with an
+            enclosing one, which is what keeps branch refinements from
+            leaking out of the branch.
+        """
         if scope in self.static_scopes:
             raise KernelError("a case branch reused an enclosing static scope")
         if set(variables) & set(self.static_variables):
@@ -443,16 +807,59 @@ class CheckContext:
         )
 
     def local_type(self, name: str) -> TypeExpr | None:
+        """The type of a value binding in scope.
+
+        Parameters
+        ----------
+        name : str
+            The bound name to resolve.
+
+        Returns
+        -------
+        TypeExpr or None
+            The binding's type, or None when the name is not bound here.
+            The innermost binding wins, though `extend` rejects rebinding,
+            so at most one can match.
+        """
         return next(
             (local.type for local in reversed(self.locals) if local.name == name),
             None,
         )
 
     def given(self, equality: EqualityId) -> BranchGiven | None:
+        """The equality evidence with a given identity, if in scope.
+
+        Parameters
+        ----------
+        equality : EqualityId
+            The identity to resolve.
+
+        Returns
+        -------
+        BranchGiven or None
+            The evidence, or None when it is not in scope, which is how
+            an appeal to a refinement outside its branch is caught.
+        """
         return next((given for given in self.givens if given.id == equality), None)
 
 
 def _sort_matches(expected: IndexSort, actual: IndexSort) -> bool:
+    """Whether an index of one sort is acceptable where another is wanted.
+
+    Parameters
+    ----------
+    expected : IndexSort
+        The sort the position requires.
+    actual : IndexSort
+        The sort the supplied index carries.
+
+    Returns
+    -------
+    bool
+        True when the index is acceptable. Sorts match exactly, except
+        that a shape sort of unspecified rank accepts any rank, which is
+        what lets a rank-polymorphic binder take a concrete shape.
+    """
     if isinstance(expected, ShapeSort) and isinstance(actual, ShapeSort):
         return expected.rank is None or expected.rank == actual.rank
     return expected == actual
@@ -464,7 +871,27 @@ def check_static(
     *,
     registry: KernelRegistry | None = None,
 ) -> None:
-    """Check the intrinsic kind/sort structure of one static term."""
+    """Check the intrinsic kind/sort structure of one static term.
+
+    Parameters
+    ----------
+    term : StaticArgument
+        The static term to check.
+    scope : _StaticScope or None
+        Binders in scope. None checks the term's intrinsic structure
+        alone and permits no variable reference, which is the right mode
+        for a closed declaration.
+    registry : KernelRegistry or None
+        Registry to resolve interface applications against. None skips
+        that check, leaving only the structural one.
+
+    Raises
+    ------
+    KernelError
+        If the term is ill-kinded, references an unbound or wrongly
+        kinded static variable, carries a scoped variable where a
+        declaration is expected, or applies a known interface wrongly.
+    """
     if registry is not None:
         registry._validate_effect_references(term)
     if isinstance(term, TypeVariable):
@@ -566,7 +993,23 @@ def check_type(
     *,
     registry: KernelRegistry | None = None,
 ) -> None:
-    """Check that a type expression is intrinsically well-kinded."""
+    """Check that a type expression is intrinsically well-kinded.
+
+    Parameters
+    ----------
+    type_ : TypeExpr
+        The type expression to check.
+    scope : _StaticScope or None
+        Binders in scope, or None for a closed type.
+    registry : KernelRegistry or None
+        Registry to resolve interface applications against, or None.
+
+    Raises
+    ------
+    KernelError
+        If the expression is ill-kinded, or is a well-formed static term
+        that is not a type, such as an index where a type is required.
+    """
     check_static(type_, scope, registry=registry)
     if static_kind(type_) != TYPE:
         raise KernelError(f"expected a type, got {type_!r}")
@@ -578,6 +1021,25 @@ def _check_binder_argument(
     *,
     subject: str,
 ) -> None:
+    """Check one static argument against the binder it instantiates.
+
+    Parameters
+    ----------
+    binder : TypeBinder or IndexBinder or EffectBinder
+        The binder being instantiated, which fixes the class of argument
+        allowed and the kind or sort it must carry.
+    argument : StaticArgument
+        The supplied argument.
+    subject : str
+        What is being checked, named in any diagnostic so the error
+        points at the source position rather than at the binder.
+
+    Raises
+    ------
+    KernelError
+        If the argument is of the wrong static class for the binder, or
+        of the right class but the wrong kind or index sort.
+    """
     if isinstance(binder, TypeBinder):
         if not isinstance(
             argument,
@@ -605,6 +1067,30 @@ def _check_binder_argument(
 
 
 def check_evidence(evidence: EqualityEvidence, context: CheckContext) -> EqualityType:
+    """Check an appeal to equality evidence and return what it proves.
+
+    Parameters
+    ----------
+    evidence : EqualityEvidence
+        The appeal being made, either reflexivity or an appeal to a
+        branch given.
+    context : CheckContext
+        Scope the appeal is made in, which decides whether a branch given
+        is still available.
+
+    Returns
+    -------
+    EqualityType
+        The equality the evidence establishes.
+
+    Raises
+    ------
+    KernelError
+        If the stated equality is ill-kinded, if reflexivity is claimed
+        between unequal endpoints, if a branch given is appealed to
+        outside its branch or with an equality other than the one it
+        carries, or if the evidence is of an unknown class.
+    """
     check_type(evidence.equality)
     if isinstance(evidence, Reflexivity):
         if evidence.equality.left != evidence.equality.right:
@@ -619,6 +1105,23 @@ def check_evidence(evidence: EqualityEvidence, context: CheckContext) -> Equalit
 
 
 def _check_literal(value: object, type_: TypeExpr) -> None:
+    """Check a literal's runtime value against its declared type.
+
+    Parameters
+    ----------
+    value : object
+        The literal's value.
+    type_ : TypeExpr
+        The type it claims.
+
+    Raises
+    ------
+    KernelError
+        If the value does not inhabit the type, or the type is outside
+        the literal-supporting set. Booleans are rejected where `Int` or
+        `Real` is claimed even though Python treats them as numbers,
+        since the kernel keeps the two apart.
+    """
     if type_ == UNIT:
         if value is not None:
             raise KernelError("Unit literals must be None")
@@ -648,6 +1151,21 @@ def _combine_substitutions(
     first: StaticSubstitution,
     second: StaticSubstitution,
 ) -> StaticSubstitution:
+    """Concatenate two static substitutions.
+
+    Parameters
+    ----------
+    first : StaticSubstitution
+        The outer substitution.
+    second : StaticSubstitution
+        The inner one, applied in the scope the first has already opened.
+
+    Returns
+    -------
+    StaticSubstitution
+        One substitution carrying both sets of bindings across all three
+        static namespaces.
+    """
     return StaticSubstitution(
         (*first.types, *second.types),
         (*first.indices, *second.indices),
@@ -656,6 +1174,24 @@ def _combine_substitutions(
 
 
 def _computation_static_scopes(computation: Computation) -> tuple[StaticScopeId, ...]:
+    """Every static scope a computation opens, including nested ones.
+
+    Parameters
+    ----------
+    computation : Computation
+        The term to walk.
+
+    Returns
+    -------
+    tuple[StaticScopeId, ...]
+        The scopes in traversal order. Only case branches open one, so a
+        computation without case analysis contributes nothing.
+
+    Raises
+    ------
+    KernelError
+        If the term is of an unknown computation class.
+    """
     if isinstance(computation, Return | Perform):
         return ()
     if isinstance(computation, Bind):
@@ -680,6 +1216,20 @@ def _computation_static_scopes(computation: Computation) -> tuple[StaticScopeId,
 def _static_variable_identities(
     term: StaticArgument,
 ) -> tuple[StaticVariableId, ...]:
+    """Every scoped static variable occurring in a term.
+
+    Parameters
+    ----------
+    term : StaticArgument
+        The term to walk.
+
+    Returns
+    -------
+    tuple[StaticVariableId, ...]
+        Identities of the scoped variables found. A variable with no
+        identity is a declaration binder rather than a rigid branch
+        variable and is not reported, since only the latter can escape.
+    """
     if isinstance(term, TypeVariable | IndexVariable | EffectVariable):
         return (term.identity,) if term.identity is not None else ()
     if isinstance(term, TypeApplication | EffectRef | IndexConstructor):
@@ -713,6 +1263,27 @@ def _check_static_variable_scope(
     *,
     subject: str,
 ) -> None:
+    """Reject a term mentioning a rigid variable that is out of scope.
+
+    This is what confines a case branch's index refinement to the branch:
+    a variable introduced by matching a constructor may be used inside
+    the branch body, and a type escaping the branch may not mention it.
+
+    Parameters
+    ----------
+    term : StaticArgument
+        The term to check, typically a branch's result type or effect
+        row.
+    context : CheckContext
+        Scope the term must be valid in, carrying the active variables.
+    subject : str
+        What is being checked, named in any diagnostic.
+
+    Raises
+    ------
+    KernelError
+        If the term mentions a rigid variable not active in `context`.
+    """
     escaped = set(_static_variable_identities(term)) - set(context.static_variables)
     if escaped:
         raise KernelError(
@@ -726,6 +1297,31 @@ def _checked_computation_type(
     registry: KernelRegistry,
     context: CheckContext,
 ) -> ComputationType:
+    """Assemble a computation type and check it is legal where it stands.
+
+    Parameters
+    ----------
+    effects : EffectRow
+        The row the computation performs.
+    result : TypeExpr
+        The value it returns.
+    registry : KernelRegistry
+        Registry the two strata are validated against.
+    context : CheckContext
+        Scope the type must be valid in.
+
+    Returns
+    -------
+    ComputationType
+        The assembled type.
+
+    Raises
+    ------
+    KernelError
+        If either stratum is ill-formed, or if the result type or an
+        effect mentions a rigid variable that does not survive out to
+        this point.
+    """
     type_ = ComputationType(effects, result)
     registry.validate_computation_type(type_)
     _check_static_variable_scope(result, context, subject="computation result type")
@@ -743,6 +1339,32 @@ def infer_value(
     registry: KernelRegistry,
     context: CheckContext = CheckContext(),
 ) -> TypeExpr:
+    """Infer the type of a pure value term.
+
+    Parameters
+    ----------
+    value : Value
+        The value to check.
+    registry : KernelRegistry
+        Declarations the value's types are resolved against.
+    context : CheckContext
+        Bindings and evidence in scope. The default empty context suits a
+        closed value.
+
+    Returns
+    -------
+    TypeExpr
+        The inferred type.
+
+    Raises
+    ------
+    KernelError
+        If a local is unbound or carries a type other than the one the
+        term claims, if a literal's value does not inhabit its type, if
+        a constructor is applied wrongly, if equality evidence is forged
+        or out of scope, or if an inferred type mentions a rigid variable
+        that escapes its branch.
+    """
     if isinstance(value, Var):
         actual = context.local_type(value.local.name)
         if actual is None or actual != value.local.type:
@@ -843,6 +1465,34 @@ def check_request(
     registry: KernelRegistry,
     context: CheckContext,
 ) -> tuple[EffectRef, TypeExpr]:
+    """Check one effect request and report what performing it yields.
+
+    Parameters
+    ----------
+    request : EffectRequest
+        The request to check, naming an instance, an interface
+        application, an operation, and the arguments it carries.
+    registry : KernelRegistry
+        Declarations the request is resolved against.
+    context : CheckContext
+        Scope the request is made in.
+
+    Returns
+    -------
+    tuple[EffectRef, TypeExpr]
+        The interface application the request performs, and the type
+        resuming it supplies. The interface comes back because the caller
+        needs it to build the row this request adds to.
+
+    Raises
+    ------
+    KernelError
+        If the operation is unknown, if the named interface does not own
+        it, if the static or value arguments do not match the operation's
+        signature, if the declared result type disagrees with the
+        instantiated one, or if any part mentions a rigid variable out of
+        scope.
+    """
     registry.validate_static(request.effect)
     _check_static_variable_scope(request.effect, context, subject="request effect")
     for argument in request.static_arguments:
@@ -860,7 +1510,7 @@ def check_request(
     )
     effect, operation_object = registry.operation(request.operation)
     if not effect.matches(request.effect):
-        raise KernelError("request effect interface/version does not own the operation")
+        raise KernelError("request effect interface does not own the operation")
     interface_substitution = instantiate_telescope(
         effect.telescope,
         request.effect.arguments,
@@ -892,6 +1542,37 @@ def infer_computation(
     registry: KernelRegistry,
     context: CheckContext = CheckContext(),
 ) -> ComputationType:
+    """Infer the result type and effect row of a computation.
+
+    This is the kernel's entry point for checking effectful code. The
+    row it returns is what remains unhandled: a `Handle` discharges its
+    instance, so a fully handled computation comes back with the empty
+    row.
+
+    Parameters
+    ----------
+    computation : Computation
+        The term to check.
+    registry : KernelRegistry
+        Declarations the term is resolved against.
+    context : CheckContext
+        Bindings and evidence in scope. The default empty context suits a
+        closed computation.
+
+    Returns
+    -------
+    ComputationType
+        The result type paired with the effects still outstanding.
+
+    Raises
+    ------
+    KernelError
+        If two case branches share a static scope, if a request, value,
+        or branch fails to check, if a handler's interface does not match
+        the instance it discharges, if branch types or rows fail to
+        unify, or if a rigid variable escapes the branch that introduced
+        it.
+    """
     static_scopes = _computation_static_scopes(computation)
     if len(set(static_scopes)) != len(static_scopes):
         raise KernelError("case branch static scopes must be globally fresh")
