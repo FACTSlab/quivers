@@ -354,7 +354,34 @@ def _pair_of(
     first: RuntimeValidator,
     second: RuntimeValidator,
 ) -> RuntimeValidator:
+    """A validator for a two-element tuple, component by component.
+
+    Parameters
+    ----------
+    first : RuntimeValidator
+        Validates the first component.
+    second : RuntimeValidator
+        Validates the second.
+
+    Returns
+    -------
+    RuntimeValidator
+        A validator accepting a pair whose components both pass.
+    """
+
     def validate(value: object) -> bool:
+        """Whether a value is a pair of accepted components.
+
+        Parameters
+        ----------
+        value : object
+            The value to test.
+
+        Returns
+        -------
+        bool
+            True for a two-element tuple whose components pass.
+        """
         return (
             isinstance(value, tuple)
             and len(value) == 2
@@ -366,7 +393,33 @@ def _pair_of(
 
 
 def _tuple_of(item: RuntimeValidator) -> RuntimeValidator:
+    """A validator for a tuple of uniformly typed elements.
+
+    Parameters
+    ----------
+    item : RuntimeValidator
+        Validates each element.
+
+    Returns
+    -------
+    RuntimeValidator
+        A validator accepting a tuple whose every element passes. An
+        empty tuple passes, having no element to fail.
+    """
+
     def validate(value: object) -> bool:
+        """Whether a value is a tuple of accepted elements.
+
+        Parameters
+        ----------
+        value : object
+            The value to test.
+
+        Returns
+        -------
+        bool
+            True for a tuple whose elements all pass.
+        """
         return isinstance(value, tuple) and all(_accepts(item, part) for part in value)
 
     return validate
@@ -384,6 +437,36 @@ def _handler_def(
     total: bool = True,
     telescope: tuple[TypeBinder, ...] = (),
 ) -> HandlerDef:
+    """Build one prelude handler's checked signature.
+
+    Parameters
+    ----------
+    name : str
+        The handler's name.
+    effect : EffectRef
+        The interface it handles.
+    clauses : tuple[tuple[OperationId, ResumptionGrade], ...]
+        The operations it covers, each with its resumption grade.
+    key : str
+        Distinguishes handlers sharing a name, entering the derived
+        identity so two prelude handlers for one interface stay apart.
+    input_type : TypeExpr
+        What the handled computation returns.
+    output_type : TypeExpr
+        What the handler answers with.
+    introduced : EffectRow
+        Effects the handler itself performs.
+    total : bool
+        Whether it covers every declared operation.
+    telescope : tuple[TypeBinder, ...]
+        Static binders it takes.
+
+    Returns
+    -------
+    HandlerDef
+        The signature. Its clauses carry no bodies: a prelude handler's
+        behavior is a runtime attachment, so the declaration is foreign.
+    """
     return HandlerDef(
         HandlerId.derive("prelude", name, key),
         name,
@@ -404,7 +487,26 @@ def _generic_binders(
     error_type: TypeExpr | None = None,
     weight_type: TypeExpr | None = None,
 ) -> tuple[TypeBinder, ...]:
-    """Declare exactly the free prelude parameters used by a handler."""
+    """Declare exactly the free prelude parameters used by a handler.
+
+    Parameters
+    ----------
+    answer_type : TypeExpr or None
+        The handler's answer type, when it has one.
+    state_type : TypeExpr or None
+        Its state type, for a stateful handler.
+    error_type : TypeExpr or None
+        Its error payload type, for an aborting handler.
+    weight_type : TypeExpr or None
+        Its weight type, for a weighting handler.
+
+    Returns
+    -------
+    tuple[TypeBinder, ...]
+        Binders for exactly those parameters left generic. A handler
+        instantiated at a concrete type binds nothing for it, so its
+        telescope stays as small as its genericity requires.
+    """
     result: list[TypeBinder] = []
     if answer_type == ANSWER:
         result.append(_ANSWER_BINDER)
@@ -420,6 +522,29 @@ def _generic_binders(
 def _expect_arguments(
     request: RuntimeRequest, count: int, handler: str
 ) -> tuple[object, ...]:
+    """Require a request to carry the argument count a clause expects.
+
+    Parameters
+    ----------
+    request : RuntimeRequest
+        The request being answered.
+    count : int
+        How many arguments the clause reads.
+    handler : str
+        The handler's name, for the diagnostic.
+
+    Returns
+    -------
+    tuple[object, ...]
+        The arguments.
+
+    Raises
+    ------
+    InvalidHandlerError
+        If the count differs. The static check settles this for an
+        authored clause, so reaching here means a foreign handler was
+        attached to an interface it does not match.
+    """
     if len(request.arguments) != count:
         raise InvalidHandlerError(
             f"{handler} expected {count} operation arguments, got "
@@ -434,6 +559,25 @@ def _require(
     type: TypeExpr,
     subject: str,
 ) -> None:
+    """Check a host value against the type a prelude clause expects.
+
+    Parameters
+    ----------
+    value : object
+        The host value.
+    validator : RuntimeValidator
+        The predicate to apply.
+    type : TypeExpr
+        The type it should inhabit, named in the diagnostic.
+    subject : str
+        What is being checked.
+
+    Raises
+    ------
+    RuntimeTypeMismatch
+        If the validator returns False, or raises. A raising validator is
+        reported as a mismatch so a caller handles one failure class.
+    """
     try:
         accepted = validator(value)
     except Exception as error:
