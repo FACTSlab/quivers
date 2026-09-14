@@ -87,8 +87,11 @@ from quivers.qiec.kinds import (
 from quivers.qiec.module import NamedComputation, NamedEffectInstance, QiecModule
 from quivers.qiec.substitution import StaticSubstitution
 from quivers.qiec.terms import (
+    NewInstance,
+    Resume,
     AttachmentRef,
     Bind,
+    Call,
     Case,
     CaseBranch,
     CaseMotive,
@@ -228,6 +231,9 @@ _NODE_CLASSES = (
     CaseMotive,
     CaseBranch,
     Case,
+    Call,
+    Resume,
+    NewInstance,
 )
 
 _IDS = {_class_tag(class_): class_ for class_ in _ID_CLASSES}
