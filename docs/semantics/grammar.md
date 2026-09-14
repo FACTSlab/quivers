@@ -581,26 +581,66 @@ operation_decl    := IDENT [static_telescope] ':' [type ('*' type)* '->'] type
 instance_decl     := 'instance' IDENT ':' effect_ref
 handler_decl      := 'handler' IDENT [static_telescope] 'for' effect_ref ':'
                      type '->' type [handler_options] handler_clause+
-handler_clause    := IDENT 'resumes' ('0' | 'aff' | '1' | 'omega')
+handler_clause    := return_clause | operation_clause
+return_clause     := 'return' local '=>' computation
+operation_clause  := IDENT [static_telescope] ['(' local (',' local)* ')']
+                     'resumes' grade ['=>' computation]
+grade             := '0' | 'aff' | '1' | 'omega'
 
 computation_decl  := 'define' IDENT [static_telescope] ['(' value_params ')']
                      ':' type effect_row '=' computation
 effect_row        := '!{' [IDENT (',' IDENT)*]
                      ['|' IDENT ['lacks' IDENT (',' IDENT)*]] '}'
 computation       := 'return' value
-                   | 'let' local '<-' perform computation
-                   | perform computation
+                   | 'let' local '=' value computation
+                   | 'let' local '<-' inline computation
+                   | inline computation
                    | 'handle' IDENT 'with' handler_application 'in' computation
+                   | 'with' 'instance' IDENT ':' effect_ref 'in' computation
                    | 'case' value 'motive' [index_telescope] '=>' type branch+
+inline            := perform | call | resume
 perform           := 'perform' IDENT '.' IDENT [static_arguments]
                      '(' [value (',' value)*] ')'
+call              := IDENT [static_arguments] '(' [value (',' value)*] ')'
+resume            := 'resume' '(' [value] ')'
 ```
 
-This fragment deliberately has no source-level computation-call production:
-`define` introduces a checked entry point, not an implicitly inlineable or
-recursive function. Handler declarations likewise carry stable signatures and
-resumption grades rather than authored clause bodies. The complete grammar,
-worked examples, and implementation limits appear in the
+### Disambiguation
+
+Three forms share the shape `NAME(...)`, and each is separated by a keyword
+or a qualifier rather than by precedence:
+
+- a **call** is a bare `NAME(...)` in computation position;
+- an **effect request** is qualified by its instance, `inst.op(...)`, and
+  introduced by `perform`; and
+- a **constructor value** is introduced by `construct` and closed by
+  `as TYPE`, and occurs in value position.
+
+There is one call syntax. A computation is invoked by ordinary application,
+and a handler clause resumes its continuation with `resume`, which is a
+keyword rather than a bound name, so no second spelling can drift from the
+first.
+
+### Bindings
+
+`let x = VALUE` binds a pure expression and `let x <- COMPUTATION` binds a
+computation's result. They are separate productions with separate typing
+rules, and neither is sugar for the other.
+
+### Layout
+
+Every construct that takes a nested computation opens an indented block after
+a trailing `=>` or `in`: handler clauses, case branches, `handle ... in`, and
+`with instance ... in`. An inline computation, that is a call, a request, or
+a resumption, is one line and is followed by the rest of the computation at
+the same indentation.
+
+### Authored and foreign handlers
+
+An operation clause with a `=>` body is authored. A clause without one is a
+signature, and its declaration must say `[implementation=foreign]`, so a
+missing body never silently means "look up a callback at runtime". The
+complete grammar, worked examples, and implementation limits appear in the
 [QIEC developer note](../developer/qiec.md).
 
 ## References

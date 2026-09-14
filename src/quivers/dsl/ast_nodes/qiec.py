@@ -246,11 +246,14 @@ class QiecOperationDecl(dx.Model):
 type QiecResumptionGrade = Literal["0", "aff", "1", "omega"]
 
 
-class QiecHandlerClause(dx.Model):
-    operation: str
-    grade: QiecResumptionGrade
-    line: int = 0
-    col: int = 0
+class QiecHandlerClause(dx.TaggedUnion, discriminator="kind"):
+    """One clause of a handler declaration.
+
+    A handler answers a returning computation and each operation it
+    covers, and those are different shapes: the return clause binds a
+    value, an operation clause binds the operation's arguments and may
+    resume.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +381,94 @@ class QiecCaseComputation(QiecComputation):
     kind: Literal["qiec_case_computation"] = "qiec_case_computation"
 
 
+class QiecPureBinding(QiecComputation):
+    """`let x = VALUE`, binding a pure expression.
+
+    Separate from [`QiecBindComputation`][.], which binds a computation's
+    result. The two have different typing rules and neither is sugar for
+    the other.
+    """
+
+    binder: QiecLocalBinding
+    value: QiecValue
+    then: QiecComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_pure_binding"] = "qiec_pure_binding"
+
+
+class QiecCallComputation(QiecComputation):
+    """Application of a named computation.
+
+    The callee is resolved against the module's signature table rather
+    than against a local binding, so a call may precede the declaration
+    it names and mutual recursion needs no forward declaration.
+    """
+
+    callee: str
+    static_arguments: tuple[QiecTypeExpr, ...] = ()
+    arguments: tuple[QiecValue, ...] = ()
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_call_computation"] = "qiec_call_computation"
+
+
+class QiecResumeComputation(QiecComputation):
+    """Invocation of the enclosing handler clause's continuation.
+
+    The resumption is not a named local, so there is exactly one way to
+    invoke it. A `value` of None resumes with unit.
+    """
+
+    value: QiecValue | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_resume_computation"] = "qiec_resume_computation"
+
+
+class QiecInstanceComputation(QiecComputation):
+    """`with instance x : E in`, allocating a lexically scoped instance.
+
+    The binder is live only in `body`. Its identity is derived rather
+    than generated, so the same allocation site yields the same instance
+    on every run.
+    """
+
+    name: str
+    effect: QiecEffectRef
+    body: QiecComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_instance_computation"] = "qiec_instance_computation"
+
+
+class QiecHandlerReturnClause(QiecHandlerClause):
+    """What a handler does with the value its computation returns."""
+
+    binder: QiecLocalBinding
+    body: QiecComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_handler_return_clause"] = "qiec_handler_return_clause"
+
+
+class QiecHandlerOperationClause(QiecHandlerClause):
+    """One operation a handler covers.
+
+    A `body` of None is a signature rather than an implementation, and is
+    legal only where the declaration says `implementation=foreign`.
+    """
+
+    operation: str
+    grade: QiecResumptionGrade
+    binders: tuple[QiecBinder, ...] = ()
+    parameters: tuple[QiecLocalBinding, ...] = ()
+    body: QiecComputation | None = None
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_handler_operation_clause"] = "qiec_handler_operation_clause"
+
+
 # ---------------------------------------------------------------------------
 # Top-level declarations
 # ---------------------------------------------------------------------------
@@ -423,6 +514,9 @@ class QiecEffectInstanceDecl(Statement):
     kind: Literal["effect_instance_decl"] = "effect_instance_decl"
 
 
+type QiecHandlerImplementation = Literal["authored", "foreign"]
+
+
 class QiecHandlerDecl(Statement):
     name: str
     binders: tuple[QiecBinder, ...] = ()
@@ -432,6 +526,7 @@ class QiecHandlerDecl(Statement):
     introduced: QiecEffectRow = QiecEffectRow()
     coverage: Literal["total", "partial"] = "total"
     forwards_unknown: bool = False
+    implementation: QiecHandlerImplementation = "authored"
     clauses: tuple[QiecHandlerClause, ...] = ()
     duplicate_options: tuple[str, ...] = ()
     docs: tuple[str, ...] = ()

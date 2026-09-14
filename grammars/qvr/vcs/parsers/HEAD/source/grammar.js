@@ -228,7 +228,7 @@ module.exports = grammar({
       ),
       $._newline,
       $._indent,
-      repeat1(choice(field('clauses', $.qiec_handler_clause), $._newline)),
+      repeat1(choice(field('clauses', $._qiec_handler_clause), $._newline)),
       $._dedent,
     ),
 
@@ -258,19 +258,69 @@ module.exports = grammar({
         '=',
         field('introduced', $.qiec_effect_row),
       ),
+      seq(
+        alias(token(/\[[ \t]*implementation/), $.qiec_handler_implementation_key),
+        '=',
+        field('implementation', choice('authored', 'foreign')),
+      ),
     ),
 
     qiec_handler_option: $ => choice(
       seq('coverage', '=', field('coverage', choice('total', 'partial'))),
       seq('forwards', '=', field('forwards', choice('unknown', 'none'))),
       seq('introduces', '=', field('introduced', $.qiec_effect_row)),
+      seq(
+        'implementation',
+        '=',
+        field('implementation', choice('authored', 'foreign')),
+      ),
     ),
 
-    qiec_handler_clause: $ => seq(
+    _qiec_handler_clause: $ => choice(
+      $.qiec_handler_return_clause,
+      $.qiec_handler_operation_clause,
+    ),
+
+    /* What the handler does with a value the handled computation returns.
+     * At most one per handler; the checker enforces that. */
+    qiec_handler_return_clause: $ => seq(
+      'return',
+      field('binder', $.qiec_local_binding),
+      '=>',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    /* One operation. The body form binds the operation's static and value
+     * arguments and may invoke ``resume``; the bodiless form is a signature
+     * for a handler whose implementation is supplied at runtime, which the
+     * declaration must mark ``implementation=foreign``. */
+    qiec_handler_operation_clause: $ => seq(
       field('operation', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      optional(seq(
+        '(',
+        optional(seq(
+          field('parameters', $.qiec_local_binding),
+          repeat(seq(',', field('parameters', $.qiec_local_binding))),
+          optional(','),
+        )),
+        ')',
+      )),
       'resumes',
       field('grade', $.qiec_resumption_grade),
-      $._newline,
+      choice(
+        $._newline,
+        seq(
+          '=>',
+          $._newline,
+          $._indent,
+          field('body', $._qiec_computation),
+          $._dedent,
+        ),
+      ),
     ),
 
     qiec_resumption_grade: _ => choice('0', 'aff', '1', 'omega'),
@@ -506,11 +556,27 @@ module.exports = grammar({
 
     _qiec_computation: $ => choice(
       $.qiec_bind_computation,
+      $.qiec_pure_binding,
       $.qiec_sequence_computation,
       $.qiec_return_computation,
       $.qiec_handle_computation,
+      $.qiec_instance_computation,
       $.qiec_case_computation,
       $.qiec_perform_computation,
+      $.qiec_call_computation,
+      $.qiec_resume_computation,
+    ),
+
+    /* A pure binding names a serializable expression; the monadic form
+     * below names a computation's result. They are separate nodes because
+     * they have separate typing rules, and one spelling each. */
+    qiec_pure_binding: $ => seq(
+      'let',
+      field('binder', $.qiec_local_binding),
+      '=',
+      field('value', $._qiec_value),
+      $._newline,
+      field('then', $._qiec_computation),
     ),
 
     qiec_bind_computation: $ => seq(
@@ -532,7 +598,46 @@ module.exports = grammar({
       $._newline,
     ),
 
-    _qiec_inline_computation: $ => $.qiec_perform_computation,
+    _qiec_inline_computation: $ => choice(
+      $.qiec_perform_computation,
+      $.qiec_call_computation,
+      $.qiec_resume_computation,
+    ),
+
+    /* Ordinary application is the one call syntax. It is disjoint from an
+     * effect request, which is qualified by an instance, and from a
+     * constructor value, which is introduced by ``construct``. The value
+     * parentheses are required even when empty, so a nullary call is not
+     * read as a bare variable. */
+    qiec_call_computation: $ => seq(
+      field('callee', $.identifier),
+      optional(seq(
+        '[',
+        field('static_arguments', $.qiec_static_argument),
+        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+      '(',
+      optional(seq(
+        field('arguments', $._qiec_value),
+        repeat(seq(',', field('arguments', $._qiec_value))),
+        optional(','),
+      )),
+      ')',
+      $._newline,
+    ),
+
+    /* Invoking the continuation of the enclosing handler clause. The
+     * resumption is not a named local, so there is one way to invoke it and
+     * no second call syntax to keep in step. */
+    qiec_resume_computation: $ => seq(
+      'resume',
+      '(',
+      optional(field('value', $._qiec_value)),
+      ')',
+      $._newline,
+    ),
 
     qiec_perform_computation: $ => seq(
       'perform',
@@ -565,6 +670,22 @@ module.exports = grammar({
       field('instance', $.identifier),
       'with',
       field('handler', $.qiec_handler_application),
+      'in',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    /* Lexically scoped allocation. The binder is live only in the body,
+     * which is what keeps the instance and any row mentioning it from
+     * escaping. */
+    qiec_instance_computation: $ => seq(
+      'with',
+      'instance',
+      field('name', $.identifier),
+      ':',
+      field('effect', $.qiec_effect_ref),
       'in',
       $._newline,
       $._indent,

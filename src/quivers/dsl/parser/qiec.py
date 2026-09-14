@@ -25,7 +25,13 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecFunctionType,
     QiecHandleComputation,
     QiecHandlerApplication,
+    QiecCallComputation,
     QiecHandlerClause,
+    QiecHandlerOperationClause,
+    QiecHandlerReturnClause,
+    QiecInstanceComputation,
+    QiecPureBinding,
+    QiecResumeComputation,
     QiecHandlerDecl,
     QiecIndexApplication,
     QiecIndexBinder,
@@ -125,9 +131,13 @@ def _walk_qiec_statement(t: _Tree, vid: str):
             col=col,
         )
     if kind == "handler_decl":
-        coverage, forwards, introduced, duplicate_options = _walk_handler_options(
-            t, t.field(vid, "options")
-        )
+        (
+            coverage,
+            forwards,
+            introduced,
+            implementation,
+            duplicate_options,
+        ) = _walk_handler_options(t, t.field(vid, "options"))
         return QiecHandlerDecl(
             name=_field_text(t, vid, "name"),
             binders=_walk_telescope_field(t, vid, "binders"),
@@ -137,6 +147,7 @@ def _walk_qiec_statement(t: _Tree, vid: str):
             introduced=introduced,
             coverage=coverage,
             forwards_unknown=forwards,
+            implementation=implementation,
             clauses=tuple(
                 _walk_handler_clause(t, child) for child in t.fields(vid, "clauses")
             ),
@@ -399,12 +410,32 @@ def _walk_operation(t: _Tree, vid: str) -> QiecOperationDecl:
 
 def _walk_handler_options(
     t: _Tree, vid: str | None
-) -> tuple[str, bool, QiecEffectRow, tuple[str, ...]]:
+) -> tuple[str, bool, QiecEffectRow, str, tuple[str, ...]]:
+    """Read a handler's bracketed option list.
+
+    Parameters
+    ----------
+    t : _Tree
+        The parsed tree.
+    vid : str or None
+        Vertex of the option list, or None when the declaration carries
+        none, in which case every option takes its default.
+
+    Returns
+    -------
+    tuple[str, bool, QiecEffectRow, str, tuple[str, ...]]
+        Coverage, whether unknown operations are forwarded, the
+        introduced row, the implementation, and the names of any options
+        given more than once. Duplicates are reported rather than
+        rejected here, so the caller can raise one diagnostic carrying
+        the declaration's position.
+    """
     coverage = "total"
     forwards_unknown = False
     introduced = QiecEffectRow()
+    implementation = "authored"
     if vid is None:
-        return coverage, forwards_unknown, introduced, ()
+        return coverage, forwards_unknown, introduced, implementation, ()
     seen: set[str] = set()
     duplicates: list[str] = []
     for entry in t.fields(vid, "entries"):
@@ -425,17 +456,60 @@ def _walk_handler_options(
                 duplicates.append("introduces")
             seen.add("introduces")
             introduced = _walk_effect_row(t, introduced_vid)
-    return coverage, forwards_unknown, introduced, tuple(duplicates)
+        if value := constants.get("field:implementation"):
+            if "implementation" in seen and "implementation" not in duplicates:
+                duplicates.append("implementation")
+            seen.add("implementation")
+            implementation = value
+    return coverage, forwards_unknown, introduced, implementation, tuple(duplicates)
 
 
 def _walk_handler_clause(t: _Tree, vid: str) -> QiecHandlerClause:
+    """Walk one handler clause, of either shape.
+
+    Parameters
+    ----------
+    t : _Tree
+        The parsed tree.
+    vid : str
+        Vertex of the clause.
+
+    Returns
+    -------
+    QiecHandlerClause
+        A return clause or an operation clause. An operation clause
+        without a body is a signature, which the checker admits only for
+        a handler declared `implementation=foreign`.
+
+    Raises
+    ------
+    ParseError
+        If the clause is of an unknown kind, or names a resumption grade
+        outside the four the grammar allows.
+    """
     line, col = t.line_col(vid)
+    kind = t.kind(vid)
+    if kind == "qiec_handler_return_clause":
+        return QiecHandlerReturnClause(
+            binder=_walk_local(t, _required_field(t, vid, "binder")),
+            body=_walk_computation(t, _required_field(t, vid, "body")),
+            line=line,
+            col=col,
+        )
+    if kind != "qiec_handler_operation_clause":
+        raise ParseError(f"unexpected QIEC handler clause {kind!r} at {vid}")
     grade = _field_text(t, vid, "grade")
     if grade not in {"0", "aff", "1", "omega"}:
         raise ParseError(f"unknown resumption grade {grade!r} at {vid}")
-    return QiecHandlerClause(
+    body_vid = t.field(vid, "body")
+    return QiecHandlerOperationClause(
         operation=_field_text(t, vid, "operation"),
         grade=cast(QiecResumptionGrade, grade),
+        binders=_walk_telescope_field(t, vid, "binders"),
+        parameters=tuple(
+            _walk_local(t, child) for child in t.fields(vid, "parameters")
+        ),
+        body=None if body_vid is None else _walk_computation(t, body_vid),
         line=line,
         col=col,
     )
@@ -559,6 +633,39 @@ def _walk_computation(t: _Tree, vid: str) -> QiecComputation:
             branches=tuple(
                 _walk_case_branch(t, child) for child in t.fields(vid, "branches")
             ),
+            line=line,
+            col=col,
+        )
+    if kind == "qiec_pure_binding":
+        return QiecPureBinding(
+            binder=_walk_local(t, _required_field(t, vid, "binder")),
+            value=_walk_value(t, _required_field(t, vid, "value")),
+            then=_walk_computation(t, _required_field(t, vid, "then")),
+            line=line,
+            col=col,
+        )
+    if kind == "qiec_call_computation":
+        return QiecCallComputation(
+            callee=_field_text(t, vid, "callee"),
+            static_arguments=_walk_static_arguments(t, vid, "static_arguments"),
+            arguments=tuple(
+                _walk_value(t, child) for child in t.fields(vid, "arguments")
+            ),
+            line=line,
+            col=col,
+        )
+    if kind == "qiec_resume_computation":
+        value_vid = t.field(vid, "value")
+        return QiecResumeComputation(
+            value=None if value_vid is None else _walk_value(t, value_vid),
+            line=line,
+            col=col,
+        )
+    if kind == "qiec_instance_computation":
+        return QiecInstanceComputation(
+            name=_field_text(t, vid, "name"),
+            effect=_walk_effect_ref(t, _required_field(t, vid, "effect")),
+            body=_walk_computation(t, _required_field(t, vid, "body")),
             line=line,
             col=col,
         )

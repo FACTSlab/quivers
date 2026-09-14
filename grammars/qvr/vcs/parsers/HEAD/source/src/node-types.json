@@ -708,6 +708,10 @@
             "named": true
           },
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_case_computation",
             "named": true
           },
@@ -716,7 +720,19 @@
             "named": true
           },
           {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           },
           {
@@ -3306,7 +3322,11 @@
         "required": false,
         "types": [
           {
-            "type": "qiec_handler_clause",
+            "type": "qiec_handler_operation_clause",
+            "named": true
+          },
+          {
+            "type": "qiec_handler_return_clause",
             "named": true
           }
         ]
@@ -6451,7 +6471,15 @@
         "required": true,
         "types": [
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           }
         ]
@@ -6465,6 +6493,10 @@
             "named": true
           },
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_case_computation",
             "named": true
           },
@@ -6473,7 +6505,19 @@
             "named": true
           },
           {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           },
           {
@@ -6482,6 +6526,50 @@
           },
           {
             "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_call_computation",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          },
+          {
+            "type": "qiec_literal_value",
+            "named": true
+          },
+          {
+            "type": "qiec_variable_value",
+            "named": true
+          }
+        ]
+      },
+      "callee": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "static_arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
             "named": true
           }
         ]
@@ -6511,6 +6599,10 @@
             "named": true
           },
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_case_computation",
             "named": true
           },
@@ -6519,7 +6611,19 @@
             "named": true
           },
           {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           },
           {
@@ -7025,6 +7129,10 @@
             "named": true
           },
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_case_computation",
             "named": true
           },
@@ -7033,7 +7141,19 @@
             "named": true
           },
           {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           },
           {
@@ -7095,32 +7215,6 @@
     }
   },
   {
-    "type": "qiec_handler_clause",
-    "named": true,
-    "fields": {
-      "grade": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "qiec_resumption_grade",
-            "named": true
-          }
-        ]
-      },
-      "operation": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "qiec_handler_first_option",
     "named": true,
     "fields": {
@@ -7152,6 +7246,20 @@
           }
         ]
       },
+      "implementation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "authored",
+            "named": false
+          },
+          {
+            "type": "foreign",
+            "named": false
+          }
+        ]
+      },
       "introduced": {
         "multiple": false,
         "required": false,
@@ -7176,10 +7284,106 @@
           "named": true
         },
         {
+          "type": "qiec_handler_implementation_key",
+          "named": true
+        },
+        {
           "type": "qiec_handler_introduces_key",
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "qiec_handler_operation_clause",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "grade": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_resumption_grade",
+            "named": true
+          }
+        ]
+      },
+      "operation": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -7214,6 +7418,20 @@
           }
         ]
       },
+      "implementation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "authored",
+            "named": false
+          },
+          {
+            "type": "foreign",
+            "named": false
+          }
+        ]
+      },
       "introduced": {
         "multiple": false,
         "required": false,
@@ -7240,6 +7458,68 @@
           },
           {
             "type": "qiec_handler_option",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_return_clause",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
             "named": true
           }
         ]
@@ -7426,6 +7706,78 @@
         "types": [
           {
             "type": "qiec_index_binder",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_instance_computation",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_ref",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -7653,6 +8005,110 @@
     }
   },
   {
+    "type": "qiec_pure_binding",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          },
+          {
+            "type": "qiec_literal_value",
+            "named": true
+          },
+          {
+            "type": "qiec_variable_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_resume_computation",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          },
+          {
+            "type": "qiec_literal_value",
+            "named": true
+          },
+          {
+            "type": "qiec_variable_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "qiec_resumption_grade",
     "named": true,
     "fields": {}
@@ -7706,7 +8162,15 @@
         "required": true,
         "types": [
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           }
         ]
@@ -7720,6 +8184,10 @@
             "named": true
           },
           {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
             "type": "qiec_case_computation",
             "named": true
           },
@@ -7728,7 +8196,19 @@
             "named": true
           },
           {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
             "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
             "named": true
           },
           {
@@ -9729,6 +10209,10 @@
     "named": false
   },
   {
+    "type": "authored",
+    "named": false
+  },
+  {
     "type": "binary",
     "named": false
   },
@@ -9894,6 +10378,10 @@
     "named": false
   },
   {
+    "type": "foreign",
+    "named": false
+  },
+  {
     "type": "forwards",
     "named": false
   },
@@ -9923,6 +10411,10 @@
   },
   {
     "type": "identity",
+    "named": false
+  },
+  {
+    "type": "implementation",
     "named": false
   },
   {
@@ -10067,6 +10559,10 @@
     "named": true
   },
   {
+    "type": "qiec_handler_implementation_key",
+    "named": true
+  },
+  {
     "type": "qiec_handler_introduces_key",
     "named": true
   },
@@ -10100,6 +10596,10 @@
   },
   {
     "type": "repeat",
+    "named": false
+  },
+  {
+    "type": "resume",
     "named": false
   },
   {

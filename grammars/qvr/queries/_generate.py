@@ -85,8 +85,12 @@ NODE_PATTERNS = """\
 (qiec_operation_decl name: (identifier) @function.method)
 (effect_instance_decl name: (identifier) @variable)
 (handler_decl name: (identifier) @function)
-(qiec_handler_clause operation: (identifier) @function.method)
+(qiec_handler_operation_clause operation: (identifier) @function.method)
+(qiec_handler_operation_clause parameters: (qiec_local_binding name: (identifier) @variable.parameter))
+(qiec_handler_return_clause binder: (qiec_local_binding name: (identifier) @variable.parameter))
 (computation_decl name: (identifier) @function)
+(qiec_call_computation callee: (identifier) @function.call)
+(qiec_instance_computation name: (identifier) @variable)
 
 ; QIEC telescope, type, row, and term positions.
 (qiec_type_binder name: (identifier) @type.parameter)

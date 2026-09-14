@@ -83,10 +83,10 @@ GRAMMAR_ASSETS: dict[str, GrammarAsset] = {
         "ffae70e999fecc8ed33058ac2d680bc6d71c8bf7888bd8db0a33404693f4386b",
     ),
     "HEAD": GrammarAsset(
-        "ba05df08937457daa56c874f17a743f9c50cff19eb3b097ed878cf336df184ce",
-        "1f91bba550c25d1968b1ea10f135e9b6ae130c119c6dafe59c78725a1d7b6fcc",
-        "fc7a8b97d8b89d5a4f1e2da78169c019d639fd901a7d0dde7d3d06e4de419a01",
-        "f6e2b0c4525b2b3daed3fbfdbf0f576d31aa0290fc0e230944ccd32a1c0541df",
+        "015333836fe407dc5f2ca861bb076df5722f175b34446cd8ed499ae4a8196903",
+        "f1ed34a0ba68a33cf23f6b74a62a6ed6f6126a84bf946566a1c2883624a71af9",
+        "ce704316fd50e52e454a5bd7b4c4dfd4c02033b7e55ad1108f0d9b7d8ea0f838",
+        "41a7b7f1ea4f1793132c3bd2b4a37c0e2224786ab1728aa0766bfe407e20580d",
     ),
 }
 
