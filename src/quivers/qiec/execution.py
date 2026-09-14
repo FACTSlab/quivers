@@ -91,7 +91,19 @@ type TraceObserver = Callable[["ExecutionTraceEvent"], None]
 
 @dataclass(frozen=True, slots=True)
 class ExecutionTraceEvent:
-    """One stable event emitted by a named QIEC invocation."""
+    """One stable event emitted by a named QIEC invocation.
+
+    Parameters
+    ----------
+    sequence
+        The event's position in the invocation's trace, from zero.
+    event
+        The stable event name, such as ``"run.started"``.
+    computation
+        The name of the computation being run.
+    detail
+        JSON-compatible event data; frozen on construction.
+    """
 
     sequence: int
     event: str
@@ -121,7 +133,13 @@ class ExecutionTraceEvent:
 
 @dataclass(slots=True)
 class TraceRecorder:
-    """Collect events while also satisfying the :class:`TraceObserver` API."""
+    """Collect events while also satisfying the :class:`TraceObserver` API.
+
+    Parameters
+    ----------
+    events
+        The recorded events, in order; empty to start.
+    """
 
     events: list[ExecutionTraceEvent] = field(default_factory=list)
 
@@ -138,7 +156,21 @@ class TraceRecorder:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionDiagnostic:
-    """A stable failure at the source-to-host execution boundary."""
+    """A stable failure at the source-to-host execution boundary.
+
+    Parameters
+    ----------
+    code
+        The stable diagnostic code, such as ``"qiec-run-arity"``.
+    message
+        The human-readable explanation.
+    computation
+        The named computation involved, if any.
+    origin
+        The source location involved, if any.
+    severity
+        ``"error"``, ``"warning"``, or ``"note"``.
+    """
 
     code: str
     message: str
@@ -165,7 +197,14 @@ class ExecutionDiagnostic:
 
 
 class ExecutionFailure(EvaluationError):
-    """Raised with a serializable diagnostic when named execution cannot run."""
+    """Raised with a serializable diagnostic when named execution cannot run.
+
+    Parameters
+    ----------
+    diagnostic
+        The failure, kept on the error as ``diagnostic``; its message
+        becomes the error's message.
+    """
 
     def __init__(self, diagnostic: ExecutionDiagnostic) -> None:
         super().__init__(diagnostic.message)
@@ -218,6 +257,13 @@ class CoreRuntimeProvider:
     or ``{"kind": "scripted", "responses": {"op": [...]}}``.  The source
     handler still controls types, coverage, and resumption grades; options
     supply only process-local clause behavior and state.
+
+    Parameters
+    ----------
+    options
+        JSON-compatible configuration; frozen on construction.
+    name
+        The provider's name, reported in traces and result labels.
     """
 
     options: Mapping[str, object] = field(default_factory=dict)
@@ -702,7 +748,17 @@ def register_runtime_provider(name: str, factory: RuntimeProviderFactory) -> Non
 
 @dataclass(frozen=True, slots=True)
 class RuntimeSelection:
-    """One named provider and its JSON-compatible construction options."""
+    """One named provider and its JSON-compatible construction options.
+
+    Parameters
+    ----------
+    provider
+        The registered or entry-point name of the provider; must be
+        non-empty.
+    options
+        The options passed to the provider's factory; frozen on
+        construction.
+    """
 
     provider: str
     options: Mapping[str, object] = field(default_factory=dict)
@@ -722,7 +778,17 @@ class RuntimeSelection:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfiguration:
-    """Complete, explicit runtime selection for one or more invocations."""
+    """Complete, explicit runtime selection for one or more invocations.
+
+    Parameters
+    ----------
+    selections
+        Providers to build by name for every invocation; the core provider
+        alone by default.
+    providers
+        Already-built provider objects, appended after the selections when
+        used from Python.
+    """
 
     selections: tuple[RuntimeSelection, ...] = (RuntimeSelection("core"),)
     providers: tuple[RuntimeProvider, ...] = ()
@@ -975,7 +1041,21 @@ def parse_static_arguments(
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
-    """The checked value and trace produced by one named invocation."""
+    """The checked value and trace produced by one named invocation.
+
+    Parameters
+    ----------
+    computation
+        The name of the computation run.
+    value
+        The validated host result.
+    result_type
+        The computation's result type under its specialization.
+    runtime
+        The label of the runtime configuration used.
+    trace
+        Every event the invocation emitted, in order.
+    """
 
     computation: str
     value: object

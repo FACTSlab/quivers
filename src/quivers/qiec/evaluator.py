@@ -81,7 +81,13 @@ class RuntimeTypeMismatch(EvaluationError):
 
 
 class UnhandledEffectError(EvaluationError):
-    """No enclosing lexical handler accepts an effect request."""
+    """No enclosing lexical handler accepts an effect request.
+
+    Parameters
+    ----------
+    request
+        The request nothing handled; kept on the error as ``request``.
+    """
 
     def __init__(self, request: EffectRequest) -> None:
         super().__init__(
@@ -103,6 +109,11 @@ class HandlerManifest:
     passed kernel registration.  Runtime clause objects are then accepted only
     when their complete structural definitions equal the manifest entry, not
     merely when their stable IDs collide.
+
+    Parameters
+    ----------
+    definitions
+        The checked handler definitions by identity.
     """
 
     definitions: Mapping[HandlerId, HandlerDef]
@@ -148,7 +159,19 @@ class NonDuplicableContinuationError(ResumptionUsageError):
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConstructor:
-    """Erased runtime representation of a checked constructor value."""
+    """Erased runtime representation of a checked constructor value.
+
+    Parameters
+    ----------
+    constructor
+        The constructor's stable identity.
+    static_arguments
+        The constructor's telescope instantiation, as evaluated static data.
+    fields
+        The evaluated field values, in declaration order.
+    result_type
+        The family type the value inhabits.
+    """
 
     constructor: object
     static_arguments: tuple[object, ...]
@@ -163,6 +186,17 @@ class AttachmentBinding:
     ``duplicable`` is a semantic assertion about the host value, not merely a
     promise that ``copy.copy`` happens to work.  Multi-shot resumptions reject
     captured attachment values unless this bit was supplied explicitly.
+
+    Parameters
+    ----------
+    value
+        The host value.
+    type
+        The type the value inhabits.
+    validator
+        The predicate that checks a host value against ``type``.
+    duplicable
+        Whether an unrestricted resumption may capture the value.
     """
 
     value: object
@@ -173,7 +207,16 @@ class AttachmentBinding:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeClause:
-    """Executable operation clause and validator for the resumed value."""
+    """Executable operation clause and validator for the resumed value.
+
+    Parameters
+    ----------
+    invoke
+        The clause body, called with the request, its resumption, and a
+        clause context.
+    result_validator
+        The predicate every value resumed through this clause must pass.
+    """
 
     invoke: OperationClause
     result_validator: RuntimeValidator
@@ -222,6 +265,38 @@ class RuntimeHandler:
     The checked definition contains coverage, grades, input/output types, and
     introduced effects.  This attachment contains only process-local code and
     state.  It is never serialized as QIEC.
+
+    Parameters
+    ----------
+    definition
+        The checked declaration this attachment implements.
+    clauses
+        One runtime clause per covered operation, by identity.
+    return_clause
+        How the handler answers the computation's return; the identity
+        return by default.
+    input_validator
+        The predicate the handled computation's result must pass.
+    output_validator
+        The predicate the handler's answer must pass.
+    duplicable_context
+        Whether an unrestricted resumption may capture an installation of
+        this handler.
+    mutable_context
+        Whether an installation carries state; such a handler needs a
+        ``context_factory`` so installations do not share it.
+    fork_context
+        Builds an independent copy of an installation for another shot;
+        required when the context is both mutable and duplicable.
+    context_factory
+        Builds a fresh installation each time the handler is installed.
+    on_enter
+        Called when an installation is entered.
+    on_exit
+        Called once when the handled computation completes.
+    on_drop
+        Called once when the handled computation is abandoned instead;
+        exclusive with ``on_exit``.
     """
 
     definition: HandlerDef
@@ -280,7 +355,15 @@ class RuntimeHandler:
 
 @dataclass(slots=True)
 class RuntimeAttachments:
-    """Process-local values and handlers keyed by stable core identifiers."""
+    """Process-local values and handlers keyed by stable core identifiers.
+
+    Parameters
+    ----------
+    values
+        Attached host values by attachment identity.
+    handlers
+        Runtime handlers by handler identity.
+    """
 
     values: dict[AttachmentId, AttachmentBinding] = field(default_factory=dict)
     handlers: dict[HandlerId, RuntimeHandler] = field(default_factory=dict)
@@ -375,7 +458,17 @@ class RuntimeAttachments:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeRequest:
-    """An evaluated request supplied to a process-local handler clause."""
+    """An evaluated request supplied to a process-local handler clause.
+
+    Parameters
+    ----------
+    core
+        The stable request as written, before evaluation.
+    arguments
+        The evaluated value arguments, in order.
+    resumption_path
+        The ordinal of each resumption taken to reach this request.
+    """
 
     core: EffectRequest
     arguments: tuple[object, ...]
@@ -432,6 +525,13 @@ class ClauseComputation:
     Host values introduced by a handler must first be installed through
     :meth:`ClauseContext.attach`; arbitrary callback closures do not enter the
     computation tree.
+
+    Parameters
+    ----------
+    computation
+        The stable computation to run.
+    bindings
+        Locals the computation refers to, each with its evaluated value.
     """
 
     computation: Computation
@@ -440,13 +540,32 @@ class ClauseComputation:
 
 @dataclass(frozen=True, slots=True)
 class Forward:
-    """Forward a request to an outer handler, optionally observing its reply."""
+    """Forward a request to an outer handler, optionally observing its reply.
+
+    Parameters
+    ----------
+    on_response
+        Called with the outer handler's answer before it reaches the
+        resumed computation, or ``None`` to forward blindly.
+    """
 
     on_response: ResponseHook | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _BindFrame:
+    """A continuation frame awaiting the first half of a bind.
+
+    Parameters
+    ----------
+    binder
+        The local the awaited value is bound to.
+    then
+        The computation run once the value arrives.
+    environment
+        The bindings in scope for ``then``.
+    """
+
     binder: Local
     then: Computation
     environment: Mapping[Local, object]
@@ -454,6 +573,17 @@ class _BindFrame:
 
 @dataclass(frozen=True, slots=True)
 class _HandlerLifecycle:
+    """One installation's finalization state, shared by every frame for it.
+
+    Parameters
+    ----------
+    handler
+        The installed handler.
+    finalized
+        A one-element list holding whether ``exit`` or ``drop`` has fired;
+        a list so frozen frames can share and update it.
+    """
+
     handler: RuntimeHandler
     finalized: list[bool] = field(default_factory=lambda: [False])
 
@@ -487,6 +617,20 @@ class _HandlerLifecycle:
 
 @dataclass(frozen=True, slots=True)
 class _HandlerFrame:
+    """A stack frame marking an installed handler.
+
+    Parameters
+    ----------
+    instance
+        The effect instance the handler intercepts.
+    lifecycle
+        The installation's handler and finalization state.
+    definition
+        The checked declaration installed.
+    environment
+        The bindings in scope where the handler was installed.
+    """
+
     instance: EffectInstanceId
     lifecycle: _HandlerLifecycle
     definition: HandlerDef
@@ -507,6 +651,14 @@ class _HandlerFrame:
 
 @dataclass(frozen=True, slots=True)
 class _ResponseHookFrame:
+    """A stack frame observing the answer to a forwarded request.
+
+    Parameters
+    ----------
+    hook
+        Called with the answer as it passes back through this frame.
+    """
+
     hook: ResponseHook
 
 
@@ -519,7 +671,21 @@ type _Frame = _BindFrame | _HandlerFrame | _ResponseHookFrame | _DelimiterFrame
 
 
 class ClauseContext:
-    """Disciplined runtime services available to an attached handler clause."""
+    """Disciplined runtime services available to an attached handler clause.
+
+    Parameters
+    ----------
+    evaluator
+        The evaluator running the clause.
+    environment
+        The bindings in scope at the handler.
+    outer_stack
+        The continuation frames outside the handler.
+    resumption_path
+        The ordinal of each resumption taken to reach the clause.
+    request
+        The request the clause answers, or ``None`` in a return clause.
+    """
 
     __slots__ = (
         "_environment",
@@ -649,7 +815,27 @@ class ClauseContext:
 
 
 class Resumption:
-    """Dynamically checked, delimited continuation supplied to one clause."""
+    """Dynamically checked, delimited continuation supplied to one clause.
+
+    Parameters
+    ----------
+    evaluator
+        The evaluator that captured the continuation.
+    request
+        The request whose result the continuation awaits.
+    grade
+        How often the clause may invoke the continuation.
+    captured_environment
+        The bindings in scope at the request.
+    captured_stack
+        The continuation frames between the request and the handler.
+    outer_stack
+        The continuation frames outside the handler.
+    validator
+        The predicate every resumed value must pass.
+    path
+        The ordinal of each resumption taken to reach the clause.
+    """
 
     __slots__ = (
         "_captured_environment",
@@ -927,7 +1113,21 @@ def _validate(
 
 
 class Evaluator:
-    """Execute QIEC computations with explicit runtime attachments."""
+    """Execute QIEC computations with explicit runtime attachments.
+
+    Parameters
+    ----------
+    attachments
+        The host values and handlers available; empty by default.
+    handler_manifest
+        Checked handler definitions every attached handler must match
+        exactly on each :meth:`evaluate`, or ``None`` to skip that check
+        there; :meth:`evaluate_checked` always derives a manifest from
+        its registry.
+    trace_hook
+        Called with each execution event's name and payload, or ``None``
+        for no tracing.
+    """
 
     def __init__(
         self,
