@@ -15,6 +15,7 @@ from quivers.qiec.identifiers import (
     AttachmentId,
     ComputationId,
     ConstructorId,
+    DistributionId,
     EffectInstanceId,
     HandlerId,
     PrimitiveId,
@@ -240,6 +241,83 @@ class Projection:
     tag: Literal["projection"] = "projection"
 
 
+@dataclass(frozen=True, slots=True)
+class DistributionValue:
+    """Construction of a distribution from a family of the semantic registry.
+
+    The family is named nominally and its parameters are supplied by name,
+    so the term records which parameterization the source used and a
+    backend renders the spelling it knows without inspecting values.
+
+    Parameters
+    ----------
+    family
+        The stable identity of the family applied.
+    name
+        The family's source name, as the registry spells it.
+    arguments
+        The parameters supplied, each named, in source order.
+    result_type
+        The ``Sampleable`` type of the constructed distribution.
+    origin
+        The construction's source location.
+    tag
+        The serialization discriminator; always ``"distribution"``.
+    """
+
+    family: DistributionId
+    name: str
+    arguments: tuple[tuple[str, Value], ...]
+    result_type: TypeExpr
+    origin: SourceOrigin
+    tag: Literal["distribution"] = "distribution"
+
+
+@dataclass(frozen=True, slots=True)
+class SiteValue:
+    """A named sample site.
+
+    A site is the address a probabilistic step is observed and traced
+    under. Its label is the source name of the step, which is stable data;
+    the dynamic address a run adds comes from the request that carries it.
+
+    Parameters
+    ----------
+    label
+        The site's source name.
+    result_type
+        The ``Site`` type of the value the site produces.
+    tag
+        The serialization discriminator; always ``"site"``.
+    """
+
+    label: str
+    result_type: TypeExpr
+    tag: Literal["site"] = "site"
+
+
+@dataclass(frozen=True, slots=True)
+class LogDensity:
+    """Evaluation of a distribution's log density at a value.
+
+    Parameters
+    ----------
+    sampleable
+        The distribution, of type ``Sampleable[A]``.
+    value
+        The point evaluated, of type ``A``.
+    origin
+        The evaluation's source location.
+    tag
+        The serialization discriminator; always ``"log_density"``.
+    """
+
+    sampleable: Value
+    value: Value
+    origin: SourceOrigin
+    tag: Literal["log_density"] = "log_density"
+
+
 type Value = (
     Var
     | LiteralValue
@@ -250,6 +328,9 @@ type Value = (
     | PrimitiveApplication
     | TupleValue
     | Projection
+    | DistributionValue
+    | LogDensity
+    | SiteValue
 )
 
 
@@ -492,7 +573,36 @@ class NewInstance:
     tag: Literal["new_instance"] = "new_instance"
 
 
-type Computation = Return | Bind | Perform | Handle | Case | Call | Resume | NewInstance
+@dataclass(frozen=True, slots=True)
+class If:
+    """Branch on a Boolean value.
+
+    Both branches must produce the same type; the row of the whole is
+    the union of the branches' rows. This is what lets a recursive
+    computation stop, since a value-level select would evaluate both
+    branches and never terminate.
+
+    Parameters
+    ----------
+    condition
+        The Boolean value branched on.
+    then
+        The computation run when the condition holds.
+    otherwise
+        The computation run when it does not.
+    tag
+        The serialization discriminator; always ``"if"``.
+    """
+
+    condition: Value
+    then: Computation
+    otherwise: Computation
+    tag: Literal["if"] = "if"
+
+
+type Computation = (
+    Return | Bind | Perform | Handle | Case | If | Call | Resume | NewInstance
+)
 
 
 __all__ = [
@@ -506,15 +616,19 @@ __all__ = [
     "CaseMotive",
     "Computation",
     "ConstructorValue",
+    "DistributionValue",
     "EvidenceValue",
     "Handle",
+    "If",
     "LiteralData",
     "LiteralValue",
     "Local",
+    "LogDensity",
     "Perform",
     "PrimitiveApplication",
     "Projection",
     "Return",
+    "SiteValue",
     "TransportValue",
     "TupleValue",
     "Value",

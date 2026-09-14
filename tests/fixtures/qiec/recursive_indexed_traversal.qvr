@@ -10,4 +10,4 @@ define length[A : Type, n : Nat](xs : Vec[A](n)) : Int !{} =
             return 0
         Cons[k](head, tail) =>
             let rest <- length[A, k](tail)
-            return rest
+            return 1 + rest

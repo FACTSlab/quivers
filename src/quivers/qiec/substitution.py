@@ -20,16 +20,20 @@ from quivers.qiec.terms import (
     CaseMotive,
     Computation,
     ConstructorValue,
+    DistributionValue,
     EvidenceValue,
     Handle,
+    If,
     LiteralValue,
     Local,
+    LogDensity,
     NewInstance,
     Perform,
     PrimitiveApplication,
     Projection,
     Resume,
     Return,
+    SiteValue,
     TransportValue,
     TupleValue,
     Value,
@@ -635,6 +639,25 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
             value.position,
             substitute_type(value.result_type, substitution),
         )
+    if isinstance(value, DistributionValue):
+        return DistributionValue(
+            value.family,
+            value.name,
+            tuple(
+                (name, substitute_value(argument, substitution))
+                for name, argument in value.arguments
+            ),
+            substitute_type(value.result_type, substitution),
+            value.origin,
+        )
+    if isinstance(value, LogDensity):
+        return LogDensity(
+            substitute_value(value.sampleable, substitution),
+            substitute_value(value.value, substitution),
+            value.origin,
+        )
+    if isinstance(value, SiteValue):
+        return SiteValue(value.label, substitute_type(value.result_type, substitution))
     raise TypeError(f"unknown value term {value!r}")
 
 
@@ -758,6 +781,12 @@ def substitute_computation(
                 )
                 for branch in computation.branches
             ),
+        )
+    if isinstance(computation, If):
+        return If(
+            substitute_value(computation.condition, substitution),
+            substitute_computation(computation.then, substitution),
+            substitute_computation(computation.otherwise, substitution),
         )
     if isinstance(computation, Call):
         return Call(

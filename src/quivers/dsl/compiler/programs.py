@@ -54,6 +54,7 @@ from quivers.dsl.ast_nodes import (
     GroupedLatentInitStep,
     GroupedObserveEntry,
     LetExprBinOp,
+    LetExprBool,
     LetExprCall,
     LetExprIndex,
     LetExprLambda,
@@ -64,7 +65,9 @@ from quivers.dsl.ast_nodes import (
     LetExprMethodCall,
     LetExprNode,
     LetExprString,
+    LetExprTuple,
     LetExprUnaryOp,
+    LetExprUnit,
     LetExprVar,
     LetStep,
     ScoreStep,
@@ -1545,6 +1548,8 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprUnaryOp):
             return LetExprUnaryOp(
@@ -1553,6 +1558,18 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                op=expr.op,
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprTuple):
+            return LetExprTuple(
+                items=tuple(
+                    self._rename_let_expr(item, value_subst, rename)
+                    for item in expr.items
+                ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprCall):
             new_func = value_subst.get(expr.func, expr.func)
@@ -3619,6 +3636,9 @@ class _ProgramsMixin:
                 _walk(node.right, locals_set)
             elif isinstance(node, LetExprUnaryOp):
                 _walk(node.operand, locals_set)
+            elif isinstance(node, LetExprTuple):
+                for item in node.items:
+                    _walk(item, locals_set)
             elif isinstance(node, LetExprCall):
                 for arg in node.args:
                     _walk(arg, locals_set)
@@ -3694,6 +3714,29 @@ class _ProgramsMixin:
                 return val
 
             return _string
+        if isinstance(node, LetExprBool):
+            flag = node.value
+
+            def _bool(env: dict) -> torch.Tensor:
+                return torch.tensor(flag)
+
+            return _bool
+        if isinstance(node, LetExprUnit):
+
+            def _unit(env: dict) -> None:
+                return None
+
+            return _unit
+        if isinstance(node, LetExprTuple):
+            item_fns = [
+                _ProgramsMixin._compile_let_expr(item, globals_=globals_)
+                for item in node.items
+            ]
+
+            def _tuple(env: dict) -> tuple[object, ...]:
+                return tuple(fn(env) for fn in item_fns)
+
+            return _tuple
         if isinstance(node, LetExprVar):
             name = node.name
             globs = globals_ or {}
@@ -3759,11 +3802,38 @@ class _ProgramsMixin:
                     return l * r
                 elif op == "/":
                     return l / r
+                elif op == "%":
+                    return torch.fmod(l, r)
+                elif op == "==":
+                    return l == r
+                elif op == "!=":
+                    return l != r
+                elif op == "<":
+                    return l < r
+                elif op == "<=":
+                    return l <= r
+                elif op == ">":
+                    return l > r
+                elif op == ">=":
+                    return l >= r
+                elif op == "&&":
+                    return torch.logical_and(l, r)
+                elif op == "||":
+                    return torch.logical_or(l, r)
                 raise ValueError(f"unknown operator: {op}")
 
             return _binop
         if isinstance(node, LetExprUnaryOp):
             inner_fn = _ProgramsMixin._compile_let_expr(node.operand, globals_=globals_)
+            if node.op == "not":
+
+                def _not(env: dict):
+                    v = inner_fn(env)
+                    if isinstance(v, torch.Tensor):
+                        return torch.logical_not(v)
+                    return not v
+
+                return _not
 
             def _neg(env: dict):
                 v = inner_fn(env)

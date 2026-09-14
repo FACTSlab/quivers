@@ -101,6 +101,9 @@ from quivers.dsl.ast_nodes.expressions import (
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
+    LetExprBool,
+    LetExprTuple,
+    LetExprUnit,
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
@@ -151,6 +154,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecBinder,
     QiecCaseBranch,
     QiecCaseComputation,
+    QiecIfComputation,
     QiecComputation,
     QiecComputationDecl,
     QiecConstructorValue,
@@ -182,7 +186,6 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecIndexLiteral,
     QiecIndexName,
     QiecIndexSort,
-    QiecLiteralValue,
     QiecNatSort,
     QiecPerformComputation,
     QiecProductType,
@@ -197,7 +200,6 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecTypeName,
     QiecUserIndexSort,
     QiecValue,
-    QiecVariableValue,
 )
 from quivers.dsl.ast_nodes.structural import (
     BinderDecl,
@@ -543,19 +545,53 @@ def _emit_chart_fold_expr(e: ExprChartFold) -> str:
 
 
 def _emit_let_expr(e: LetExprNode) -> str:
+    """Emit a pure expression in canonical form.
+
+    Every binary operation is parenthesized, so the emitted text never
+    depends on operator precedence to re-parse as the same tree.
+
+    Parameters
+    ----------
+    e : LetExprNode
+        The expression node.
+
+    Returns
+    -------
+    str
+        Canonical source for the expression.
+
+    Raises
+    ------
+    EmitError
+        If the node is of an unknown kind, or a receiver position holds
+        something other than a variable.
+    """
+    if isinstance(e, QiecConstructorValue):
+        return _emit_qiec_value(e)
     if isinstance(e, LetExprVar):
         return e.name
     if isinstance(e, LetExprLiteral):
+        if e.integral and e.value == int(e.value):
+            return str(int(e.value))
         return _emit_number(e.value)
+    if isinstance(e, LetExprBool):
+        return "true" if e.value else "false"
+    if isinstance(e, LetExprUnit):
+        return "unit"
+    if isinstance(e, LetExprTuple):
+        return "(" + ", ".join(_emit_let_expr(item) for item in e.items) + ")"
     if isinstance(e, LetExprString):
         return _emit_string(e.value)
     if isinstance(e, LetExprList):
         return "[" + ", ".join(_emit_let_expr(item) for item in e.items) + "]"
     if isinstance(e, LetExprBinOp):
-        left = _emit_let_operand(e.left)
-        right = _emit_let_operand(e.right)
-        return f"({left} {e.op} {right})"
+        precedence = _OPERATOR_PRECEDENCE[e.op]
+        left = _emit_let_operand(e.left, precedence, right_side=False)
+        right = _emit_let_operand(e.right, precedence, right_side=True)
+        return f"{left} {e.op} {right}"
     if isinstance(e, LetExprUnaryOp):
+        if e.op == "not":
+            return f"not {_emit_let_atom(e.operand)}"
         return f"-{_emit_let_atom(e.operand)}"
     if isinstance(e, LetExprCall):
         return f"{e.func}(" + ", ".join(_emit_let_expr(a) for a in e.args) + ")"
@@ -573,20 +609,61 @@ def _emit_let_expr(e: LetExprNode) -> str:
     raise EmitError(f"emit: unknown LetExprNode kind {type(e).__name__!r}")
 
 
-def _emit_let_operand(e: LetExprNode) -> str:
-    """Emit a binary-operator operand, parenthesizing the low-binding
-    prefix forms (lambda, factor) whose bodies would otherwise absorb
-    the operator."""
+#: Binding strength of each binary operator, as the grammar ranks them.
+_OPERATOR_PRECEDENCE: dict[str, int] = {
+    "||": 1,
+    "&&": 2,
+    "==": 3,
+    "!=": 3,
+    "<": 3,
+    "<=": 3,
+    ">": 3,
+    ">=": 3,
+    "+": 4,
+    "-": 4,
+    "*": 5,
+    "/": 5,
+    "%": 5,
+}
+
+
+def _emit_let_operand(e: LetExprNode, precedence: int, *, right_side: bool) -> str:
+    """Emit a binary-operator operand with the parentheses it needs.
+
+    A nested operation is parenthesized when it binds more loosely than
+    the enclosing operator, or equally on the right of a left-associative
+    operator; the low-binding prefix forms (lambda, factor) are always
+    wrapped, since their bodies would otherwise absorb the operator.
+
+    Parameters
+    ----------
+    e : LetExprNode
+        The operand.
+    precedence : int
+        The enclosing operator's binding strength.
+    right_side : bool
+        Whether the operand is the right one, where equal precedence
+        needs parentheses to keep the authored association.
+
+    Returns
+    -------
+    str
+        The operand's source, parenthesized only when the tree requires.
+    """
     text = _emit_let_expr(e)
     if isinstance(e, (LetExprLambda, LetExprFactor)):
         return f"({text})"
+    if isinstance(e, LetExprBinOp):
+        inner = _OPERATOR_PRECEDENCE[e.op]
+        if inner < precedence or (inner == precedence and right_side):
+            return f"({text})"
     return text
 
 
 def _emit_let_atom(e: LetExprNode) -> str:
     """Emit in an atom-only position (the operand of unary minus)."""
     text = _emit_let_expr(e)
-    if isinstance(e, LetExprUnaryOp):
+    if isinstance(e, LetExprUnaryOp | LetExprBinOp | LetExprLambda | LetExprFactor):
         return f"({text})"
     if isinstance(e, LetExprLiteral) and text.startswith("-"):
         return f"({text})"
@@ -1203,18 +1280,23 @@ def _emit_qiec_handler_clause(clause: QiecHandlerClause, indent: int) -> list[st
 
 
 def _emit_qiec_value(value: QiecValue) -> str:
-    if isinstance(value, QiecVariableValue):
-        return value.name
-    if isinstance(value, QiecLiteralValue):
-        if value.value is None:
-            return "unit"
-        if value.value is True:
-            return "true"
-        if value.value is False:
-            return "false"
-        if isinstance(value.value, str):
-            return _emit_string(value.value)
-        return repr(value.value)
+    """Emit a QIEC value: a constructor application or a pure expression.
+
+    Parameters
+    ----------
+    value : QiecValue
+        The value node.
+
+    Returns
+    -------
+    str
+        Canonical source for the value.
+
+    Raises
+    ------
+    EmitError
+        If the node is not a value form.
+    """
     if isinstance(value, QiecConstructorValue):
         static = ""
         if value.static_arguments:
@@ -1230,7 +1312,7 @@ def _emit_qiec_value(value: QiecValue) -> str:
             f"construct {value.constructor}{static}({fields}) as "
             f"{_emit_qiec_type(value.result_type)}"
         )
-    raise EmitError(f"emit: unknown QIEC value {type(value).__name__!r}")
+    return _emit_let_expr(value)
 
 
 def _emit_qiec_request(request: QiecEffectRequest) -> str:
@@ -1296,6 +1378,13 @@ def _emit_qiec_computation(computation: QiecComputation, indent: int) -> list[st
         return [
             f"{pad}with instance {computation.name} : {effect} in",
             *_emit_qiec_computation(computation.body, indent + 1),
+        ]
+    if isinstance(computation, QiecIfComputation):
+        return [
+            f"{pad}if {_emit_qiec_value(computation.condition)} then",
+            *_emit_qiec_computation(computation.then, indent + 1),
+            f"{pad}else",
+            *_emit_qiec_computation(computation.otherwise, indent + 1),
         ]
     if isinstance(computation, QiecCaseComputation):
         motive = "motive"

@@ -116,7 +116,7 @@
     },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|export|perform|handle|case|motive|resumes|lacks|construct|for|with)\\b"
+      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|export|perform|handle|case|motive|resumes|resume|lacks|construct|for|with|if|then|else|not)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
@@ -125,7 +125,7 @@
     "keyword-qiec-modifier": {
       "comment": "QIEC kinds, handler coverage, forwarding, and resumption grades.",
       "name": "storage.modifier.qvr",
-      "match": "\\b(Type|Effect|Row|Shape|Context|total|partial|aff|omega|coverage|forwards|introduces)\\b"
+      "match": "\\b(Type|Effect|Row|Shape|Context|total|partial|aff|omega|coverage|forwards|introduces|implementation|authored|foreign)\\b"
     },
     "keyword-composition-level": {
       "comment": "Composition-level names carried by `[level=...]` option values.",

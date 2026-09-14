@@ -9,6 +9,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecBinder,
     QiecCaseBranch,
     QiecCaseComputation,
+    QiecIfComputation,
     QiecCaseMotive,
     QiecComputation,
     QiecComputationDecl,
@@ -41,7 +42,6 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecIndexLiteral,
     QiecIndexName,
     QiecIndexSort,
-    QiecLiteralValue,
     QiecLocalBinding,
     QiecNatSort,
     QiecOperationDecl,
@@ -61,9 +61,9 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecUserIndexSort,
     QiecValue,
     QiecValueParameter,
-    QiecVariableValue,
 )
 from quivers.dsl.parser._helpers import _field_text, _required_field
+from quivers.dsl.parser.expressions import _walk_let_arith
 from quivers.dsl.parser._registry import ParseError, _Tree
 
 
@@ -537,25 +537,28 @@ def _walk_local(t: _Tree, vid: str) -> QiecLocalBinding:
 
 
 def _walk_value(t: _Tree, vid: str) -> QiecValue:
+    """Walk a QIEC value: a constructor application or a pure expression.
+
+    Parameters
+    ----------
+    t : _Tree
+        The parse tree.
+    vid : str
+        The value vertex.
+
+    Returns
+    -------
+    QiecValue
+        The constructor value, or the shared expression node the pure
+        expression walker produces.
+
+    Raises
+    ------
+    ParseError
+        If the vertex is not a value form.
+    """
     line, col = t.line_col(vid)
     kind = t.kind(vid)
-    if kind == "qiec_variable_value":
-        return QiecVariableValue(name=_field_text(t, vid, "name"), line=line, col=col)
-    if kind == "qiec_literal_value":
-        text = t.text(vid)
-        if text == "unit":
-            value = None
-        elif text == "true":
-            value = True
-        elif text == "false":
-            value = False
-        elif text.startswith('"') and text.endswith('"'):
-            value = text[1:-1]
-        elif any(character in text for character in ".eE"):
-            value = float(text)
-        else:
-            value = int(text)
-        return QiecLiteralValue(value=value, line=line, col=col)
     if kind == "qiec_constructor_value":
         return QiecConstructorValue(
             constructor=_field_text(t, vid, "constructor"),
@@ -565,6 +568,13 @@ def _walk_value(t: _Tree, vid: str) -> QiecValue:
             line=line,
             col=col,
         )
+    if kind.startswith("let_") or kind in (
+        "integer",
+        "float",
+        "signed_number",
+        "string",
+    ):
+        return _walk_let_arith(t, vid)
     raise ParseError(f"unexpected QIEC value {kind!r} at {vid}")
 
 
@@ -633,6 +643,14 @@ def _walk_computation(t: _Tree, vid: str) -> QiecComputation:
             branches=tuple(
                 _walk_case_branch(t, child) for child in t.fields(vid, "branches")
             ),
+            line=line,
+            col=col,
+        )
+    if kind == "qiec_if_computation":
+        return QiecIfComputation(
+            condition=_walk_value(t, _required_field(t, vid, "condition")),
+            then=_walk_computation(t, _required_field(t, vid, "then")),
+            otherwise=_walk_computation(t, _required_field(t, vid, "otherwise")),
             line=line,
             col=col,
         )

@@ -14,7 +14,7 @@ or ambient attachment registry is consulted by ``run_named``.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.metadata import entry_points
 import json
 from pathlib import Path
@@ -34,6 +34,14 @@ from quivers.qiec.evaluator import (
     RuntimeValidator,
     Resumption,
 )
+from quivers.qiec.builtins import BUILTIN_EFFECTS, draw_handler, score_handler
+from quivers.qiec.canonical import (
+    LOG_WEIGHT,
+    SAMPLEABLE_CONSTRUCTOR,
+    SITE_CONSTRUCTOR,
+    tensor_shape,
+)
+from quivers.qiec.effects import HandlerDef
 from quivers.qiec.evidence import BranchGiven, Reflexivity
 from quivers.qiec.identifiers import OperationId, SourceOrigin
 from quivers.qiec.kinds import (
@@ -65,6 +73,7 @@ from quivers.qiec.types import (
     FunctionType,
     IndexConstructor,
     IndexLiteral,
+    IndexTerm,
     ShapeIndex,
     StaticArgument,
     TypeApplication,
@@ -305,11 +314,100 @@ class CoreRuntimeProvider:
                 runtime = self._scripted(definition, raw_options, operation_names)
             elif kind == "state":
                 runtime = self._state(definition, raw_options, operation_names)
+            elif kind == "draw":
+                runtime = self._prelude(definition, draw_handler, "Random")
+            elif kind == "score":
+                runtime = self._prelude(
+                    definition,
+                    lambda **_: score_handler(
+                        weight_validator=_require_core_handler_validator(
+                            LOG_WEIGHT, definition.name, "weight"
+                        ),
+                        answer_validator=_require_core_handler_validator(
+                            definition.input_type, definition.name, "input"
+                        ),
+                        expose_total=definition.output_type != definition.input_type,
+                    )[0],
+                    "Score",
+                )
             else:
                 raise ValueError(
                     f"core handler {handler_name!r} has unknown kind {kind!r}"
                 )
             attachments.bind_handler(runtime)
+
+    def _prelude(
+        self,
+        definition: HandlerDef,
+        factory: Callable[..., RuntimeHandler],
+        interface: str,
+    ) -> RuntimeHandler:
+        """Serve a module's foreign handler with a prelude implementation.
+
+        Parameters
+        ----------
+        definition
+            The module's handler declaration, which must handle the
+            prelude interface named and declare the prelude handler's
+            clauses and grades.
+        factory
+            The prelude factory building the implementation; called with
+            ``result_validator`` when it accepts one.
+        interface
+            The prelude interface the implementation serves.
+
+        Returns
+        -------
+        RuntimeHandler
+            The prelude implementation re-keyed under the module's
+            declaration, so the manifest check passes and the module's
+            types and grades govern dispatch.
+
+        Raises
+        ------
+        ValueError
+            If the declaration handles another interface, or its clauses
+            or grades differ from the prelude implementation's.
+        """
+        if definition.effect.name != interface or definition.effect.id != next(
+            effect.ref.id for effect in BUILTIN_EFFECTS if effect.ref.name == interface
+        ):
+            raise ValueError(
+                f"core handler {definition.name!r} must handle the prelude "
+                f"interface {interface!r} to use this implementation"
+            )
+        if interface == "Random":
+            built = factory(
+                result_validator=lambda value: True,
+                answer_type=definition.input_type,
+            )
+        else:
+            built = factory()
+        expected = {
+            (clause.operation, clause.grade) for clause in built.definition.clauses
+        }
+        declared = {(clause.operation, clause.grade) for clause in definition.clauses}
+        if expected != declared:
+            raise ValueError(
+                f"core handler {definition.name!r} declares clauses that differ "
+                f"from the prelude implementation for {interface!r}"
+            )
+        rekeyed = replace(built, definition=definition)
+        if built.context_factory is not None:
+            prototype_factory = built.context_factory
+
+            def context_factory() -> RuntimeHandler:
+                """Build a fresh installation under the module's declaration.
+
+                Returns
+                -------
+                RuntimeHandler
+                    The prelude installation re-keyed to the declaration.
+                """
+                return replace(prototype_factory(), definition=definition)
+
+            rekeyed.context_factory = context_factory
+        return rekeyed
 
     def validator_for(self, type_: TypeExpr) -> RuntimeValidator | None:
         """Supply the primitive validator for a closed runtime type.
@@ -1795,6 +1893,26 @@ def _core_validator(type_: TypeExpr) -> RuntimeValidator | None:
     if type_ == STRING:
         return lambda value: isinstance(value, str)
     if isinstance(type_, TypeApplication):
+        if type_ == LOG_WEIGHT:
+            return lambda value: (
+                isinstance(value, int | float) and not isinstance(value, bool)
+            )
+        if type_.constructor == SAMPLEABLE_CONSTRUCTOR:
+            return lambda value: (
+                callable(getattr(value, "log_prob", None))
+                and (
+                    callable(getattr(value, "sample", None))
+                    or callable(getattr(value, "rsample", None))
+                )
+            )
+        if type_.constructor == SITE_CONSTRUCTOR:
+            return lambda value: isinstance(value, str) and bool(value)
+        shape = tensor_shape(type_)
+        if shape is not None:
+            element_validator = _core_validator(shape[0])
+            if element_validator is None:
+                return None
+            return _tensor_validator(element_validator, shape[1])
         if type_.constructor.name.startswith("Product"):
             type_nodes = (TypeVariable, TypeApplication, FunctionType, EqualityType)
             if not all(isinstance(item, type_nodes) for item in type_.arguments):
@@ -1854,6 +1972,55 @@ def _core_validator(type_: TypeExpr) -> RuntimeValidator | None:
     if isinstance(type_, TypeVariable):
         return None
     return None
+
+
+def _tensor_validator(
+    element: RuntimeValidator,
+    dimensions: tuple[IndexTerm, ...],
+) -> RuntimeValidator:
+    """Build the validator for a tensor of a given shape.
+
+    Parameters
+    ----------
+    element : RuntimeValidator
+        The validator for one element.
+    dimensions : tuple[IndexTerm, ...]
+        The static shape; a literal dimension fixes a length, any other
+        index term leaves it open.
+
+    Returns
+    -------
+    RuntimeValidator
+        A predicate accepting nested tuples of the shape's rank whose
+        lengths match the literal dimensions and whose elements pass.
+    """
+
+    def validate(value: object, depth: int = 0) -> bool:
+        """Check one level of nesting against the shape.
+
+        Parameters
+        ----------
+        value
+            The value at this level.
+        depth
+            How many dimensions have been descended.
+
+        Returns
+        -------
+        bool
+            Whether the value fits the remaining dimensions.
+        """
+        if depth == len(dimensions):
+            return element(value) is not False
+        if not isinstance(value, tuple):
+            return False
+        dimension = dimensions[depth]
+        if isinstance(dimension, IndexLiteral) and isinstance(dimension.value, int):
+            if len(value) != dimension.value:
+                return False
+        return all(validate(item, depth + 1) for item in value)
+
+    return validate
 
 
 def _fail(

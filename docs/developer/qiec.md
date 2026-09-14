@@ -146,6 +146,31 @@ introduces a rigid local predecessor index. This refinement makes the single
 branch exhaustive, but the local index cannot escape into the type of the
 complete case.
 
+Computations call one another by ordinary application, recursion included,
+and branch on Booleans with `if`. Pure expressions share the `program` let
+grammar: operators resolve to primitives of a closed registry by operand
+type, tuples build finite products, and `t[i]` projects a component.
+
+<!-- compile: qiec -->
+```qvr
+define triangle(n : Int) : Int !{} =
+    if n <= 0 then
+        return 0
+    else
+        let rest <- triangle(n - 1)
+        return n + rest
+
+define split(x : Int, y : Real) : Real !{} =
+    let pair = (real(x / 2) * y, x % 3)
+    let scaled = pair[0] + real(pair[1])
+    return max(scaled, 0.5)
+```
+
+Recursion runs on the reference machine's explicit stack, and on a
+trampoline in every generated host runtime, so its depth is bounded by memory
+rather than the host call stack. A run may be given a step budget, which
+turns divergence into the stable `qiec-run-fuel` diagnostic.
+
 A parameterized state effect separates an interface from its lexical
 instances. The `left` and `right` declarations below have the same applied
 interface but different lexical identities:

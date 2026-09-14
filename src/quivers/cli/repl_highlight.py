@@ -217,7 +217,52 @@ def tokenize(
                 src_bytes,
             )
         )
-    return spans
+    return _merge_split_operators(spans, src_bytes)
+
+
+def _merge_split_operators(spans: list[Span], source: bytes) -> list[Span]:
+    """Rejoin a multi-character operator the recovering parser split.
+
+    A fragment such as one program line parses with error recovery, and
+    in a recovered state the lexer may read ``<-`` as ``<`` followed by
+    ``-``. Two adjacent operator spans whose concatenation is itself a
+    grammar operator are one token to the reader, so they are painted as
+    one.
+
+    Parameters
+    ----------
+    spans : list[Span]
+        The classified spans, in source order.
+    source : bytes
+        The source the spans index into.
+
+    Returns
+    -------
+    list[Span]
+        The spans with split operators merged.
+    """
+    merged: list[Span] = []
+    for span in spans:
+        previous = merged[-1] if merged else None
+        if (
+            previous is not None
+            and previous.token == "operator"
+            and span.token == "operator"
+            and previous.end == span.start
+            and previous.text + span.text in _OPERATOR_TOKENS
+        ):
+            merged[-1] = _position(
+                Span(
+                    start=previous.start,
+                    end=span.end,
+                    token="operator",
+                    text=previous.text + span.text,
+                ),
+                source,
+            )
+            continue
+        merged.append(span)
+    return merged
 
 
 def _classify(

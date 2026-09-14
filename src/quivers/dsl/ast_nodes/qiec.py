@@ -18,6 +18,7 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes.declarations import Statement
+from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 
 
 # ---------------------------------------------------------------------------
@@ -261,25 +262,34 @@ class QiecHandlerClause(dx.TaggedUnion, discriminator="kind"):
 # ---------------------------------------------------------------------------
 
 
-class QiecValue(dx.TaggedUnion, discriminator="kind"):
-    """A stable, serializable value expression accepted by QIEC lowering."""
+#: A QIEC value is the shared pure-expression tree. Variables, literals,
+#: operators, tuples, and builtin applications are the same nodes a
+#: ``program`` let step uses; constructor application below joins that
+#: tree, so there is one value language rather than two isomorphic ones.
+QiecValue = LetExprNode
 
 
-class QiecVariableValue(QiecValue):
-    name: str
-    line: int = 0
-    col: int = 0
-    kind: Literal["qiec_variable_value"] = "qiec_variable_value"
+class QiecConstructorValue(LetExprNode):
+    """Application of a family constructor, ``construct C[..](..) as T``.
 
+    Parameters
+    ----------
+    constructor
+        The constructor's name.
+    static_arguments
+        The family parameters and constructor-local static arguments.
+    fields
+        The field values, in declaration order.
+    result_type
+        The family type the value inhabits.
+    line
+        The 1-based source line.
+    col
+        The 0-based source column.
+    kind
+        The discriminator; always ``"qiec_constructor_value"``.
+    """
 
-class QiecLiteralValue(QiecValue):
-    value: None | bool | int | float | str
-    line: int = 0
-    col: int = 0
-    kind: Literal["qiec_literal_value"] = "qiec_literal_value"
-
-
-class QiecConstructorValue(QiecValue):
     constructor: str
     static_arguments: tuple[QiecTypeExpr, ...] = ()
     fields: tuple[QiecValue, ...] = ()
@@ -379,6 +389,33 @@ class QiecCaseComputation(QiecComputation):
     line: int = 0
     col: int = 0
     kind: Literal["qiec_case_computation"] = "qiec_case_computation"
+
+
+class QiecIfComputation(QiecComputation):
+    """``if COND then ... else ...``, branching on a Boolean value.
+
+    Parameters
+    ----------
+    condition
+        The Boolean value branched on.
+    then
+        The computation run when the condition holds.
+    otherwise
+        The computation run when it does not.
+    line
+        The 1-based source line.
+    col
+        The 0-based source column.
+    kind
+        The discriminator; always ``"qiec_if_computation"``.
+    """
+
+    condition: QiecValue
+    then: QiecComputation
+    otherwise: QiecComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["qiec_if_computation"] = "qiec_if_computation"
 
 
 class QiecPureBinding(QiecComputation):

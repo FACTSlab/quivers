@@ -14,6 +14,14 @@ from enum import Enum
 import operator
 from typing import cast
 
+from quivers.qiec.canonical import (
+    ELEMENT,
+    ELEMENT_BINDER,
+    LOG_WEIGHT,
+    SAMPLEABLE_CONSTRUCTOR,
+    SITE_CONSTRUCTOR,
+    builtin_constructor,
+)
 from quivers.qiec.effects import (
     ArgumentDef,
     EffectDef,
@@ -42,7 +50,6 @@ from quivers.qiec.identifiers import (
     HandlerId,
     OperationId,
     SourceOrigin,
-    TypeId,
 )
 from quivers.qiec.kinds import TypeBinder
 from quivers.qiec.terms import Perform
@@ -50,49 +57,24 @@ from quivers.qiec.types import (
     UNIT,
     EffectRef,
     TypeApplication,
-    TypeConstructorRef,
     TypeExpr,
     TypeVariable,
 )
 
 
-def _constructor(name: str, *binders: TypeBinder) -> TypeConstructorRef:
-    """A type constructor in the prelude's own namespace.
+_constructor = builtin_constructor
 
-    Parameters
-    ----------
-    name : str
-        The constructor's name.
-    *binders : TypeBinder
-        Its kinding telescope.
-
-    Returns
-    -------
-    TypeConstructorRef
-        The constructor. Its identity derives from the ``builtin``
-        namespace, so `Site` means the same type in every module without
-        being declared in any of them.
-    """
-    return TypeConstructorRef(
-        TypeId.derive("builtin", name),
-        name,
-        tuple(binders),
-    )
-
-
-_A_BINDER = TypeBinder("a")
+_A_BINDER = ELEMENT_BINDER
 _K_BINDER = TypeBinder("k")
 _P_BINDER = TypeBinder("payload")
 _S_BINDER = TypeBinder("state")
 _ANSWER_BINDER = TypeBinder("answer")
-A = TypeVariable("a")
+A = ELEMENT
 K = TypeVariable("k")
 PAYLOAD = TypeVariable("payload")
 STATE = TypeVariable("state")
 ANSWER = TypeVariable("answer")
 
-SITE_CONSTRUCTOR = _constructor("Site", _A_BINDER)
-SAMPLEABLE_CONSTRUCTOR = _constructor("Sampleable", _A_BINDER)
 CHOICES_CONSTRUCTOR = _constructor("Choices", _A_BINDER)
 CHOICE_RESULTS_CONSTRUCTOR = _constructor("ChoiceResults", _A_BINDER)
 STATE_RESULT_CONSTRUCTOR = _constructor("StateResult", _A_BINDER, _S_BINDER)
@@ -104,7 +86,6 @@ CHOICES_A = TypeApplication(CHOICES_CONSTRUCTOR, (A,))
 CHOICE_RESULTS_A = TypeApplication(CHOICE_RESULTS_CONSTRUCTOR, (A,))
 STATE_RESULT = TypeApplication(STATE_RESULT_CONSTRUCTOR, (ANSWER, STATE))
 WEIGHTED_RESULT = TypeApplication(WEIGHTED_RESULT_CONSTRUCTOR, (ANSWER, K))
-LOG_WEIGHT = TypeApplication(_constructor("LogWeight"))
 
 
 def _effect_ref(name: str) -> EffectRef:

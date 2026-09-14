@@ -366,3 +366,132 @@ def test_scheme_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
         text=True,
     )
     assert completed.stdout.split() == ["0", str(DEEP - 1), "#f", "#t", "0"]
+
+
+ARITHMETIC = """\
+define triangle(n : Int) : Int !{} =
+    if n <= 0 then
+        return 0
+    else
+        let rest <- triangle(n - 1)
+        return n + rest
+
+define mixed(x : Int, y : Real) : Real !{} =
+    let quotient = x / 2
+    let remainder = x % 3
+    let scaled = real(quotient) * y + real(remainder)
+    let clipped = max(scaled, 0.5)
+    let pair = (clipped, "v" + "1")
+    let flag = pair[1] == "v1" && not (y == 1.0)
+    if flag then
+        return sqrt(pair[0]) - real(int(y))
+    else
+        return -1.0
+"""
+
+
+def _mixed_expected(x: int, y: float) -> float:
+    """The reference value of ``mixed``, computed in Python.
+
+    Parameters
+    ----------
+    x : int
+        The integer argument.
+    y : float
+        The real argument.
+
+    Returns
+    -------
+    float
+        What every runtime must produce.
+    """
+    quotient = int(x / 2)
+    remainder = x - 3 * int(x / 3)
+    clipped = max(quotient * y + remainder, 0.5)
+    if y != 1.0:
+        return clipped**0.5 - float(int(y))
+    return -1.0
+
+
+def test_python_expressions_and_branches() -> None:
+    namespace: dict[str, object] = {}
+    exec(transpile(parse(ARITHMETIC), target="pyro"), namespace)
+    assert namespace["qiec_triangle"](10) == 55  # type: ignore[operator]
+    previous = sys.getrecursionlimit()
+    sys.setrecursionlimit(400)
+    try:
+        assert namespace["qiec_triangle"](DEEP) == DEEP * (DEEP + 1) // 2  # type: ignore[operator]
+    finally:
+        sys.setrecursionlimit(previous)
+    for x, y in ((-7, 2.5), (9, 1.0), (4, 0.1)):
+        assert namespace["qiec_mixed"](x, y) == pytest.approx(_mixed_expected(x, y))  # type: ignore[operator]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+def test_javascript_expressions_and_branches(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "expr.js"
+    script.write_bytes(
+        transpile(parse(ARITHMETIC), target="webppl")
+        + (
+            f"console.log(JSON.stringify([qiec_triangle(10), qiec_triangle({DEEP}), "
+            "qiec_mixed(-7, 2.5), qiec_mixed(9, 1.0), qiec_mixed(4, 0.1)]));\n"
+        ).encode()
+    )
+    completed = subprocess.run(
+        ["node", "--stack-size=200", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = json.loads(completed.stdout)
+    assert values[:2] == [55, DEEP * (DEEP + 1) // 2]
+    assert values[2:] == pytest.approx(
+        [_mixed_expected(-7, 2.5), _mixed_expected(9, 1.0), _mixed_expected(4, 0.1)]
+    )
+
+
+@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
+def test_julia_expressions_and_branches(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "expr.jl"
+    script.write_text(
+        "macro model(expression)\n    esc(expression)\nend\n"
+        + transpile(parse(ARITHMETIC), target="turing").decode()
+        + f'\nprintln(qiec_triangle(10), " ", qiec_triangle({DEEP}), " ", '
+        'qiec_mixed(-7, 2.5), " ", qiec_mixed(9, 1.0), " ", qiec_mixed(4, 0.1))\n'
+    )
+    completed = subprocess.run(
+        ["julia", "--startup-file=no", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = completed.stdout.split()
+    assert values[:2] == ["55", str(DEEP * (DEEP + 1) // 2)]
+    assert [float(item) for item in values[2:]] == pytest.approx(
+        [_mixed_expected(-7, 2.5), _mixed_expected(9, 1.0), _mixed_expected(4, 0.1)]
+    )
+
+
+@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
+def test_scheme_expressions_and_branches(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "expr.scm"
+    script.write_bytes(
+        transpile(parse(ARITHMETIC), target="church")
+        + (
+            f'(display (qiec_triangle 10)) (display " ") (display (qiec_triangle {DEEP})) '
+            '(display " ") (display (qiec_mixed -7 2.5)) (display " ") '
+            '(display (qiec_mixed 9 1.0)) (display " ") (display (qiec_mixed 4 0.1)) '
+            "(newline)\n"
+        ).encode()
+    )
+    completed = subprocess.run(
+        [SCHEME_EXECUTABLE, "--script", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = completed.stdout.split()
+    assert values[:2] == ["55", str(DEEP * (DEEP + 1) // 2)]
+    assert [float(item) for item in values[2:]] == pytest.approx(
+        [_mixed_expected(-7, 2.5), _mixed_expected(9, 1.0), _mixed_expected(4, 0.1)]
+    )

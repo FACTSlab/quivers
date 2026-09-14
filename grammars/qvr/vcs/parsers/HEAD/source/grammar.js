@@ -43,9 +43,12 @@ const PREC = {
   object_slash: 2,
   object_product: 3,
   object_apply: 4,
-  let_add: 1,
-  let_mul: 2,
-  let_unary: 3,
+  let_or: 1,
+  let_and: 2,
+  let_compare: 3,
+  let_add: 4,
+  let_mul: 5,
+  let_unary: 6,
 };
 
 module.exports = grammar({
@@ -562,6 +565,7 @@ module.exports = grammar({
       $.qiec_handle_computation,
       $.qiec_instance_computation,
       $.qiec_case_computation,
+      $.qiec_if_computation,
       $.qiec_perform_computation,
       $.qiec_call_computation,
       $.qiec_resume_computation,
@@ -704,6 +708,24 @@ module.exports = grammar({
       )),
     ),
 
+    /* Branch on a Boolean value. Both branches are computations, so a
+     * recursive computation can stop: the untaken branch is never
+     * entered, which a value-level select could not promise. */
+    qiec_if_computation: $ => seq(
+      'if',
+      field('condition', $._let_arith),
+      'then',
+      $._newline,
+      $._indent,
+      field('then', $._qiec_computation),
+      $._dedent,
+      'else',
+      $._newline,
+      $._indent,
+      field('otherwise', $._qiec_computation),
+      $._dedent,
+    ),
+
     qiec_case_computation: $ => seq(
       'case',
       field('scrutinee', $._qiec_value),
@@ -755,10 +777,13 @@ module.exports = grammar({
       optional(seq(':', field('type', $._qiec_type_expr))),
     ),
 
+    /* A QIEC value is the shared pure-expression sublanguage plus
+     * constructor application. Variables, literals, operators, tuples,
+     * and builtin applications are the same nodes a ``program`` let step
+     * uses, so there is one expression tree for both surfaces. */
     _qiec_value: $ => choice(
       $.qiec_constructor_value,
-      $.qiec_literal_value,
-      $.qiec_variable_value,
+      $._let_arith,
     ),
 
     qiec_constructor_value: $ => seq(
@@ -781,16 +806,6 @@ module.exports = grammar({
       'as',
       field('result', $._qiec_type_expr),
     ),
-
-    qiec_literal_value: $ => choice(
-      alias('unit', $.qiec_unit_literal),
-      alias('true', $.qiec_bool_literal),
-      alias('false', $.qiec_bool_literal),
-      field('value', $.signed_number),
-      field('value', $.string),
-    ),
-
-    qiec_variable_value: $ => field('name', $.identifier),
 
     // -----------------------------------------------------------------
     // pragmas: ``#[ k = v, ... ]`` outer, ``#![ k = v, ... ]`` inner.
@@ -1977,6 +1992,7 @@ module.exports = grammar({
 
     _let_atom: $ => choice(
       $.let_paren,
+      $.let_tuple,
       $.let_method_call,
       $.let_call,
       $.let_index,
@@ -1984,9 +2000,26 @@ module.exports = grammar({
       $.let_factor,
       $.let_lambda,
       $.let_string,
+      $.let_bool,
+      $.let_unit,
       $.let_var,
       $.let_literal,
     ),
+
+    /* ``(a, b)`` builds a finite product; a parenthesized single
+     * expression is grouping, not a one-tuple. A component is selected
+     * by position with the indexing form, ``t[0]``. */
+    let_tuple: $ => seq(
+      '(',
+      field('items', $._let_arith),
+      ',',
+      commaSep1(field('items', $._let_arith)),
+      optional(','),
+      ')',
+    ),
+
+    let_bool: _ => choice('true', 'false'),
+    let_unit: _ => 'unit',
 
     let_factor: $ => prec.right(seq(
       'factor',
@@ -2049,11 +2082,26 @@ module.exports = grammar({
     )),
 
     let_unary: $ => prec(PREC.let_unary, seq(
-      '-',
+      field('op', choice('-', 'not')),
       field('operand', $._let_atom),
     )),
 
     let_binop: $ => choice(
+      prec.left(PREC.let_or, seq(
+        field('left', $._let_arith),
+        field('op', '||'),
+        field('right', $._let_arith),
+      )),
+      prec.left(PREC.let_and, seq(
+        field('left', $._let_arith),
+        field('op', '&&'),
+        field('right', $._let_arith),
+      )),
+      prec.left(PREC.let_compare, seq(
+        field('left', $._let_arith),
+        field('op', choice('==', '!=', '<', '<=', '>', '>=')),
+        field('right', $._let_arith),
+      )),
       prec.left(PREC.let_add, seq(
         field('left', $._let_arith),
         field('op', choice('+', '-')),
@@ -2061,7 +2109,7 @@ module.exports = grammar({
       )),
       prec.left(PREC.let_mul, seq(
         field('left', $._let_arith),
-        field('op', choice('*', '/')),
+        field('op', choice('*', '/', '%')),
         field('right', $._let_arith),
       )),
     ),

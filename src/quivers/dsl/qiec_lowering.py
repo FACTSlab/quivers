@@ -27,9 +27,29 @@ from didactic.gadt import (
 from panproto import GatError
 
 from quivers.dsl import ast_nodes as surface
+from quivers.qiec.canonical import (
+    BUILTIN_TYPE_CONSTRUCTORS,
+    LOG_WEIGHT,
+    SITE_CONSTRUCTOR,
+    sampleable_type,
+    sampled_element,
+    tensor_shape,
+    tensor_type,
+)
+from quivers.qiec.builtins import BUILTIN_EFFECTS
+from quivers.qiec.families import FAMILIES
 from quivers.qiec import (
     ComputationSignature,
     ResumptionType,
+    DistributionValue,
+    LogDensity,
+    SiteValue,
+    If,
+    PrimitiveApplication,
+    Projection,
+    TupleValue,
+    Value,
+    primitive,
     substitute_row,
     Call,
     NewInstance,
@@ -107,6 +127,7 @@ from quivers.qiec import (
     Telescope,
     TelescopeBinder,
     TypeApplication,
+    TypeConstructorRef,
     TypeBinder,
     TypeExpr,
     TypeVariable,
@@ -244,6 +265,49 @@ def non_qiec_projection(module: surface.Module) -> surface.Module:
             if not isinstance(statement, QIEC_STATEMENT_TYPES)
         )
     )
+
+
+#: The prelude's effect interfaces, resolvable from any module by name.
+_PRELUDE_EFFECTS: Mapping[str, EffectDef] = {
+    effect.ref.name: effect for effect in BUILTIN_EFFECTS
+}
+
+#: Operator and operand type to the primitive that implements it.
+_BINARY_PRIMITIVES: Mapping[str, Mapping[TypeExpr, str]] = {
+    "+": {INT: "add_int", REAL: "add_real", STRING: "concat"},
+    "-": {INT: "sub_int", REAL: "sub_real"},
+    "*": {INT: "mul_int", REAL: "mul_real"},
+    "/": {INT: "div_int", REAL: "div_real"},
+    "%": {INT: "mod_int"},
+    "==": {INT: "eq_int", REAL: "eq_real", BOOL: "eq_bool", STRING: "eq_string"},
+    "!=": {INT: "ne_int", REAL: "ne_real", BOOL: "ne_bool", STRING: "ne_string"},
+    "<": {INT: "lt_int", REAL: "lt_real"},
+    "<=": {INT: "le_int", REAL: "le_real"},
+    ">": {INT: "gt_int", REAL: "gt_real"},
+    ">=": {INT: "ge_int", REAL: "ge_real"},
+    "&&": {BOOL: "and"},
+    "||": {BOOL: "or"},
+}
+
+#: Builtin name and argument types to the primitive that implements it.
+_BUILTIN_PRIMITIVES: Mapping[str, Mapping[tuple[TypeExpr, ...], str]] = {
+    "real": {(INT,): "int_to_real"},
+    "int": {(REAL,): "real_to_int"},
+    "exp": {(REAL,): "exp"},
+    "log": {(REAL,): "log"},
+    "sqrt": {(REAL,): "sqrt"},
+    "pow": {(REAL, REAL): "pow_real"},
+    "abs": {(INT,): "abs_int", (REAL,): "abs_real"},
+    "min": {(INT, INT): "min_int", (REAL, REAL): "min_real"},
+    "max": {(INT, INT): "max_int", (REAL, REAL): "max_real"},
+}
+
+_EXPRESSION_FORMS = {
+    "LetExprList": "a list literal",
+    "LetExprLambda": "a lambda",
+    "LetExprFactor": "a `factor` expression",
+    "LetExprMethodCall": "a method call",
+}
 
 
 class QvrQiecLowerer:
@@ -866,6 +930,11 @@ class _Elaborator:
         self.handlers: dict[str, HandlerDef] = {}
         self.computation_signatures: dict[str, ComputationSignature] = {}
         self.registry = KernelRegistry()
+        # The type a `return` in the body being lowered should produce. It
+        # is a hint for positions that cannot state their type, such as a
+        # site literal or an integral literal standing for a real; the
+        # kernel still checks the body against its declared type.
+        self._expected_result: TypeExpr | None = None
 
     def elaborate(self) -> QiecModule:
         """Run every pass and return the checked kernel module.
@@ -1248,7 +1317,8 @@ class _Elaborator:
                 )
             telescope = self._lower_telescope(declaration.binders)
             effect = self._lower_effect_ref(declaration.effect, telescope)
-            definition = self.effects[declaration.effect.name]
+            definition = self._effect(declaration.effect.name)
+            assert definition is not None
             operations = {
                 operation.name: operation for operation in definition.operations
             }
@@ -1281,6 +1351,7 @@ class _Elaborator:
                             code="qiec-handler",
                         )
                     binder = Local(clause.binder.name, input_type)
+                    self._expected_result = output_type
                     return_clause = HandlerReturnClauseDef(
                         binder,
                         self._lower_computation(
@@ -1290,6 +1361,7 @@ class _Elaborator:
                             (*base, "body"),
                         ),
                     )
+                    self._expected_result = None
                     continue
                 if clause.operation in seen_clauses:
                     self._fail(
@@ -1354,6 +1426,7 @@ class _Elaborator:
                 # supplies and answers the handler's output, performing the
                 # handler's introduced row; the context has to know all
                 # three before a bound ``resume`` can be typed.
+                self._expected_result = output_type
                 body = (
                     None
                     if clause.body is None
@@ -1366,6 +1439,7 @@ class _Elaborator:
                         (*base, "body"),
                     )
                 )
+                self._expected_result = None
                 clauses.append(
                     HandlerClauseDef(
                         operation.id,
@@ -1434,6 +1508,10 @@ class _Elaborator:
                     fallback="qiec-index",
                 )
         for effect in self.effects.values():
+            if effect.ref.id in self.registry.effects:
+                # A prelude interface resolved by an earlier pass is already
+                # registered; the registry rejects a second registration.
+                continue
             try:
                 self.registry.register_effect(effect)
             except (KernelError, TypeError, ValueError) as error:
@@ -1567,7 +1645,9 @@ class _Elaborator:
             )
             context = CheckContext(parameters)
             path = ("computations", declaration.name, "body")
+            self._expected_result = self._lower_type(declaration.result_type, telescope)
             body = self._lower_computation(declaration.body, telescope, context, path)
+            self._expected_result = None
             computation = NamedComputation(
                 ComputationId.derive(
                     self.source.module_name,
@@ -1747,14 +1827,26 @@ class _Elaborator:
                 "Int": INT,
                 "Real": REAL,
                 "String": STRING,
+                "LogWeight": LOG_WEIGHT,
             }.get(authored.name)
             if primitive is not None:
                 return primitive
             family = self.families.get(authored.name)
             if family is not None and not (*family.parameters, *family.indices):
                 return TypeApplication(family.type_constructor)
+            if authored.name in BUILTIN_TYPE_CONSTRUCTORS:
+                self._fail(
+                    authored,
+                    f"builtin type {authored.name!r} takes arguments",
+                    code="qiec-kind",
+                )
             self._fail(authored, f"unknown or unsaturated type {authored.name!r}")
         if isinstance(authored, surface.QiecTypeApplication):
+            builtin = BUILTIN_TYPE_CONSTRUCTORS.get(authored.constructor)
+            if builtin is not None and authored.constructor not in self.families:
+                return self._lower_builtin_type(
+                    authored, builtin, scope, static_bindings
+                )
             family = self.families.get(authored.constructor)
             if family is None:
                 self._fail(authored, f"unknown indexed family {authored.constructor!r}")
@@ -1804,6 +1896,103 @@ class _Elaborator:
                 self._lower_type(authored.result, scope, static_bindings),
             )
         self._fail(authored, "unknown type expression", code="qiec-kind")
+
+    def _effect(self, name: str) -> EffectDef | None:
+        """Resolve an effect interface by name, admitting the prelude's.
+
+        A module refers to ``Random``, ``Score``, ``State``, ``Abort``,
+        ``Choose``, or ``Weight`` without declaring it; the prelude's
+        interface then joins the module's effects under the prelude's own
+        identity, which is what lets the prelude handlers serve it. A
+        module declaration of the same name takes precedence.
+
+        Parameters
+        ----------
+        name : str
+            The interface's source name.
+
+        Returns
+        -------
+        EffectDef or None
+            The module's or the prelude's interface, or ``None`` when
+            neither declares the name.
+        """
+        definition = self.effects.get(name)
+        if definition is not None:
+            return definition
+        prelude = _PRELUDE_EFFECTS.get(name)
+        if prelude is None:
+            return None
+        self.effects[name] = prelude
+        if prelude.ref.id not in self.registry.effects:
+            self.registry.register_effect(prelude)
+        return prelude
+
+    def _lower_builtin_type(
+        self,
+        authored: surface.QiecTypeApplication,
+        constructor: TypeConstructorRef,
+        scope: Telescope,
+        static_bindings: Mapping[str, StaticArgument] | None,
+    ) -> TypeApplication:
+        """Lower an application of a canonical builtin type constructor.
+
+        Parameters
+        ----------
+        authored : surface.QiecTypeApplication
+            The application, such as ``Sampleable[Real]`` or
+            ``Tensor[Real]([3])``.
+        constructor : TypeConstructorRef
+            The builtin constructor named.
+        scope : Telescope
+            Static binders in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        TypeApplication
+            The application at the constructor's telescope.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument counts do not match the constructor's
+            telescope.
+        """
+        type_binders = tuple(
+            binder for binder in constructor.telescope if isinstance(binder, TypeBinder)
+        )
+        index_binders = tuple(
+            binder
+            for binder in constructor.telescope
+            if isinstance(binder, IndexBinder)
+        )
+        if len(authored.static_arguments) != len(type_binders):
+            self._fail(
+                authored,
+                f"builtin type {constructor.name!r} expects {len(type_binders)} "
+                "static arguments",
+                code="qiec-kind",
+            )
+        if len(authored.indices) != len(index_binders):
+            self._fail(
+                authored,
+                f"builtin type {constructor.name!r} expects {len(index_binders)} "
+                "indices",
+                code="qiec-index",
+            )
+        parameters = tuple(
+            self._lower_static_argument(argument, binder, scope, static_bindings)
+            for argument, binder in zip(
+                authored.static_arguments, type_binders, strict=True
+            )
+        )
+        indices = tuple(
+            self._lower_index(argument, binder.sort, scope, static_bindings)
+            for argument, binder in zip(authored.indices, index_binders, strict=True)
+        )
+        return TypeApplication(constructor, (*parameters, *indices))
 
     def _lower_static_argument(
         self,
@@ -1876,7 +2065,7 @@ class _Elaborator:
                 for item in scope
             ):
                 return EffectVariable(authored.name)
-            definition = self.effects.get(authored.name)
+            definition = self._effect(authored.name)
             if definition is not None and not definition.telescope:
                 return definition.ref
         self._fail(
@@ -2054,7 +2243,7 @@ class _Elaborator:
         QiecDiagnosticError
             If the interface is unknown, or its arguments do not saturate the telescope.
         """
-        definition = self.effects.get(authored.name)
+        definition = self._effect(authored.name)
         if definition is None:
             self._fail(authored, f"unknown effect interface {authored.name!r}")
         if len(authored.arguments) != len(definition.telescope):
@@ -2155,19 +2344,30 @@ class _Elaborator:
         scope: Telescope,
         context: CheckContext,
         static_bindings: Mapping[str, StaticArgument] | None = None,
-    ):
+        path: tuple[str | int, ...] = (),
+        expected: TypeExpr | None = None,
+    ) -> Value:
         """Lower an authored value term.
 
         Parameters
         ----------
-        authored : object
-            The authored value.
+        authored : surface.QiecValue
+            The authored value: a constructor application or a node of
+            the shared pure-expression tree.
         scope : Telescope
             Static binders in scope.
         context : CheckContext
             Value bindings in scope.
         static_bindings : Mapping[str, StaticArgument] or None
             Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the position, entering the provenance of
+            primitive applications.
+        expected : TypeExpr or None
+            The type the position calls for, when the surrounding term
+            fixes one. It types a ``site`` literal, whose element type
+            is not written at the site, and lets an integral literal
+            stand where a ``Real`` is expected.
 
         Returns
         -------
@@ -2177,33 +2377,11 @@ class _Elaborator:
         Raises
         ------
         QiecDiagnosticError
-            If the value names an unbound local, applies a constructor wrongly, or is otherwise malformed.
+            If the value names an unbound local, applies a constructor
+            wrongly, applies an operator or builtin to operands of the
+            wrong types, projects from a non-tuple, or uses an expression
+            form QIEC values do not admit.
         """
-        if isinstance(authored, surface.QiecVariableValue):
-            local = next(
-                (
-                    item
-                    for item in reversed(context.locals)
-                    if item.name == authored.name
-                ),
-                None,
-            )
-            if local is None:
-                self._fail(authored, f"unbound local {authored.name!r}")
-            return Var(local)
-        if isinstance(authored, surface.QiecLiteralValue):
-            value = authored.value
-            if value is None:
-                type_ = UNIT
-            elif isinstance(value, bool):
-                type_ = BOOL
-            elif isinstance(value, int):
-                type_ = INT
-            elif isinstance(value, float):
-                type_ = REAL
-            else:
-                type_ = STRING
-            return LiteralValue(value, type_)
         if isinstance(authored, surface.QiecConstructorValue):
             constructor = self.constructors.get(authored.constructor)
             if constructor is None:
@@ -2231,12 +2409,551 @@ class _Elaborator:
                 constructor.id,
                 static_arguments,
                 tuple(
-                    self._lower_value(value, scope, context, static_bindings)
-                    for value in authored.fields
+                    self._lower_value(
+                        value, scope, context, static_bindings, (*path, position)
+                    )
+                    for position, value in enumerate(authored.fields)
                 ),
                 self._lower_type(authored.result_type, scope, static_bindings),
             )
+        if isinstance(authored, surface.LetExprVar):
+            local = next(
+                (
+                    item
+                    for item in reversed(context.locals)
+                    if item.name == authored.name
+                ),
+                None,
+            )
+            if local is None:
+                self._fail(authored, f"unbound local {authored.name!r}")
+            return Var(local)
+        if isinstance(authored, surface.LetExprLiteral):
+            if authored.integral and expected != REAL:
+                return LiteralValue(int(authored.value), INT)
+            return LiteralValue(authored.value, REAL)
+        if isinstance(authored, surface.LetExprBool):
+            return LiteralValue(authored.value, BOOL)
+        if isinstance(authored, surface.LetExprUnit):
+            return LiteralValue(None, UNIT)
+        if isinstance(authored, surface.LetExprString):
+            return LiteralValue(authored.value, STRING)
+        if isinstance(authored, surface.LetExprUnaryOp):
+            operand = self._lower_value(
+                authored.operand, scope, context, static_bindings, (*path, "operand")
+            )
+            if authored.op == "-" and isinstance(operand, LiteralValue):
+                if operand.type == INT:
+                    return LiteralValue(-cast(int, operand.value), INT)
+                if operand.type == REAL:
+                    return LiteralValue(-cast(float, operand.value), REAL)
+            operand_type = self._value_type(operand, context, authored)
+            if authored.op == "-":
+                name = self._numeric_primitive(
+                    authored, "-", operand_type, {INT: "neg_int", REAL: "neg_real"}
+                )
+            else:
+                if operand_type != BOOL:
+                    self._fail(
+                        authored,
+                        f"operand of `not` has type {self._render(operand_type)}; "
+                        "`not` takes Bool",
+                        code="qiec-primitive",
+                    )
+                name = "not"
+            return self._primitive(name, (operand,), authored, path)
+        if isinstance(authored, surface.LetExprBinOp):
+            left = self._lower_value(
+                authored.left, scope, context, static_bindings, (*path, "left")
+            )
+            right = self._lower_value(
+                authored.right, scope, context, static_bindings, (*path, "right")
+            )
+            left_type = self._value_type(left, context, authored.left)
+            right_type = self._value_type(right, context, authored.right)
+            if left_type != right_type:
+                self._fail(
+                    authored,
+                    f"operands of `{authored.op}` have types "
+                    f"{self._render(left_type)} and {self._render(right_type)}; "
+                    "both sides must agree, so convert one with `real(...)` or "
+                    "`int(...)`",
+                    code="qiec-primitive",
+                )
+            table = _BINARY_PRIMITIVES.get(authored.op)
+            if table is None:
+                self._fail(
+                    authored,
+                    f"unknown operator `{authored.op}`",
+                    code="qiec-primitive",
+                )
+            name = self._numeric_primitive(authored, authored.op, left_type, table)
+            return self._primitive(name, (left, right), authored, path)
+        if isinstance(authored, surface.LetExprTuple):
+            items = tuple(
+                self._lower_value(
+                    item, scope, context, static_bindings, (*path, position)
+                )
+                for position, item in enumerate(authored.items)
+            )
+            types = tuple(
+                self._value_type(item, context, source)
+                for item, source in zip(items, authored.items, strict=True)
+            )
+            return TupleValue(items, product_type(*types))
+        if isinstance(authored, surface.LetExprIndex):
+            source = self._lower_value(
+                authored.array, scope, context, static_bindings, (*path, "array")
+            )
+            source_type = self._value_type(source, context, authored.array)
+            if not (
+                isinstance(source_type, TypeApplication)
+                and source_type.constructor.name.startswith("Product")
+            ):
+                self._fail(
+                    authored,
+                    "indexing in a QIEC value selects a tuple component, but the "
+                    f"value has type {self._render(source_type)}",
+                    code="qiec-primitive",
+                )
+            if len(authored.indices) != 1 or not (
+                isinstance(authored.indices[0], surface.LetExprLiteral)
+                and authored.indices[0].integral
+            ):
+                self._fail(
+                    authored,
+                    "a tuple component is selected by one integer literal, as "
+                    "in `pair[0]`",
+                    code="qiec-primitive",
+                )
+            position = int(authored.indices[0].value)
+            components = source_type.arguments
+            if not 0 <= position < len(components):
+                self._fail(
+                    authored,
+                    f"tuple component {position} is outside a product of "
+                    f"{len(components)} components",
+                    code="qiec-primitive",
+                )
+            return Projection(source, position, cast(TypeExpr, components[position]))
+        if isinstance(authored, surface.LetExprCall):
+            if authored.func in FAMILIES and authored.func not in _BUILTIN_PRIMITIVES:
+                return self._lower_family_application(
+                    authored, scope, context, static_bindings, path
+                )
+            if authored.func == "site":
+                return self._lower_site(authored, expected)
+            if authored.func == "log_prob":
+                return self._lower_log_density(
+                    authored, scope, context, static_bindings, path
+                )
+            arguments = tuple(
+                self._lower_value(
+                    argument, scope, context, static_bindings, (*path, position)
+                )
+                for position, argument in enumerate(authored.args)
+            )
+            types = tuple(
+                self._value_type(argument, context, source)
+                for argument, source in zip(arguments, authored.args, strict=True)
+            )
+            name = self._builtin_primitive(authored, types)
+            return self._primitive(name, arguments, authored, path)
+        if isinstance(
+            authored,
+            surface.LetExprList
+            | surface.LetExprLambda
+            | surface.LetExprFactor
+            | surface.LetExprMethodCall,
+        ):
+            self._fail(
+                authored,
+                f"{_EXPRESSION_FORMS[type(authored).__name__]} is not a QIEC "
+                "value; QIEC values are literals, locals, operators, tuples, "
+                "builtin applications, and constructor applications",
+                code="qiec-primitive",
+            )
         self._fail(authored, "unknown QIEC value")
+
+    def _lower_family_application(
+        self,
+        authored: surface.LetExprCall,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+    ) -> DistributionValue:
+        """Lower ``Family(args...)`` to a distribution construction.
+
+        Positional arguments fill the family's parameters in registry
+        order, so ``Normal(0.0, 1.0)`` supplies ``loc`` and ``scale``.
+
+        Parameters
+        ----------
+        authored : surface.LetExprCall
+            The application.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the application.
+
+        Returns
+        -------
+        DistributionValue
+            The construction, typed by the family's sample type.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If more arguments are given than the family has parameters,
+            or the construction fails to check.
+        """
+        record = FAMILIES[authored.func]
+        if len(authored.args) > len(record.parameters):
+            self._fail(
+                authored,
+                f"family {record.name!r} takes at most {len(record.parameters)} "
+                f"parameters ({', '.join(record.parameter_names)})",
+                code="qiec-distribution",
+            )
+        arguments: list[tuple[str, Value]] = []
+        for position, (parameter, argument) in enumerate(
+            zip(record.parameters, authored.args, strict=False)
+        ):
+            hint = (
+                REAL
+                if parameter.rank == 0
+                and parameter.constraint not in ("boolean", "sampleable", "transform")
+                and "integer" not in parameter.constraint
+                else None
+            )
+            arguments.append(
+                (
+                    parameter.name,
+                    self._lower_value(
+                        argument,
+                        scope,
+                        context,
+                        static_bindings,
+                        (*path, position),
+                        hint,
+                    ),
+                )
+            )
+        if record.event_rank == 0:
+            result_type: TypeExpr = sampleable_type(record.element)
+        else:
+            source_name = record.event_source
+            source = next(
+                (value for name, value in arguments if name == source_name), None
+            )
+            shape = (
+                tensor_shape(self._value_type(source, context, authored))
+                if source is not None
+                else None
+            )
+            if shape is None:
+                self._fail(
+                    authored,
+                    f"family {record.name!r} needs parameter {source_name!r} as a "
+                    "Tensor to fix its event shape",
+                    code="qiec-distribution",
+                )
+            event = shape[1][len(shape[1]) - record.event_rank :]
+            result_type = sampleable_type(tensor_type(record.element, event))
+        value = DistributionValue(
+            record.id,
+            record.name,
+            tuple(arguments),
+            result_type,
+            self._origin(authored, path, "distribution"),
+        )
+        self._value_type(value, context, authored)
+        return value
+
+    def _lower_site(
+        self, authored: surface.LetExprCall, expected: TypeExpr | None
+    ) -> SiteValue:
+        """Lower ``site("label")`` at the type its position calls for.
+
+        Parameters
+        ----------
+        authored : surface.LetExprCall
+            The application.
+        expected : TypeExpr or None
+            The ``Site`` type the surrounding term expects.
+
+        Returns
+        -------
+        SiteValue
+            The site.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument is not one string literal, or the position
+            fixes no ``Site`` type to give the site.
+        """
+        if len(authored.args) != 1 or not isinstance(
+            authored.args[0], surface.LetExprString
+        ):
+            self._fail(
+                authored,
+                'site takes one string literal, as in site("x")',
+                code="qiec-distribution",
+            )
+        if not (
+            isinstance(expected, TypeApplication)
+            and expected.constructor == SITE_CONSTRUCTOR
+        ):
+            self._fail(
+                authored,
+                "site needs a position that fixes its type, such as a request "
+                "argument or a binding annotated `: Site[T]`",
+                code="qiec-distribution",
+            )
+        return SiteValue(authored.args[0].value, expected)
+
+    def _lower_log_density(
+        self,
+        authored: surface.LetExprCall,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+    ) -> LogDensity:
+        """Lower ``log_prob(d, x)`` to a log-density evaluation.
+
+        Parameters
+        ----------
+        authored : surface.LetExprCall
+            The application.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the application.
+
+        Returns
+        -------
+        LogDensity
+            The evaluation, of type ``LogWeight``.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the arity is wrong or the evaluation fails to check.
+        """
+        if len(authored.args) != 2:
+            self._fail(
+                authored,
+                "log_prob takes a distribution and a value",
+                code="qiec-distribution",
+            )
+        sampleable = self._lower_value(
+            authored.args[0], scope, context, static_bindings, (*path, 0)
+        )
+        element = sampled_element(
+            self._value_type(sampleable, context, authored.args[0])
+        )
+        point = self._lower_value(
+            authored.args[1], scope, context, static_bindings, (*path, 1), element
+        )
+        value = LogDensity(
+            sampleable, point, self._origin(authored, path, "log-density")
+        )
+        self._value_type(value, context, authored)
+        return value
+
+    def _value_type(
+        self,
+        value: Value,
+        context: CheckContext,
+        authored: object,
+    ) -> TypeExpr:
+        """Infer a lowered value's type, blaming its source on failure.
+
+        Parameters
+        ----------
+        value : Value
+            The lowered value.
+        context : CheckContext
+            Value bindings in scope.
+        authored : object
+            The source node to blame.
+
+        Returns
+        -------
+        TypeExpr
+            The kernel's inferred type.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the kernel rejects the value.
+        """
+        try:
+            return infer_value(value, self.registry, context)
+        except (KernelError, TypeError, ValueError) as error:
+            self._fail_kernel(authored, error, fallback="qiec-primitive")
+
+    def _numeric_primitive(
+        self,
+        authored: object,
+        operator: str,
+        type_: TypeExpr,
+        table: Mapping[TypeExpr, str],
+    ) -> str:
+        """Choose the primitive an operator denotes at an operand type.
+
+        Parameters
+        ----------
+        authored : object
+            The source node to blame.
+        operator : str
+            The operator, for the diagnostic.
+        type_ : TypeExpr
+            The operand type both sides share.
+        table : Mapping[TypeExpr, str]
+            Operand type to primitive name.
+
+        Returns
+        -------
+        str
+            The primitive's nominal name.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the operator is not defined at the type.
+        """
+        name = table.get(type_)
+        if name is None:
+            admitted = ", ".join(self._render(item) for item in table)
+            self._fail(
+                authored,
+                f"`{operator}` is not defined at {self._render(type_)}; it takes "
+                f"{admitted}",
+                code="qiec-primitive",
+            )
+        return name
+
+    def _builtin_primitive(
+        self,
+        authored: surface.LetExprCall,
+        types: tuple[TypeExpr, ...],
+    ) -> str:
+        """Resolve a builtin application to a primitive by its argument types.
+
+        Parameters
+        ----------
+        authored : surface.LetExprCall
+            The application, read for its name and blamed on failure.
+        types : tuple[TypeExpr, ...]
+            The argument types, in order.
+
+        Returns
+        -------
+        str
+            The primitive's nominal name.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the name is a computation rather than a builtin, is no
+            builtin at all, or is applied to the wrong number or types of
+            arguments.
+        """
+        overloads = _BUILTIN_PRIMITIVES.get(authored.func)
+        if overloads is None:
+            if authored.func in self.computation_signatures:
+                self._fail(
+                    authored,
+                    f"{authored.func!r} is a computation, not a builtin; call it "
+                    f"with `let x <- {authored.func}(...)`",
+                    code="qiec-primitive",
+                )
+            self._fail(
+                authored,
+                f"unknown builtin {authored.func!r}",
+                code="qiec-primitive",
+            )
+        name = overloads.get(types)
+        if name is None:
+            rendered = ", ".join(self._render(item) for item in types)
+            self._fail(
+                authored,
+                f"builtin {authored.func!r} is not defined at ({rendered})",
+                code="qiec-primitive",
+            )
+        return name
+
+    def _primitive(
+        self,
+        name: str,
+        arguments: tuple[Value, ...],
+        authored: object,
+        path: tuple[str | int, ...],
+    ) -> PrimitiveApplication:
+        """Build a primitive application from the registry's signature.
+
+        Parameters
+        ----------
+        name : str
+            The primitive's nominal name.
+        arguments : tuple[Value, ...]
+            The lowered arguments.
+        authored : object
+            The source node, for provenance.
+        path : tuple[str | int, ...]
+            Structural path of the application.
+
+        Returns
+        -------
+        PrimitiveApplication
+            The application at the registry's result type.
+        """
+        signature = primitive(name)
+        return PrimitiveApplication(
+            signature.id,
+            name,
+            arguments,
+            signature.result,
+            self._origin(authored, path, "primitive"),
+        )
+
+    @staticmethod
+    def _render(type_: TypeExpr) -> str:
+        """Render a type for a diagnostic.
+
+        Parameters
+        ----------
+        type_ : TypeExpr
+            The type.
+
+        Returns
+        -------
+        str
+            The constructor name for an application, else the repr.
+        """
+        if isinstance(type_, TypeApplication):
+            if not type_.arguments:
+                return type_.constructor.name
+            inner = ", ".join(
+                QvrQiecLowerer._render(cast(TypeExpr, item))
+                if isinstance(item, TypeApplication)
+                else repr(item)
+                for item in type_.arguments
+            )
+            return f"{type_.constructor.name}[{inner}]"
+        return repr(type_)
 
     def _lower_computation(
         self,
@@ -2273,7 +2990,14 @@ class _Elaborator:
         """
         if isinstance(authored, surface.QiecReturnComputation):
             return Return(
-                self._lower_value(authored.value, scope, context, static_bindings)
+                self._lower_value(
+                    authored.value,
+                    scope,
+                    context,
+                    static_bindings,
+                    (*path, "value"),
+                    self._expected_result,
+                )
             )
         if isinstance(authored, surface.QiecBindComputation):
             first = self._lower_computation(
@@ -2371,7 +3095,16 @@ class _Elaborator:
             outer = instantiate_telescope(
                 definition.telescope, instance.entry.effect.arguments
             )
-            _, result_type = instantiate_operation(operation, static_arguments, outer)
+            parameter_types, result_type = instantiate_operation(
+                operation, static_arguments, outer
+            )
+            if len(request.arguments) != len(parameter_types):
+                self._fail(
+                    request,
+                    f"operation {operation.name!r} takes {len(parameter_types)} "
+                    f"argument(s), got {len(request.arguments)}",
+                    code="qiec-kind",
+                )
             return Perform(
                 EffectRequest(
                     instance.entry.instance,
@@ -2379,8 +3112,17 @@ class _Elaborator:
                     operation.id,
                     static_arguments,
                     tuple(
-                        self._lower_value(value, scope, context, static_bindings)
-                        for value in request.arguments
+                        self._lower_value(
+                            value,
+                            scope,
+                            context,
+                            static_bindings,
+                            (*path, position),
+                            parameter_type,
+                        )
+                        for position, (value, parameter_type) in enumerate(
+                            zip(request.arguments, parameter_types, strict=True)
+                        )
                     ),
                     result_type,
                     SiteProvenance(self._origin(request, path, "effect-request")),
@@ -2414,26 +3156,85 @@ class _Elaborator:
                     authored.handler.static_arguments, handler.telescope, strict=True
                 )
             )
+            outer_expectation = self._expected_result
+            self._expected_result = substitute_type(
+                handler.input_type,
+                instantiate_telescope(handler.telescope, static_arguments),
+            )
+            handled = self._lower_computation(
+                authored.body,
+                scope,
+                context,
+                (*path, "handled"),
+                static_bindings,
+            )
+            self._expected_result = outer_expectation
             return Handle(
                 instance.entry.instance,
                 handler.id,
-                self._lower_computation(
-                    authored.body,
-                    scope,
-                    context,
-                    (*path, "handled"),
-                    static_bindings,
-                ),
+                handled,
                 static_arguments,
             )
         if isinstance(authored, surface.QiecCaseComputation):
             return self._lower_case(authored, scope, context, path, static_bindings)
+        if isinstance(authored, surface.QiecIfComputation):
+            condition = self._lower_value(
+                authored.condition,
+                scope,
+                context,
+                static_bindings,
+                (*path, "condition"),
+            )
+            condition_type = self._value_type(condition, context, authored.condition)
+            if condition_type != BOOL:
+                self._fail(
+                    authored.condition,
+                    f"if condition has type {self._render(condition_type)}; it "
+                    "must be Bool",
+                    code="qiec-primitive",
+                )
+            then = self._lower_computation(
+                authored.then, scope, context, (*path, "then"), static_bindings
+            )
+            otherwise = self._lower_computation(
+                authored.otherwise,
+                scope,
+                context,
+                (*path, "otherwise"),
+                static_bindings,
+            )
+            try:
+                then_type = infer_computation(then, self.registry, context)
+                otherwise_type = infer_computation(otherwise, self.registry, context)
+            except (KernelError, TypeError, ValueError) as error:
+                self._fail_kernel(authored, error)
+            if then_type.result != otherwise_type.result:
+                self._fail(
+                    authored,
+                    "if branches return "
+                    f"{self._render(then_type.result)} and "
+                    f"{self._render(otherwise_type.result)}; both must agree",
+                    code="qiec-primitive",
+                )
+            return If(condition, then, otherwise)
         if isinstance(authored, surface.QiecPureBinding):
             # A pure binding is a bind of a returned value. The core has
             # one sequencing form, and keeping it that way means every
             # later pass sees one shape rather than two that behave the
             # same.
-            value = self._lower_value(authored.value, scope, context, static_bindings)
+            annotated = (
+                None
+                if authored.binder.type_expr is None
+                else self._lower_type(authored.binder.type_expr, scope, static_bindings)
+            )
+            value = self._lower_value(
+                authored.value,
+                scope,
+                context,
+                static_bindings,
+                (*path, "value"),
+                annotated,
+            )
             try:
                 inferred = infer_value(value, self.registry, context)
             except (KernelError, TypeError, ValueError) as error:
@@ -2461,7 +3262,11 @@ class _Elaborator:
                     LiteralValue(None, UNIT)
                     if authored.value is None
                     else self._lower_value(
-                        authored.value, scope, context, static_bindings
+                        authored.value,
+                        scope,
+                        context,
+                        static_bindings,
+                        (*path, "value"),
                     )
                 ),
                 self._origin(authored, path, "resume"),
@@ -2623,8 +3428,10 @@ class _Elaborator:
             authored.callee,
             static_arguments,
             tuple(
-                self._lower_value(value, scope, context, static_bindings)
-                for value in authored.arguments
+                self._lower_value(
+                    value, scope, context, static_bindings, (*path, position)
+                )
+                for position, value in enumerate(authored.arguments)
             ),
             substitute_type(signature.result, substitution),
             substitute_row(signature.effects, substitution),
@@ -2669,7 +3476,7 @@ class _Elaborator:
             If the scrutinee is not an indexed family, a branch names an unknown constructor, coverage is incomplete, or a branch body fails to check.
         """
         scrutinee = self._lower_value(
-            authored.scrutinee, scope, context, static_bindings
+            authored.scrutinee, scope, context, static_bindings, (*path, "scrutinee")
         )
         try:
             scrutinee_type = infer_value(scrutinee, self.registry, context)
