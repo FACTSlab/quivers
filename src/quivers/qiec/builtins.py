@@ -844,7 +844,7 @@ def score_handler(
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
-            """Copy this installation's total and contributions to the shared accumulator."""
+            """Copy this installation's total and contributions to the accumulator."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
@@ -2172,7 +2172,7 @@ def weight_handler(
             return (value, local.total) if expose_total else value
 
         def publish() -> None:
-            """Copy this installation's total and contributions to the shared accumulator."""
+            """Copy this installation's total and contributions to the accumulator."""
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
