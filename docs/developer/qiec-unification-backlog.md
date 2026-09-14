@@ -894,6 +894,15 @@ criteria pass.
 **JavaScript targets — WebPPL:**
 
 - Preserve continuation behavior in WebPPL's execution model.
+- Rewrite `runtime_qiec.js` in WebPPL's functional subset. The present
+  runtime runs under Node but not under the `webppl` compiler, which rejects
+  assignment, loops, `try`, `throw`, and native callbacks: the trampoline must
+  become recursion under WebPPL's own CPS, call and instance serials must be
+  threaded through the driver rather than counted globally, and the handler
+  attachment protocol (contexts, forks, lifecycles) must pass and return
+  state explicitly instead of mutating controller cells. Until then the
+  WebPPL target's QIEC entry points and its distribution bridge
+  (`runtime_qiec_webppl.js`) are exercised under Node only.
 - Test recursion and multi-shot handlers for stack/address correctness.
 - Integrate generated calls into the exported model rather than detached
   helper entry points.
