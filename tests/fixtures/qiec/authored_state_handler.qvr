@@ -5,8 +5,8 @@ effect State[S : Type]
 handler run_state for State[Int] : Int -> Int [coverage=total, forwards=none, implementation=authored]
     return x =>
         return x
-    get(u : Unit) resumes 1 =>
-        resume(u)
+    get resumes 1 =>
+        resume(0)
     put(s : Int) resumes 1 =>
         resume(unit)
 
