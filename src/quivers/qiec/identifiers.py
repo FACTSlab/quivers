@@ -221,6 +221,10 @@ class EffectInstanceId(StableId):
     namespace = "effect-instance"
 
 
+class ComputationId(StableId):
+    namespace = "computation"
+
+
 class HandlerId(StableId):
     namespace = "handler"
 
@@ -388,6 +392,7 @@ __all__ = [
     "AddressRelation",
     "AttachmentId",
     "ConstructorId",
+    "ComputationId",
     "DynamicAddressFrame",
     "EffectId",
     "EffectInstanceId",

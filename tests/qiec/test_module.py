@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from quivers.qiec import (
+    ComputationId,
     EMPTY_ROW,
     INT,
     QIEC_ABI,
@@ -74,6 +75,7 @@ def _request_provenance(
 
 def test_module_is_serializable_and_recheckable() -> None:
     computation = NamedComputation(
+        ComputationId.derive("tests", "answer"),
         "answer",
         (),
         (),
@@ -96,6 +98,7 @@ def test_module_rejects_abi_guessing() -> None:
 
 def test_module_rejects_origin_from_another_route() -> None:
     computation = NamedComputation(
+        ComputationId.derive("tests", "answer"),
         "answer",
         (),
         (),
@@ -116,6 +119,7 @@ def test_module_rejects_origin_from_another_route() -> None:
 def test_module_checks_computation_static_scope() -> None:
     a = TypeVariable("a")
     computation = NamedComputation(
+        ComputationId.derive("tests", "identity"),
         "identity",
         (TypeBinder("a"),),
         (),
@@ -133,6 +137,7 @@ def test_module_checks_computation_static_scope() -> None:
 def test_module_rejects_undeclared_static_variable() -> None:
     a = TypeVariable("a")
     computation = NamedComputation(
+        ComputationId.derive("tests", "bad"),
         "bad",
         (),
         (),
@@ -174,6 +179,7 @@ def test_module_rejects_request_for_undeclared_lexical_instance() -> None:
         _request_provenance("read"),
     )
     computation = NamedComputation(
+        ComputationId.derive("tests", "read"),
         "read",
         (),
         (),
@@ -223,6 +229,7 @@ def test_module_rejects_open_tail_that_does_not_prove_declared_lacks() -> None:
         _request_provenance("open"),
     )
     computation = NamedComputation(
+        ComputationId.derive("tests", "open"),
         "open",
         (),
         (),
@@ -249,6 +256,7 @@ def test_module_validates_unused_entries_in_declared_effect_row() -> None:
     external = EffectRef(EffectId.derive("external", "Other"), "Other")
     bad_entry = RowEntry(instance.entry.instance, external)
     computation = NamedComputation(
+        ComputationId.derive("tests", "pure"),
         "pure",
         (),
         (),
@@ -328,6 +336,7 @@ def test_module_rejects_request_provenance_from_another_route(
         request_origin,
     )
     computation = NamedComputation(
+        ComputationId.derive("tests", "read"),
         "read",
         (),
         (),

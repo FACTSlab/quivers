@@ -444,6 +444,7 @@ class IRQiecNamedEffectInstance(dx.Model):
 
 
 class IRQiecNamedComputation(dx.Model):
+    id: IRQiecId
     name: str
     telescope: tuple[IRQiecBinder, ...]
     parameters: tuple[IRQiecLocal, ...]
