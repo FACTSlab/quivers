@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import shutil
 import subprocess
@@ -256,6 +257,32 @@ def _render_ir(ir, target: str) -> bytes:
     return bytes(parser_registry().emit_pretty(grammar, renderer().render(ir)))
 
 
+def _derived_id(base: IRQiecId, suffix: str) -> IRQiecId:
+    """A distinct identifier for a computation derived from another.
+
+    These tests build extra computations out of one the pipeline
+    produced. Each is a separate declaration, so each needs its own
+    identity: two declarations sharing one would make the module's
+    signature table lossy and a call to either ambiguous.
+
+    Parameters
+    ----------
+    base : IRQiecId
+        The identifier to derive from.
+    suffix : str
+        What distinguishes the new declaration from the base.
+
+    Returns
+    -------
+    IRQiecId
+        An identifier in the same namespace with a digest derived from
+        the base digest and the suffix, so it is stable across runs and
+        distinct from every other derivation.
+    """
+    digest = hashlib.sha256(f"{base.digest}:{suffix}".encode()).hexdigest()
+    return IRQiecId(namespace=base.namespace, digest=digest)
+
+
 @pytest.mark.parametrize("target", available_targets())
 def test_pure_named_computation_emits_and_reparses(target: str) -> None:
     output = transpile(parse(PURE), target=target)
@@ -326,6 +353,7 @@ def test_static_targets_lower_pure_bind_ir(target: str) -> None:
         then=IRQiecReturn(value=IRQiecVar(local=binder)),
     )
     bound_computation = type(computation)(
+        id=computation.id,
         name=computation.name,
         telescope=computation.telescope,
         parameters=computation.parameters,
@@ -781,6 +809,7 @@ def _attachment_program_ir():
         )
     )
     bound_computation = type(computation)(
+        id=computation.id,
         name=computation.name,
         telescope=computation.telescope,
         parameters=computation.parameters,
@@ -824,6 +853,7 @@ def _evidence_transport_program_ir():
     )
     evidence = IRQiecReflexivity(equality=equality)
     evidence_computation = type(computation)(
+        id=_derived_id(computation.id, "evidence"),
         name="evidence",
         telescope=computation.telescope,
         parameters=computation.parameters,
@@ -835,6 +865,7 @@ def _evidence_transport_program_ir():
         origin=computation.origin,
     )
     transport_computation = type(computation)(
+        id=_derived_id(computation.id, "transport"),
         name="transport",
         telescope=computation.telescope,
         parameters=computation.parameters,
