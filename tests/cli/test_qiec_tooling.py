@@ -389,3 +389,32 @@ def test_effectful_execution_crosses_cli_repl_and_tui_boundaries(
     from quivers.cli.repl_tui import _runtime_status
 
     assert _runtime_status(session) == "runtime:core last:effectful=9:Int"
+
+
+def test_qvr_run_and_repl_honor_a_fuel_budget(tmp_path: Path, capsys) -> None:
+    """A diverging computation stops at its budget on both surfaces."""
+    path = tmp_path / "spin.qvr"
+    path.write_text("define spin(seed : Int) : Int !{} =\n    spin(seed)\n")
+    args = Namespace(
+        file=str(path),
+        computation="spin",
+        arguments=["1"],
+        static=[],
+        runtime=None,
+        trace=False,
+        json=True,
+        fuel=200,
+    )
+    assert run_main(args) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["diagnostics"][0]["code"] == "qiec-run-fuel"
+
+    session = ReplSession()
+    assert session.load_file(path).ok
+    response = session.dispatch(":run spin 1 --fuel 200")
+    assert not response.ok
+    assert response.diagnostics[0].code == "qiec-run-fuel"
+    rejected = session.dispatch(":run spin 1 --fuel 0")
+    assert not rejected.ok
+    assert rejected.diagnostics[0].code == "qiec-run-config"

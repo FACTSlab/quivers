@@ -108,7 +108,9 @@ arguments, and evaluates it with a fresh attachment table. `--static
 NAME=TERM` supplies a closed type, index, or effect application for each static
 binder. `--runtime FILE.json` selects the built-in `core` runtime or installed
 `quivers.qiec_runtime` providers without placing executable objects in the
-configuration file. `--trace` writes stable events in plain mode, while
+configuration file. `--fuel STEPS` bounds the number of evaluation steps, since
+a recursive computation may otherwise never return; exhaustion is the
+`qiec-run-fuel` diagnostic. `--trace` writes stable events in plain mode, while
 `--json` includes the result, specialized result type, runtime label, and trace
 in one document.
 

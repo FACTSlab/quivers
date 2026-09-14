@@ -205,7 +205,7 @@ column.
 | `:kind T` | `:k` | Resolve a type-level name or expression (`object X : FinSet 3`, `FinSet 3 :: FinSet 3`) |
 | `:transpile TARGET` |  | Emit the loaded module for `stan`, `numpyro`, `pyro`, `pymc`, `edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, or `jags` |
 | `:runtime [PROVIDER\|FILE.json]` |  | Show the current runtime, attach a registered provider, or load an explicit provider configuration |
-| `:run NAME [JSON ...] [--static NAME=TERM]` |  | Execute one named QIEC computation with checked value and static arguments |
+| `:run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]` |  | Execute one named QIEC computation with checked value and static arguments |
 | `:detach` |  | Detach every QIEC runtime provider from the session |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` |  | Render only the doc comment(s) for NAME |
@@ -357,13 +357,18 @@ Provider names are resolved only when explicitly selected. The source handler
 declaration continues to determine its types, coverage, forwarding policy, and
 resumption grades; the runtime configuration supplies process-local behavior.
 
-#### `:run NAME [JSON ...] [--static NAME=TERM]`
+#### `:run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]`
 
 Execute a named computation from the checked QIEC module. Positional values
 must be JSON literals and appear in declaration order. A polymorphic
 computation requires one `--static NAME=TERM` assignment for every static
-binder; static terms must be closed types, indices, or effect applications
-declared in the module.
+binder; static terms are written as in source: closed types such as `Int` or
+`Vec[Int](S(Z))`, index terms such as `3`, `S(Z)`, or the shape `[2, 3]`, and
+effect applications such as `State[Int]`, all declared in the module.
+
+Named computations may recurse without bound, so `--fuel STEPS` caps the
+number of evaluation steps. A run that exhausts its budget fails with the
+`qiec-run-fuel` diagnostic rather than running forever.
 
 ```
 > :run identity 7 --static A=Int
