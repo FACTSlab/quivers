@@ -41,12 +41,16 @@ from quivers.qiec.types import (
 
 
 class CoverageStatus(str, Enum):
+    """Whether a set of branch patterns covers a family."""
+
     COMPLETE = "complete"
     INCOMPLETE = "incomplete"
     UNKNOWN = "unknown"
 
 
 class Reachability(str, Enum):
+    """Whether a branch can be entered, as far as its equalities decide."""
+
     REACHABLE = "reachable"
     IMPOSSIBLE = "impossible"
     UNKNOWN = "unknown"
@@ -54,12 +58,35 @@ class Reachability(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class BranchPattern:
+    """The shape of one case branch, as coverage sees it.
+
+    Parameters
+    ----------
+    constructor
+        The constructor the branch matches, or ``None`` for a wildcard.
+    guarded
+        Whether the branch carries a guard that may reject a matching value,
+        which keeps it from counting toward completeness.
+    """
+
     constructor: ConstructorId | None
     guarded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class CoverageResult:
+    """The outcome of checking branch patterns against a family.
+
+    Parameters
+    ----------
+    status
+        Whether the patterns cover the family.
+    missing
+        Constructors no pattern matches.
+    duplicates
+        Constructors more than one pattern matches.
+    """
+
     status: CoverageStatus
     missing: tuple[ConstructorId, ...] = ()
     duplicates: tuple[ConstructorId, ...] = ()
@@ -67,7 +94,18 @@ class CoverageResult:
 
 @dataclass(frozen=True, slots=True)
 class BranchRefinement:
-    """Rigid skolems and local equalities available inside one branch."""
+    """Rigid skolems and local equalities available inside one branch.
+
+    Parameters
+    ----------
+    skolems
+        The names of the branch's rigid static variables.
+    givens
+        The equalities the branch's constructor makes available.
+    reachability
+        Whether the givens are jointly satisfiable, as far as the unifier
+        decides.
+    """
 
     skolems: tuple[str, ...]
     givens: tuple[BranchGiven, ...]

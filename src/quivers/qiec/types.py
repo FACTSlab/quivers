@@ -17,6 +17,21 @@ from quivers.qiec.kinds import IndexSort, Kind, Telescope, TYPE, TypeBinder
 
 @dataclass(frozen=True, slots=True, eq=False)
 class IndexVariable:
+    """A variable standing for an index term.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    sort
+        The closed index sort of the terms it stands for.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    tag
+        The serialization discriminator; always ``"index_variable"``.
+    """
+
     name: str
     sort: IndexSort
     identity: StaticVariableId | None = None
@@ -64,6 +79,19 @@ class IndexVariable:
 
 @dataclass(frozen=True, slots=True)
 class IndexLiteral:
+    """A closed index literal.
+
+    Parameters
+    ----------
+    value
+        A natural number for the nat sort, or a nullary constructor name for
+        a user-defined index sort.
+    sort
+        The sort the literal inhabits.
+    tag
+        The serialization discriminator; always ``"index_literal"``.
+    """
+
     value: int | str
     sort: IndexSort
     tag: Literal["index_literal"] = "index_literal"
@@ -102,6 +130,20 @@ class IndexLiteral:
 
 @dataclass(frozen=True, slots=True)
 class IndexConstructor:
+    """A fully applied constructor of a user-defined index sort.
+
+    Parameters
+    ----------
+    name
+        The constructor's name, which must belong to ``sort``.
+    arguments
+        The constructor's index arguments, in order.
+    sort
+        The sort the constructor builds.
+    tag
+        The serialization discriminator; always ``"index_constructor"``.
+    """
+
     name: str
     arguments: tuple[IndexTerm, ...]
     sort: IndexSort
@@ -138,6 +180,16 @@ class IndexConstructor:
 
 @dataclass(frozen=True, slots=True)
 class ShapeIndex:
+    """A shape given by its dimensions.
+
+    Parameters
+    ----------
+    dimensions
+        One index term per dimension, outermost first.
+    tag
+        The serialization discriminator; always ``"shape_index"``.
+    """
+
     dimensions: tuple[IndexTerm, ...]
     tag: Literal["shape_index"] = "shape_index"
 
@@ -147,6 +199,21 @@ type IndexTerm = IndexVariable | IndexLiteral | IndexConstructor | ShapeIndex
 
 @dataclass(frozen=True, slots=True, eq=False)
 class TypeVariable:
+    """A variable standing for a type or effect-kinded static argument.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    kind
+        The kind of the arguments it stands for.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    tag
+        The serialization discriminator; always ``"type_variable"``.
+    """
+
     name: str
     kind: Kind = TYPE
     identity: StaticVariableId | None = None
@@ -194,7 +261,17 @@ class TypeVariable:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class TypeConstructorRef:
-    """A fully qualified type constructor and its kinding telescope."""
+    """A fully qualified type constructor and its kinding telescope.
+
+    Parameters
+    ----------
+    id
+        The constructor's stable identity, which alone determines equality.
+    name
+        The constructor's display name.
+    telescope
+        The binders the constructor's arguments instantiate, in order.
+    """
 
     id: TypeId
     name: str
@@ -248,6 +325,19 @@ class TypeConstructorRef:
 
 @dataclass(frozen=True, slots=True)
 class TypeApplication:
+    """A type constructor applied to static arguments.
+
+    Parameters
+    ----------
+    constructor
+        The constructor applied.
+    arguments
+        The arguments instantiating the constructor's telescope, in order;
+        empty for a nullary constructor.
+    tag
+        The serialization discriminator; always ``"type_application"``.
+    """
+
     constructor: TypeConstructorRef
     arguments: tuple[StaticArgument, ...] = ()
     tag: Literal["type_application"] = "type_application"
@@ -260,6 +350,15 @@ class FunctionType:
     Effectful codomains are represented explicitly by
     :class:`quivers.qiec.effects.ComputationType`, keeping the value and
     computation strata separate.
+
+    Parameters
+    ----------
+    parameter
+        The argument type.
+    result
+        The result type.
+    tag
+        The serialization discriminator; always ``"function_type"``.
     """
 
     parameter: TypeExpr
@@ -269,6 +368,20 @@ class FunctionType:
 
 @dataclass(frozen=True, slots=True)
 class EqualityType:
+    """The proposition that two static arguments are equal.
+
+    Parameters
+    ----------
+    kind
+        The kind or index sort both sides inhabit.
+    left
+        The left side of the equation.
+    right
+        The right side of the equation.
+    tag
+        The serialization discriminator; always ``"equality_type"``.
+    """
+
     kind: Kind | IndexSort
     left: StaticArgument
     right: StaticArgument
@@ -280,6 +393,19 @@ type TypeExpr = TypeVariable | TypeApplication | FunctionType | EqualityType
 
 @dataclass(frozen=True, slots=True, eq=False)
 class EffectVariable:
+    """A variable standing for an effect interface application.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    tag
+        The serialization discriminator; always ``"effect_variable"``.
+    """
+
     name: str
     identity: StaticVariableId | None = None
     tag: Literal["effect_variable"] = "effect_variable"
@@ -319,7 +445,19 @@ class EffectVariable:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class EffectRef:
-    """One closed effect interface application."""
+    """One closed effect interface application.
+
+    Parameters
+    ----------
+    id
+        The stable identity of the interface declaration.
+    name
+        The interface's display name.
+    arguments
+        The arguments instantiating the interface's telescope, in order.
+    tag
+        The serialization discriminator; always ``"effect_ref"``.
+    """
 
     id: EffectId
     name: str

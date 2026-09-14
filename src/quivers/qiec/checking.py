@@ -53,6 +53,7 @@ from quivers.qiec.kinds import (
     EffectBinder,
     IndexBinder,
     IndexSort,
+    Kind,
     NatSort,
     ShapeSort,
     Telescope,
@@ -128,9 +129,19 @@ class KernelError(TypeError):
 
 @dataclass(frozen=True, slots=True)
 class _StaticScope:
-    """The three disjoint namespaces visible in a declaration body."""
+    """The three disjoint namespaces visible in a declaration body.
 
-    types: tuple[tuple[str, object], ...] = ()
+    Parameters
+    ----------
+    types
+        Type binders in scope, each with its kind.
+    indices
+        Index binders in scope, each with its sort.
+    effects
+        Effect binder names in scope.
+    """
+
+    types: tuple[tuple[str, Kind], ...] = ()
     indices: tuple[tuple[str, IndexSort], ...] = ()
     effects: tuple[str, ...] = ()
 
@@ -153,12 +164,12 @@ class _StaticScope:
             )
         )
 
-    def extend(self, telescope: tuple[object, ...], *, subject: str) -> _StaticScope:
+    def extend(self, telescope: Telescope, *, subject: str) -> _StaticScope:
         """Return this scope widened by a telescope's binders.
 
         Parameters
         ----------
-        telescope : tuple[object, ...]
+        telescope : Telescope
             Binders to add. Each must be a type, index, or effect binder.
         subject : str
             What is being extended, named in any diagnostic so the error
@@ -197,7 +208,7 @@ class _StaticScope:
                 raise KernelError(f"unknown binder in {subject}: {binder!r}")
         return _StaticScope(tuple(types), tuple(indices), tuple(effects))
 
-    def type_kind(self, name: str) -> object | None:
+    def type_kind(self, name: str) -> Kind | None:
         """The kind of a type binder in scope.
 
         Parameters
@@ -207,7 +218,7 @@ class _StaticScope:
 
         Returns
         -------
-        object or None
+        Kind or None
             The binder's kind, or None when `name` is not a type binder
             here. None does not mean unbound: the name may be an index or
             effect binder instead.
@@ -269,7 +280,29 @@ class ComputationSignature:
 
 @dataclass(slots=True)
 class KernelRegistry:
-    """Resolved declarations used by the reference checker."""
+    """Resolved declarations used by the reference checker.
+
+    Every table is keyed by stable identity, so a lookup never depends on a
+    display name.
+
+    Parameters
+    ----------
+    families
+        Indexed data families by identity.
+    constructors
+        Family constructors by identity.
+    effects
+        Effect interfaces by identity.
+    operations
+        Each operation by identity, paired with the interface declaring it.
+    handlers
+        Handler declarations by identity.
+    type_constructors
+        Type constructors by identity, recording the telescope each is
+        known with.
+    computations
+        Named computation signatures by identity.
+    """
 
     families: dict[FamilyId, FamilyDecl] = field(default_factory=dict)
     constructors: dict[ConstructorId, ConstructorDecl] = field(default_factory=dict)

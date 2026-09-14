@@ -171,6 +171,16 @@ class EffectRow:
     Entries are sorted by stable identifier at construction time, so row
     equality is insensitive to source order.  Two instances of the same
     interface remain distinct entries.
+
+    Parameters
+    ----------
+    entries
+        The instances the row names, each with its interface; any order is
+        accepted and normalized.
+    tail
+        A row variable standing for further entries, or ``None`` for a
+        closed row. An open row's tail must prove it lacks every explicit
+        entry.
     """
 
     entries: tuple[RowEntry, ...] = ()
@@ -589,12 +599,32 @@ def unify_effect_rows(left: EffectRow, right: EffectRow) -> RowUnification:
 
 @dataclass(frozen=True, slots=True)
 class ComputationType:
+    """The type of a computation: its effect row and result type.
+
+    Parameters
+    ----------
+    effects
+        The row of effect instances the computation may perform.
+    result
+        The type of the value it returns.
+    """
+
     effects: EffectRow
     result: TypeExpr
 
 
 @dataclass(frozen=True, slots=True)
 class ArgumentDef:
+    """One named, typed value argument of an operation.
+
+    Parameters
+    ----------
+    name
+        The argument's display name.
+    type
+        The argument's type, which may mention the operation's telescope.
+    """
+
     name: str
     type: TypeExpr
 
@@ -834,8 +864,39 @@ class HandlerReturnClauseDef:
 class HandlerDef:
     """Serializable type-and-coverage signature for a handler.
 
-    Executable clause bodies are runtime attachments keyed by ``id``.  They
-    never enter the stable core representation.
+    An authored handler carries its clause bodies in the stable core; a
+    foreign handler's bodies are runtime attachments keyed by ``id``.
+
+    Parameters
+    ----------
+    id
+        The handler's stable identity.
+    name
+        The handler's display name.
+    effect
+        The interface application the handler handles.
+    clauses
+        One clause per operation the handler covers.
+    input_type
+        The result type of the computation the handler accepts.
+    output_type
+        The type of the handler's answer.
+    introduced
+        The effects the handler's own clauses perform, which the residual
+        row of a handled computation gains.
+    total
+        Whether the clauses cover every operation of ``effect``.
+    forwards_unknown
+        Whether an operation no clause covers is forwarded outward rather
+        than rejected; incompatible with ``total``.
+    telescope
+        The static parameters the handler abstracts over, in order.
+    return_clause
+        How the handler answers the computation's return, or ``None`` to
+        return the value unchanged.
+    implementation
+        ``"authored"`` when every clause carries a body, ``"foreign"`` when
+        none does and a runtime provider supplies the behavior.
     """
 
     id: HandlerId
@@ -918,7 +979,27 @@ class HandlerDef:
 
 @dataclass(frozen=True, slots=True)
 class EffectRequest:
-    """A typed request allocated before filtering or handler dispatch."""
+    """A typed request allocated before filtering or handler dispatch.
+
+    Parameters
+    ----------
+    instance
+        The effect instance the request is addressed to.
+    effect
+        The instance's interface application.
+    operation
+        The operation requested.
+    static_arguments
+        The operation's telescope instantiation, in binder order.
+    arguments
+        The value arguments, one per operation argument.
+    result_type
+        The type of the value the operation returns under the instantiation.
+    origin
+        Where the request was written and how it was reached.
+    tag
+        The serialization discriminator; always ``"effect_request"``.
+    """
 
     instance: EffectInstanceId
     effect: EffectRef

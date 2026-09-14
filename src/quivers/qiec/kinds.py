@@ -8,21 +8,57 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class TypeKind:
+    """The kind of types.
+
+    Parameters
+    ----------
+    tag
+        The serialization discriminator; always ``"type"``.
+    """
+
     tag: Literal["type"] = "type"
 
 
 @dataclass(frozen=True, slots=True)
 class EffectKind:
+    """The kind of effect interfaces.
+
+    Parameters
+    ----------
+    tag
+        The serialization discriminator; always ``"effect"``.
+    """
+
     tag: Literal["effect"] = "effect"
 
 
 @dataclass(frozen=True, slots=True)
 class RowKind:
+    """The kind of effect rows.
+
+    Parameters
+    ----------
+    tag
+        The serialization discriminator; always ``"row"``.
+    """
+
     tag: Literal["row"] = "row"
 
 
 @dataclass(frozen=True, slots=True)
 class ArrowKind:
+    """The kind of a constructor from one kind to another.
+
+    Parameters
+    ----------
+    domain
+        The kind of the argument.
+    codomain
+        The kind of the result.
+    tag
+        The serialization discriminator; always ``"arrow"``.
+    """
+
     domain: Kind
     codomain: Kind
     tag: Literal["arrow"] = "arrow"
@@ -37,6 +73,14 @@ ROW = RowKind()
 
 @dataclass(frozen=True, slots=True)
 class NatSort:
+    """The sort of natural-number indices.
+
+    Parameters
+    ----------
+    tag
+        The serialization discriminator; always ``"nat"``.
+    """
+
     tag: Literal["nat"] = "nat"
 
 
@@ -71,7 +115,15 @@ class ShapeSort:
 
 @dataclass(frozen=True, slots=True)
 class ContextSort:
-    """A logic-program context indexed by a stable signature name."""
+    """A logic-program context indexed by a stable signature name.
+
+    Parameters
+    ----------
+    signature
+        The name of the signature whose contexts inhabit this sort.
+    tag
+        The serialization discriminator; always ``"context"``.
+    """
 
     signature: str
     tag: Literal["context"] = "context"
@@ -164,6 +216,21 @@ SHAPE = ShapeSort()
 
 @dataclass(frozen=True, slots=True)
 class TypeBinder:
+    """A telescope binder for a type or effect-kinded static argument.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    kind
+        The kind of the bound argument.
+    refinable
+        Whether case analysis may refine the bound argument; true for a
+        family's indices and false for its uniform parameters.
+    tag
+        The serialization discriminator; always ``"type"``.
+    """
+
     name: str
     kind: Kind = TYPE
     refinable: bool = False
@@ -172,6 +239,21 @@ class TypeBinder:
 
 @dataclass(frozen=True, slots=True)
 class IndexBinder:
+    """A telescope binder for an index argument.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    sort
+        The closed index sort of the bound argument.
+    refinable
+        Whether case analysis may refine the bound argument; true for a
+        family's indices and false for its uniform parameters.
+    tag
+        The serialization discriminator; always ``"index"``.
+    """
+
     name: str
     sort: IndexSort
     refinable: bool = False
@@ -180,6 +262,18 @@ class IndexBinder:
 
 @dataclass(frozen=True, slots=True)
 class EffectBinder:
+    """A telescope binder for an effect argument.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    refinable
+        Whether case analysis may refine the bound argument.
+    tag
+        The serialization discriminator; always ``"effect"``.
+    """
+
     name: str
     refinable: bool = False
     tag: Literal["effect"] = "effect"

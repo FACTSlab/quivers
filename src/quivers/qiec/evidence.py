@@ -15,12 +15,34 @@ from quivers.qiec.types import EqualityType
 
 @dataclass(frozen=True, slots=True)
 class Reflexivity:
+    """Evidence that an equality holds because both sides are the same term.
+
+    Parameters
+    ----------
+    equality
+        The proposition witnessed, whose sides must be equal.
+    tag
+        The serialization discriminator; always ``"reflexivity"``.
+    """
+
     equality: EqualityType
     tag: Literal["reflexivity"] = "reflexivity"
 
 
 @dataclass(frozen=True, slots=True)
 class BranchGiven:
+    """Evidence granted by a case branch's constructor refinement.
+
+    Parameters
+    ----------
+    id
+        The stable identity of the given, derived from the branch scope.
+    equality
+        The proposition the branch's constructor makes available.
+    tag
+        The serialization discriminator; always ``"branch_given"``.
+    """
+
     id: EqualityId
     equality: EqualityType
     tag: Literal["branch_given"] = "branch_given"
