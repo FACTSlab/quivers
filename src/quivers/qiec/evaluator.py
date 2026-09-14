@@ -1290,7 +1290,8 @@ class Evaluator:
         MissingAttachmentError
             If an attachment reference names nothing.
         RuntimeTypeMismatch
-            If an attachment's bound type disagrees with the reference, or a host value fails its validator.
+            If an attachment's bound type disagrees with the reference, or a host value
+            fails its validator.
         EvaluationError
             If a local is unbound.
         """
@@ -1348,7 +1349,9 @@ class Evaluator:
         Raises
         ------
         InvalidHandlerError
-            If an attached handler's definition differs from the manifest's. A provider that supplied a handler for one signature must not answer for another, however alike the two look.
+            If an attached handler's definition differs from the manifest's. A provider
+            that supplied a handler for one signature must not answer for another,
+            however alike the two look.
         """
         for id, runtime in self.attachments.handlers.items():
             expected = manifest.definitions.get(id)
@@ -1788,7 +1791,9 @@ class Evaluator:
         Returns
         -------
         object
-            What the body produced. The delimiter stops normal completion from consuming the continuation outside the handled expression, which is what makes these deep handlers rather than shallow ones.
+            What the body produced. The delimiter stops normal completion from consuming
+            the continuation outside the handled expression, which is what makes these
+            deep handlers rather than shallow ones.
         """
         try:
             return self._drive_computation(
@@ -1817,7 +1822,9 @@ class Evaluator:
         Raises
         ------
         NonDuplicableContinuationError
-            If a captured attachment is not marked duplicable. Copying it would give two shots a shared mutable value, which is a data race rather than two independent continuations.
+            If a captured attachment is not marked duplicable. Copying it would give two
+            shots a shared mutable value, which is a data race rather than two
+            independent continuations.
         """
         for local, value in environment.items():
             if not self._duplicable_value(value):
@@ -1845,7 +1852,9 @@ class Evaluator:
         Returns
         -------
         bool
-            True when the value is a scalar, or an attachment explicitly marked duplicable. Duplicability is asserted rather than inferred, because `copy.copy` succeeding says nothing about whether copying is sound.
+            True when the value is a scalar, or an attachment explicitly marked
+            duplicable. Duplicability is asserted rather than inferred, because
+            `copy.copy` succeeding says nothing about whether copying is sound.
         """
         if value is None or isinstance(value, (bool, int, float, str, bytes)):
             return True
