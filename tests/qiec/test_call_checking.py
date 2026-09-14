@@ -29,7 +29,7 @@ from quivers.qiec.checking import (
     CheckContext,
     ComputationSignature,
     KernelError,
-    Resumption,
+    ResumptionType,
     infer_computation,
 )
 from quivers.qiec.identifiers import SourceOrigin
@@ -209,7 +209,7 @@ def test_resume_outside_a_handler_clause_is_rejected() -> None:
 def test_resume_inside_a_clause_answers_the_clause_type() -> None:
     """Resuming produces the clause's answer, not the operation result."""
     registry, _, _ = _registry()
-    context = CheckContext().with_resumption(Resumption(INT, STRING, EMPTY_ROW))
+    context = CheckContext().with_resumption(ResumptionType(INT, STRING, EMPTY_ROW))
     result = infer_computation(Resume(LiteralValue(1, INT), _ORIGIN), registry, context)
     assert result.result == STRING
 
@@ -221,7 +221,7 @@ def test_resume_must_carry_what_the_operation_supplies() -> None:
     value of a type it cannot use.
     """
     registry, _, _ = _registry()
-    context = CheckContext().with_resumption(Resumption(INT, STRING, EMPTY_ROW))
+    context = CheckContext().with_resumption(ResumptionType(INT, STRING, EMPTY_ROW))
     with pytest.raises(KernelError, match="resume carries"):
         infer_computation(Resume(LiteralValue("x", STRING), _ORIGIN), registry, context)
 
@@ -234,7 +234,7 @@ def test_a_resumption_survives_entering_a_nested_binding() -> None:
     unusable in practice while every direct test still passed.
     """
     registry, _, _ = _registry()
-    context = CheckContext().with_resumption(Resumption(INT, STRING, EMPTY_ROW))
+    context = CheckContext().with_resumption(ResumptionType(INT, STRING, EMPTY_ROW))
     from quivers.qiec.terms import Local
 
     deeper = context.extend(Local("x", INT))

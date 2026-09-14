@@ -29,6 +29,7 @@ from panproto import GatError
 from quivers.dsl import ast_nodes as surface
 from quivers.qiec import (
     ComputationSignature,
+    ResumptionType,
     substitute_row,
     Call,
     NewInstance,
@@ -1316,7 +1317,7 @@ class _Elaborator:
                     )
                 clause_scope = (*telescope, *clause_binders)
                 try:
-                    parameter_types, _resumed = instantiate_operation(
+                    parameter_types, resumed = instantiate_operation(
                         operation,
                         tuple(
                             self._binder_variable(binder) for binder in clause_binders
@@ -1344,13 +1345,19 @@ class _Elaborator:
                         clause.parameters, parameter_types, strict=False
                     )
                 )
+                # Inside the body, ``resume`` carries what the operation
+                # supplies and answers the handler's output, performing the
+                # handler's introduced row; the context has to know all
+                # three before a bound ``resume`` can be typed.
                 body = (
                     None
                     if clause.body is None
                     else self._lower_computation(
                         clause.body,
                         clause_scope,
-                        CheckContext(parameters),
+                        CheckContext(parameters).with_resumption(
+                            ResumptionType(resumed, output_type, introduced)
+                        ),
                         (*base, "body"),
                     )
                 )

@@ -133,13 +133,7 @@ def test_to_lsp_diag_warning_severity() -> None:
 
 
 def test_formatting_refuses_qiec_lowering_errors() -> None:
-    doc = _doc(
-        source=(
-            "effect E\n"
-            "    op : Unit -> Unit\n"
-            "    op : Unit -> Unit\n"
-        )
-    )
+    doc = _doc(source=("effect E\n    op : Unit -> Unit\n    op : Unit -> Unit\n"))
     assert [diagnostic.code for diagnostic in doc.diagnostics] == ["qiec-handler"]
     assert _format_document(doc) is None
 

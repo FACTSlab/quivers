@@ -24,6 +24,7 @@ from typing import Literal, NoReturn, Protocol, cast
 from quivers.qiec.evaluator import (
     EvaluationError,
     Evaluator,
+    FuelExhaustedError,
     RuntimeAttachments,
     RuntimeConstructor,
     RuntimeClause,
@@ -39,6 +40,7 @@ from quivers.qiec.kinds import (
     EffectBinder,
     IndexBinder,
     NatSort,
+    ShapeSort,
     TypeBinder,
     UserIndexSort,
 )
@@ -63,6 +65,7 @@ from quivers.qiec.types import (
     FunctionType,
     IndexConstructor,
     IndexLiteral,
+    ShapeIndex,
     StaticArgument,
     TypeApplication,
     TypeConstructorRef,
@@ -1076,6 +1079,7 @@ def run_named(
     static_arguments: tuple[StaticArgument, ...] = (),
     runtime: RuntimeConfiguration | None = None,
     observer: TraceObserver | None = None,
+    fuel: int | None = None,
 ) -> ExecutionResult:
     """Validate and execute one named computation from ``module``.
 
@@ -1099,6 +1103,10 @@ def run_named(
         The providers to attach; defaults to the core provider alone.
     observer
         A callback receiving every trace event as it is emitted.
+    fuel
+        The number of machine steps the run may take, or ``None`` for no
+        bound. General recursion may diverge, and a bound is the only way
+        a caller can be sure a run ends.
 
     Returns
     -------
@@ -1115,7 +1123,8 @@ def run_named(
         be built or attached, ``qiec-run-validator`` when no provider covers
         an argument or result type, ``qiec-run-argument`` or
         ``qiec-run-result`` when a value fails validation,
-        ``qiec-run-module`` when the module fails validation, and
+        ``qiec-run-module`` when the module fails validation,
+        ``qiec-run-fuel`` when the step budget runs out, and
         ``qiec-run-evaluation`` when evaluation or a runtime clause fails.
     """
 
@@ -1250,11 +1259,22 @@ def run_named(
     evaluator = Evaluator(
         attachments,
         trace_hook=evaluator_trace,
+        module=module,
+        fuel=fuel,
+        type_validator=lambda type_: _validator_for(type_, providers),
     )
     try:
         value = evaluator.evaluate_checked(specialized_body, registry, environment)
     except ExecutionFailure:
         raise
+    except FuelExhaustedError as error:
+        emit("run.failed", {"error": type(error).__name__, "steps": error.steps})
+        _fail(
+            "qiec-run-fuel",
+            f"computation {selected.name!r} did not finish within {error.steps} steps",
+            selected.name,
+            selected.origin,
+        )
     except EvaluationError as error:
         emit("run.failed", {"error": type(error).__name__})
         _fail(
@@ -1359,6 +1379,10 @@ def _parse_static(
 ) -> StaticArgument:
     """Parse one closed static term at a telescope binder's sort.
 
+    The spellings are the source language's own: a type is ``Int``,
+    ``Vec[Int](S(Z))``, or ``Pair[Int, Bool]``; an index is ``3``,
+    ``S(S(Z))``, or the shape ``[2, 3]``; an effect is ``State[Int]``.
+
     Parameters
     ----------
     module
@@ -1366,7 +1390,7 @@ def _parse_static(
     binder
         The binder fixing whether a type, index, or effect is expected.
     text
-        The term's source, such as ``Int``, ``Vec[Int, 3]``, or ``suc(zero)``.
+        The term's source.
 
     Returns
     -------
@@ -1376,114 +1400,194 @@ def _parse_static(
     Raises
     ------
     ValueError
-        If the head names nothing the binder's sort admits, the argument
-        count does not match the head's telescope, a family requiring
-        arguments is given none, a sort without named constructors is applied,
-        or an index term cannot be read at the binder's sort.
+        If the head names nothing the binder's sort admits, the static or
+        index argument count does not match the head's telescope, a family
+        requiring arguments is given none, a sort without named
+        constructors is applied, or an index term cannot be read at the
+        binder's sort.
     """
-    head, parts = _static_application(text)
+    head, static_parts, index_parts = _static_application(text)
     if isinstance(binder, TypeBinder):
-        if parts:
-            family = next((item for item in module.families if item.name == head), None)
-            if family is None:
-                raise ValueError(f"unknown type constructor {head!r}")
-            telescope = (*family.parameters, *family.indices)
-            if len(telescope) != len(parts):
+        if index_parts and head == "":
+            raise ValueError(f"a shape {text!r} is not a type")
+        family = next((item for item in module.families if item.name == head), None)
+        if family is not None:
+            if len(family.parameters) != len(static_parts):
                 raise ValueError(
-                    f"type constructor {head!r} expects {len(telescope)} arguments, "
-                    f"got {len(parts)}"
+                    f"family {head!r} expects {len(family.parameters)} static "
+                    f"arguments, got {len(static_parts)}"
+                )
+            if len(family.indices) != len(index_parts):
+                raise ValueError(
+                    f"family {head!r} expects {len(family.indices)} indices, "
+                    f"got {len(index_parts)}"
                 )
             return TypeApplication(
                 family.type_constructor,
-                tuple(
-                    _parse_static(module, expected, part)
-                    for expected, part in zip(telescope, parts, strict=True)
+                (
+                    *(
+                        _parse_static(module, expected, part)
+                        for expected, part in zip(
+                            family.parameters, static_parts, strict=True
+                        )
+                    ),
+                    *(
+                        _parse_static(module, expected, part)
+                        for expected, part in zip(
+                            family.indices, index_parts, strict=True
+                        )
+                    ),
                 ),
             )
-        family = next((item for item in module.families if item.name == head), None)
-        if family is not None:
-            if family.parameters or family.indices:
-                raise ValueError(f"type family {head!r} requires static arguments")
-            return TypeApplication(family.type_constructor)
+        if static_parts or index_parts:
+            raise ValueError(f"unknown type constructor {head!r}")
         if head not in {"Unit", "Bool", "Int", "Real", "String"}:
             raise ValueError(f"unknown closed runtime type {head!r}")
         return TypeApplication(TypeConstructorRef.builtin(head))
     if isinstance(binder, EffectBinder):
+        if index_parts:
+            raise ValueError(f"an effect application {text!r} takes no indices")
         effect = next((item for item in module.effects if item.ref.name == head), None)
         if effect is None:
             raise ValueError(f"unknown effect interface {head!r}")
-        if len(effect.telescope) != len(parts):
+        if len(effect.telescope) != len(static_parts):
             raise ValueError(
                 f"effect {head!r} expects {len(effect.telescope)} arguments, "
-                f"got {len(parts)}"
+                f"got {len(static_parts)}"
             )
         return effect.apply(
             tuple(
                 _parse_static(module, expected, part)
-                for expected, part in zip(effect.telescope, parts, strict=True)
+                for expected, part in zip(effect.telescope, static_parts, strict=True)
             )
         )
-    if parts:
+    if static_parts:
+        raise ValueError(f"index term {text!r} cannot take static arguments")
+    if head == "":
+        if not isinstance(binder.sort, ShapeSort):
+            raise ValueError(f"a shape {text!r} is not an index of {binder.sort!r}")
+        dimensions = tuple(
+            _parse_static(module, IndexBinder("_", NatSort()), part)
+            for part in index_parts
+        )
+        return ShapeIndex(dimensions)  # type: ignore[arg-type]
+    if index_parts:
         if not isinstance(binder.sort, UserIndexSort):
             raise ValueError(f"index sort {binder.sort!r} has no named constructors")
         arguments = tuple(
-            _parse_static(module, IndexBinder("_", binder.sort), part) for part in parts
+            _parse_static(module, IndexBinder("_", binder.sort), part)
+            for part in index_parts
         )
         return IndexConstructor(head, arguments, binder.sort)  # type: ignore[arg-type]
-    if isinstance(binder.sort, NatSort) and text.isdigit():
-        return IndexLiteral(int(text), binder.sort)
+    if isinstance(binder.sort, NatSort) and head.isdigit():
+        return IndexLiteral(int(head), binder.sort)
     if isinstance(binder.sort, UserIndexSort):
         return IndexConstructor(head, (), binder.sort)
     raise ValueError(f"cannot parse closed index term {text!r} for {binder.sort!r}")
 
 
-def _static_application(text: str) -> tuple[str, tuple[str, ...]]:
-    """Split ``HEAD[ARG, ...]`` into its head and top-level arguments.
+def _static_application(
+    text: str,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """Split ``HEAD[STATIC, ...](INDEX, ...)`` into its three parts.
+
+    Either argument group may be absent. A bare ``[...]`` with no head is
+    a shape literal and is returned as index parts under an empty head.
 
     Parameters
     ----------
     text
-        The term's source; brackets nest, and commas split only at depth zero.
+        The term's source; brackets and parentheses nest, and commas split
+        only at depth zero.
 
     Returns
     -------
-    tuple[str, tuple[str, ...]]
-        The head and its stripped arguments; a bare head has no arguments.
+    tuple[str, tuple[str, ...], tuple[str, ...]]
+        The head, the bracketed static arguments, and the parenthesized
+        index arguments, each stripped.
 
     Raises
     ------
     ValueError
-        If the text is empty, the brackets are unbalanced, the head is
-        missing, or an argument is empty.
+        If the text is empty, a group is unbalanced or out of order, the
+        head is missing where one is required, or an argument is empty.
     """
     stripped = text.strip()
     if not stripped:
         raise ValueError("static terms cannot be empty")
-    if "[" not in stripped:
-        return stripped, ()
-    if not stripped.endswith("]"):
+    head_end = next(
+        (index for index, character in enumerate(stripped) if character in "[("),
+        len(stripped),
+    )
+    head = stripped[:head_end].strip()
+    rest = stripped[head_end:]
+    static_parts: tuple[str, ...] = ()
+    index_parts: tuple[str, ...] = ()
+    if rest.startswith("["):
+        group, rest = _split_group(rest, "[", "]", text)
+        static_parts = group
+    if rest.startswith("("):
+        group, rest = _split_group(rest, "(", ")", text)
+        index_parts = group
+    if rest.strip():
         raise ValueError(f"malformed static application {text!r}")
-    head, body = stripped.split("[", 1)
-    body = body[:-1]
-    parts: list[str] = []
-    start = 0
+    if head == "" and (index_parts or not static_parts):
+        raise ValueError(f"malformed static application {text!r}")
+    if head == "":
+        return "", (), static_parts
+    return head, static_parts, index_parts
+
+
+def _split_group(
+    text: str,
+    opener: str,
+    closer: str,
+    subject: str,
+) -> tuple[tuple[str, ...], str]:
+    """Split one leading bracketed group into its top-level arguments.
+
+    Parameters
+    ----------
+    text
+        Source starting with ``opener``.
+    opener
+        The group's opening character.
+    closer
+        The group's closing character.
+    subject
+        The whole term, named in any diagnostic.
+
+    Returns
+    -------
+    tuple[tuple[str, ...], str]
+        The group's stripped arguments, and the source after the group.
+
+    Raises
+    ------
+    ValueError
+        If the group is unbalanced or an argument is empty.
+    """
     depth = 0
-    for index, character in enumerate(body):
-        if character == "[":
+    parts: list[str] = []
+    start = 1
+    for index, character in enumerate(text):
+        if character in "[(":
             depth += 1
-        elif character == "]":
+        elif character in "])":
             depth -= 1
             if depth < 0:
-                raise ValueError(f"malformed static application {text!r}")
-        elif character == "," and depth == 0:
-            parts.append(body[start:index].strip())
+                raise ValueError(f"malformed static application {subject!r}")
+            if depth == 0:
+                if character != closer:
+                    raise ValueError(f"malformed static application {subject!r}")
+                parts.append(text[start:index].strip())
+                if any(not part for part in parts):
+                    raise ValueError(f"malformed static application {subject!r}")
+                return tuple(parts), text[index + 1 :]
+        elif character == "," and depth == 1:
+            parts.append(text[start:index].strip())
             start = index + 1
-    if depth:
-        raise ValueError(f"malformed static application {text!r}")
-    parts.append(body[start:].strip())
-    if not head or any(not part for part in parts):
-        raise ValueError(f"malformed static application {text!r}")
-    return head.strip(), tuple(parts)
+    raise ValueError(f"malformed static application {subject!r}")
 
 
 def _binder_sort(binder: TypeBinder | IndexBinder | EffectBinder) -> str:

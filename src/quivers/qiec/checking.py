@@ -762,7 +762,7 @@ class KernelRegistry:
                     "qiec-handler-body",
                 )
             context = CheckContext().with_resumption(
-                Resumption(resumed, output, handler.introduced)
+                ResumptionType(resumed, output, handler.introduced)
             )
             for parameter, declared in zip(
                 clause.parameters, parameter_types, strict=True
@@ -949,7 +949,7 @@ class KernelRegistry:
 
 
 @dataclass(frozen=True, slots=True)
-class Resumption:
+class ResumptionType:
     """The continuation available inside one handler clause body.
 
     A resumption is not a value and cannot be stored, so it is not a
@@ -994,7 +994,7 @@ class CheckContext:
     givens: tuple[BranchGiven, ...] = ()
     static_scopes: tuple[StaticScopeId, ...] = ()
     static_variables: tuple[StaticVariableId, ...] = ()
-    resumption: Resumption | None = None
+    resumption: ResumptionType | None = None
     """The continuation, when checking a handler clause body.
 
     ``None`` everywhere else, which is what makes `resume` outside a
@@ -1090,12 +1090,12 @@ class CheckContext:
             self.resumption,
         )
 
-    def with_resumption(self, resumption: Resumption) -> CheckContext:
+    def with_resumption(self, resumption: ResumptionType) -> CheckContext:
         """Return this context inside a handler clause body.
 
         Parameters
         ----------
-        resumption : Resumption
+        resumption : ResumptionType
             The continuation the clause body may invoke.
 
         Returns
