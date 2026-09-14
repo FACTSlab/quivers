@@ -611,12 +611,14 @@ class _DidacticGadtProjection:
     def _value_sort(
         self, type_: TypeExpr, scope: Mapping[str, DidacticTerm]
     ) -> DidacticSortExpr:
-        """The Didactic sort of the values one index sort ranges over.
+        """The Didactic sort of the values one type ranges over.
 
         Parameters
         ----------
-        sort : IndexSort
-            The index sort whose value space is wanted.
+        type_ : TypeExpr
+            The type whose value space is wanted.
+        scope : Mapping[str, DidacticTerm]
+            Terms already projected for the binders in scope.
 
         Returns
         -------
@@ -699,13 +701,13 @@ class _DidacticGadtProjection:
 
         Parameters
         ----------
-        term : StaticArgument
-            The static argument to classify.
+        kind : Kind
+            The kind to classify.
 
         Returns
         -------
         DidacticSortExpr
-            The sort expression for its namespace.
+            The sort expression for that kind's namespace.
 
         Raises
         ------
@@ -819,10 +821,16 @@ class _DidacticGadtProjection:
 
         Parameters
         ----------
-        name : str
-            The operation's name.
-        arity : int
-            How many arguments it takes.
+        category : str
+            What kind of construct is being encoded, which enters the
+            operation's derived name.
+        identity : object
+            The construct's stable identity, which also enters the name,
+            so two constructs never share one operation.
+        inputs : tuple[DidacticSortExpr, ...]
+            The sorts the operation takes.
+        output : DidacticSortExpr
+            The sort it produces.
 
         Returns
         -------
@@ -930,13 +938,13 @@ class _Elaborator:
 
         Parameters
         ----------
-        kind : type
+        type_ : type
             The statement class to select.
 
         Returns
         -------
         tuple
-            The matching statements.
+            The matching statements, in source order.
         """
         return tuple(item for item in self.statements if isinstance(item, type_))
 
@@ -1648,7 +1656,7 @@ class _Elaborator:
 
         Parameters
         ----------
-        authored : object
+        sort : object
             The authored sort.
 
         Returns
@@ -1878,12 +1886,6 @@ class _Elaborator:
         ----------
         authored : object
             Type syntax to reinterpret.
-        sort : IndexSort
-            The sort the position requires.
-        scope : Telescope
-            Static binders in scope.
-        static_bindings : Mapping[str, StaticArgument] or None
-            Bindings from an enclosing case refinement.
 
         Returns
         -------
