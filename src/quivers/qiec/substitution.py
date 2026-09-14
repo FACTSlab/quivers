@@ -35,6 +35,7 @@ from quivers.qiec.terms import (
     Return,
     SiteValue,
     TransportValue,
+    TensorValue,
     TupleValue,
     Value,
     Var,
@@ -630,6 +631,11 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
         )
     if isinstance(value, TupleValue):
         return TupleValue(
+            tuple(substitute_value(item, substitution) for item in value.items),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, TensorValue):
+        return TensorValue(
             tuple(substitute_value(item, substitution) for item in value.items),
             substitute_type(value.result_type, substitution),
         )

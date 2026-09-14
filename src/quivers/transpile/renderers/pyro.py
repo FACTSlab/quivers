@@ -84,7 +84,7 @@ from quivers.transpile.renderers._base import (
     host_integer_input_names,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_helper_roots
 
 
 _TARGET = "pyro"
@@ -160,7 +160,9 @@ class PyroRenderer(RendererBase):
         # parsed helper `class` subtree onto the module above `model`
         # so a reader sees the helper classes first (the natural Python
         # idiom: define classes before consumers).
-        for helper_name in sorted(_ir_helper_classes_used(ir.body)):
+        for helper_name in sorted(
+            _ir_helper_classes_used(ir.body) | qiec_helper_roots(ir, _TARGET)
+        ):
             _emit_runtime_helper(pctx, helper_name)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(

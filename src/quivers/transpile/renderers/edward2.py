@@ -105,7 +105,7 @@ from quivers.transpile.renderers._base import (
     ir_uses_family,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_families_used
 
 
 _TARGET = "edward2"
@@ -224,7 +224,11 @@ class Edward2Renderer(RendererBase):
         # register a second, unobserved site on the trace). TFP is a
         # hard dependency of Edward2, so the emitted module imports it
         # directly when a marginalize is present.
-        if _ir_has_marginalize(ir.body) or ir_uses_family(ir.body, "MixtureNormal"):
+        if (
+            _ir_has_marginalize(ir.body)
+            or ir_uses_family(ir.body, "MixtureNormal")
+            or qiec_families_used(ir)
+        ):
             self._emit_tfp_import(py)
         body_vid = py.v(py.fresh("body"), "block")
         if not ir.body:

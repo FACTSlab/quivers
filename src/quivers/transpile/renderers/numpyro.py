@@ -77,7 +77,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic
+from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_helper_roots
 
 
 #: The backend key used to look up `target_names` / `arg_aliases` in
@@ -209,7 +209,9 @@ class NumPyroRenderer(RendererBase):
         # uses, and wire the function last so a reader sees imports, then
         # helper classes, then ``def model``.
         self._dispatch_body(ctx, body, ir.body)
-        used_helpers = _ir_helper_classes_used(ir.body)
+        used_helpers = _ir_helper_classes_used(ir.body) | qiec_helper_roots(
+            ir, _BACKEND
+        )
         for cls_name in used_helpers:
             extra_import = _NUMPYRO_HELPER_IMPORTS.get(cls_name)
             if extra_import is not None:

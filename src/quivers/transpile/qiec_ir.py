@@ -357,6 +357,24 @@ class IRQiecTupleValue(IRQiecValue):
     kind: Literal["tuple"] = "tuple"
 
 
+class IRQiecTensorValue(IRQiecValue):
+    """Construction of a tensor from its entries along the outermost axis.
+
+    Parameters
+    ----------
+    items
+        The entries, each an element or a tensor one rank lower.
+    result_type
+        The ``Tensor`` type constructed.
+    kind
+        The discriminator; always ``"tensor"``.
+    """
+
+    items: tuple[IRQiecValue, ...]
+    result_type: IRQiecStatic
+    kind: Literal["tensor"] = "tensor"
+
+
 class IRQiecProjection(IRQiecValue):
     """Selection of one component of a finite product.
 
@@ -978,6 +996,11 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             items=cast(tuple[IRQiecValue, ...], _convert(value.items)),
             result_type=cast(IRQiecStatic, _convert(value.result_type)),
         )
+    if isinstance(value, tm.TensorValue):
+        return IRQiecTensorValue(
+            items=cast(tuple[IRQiecValue, ...], _convert(value.items)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
     if isinstance(value, tm.Projection):
         return IRQiecProjection(
             value=cast(IRQiecValue, _convert(value.value)),
@@ -1116,6 +1139,7 @@ type QiecFeature = Literal[
     "conversion",
     "math",
     "tuple",
+    "tensor",
     "distribution",
     "log-density",
     "site",
@@ -1195,6 +1219,10 @@ _GENERIC_RUNTIME = QiecTargetCapabilities(
             "conversion",
             "math",
             "tuple",
+            "tensor",
+            "distribution",
+            "log-density",
+            "site",
             "evidence",
             "transport",
             "attachment",
@@ -1328,6 +1356,10 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
         elif isinstance(item, IRQiecProjection):
             required.add("tuple")
             value(item.value)
+        elif isinstance(item, IRQiecTensorValue):
+            required.add("tensor")
+            for entry in item.items:
+                value(entry)
         elif isinstance(item, IRQiecDistributionValue):
             required.add("distribution")
             for argument in item.arguments:

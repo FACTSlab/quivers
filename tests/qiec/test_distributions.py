@@ -21,6 +21,7 @@ from quivers.qiec import (
     Return,
     RuntimeDistribution,
     SiteValue,
+    TensorValue,
     TupleValue,
     distribution_backend,
     dumps,
@@ -314,3 +315,81 @@ def test_a_backend_can_be_installed_and_restored() -> None:
     finally:
         install_distribution_backend(previous)
     assert distribution_backend() is previous
+
+
+def _vector(*entries: float) -> TensorValue:
+    """A real vector literal.
+
+    Parameters
+    ----------
+    *entries : float
+        The entries.
+
+    Returns
+    -------
+    TensorValue
+        The vector at ``Tensor[Real]([n])``.
+    """
+    return TensorValue(
+        tuple(LiteralValue(entry, REAL) for entry in entries),
+        tensor_type(REAL, (IndexLiteral(len(entries), NatSort()),)),
+    )
+
+
+def test_tensor_literals_type_check_evaluate_and_serialize() -> None:
+    registry = KernelRegistry()
+    vector = _vector(1.0, 2.0, 3.0)
+    assert infer_value(vector, registry) == vector.result_type
+    matrix = TensorValue(
+        (_vector(1.0, 2.0), _vector(3.0, 4.0)),
+        tensor_type(REAL, (IndexLiteral(2, NatSort()), IndexLiteral(2, NatSort()))),
+    )
+    assert infer_value(matrix, registry) == matrix.result_type
+    assert Evaluator().evaluate(Return(matrix)) == ((1.0, 2.0), (3.0, 4.0))
+    assert loads(dumps(Return(matrix))) == Return(matrix)
+    dirichlet = DistributionValue(
+        family("Dirichlet").id,
+        "Dirichlet",
+        (("concentration", vector),),
+        sampleable_type(vector.result_type),
+        ORIGIN,
+    )
+    assert infer_value(dirichlet, registry) == sampleable_type(vector.result_type)
+    density = Evaluator().evaluate(
+        Return(LogDensity(dirichlet, _vector(0.2, 0.3, 0.5), ORIGIN))
+    )
+    assert density == pytest.approx(
+        math.log(120.0) - math.log(2.0) + math.log(0.3) + 2 * math.log(0.5)
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "fragment"),
+    [
+        (lambda: TensorValue((LiteralValue(1.0, REAL),), REAL), "non-tensor type"),
+        (
+            lambda: TensorValue(
+                (LiteralValue(1.0, REAL),),
+                tensor_type(REAL, (IndexLiteral(2, NatSort()),)),
+            ),
+            "1 entries along a leading dimension of 2",
+        ),
+        (
+            lambda: TensorValue(
+                (LiteralValue(1, INT), LiteralValue(2.0, REAL)),
+                tensor_type(REAL, (IndexLiteral(2, NatSort()),)),
+            ),
+            "entry 0 has type",
+        ),
+        (
+            lambda: TensorValue(
+                (_vector(1.0), _vector(2.0)),
+                tensor_type(REAL, (IndexLiteral(2, NatSort()),)),
+            ),
+            "not the slice type",
+        ),
+    ],
+)
+def test_malformed_tensor_literals_are_rejected(build, fragment: str) -> None:
+    with pytest.raises(KernelError, match=fragment):
+        infer_value(build(), KernelRegistry())

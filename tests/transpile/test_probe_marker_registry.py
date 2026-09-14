@@ -31,7 +31,7 @@ _NOT_PROBE_TIERS = frozenset({"test_probe_cache"})
 
 def _modules_calling_run_probe() -> set[str]:
     """Stems of the modules under `tests/transpile/` whose source
-    contains a call to `run_probe`.
+    contains a call to `run_probe` or `run_probe_script`.
 
     Parsed rather than grepped, so a mention inside a docstring or a
     comment does not count as a call.
@@ -50,7 +50,7 @@ def _modules_calling_run_probe() -> set[str]:
                 if isinstance(func, ast.Name)
                 else None
             )
-            if name == "run_probe":
+            if name in ("run_probe", "run_probe_script"):
                 found.add(path.stem)
                 break
     return found

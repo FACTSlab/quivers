@@ -655,6 +655,13 @@ type: `+` is integer, real, or string concatenation; `%` is integer only;
 every target. The builtin applications `real`, `int`, `exp`, `log`, `sqrt`,
 `pow`, `abs`, `min`, and `max` resolve the same way. A tuple `(a, b)` builds a
 finite product and `t[i]` with an integer literal selects its component.
+A list literal `[a, b, c]` is a `Tensor` whose leading dimension is its
+entry count and whose entries share one type, so `[[1.0, 2.0], [3.0, 4.0]]`
+is a `Tensor[Real]([2, 2])`; a numeric literal list with any fractional
+entry is real. Applying a distribution family, `Normal(mu, 1.0)` or
+`Dirichlet([1.0, 2.0])`, fills the family's parameters in registry order and
+builds a `Sampleable`; `site("x")` is a `Site` at the type its position
+expects; `log_prob(d, x)` is the `LogWeight` of `d` at `x`.
 `if COND then ... else ...` branches on a Boolean at computation level, so the
 untaken branch is never entered and a recursive computation can stop.
 

@@ -8,7 +8,7 @@ responsibilities.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn, cast
@@ -37,7 +37,7 @@ from quivers.qiec.canonical import (
     tensor_type,
 )
 from quivers.qiec.builtins import BUILTIN_EFFECTS
-from quivers.qiec.families import FAMILIES
+from quivers.qiec.families import FAMILIES, DistributionFamily
 from quivers.qiec import (
     ComputationSignature,
     ResumptionType,
@@ -47,6 +47,7 @@ from quivers.qiec import (
     If,
     PrimitiveApplication,
     Projection,
+    TensorValue,
     TupleValue,
     Value,
     primitive,
@@ -2539,7 +2540,7 @@ class _Elaborator:
         if isinstance(authored, surface.LetExprCall):
             if authored.func in FAMILIES and authored.func not in _BUILTIN_PRIMITIVES:
                 return self._lower_family_application(
-                    authored, scope, context, static_bindings, path
+                    authored, scope, context, static_bindings, path, expected
                 )
             if authored.func == "site":
                 return self._lower_site(authored, expected)
@@ -2559,12 +2560,13 @@ class _Elaborator:
             )
             name = self._builtin_primitive(authored, types)
             return self._primitive(name, arguments, authored, path)
+        if isinstance(authored, surface.LetExprList):
+            return self._lower_tensor_literal(
+                authored, scope, context, static_bindings, path, expected
+            )
         if isinstance(
             authored,
-            surface.LetExprList
-            | surface.LetExprLambda
-            | surface.LetExprFactor
-            | surface.LetExprMethodCall,
+            surface.LetExprLambda | surface.LetExprFactor | surface.LetExprMethodCall,
         ):
             self._fail(
                 authored,
@@ -2575,6 +2577,171 @@ class _Elaborator:
             )
         self._fail(authored, "unknown QIEC value")
 
+    def _lower_tensor_literal(
+        self,
+        authored: surface.LetExprList,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+        expected: TypeExpr | None,
+        element_hint: TypeExpr | None = None,
+    ) -> TensorValue:
+        """Lower a list literal to a tensor whose leading dimension it fixes.
+
+        Parameters
+        ----------
+        authored : surface.LetExprList
+            The literal.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the literal.
+        expected : TypeExpr or None
+            The ``Tensor`` type the position calls for, when fixed. Its
+            element type and inner dimensions type the entries.
+        element_hint : TypeExpr or None
+            The element type the entries should take when no type is
+            expected, so integral literals lower as ``Real`` where a
+            family parameter is real.
+
+        Returns
+        -------
+        TensorValue
+            The tensor, typed ``Tensor[E]([n, ...])`` with ``n`` the
+            entry count.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the literal is empty with no expected type to fix its
+            element, the entries do not all have one type, or the
+            expected type is not a tensor.
+        """
+        expected_split = tensor_shape(expected) if expected is not None else None
+        if expected is not None and expected_split is None:
+            self._fail(
+                authored,
+                f"a list literal is a Tensor, but {self._render(expected)} is "
+                "expected here",
+                code="qiec-primitive",
+            )
+        if expected_split is not None:
+            element, dimensions = expected_split
+            leading = dimensions[0]
+            if isinstance(leading, IndexLiteral) and leading.value != len(
+                authored.items
+            ):
+                self._fail(
+                    authored,
+                    f"list literal has {len(authored.items)} entries where "
+                    f"{self._render(expected)} is expected",
+                    code="qiec-primitive",
+                )
+            entry_hint: TypeExpr = (
+                element
+                if len(dimensions) == 1
+                else tensor_type(element, dimensions[1:])
+            )
+        elif element_hint is not None:
+            entry_hint = element_hint
+        elif not authored.items:
+            self._fail(
+                authored,
+                "an empty list literal needs an annotation or a position fixing "
+                "its Tensor type",
+                code="qiec-primitive",
+            )
+        else:
+            entry_hint = self._tensor_entry_hint(
+                authored, scope, context, static_bindings
+            )
+        items = tuple(
+            self._lower_tensor_literal(
+                item,
+                scope,
+                context,
+                static_bindings,
+                (*path, position),
+                None,
+                entry_hint,
+            )
+            if isinstance(item, surface.LetExprList)
+            and tensor_shape(entry_hint) is None
+            else self._lower_value(
+                item, scope, context, static_bindings, (*path, position), entry_hint
+            )
+            for position, item in enumerate(authored.items)
+        )
+        types = tuple(
+            self._value_type(item, context, source)
+            for item, source in zip(items, authored.items, strict=True)
+        )
+        if any(item_type != types[0] for item_type in types[1:]):
+            self._fail(
+                authored,
+                "list literal entries have types "
+                + ", ".join(self._render(item_type) for item_type in types)
+                + "; a Tensor's entries share one type",
+                code="qiec-primitive",
+            )
+        entry_type = types[0] if types else entry_hint
+        inner = tensor_shape(entry_type)
+        if inner is None:
+            result_type = tensor_type(entry_type, (IndexLiteral(len(items), NAT),))
+        else:
+            result_type = tensor_type(
+                inner[0], (IndexLiteral(len(items), NAT), *inner[1])
+            )
+        value = TensorValue(items, result_type)
+        self._value_type(value, context, authored)
+        return value
+
+    def _tensor_entry_hint(
+        self,
+        authored: surface.LetExprList,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+    ) -> TypeExpr:
+        """Choose the entry type of an unannotated list literal.
+
+        Parameters
+        ----------
+        authored : surface.LetExprList
+            The literal, with at least one entry.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+
+        Returns
+        -------
+        TypeExpr
+            ``Real`` when the entries are numeric literals of which any
+            is fractional, so ``[1, 2.5]`` is a real vector; otherwise
+            the type of the first entry lowered on its own.
+        """
+        literals = [
+            item for item in authored.items if isinstance(item, surface.LetExprLiteral)
+        ]
+        if literals and any(not item.integral for item in literals):
+            return REAL
+        first = authored.items[0]
+        if isinstance(first, surface.LetExprList):
+            return self._lower_tensor_literal(
+                first, scope, context, static_bindings, (), None
+            ).result_type
+        return self._value_type(
+            self._lower_value(first, scope, context, static_bindings), context, first
+        )
+
     def _lower_family_application(
         self,
         authored: surface.LetExprCall,
@@ -2582,6 +2749,7 @@ class _Elaborator:
         context: CheckContext,
         static_bindings: Mapping[str, StaticArgument] | None,
         path: tuple[str | int, ...],
+        expected: TypeExpr | None = None,
     ) -> DistributionValue:
         """Lower ``Family(args...)`` to a distribution construction.
 
@@ -2600,6 +2768,9 @@ class _Elaborator:
             Bindings from an enclosing case refinement.
         path : tuple[str | int, ...]
             Structural path of the application.
+        expected : TypeExpr or None
+            The ``Sampleable`` type the position calls for, when fixed;
+            it supplies the event shape of a family no parameter fixes.
 
         Returns
         -------
@@ -2624,47 +2795,36 @@ class _Elaborator:
         for position, (parameter, argument) in enumerate(
             zip(record.parameters, authored.args, strict=False)
         ):
-            hint = (
-                REAL
-                if parameter.rank == 0
-                and parameter.constraint not in ("boolean", "sampleable", "transform")
+            numeric = (
+                parameter.constraint not in ("boolean", "sampleable", "transform")
                 and "integer" not in parameter.constraint
-                else None
             )
-            arguments.append(
-                (
-                    parameter.name,
-                    self._lower_value(
-                        argument,
-                        scope,
-                        context,
-                        static_bindings,
-                        (*path, position),
-                        hint,
-                    ),
+            if parameter.rank > 0 and isinstance(argument, surface.LetExprList):
+                value: Value = self._lower_tensor_literal(
+                    argument,
+                    scope,
+                    context,
+                    static_bindings,
+                    (*path, position),
+                    None,
+                    REAL if numeric else None,
                 )
-            )
+            else:
+                value = self._lower_value(
+                    argument,
+                    scope,
+                    context,
+                    static_bindings,
+                    (*path, position),
+                    REAL if numeric and parameter.rank == 0 else None,
+                )
+            arguments.append((parameter.name, value))
         if record.event_rank == 0:
             result_type: TypeExpr = sampleable_type(record.element)
         else:
-            source_name = record.event_source
-            source = next(
-                (value for name, value in arguments if name == source_name), None
+            result_type = sampleable_type(
+                self._event_type(record, arguments, context, authored, expected)
             )
-            shape = (
-                tensor_shape(self._value_type(source, context, authored))
-                if source is not None
-                else None
-            )
-            if shape is None:
-                self._fail(
-                    authored,
-                    f"family {record.name!r} needs parameter {source_name!r} as a "
-                    "Tensor to fix its event shape",
-                    code="qiec-distribution",
-                )
-            event = shape[1][len(shape[1]) - record.event_rank :]
-            result_type = sampleable_type(tensor_type(record.element, event))
         value = DistributionValue(
             record.id,
             record.name,
@@ -2674,6 +2834,73 @@ class _Elaborator:
         )
         self._value_type(value, context, authored)
         return value
+
+    def _event_type(
+        self,
+        record: DistributionFamily,
+        arguments: Sequence[tuple[str, Value]],
+        context: CheckContext,
+        authored: surface.LetExprCall,
+        expected: TypeExpr | None,
+    ) -> TypeExpr:
+        """The sample type of a family whose events are tensors.
+
+        Parameters
+        ----------
+        record : DistributionFamily
+            The family, with a positive event rank.
+        arguments : Sequence[tuple[str, Value]]
+            The lowered parameters.
+        context : CheckContext
+            Value bindings in scope.
+        authored : surface.LetExprCall
+            The application, for diagnostics.
+        expected : TypeExpr or None
+            The ``Sampleable`` type the position calls for, when fixed.
+
+        Returns
+        -------
+        TypeExpr
+            ``Tensor[E](event)``: the event shape is the trailing
+            dimensions of the parameter the registry names as its source,
+            or, for a family whose event shape no parameter carries, the
+            shape the expected type spells.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If neither a source parameter nor the expected type fixes
+            the event shape.
+        """
+        source_name = record.event_source
+        source = next((value for name, value in arguments if name == source_name), None)
+        if source is not None:
+            shape = tensor_shape(self._value_type(source, context, authored))
+            if shape is not None and len(shape[1]) >= record.event_rank:
+                event = shape[1][len(shape[1]) - record.event_rank :]
+                return tensor_type(record.element, event)
+        sampled = sampled_element(expected) if expected is not None else None
+        expected_shape = tensor_shape(sampled) if sampled is not None else None
+        if (
+            expected_shape is not None
+            and expected_shape[0] == record.element
+            and len(expected_shape[1]) == record.event_rank
+        ):
+            return tensor_type(record.element, expected_shape[1])
+        if source_name is not None:
+            self._fail(
+                authored,
+                f"family {record.name!r} needs parameter {source_name!r} as a "
+                "Tensor to fix its event shape",
+                code="qiec-distribution",
+            )
+        self._fail(
+            authored,
+            f"family {record.name!r} samples a rank-{record.event_rank} tensor "
+            "whose shape no parameter carries; annotate the position with its "
+            "Sampleable[Tensor[...]] type",
+            code="qiec-distribution",
+        )
 
     def _lower_site(
         self, authored: surface.LetExprCall, expected: TypeExpr | None
@@ -2946,13 +3173,29 @@ class _Elaborator:
         if isinstance(type_, TypeApplication):
             if not type_.arguments:
                 return type_.constructor.name
-            inner = ", ".join(
-                QvrQiecLowerer._render(cast(TypeExpr, item))
-                if isinstance(item, TypeApplication)
-                else repr(item)
+            types = [
+                _Elaborator._render(cast(TypeExpr, item))
                 for item in type_.arguments
-            )
-            return f"{type_.constructor.name}[{inner}]"
+                if isinstance(item, TypeApplication | TypeVariable)
+            ]
+            shapes = [
+                "["
+                + ", ".join(
+                    str(dimension.value)
+                    if isinstance(dimension, IndexLiteral)
+                    else repr(dimension)
+                    for dimension in item.dimensions
+                )
+                + "]"
+                for item in type_.arguments
+                if isinstance(item, ShapeIndex)
+            ]
+            rendered = f"{type_.constructor.name}[{', '.join(types)}]"
+            if shapes:
+                rendered += f"({', '.join(shapes)})"
+            return rendered
+        if isinstance(type_, TypeVariable):
+            return type_.name
         return repr(type_)
 
     def _lower_computation(

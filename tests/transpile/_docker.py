@@ -302,3 +302,61 @@ __all__ = [
     "probe_cache_dir",
     "run_probe",
 ]
+
+
+def run_probe_script(
+    *,
+    image: str,
+    script: pathlib.Path,
+    scratch: pathlib.Path,
+    timeout: float = 900.0,
+) -> dict | list:
+    """Run one probe script against whatever the caller placed in ``scratch``.
+
+    The script is copied to ``/io/<name>`` beside the caller's inputs and
+    launched through the image's entrypoint; it writes ``/io/result.json``.
+
+    Parameters
+    ----------
+    image : str
+        The probe image tag.
+    script : pathlib.Path
+        The probe script; its language must match the image's entrypoint.
+    scratch : pathlib.Path
+        The bind-mounted directory holding the script's inputs.
+    timeout : float
+        Seconds before the container is killed.
+
+    Returns
+    -------
+    dict | list
+        The decoded ``result.json``.
+
+    Raises
+    ------
+    AssertionError
+        If the container exits nonzero, with the tail of its stderr.
+    """
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / script.name).write_bytes(script.read_bytes())
+    result_path = scratch / "result.json"
+    if result_path.exists():
+        result_path.unlink()
+    completed = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{scratch.resolve()}:/io",
+            "-w",
+            "/io",
+            image,
+            f"/io/{script.name}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    assert completed.returncode == 0, completed.stderr[-4000:]
+    return json.loads(result_path.read_text())

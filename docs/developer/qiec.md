@@ -119,9 +119,9 @@ The Textual status bar shows the active runtime and the most recent result.
 Argument, specialization, provider, validator, evaluation, and result failures
 retain their `qiec-run-*` diagnostic codes across the CLI, REPL, and TUI.
 
-## QVR v0.19 surface
+## QVR surface
 
-The following examples use the normative v0.19 grammar. Each block parses,
+The following examples use the normative grammar. Each block parses,
 lowers through the QIEC route, validates against the kernel, and reaches a
 canonical parse–emit fixed point in the documentation tests.
 
@@ -230,6 +230,48 @@ define replayed_model() : Real !{score} =
 `replay` is total and handles the exact `random` instance. The remaining
 `score` entry makes the residual effect explicit. Runtime replay tables,
 samplers, and trace recorders do not enter the stable module.
+
+Distributions are values of the same calculus. Applying a family of the
+semantic registry, such as `Normal(mu, 1.0)` or `Dirichlet([1.0, 2.0, 3.0])`,
+builds a `Sampleable[A]` whose element type the registry fixes; a list
+literal is a `Tensor` whose leading dimension is its entry count, so a
+nested literal is a matrix; `site("x")` names a sample site at the `Site[A]`
+type its position expects; and `log_prob(d, x)` evaluates a distribution's
+log density as a `LogWeight`. The prelude's `Random` and `Score` interfaces
+need no declaration:
+
+<!-- compile: qiec -->
+```qvr
+instance random : Random
+instance score : Score
+
+handler draw for Random : Real -> Real [coverage=total, implementation=foreign]
+    sample[A : Type] resumes 1
+
+handler accumulate for Score : Real -> (Real * LogWeight) [coverage=total, implementation=foreign]
+    add resumes 1
+
+define model(mu : Real) : Real !{random, score} =
+    let x <- perform random.sample[Real](site("x"), Normal(mu, 1.0))
+    perform score.add(log_prob(Categorical([0.2, 0.8]), 1))
+    return x
+
+define run(mu : Real) : Real * LogWeight !{} =
+    handle score with accumulate in
+        handle random with draw in
+            model(mu)
+```
+
+On the reference machine a distribution value is a
+[`RuntimeDistribution`][quivers.qiec.RuntimeDistribution] that samples and
+scores through the installed
+[`DistributionBackend`][quivers.qiec.DistributionBackend]; the core runtime
+provider's `draw` and `score` handler kinds implement `draw` and `accumulate`
+above. Each dynamic target spells the construction in its own library through
+[`spell_distribution`][quivers.transpile.family_spelling.spell_distribution],
+applying the target's parameterization conventions (a rate against a scale,
+a complemented probability, a shifted support, a folded half-line family) so
+that `log_prob` agrees with the registry's density on every host.
 
 Logic programming uses the same handler and resumption rules:
 

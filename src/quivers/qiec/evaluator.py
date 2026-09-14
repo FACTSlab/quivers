@@ -54,6 +54,7 @@ from quivers.qiec.terms import (
     Return,
     SiteValue,
     TransportValue,
+    TensorValue,
     TupleValue,
     Value,
     Var,
@@ -1668,7 +1669,7 @@ class Evaluator:
                 raise EvaluationError(
                     f"primitive {value.name!r} failed: {error}"
                 ) from error
-        if isinstance(value, TupleValue):
+        if isinstance(value, TupleValue | TensorValue):
             return tuple(self._value(item, environment) for item in value.items)
         if isinstance(value, Projection):
             source = self._value(value.value, environment)
