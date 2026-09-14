@@ -26,6 +26,7 @@ from quivers.qiec.coverage import (
 )
 from quivers.qiec.evidence import BranchGiven, EqualityEvidence, Reflexivity
 from quivers.qiec.identifiers import (
+    ComputationId,
     ConstructorId,
     EffectId,
     EqualityId,
@@ -53,10 +54,14 @@ from quivers.qiec.kinds import (
     IndexSort,
     NatSort,
     ShapeSort,
+    Telescope,
     TypeBinder,
     UserIndexSort,
 )
 from quivers.qiec.terms import (
+    Resume,
+    NewInstance,
+    Call,
     AttachmentRef,
     Bind,
     Case,
@@ -207,6 +212,40 @@ class _StaticScope:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ComputationSignature:
+    """What a call needs to know about a computation it invokes.
+
+    A signature rather than a declaration, and deliberately so: a call
+    resolves against this, not against the callee's body. That is what
+    lets every signature be collected before any body is checked, which
+    in turn makes a forward call and mutual recursion ordinary rather
+    than requiring a forward declaration.
+
+    Parameters
+    ----------
+    id : ComputationId
+        The declaration's stable identity, which the call carries.
+    name : str
+        The authored name, used in diagnostics.
+    telescope : Telescope
+        Static binders the computation takes.
+    parameters : tuple[TypeExpr, ...]
+        Value parameter types, in order, before instantiation.
+    result : TypeExpr
+        The result type before instantiation.
+    effects : EffectRow
+        The row the computation performs, before instantiation.
+    """
+
+    id: ComputationId
+    name: str
+    telescope: Telescope
+    parameters: tuple[TypeExpr, ...]
+    result: TypeExpr
+    effects: EffectRow
+
+
 @dataclass(slots=True)
 class KernelRegistry:
     """Resolved declarations used by the reference checker."""
@@ -219,6 +258,9 @@ class KernelRegistry:
     )
     handlers: dict[HandlerId, HandlerDef] = field(default_factory=dict)
     type_constructors: dict[TypeId, TypeConstructorRef] = field(default_factory=dict)
+    computations: dict[ComputationId, ComputationSignature] = field(
+        default_factory=dict
+    )
 
     def _record_type_constructor(self, constructor: TypeConstructorRef) -> None:
         """Remember one type constructor's telescope, or confirm it.
@@ -597,6 +639,64 @@ class KernelRegistry:
             raise KernelError(f"total handler is missing operations: {missing!r}")
         self.handlers[handler.id] = handler
 
+    def register_computation(self, signature: ComputationSignature) -> None:
+        """Record a computation's signature so calls can resolve to it.
+
+        Signatures are registered before any body is checked. A call
+        therefore resolves whether the callee is declared above or below
+        it, and mutual recursion needs no forward declaration.
+
+        Parameters
+        ----------
+        signature : ComputationSignature
+            The signature to record.
+
+        Raises
+        ------
+        KernelError
+            If a computation with this identity is already registered, if
+            its telescope shadows a binder, or if a parameter type, the
+            result type, or the declared row is ill-formed. A duplicate
+            identity is rejected rather than overwritten, since a call
+            carrying that identity would otherwise resolve to whichever
+            declaration happened to register last.
+        """
+        if signature.id in self.computations:
+            raise KernelError(f"computation already registered: {signature.name!r}")
+        scope = _StaticScope().extend(
+            signature.telescope,
+            subject=f"computation {signature.name!r}",
+        )
+        for parameter in signature.parameters:
+            self.validate_type(parameter, scope)
+        self.validate_type(signature.result, scope)
+        self.validate_effect_row(signature.effects)
+        self.computations[signature.id] = signature
+
+    def computation(self, computation: ComputationId) -> ComputationSignature:
+        """The registered signature with a given identity.
+
+        Parameters
+        ----------
+        computation : ComputationId
+            The identity to resolve.
+
+        Returns
+        -------
+        ComputationSignature
+            The registered signature.
+
+        Raises
+        ------
+        KernelError
+            If no computation is registered under that identity, which is
+            how a call to an undeclared name is caught.
+        """
+        try:
+            return self.computations[computation]
+        except KeyError as exc:
+            raise KernelError(f"unknown computation {computation}") from exc
+
     def constructor(self, constructor: ConstructorId) -> ConstructorDecl:
         """The registered constructor with a given identity.
 
@@ -698,6 +798,30 @@ class KernelRegistry:
 
 
 @dataclass(frozen=True, slots=True)
+class Resumption:
+    """The continuation available inside one handler clause body.
+
+    A resumption is not a value and cannot be stored, so it is not a
+    local binding. It is a capability of the position instead: available
+    inside a clause body and nowhere else.
+
+    Parameters
+    ----------
+    result : TypeExpr
+        What the resumed operation supplies, so a `resume` must carry a
+        value of this type.
+    answer : TypeExpr
+        What resuming produces, which is the clause's own answer type.
+    effects : EffectRow
+        The row resuming performs.
+    """
+
+    result: TypeExpr
+    answer: TypeExpr
+    effects: EffectRow
+
+
+@dataclass(frozen=True, slots=True)
 class CheckContext:
     """What is in scope at one point in a term being checked.
 
@@ -719,6 +843,12 @@ class CheckContext:
     givens: tuple[BranchGiven, ...] = ()
     static_scopes: tuple[StaticScopeId, ...] = ()
     static_variables: tuple[StaticVariableId, ...] = ()
+    resumption: Resumption | None = None
+    """The continuation, when checking a handler clause body.
+
+    ``None`` everywhere else, which is what makes `resume` outside a
+    clause a checker error rather than a term with no meaning.
+    """
 
     def extend(self, local: Local) -> CheckContext:
         """Return this context with one more value binding.
@@ -746,6 +876,7 @@ class CheckContext:
             self.givens,
             self.static_scopes,
             self.static_variables,
+            self.resumption,
         )
 
     def with_givens(self, givens: tuple[BranchGiven, ...]) -> CheckContext:
@@ -766,6 +897,7 @@ class CheckContext:
             (*self.givens, *givens),
             self.static_scopes,
             self.static_variables,
+            self.resumption,
         )
 
     def with_static_scope(
@@ -804,6 +936,32 @@ class CheckContext:
             self.givens,
             (*self.static_scopes, scope),
             (*self.static_variables, *variables),
+            self.resumption,
+        )
+
+    def with_resumption(self, resumption: Resumption) -> CheckContext:
+        """Return this context inside a handler clause body.
+
+        Parameters
+        ----------
+        resumption : Resumption
+            The continuation the clause body may invoke.
+
+        Returns
+        -------
+        CheckContext
+            A context in which `resume` is available. A clause body
+            nested inside another handler's clause replaces the outer
+            resumption rather than stacking, since `resume` names the
+            innermost clause's continuation and there is no syntax for
+            reaching past it.
+        """
+        return CheckContext(
+            self.locals,
+            self.givens,
+            self.static_scopes,
+            self.static_variables,
+            resumption,
         )
 
     def local_type(self, name: str) -> TypeExpr | None:
@@ -1192,8 +1350,10 @@ def _computation_static_scopes(computation: Computation) -> tuple[StaticScopeId,
     KernelError
         If the term is of an unknown computation class.
     """
-    if isinstance(computation, Return | Perform):
+    if isinstance(computation, Return | Perform | Call | Resume):
         return ()
+    if isinstance(computation, NewInstance):
+        return _computation_static_scopes(computation.body)
     if isinstance(computation, Bind):
         return (
             *_computation_static_scopes(computation.first),
@@ -1805,7 +1965,191 @@ def infer_computation(
             registry,
             context,
         )
+    if isinstance(computation, Call):
+        return _infer_call(computation, registry, context)
+    if isinstance(computation, NewInstance):
+        return _infer_new_instance(computation, registry, context)
+    if isinstance(computation, Resume):
+        return _infer_resume(computation, registry, context)
     raise KernelError(f"unknown computation term {computation!r}")
+
+
+def _infer_resume(
+    resumption: Resume,
+    registry: KernelRegistry,
+    context: CheckContext,
+) -> ComputationType:
+    """Check an invocation of the enclosing clause's continuation.
+
+    Parameters
+    ----------
+    resumption : Resume
+        The invocation to check.
+    registry : KernelRegistry
+        Registry the carried value is checked against.
+    context : CheckContext
+        Scope the invocation occurs in, which carries the continuation
+        when there is one.
+
+    Returns
+    -------
+    ComputationType
+        The clause's answer type and the row resuming performs.
+
+    Raises
+    ------
+    KernelError
+        If there is no continuation in scope, which is `resume` written
+        outside a handler clause body, or if the value carried does not
+        have the type the resumed operation supplies.
+    """
+    available = context.resumption
+    if available is None:
+        raise KernelError(
+            "resume outside a handler clause body: there is no continuation "
+            "to invoke here"
+        )
+    actual = infer_value(resumption.value, registry, context)
+    if actual != available.result:
+        raise KernelError(
+            f"resume carries {actual!r} but the operation it resumes supplies "
+            f"{available.result!r}"
+        )
+    return _checked_computation_type(
+        available.effects,
+        available.answer,
+        registry,
+        context,
+    )
+
+
+def _infer_call(
+    call: Call,
+    registry: KernelRegistry,
+    context: CheckContext,
+) -> ComputationType:
+    """Check one call against the callee's registered signature.
+
+    The callee is resolved by identity, not by name, so a rename recorded
+    in a migration keeps calls resolving while two like-named
+    declarations in different modules stay apart.
+
+    Parameters
+    ----------
+    call : Call
+        The call to check.
+    registry : KernelRegistry
+        Registry holding the callee's signature.
+    context : CheckContext
+        Scope the call is made in.
+
+    Returns
+    -------
+    ComputationType
+        The callee's result type and row, instantiated at this call's
+        static arguments. The caller unions that row into its own, which
+        is what propagates a callee's effects outward.
+
+    Raises
+    ------
+    KernelError
+        If the callee is unregistered, if the static or value arity is
+        wrong, if a static argument is ill-kinded, if an argument's type
+        does not match the instantiated parameter type, if the call's
+        recorded result type or row disagrees with the instantiated
+        signature, or if any part mentions a rigid variable out of scope.
+    """
+    signature = registry.computation(call.callee)
+    for argument in call.static_arguments:
+        registry.validate_static(argument)
+        _check_static_variable_scope(argument, context, subject="call static argument")
+    if len(call.static_arguments) != len(signature.telescope):
+        raise KernelError(
+            f"call to {signature.name!r} supplies {len(call.static_arguments)} "
+            f"static argument(s); the declaration binds {len(signature.telescope)}"
+        )
+    substitution = instantiate_telescope(signature.telescope, call.static_arguments)
+    if len(call.arguments) != len(signature.parameters):
+        raise KernelError(
+            f"call to {signature.name!r} supplies {len(call.arguments)} "
+            f"argument(s); the declaration takes {len(signature.parameters)}"
+        )
+    for position, (argument, declared) in enumerate(
+        zip(call.arguments, signature.parameters, strict=True)
+    ):
+        actual = infer_value(argument, registry, context)
+        expected = substitute_type(declared, substitution)
+        if actual != expected:
+            raise KernelError(
+                f"call to {signature.name!r} argument {position}: expected "
+                f"{expected!r}, got {actual!r}"
+            )
+    result = substitute_type(signature.result, substitution)
+    effects = substitute_row(signature.effects, substitution)
+    # The call records what it expects, and the signature says what it
+    # gets. Comparing them here means a stale call site is a checker
+    # error rather than a silently wrong type flowing onward.
+    if call.result_type != result:
+        raise KernelError(
+            f"call to {signature.name!r} records result {call.result_type!r} "
+            f"but the instantiated signature gives {result!r}"
+        )
+    if call.effects != effects:
+        raise KernelError(
+            f"call to {signature.name!r} records row {call.effects!r} "
+            f"but the instantiated signature gives {effects!r}"
+        )
+    return _checked_computation_type(effects, result, registry, context)
+
+
+def _infer_new_instance(
+    allocation: NewInstance,
+    registry: KernelRegistry,
+    context: CheckContext,
+) -> ComputationType:
+    """Check a scoped allocation and confirm the instance does not escape.
+
+    Parameters
+    ----------
+    allocation : NewInstance
+        The allocation to check.
+    registry : KernelRegistry
+        Registry the interface is resolved against.
+    context : CheckContext
+        Scope the allocation occurs in.
+
+    Returns
+    -------
+    ComputationType
+        The body's type with the allocated instance discharged from its
+        row. The instance exists only inside the body, so a row still
+        mentioning it outside would name something no handler can reach.
+
+    Raises
+    ------
+    KernelError
+        If the interface application is unknown or ill-formed, or if the
+        allocated instance survives in the body's residual row, which is
+        the escape this rule exists to reject.
+    """
+    registry.validate_static(allocation.effect)
+    definition = registry.effects.get(allocation.effect.id)
+    if definition is None or not definition.matches(allocation.effect):
+        raise KernelError(
+            f"unknown effect interface for local instance {allocation.instance}"
+        )
+    inner = infer_computation(allocation.body, registry, context)
+    if inner.effects.contains(allocation.instance):
+        raise KernelError(
+            f"local instance {allocation.instance} escapes its scope: the body "
+            f"still performs it, so nothing outside can discharge it"
+        )
+    return _checked_computation_type(
+        inner.effects,
+        inner.result,
+        registry,
+        context,
+    )
 
 
 __all__ = [
