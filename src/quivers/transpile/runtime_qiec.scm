@@ -122,6 +122,7 @@
     (cons "not" not)
     (cons "concat" string-append)
     (cons "int_to_real" exact->inexact)
+    (cons "int_to_string" number->string)
     (cons "real_to_int" (lambda (a) (exact (truncate a))))
     (cons "expm1" (lambda (a) (- (exp a) 1.0)))
     (cons "log1p" (lambda (a) (log (+ 1.0 a))))

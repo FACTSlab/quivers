@@ -32,16 +32,16 @@ What this page does not cover is whether a rendered program's density agrees wit
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
 | [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 39 / 48    |
-| [church](semantics/transpile-correctness/church.md)   | 23 / 46          | 43 / 48    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 43 / 48    |
-| [gen](semantics/transpile-correctness/gen.md)         | 29 / 46          | 42 / 48    |
+| [church](semantics/transpile-correctness/church.md)   | 22 / 46          | 42 / 48    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 30 / 46          | 42 / 48    |
+| [gen](semantics/transpile-correctness/gen.md)         | 28 / 46          | 41 / 48    |
 | [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 39 / 48    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 45 / 48    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 43 / 48    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 45 / 48    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 31 / 46          | 44 / 48    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 30 / 46          | 42 / 48    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 31 / 46          | 44 / 48    |
 | [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 40 / 48    |
-| [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 43 / 48    |
-| [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 43 / 48    |
+| [turing](semantics/transpile-correctness/turing.md)   | 30 / 46          | 42 / 48    |
+| [webppl](semantics/transpile-correctness/webppl.md)   | 31 / 46          | 42 / 48    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
 
@@ -78,7 +78,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`logistic_noise_regression`](examples/logistic-noise-regression.md)     | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`lstm_lm`](examples/lstm-lm.md)                                         | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`mixture_model`](examples/mixture-model.md)                             | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`montague_nli`](examples/montague-nli.md)                               | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
+| [`montague_nli`](examples/montague-nli.md)                               | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`multimodal_tlg`](examples/multimodal-tlg.md)                           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`negbin_regression`](examples/negbin-regression.md)                     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`parametric_pooling`](examples/parametric-pooling.md)                   | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
@@ -150,7 +150,7 @@ One minimal program per surface construct, so a `no` here isolates the construct
 | `let_expressions/let_expr_lambda`      | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
 | `let_expressions/let_expr_list`        | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_literal`     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `let_expressions/let_expr_method_call` | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
+| `let_expressions/let_expr_method_call` | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | `let_expressions/let_expr_string`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_unary`       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_var`         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -306,6 +306,38 @@ Every backend reports it in the same words. `bugs` on `bnn` reports:
 no transpile target can transpile this program:
   - no transpile target can transpile this program. The refusal is tagged `morphism 'net' draws its parameters from a 'mlp' network. The network's weights are model-internal and appear in neither the wire form nor the sample sites, so no backend can reconstruct the mean the morphism computes at line 33. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.`, which has no explanation registered yet; please report it.
   - a morphism draws its parameters from a `mlp` network, whose weights are not sites the program declares, so no target can reconstruct the parameter it computes. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
+```
+
+### `qiec:capability:search:Montague__run`
+
+Refused for: [`montague_nli`](examples/montague-nli.md).
+
+Reported kinds:
+
+```text
+qiec:capability:search:Montague__run
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `montague_nli` reports:
+
+```text
+QIEC computation `Montague__run` is a deduction's entry, which enumerates its derivations through a search handler that resumes once per alternative, and BUGS has no runtime for that search. Run the deduction on the reference machine with `run_deduction`, or keep the program's chart out of the transpiled model.
+```
+
+### `qiec:capability:search:PCFG__run`
+
+Refused for: `let_expressions/let_expr_method_call`.
+
+Reported kinds:
+
+```text
+qiec:capability:search:PCFG__run
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `let_expressions/let_expr_method_call` reports:
+
+```text
+QIEC computation `PCFG__run` is a deduction's entry, which enumerates its derivations through a search handler that resumes once per alternative, and BUGS has no runtime for that search. Run the deduction on the reference machine with `run_deduction`, or keep the program's chart out of the transpiled model.
 ```
 
 ### `scan:no-lowering:fwd_cell`
@@ -543,24 +575,6 @@ let-expr:LetExprLambda:bugs: BUGS / JAGS have no anonymous function syntax
 
 ```text
 bugs-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: BUGS / JAGS have no anonymous function syntax
-```
-
-**`let-expr:LetExprMethodCall:bugs`**
-
-Refused for: `let_expressions/let_expr_method_call`, [`montague_nli`](examples/montague-nli.md).
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprMethodCall:bugs: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
-```
-
-`bugs` on `let_expressions/let_expr_method_call` reports:
-
-```text
-bugs-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
 ```
 
 **`marginalize:ungrouped-over-plate:state`**
@@ -1062,24 +1076,6 @@ let-expr:LetExprLambda:jags: BUGS / JAGS have no anonymous function syntax
 jags-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: BUGS / JAGS have no anonymous function syntax
 ```
 
-**`let-expr:LetExprMethodCall:jags`**
-
-Refused for: `let_expressions/let_expr_method_call`, [`montague_nli`](examples/montague-nli.md).
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprMethodCall:jags: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
-```
-
-`jags` on `let_expressions/let_expr_method_call` reports:
-
-```text
-jags-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: BUGS / JAGS have no method-dispatch syntax; the chart-parser deduction graft that would supply the called function is also impossible because BUGS forbids user-defined model-body functions and JAGS exposes them only through compiled C++ modules linked at startup, not inline
-```
-
 **`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
@@ -1247,24 +1243,6 @@ let-expr:LetExprLambda: Stan has no anonymous function syntax in user-program ex
 
 ```text
 stan-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: Stan has no anonymous function syntax in user-program expression position
-```
-
-**`let-expr:LetExprMethodCall:stan`**
-
-Refused for: `let_expressions/let_expr_method_call`, [`montague_nli`](examples/montague-nli.md).
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprMethodCall:stan: Stan has no method dispatch syntax; the chart-parser deduction graft that would supply the called function as a Stan `functions { ... }` block requires (a) plumbing `DeductionDecl` through the IR (currently dropped by `CATEGORICAL_METADATA_IGNORABLE`), and (b) a token-sequence input shape (the fixture's `sentence : Real` is a scalar)
-```
-
-`stan` on `let_expressions/let_expr_method_call` reports:
-
-```text
-stan-helper has no method-dispatch syntax, so a `receiver.method(...)` call in a `let` has no form to take. Rewrite the call as a plain function of its arguments, or compute it in quivers and pass the result in as data.: Stan has no method dispatch syntax; the chart-parser deduction graft that would supply the called function as a Stan `functions { ... }` block requires (a) plumbing `DeductionDecl` through the IR (currently dropped by `CATEGORICAL_METADATA_IGNORABLE`), and (b) a token-sequence input shape (the fixture's `sentence : Real` is a scalar)
 ```
 
 **`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**

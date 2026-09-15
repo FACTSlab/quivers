@@ -36,12 +36,15 @@ from quivers.qiec.evaluator import (
 )
 from quivers.qiec.builtins import (
     BUILTIN_EFFECTS,
+    SEARCH_REDUCTIONS,
     add_weights,
     draw_handler,
     enumerate_handler,
+    param_handler,
     ReplayPolicy,
     replay_handler,
     score_handler,
+    search_handler,
     weight_handler,
 )
 from quivers.qiec.canonical import (
@@ -50,7 +53,7 @@ from quivers.qiec.canonical import (
     SITE_CONSTRUCTOR,
     tensor_shape,
 )
-from quivers.qiec.effects import HandlerDef
+from quivers.qiec.effects import HandlerDef, ResumptionGrade
 from quivers.qiec.evidence import BranchGiven, Reflexivity
 from quivers.qiec.identifiers import EffectInstanceId, OperationId, SourceOrigin
 from quivers.qiec.kinds import (
@@ -377,6 +380,100 @@ def _weights_validator(type_: TypeExpr) -> RuntimeValidator:
     return validator if validator is not None else _weights
 
 
+def _rekey(built: RuntimeHandler, definition: HandlerDef) -> RuntimeHandler:
+    """Re-key a prelude handler under a module's declaration.
+
+    Every installation the handler builds later, whether fresh through
+    its ``context_factory`` or forked for another shot through its
+    ``fork_context``, is re-keyed the same way, so the declaration the
+    kernel checked governs each of them.
+
+    Parameters
+    ----------
+    built : RuntimeHandler
+        The prelude implementation.
+    definition : HandlerDef
+        The module's declaration.
+
+    Returns
+    -------
+    RuntimeHandler
+        The implementation under the declaration.
+    """
+    rekeyed = replace(built, definition=definition)
+    if built.context_factory is not None:
+        prototype_factory = built.context_factory
+
+        def context_factory() -> RuntimeHandler:
+            """Build a fresh installation under the module's declaration.
+
+            Returns
+            -------
+            RuntimeHandler
+                The prelude installation re-keyed to the declaration.
+            """
+            return _rekey(prototype_factory(), definition)
+
+        rekeyed.context_factory = context_factory
+    if built.fork_context is not None:
+        prototype_fork = built.fork_context
+
+        def fork_context(handler: RuntimeHandler) -> RuntimeHandler:
+            """Fork an installation under the module's declaration.
+
+            Parameters
+            ----------
+            handler : RuntimeHandler
+                The installation forked.
+
+            Returns
+            -------
+            RuntimeHandler
+                The prelude fork re-keyed to the declaration.
+            """
+            return _rekey(prototype_fork(handler), definition)
+
+        rekeyed.fork_context = fork_context
+    return rekeyed
+
+
+def _collect_combine(
+    options: Mapping[str, object], name: str
+) -> tuple[object, Callable[[object, object], object]]:
+    """The identity and multiplication a collecting handler folds with.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+    name : str
+        The handler's name, for the error.
+
+    Returns
+    -------
+    tuple[object, Callable[[object, object], object]]
+        The identity and the fold: addition of log weights by default
+        (``"add"``), conjunction for ``"and"``, integer product for
+        ``"mul"``.
+
+    Raises
+    ------
+    ValueError
+        If the option is not one of the three.
+    """
+    combine = options.get("combine", "add")
+    if combine == "add":
+        return 0.0, add_weights
+    if combine == "and":
+        return True, lambda left, right: bool(left) and bool(right)
+    if combine == "mul":
+        return 1, lambda left, right: int(left) * int(right)  # type: ignore[call-overload]
+    raise ValueError(
+        f"core handler {name!r} option 'combine' must be add, and, or mul, not "
+        f"{combine!r}"
+    )
+
+
 def _enumerate_grouped(options: Mapping[str, object], name: str) -> bool:
     """Whether an enumerating handler answers per group position.
 
@@ -506,8 +603,10 @@ class CoreRuntimeProvider:
             does not declare, holds a non-object configuration, or requests a
             kind other than ``passthrough``, ``scripted``, ``state``, or one
             of the prelude kinds ``draw``, ``enumerate`` (with the options
-            ``grouped`` and ``reduction``), ``replay``, ``collect``, and
-            ``score``.
+            ``grouped`` and ``reduction``), ``replay``, ``collect`` (with
+            the options ``combine`` and ``forkable``), ``score``, ``search`` (with the
+            option ``reduction``), and ``param`` (with the option
+            ``values``).
         """
         configured = self.options.get("handlers", {})
         if not isinstance(configured, Mapping):
@@ -566,18 +665,30 @@ class CoreRuntimeProvider:
                     "Random",
                 )
             elif kind == "collect":
+                identity, combine = _collect_combine(raw_options, definition.name)
+                forkable = raw_options.get("forkable", False)
+                if not isinstance(forkable, bool):
+                    raise ValueError(
+                        f"core handler {definition.name!r} option 'forkable' must "
+                        "be a boolean"
+                    )
                 runtime = self._prelude(
                     definition,
                     lambda **_: weight_handler(
-                        0.0,
-                        add_weights,
+                        identity,
+                        combine,
                         _weights_validator(_weight_type(definition)),
                         weight_type=_weight_type(definition),
                         answer_type=definition.input_type,
                         answer_validator=_weights_validator(definition.input_type),
+                        forkable=forkable,
                     )[0],
                     "Weight",
                 )
+            elif kind == "search":
+                runtime = self._search(definition, raw_options)
+            elif kind == "param":
+                runtime = self._param(definition, raw_options)
             elif kind == "score":
                 runtime = self._prelude(
                     definition,
@@ -597,6 +708,109 @@ class CoreRuntimeProvider:
                     f"core handler {handler_name!r} has unknown kind {kind!r}"
                 )
             attachments.bind_handler(runtime)
+
+    def _search(
+        self, definition: HandlerDef, options: Mapping[str, object]
+    ) -> RuntimeHandler:
+        """Serve a module's search handler with the prelude implementation.
+
+        Parameters
+        ----------
+        definition
+            The module's handler declaration: one clause, handling an
+            operation that chooses among a tensor of alternatives with an
+            unrestricted resumption.
+        options
+            The configuration, whose ``reduction`` names the semiring
+            addition the shots combine by.
+
+        Returns
+        -------
+        RuntimeHandler
+            The implementation keyed under the module's declaration.
+
+        Raises
+        ------
+        ValueError
+            If the declaration has other than one unrestricted clause, or
+            the reduction is missing or unknown.
+        """
+        if len(definition.clauses) != 1 or (
+            definition.clauses[0].grade is not ResumptionGrade.UNRESTRICTED
+        ):
+            raise ValueError(
+                f"core handler {definition.name!r} must declare one unrestricted "
+                "clause to search"
+            )
+        reduction = options.get("reduction")
+        if not isinstance(reduction, str) or reduction not in SEARCH_REDUCTIONS:
+            raise ValueError(
+                f"core handler {definition.name!r} option 'reduction' must be one "
+                f"of {', '.join(SEARCH_REDUCTIONS)}"
+            )
+        return search_handler(
+            definition,
+            definition.clauses[0].operation,
+            reduction=reduction,
+            alternative_validator=lambda value: True,
+        )
+
+    def _param(
+        self, definition: HandlerDef, options: Mapping[str, object]
+    ) -> RuntimeHandler:
+        """Serve a module's parameter store with the prelude implementation.
+
+        Parameters
+        ----------
+        definition
+            The module's handler declaration over ``Param``.
+        options
+            The configuration, whose ``values`` map parameter names to
+            their values; an absent name reads as zero, which is how a
+            learned weight starts.
+
+        Returns
+        -------
+        RuntimeHandler
+            The implementation keyed under the module's declaration.
+
+        Raises
+        ------
+        ValueError
+            If the values are not an object.
+        """
+        values = options.get("values", {})
+        if not isinstance(values, Mapping):
+            raise ValueError(
+                f"core handler {definition.name!r} option 'values' must be an object"
+            )
+        store = dict(values)
+
+        def lookup(name: str, request: RuntimeRequest) -> object:
+            """Read one parameter.
+
+            Parameters
+            ----------
+            name : str
+                The parameter's name.
+            request : RuntimeRequest
+                The request, unused.
+
+            Returns
+            -------
+            object
+                The stored value, or zero.
+            """
+            del request
+            return store.get(name, 0.0)
+
+        return self._prelude(
+            definition,
+            lambda result_validator, answer_type: param_handler(
+                lookup, result_validator=result_validator, answer_type=answer_type
+            ),
+            "Param",
+        )
 
     def _prelude(
         self,
@@ -638,7 +852,7 @@ class CoreRuntimeProvider:
                 f"core handler {definition.name!r} must handle the prelude "
                 f"interface {interface!r} to use this implementation"
             )
-        if interface == "Random":
+        if interface in ("Random", "Param"):
             built = factory(
                 result_validator=lambda value: True,
                 answer_type=definition.input_type,
@@ -659,22 +873,7 @@ class CoreRuntimeProvider:
                 f"core handler {definition.name!r} declares clauses that differ "
                 f"from the prelude implementation for {interface!r}"
             )
-        rekeyed = replace(built, definition=definition)
-        if built.context_factory is not None:
-            prototype_factory = built.context_factory
-
-            def context_factory() -> RuntimeHandler:
-                """Build a fresh installation under the module's declaration.
-
-                Returns
-                -------
-                RuntimeHandler
-                    The prelude installation re-keyed to the declaration.
-                """
-                return replace(prototype_factory(), definition=definition)
-
-            rekeyed.context_factory = context_factory
-        return rekeyed
+        return _rekey(built, definition)
 
     def validator_for(self, type_: TypeExpr) -> RuntimeValidator | None:
         """Supply the primitive validator for a closed runtime type.

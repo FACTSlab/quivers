@@ -656,6 +656,15 @@ def _render_qiec_kind(backend: str, tail: str) -> str:
             if subject != "module"
             else "the QIEC module"
         )
+        if feature == "search":
+            return (
+                f"{where} is a deduction's entry, which enumerates its "
+                "derivations through a search handler that resumes once per "
+                f"alternative, and {_language(backend)} has no runtime for that "
+                "search. Run the deduction on the reference machine with "
+                "`run_deduction`, or keep the program's chart out of the "
+                "transpiled model."
+            )
         return (
             f"{where} requires the `{feature}` QIEC capability, but "
             f"{_language(backend)} has no semantics-preserving lowering for it. "

@@ -285,6 +285,7 @@ nav:
       - Pure builtins: api/dsl/pure_builtins.md
       - QIEC lowering: api/dsl/qiec_lowering.md
       - Program elaboration: api/dsl/program_elaboration.md
+      - Deduction elaboration: api/dsl/deduction_elaboration.md
       - QIEC diagnostics: api/dsl/qiec_diagnostics.md
       - QIEC tooling: api/dsl/qiec_tooling.md
     - Structural:

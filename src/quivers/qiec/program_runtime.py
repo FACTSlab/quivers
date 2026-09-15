@@ -12,10 +12,10 @@ it like any other before it runs.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from quivers.qiec.builtins import RANDOM_SAMPLE, SCORE_ADD
+from quivers.qiec.builtins import PARAM_GET, RANDOM_SAMPLE, SCORE_ADD
 from quivers.qiec.canonical import LOG_WEIGHT
 from quivers.qiec.effects import (
     ComputationType,
@@ -23,6 +23,7 @@ from quivers.qiec.effects import (
     HandlerClauseDef,
     HandlerDef,
     ResumptionGrade,
+    RowEntry,
 )
 from quivers.qiec.execution import (
     ExecutionResult,
@@ -30,12 +31,26 @@ from quivers.qiec.execution import (
     RuntimeSelection,
     run_named,
 )
+from quivers.qiec.evaluator import RuntimeConstructor
 from quivers.qiec.identifiers import ComputationId, HandlerId, SourceOrigin
 from quivers.qiec.module import NamedComputation, QiecModule
 from quivers.qiec.programs import ProgramEntry
 from quivers.qiec.kinds import IndexBinder
-from quivers.qiec.terms import Call, Handle, Local, Var
+from quivers.qiec.primitives import primitive
+from quivers.qiec.terms import (
+    Bind,
+    Call,
+    Computation,
+    Handle,
+    LiteralValue,
+    Local,
+    PrimitiveApplication,
+    Return,
+    TupleValue,
+    Var,
+)
 from quivers.qiec.types import (
+    REAL,
     IndexLiteral,
     IndexVariable,
     ShapeIndex,
@@ -48,6 +63,7 @@ from quivers.qiec.types import (
 #: The names of the wrapper's handlers, which no source may declare.
 REPLAY_HANDLER = "__program_replay"
 ACCUMULATE_HANDLER = "__program_accumulate"
+PARAMS_HANDLER = "__program_params"
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,12 +252,62 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
             module.source_protocol,
         ),
     )
-    body = Handle(
-        score.entry.instance,
-        accumulate.id,
-        Handle(random.entry.instance, replay.id, call, statics),
-        statics,
-    )
+    performed = {entry.instance for entry in computation.type.effects.entries}
+    handlers: list[HandlerDef] = []
+    body: Computation = call
+    if random.entry.instance in performed:
+        # Replaying a draw scores its density, so a replayed program
+        # always has scores to accumulate.
+        body = Handle(random.entry.instance, replay.id, body, statics)
+        handlers.append(replay)
+    if random.entry.instance in performed or score.entry.instance in performed:
+        body = Handle(score.entry.instance, accumulate.id, body, statics)
+        handlers.append(accumulate)
+    else:
+        # A program scoring nothing has the zero log joint.
+        answered = Local("__answer", answer)
+        body = Bind(
+            answered,
+            body,
+            Return(
+                TupleValue(
+                    (
+                        Var(answered),
+                        PrimitiveApplication(
+                            primitive("as_weight").id,
+                            "as_weight",
+                            (LiteralValue(0.0, REAL),),
+                            LOG_WEIGHT,
+                            SourceOrigin(
+                                module.module,
+                                ("programs", name, "joint", "zero"),
+                                "primitive",
+                                module.source_protocol,
+                            ),
+                        ),
+                    ),
+                    product_type(answer, LOG_WEIGHT),
+                )
+            ),
+        )
+    params = _params_entry(module, computation.type.effects)
+    if params is not None:
+        # A program calling a deduction reads learned weights through
+        # the module's parameter store, which the wrapper serves.
+        store = HandlerDef(
+            HandlerId.derive(module.module, "handler", PARAMS_HANDLER),
+            PARAMS_HANDLER,
+            params.effect,
+            (HandlerClauseDef(PARAM_GET, ResumptionGrade.LINEAR),),
+            product_type(answer, LOG_WEIGHT),
+            product_type(answer, LOG_WEIGHT),
+            EffectRow(),
+            total=True,
+            implementation="foreign",
+            telescope=computation.telescope,
+        )
+        body = Handle(params.instance, store.id, body, statics)
+        handlers.append(store)
     wrapper_name = f"__joint_{name}"
     wrapper = NamedComputation(
         ComputationId.derive(module.module, "computation", wrapper_name),
@@ -259,10 +325,31 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     )
     extended = replace(
         module,
-        handlers=(*module.handlers, replay, accumulate),
+        handlers=(*module.handlers, *handlers),
         computations=(*module.computations, wrapper),
     )
     return extended, wrapper_name
+
+
+def _params_entry(module: QiecModule, row: EffectRow) -> RowEntry | None:
+    """The ``Param`` instance a computation's row names, if any.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    row : EffectRow
+        The computation's row.
+
+    Returns
+    -------
+    RowEntry | None
+        The entry of the module's ``Param`` instance in the row.
+    """
+    for entry in row.entries:
+        if entry.effect.name == "Param":
+            return entry
+    return None
 
 
 def _extent_of(value: object, depth: int) -> int:
@@ -368,6 +455,7 @@ def run_program(
     *,
     data: Mapping[str, object],
     sites: Mapping[str, object],
+    parameters: Mapping[str, object] | None = None,
     fuel: int | None = None,
 ) -> ProgramRun:
     """Run a program with every site replayed and score its log joint.
@@ -384,6 +472,9 @@ def run_program(
     sites : Mapping[str, object]
         A host value for each sampled site, by label. Every site the
         program reaches must be given, and every given site reached.
+    parameters : Mapping[str, object] | None
+        The learned weights a deduction the program calls reads, by
+        name; an absent weight reads as zero.
     fuel : int | None
         A step budget for the run.
 
@@ -413,21 +504,14 @@ def run_program(
         },
         ACCUMULATE_HANDLER: {"kind": "score"},
     }
-    for handler in module.handlers:
-        if handler.implementation != "foreign":
-            continue
-        marginal = _marginal_handler(handler.name)
-        if handler.effect.name == "Random" and marginal is not None:
-            grouped, reduction = marginal
-            configured[handler.name] = {
-                "kind": "enumerate",
-                "grouped": grouped,
-                "reduction": reduction,
-            }
-        elif handler.effect.name == "Weight" and handler.name.endswith(
-            "collect_marginal"
-        ):
-            configured[handler.name] = {"kind": "collect"}
+    configured = {
+        handler_name: options
+        for handler_name, options in configured.items()
+        if any(handler.name == handler_name for handler in extended.handlers)
+    }
+    if any(handler.name == PARAMS_HANDLER for handler in extended.handlers):
+        configured[PARAMS_HANDLER] = {"kind": "param", "values": dict(parameters or {})}
+    configured.update(foreign_handler_configuration(module))
     runtime = RuntimeConfiguration(
         (RuntimeSelection("core", {"handlers": configured}),)
     )
@@ -443,12 +527,339 @@ def run_program(
     return ProgramRun(value, float(weight), result)  # type: ignore[arg-type]
 
 
+def foreign_handler_configuration(module: QiecModule) -> dict[str, object]:
+    """The runtime configuration of a module's elaborated foreign handlers.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+
+    Returns
+    -------
+    dict[str, object]
+        By handler name: the enumeration handlers of marginalization
+        blocks, the collecting handlers of those blocks and of
+        deductions, and the search handlers of deductions, each with
+        the options its name records.
+    """
+    configured: dict[str, object] = {}
+    for handler in module.handlers:
+        if handler.implementation != "foreign":
+            continue
+        marginal = _marginal_handler(handler.name)
+        deduction = _deduction_handler(handler.name)
+        if handler.effect.name == "Random" and marginal is not None:
+            grouped, reduction = marginal
+            configured[handler.name] = {
+                "kind": "enumerate",
+                "grouped": grouped,
+                "reduction": reduction,
+            }
+        elif handler.effect.name == "Weight" and handler.name.endswith(
+            "collect_marginal"
+        ):
+            configured[handler.name] = {"kind": "collect"}
+        elif deduction is not None:
+            kind, semiring = deduction
+            if kind == "search":
+                configured[handler.name] = {
+                    "kind": "search",
+                    "reduction": SEARCH_REDUCTION_OF[semiring],
+                }
+            else:
+                configured[handler.name] = {
+                    "kind": "collect",
+                    "combine": COLLECT_COMBINE_OF[semiring],
+                    "forkable": True,
+                }
+    return configured
+
+
+#: The search handler's reduction per deduction semiring.
+SEARCH_REDUCTION_OF: dict[str, str] = {
+    "logprob": "logsumexp",
+    "viterbi": "max",
+    "boolean": "or",
+    "counting": "sum",
+}
+#: The collecting handler's multiplication per deduction semiring.
+COLLECT_COMBINE_OF: dict[str, str] = {
+    "logprob": "add",
+    "viterbi": "add",
+    "boolean": "and",
+    "counting": "mul",
+}
+
+
+def _deduction_handler(name: str) -> tuple[str, str] | None:
+    """Read a deduction handler's kind and semiring off its name.
+
+    The elaborator names a deduction's handlers
+    ``<deduction>__search_<semiring>`` and
+    ``<deduction>__collect_<semiring>``.
+
+    Parameters
+    ----------
+    name : str
+        The handler's name.
+
+    Returns
+    -------
+    tuple[str, str] | None
+        ``("search", semiring)`` or ``("collect", semiring)``, or
+        ``None`` for a handler of another kind.
+    """
+    for kind in ("search", "collect"):
+        marker = f"__{kind}_"
+        if marker in name:
+            semiring = name.rsplit(marker, 1)[1]
+            if semiring in SEARCH_REDUCTION_OF:
+                return kind, semiring
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class DeductionRun:
+    """The outcome of running a deduction on the reference machine.
+
+    Parameters
+    ----------
+    weight
+        The inside weight of the goal in the deduction's semiring: a
+        log weight, a Boolean, or a count.
+    result
+        The machine's full result, with its trace.
+    """
+
+    weight: object
+    result: ExecutionResult
+
+
+def run_deduction(
+    module: QiecModule,
+    name: str,
+    *,
+    tokens: Sequence[str] | None = None,
+    axioms: Sequence[object] | None = None,
+    axiom_weights: Sequence[object] | None = None,
+    parameters: Mapping[str, object] | None = None,
+    fuel: int | None = None,
+) -> DeductionRun:
+    """Run a deduction's entry on the reference machine.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the deduction.
+    name : str
+        The deduction's name.
+    tokens : Sequence[str] | None
+        The sentence, for a deduction with a lexicon.
+    axioms : Sequence[object] | None
+        The axiom items, for a deduction without one; runtime
+        constructor values of its item family.
+    axiom_weights : Sequence[object] | None
+        One weight per axiom in the semiring's carrier.
+    parameters : Mapping[str, object] | None
+        The learned weights by name; an absent weight reads as zero.
+    fuel : int | None
+        A step budget for the run.
+
+    Returns
+    -------
+    DeductionRun
+        The goal's inside weight.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such deduction.
+    ValueError
+        If the input does not fit the deduction: tokens for one that
+        takes axioms, or the reverse.
+    ExecutionFailure
+        If the run fails.
+    """
+    entry_name = f"{name}__derive"
+    if not any(item.name == entry_name for item in module.computations):
+        raise KeyError(f"module {module.module!r} has no deduction {name!r}")
+    computation = next(
+        item for item in module.computations if item.name == f"{name}__run"
+    )
+    takes_tokens = len(computation.parameters) == 1
+    if takes_tokens and (tokens is None or axioms is not None):
+        raise ValueError(f"deduction {name!r} takes a sentence of tokens")
+    if not takes_tokens and (
+        axioms is None or axiom_weights is None or tokens is not None
+    ):
+        raise ValueError(f"deduction {name!r} takes its axioms and their weights")
+    extended, wrapper_name = _deduction_wrapper(module, computation)
+    if takes_tokens:
+        assert tokens is not None
+        arguments: tuple[object, ...] = (tuple(tokens),)
+        extent = len(tokens)
+    else:
+        assert axioms is not None and axiom_weights is not None
+        arguments = (tuple(axioms), tuple(axiom_weights))
+        extent = len(axioms)
+    binder = computation.telescope[0]
+    assert isinstance(binder, IndexBinder)
+    configured: dict[str, object] = {}
+    if wrapper_name != computation.name:
+        configured[PARAMS_HANDLER] = {"kind": "param", "values": dict(parameters or {})}
+    configured.update(foreign_handler_configuration(module))
+    result = run_named(
+        extended,
+        wrapper_name,
+        arguments,
+        static_arguments=(IndexLiteral(extent, binder.sort),),  # type: ignore[arg-type]
+        runtime=RuntimeConfiguration(
+            (RuntimeSelection("core", {"handlers": configured}),)
+        ),
+        fuel=fuel,
+    )
+    return DeductionRun(result.value, result)
+
+
+def deduction_item(
+    module: QiecModule, name: str, symbol: str, *fields: object
+) -> RuntimeConstructor:
+    """Build an item of a deduction's family as a host value.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the deduction.
+    name : str
+        The deduction's name.
+    symbol : str
+        The atom or constructor symbol, as the deduction spells it.
+    *fields : object
+        The constructor's fields: integers for position slots, items for
+        the rest.
+
+    Returns
+    -------
+    RuntimeConstructor
+        The item, which ``run_deduction`` takes among the axioms of a
+        deduction without a lexicon.
+
+    Raises
+    ------
+    KeyError
+        If the deduction declares no such symbol.
+    ValueError
+        If the field count differs from the constructor's arity.
+    """
+    constructor_name = f"{name}__{symbol}"
+    constructor = next(
+        (item for item in module.constructors if item.name == constructor_name), None
+    )
+    if constructor is None:
+        raise KeyError(f"deduction {name!r} declares no symbol {symbol!r}")
+    if len(fields) != len(constructor.fields):
+        raise ValueError(
+            f"{symbol!r} of deduction {name!r} takes {len(constructor.fields)} "
+            f"field(s), not {len(fields)}"
+        )
+    family = next(item for item in module.families if item.id == constructor.family)
+    return RuntimeConstructor(
+        constructor.id, (), tuple(fields), TypeApplication(family.type_constructor, ())
+    )
+
+
+def _deduction_wrapper(
+    module: QiecModule, computation: NamedComputation
+) -> tuple[QiecModule, str]:
+    """Extend a module with a computation serving a deduction's parameters.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    computation : NamedComputation
+        The deduction's entry.
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper's name; the module itself
+        and the entry's name when the deduction reads no learned weight.
+    """
+    params = _params_entry(module, computation.type.effects)
+    statics: tuple[StaticArgument, ...] = tuple(
+        IndexVariable(binder.name, binder.sort)
+        for binder in computation.telescope
+        if isinstance(binder, IndexBinder)
+    )
+    if params is None:
+        return module, computation.name
+    store = HandlerDef(
+        HandlerId.derive(module.module, "handler", PARAMS_HANDLER),
+        PARAMS_HANDLER,
+        params.effect,
+        (HandlerClauseDef(PARAM_GET, ResumptionGrade.LINEAR),),
+        computation.type.result,
+        computation.type.result,
+        EffectRow(),
+        total=True,
+        implementation="foreign",
+        telescope=computation.telescope,
+    )
+    parameters = tuple(
+        Local(parameter.name, parameter.type) for parameter in computation.parameters
+    )
+    call = Call(
+        computation.id,
+        computation.name,
+        statics,
+        tuple(Var(parameter) for parameter in parameters),
+        computation.type.result,
+        computation.type.effects,
+        SourceOrigin(
+            module.module,
+            ("deductions", computation.name, "wrapper", "call"),
+            "call",
+            module.source_protocol,
+        ),
+    )
+    wrapper_name = f"__deduction_{computation.name}"
+    wrapper = NamedComputation(
+        ComputationId.derive(module.module, "computation", wrapper_name),
+        wrapper_name,
+        computation.telescope,
+        parameters,
+        Handle(params.instance, store.id, call, statics),
+        ComputationType(EffectRow(), computation.type.result),
+        SourceOrigin(
+            module.module,
+            ("deductions", computation.name, "wrapper"),
+            "computation",
+            module.source_protocol,
+        ),
+    )
+    extended = replace(
+        module,
+        handlers=(*module.handlers, store),
+        computations=(*module.computations, wrapper),
+    )
+    return extended, wrapper_name
+
+
 __all__ = [
     "ACCUMULATE_HANDLER",
+    "COLLECT_COMBINE_OF",
+    "PARAMS_HANDLER",
     "REPLAY_HANDLER",
+    "SEARCH_REDUCTION_OF",
+    "DeductionRun",
     "ProgramRun",
+    "deduction_item",
+    "foreign_handler_configuration",
     "joint_module",
     "program_entry",
+    "run_deduction",
     "run_program",
     "static_arguments_for",
 ]

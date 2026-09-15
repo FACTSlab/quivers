@@ -806,6 +806,22 @@ the deduction and network gaps recorded on the module (QVR-090, QVR-100).
   weight without crossing an opaque Python callback boundary.
 - Existing chart/parser correctness tests remain green.
 
+**Transition state:** `src/quivers/dsl/deduction_elaboration.py` elaborates
+every `deduction` to a closed item family, the `Search` effect and its
+instance, a `Weight[K]` instance, the module's `params` instance, and the
+`eq`, `show`, `goal`, `axiom`, `derive`, and `run` computations; the
+derivation chooses rules and split positions through `Search`, adds weights
+through `Weight[K]`, fails by an empty choice, and reads learned weights
+through `Param`. `run_deduction` and a program's `parse(D, sentence)` run it
+on the reference machine, where the search handler resumes once per
+alternative over a forkable collecting handler that resumes in tail
+position (`TailResume`). Mutable agenda or chart state is not needed: the
+computation enumerates derivations rather than tabulating them, to the
+declared depth, and the agenda engine remains the tabulating torch runtime
+the two are checked against. The schema chart parser (`parser(...)`,
+`chart_fold`) is a differentiable tensor program of the structural
+package and stays with QVR-100.
+
 ### QVR-100 — Integrate deep-learning components
 
 **Depends on:** QVR-060, QVR-070, QVR-080.

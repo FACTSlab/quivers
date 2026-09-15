@@ -177,6 +177,7 @@ _qvr_qiec_primitives = {
     "not": lambda a: not a,
     "concat": lambda a, b: a + b,
     "int_to_real": float,
+    "int_to_string": str,
     "real_to_int": _qvr_qiec_math.trunc,
     "expm1": _qvr_qiec_math.expm1,
     "log1p": _qvr_qiec_math.log1p,

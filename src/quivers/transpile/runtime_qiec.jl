@@ -124,6 +124,7 @@ const _qvr_qiec_primitives = Dict{String, Any}(
     "not" => a -> !a,
     "concat" => (a, b) -> a * b,
     "int_to_real" => a -> Float64(a),
+    "int_to_string" => a -> string(a),
     "real_to_int" => a -> Int(trunc(a)),
     "expm1" => expm1,
     "log1p" => log1p,

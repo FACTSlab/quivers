@@ -108,6 +108,7 @@ var _qvr_qiec_primitives = {
   not: function(a) { return !a; },
   concat: function(a, b) { return a + b; },
   int_to_real: function(a) { return a; },
+  int_to_string: function(a) { return String(a); },
   real_to_int: function(a) { return Math.trunc(a); },
   expm1: function(a) { return Math.expm1(a); },
   log1p: function(a) { return Math.log1p(a); },
