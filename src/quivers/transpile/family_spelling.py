@@ -112,17 +112,18 @@ _HELPER_ROOTS: dict[str, dict[str, tuple[str, ...]]] = {
 
 #: Families no dynamic target can construct as a first-class value:
 #: ``GP`` is a structured lowering over a kernel of the program's domain
-#: grid, ``Transformed`` takes a transform no QIEC value has, and the
-#: remaining families have no spelling on the named target.
+#: grid, ``Transformed`` takes a transform no QIEC value has, ``Horseshoe``
+#: is a marginal over a local scale that no target's library carries, and
+#: the remaining families have no spelling on the named target.
 _UNSPELLABLE: dict[str, frozenset[str]] = {
-    "pyro": frozenset({"GP", "Transformed"}),
-    "numpyro": frozenset({"GP", "Transformed"}),
-    "pymc": frozenset({"GP", "Transformed"}),
-    "edward2": frozenset({"GP", "Transformed"}),
-    "turing": frozenset({"GP", "Mixture", "Truncated"}),
-    "gen": frozenset({"GP", "Mixture", "Truncated"}),
-    "webppl": frozenset({"GP", "Mixture"}),
-    "church": frozenset({"GP"}),
+    "pyro": frozenset({"GP", "Horseshoe", "Transformed"}),
+    "numpyro": frozenset({"GP", "Horseshoe", "Transformed"}),
+    "pymc": frozenset({"GP", "Horseshoe", "Transformed"}),
+    "edward2": frozenset({"GP", "Horseshoe", "Transformed"}),
+    "turing": frozenset({"GP", "Horseshoe", "Mixture", "Truncated"}),
+    "gen": frozenset({"GP", "Horseshoe", "Mixture", "Truncated"}),
+    "webppl": frozenset({"GP", "Horseshoe", "Mixture"}),
+    "church": frozenset({"GP", "Horseshoe"}),
 }
 
 
@@ -490,9 +491,6 @@ def _spell_pyro(
         callee = name
     else:
         callee = f"pyro.distributions.{name}"
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "pyro", "scale")
-        return f"pyro.distributions.Normal(loc=0.0, scale={scale})"
     if family in ("LKJCholesky", "LKJCorrelationFactor"):
         dimension = _dimension(record, event_shape, "pyro")
         return _keywords(callee, arguments, leading=(str(dimension),))
@@ -556,9 +554,6 @@ def _spell_numpyro(
         return _keywords(name, arguments)
     callee = f"numpyro.distributions.{name}"
     aliases = meta.arg_aliases.get("numpyro", {})
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "numpyro", "scale")
-        return f"numpyro.distributions.Normal(loc=0.0, scale={scale})"
     if family == "NegativeBinomial":
         total, probs = _require(record, arguments, "numpyro", "total_count", "probs")
         return (
@@ -636,9 +631,6 @@ def _spell_pymc(
     arguments = _arrays(record, arguments, _pyro_array)
     aliases = meta.arg_aliases.get("pymc", {})
     callee = f"pymc.{name}.dist"
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "pymc", "scale")
-        return f"pymc.Normal.dist(mu=0.0, sigma={scale})"
     if family == "NegativeBinomial":
         if "probs" in arguments:
             arguments["probs"] = f"(1.0 - {arguments['probs']})"
@@ -731,9 +723,6 @@ def _spell_edward2(
         aliases["alpha"] = "concentration"
     if family in ("Binomial", "BetaBinomial") and "total_count" in arguments:
         arguments["total_count"] = f"tf.cast({arguments['total_count']}, tf.float32)"
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "edward2", "scale")
-        return f"tfp.distributions.Normal(loc=0.0, scale={scale})"
     if family == "HalfCauchy":
         (scale,) = _require(record, arguments, "edward2", "scale")
         return f"{callee}(loc=0.0, scale={scale})"
@@ -827,9 +816,6 @@ def _spell_turing(
     family = record.name
     name = FAMILY_META[family].target_names["turing"]
     arguments = _arrays(record, arguments, _julia_array)
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "turing", "scale")
-        return f"Normal(0, {scale})"
     if family == "HalfNormal":
         (scale,) = _require(record, arguments, "turing", "scale")
         return f"truncated(Normal(0, {scale}), 0, Inf)"
@@ -932,9 +918,6 @@ def _spell_gen(
     family = record.name
     name = FAMILY_META[family].target_names["gen"]
     arguments = _arrays(record, arguments, _julia_array)
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "gen", "scale")
-        return _gen("normal", ("0", scale))
     if family == "HalfNormal":
         (scale,) = _require(record, arguments, "gen", "scale")
         return _gen("truncated_normal", ("0", scale, "0", "Inf"))
@@ -1042,9 +1025,6 @@ def _spell_webppl(
             (concentration,) = _require(record, arguments, "webppl", "concentration")
             return f"LKJCholesky({{dim: {dimension}, concentration: {concentration}}})"
         return f"{name}({_javascript_object(arguments)})"
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "webppl", "scale")
-        return f"Gaussian({{mu: 0, sigma: {scale}}})"
     if family == "HalfNormal":
         (scale,) = _require(record, arguments, "webppl", "scale")
         return f"_qvr_qiec_half(Gaussian({{mu: 0, sigma: {scale}}}))"
@@ -1138,9 +1118,6 @@ def _spell_church(
     family = record.name
     name = FAMILY_META[family].target_names["church"]
     arguments = _arrays(record, arguments, _scheme_array)
-    if family == "Horseshoe":
-        (scale,) = _require(record, arguments, "church", "scale")
-        return _scheme_call("gaussian", ("0", scale))
     if family == "HalfNormal":
         (scale,) = _require(record, arguments, "church", "scale")
         return _scheme_call("half", (_scheme_call("gaussian", ("0", scale)),))

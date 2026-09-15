@@ -182,7 +182,6 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
-    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -195,7 +194,7 @@ _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
 #: The constant ``log(2)`` offset that distinguishes HalfNormal from
 #: the full Normal is absorbed by the constant-spread tolerance in
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
 #: BUGS-side argument injection for QVR families that map to BUGS'
 #: ``dt(mu, tau, k)`` distribution. BUGS Student-t requires three
@@ -1608,10 +1607,6 @@ class BUGSRenderer(RendererBase):
         helper prepends an ``IRArgNumber(0)`` plus the parallel
         ``"loc"`` arg-name entry so the alias-transform pipeline
         still rewrites the scale into ``tau = 1/(scale*scale)``.
-        ``Horseshoe(scale)`` denotes ``Normal(0, scale)`` and takes
-        the same treatment, without the one-sided truncation the two
-        half-support families also carry.
-
         ``Cauchy(loc, scale)`` and ``HalfCauchy(scale)`` map to BUGS'
         ``dt(mu, tau, k)`` (Student-t parameterised by precision and
         degrees of freedom); this helper appends ``IRArgNumber(1)``

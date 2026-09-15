@@ -47,7 +47,7 @@ def test_every_named_family_has_a_spelling_or_is_declared_unspellable(
         spelled = spell_distribution(target, family, _arguments(family), (3, 3))
         assert spelled.expression
         for name in FAMILIES[family].parameter_names:
-            if family in ("Horseshoe",) or name in (
+            if name in (
                 "logits",
                 "precision_matrix",
                 "scale_tril",
@@ -115,7 +115,6 @@ def test_every_named_family_has_a_spelling_or_is_declared_unspellable(
         ),
         ("edward2", "HalfCauchy", {"scale": "s"}, "HalfCauchy(loc=0.0, scale=s)"),
         ("edward2", "Pareto", {"alpha": "a", "scale": "s"}, "concentration=a"),
-        ("pyro", "Horseshoe", {"scale": "s"}, "Normal(loc=0.0, scale=s)"),
         (
             "pyro",
             "LKJCholesky",

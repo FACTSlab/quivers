@@ -144,7 +144,6 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, _TransformKind]] = {
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
-    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -195,13 +194,7 @@ def _reorder_studentt_dt(
 #: one-sided truncation suffix
 #: [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
 #: supplies.
-#:
-#: ``Horseshoe(scale)`` is the same shape of gap without the
-#: truncation: the family denotes ``Normal(0, scale)`` on all of R and
-#: the QVR call site writes only the scale, so the prepended zero
-#: fills ``dnorm``'s location and the family carries no entry in
-#: ``HALF_SUPPORT_LOWER_BOUND``.
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
 #: JAGS-side argument injection for QVR families that map to JAGS'
 #: ``dt(mu, tau, k)`` distribution. JAGS Student-t requires three

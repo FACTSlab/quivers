@@ -506,6 +506,15 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
         # references the family the user wrote rather than the
         # absence sentinel.
         family, detail = detail, family
+    if family == "Horseshoe":
+        return (
+            f"{_has_no(backend, 'horseshoe distribution')}: `Horseshoe(scale)` "
+            f"denotes the marginal of a normal draw over a half-Cauchy local "
+            f"scale, which has no closed form and no library distribution on "
+            f"any target. Write the prior as its explicit decomposition, "
+            f"`tau * lambda * z` with `lambda ~ HalfCauchy(1.0)` and "
+            f"`z ~ Normal(0.0, 1.0)`, which every target expresses."
+        )
     if explained:
         return _cannot(backend, f"score a draw from `{family}`")
     if not detail:

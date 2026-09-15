@@ -662,9 +662,8 @@ class PyroRenderer(RendererBase):
                 *positional,
             )
         # A family whose target class fixes a leading parameter the QVR
-        # call site never writes (`Horseshoe(scale)` -> `Normal(0,
-        # scale)`) gets that value prepended under the target's own
-        # parameter name.
+        # call site never writes gets that value prepended under the
+        # target's own parameter name.
         fixed_leading = _PYRO_FIXED_LEADING_ARGS.get(family)
         if fixed_leading is not None:
             positional = (
@@ -1620,14 +1619,10 @@ _PYRO_KEYWORD_BINDINGS: dict[str, dict[str, str]] = {
 
 #: Families whose Pyro target class carries a leading parameter that
 #: the QVR call site never writes because the family fixes it, mapped
-#: to the value that fills it. The horseshoe prior is
-#: `Normal(0, scale)` and QVR spells it `Horseshoe(scale)`; emitting
-#: that one argument positionally against `pyro.distributions.Normal`
-#: binds it to `loc` and scores a unit scale at a shifted location, so
-#: the renderer prepends the fixed location instead.
-_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {
-    "Horseshoe": 0.0,
-}
+#: to the value that fills it; emitting such a family's arguments
+#: positionally would bind the first to the fixed parameter, so the
+#: renderer prepends the fixed value instead.
+_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {}
 
 
 _RUNTIME_PYRO_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"

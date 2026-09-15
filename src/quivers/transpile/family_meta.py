@@ -1175,19 +1175,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         qvr_name="Horseshoe",
         distribution_class=_Horseshoe,
         quivers_class=ConditionalHorseshoe,
-        target_names={
-            "stan": "normal",
-            "numpyro": "Normal",
-            "pyro": "Normal",
-            "pymc": "Normal",
-            "edward2": "Normal",
-            "turing": "Normal",
-            "gen": "normal",
-            "church": "gaussian",
-            "webppl": "Gaussian",
-            "bugs": "dnorm",
-            "jags": "dnorm",
-        },
+        target_names={},
     ),
     # ----- discrete -----
     "Bernoulli": FamilyMeta(

@@ -11,16 +11,34 @@ every family through its own library.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
 import random
 from types import MappingProxyType
 from typing import Protocol
 
+from quivers.qiec.reference_families import (
+    DENSITIES as _STRUCTURED_DENSITIES,
+    SAMPLERS as _STRUCTURED_SAMPLERS,
+)
+from quivers.qiec.reference_support import (
+    Density,
+    DistributionError,
+    Sampler,
+    finite_value as _finite_value,
+    log_choose as _log_choose,
+    normal_log_prob as _normal_log_prob,
+    probability as _probabilities,
+    real_parameter as _real,
+    simplex as _simplex,
+    vector_parameter as _vector,
+)
 
-class DistributionError(ValueError):
-    """A distribution could not be constructed, sampled, or scored."""
+
+#: Families whose draw has a size no parameter fixes; the constructed type
+#: supplies it, and the backend receives it as the ``dimension`` argument.
+SHAPE_FROM_EVENT: frozenset[str] = frozenset({"LKJCholesky", "LKJCorrelationFactor"})
 
 
 class DistributionBackend(Protocol):
@@ -240,12 +258,17 @@ class RuntimeDistribution:
         Mapping[str, object]
             The named parameters with their plate dimensions selected.
         """
-        return {
+        arguments = {
             name: self._broadcast(
                 name, _slice_at(value, position, self.ranks.get(name, 0))
             )
             for name, value in self.arguments.items()
         }
+        if self.family in SHAPE_FROM_EVENT and self.natural:
+            # The family's parameters say nothing about the size of a
+            # draw; the constructed type does, through the event extents.
+            arguments["dimension"] = self.natural[-1]
+        return arguments
 
     def _broadcast(self, name: str, value: object) -> object:
         """Expand a scalar given for a tensor parameter to its shape.
@@ -277,6 +300,44 @@ class RuntimeDistribution:
         for extent in reversed(dims):
             result = tuple(result for _ in range(extent))
         return result
+
+    def at(self, position: tuple[int, ...]) -> RuntimeDistribution:
+        """The distribution at one position of the plate, unplated.
+
+        Parameters
+        ----------
+        position : tuple[int, ...]
+            A position of the leading plate axes, outermost first; fewer
+            positions than axes leave the remaining axes in place.
+
+        Returns
+        -------
+        RuntimeDistribution
+            The family with its arguments selected at the position and
+            the selected axes dropped from the plate.
+
+        Raises
+        ------
+        DistributionError
+            If the position has more entries than the plate has axes.
+        """
+        shape = (*self.batch, *self.event)
+        if len(position) > len(shape):
+            raise DistributionError(
+                f"position {position!r} is deeper than a plate of rank {len(shape)}"
+            )
+        arguments = {
+            name: self._broadcast(
+                name, _slice_at(value, position, self.ranks.get(name, 0))
+            )
+            for name, value in self.arguments.items()
+        }
+        remaining = len(position)
+        batch = self.batch[remaining:] if remaining < len(self.batch) else ()
+        event = self.event[max(remaining - len(self.batch), 0) :]
+        return RuntimeDistribution(
+            self.family, arguments, batch, event, self.ranks, self.natural
+        )
 
     def sample(self, rng: random.Random | None = None) -> object:
         """Draw one value through the installed backend.
@@ -355,209 +416,6 @@ class RuntimeDistribution:
         if keep_batch:
             return _nest(totals, self.batch)
         return math.fsum(totals.values())
-
-
-def _real(arguments: Mapping[str, object], name: str, family: str) -> float:
-    """Read one real-valued parameter.
-
-    Parameters
-    ----------
-    arguments : Mapping[str, object]
-        The named parameters.
-    name : str
-        The parameter wanted.
-    family : str
-        The family, for the diagnostic.
-
-    Returns
-    -------
-    float
-        The parameter as a float.
-
-    Raises
-    ------
-    DistributionError
-        If the parameter is absent or not a number.
-    """
-    try:
-        value = arguments[name]
-    except KeyError as error:
-        raise DistributionError(
-            f"reference backend needs parameter {name!r} of {family}"
-        ) from error
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise DistributionError(f"parameter {name!r} of {family} is not a number")
-    return float(value)
-
-
-def _vector(
-    arguments: Mapping[str, object], name: str, family: str
-) -> tuple[float, ...]:
-    """Read one vector-valued parameter.
-
-    Parameters
-    ----------
-    arguments : Mapping[str, object]
-        The named parameters.
-    name : str
-        The parameter wanted.
-    family : str
-        The family, for the diagnostic.
-
-    Returns
-    -------
-    tuple[float, ...]
-        The parameter's components.
-
-    Raises
-    ------
-    DistributionError
-        If the parameter is absent or not a sequence of numbers.
-    """
-    try:
-        value = arguments[name]
-    except KeyError as error:
-        raise DistributionError(
-            f"reference backend needs parameter {name!r} of {family}"
-        ) from error
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        raise DistributionError(f"parameter {name!r} of {family} is not a vector")
-    return tuple(float(item) for item in value)
-
-
-def _probabilities(arguments: Mapping[str, object], family: str) -> float:
-    """The success probability of a Bernoulli-like family.
-
-    Parameters
-    ----------
-    arguments : Mapping[str, object]
-        The named parameters, holding ``probs`` or ``logits``.
-    family : str
-        The family, for the diagnostic.
-
-    Returns
-    -------
-    float
-        The probability, from ``probs`` directly or ``logits`` through the
-        logistic function.
-
-    Raises
-    ------
-    DistributionError
-        If neither parameterization is supplied.
-    """
-    if "probs" in arguments:
-        return _real(arguments, "probs", family)
-    if "logits" in arguments:
-        return 1.0 / (1.0 + math.exp(-_real(arguments, "logits", family)))
-    raise DistributionError(f"{family} needs probs or logits")
-
-
-def _simplex(arguments: Mapping[str, object], family: str) -> tuple[float, ...]:
-    """The category probabilities of a categorical-like family.
-
-    Parameters
-    ----------
-    arguments : Mapping[str, object]
-        The named parameters, holding ``probs`` or ``logits``.
-    family : str
-        The family, for the diagnostic.
-
-    Returns
-    -------
-    tuple[float, ...]
-        Probabilities summing to one, from ``probs`` normalized or
-        ``logits`` through the softmax.
-
-    Raises
-    ------
-    DistributionError
-        If neither parameterization is supplied.
-    """
-    if "probs" in arguments:
-        probs = _vector(arguments, "probs", family)
-        total = sum(probs)
-        return tuple(item / total for item in probs)
-    if "logits" in arguments:
-        logits = _vector(arguments, "logits", family)
-        peak = max(logits)
-        weights = [math.exp(item - peak) for item in logits]
-        total = sum(weights)
-        return tuple(item / total for item in weights)
-    raise DistributionError(f"{family} needs probs or logits")
-
-
-def _log_choose(n: float, k: float) -> float:
-    """``log C(n, k)`` through the log-gamma function.
-
-    Parameters
-    ----------
-    n : float
-        The number of trials.
-    k : float
-        The number of successes.
-
-    Returns
-    -------
-    float
-        The log binomial coefficient.
-    """
-    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
-
-
-def _normal_log_prob(value: float, loc: float, scale: float) -> float:
-    """The log density of a normal distribution.
-
-    Parameters
-    ----------
-    value : float
-        The point.
-    loc : float
-        The mean.
-    scale : float
-        The standard deviation.
-
-    Returns
-    -------
-    float
-        The log density.
-    """
-    return (
-        -0.5 * ((value - loc) / scale) ** 2
-        - math.log(scale)
-        - 0.5 * math.log(2 * math.pi)
-    )
-
-
-type Sampler = Callable[[Mapping[str, object], random.Random], object]
-type Density = Callable[[Mapping[str, object], object], float]
-
-
-def _finite_value(value: object, family: str) -> float:
-    """Read the point a scalar family is scored at.
-
-    Parameters
-    ----------
-    value : object
-        The point.
-    family : str
-        The family, for the diagnostic.
-
-    Returns
-    -------
-    float
-        The point as a float.
-
-    Raises
-    ------
-    DistributionError
-        If the point is not a number.
-    """
-    if isinstance(value, bool):
-        return float(value)
-    if not isinstance(value, int | float):
-        raise DistributionError(f"{family} is scored at a non-numeric value {value!r}")
-    return float(value)
 
 
 def _normal_sample(a: Mapping[str, object], rng: random.Random) -> object:
@@ -1293,6 +1151,7 @@ _SAMPLERS: Mapping[str, Sampler] = MappingProxyType(
         "Cauchy": _cauchy_sample,
         "StudentT": _studentt_sample,
         "Dirichlet": _dirichlet_sample,
+        **_STRUCTURED_SAMPLERS,
     }
 )
 
@@ -1315,16 +1174,18 @@ _DENSITIES: Mapping[str, Density] = MappingProxyType(
         "Cauchy": _cauchy_density,
         "StudentT": _studentt_density,
         "Dirichlet": _dirichlet_density,
+        **_STRUCTURED_DENSITIES,
     }
 )
 
 
 class ReferenceBackend:
-    """Plain-Python sampling and scoring for the scalar and simplex families.
+    """Plain-Python sampling and scoring for every family of the registry.
 
-    The tables cover what a reference run of an ordinary model needs; a
-    family outside them is reported by name rather than approximated, so a
-    host provider can be installed for it.
+    The scalar core lives beside the backend and the structured and
+    compositional families in :mod:`quivers.qiec.reference_families`; a
+    family outside the tables is reported by name rather than approximated,
+    so a host provider can be installed for it.
     """
 
     @property

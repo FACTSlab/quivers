@@ -287,11 +287,13 @@ def test_reference_samples_land_in_the_support_and_are_seeded() -> None:
     assert first == second
 
 
-def test_unimplemented_families_and_bad_parameters_are_reported() -> None:
-    with pytest.raises(DistributionError, match="cannot sample Wishart"):
-        RuntimeDistribution("Wishart", {"df": 3.0}).sample(random.Random(0))
-    with pytest.raises(DistributionError, match="cannot score Wishart"):
-        RuntimeDistribution("Wishart", {"df": 3.0}).log_prob(1.0)
+def test_unknown_families_and_bad_parameters_are_reported() -> None:
+    with pytest.raises(DistributionError, match="cannot sample Unheard"):
+        RuntimeDistribution("Unheard", {"df": 3.0}).sample(random.Random(0))
+    with pytest.raises(DistributionError, match="cannot score Unheard"):
+        RuntimeDistribution("Unheard", {"df": 3.0}).log_prob(1.0)
+    with pytest.raises(DistributionError, match="needs parameter 'covariance_matrix'"):
+        RuntimeDistribution("Wishart", {"df": 3.0}).log_prob(((1.0, 0.0), (0.0, 1.0)))
     with pytest.raises(DistributionError, match="needs parameter 'scale'"):
         RuntimeDistribution("Normal", {"loc": 0.0}).log_prob(0.0)
     with pytest.raises(DistributionError, match="probs or logits"):
