@@ -69,6 +69,10 @@ from quivers.transpile.renderers._base import (
     mixture_component_count,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_helper_families_used,
+)
 from quivers.transpile.renderers._javascript_helpers import (
     render_let_expr_javascript,
 )
@@ -276,6 +280,7 @@ class WebPPLRenderer(RendererBase):
             # although the family itself is scored through `.score`
             # rather than through the helper path.
             or _ir_uses_family(ir.body, "Categorical")
+            or qiec_helper_families_used(ir, self.target)
         ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
@@ -306,6 +311,7 @@ class WebPPLRenderer(RendererBase):
         # no-op for WebPPL, so we dispatch only the body nodes.
         for node in ir.body:
             self._dispatch_node(ctx, node)
+        render_computations_dynamic(ctx.sb, ir, target=self.target, root="prog")
         return ctx.sb.build()
 
     # ----- declare dispatch -----

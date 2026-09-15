@@ -1,0 +1,13 @@
+index Nat = Z | S(Nat)
+
+family Vec[A : Type](n : Nat) : Type
+    constructor Nil : Vec[A](Z)
+    constructor Cons[m : Nat] : A * Vec[A](m) -> Vec[A](S(m))
+
+define length[A : Type, n : Nat](xs : Vec[A](n)) : Int !{} =
+    case xs motive (m : Nat) => Int
+        Nil =>
+            return 0
+        Cons[k](head, tail) =>
+            let rest <- length[A, k](tail)
+            return 1 + rest

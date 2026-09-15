@@ -176,12 +176,9 @@ class TestNestedMarginalize:
             sample probs_a : K_outer <- HalfNormal(1.0)
             sample probs_b : K_middle <- HalfNormal(1.0)
             sample probs_c : K_inner <- HalfNormal(1.0)
-            sample idx_a : Resp <- HalfNormal(1.0)
-            sample idx_b : Resp <- HalfNormal(1.0)
-            sample idx_c : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_a) [over=G_outer]
-                marginalize middle : K_middle <- Dirichlet(probs_b) [over=G_middle]
-                    marginalize inner : K_inner <- Dirichlet(probs_c) [over=G_inner]
+            marginalize outer : K_outer <- Categorical(probs_a) [over=G_outer]
+                marginalize middle : K_middle <- Categorical(probs_b) [over=G_middle]
+                    marginalize inner : K_inner <- Categorical(probs_c) [over=G_inner]
                         observe r : Resp <- HalfNormal(1.0) [via=idx_a]
             return probs_a
         export triple
@@ -213,12 +210,9 @@ class TestNestedMarginalize:
             sample probs_a : K_outer <- HalfNormal(1.0)
             sample probs_b : K_middle <- HalfNormal(1.0)
             sample probs_c : K_inner <- HalfNormal(1.0)
-            sample idx_a : Resp <- HalfNormal(1.0)
-            sample idx_b : Resp <- HalfNormal(1.0)
-            sample idx_c : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_a) [over=G_outer]
-                marginalize middle : K_middle <- Dirichlet(probs_b) [over=G_middle]
-                    marginalize inner : K_inner <- Dirichlet(probs_c) [over=G_inner]
+            marginalize outer : K_outer <- Categorical(probs_a) [over=G_outer]
+                marginalize middle : K_middle <- Categorical(probs_b) [over=G_middle]
+                    marginalize inner : K_inner <- Categorical(probs_c) [over=G_inner]
                         observe r : Resp <- HalfNormal(1.0) [via=idx_a]
             return probs_a
         export triple
@@ -238,6 +232,9 @@ class TestNestedMarginalize:
         assert torch.isfinite(out).all()
 
     def test_nested_blocks_compile(self) -> None:
+        """An inner block grouped over a product refining the outer
+        group projects its per-position marginals onto the outer
+        group's positions."""
         from quivers.dsl import loads
 
         src = """
@@ -252,11 +249,9 @@ class TestNestedMarginalize:
         program demo : Resp -> Resp
             sample probs_outer : K1 <- HalfNormal(1.0)
             sample probs_inner : K2 <- HalfNormal(1.0)
-            sample outer_idx : Resp <- HalfNormal(1.0)
-            sample inner_idx : Resp <- HalfNormal(1.0)
-            marginalize outer : K1 <- Dirichlet(probs_outer) [over=G1]
-                marginalize inner : K2 <- Dirichlet(probs_inner) [over=G2]
-                    observe r : Resp <- HalfNormal(1.0) [via=outer_idx]
+            marginalize outer : K1 <- Categorical(probs_outer) [over=G1]
+                marginalize inner : K2 <- Categorical(probs_inner) [over=[G1, G2]]
+                    observe r : Resp <- HalfNormal(1.0) [via=[outer_idx, inner_idx]]
             return probs_outer
         export demo
         """
@@ -286,9 +281,7 @@ class TestProductFibrationSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample item_idx : Resp <- HalfNormal(1.0)
-            sample subj_idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs) [over=[Item, Subj]]
+            marginalize cls : Class <- Categorical(probs) [over=[Item, Subj]]
                 observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
             return probs
         export demo
@@ -310,8 +303,7 @@ class TestProductFibrationSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            sample item_idx : Resp <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs) [over=[Item, Subj]]
+            marginalize cls : Class <- Categorical(probs) [over=[Item, Subj]]
                 observe r : Resp <- HalfNormal(1.0) [via=item_idx]
             return probs
         export demo
@@ -341,7 +333,7 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=sum]
+            marginalize cls : Class <- Categorical(probs) [over=Item, reduction=sum]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
         export demo
@@ -362,7 +354,7 @@ class TestReductionSurface:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs) [over=Item, reduction=bogus]
+            marginalize cls : Class <- Categorical(probs) [over=Item, reduction=bogus]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return probs
         export demo
@@ -395,7 +387,7 @@ class TestSurfaceCompileErrors:
         object Class : FinSet 2
 
         program demo : Resp -> Resp
-            marginalize cls : Class <- Dirichlet(1.0) [over=Item]
+            marginalize cls : Class <- Categorical(1.0) [over=Item]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
             return cls
         export demo
@@ -419,7 +411,7 @@ class TestSurfaceCompileErrors:
 
         program demo : Resp -> Resp
             sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Dirichlet(probs) [over=Item]
+            marginalize cls : Class <- Categorical(probs) [over=Item]
                 sample other : Resp <- HalfNormal(1.0)
             return probs
         export demo
@@ -444,10 +436,7 @@ def test_three_axis_product_fibration_dsl_compiles() -> None:
 
     program triple_prod : Resp -> Resp
         sample probs : K <- HalfNormal(1.0)
-        sample idx_a : Resp <- HalfNormal(1.0)
-        sample idx_b : Resp <- HalfNormal(1.0)
-        sample idx_c : Resp <- HalfNormal(1.0)
-        marginalize cls : K <- Dirichlet(probs) [over=[A, B, C]]
+        marginalize cls : K <- Categorical(probs) [over=[A, B, C]]
             observe r : Resp <- HalfNormal(1.0) [via=[idx_a, idx_b, idx_c]]
         return probs
     export triple_prod

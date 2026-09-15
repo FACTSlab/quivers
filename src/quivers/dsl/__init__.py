@@ -41,6 +41,14 @@ from quivers.dsl.program_theory import (
     QVR_PROGRAM_PROTOCOL,
     extract_program_schema,
 )
+from quivers.dsl.qiec_lowering import (
+    QVR_SOURCE_VERSION,
+    QiecDiagnosticError,
+    QvrQiecLowerer,
+    has_qiec_surface,
+    lower_qvr_to_qiec,
+    non_qiec_projection,
+)
 from quivers.program import Program
 
 
@@ -62,7 +70,7 @@ def loads(
         raises `CompileError`.
     """
     ast = parse(source)
-    compiler = Compiler(ast)
+    compiler = Compiler(ast, module_name="source", file_path="<source>")
     if data is not None:
         compiler.bind_data(data)
     return compiler.compile()
@@ -75,7 +83,7 @@ def load(
 ) -> Program:
     """Load and compile a .qvr file into a trainable Program."""
     ast = parse_file(path)
-    compiler = Compiler(ast)
+    compiler = Compiler(ast, module_name=Path(path).stem, file_path=str(path))
     if data is not None:
         compiler.bind_data(data)
     return compiler.compile()
@@ -91,5 +99,11 @@ __all__ = [
     "Module",
     "Compiler",
     "QVR_PROGRAM_PROTOCOL",
+    "QVR_SOURCE_VERSION",
+    "QiecDiagnosticError",
+    "QvrQiecLowerer",
     "extract_program_schema",
+    "has_qiec_surface",
+    "lower_qvr_to_qiec",
+    "non_qiec_projection",
 ]

@@ -42,7 +42,7 @@ from quivers.continuous.scan import ScanMorphism
 from quivers.dsl.ast_nodes.declarations import ProgramDecl
 from quivers.dsl.parser import parse
 from quivers.effects.trace_types import Trace
-from tests.transpile import _equivalence, _gallery_data
+from tests.transpile import _gallery_data
 from tests.transpile import test_gallery_numeric_equivalence as _gallery_tier
 from tests.transpile.probes._protocol import Point
 from tests.transpile.probes.qvr import (
@@ -283,7 +283,7 @@ def _reconstruct_seq2seq(
     `fan(head) >> attn_proj >> residual_attn >> ff_up >> ff_down >>
     residual_ff`. There is no scan here: the chain is feed-forward, so
     the canonical path is a plain fold and the reconstruction agrees
-    with the oracle bitwise rather than to round-off.
+    with the oracle within the calibrated float32 roundoff budget.
 
     The product scores both towers at the image of the base measure's
     origin and hands their concatenated outputs to `cross`, which is
@@ -1886,16 +1886,16 @@ def test_reconstruction_matches_the_oracle_per_site(
             f"{example!r} point {index} ({labels[index]}) site "
             f"{name!r}: the reconstruction is {measured!r}."
         )
-        atol = _gallery_tier.reference_pin_atol(expected)
+        atol = _gallery_tier.reference_roundoff_atol(expected)
         assert abs(measured - expected) <= atol, (
             f"{example!r} point {index} ({labels[index]}) site "
             f"{name!r}: oracle {expected!r} against independent "
             f"reconstruction {measured!r}, a gap of "
             f"{abs(measured - expected):.6g} nats past the "
-            f"{atol:.6g} round-off budget. One of the two computes a "
+            f"{atol:.6g} per-site round-off budget. One of the two computes a "
             f"different density. Re-derive the term from the `.qvr` "
-            f"source before touching either side; the tolerance is "
-            f"the equivalence floor and does not move."
+            f"source before touching either side; the ULP budget does "
+            f"not move."
         )
 
     total = sum(terms.values())
@@ -2296,20 +2296,25 @@ def test_pin_comparison_boundary_is_the_tolerance(example: str) -> None:
         )
 
 
-def test_reference_pin_is_never_looser_than_the_equivalence_check() -> None:
-    """Bound each reference-pin tolerance by its equivalence tolerance."""
-    ceiling = _equivalence.adaptive_atol(n_obs=0)
-    loose: list[str] = []
+def test_reference_pin_tracks_float32_roundoff_at_every_point() -> None:
+    """Tie every whole-joint pin to its documented float32 ULP budget."""
+    assert _gallery_tier._REFERENCE_PIN_ULP_BUDGET == 8
+    mismatches: list[str] = []
     for example, values in sorted(_gallery_tier._QVR_REFERENCE_JOINT.items()):
         for index, value in enumerate(values):
             atol = _gallery_tier.reference_pin_atol(value)
-            if atol > ceiling:
-                loose.append(f"{example}[{index}]={atol:.3e}")
-    assert not loose, (
-        f"{loose!r} are pinned at a tolerance looser than the "
-        f"{ceiling:.3e} floor `reference_pin_atol` promises. The pin "
-        f"underwrites the equivalence check and cannot be slacker "
-        f"than it."
+            expected = _gallery_tier._REFERENCE_PIN_ULP_BUDGET * max(
+                _gallery_tier._float32_ulp(value),
+                _gallery_tier._float32_ulp(1.0),
+            )
+            if atol != expected:
+                mismatches.append(
+                    f"{example}[{index}]={atol:.3e}, expected {expected:.3e}"
+                )
+    assert not mismatches, (
+        f"{mismatches!r} do not use the calibrated float32 roundoff "
+        f"budget. A separate scalar cap can make a large-value pin "
+        f"stricter than one representable ULP."
     )
 
 
@@ -2573,7 +2578,8 @@ short of a bitwise-identical accumulation clears it.
 `transformer_lm` was written too, and lands in the same place from a
 different direction. It carries no recurrence at all: it is one
 feed-forward tower, the same shape as either arm of `seq2seq`, which
-*is* pinned here because its reconstruction agrees bitwise. What
+*is* pinned here because its reconstruction agrees within the
+calibrated float32 roundoff budget. What
 separates them is where the chain ends. `seq2seq` hands its towers'
 origin outputs to a further factor, so every factor is scored at its
 own location and nothing is evaluated far from it; `transformer_lm`

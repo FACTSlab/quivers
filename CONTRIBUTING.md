@@ -9,6 +9,7 @@ This guide covers setting up a development environment, understanding the projec
 - Python 3.14 or later
 - pip or conda
 - git
+- A C toolchain (`cc`, Clang, GCC, or MSVC) for editable parser builds
 
 ### Installation
 
@@ -211,9 +212,11 @@ The QVR DSL processes `.qvr` files through these stages:
 
 There is no hand-written lexer or recursive-descent parser. The
 grammar is a [tree-sitter](https://tree-sitter.github.io/) grammar
-(`grammars/qvr/grammar.js`), compiled to a parser that ships vendored
-in `panproto-grammars-all` and is served through panproto's
-`AstParserRegistry`. Parsing a `.qvr` source yields a panproto schema
+(`grammars/qvr/grammar.js`). Platform wheels include a native parser bound to
+the generated source by an integrity manifest; editable checkouts compile that
+source into a content-addressed development cache. The resulting parser is
+registered directly with panproto's `AstParserRegistry`. Parsing a `.qvr`
+source yields a panproto schema
 (the parse tree as vertices, edges, and field constraints), and the
 walkers in `src/quivers/dsl/parser/` turn that schema into AST nodes.
 The walker rejects any `ERROR` or missing node, so a malformed source
@@ -221,9 +224,9 @@ fails loudly with a line and column rather than parsing to a silently
 different tree.
 
 Editing the grammar means editing `grammar.js`, regenerating with
-`tree-sitter generate`, and re-vendoring through `panproto-grammars-all`;
-the `grammars/qvr/vcs/` panproto store and the `qvr migrate` chain
-carry `.qvr` sources across grammar releases.
+`tree-sitter generate`, updating the package mirrors and editor queries, and
+recording the new schema and immutable parser source in `grammars/qvr/vcs/`.
+The `qvr migrate` chain carries `.qvr` sources across grammar releases.
 
 ### 2. AST nodes (`dsl/ast_nodes/`)
 

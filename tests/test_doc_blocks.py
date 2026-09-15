@@ -14,6 +14,8 @@ on the line immediately preceding the opening fence:
   prior cumulative block in the same file before compiling. Use when a
   guide walks the reader through one model in incrementally-elaborated
   fragments.
+* ``<!-- compile: qiec -->``       — parse and lower the block through the
+  exact QVR to QIEC route beside the categorical Program compiler.
 * (no marker)                      — ``standalone``: the block must
   compile on its own.
 
@@ -79,7 +81,9 @@ def _dedent_fence_body(indent: str, body: str) -> str:
     return "".join(out_lines)
 
 
-_QVR_MARKER_RE = re.compile(r"<!--\s*compile:\s*(false|standalone|cumulative)\s*-->")
+_QVR_MARKER_RE = re.compile(
+    r"<!--\s*compile:\s*(false|standalone|cumulative|qiec)\s*-->"
+)
 _PY_MARKER_RE = re.compile(r"<!--\s*python:\s*(skip|run)\s*-->")
 
 
@@ -153,9 +157,15 @@ _PY_BLOCKS = _collect_py_blocks()
     ids=[f"{p}:blk{i}:{m}" for p, i, m, _ in _QVR_BLOCKS],
 )
 def test_qvr_doc_block(path: str, index: int, mode: str, source: str) -> None:
-    del path, index  # carried only for readable test ids
+    del path  # carried only for readable test ids
     if mode == "false":
         pytest.skip("block marked compile: false (illustrative fragment)")
+    if mode == "qiec":
+        from quivers.dsl.parser import parse
+        from quivers.dsl.qiec_lowering import lower_qvr_to_qiec
+
+        lower_qvr_to_qiec(parse(source), module_name=f"docs.block.{index}")
+        return
     loads(source)
 
 

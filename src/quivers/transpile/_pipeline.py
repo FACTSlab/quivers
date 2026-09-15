@@ -1,4 +1,4 @@
-"""The realize-from-AST pipeline shared by every backend.
+"""Shared target-grammar services for the transpiler pipeline.
 
 Every backend reduces to the same flow:
 
@@ -10,39 +10,35 @@ Every backend reduces to the same flow:
    (sample / observe / let / score with their family applications and
    axis specs); transpilation needs the bodies, so the source is the
    Module AST rather than the extracted schema.
-2. A backend-supplied [`SchemaTransform`][quivers.transpile.SchemaTransform]
-   walks the Module and constructs a fresh `panproto.Schema` in the
+2. [`Lower`][quivers.transpile.plan.Lower] elaborates the module and derives
+   the program's plan from the checked computation, the one lowered root,
+   and a registered renderer constructs a fresh `panproto.Schema` in the
    target tree-sitter grammar's auto-derived theory, using
-   [`panproto.SchemaBuilder`][panproto.SchemaBuilder]. Vertex kinds
+   `panproto.SchemaBuilder`. Vertex kinds
    match the grammar's `node-types.json`; identifier text is set via
    ``literal-value`` constraints; field-labelled edges use the field
    name as the edge kind.
-3. [`panproto.AstParserRegistry.emit_pretty`][panproto.AstParserRegistry.emit_pretty]
+3. `panproto.AstParserRegistry.emit_pretty`
    walks the target grammar's `grammar.json` productions to render the
    schema back to source bytes. No string templating in quivers.
 
-The [`SchemaTransform`][quivers.transpile.SchemaTransform] is a
-[`didactic.api.Mapping`][didactic.api.Mapping] whose ``forward`` takes
-the Module and returns the target schema, so backends compose with
-``>>`` and share base walkers.
+The renderer registry in [`quivers.transpile`][quivers.transpile] owns the
+complete source-to-target path. This module supplies the cached grammar
+registry, target protocols, and the schema-to-bytes mapping used by renderers
+and law tests.
 """
 
 from __future__ import annotations
-
-from typing import cast
 
 import didactic.api as dx
 import panproto
 from panproto._native import AstParserRegistry as _NativeAstParserRegistry
 
-from quivers.dsl.ast_nodes import Module
-
-
 _REGISTRY: _NativeAstParserRegistry | None = None
 
 
 def parser_registry() -> _NativeAstParserRegistry:
-    """Cached process-wide [`AstParserRegistry`][panproto.AstParserRegistry].
+    """Cached process-wide `AstParserRegistry`.
 
     Construction walks every installed ``panproto.grammars`` entry-point
     pack; doing it once amortises that work across every transpile call.
@@ -54,16 +50,16 @@ def parser_registry() -> _NativeAstParserRegistry:
 
 
 def target_protocol(grammar: str) -> panproto.Protocol:
-    """Synthesise a [`panproto.Protocol`][panproto.Protocol] handle for
+    """Synthesise a `panproto.Protocol` handle for
     a tree-sitter grammar.
 
     Tree-sitter grammars are not registered as builtin protocols
     (``panproto.get_builtin_protocol(grammar)`` raises ``KeyError`` for
     every grammar in `AstParserRegistry().protocol_names()`). The
     panproto API does, however, accept a string theory name in
-    [`Protocol.from_theories`][panproto.Protocol.from_theories]; the
+    `Protocol.from_theories`; the
     resulting Protocol is suitable for fresh
-    [`schema()`][panproto.Protocol.schema] builders that emit through
+    `schema()` builders that emit through
     the grammar's auto-derived theory.
     """
     # `schema_theory` is documented to accept either a `Theory` instance
@@ -76,55 +72,12 @@ def target_protocol(grammar: str) -> panproto.Protocol:
     )
 
 
-class SchemaTransform(dx.Mapping[Module, panproto.Schema]):
-    """[`Mapping[Module, panproto.Schema]`][didactic.api.Mapping].
-
-    Subclasses override [`forward`][didactic.api.Mapping.forward] to
-    walk the [`Module`][quivers.dsl.ast_nodes.Module] AST and build the
-    target schema via [`panproto.SchemaBuilder`][panproto.SchemaBuilder].
-    The Mapping superclass supplies ``>>`` composition with
-    [`EmitPretty`][quivers.transpile._pipeline.EmitPretty] and any
-    other downstream Mapping.
-    """
-
-    def forward(self, module: Module) -> panproto.Schema:
-        raise NotImplementedError(
-            f"{type(self).__name__} must implement forward(module): received {module!r}"
-        )
-
-
 class EmitPretty(dx.Mapping[panproto.Schema, bytes]):
-    """[`Mapping[panproto.Schema, bytes]`][didactic.api.Mapping] over
-    [`emit_pretty`][panproto.AstParserRegistry.emit_pretty]."""
+    """`Mapping[panproto.Schema, bytes]` over
+    `emit_pretty`."""
 
     def __init__(self, grammar: str) -> None:
         self._grammar = grammar
 
     def forward(self, schema: panproto.Schema) -> bytes:
         return bytes(parser_registry().emit_pretty(self._grammar, schema))
-
-
-def realize(module: Module, *, grammar: str, transform: SchemaTransform) -> bytes:
-    """Run the full pipeline for one backend.
-
-    Parameters
-    ----------
-    module
-        The parsed [`Module`][quivers.dsl.ast_nodes.Module] AST.
-    grammar
-        The tree-sitter grammar name.
-    transform
-        The QVR-to-target-schema mapping for this backend.
-
-    Returns
-    -------
-    bytes
-        The transpiled source. Always passes through
-        [`emit_pretty`][panproto.AstParserRegistry.emit_pretty]; never
-        constructed by string interpolation.
-    """
-    pipeline = cast(
-        "dx.Mapping[Module, bytes]",
-        transform >> EmitPretty(grammar),
-    )
-    return cast("bytes", pipeline(module))

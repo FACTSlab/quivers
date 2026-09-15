@@ -129,7 +129,8 @@ def _rule_field_targets(rule_body: Any) -> set[str]:
         node = stack.pop()
         if isinstance(node, dict):
             if node.get("type") == "SYMBOL" and isinstance(
-                node.get("name"), str,
+                node.get("name"),
+                str,
             ):
                 targets.add(node["name"])
                 continue
@@ -142,7 +143,8 @@ def _rule_field_targets(rule_body: Any) -> set[str]:
 
 
 def _build_schema(
-    protocol: panproto.Protocol, grammar_json_bytes: bytes,
+    protocol: panproto.Protocol,
+    grammar_json_bytes: bytes,
 ) -> panproto.Schema:
     """Translate a tree-sitter ``grammar.json`` into a
     :class:`panproto.Schema` of the custom ``qvr-grammar`` protocol.
@@ -198,6 +200,17 @@ def _commit_and_tag(
         repo.create_tag(tag, commit_id)
 
 
+def _schemas_differ(left: panproto.Schema, right: panproto.Schema) -> bool:
+    """Whether two grammar schemas have a structural delta.
+
+    The repository is content-addressed, but commit ids include commit
+    metadata.  Comparing commit ids would consequently append duplicate
+    grammar revisions every time this script runs.
+    """
+    diff = panproto.diff_schemas(left, right).to_dict()
+    return any(diff.get(key) for key in diff)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -215,40 +228,59 @@ def main(argv: list[str] | None = None) -> int:
     repo = panproto.Repository.open(str(_VCS_ROOT))
 
     revisions = _distinct_grammar_revisions()
+    existing_tags = {name: commit_id for name, commit_id in repo.list_tags()}
     for tag, grammar_json in revisions:
+        if tag in existing_tags:
+            print(f"  {tag}: already indexed", flush=True)
+            continue
         schema = _build_schema(protocol, grammar_json)
-        _commit_and_tag(
-            repo,
-            schema,
-            message=f"qvr grammar at {tag}",
-            tag=tag,
-        )
+        head_id = repo.head()
+        if head_id and not _schemas_differ(repo.schema_at(head_id), schema):
+            # A release may tag the grammar that was previously stored as
+            # the untagged working-tree commit.  Attach the release name to
+            # that immutable commit instead of attempting a no-op commit.
+            repo.create_tag(tag, head_id)
+        else:
+            _commit_and_tag(
+                repo,
+                schema,
+                message=f"qvr grammar at {tag}",
+                tag=tag,
+            )
         print(
-            f"  {tag}: {schema.vertex_count} rules, "
-            f"{schema.edge_count} field edges",
+            f"  {tag}: {schema.vertex_count} rules, {schema.edge_count} field edges",
             flush=True,
         )
 
     head_bytes = _current_head_grammar()
-    last_tag_bytes = revisions[-1][1] if revisions else b""
-    if head_bytes != last_tag_bytes:
+    head_source = (_REPO_ROOT / _GRAMMAR_JS_PATH).read_bytes()
+    last_tag = revisions[-1][0] if revisions else ""
+    last_tag_source = _git_show(f"{last_tag}:{_GRAMMAR_JS_PATH}") if last_tag else b""
+    # ``grammar.json`` can change when a newer tree-sitter generator
+    # serializes the same grammar.js.  Grammar history follows the
+    # authored grammar source, not generator-format drift.
+    if head_source != last_tag_source:
         # The working-tree grammar differs from every tagged release:
         # commit it untagged. The migration chain's final (not yet
         # tagged) entry resolves to this commit via the VCS HEAD; the
         # release ritual tags it in git first, so on the next rebuild
         # it enters the tagged loop above.
         schema = _build_schema(protocol, head_bytes)
-        _commit_and_tag(
-            repo,
-            schema,
-            message="qvr grammar at working tree",
-            tag=None,
-        )
-        print(
-            f"  HEAD (working tree): {schema.vertex_count} rules, "
-            f"{schema.edge_count} field edges",
-            flush=True,
-        )
+        head_id = repo.head()
+        if head_id and not _schemas_differ(repo.schema_at(head_id), schema):
+            print("  HEAD: working-tree grammar already indexed", flush=True)
+        else:
+            _commit_and_tag(
+                repo,
+                schema,
+                message="qvr grammar at working tree",
+                tag=None,
+            )
+            print(
+                f"  HEAD (working tree): {schema.vertex_count} rules, "
+                f"{schema.edge_count} field edges",
+                flush=True,
+            )
     else:
         print("  working-tree grammar identical to last tag, no new commit needed")
 

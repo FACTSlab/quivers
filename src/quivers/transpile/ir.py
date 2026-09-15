@@ -44,6 +44,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.transpile.qiec_ir import IRQiecModule
 
 
 # ---------------------------------------------------------------------------
@@ -856,7 +857,13 @@ class IRReturn(IRNode):
 
 
 class IRProgram(dx.Model):
-    """A lowered program: inputs plus body.
+    """One lowered root: the checked module and a program's plan.
+
+    `module` is the checked kernel module every target renders from,
+    as structural IR; `body` is the plan of the entry point named
+    `name`, derived from its computation, and `inputs` are the entry
+    point's parameters. A module with no program has an empty plan
+    and renders its computations alone.
 
     `cards` carries the static cardinalities of every QVR object
     used in the program, keyed by object name. Renderers consult
@@ -868,6 +875,7 @@ class IRProgram(dx.Model):
     name: str
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
+    module: IRQiecModule
     cards: dict[str, int] = dx.Field(default_factory=dict)
 
 

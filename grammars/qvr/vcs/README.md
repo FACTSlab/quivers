@@ -11,12 +11,16 @@ the grammar or AST shape changes.
 ```
 grammars/qvr/vcs/
   .panproto/        # panproto repository (content-addressed store)
-  schemas/          # one panproto schema JSON per grammar release
-    qvr-prior.json     # the surface before homogenization (object/space/
-                       # alias/morphism/kernel/embed/discretize)
-    qvr-head.json      # the surface after homogenization (type/morphism
-                       # with role, unified option block, leading-keyword
-                       # program steps)
+  parsers/          # immutable generated parser-source snapshots
+    v0.15.0/source/src/
+      parser.c
+      scanner.c
+      grammar.json
+      node-types.json
+    HEAD/source/src/
+      # current v0.19 parser sources and metadata
+  build_schemas.py  # append/tag distinct authored grammar revisions
+  build_parsers.py  # materialize parser snapshots from git tags
   README.md         # this file
 ```
 
@@ -24,25 +28,27 @@ grammars/qvr/vcs/
 
 Every grammar release follows three steps:
 
-1. Generate the panproto schema for the new grammar. Two paths:
-   * **Preferred** (once `panproto-grammars-all` vendors the
-     head-of-tree QVR grammar): parse a representative ``.qvr``
-     file through `panproto.AstParserRegistry().parse_with_protocol`
-     and let panproto extract the schema, then `schema.to_json()`
-     into `schemas/qvr-<release>.json`.
-   * **Bootstrap** (until panproto vendors the grammar): hand-write
-     a schema JSON whose vertices are the new node kinds and whose
-     edges are the field relations the grammar declares. The two
-     starter files (`qvr-prior.json`, `qvr-head.json`) follow this
-     bootstrap shape; treat them as anchors, replace with native
-     panproto output as soon as the parser is available.
-2. `schema add schemas/<new>.json && schema commit -m "<surface
-   description>"`. Tag the commit if the release ships externally.
+1. After tagging the git release, run `python
+   grammars/qvr/vcs/build_schemas.py`. The script tags an existing
+   untagged content commit when the release freezes the prior `HEAD`,
+   appends only genuinely new authored grammars, and is idempotent.
+   History is keyed by `grammar.js`; regenerated `grammar.json`
+   serialization alone does not constitute a language revision.
+2. Run `python grammars/qvr/vcs/build_parsers.py --revision <tag>`.
+   The generated C source, grammar metadata, and node types form the
+   platform-neutral immutable snapshot. Platform wheels carry a matching
+   native library and a manifest bound to these source bytes. An installed
+   package requires that verified trio and fails closed if any part is absent
+   or inconsistent. A source checkout may compile the snapshot into its local
+   cache for development.
 3. Run the batch migration over `.qvr` sources:
    `qvr migrate --from <prior-tag> --to HEAD <paths>`. The CLI
-   lives at `src/quivers/cli/migrate.py` and drives panproto's
-   `migrate_model` machinery; on success every targeted file
-   parses and compiles against the head grammar.
+   composes the registered one-hop panproto migrations. The chain
+   names v0.15.0 through v0.18.0 separately even though those releases
+   share an authored grammar. The v0.18.0 to `HEAD` hop is a validated,
+   byte-preserving additive migration for the v0.19 indexed-family and
+   effect surface; it is intentionally not declared as an identity edge.
+   The chain always ends in an explicit `HEAD`.
 
 ## Why a VCS instead of hand-editing files
 
@@ -50,14 +56,15 @@ A grammar/AST change typically touches every `.qvr` source in the
 tree. Hand-editing each one re-introduces drift, misses fenced doc
 blocks, and forks the migration logic across files. A single
 panproto migration centralizes the schema delta and reduces drift.
-The migration command still parses and compiles its outputs; schema
-construction alone does not guarantee a valid program.
+Each non-identity migration parses and validates its complete output
+before the CLI performs an atomic sibling-file replacement. With
+`--output`, directory inputs retain their relative subtree rather than
+flattening every `.qvr` file into one directory.
 
 ## Out of scope
 
-This VCS migrates `.qvr` source files only. The TUI, CLI, LSP
-server, editor extensions, and pygments lexer all need direct
-human updates whenever the surface grammar changes (auto-indent
-triggers, completion-keyword lists, semantic-token classifier,
-TextMate / Zed highlight queries). The migration engine does not
-touch those.
+This VCS migrates `.qvr` source files only. Grammar-derived assets such as the
+generated parser and tree-sitter highlight queries are regenerated from the
+authored grammar tooling. Semantic mappings in the TUI, CLI, LSP server,
+Pygments lexer, and TextMate grammar still require deliberate updates. The
+migration engine does not modify those surfaces.

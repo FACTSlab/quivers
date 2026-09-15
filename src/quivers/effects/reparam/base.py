@@ -1,97 +1,231 @@
 """Reparameterization strategies as effect handlers.
 
-A `Reparam` handler intercepts sample sites and rewrites them
-according to a bijection that preserves the induced distribution
-while reshaping the geometry seen by downstream inference. The
-canonical use case is HMC on funnel geometries: reparameterising
+A `Reparam` strategy rewrites a sample site: given the site's sampleable
+it produces the value the site takes and the density the site
+contributes, according to a bijection that preserves the induced
+distribution while reshaping the geometry downstream inference sees.
+The canonical use case is HMC on funnel geometries: reparameterising
 ``y ~ Normal(0, exp(z))`` into ``y_raw ~ Normal(0, 1); y = exp(z) *
 y_raw`` decouples the tight scale-location dependency that would
 otherwise kill NUTS
 ([Betancourt and Girolami 2015](https://arxiv.org/abs/1312.0906)).
 
-Each concrete reparam strategy implements `apply(msg)`, which
-returns the transformed value the interpreter should install and
-the transformed log-density contribution. The dispatch
-`ReparamOrchestrator` maps site names to strategies so a user can
-write
+The `ReparamOrchestrator` handler of the program's ``random`` instance
+answers each covered site with its strategy's value and emits the
+strategy's density as the site's score; every other site forwards, its
+sampleable remembered so a strategy of a later site may read it. A user
+writes
 
     with reparam({"theta": LocScaleReparam(), "z": NeuTraReparam(guide)}):
         samples = nuts.run(model, x, observations)
 
-and have per-site strategies apply in one pass.
+and has per-site strategies apply in one pass.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 
 import torch
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
+from quivers.effects.sites import TorchSampleable
+from quivers.qiec.builtins import (
+    RANDOM,
+    RANDOM_SAMPLE,
+    SCORE,
+    _emit_score,
+    _handler_def,
+    _site_and_sampleable,
+)
+from quivers.qiec.effects import EffectRow, ResumptionGrade, RowEntry
+from quivers.qiec.evaluator import (
+    ClauseContext,
+    Forward,
+    Resumption,
+    RuntimeClause,
+    RuntimeHandler,
+    RuntimeRequest,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRequest:
+    """What a strategy is given for one sample site.
+
+    Parameters
+    ----------
+    name
+        The site's name.
+    sampleable
+        The site's distribution at its input.
+    given
+        A value the site is to take, when an enclosing strategy or a
+        caller fixed one; ``None`` when the strategy draws.
+    seen
+        The sampleables of the sites the orchestrator saw before this
+        one, by name, so a strategy may read a parent's parameters.
+    observation
+        The run's observation for the site, if any.
+    """
+
+    name: str
+    sampleable: TorchSampleable
+    given: torch.Tensor | None = None
+    seen: Mapping[str, TorchSampleable] = None  # type: ignore[assignment]
+    observation: torch.Tensor | None = None
+
+    def with_value(self, value: torch.Tensor) -> SiteRequest:
+        """The same request with a value fixed.
+
+        Parameters
+        ----------
+        value : torch.Tensor
+            The value the site is to take.
+
+        Returns
+        -------
+        SiteRequest
+            The request with ``given`` set.
+        """
+        return replace(self, given=value)
 
 
 class Reparam(ABC):
     """Base class for site-level reparameterisation strategies.
 
-    A strategy is a *policy*, not a handler. The
-    `ReparamOrchestrator` handler dispatches site messages to the
-    matching strategy and installs the strategy's output on the
-    message. Subclasses override `apply`.
+    A strategy is a *policy*, not a handler. The `ReparamOrchestrator`
+    handler dispatches each covered site to the matching strategy and
+    installs the strategy's value and density on the site. Subclasses
+    override :meth:`apply`.
     """
 
     @abstractmethod
-    def apply(self, msg: Message) -> None:
-        """Rewrite ``msg`` in place.
+    def apply(self, site: SiteRequest) -> tuple[torch.Tensor, torch.Tensor]:
+        """Rewrite one site.
 
-        Implementations must:
+        Parameters
+        ----------
+        site : SiteRequest
+            The site, with a value fixed when one is given.
 
-        * set ``msg.value`` to the reparameterised value in the
-          site's original space (so downstream sites see the
-          intended value),
-        * set ``msg.log_prob`` to the reparameterised log-density
-          contribution that a downstream sampler should score
-          against.
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            The value the site takes, in the site's original space so
+            downstream sites see the intended value, and the density a
+            downstream sampler should score the site with.
         """
 
 
 class ReparamOrchestrator(EffectHandler):
-    """Dispatch sample-site messages to per-site reparam strategies.
+    """Dispatch sample sites to per-site reparam strategies.
 
     Parameters
     ----------
     strategies : dict[str, Reparam]
-        Site-name -> strategy dispatch table.
+        Site name to strategy.
     """
 
     def __init__(self, strategies: dict[str, Reparam]) -> None:
         self.strategies = dict(strategies)
 
-    def _pyro_sample(self, msg: Message) -> None:
-        strategy = self.strategies.get(msg.name)
-        if strategy is None:
-            return
-        strategy.apply(msg)
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install the dispatching handler of the ``random`` instance.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
+
+        Returns
+        -------
+        tuple[Installation, ...]
+            The handler, which answers covered sites and forwards the
+            rest.
+        """
+        kernel = run.kernel
+        score_instance = kernel.score.entry.instance
+        seen: dict[str, TorchSampleable] = {}
+        definition = _handler_def(
+            "Random.reparam",
+            RANDOM,
+            ((RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+            key=f"reparam-{id(self):x}",
+            input_type=run.result_type,
+            output_type=run.result_type,
+            introduced=EffectRow((RowEntry(score_instance, SCORE),)),
+            total=False,
+        )
+
+        def sample(
+            request: RuntimeRequest, resume: Resumption, context: ClauseContext
+        ) -> object:
+            """Answer a covered site with its strategy's value and density.
+
+            Parameters
+            ----------
+            request : RuntimeRequest
+                The request being answered and its arguments.
+            resume : Resumption
+                The continuation.
+            context : ClauseContext
+                Runtime services available to the clause.
+
+            Returns
+            -------
+            object
+                What the resumed computation produced, or a `Forward`
+                for a site no strategy covers.
+            """
+            site, sampleable = _site_and_sampleable(request, definition.name)
+            assert isinstance(site, str)
+            assert isinstance(sampleable, TorchSampleable)
+            strategy = self.strategies.get(site)
+            if strategy is None:
+                seen[site] = sampleable
+                return Forward()
+            value, log_prob = strategy.apply(
+                SiteRequest(
+                    site,
+                    sampleable,
+                    seen=dict(seen),
+                    observation=run.observations.get(site),
+                )
+            )
+            seen[site] = sampleable
+            _emit_score(
+                context,
+                request,
+                score_instance,
+                log_prob,
+                run.validator,
+                role="draw-score",
+            )
+            return resume(value)
+
+        runtime = RuntimeHandler(
+            definition, {RANDOM_SAMPLE: RuntimeClause(sample, run.validator)}
+        )
+        return (Installation(kernel.random, runtime),)
 
 
 def reparam(strategies: dict[str, Reparam]) -> ReparamOrchestrator:
-    """Return a `ReparamOrchestrator` for the given per-site strategies."""
+    """Return a `ReparamOrchestrator` for the given per-site strategies.
+
+    Parameters
+    ----------
+    strategies : dict[str, Reparam]
+        Site name to strategy.
+
+    Returns
+    -------
+    ReparamOrchestrator
+        The handler.
+    """
     return ReparamOrchestrator(strategies)
 
 
-def _default_sample(msg: Message) -> torch.Tensor:
-    """Draw a sample from the site's underlying morphism.
-
-    Used by reparam strategies that need a fresh draw from the
-    original distribution (e.g. to construct the deterministic
-    forward image of a reparameterised base sample).
-    """
-    assert msg.morphism is not None
-    assert msg.input is not None
-    return msg.morphism.rsample(msg.input)
-
-
-def _default_log_prob(msg: Message, value: torch.Tensor) -> torch.Tensor:
-    """Score ``value`` under the site's underlying morphism."""
-    assert msg.morphism is not None
-    assert msg.input is not None
-    return msg.morphism.log_prob(msg.input, value)
+__all__ = ["Reparam", "ReparamOrchestrator", "SiteRequest", "reparam"]

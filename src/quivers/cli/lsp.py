@@ -19,7 +19,7 @@ def main(args: argparse.Namespace) -> int:
             f"pygls not installed ({e}); install with `pip install 'quivers[lsp]'`.\n"
         )
         return 2
-    server = build_server()
+    server = build_server(target=getattr(args, "target", None))
     if args.tcp is not None:
         server.start_tcp("127.0.0.1", args.tcp)
     else:
@@ -31,6 +31,11 @@ def _entry() -> int:
     """Console-script entry point for ``qvr-lsp``."""
     parser = argparse.ArgumentParser(prog="qvr-lsp")
     parser.add_argument("--tcp", type=int, default=None, metavar="PORT")
+    parser.add_argument(
+        "--target",
+        default=None,
+        help="publish diagnostics for QIEC features unsupported by TARGET",
+    )
     parser.add_argument(
         "--stdio",
         action="store_true",

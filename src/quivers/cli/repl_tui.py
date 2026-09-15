@@ -57,6 +57,14 @@ _HISTORY_PATH = (
 
 def run_tui(session: "ReplSession") -> int:
     """Run the Textual REPL App on ``session``."""
+    app = _build_tui_app(session)
+    app.run()  # type: ignore[attr-defined]
+    return 0
+
+
+def _build_tui_app(session: "ReplSession") -> object:
+    """Construct the real Textual app, with an in-process test seam."""
+
     from rich.text import Text
     from textual.app import App, ComposeResult
     from textual.binding import Binding
@@ -72,28 +80,9 @@ def run_tui(session: "ReplSession") -> int:
         Tree,
     )
 
-    from quivers.cli.repl_complete import all_completions
-    from quivers.cli.repl_highlight import to_rich_text
+    from quivers.cli.repl_complete import all_completions, public_meta_commands
 
-    META_COMMANDS = (
-        "load",
-        "reload",
-        "type",
-        "kind",
-        "transpile",
-        "info",
-        "doc",
-        "browse",
-        "dump",
-        "edit",
-        "trace",
-        "save",
-        "watch",
-        "unwatch",
-        "set",
-        "help",
-        "quit",
-    )
+    META_COMMANDS = public_meta_commands()
 
     class _MetaCommandProvider(Provider):
         """Surface every meta-command in the Ctrl-P palette."""
@@ -329,7 +318,9 @@ def run_tui(session: "ReplSession") -> int:
             yield Footer()
 
         def on_mount(self) -> None:
-            self.query_one("#input", TextArea).focus()
+            input_widget = self.query_one("#input", TextArea)
+            _enable_qvr_highlighting(input_widget)
+            input_widget.focus()
             self._refresh_status()
             self._refresh_env()
             if self.session.loaded_path is not None:
@@ -519,7 +510,7 @@ def run_tui(session: "ReplSession") -> int:
                             log.write(_decorate_comment_line(line))
                         else:
                             log.write(
-                                to_rich_text(
+                                _to_tui_rich_text(
                                     line,
                                     env_kinds=env_kinds,
                                     link_action="info",
@@ -585,7 +576,7 @@ def run_tui(session: "ReplSession") -> int:
                 text.append("watch ", style="bold magenta")
                 text.append(expr, style="bold")
                 text.append(" => ", style="dim")
-                text.append(to_rich_text(line, env_kinds=env_kinds))
+                text.append(_to_tui_rich_text(line, env_kinds=env_kinds))
             panel.update(text)
             panel.add_class("has-content")
 
@@ -623,6 +614,11 @@ def run_tui(session: "ReplSession") -> int:
                     n = len(mapping)
                     if n:
                         parts.append(f"{n} {label}")
+                from quivers.dsl.qiec_tooling import qiec_bindings
+
+                qiec_count = len(qiec_bindings(self.session.module))
+                if qiec_count:
+                    parts.append(f"{qiec_count} qiec")
                 counts = " · ".join(parts) if parts else "empty env"
                 algebra = type(compiler.algebra).__name__
             text = Text()
@@ -633,6 +629,16 @@ def run_tui(session: "ReplSession") -> int:
                 text.append(f" {algebra}", style="bold cyan")
             text.append("  ", style="dim")
             text.append(counts, style="dim")
+            runtime_status = _runtime_status(self.session)
+            text.append("  ", style="dim")
+            text.append(
+                runtime_status,
+                style=(
+                    "bold yellow"
+                    if self.session.runtime_label == "detached"
+                    else "bold green"
+                ),
+            )
             return text
 
         def _refresh_env(self, *, filter_text: str = "") -> None:
@@ -661,9 +667,7 @@ def run_tui(session: "ReplSession") -> int:
             # meta-commands use.
             _populate_scope_tree(tree.root, self.session, keep, filter_text=needle)
 
-    app = QvrRepl(session)
-    app.run()
-    return 0
+    return QvrRepl(session)
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +675,81 @@ def run_tui(session: "ReplSession") -> int:
 # ---------------------------------------------------------------------------
 
 
+def _enable_qvr_highlighting(text_area: object) -> bool:
+    """Register the wheel-shipped QVR grammar with Textual's ``TextArea``."""
+
+    try:
+        from importlib.resources import files
+
+        from quivers.dsl.pygments_lexer import _load_parser
+
+        _, language, _library = _load_parser()
+        resource = files("quivers.dsl._grammar_data").joinpath("highlights.scm")
+        if resource.is_file():
+            query = resource.read_text()
+        else:
+            query = (
+                Path(__file__).resolve().parents[3]
+                / "grammars"
+                / "qvr"
+                / "queries"
+                / "highlights.scm"
+            ).read_text()
+        text_area.register_language("qvr", language, query)  # type: ignore[attr-defined]
+        text_area.language = "qvr"  # type: ignore[attr-defined]
+    except ImportError, OSError, AttributeError, RuntimeError, TypeError, ValueError:
+        return False
+    return True
+
+
+def _runtime_status(session: "ReplSession") -> str:
+    """Return the runtime/last-run fragment exposed by the TUI status bar."""
+
+    status = f"runtime:{session.runtime_label}"
+    result = session.last_run
+    if result is None:
+        return status
+    data = result.to_data()
+    return f"{status} last:{result.computation}={data['value']!r}:{data['result_type']}"
+
+
 _LOCATION_RE = __import__("re").compile(r"(\S+\.qvr):(\d+):(\d+)")
+
+
+def _to_tui_rich_text(
+    source: str,
+    *,
+    env_kinds: dict[str, str] | None = None,
+    link_action: str | None = None,
+):  # type: ignore[no-untyped-def]
+    """Highlight TUI text, layering click metadata over colour styles.
+
+    Rich supports overlapping spans. Applying click metadata as its own span
+    keeps the highlighter's parsed true-colour style intact when Textual later
+    resolves the combined style for a cell.
+    """
+    from quivers.cli.repl_highlight import to_rich_text, tokenize
+
+    text = to_rich_text(source, env_kinds=env_kinds)
+    if link_action is None:
+        return text
+
+    interesting = {"type", "function", "namespace"}
+    offset = 0
+    for span in tokenize(source, env_kinds=env_kinds):
+        end = offset + len(span.text)
+        if (
+            span.token in interesting
+            and span.text.replace("_", "").isalnum()
+            and not span.text[0].isdigit()
+        ):
+            text.apply_meta(
+                {"@click": f"{link_action}('{span.text}')"},
+                start=offset,
+                end=end,
+            )
+        offset = end
+    return text
 
 
 def _decorate_comment_line(line: str):  # type: ignore[no-untyped-def]
@@ -703,7 +781,7 @@ def _word_prefix(line: str, col: int) -> str:
     A leading ``:`` is preserved so meta-command completion works.
     """
     i = col
-    while i > 0 and (line[i - 1].isalnum() or line[i - 1] in "_:"):
+    while i > 0 and (line[i - 1].isalnum() or line[i - 1] in "_:."):
         i -= 1
     return line[i:col]
 
@@ -819,6 +897,33 @@ def _populate_scope_tree(root, session, keep, *, filter_text):  # type: ignore[n
                 node=mapping[name],
             )
             _add_ref_node(cat_node, session, ref)
+
+    from quivers.cli.repl_session import render_qiec_signature
+    from quivers.dsl.qiec_tooling import qiec_bindings
+
+    grouped: dict[str, list] = {}
+    for binding in qiec_bindings(session.module):
+        if keep(binding.qualified_name):
+            grouped.setdefault(binding.kind, []).append(binding)
+    headings = {
+        "index": "qiec indices",
+        "index-constructor": "qiec index constructors",
+        "family": "qiec families",
+        "constructor": "qiec constructors",
+        "effect": "qiec effects",
+        "operation": "qiec operations",
+        "instance": "qiec instances",
+        "handler": "qiec handlers",
+        "computation": "qiec computations",
+    }
+    for kind, bindings in grouped.items():
+        cat_node = root.add(headings[kind], expand=True)
+        for binding in bindings:
+            label = render_qiec_signature(session.module, binding.qualified_name)
+            cat_node.add_leaf(
+                label or binding.qualified_name,
+                data=binding.qualified_name,
+            )
 
 
 def _add_ref_node(parent, session, ref):  # type: ignore[no-untyped-def]

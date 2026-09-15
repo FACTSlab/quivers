@@ -27,6 +27,8 @@ from quivers.lsp import build_server  # noqa: E402
 from quivers.lsp.document import DocumentState  # noqa: E402
 from quivers.lsp.server import (  # noqa: E402
     _env_kinds_for,
+    _format_document,
+    _lsp_eof_position,
     _render_hover,
     _slice_source,
     _to_lsp_diag,
@@ -130,6 +132,21 @@ def test_to_lsp_diag_warning_severity() -> None:
     assert out.severity == lsp.DiagnosticSeverity.Warning
 
 
+def test_formatting_refuses_qiec_lowering_errors() -> None:
+    doc = _doc(source=("effect E\n    op : Unit -> Unit\n    op : Unit -> Unit\n"))
+    assert [diagnostic.code for diagnostic in doc.diagnostics] == ["qiec-handler"]
+    assert _format_document(doc) is None
+
+
+def test_formatting_range_ends_at_valid_trailing_newline_position() -> None:
+    doc = _doc(source="index Nat=Z\n")
+    edits = _format_document(doc)
+    assert edits is not None and len(edits) == 1
+    assert edits[0].range.end == lsp.Position(line=1, character=0)
+    assert edits[0].new_text == "index Nat = Z\n"
+    assert _lsp_eof_position("#! café 😀") == (0, 10)
+
+
 def test_build_server_advertises_features() -> None:
     server = build_server()
     methods = set(server.protocol.fm.features.keys())
@@ -147,6 +164,8 @@ def test_build_server_advertises_features() -> None:
         "textDocument/semanticTokens/full",
     }
     assert expected <= methods
+    completion_options = server.protocol.fm.feature_options["textDocument/completion"]
+    assert "." in completion_options.trigger_characters
 
 
 def test_document_find_decl() -> None:

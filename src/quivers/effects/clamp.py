@@ -1,52 +1,85 @@
-"""Clamp handler: pin named sample sites to fixed values.
+"""Clamp handler: condition named sample sites on given values.
 
-`ClampHandler` (constructed via the `clamp` factory) rewrites
-every sample site named in its data dict into an observed site
-with the supplied value. The site's log-density is still scored
-under the underlying distribution, so the joint density after
-clamping is the posterior score up to normalisation. This is the
-handler-stack analogue of Pyro's
-[`pyro.poutine.condition`](https://docs.pyro.ai/en/stable/poutine.html#pyro.poutine.handlers.condition).
-
-The name `clamp` avoids the collision with the top-level
+`ClampHandler` is the effect-stack analogue of Pyro's ``condition``. A
+site whose name appears in its data is answered with the given value
+and scored under its own distribution, so the value contributes the
+site's density to the joint and the trace records the site as observed.
+The name avoids collision with the top-level
 [`quivers.inference.conditioning.condition`][quivers.inference.conditioning.condition]
-factory, which returns a
-[`Conditioned`][quivers.inference.conditioning.Conditioned] model
-wrapper: a different abstraction covering the same intent through
-a non-handler surface.
+factory, which returns a `Conditioned` model wrapper.
 """
 
 from __future__ import annotations
 
 import torch
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
+from quivers.qiec.builtins import (
+    ExtraValuePolicy,
+    MissingValuePolicy,
+    condition_handler,
+)
 
 
 class ClampHandler(EffectHandler):
-    """Clamp sample sites to observed values.
-
-    A sample site whose name appears in ``data`` is rewritten to an
-    observe site: its value is set to ``data[name]``, its
-    ``is_observed`` flag is set, and the interpreter falls back to
-    the default ``morph.log_prob(inp, value)`` for the density.
-    Other sites pass through untouched.
+    """Condition named sample sites on given values.
 
     Parameters
     ----------
     data : dict[str, torch.Tensor]
-        Site-name -> value bindings.
+        Site name to the value the site is clamped to. Other sites pass
+        through untouched.
     """
 
     def __init__(self, data: dict[str, torch.Tensor]) -> None:
-        self.data = data
+        self.data = dict(data)
 
-    def _pyro_sample(self, msg: Message) -> None:
-        if msg.name in self.data:
-            msg.value = self.data[msg.name]
-            msg.is_observed = True
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install a conditioning handler of the ``random`` instance.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
+
+        Returns
+        -------
+        tuple[Installation, ...]
+            The conditioning handler, which forwards sites it has no
+            value for and ignores values at sites the program never
+            samples.
+        """
+        kernel = run.kernel
+        return (
+            Installation(
+                kernel.random,
+                condition_handler(
+                    self.data,
+                    score_instance=kernel.score.entry.instance,
+                    result_validator=run.validator,
+                    missing=MissingValuePolicy.FORWARD,
+                    extra=ExtraValuePolicy.IGNORE,
+                    answer_type=run.result_type,
+                    key=f"clamp-{id(self):x}",
+                ),
+            ),
+        )
 
 
 def clamp(data: dict[str, torch.Tensor]) -> ClampHandler:
-    """Return a `ClampHandler` that clamps the given sites."""
+    """Return a `ClampHandler` conditioning on the given site values.
+
+    Parameters
+    ----------
+    data : dict[str, torch.Tensor]
+        Site name to value.
+
+    Returns
+    -------
+    ClampHandler
+        The handler.
+    """
     return ClampHandler(data)
+
+
+__all__ = ["ClampHandler", "clamp"]

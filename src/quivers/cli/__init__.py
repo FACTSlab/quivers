@@ -12,6 +12,8 @@ Subcommands:
   source files from one tagged grammar revision to another, via
   panproto migrations composed from the in-tree
   ``grammars/qvr/vcs`` chain.
+- ``qvr run FILE COMPUTATION [ARGS...]`` — execute one checked QIEC
+  computation with JSON value arguments and an explicit runtime configuration.
 
 Output format: human-readable by default, structured JSON when
 ``--json`` is supplied. Each diagnostic carries:
@@ -44,6 +46,11 @@ def main() -> int:
         action="store_true",
         help="Emit structured JSON diagnostics on stdout.",
     )
+    check.add_argument(
+        "--target",
+        default=None,
+        help="Also diagnose QIEC features unsupported by this transpile target.",
+    )
 
     repl = sub.add_parser(
         "repl",
@@ -61,6 +68,51 @@ def main() -> int:
         help="Use the prompt_toolkit single-line front end instead of the TUI.",
     )
 
+    run = sub.add_parser(
+        "run",
+        help="Execute one named QIEC computation.",
+    )
+    run.add_argument("file", help="Path to the .qvr source file.")
+    run.add_argument("computation", help="Named `define` computation to execute.")
+    run.add_argument(
+        "arguments",
+        nargs="*",
+        help="Value arguments as JSON literals, in declaration order.",
+    )
+    run.add_argument(
+        "--static",
+        action="append",
+        default=[],
+        metavar="NAME=TERM",
+        help="Closed static specialization; repeat once per telescope binder.",
+    )
+    run.add_argument(
+        "--runtime",
+        default=None,
+        metavar="FILE.json",
+        help="Explicit JSON runtime-provider configuration.",
+    )
+    run.add_argument(
+        "--fuel",
+        type=int,
+        default=None,
+        metavar="STEPS",
+        help=(
+            "Stop after this many evaluation steps with a qiec-run-fuel "
+            "diagnostic; recursion may otherwise run forever."
+        ),
+    )
+    run.add_argument(
+        "--trace",
+        action="store_true",
+        help="Write stable execution trace events to stderr.",
+    )
+    run.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the result, diagnostics, and trace as JSON.",
+    )
+
     lsp = sub.add_parser(
         "lsp",
         help="Run the QVR Language Server (LSP 3.17 over stdio).",
@@ -72,6 +124,11 @@ def main() -> int:
         metavar="PORT",
         help="Bind to TCP port instead of stdio.",
     )
+    lsp.add_argument(
+        "--target",
+        default=None,
+        help="Diagnose QIEC capabilities against this transpile target.",
+    )
 
     migrate = sub.add_parser(
         "migrate",
@@ -81,8 +138,8 @@ def main() -> int:
         "--from",
         dest="from_ref",
         default=None,
-        help="Source grammar revision (git tag or commit id). "
-        "Defaults to the most recent tagged release on the chain.",
+        help="Source grammar revision (git tag or commit id). Required when "
+        "migrating because QVR source does not yet carry a version marker.",
     )
     migrate.add_argument(
         "--to",
@@ -105,11 +162,10 @@ def main() -> int:
     migrate.add_argument(
         "--check",
         action="store_true",
-        help="Validate the migration chain against the panproto "
-        "VCS schema diff: report any rule removed in an adjacent "
-        "grammar revision that the corresponding hop migrator has "
-        "no converter for. Non-zero exit when any pair has "
-        "uncovered removals. Does not migrate any files.",
+        help="Validate the migration chain against the panproto VCS schema "
+        "diff, converter coverage, and asserted identity hops. Non-zero "
+        "exit on uncovered or unexpected drift. Does not migrate files and "
+        "does not require --from.",
     )
     migrate.add_argument(
         "paths",
@@ -186,11 +242,15 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.cmd == "check":
-        return check_main(args.files, json_output=args.json)
+        return check_main(args.files, json_output=args.json, target=args.target)
     if args.cmd == "repl":
         from quivers.cli.repl import main as repl_main
 
         return repl_main(args)
+    if args.cmd == "run":
+        from quivers.cli.run import main as run_main
+
+        return run_main(args)
     if args.cmd == "lsp":
         from quivers.cli.lsp import main as lsp_main
 

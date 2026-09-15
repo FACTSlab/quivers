@@ -54,6 +54,7 @@ from quivers.dsl.ast_nodes import (
     GroupedLatentInitStep,
     GroupedObserveEntry,
     LetExprBinOp,
+    LetExprBool,
     LetExprCall,
     LetExprIndex,
     LetExprLambda,
@@ -64,9 +65,12 @@ from quivers.dsl.ast_nodes import (
     LetExprMethodCall,
     LetExprNode,
     LetExprString,
+    LetExprTuple,
     LetExprUnaryOp,
+    LetExprUnit,
     LetExprVar,
     LetStep,
+    CallStep,
     ScoreStep,
     MarginalizeStep,
     GroupedMarginalizeStep,
@@ -507,6 +511,14 @@ class _ProgramsMixin:
         """
         from quivers.dsl.compiler.sugar import desugar_step
 
+        if isinstance(step, CallStep):
+            raise CompileError(
+                f"`let {step.name} <- {step.call.callee}(...)` calls a named "
+                "computation, which only the QIEC route runs; execute the program "
+                "through its checked module rather than the runtime compiler",
+                step.line,
+                step.col,
+            )
         if isinstance(step, (SampleStep, ObserveStep)):
             step = desugar_step(step)
         if isinstance(step, SampleStep):
@@ -752,6 +764,7 @@ class _ProgramsMixin:
                     )
                 # Extract the categorical prior's `probs` argument.
                 probs_var: str | None = None
+                probs_indices: tuple[str, ...] = ()
                 if has_over:
                     if not step.args:
                         raise CompileError(
@@ -764,18 +777,23 @@ class _ProgramsMixin:
                     first = step.args[0]
                     # `first` is a `DrawArg` tagged variant on the
                     # widened AST. A `DrawArgName` carries the
-                    # identifier text; other variants (literal,
-                    # nested distribution call, list literal) are
-                    # not admissible as the probs argument.
+                    # identifier text and a `DrawArgIndex` a probs
+                    # tensor gathered by enclosing latents; other
+                    # variants (literal, nested distribution call,
+                    # list literal) are not admissible as the probs
+                    # argument.
                     if isinstance(first, DrawArgName):
                         probs_var = first.text
+                    elif isinstance(first, DrawArgIndex):
+                        probs_var = first.name
+                        probs_indices = tuple(first.indices)
                     elif isinstance(first, str):
                         probs_var = first
                     else:
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
-                            "first argument must be a named probs tensor "
-                            f"(got literal {first!r})",
+                            "first argument must be a named probs tensor, "
+                            f"indexed or not (got literal {first!r})",
                             step.line,
                             step.col,
                         )
@@ -932,6 +950,7 @@ class _ProgramsMixin:
                             var_name=inner_marg.var_name,
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
+                            probs_indices=inner_marg.probs_indices,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
                             body_ll_var=latent_name,
@@ -961,6 +980,7 @@ class _ProgramsMixin:
                         var_name=step.vars[0],
                         class_size=class_size,
                         probs_var=probs_var,
+                        probs_indices=probs_indices,
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
@@ -1478,6 +1498,7 @@ class _ProgramsMixin:
                 var_name=rename.get(step.var_name, step.var_name),
                 class_size=step.class_size,
                 probs_var=renamed_probs,
+                probs_indices=tuple(rename.get(v, v) for v in step.probs_indices),
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
                 body_ll_var=renamed_body_ll,
@@ -1545,6 +1566,8 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprUnaryOp):
             return LetExprUnaryOp(
@@ -1553,6 +1576,18 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                op=expr.op,
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprTuple):
+            return LetExprTuple(
+                items=tuple(
+                    self._rename_let_expr(item, value_subst, rename)
+                    for item in expr.items
+                ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprCall):
             new_func = value_subst.get(expr.func, expr.func)
@@ -2461,6 +2496,16 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
+                    for index_name in step.probs_indices:
+                        if index_name not in bound_vars:
+                            raise CompileError(
+                                f"grouped marginalize: categorical prior "
+                                f"{step.probs_var!r} is indexed by "
+                                f"{index_name!r}, which is not bound in "
+                                "program scope",
+                                step.line,
+                                step.col,
+                            )
                     if not step.body_observes:
                         raise CompileError(
                             "grouped marginalize: the body must contain "
@@ -2497,15 +2542,9 @@ class _ProgramsMixin:
                                     step.line,
                                     step.col,
                                 )
-                            for axis_name in fib_axes:
-                                if axis_name not in bound_vars:
-                                    raise CompileError(
-                                        f"grouped marginalize: per-observe "
-                                        f"`via` axis {axis_name!r} is not "
-                                        "bound in program scope",
-                                        step.line,
-                                        step.col,
-                                    )
+                            # Each axis, like a single ``via``, may name a
+                            # bound latent or host data supplied at
+                            # runtime through the observations dict.
                         else:
                             if fib_axes is not None:
                                 raise CompileError(
@@ -2526,6 +2565,7 @@ class _ProgramsMixin:
                     )
                     num_classes = step.class_size
                     probs_var = step.probs_var
+                    probs_indices = step.probs_indices
                     reduction = step.reduction or "logsumexp"
                     observe_specs = tuple(
                         (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
@@ -2538,6 +2578,7 @@ class _ProgramsMixin:
                             tuple[str, str | None, tuple[str, ...] | None], ...
                         ] = observe_specs,
                         _probs: str = probs_var,
+                        _probs_indices: tuple[str, ...] = probs_indices,
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
@@ -2586,6 +2627,8 @@ class _ProgramsMixin:
                                     )
                                 )
                         probs = env[_probs]
+                        for index_name in _probs_indices:
+                            probs = probs[env[index_name].to(torch.long)]
                         log_prior = torch.log(probs.clamp_min(1e-38))
                         # A per-group prior (the categorical's ``probs``
                         # is indexed by the grouping plate, shape
@@ -3619,6 +3662,9 @@ class _ProgramsMixin:
                 _walk(node.right, locals_set)
             elif isinstance(node, LetExprUnaryOp):
                 _walk(node.operand, locals_set)
+            elif isinstance(node, LetExprTuple):
+                for item in node.items:
+                    _walk(item, locals_set)
             elif isinstance(node, LetExprCall):
                 for arg in node.args:
                     _walk(arg, locals_set)
@@ -3694,6 +3740,29 @@ class _ProgramsMixin:
                 return val
 
             return _string
+        if isinstance(node, LetExprBool):
+            flag = node.value
+
+            def _bool(env: dict) -> torch.Tensor:
+                return torch.tensor(flag)
+
+            return _bool
+        if isinstance(node, LetExprUnit):
+
+            def _unit(env: dict) -> None:
+                return None
+
+            return _unit
+        if isinstance(node, LetExprTuple):
+            item_fns = [
+                _ProgramsMixin._compile_let_expr(item, globals_=globals_)
+                for item in node.items
+            ]
+
+            def _tuple(env: dict) -> tuple[object, ...]:
+                return tuple(fn(env) for fn in item_fns)
+
+            return _tuple
         if isinstance(node, LetExprVar):
             name = node.name
             globs = globals_ or {}
@@ -3759,11 +3828,38 @@ class _ProgramsMixin:
                     return l * r
                 elif op == "/":
                     return l / r
+                elif op == "%":
+                    return torch.fmod(l, r)
+                elif op == "==":
+                    return l == r
+                elif op == "!=":
+                    return l != r
+                elif op == "<":
+                    return l < r
+                elif op == "<=":
+                    return l <= r
+                elif op == ">":
+                    return l > r
+                elif op == ">=":
+                    return l >= r
+                elif op == "&&":
+                    return torch.logical_and(l, r)
+                elif op == "||":
+                    return torch.logical_or(l, r)
                 raise ValueError(f"unknown operator: {op}")
 
             return _binop
         if isinstance(node, LetExprUnaryOp):
             inner_fn = _ProgramsMixin._compile_let_expr(node.operand, globals_=globals_)
+            if node.op == "not":
+
+                def _not(env: dict):
+                    v = inner_fn(env)
+                    if isinstance(v, torch.Tensor):
+                        return torch.logical_not(v)
+                    return not v
+
+                return _not
 
             def _neg(env: dict):
                 v = inner_fn(env)

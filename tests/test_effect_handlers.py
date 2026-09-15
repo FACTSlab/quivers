@@ -1,7 +1,9 @@
 """Tests for the algebraic-effect-handler machinery.
 
 Covers `TraceHandler`, `clamp`, `do`, `mask`, `scale`, `block`,
-`replay`, and their composition on the handler stack.
+`replay`, `lift`, `collapse`, and their composition on the handler
+stack, every one running the program on the reference machine as the
+kernel computation the effects package encodes it to.
 """
 
 from __future__ import annotations
@@ -10,22 +12,23 @@ import pytest
 import torch
 
 from quivers.continuous.families import ConditionalNormal
+from quivers.continuous.inline import MixedInlineDistribution, _normal_builder
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
 from quivers.effects import (
     BlockHandler,
     ClampHandler,
+    CollapseHandler,
     DoHandler,
     LiftHandler,
     MaskHandler,
-    Message,
     ReplayHandler,
     ScaleHandler,
     TraceHandler,
-    apply_stack,
     block,
     clamp,
+    collapse,
     do,
     lift,
     mask,
@@ -34,7 +37,9 @@ from quivers.effects import (
     scale,
 )
 from quivers.effects.base import _handler_stack
+from quivers.effects.program_module import INPUT_NAME, program_kernel
 from quivers.inference.trace import Trace, trace
+from quivers.qiec import validate_module
 
 
 @pytest.fixture(autouse=True)
@@ -263,12 +268,9 @@ class TestComposition:
                 with mask(m):
                     tr_stack = trace(prog, x)
 
-        # The innermost handler (mask) rewrites log_prob last, so
-        # each site's log-density is factor * mask * baseline. Post-
-        # hooks run inner-to-outer: mask fires, then scale — but the
-        # postprocess order in `apply_stack` walks the `seen` list
-        # in reverse, so mask (pushed last) runs first, then scale.
-        # The composed operator is thus `scale * mask`.
+        # Every score transformer on the stack reaches every site's
+        # density on its way to the accumulator, and the two products
+        # commute, so each site's log-density is factor * mask * baseline.
         for name in ("z", "y"):
             expected = tr_ref.sites[name].log_prob * factor * m
             torch.testing.assert_close(tr_stack.sites[name].log_prob, expected)
@@ -345,41 +347,110 @@ class TestLiftHandler:
         assert len(h.sampled_params) > 0
 
 
-class TestApplyStackDefault:
-    """The `apply_stack(msg, default=...)` contract runs default
-    between the pre-pass and post-pass, and only when the pre-pass
-    left the site unresolved."""
+class TestKernelEncoding:
+    """A program runs as a checked kernel computation."""
 
-    def test_default_fires_when_value_missing(self) -> None:
-        called = {"ran": False}
+    def test_the_encoding_is_a_valid_module_with_one_site_per_draw(self) -> None:
+        prog = _simple_program()
+        kernel = program_kernel(prog)
+        validate_module(kernel.module)
+        assert kernel.sites == ("z", "y")
+        assert [step.kind for step in kernel.steps] == ["draw", "draw"]
+        (computation,) = kernel.module.computations
+        assert [parameter.name for parameter in computation.parameters] == [INPUT_NAME]
 
-        def default(m: Message) -> None:
-            m.value = torch.tensor([1.0])
-            m.log_prob = torch.tensor([0.0])
-            called["ran"] = True
+    def test_the_trace_agrees_with_the_program_log_joint(self) -> None:
+        torch.manual_seed(3)
+        prog = _simple_program()
+        x = _batch(4)
+        tr = trace(prog, x)
+        expected = prog.log_joint(
+            x, {"z": tr.sites["z"].value, "y": tr.sites["y"].value}
+        )
+        assert tr.log_joint is not None
+        torch.testing.assert_close(tr.log_joint, expected)
+        for site in tr.sites.values():
+            assert site.address is not None
+            assert site.sampleable is not None
 
-        msg = Message(kind="sample", name="x")
-        apply_stack(msg, default=default)
-        assert called["ran"]
-        assert msg.value is not None
+    def test_an_observation_is_scored_and_marked_observed(self) -> None:
+        prog = _simple_program()
+        x = _batch(4)
+        y_val = torch.full((4, 1), 0.25)
+        tr = trace(prog, x, observations={"y": y_val})
+        assert tr.sites["y"].is_observed
+        assert not tr.sites["z"].is_observed
+        torch.testing.assert_close(tr.sites["y"].value, y_val)
+        likelihood = tr.sites["y"].morphism
+        assert likelihood is not None
+        torch.testing.assert_close(
+            tr.sites["y"].log_prob, likelihood.log_prob(tr.sites["z"].value, y_val)
+        )
 
-    def test_default_can_see_prepass_state(self) -> None:
-        """A handler-supplied value is visible to `default`."""
+    def test_let_and_score_steps_are_deterministic_sites(self) -> None:
+        Unit = FinSet(name="Unit", cardinality=1)
+        R1 = Euclidean(name="R1", dim=1)
+        prog = MonadicProgram(
+            Unit,
+            R1,
+            steps=[
+                (("z",), ConditionalNormal(Unit, R1), None),
+                (("twice",), None, lambda env: 2.0 * env["z"]),
+                (("bonus",), None, lambda env: env["z"].sum(dim=-1), True),
+                (("y",), ConditionalNormal(R1, R1), ("z",)),
+            ],
+            return_vars=("y",),
+        )
+        x = _batch(3)
+        with scale(2.0):
+            tr = trace(prog, x)
+        assert set(tr.sites) == {"z", "twice", "bonus", "y"}
+        assert tr.sites["twice"].is_deterministic
+        torch.testing.assert_close(tr.sites["twice"].value, 2.0 * tr.sites["z"].value)
+        torch.testing.assert_close(tr.sites["twice"].log_prob, torch.zeros(()))
+        torch.testing.assert_close(
+            tr.sites["bonus"].log_prob, 2.0 * tr.sites["z"].value.sum(dim=-1)
+        )
 
-        class Preset(TraceHandler):
-            def _pyro_sample(self, msg: Message) -> None:
-                msg.value = torch.tensor([7.0])
-                msg.log_prob = torch.tensor([0.0])
 
-        seen: dict[str, torch.Tensor | None] = {"value": None}
+class TestCollapseHandler:
+    """`collapse` integrates a conjugate parent out of the joint."""
 
-        def default(m: Message) -> None:
-            seen["value"] = m.value
+    def test_normal_normal_collapse_scores_the_marginal(self) -> None:
+        Unit = FinSet(name="Unit", cardinality=1)
+        R1 = Euclidean(name="R1", dim=1)
+        prior = ConditionalNormal(Unit, R1)
+        child = MixedInlineDistribution(
+            R1, R1, [("var", 1), ("lit", 0.5)], _normal_builder
+        )
+        prog = MonadicProgram(
+            Unit,
+            R1,
+            steps=[(("z",), prior, None), (("y",), child, ("z",))],
+            return_vars=("y",),
+        )
+        x = _batch(4)
+        y_val = torch.tensor([[0.3], [-0.2], [1.1], [0.0]])
+        with collapse({"z": "y"}):
+            tr = trace(prog, x, observations={"y": y_val})
+        loc, scale_ = prior._get_params(x)
+        marginal = torch.distributions.Normal(loc, torch.sqrt(scale_**2 + 0.5**2))
+        torch.testing.assert_close(
+            tr.sites["y"].log_prob, marginal.log_prob(y_val).sum(-1)
+        )
+        torch.testing.assert_close(tr.sites["z"].log_prob, torch.zeros(4))
+        assert tr.sites["z"].is_deterministic
+        assert tr.sites["z"].metadata["collapse"] == "y"
+        assert tr.log_joint is not None
+        torch.testing.assert_close(tr.log_joint, tr.sites["y"].log_prob)
 
-        with Preset():
-            apply_stack(Message(kind="sample", name="x"), default=default)
-        assert seen["value"] is not None
-        assert seen["value"].item() == 7.0
+    def test_collapse_without_an_observation_is_refused(self) -> None:
+        prog = _simple_program()
+        with collapse({"z": "y"}), pytest.raises(Exception, match="observation"):
+            trace(prog, _batch(2))
+
+    def test_collapse_factory(self) -> None:
+        assert isinstance(collapse({"z": "y"}), CollapseHandler)
 
 
 class TestFactoriesReturnHandlers:

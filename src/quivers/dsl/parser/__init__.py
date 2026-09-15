@@ -1,9 +1,8 @@
 """Parser for the quivers DSL.
 
-The lexer/parser pipeline is delegated to panproto via the `qvr`
-tree-sitter grammar registered in `panproto-grammars-all`. The public
-`parse` entry point consumes `.qvr` source bytes and returns a
-`Module` of dataclass AST nodes.
+The lexer/parser pipeline is delegated to panproto after overriding its `qvr`
+protocol with Quivers' packaged current grammar. The public `parse` entry
+point consumes `.qvr` source bytes and returns a `Module` of didactic models.
 
 This package's submodules group the walker logic by topic:
 

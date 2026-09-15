@@ -47,7 +47,7 @@ from typing import Callable
 
 import panproto
 
-from quivers.dsl._historical_grammar import registry_for
+from quivers.cli.migrations._grammar import registry_for
 
 
 _SOURCE_FILE_VID = "parse_emit_lens"
@@ -564,12 +564,61 @@ def validate_decl(target_rev: str, text: str) -> None:
     reg = registry_for(target_rev)
     lens = reg.lens("qvr")
     schema = lens.parse(text.encode("utf-8"))
-    errors = [v.id for v in schema.vertices if v.kind == "ERROR"]
-    if errors:
+    validate_parsed_schema(
+        schema,
+        target_rev,
+        role=f"converted decl text {text!r}",
+    )
+
+
+def validate_parsed_schema(
+    schema: panproto.Schema,
+    revision: str,
+    *,
+    role: str,
+) -> None:
+    """Reject explicit and zero-width tree-sitter recovery vertices.
+
+    Tree-sitter does not represent every syntax error with an ``ERROR`` node.
+    For a missing required token it may instead emit a zero-width vertex.  Both
+    forms must fail closed or an identity migration can certify incomplete
+    source as valid.
+    """
+    recovery: list[str] = []
+    for vertex in schema.vertices:
+        if vertex.kind == "ERROR":
+            recovery.append(f"ERROR vertex {vertex.id}")
+            continue
+        if vertex.id == _SOURCE_FILE_VID:
+            continue
+        constraints = {
+            constraint.sort: constraint.value
+            for constraint in schema.constraints_for(vertex.id)
+        }
+        start = constraints.get("start-byte")
+        if start is not None and start == constraints.get("end-byte"):
+            recovery.append(f"missing {vertex.kind!r} token at vertex {vertex.id}")
+    if recovery:
         raise MigrationError(
-            f"converted decl text does not parse under {target_rev}: "
-            f"{text!r}; ERROR vertices: {errors}",
+            f"{role} does not parse under {revision}: " + "; ".join(recovery[:5])
         )
+
+
+def parse_validated_source(
+    revision: str,
+    source: bytes,
+    *,
+    role: str = "source",
+) -> panproto.Schema:
+    """Parse bytes with a pinned revision and reject recovery vertices."""
+    try:
+        schema = registry_for(revision).lens("qvr").parse(source)
+    except Exception as error:
+        raise MigrationError(
+            f"{role} does not parse under {revision}: {error}"
+        ) from error
+    validate_parsed_schema(schema, revision, role=role)
+    return schema
 
 
 def migrate_source(
@@ -612,9 +661,7 @@ def migrate_source(
         validated by re-parsing through the target lens; any ERROR
         vertex in the assembled schema raises ``ValueError``.
     """
-    src_reg = registry_for(source_rev)
-    src_lens = src_reg.lens("qvr")
-    src_schema = src_lens.parse(source)
+    src_schema = parse_validated_source(source_rev, source)
     view = SchemaView(src_schema, source)
 
     parts: list[str] = []
@@ -661,10 +708,5 @@ def migrate_source(
     # complete source file through the target lens.
     tgt_lens = registry_for(target_rev).lens("qvr")
     final = tgt_lens.parse(result.encode("utf-8"))
-    errs = [v.id for v in final.vertices if v.kind == "ERROR"]
-    if errs:
-        raise ValueError(
-            f"assembled migration output does not parse under "
-            f"{target_rev}: ERROR vertices: {errs[:5]}",
-        )
+    validate_parsed_schema(final, target_rev, role="assembled migration output")
     return result.encode("utf-8")

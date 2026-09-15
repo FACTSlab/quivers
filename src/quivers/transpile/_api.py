@@ -109,6 +109,34 @@ CATEGORICAL_METADATA_IGNORABLE: frozenset[str] = frozenset(
         "deduction_decl",
     }
 )
+"""Categorical declaration kinds the walker ignores beside a ``program_decl``.
+
+A module carrying only these declarations still raises ``UnsupportedConstruct``
+naming them, so standalone categorical declarations remain rejected.
+"""
+
+#: QIEC declarations admitted after the shared QIEC boundary has checked the
+#: complete QIEC submodule.  Unlike categorical metadata, these forms are
+#: first-class inputs to the structural IR and need no accompanying
+#: ``program_decl``.  Individual renderers apply their QIEC capability policy
+#: after lowering, where diagnostics can name the exact computation and
+#: unsupported feature.
+QIEC_SURFACE: frozenset[str] = frozenset(
+    {
+        "index_decl",
+        "indexed_family_decl",
+        "effect_decl",
+        "effect_instance_decl",
+        "handler_decl",
+        "computation_decl",
+    }
+)
+"""QIEC declaration kinds admitted once the shared boundary has checked the module.
+
+These forms are first-class inputs to the structural IR and need no
+accompanying ``program_decl``; each renderer applies its capability policy
+after lowering, where a diagnostic can name the computation and feature.
+"""
 
 #: Adds encoder/decoder declarations for backends with a deep-learning
 #: idiom (Pyro modules, NumPyro/Flax modules, Edward2/TF, PyMC custom
@@ -124,11 +152,11 @@ class Backend(Protocol):
     """The protocol every backend module satisfies.
 
     Backends register themselves via
-    [`didactic.codegen.emitter`][didactic.codegen.emitter] under a
+    `didactic.codegen.emitter` under a
     ``"qvr-<name>"`` key. Quivers' top-level
     [`transpile`][quivers.transpile.transpile] dispatches by looking up
     the registered emitter, then delegates to its
-    [`emit_instance`][didactic.codegen.Emitter.emit_instance].
+    `emit_instance`.
 
     Attributes
     ----------
@@ -137,7 +165,7 @@ class Backend(Protocol):
         ``"js"``, ``"scm"``).
     grammar
         The tree-sitter grammar name backing this backend, as accepted by
-        [`panproto.AstParserRegistry.parse_with_protocol`][panproto.AstParserRegistry.parse_with_protocol].
+        `panproto.AstParserRegistry.parse_with_protocol`.
     support
         The probabilistic-subset support tier accepted by this backend.
     """
@@ -156,7 +184,7 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
     if ``module`` contains statement kinds outside ``allow``.
 
     Walks the module's top-level statements; the ``kind`` field is the
-    didactic [`TaggedUnion`][didactic.api.TaggedUnion] discriminator
+    didactic `TaggedUnion` discriminator
     (``"program_decl"``, ``"morphism_decl"``, etc.). Any kind not in
     ``allow`` is collected; if the resulting set is non-empty, raises.
 
@@ -164,14 +192,17 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
     kinds (``composition_decl``, ``category_decl``, ``schema_decl``,
     ``bundle_decl``, ``rule_decl``, ``contraction_decl``,
     ``signature_decl``, ``deduction_decl``) are accepted ALONGSIDE a
-    ``program_decl``: when the module has at least one program, the
-    walker ignores these metadata declarations and transpiles the
-    program. Without a ``program_decl`` they remain in `bad` so the
-    contract surfaces "no probabilistic program here to transpile."
+    ``program_decl``. The QIEC forms in
+    [`QIEC_SURFACE`][quivers.transpile.QIEC_SURFACE]
+    are always admitted because the caller has already lowered and checked the
+    complete QIEC submodule. Renderer-level capability analysis decides which
+    executable QIEC features the selected target can preserve.
     """
     kinds = {cast_kind(s) for s in module.statements}
     has_program = "program_decl" in kinds
-    effective_allow = allow | CATEGORICAL_METADATA_IGNORABLE if has_program else allow
+    effective_allow = allow | QIEC_SURFACE
+    if has_program:
+        effective_allow |= CATEGORICAL_METADATA_IGNORABLE
     bad: set[str] = set()
     for statement in module.statements:
         kind = cast_kind(statement)
@@ -184,7 +215,7 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
 def cast_kind(statement: Statement) -> str:
     """Return ``statement.kind`` as a string.
 
-    The didactic [`TaggedUnion`][didactic.api.TaggedUnion] discriminator
+    The didactic `TaggedUnion` discriminator
     is typed `Literal[...]`; the cast is a single boundary line so the
     caller stays free of literal-narrowing noise.
     """

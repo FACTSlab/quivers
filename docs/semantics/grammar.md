@@ -493,6 +493,14 @@ observe_step        := 'observe' IDENT [ ':' type_expr ]
 
 score_step          := 'score' IDENT '=' let_arith
 
+call_step           := 'let' IDENT '<-' qiec_call
+# ``let x <- helper[Real](a, 2.0)`` binds the result of a named
+# computation declared with ``define``; the callee's effect row joins
+# the program's. A call step runs only through the checked QIEC
+# module, since the runtime compiler has no computation to invoke.
+# A call step that names a program with open input extents writes no
+# static arguments: the extents are read off the arguments' types.
+
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
                        [ option_block ]
@@ -560,6 +568,133 @@ A `program_decl` is *parametric* iff its parameter list contains any `typed_prog
 A `composition_decl` selects the module's underlying composition rule. With no body and no `[level=...]` option, the keyword resolves the named rule from the built-in catalog and registers it. With a `[level=LEVEL]` option but no body, the resolved built-in rule is verified to match the declared algebraic level (`algebra`, `semigroupoid`, `bilinear_form`, or `rule`, the last covering any `CompositionRule`). With a body, the entries declare the rule's operations inline; the `[level=LEVEL]` option fixes the algebraic level, and the compiler verifies that the required entries (`tensor_op`, `join`, plus `unit`, `zero` for `algebra`) are present. See [Composition Rules](composition-rules.md) for the formal denotation.
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
+
+## 11. QIEC fragment
+
+The Quivers Indexed Effect Core (QIEC) adds a disjoint declaration and
+computation fragment to the module grammar. Square-bracket telescopes bind
+static type, index, or effect-interface variables; parenthesized telescopes bind
+family indices or computation values. The following compressed EBNF records
+the boundary, while `grammars/qvr/grammar.js` remains authoritative:
+
+```ebnf
+index_decl        := 'index' IDENT '=' index_constructor ('|' index_constructor)*
+family_decl       := 'family' IDENT [static_telescope] [index_telescope]
+                     ':' KIND constructor_decl+
+constructor_decl  := 'constructor' IDENT [static_telescope] ':'
+                     [type ('*' type)* '->'] type
+
+effect_decl       := 'effect' IDENT [static_telescope] operation_decl+
+operation_decl    := IDENT [static_telescope] ':' [type ('*' type)* '->'] type
+instance_decl     := 'instance' IDENT ':' effect_ref
+handler_decl      := 'handler' IDENT [static_telescope] 'for' effect_ref ':'
+                     type '->' type [handler_options] handler_clause+
+handler_clause    := return_clause | operation_clause
+return_clause     := 'return' local '=>' computation
+operation_clause  := IDENT [static_telescope] ['(' local (',' local)* ')']
+                     'resumes' grade ['=>' computation]
+grade             := '0' | 'aff' | '1' | 'omega'
+
+computation_decl  := 'define' IDENT [static_telescope] ['(' value_params ')']
+                     ':' type effect_row '=' computation
+effect_row        := '!{' [IDENT (',' IDENT)*]
+                     ['|' IDENT ['lacks' IDENT (',' IDENT)*]] '}'
+computation       := 'return' value
+                   | 'let' local '=' value computation
+                   | 'let' local '<-' inline computation
+                   | inline computation
+                   | 'handle' IDENT 'with' handler_application 'in' computation
+                   | 'with' 'instance' IDENT ':' effect_ref 'in' computation
+                   | 'case' value 'motive' [index_telescope] '=>' type branch+
+                   | 'if' expression 'then' computation 'else' computation
+inline            := perform | call | resume
+value             := 'construct' IDENT [static_arguments] '(' [value (',' value)*] ')'
+                     'as' type
+                   | expression
+expression        := expression binop expression | ('-' | 'not') atom | atom
+atom              := IDENT | NUMBER | STRING | 'true' | 'false' | 'unit'
+                   | '(' expression ')'
+                   | '(' expression ',' expression (',' expression)* ')'
+                   | IDENT '[' INT ']'
+                   | IDENT '(' [expression (',' expression)*] ')'
+binop             := '||' | '&&' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '+'
+                   | '-' | '*' | '/' | '%'
+perform           := 'perform' IDENT '.' IDENT [static_arguments]
+                     '(' [value (',' value)*] ')'
+call              := IDENT [static_arguments] '(' [value (',' value)*] ')'
+resume            := 'resume' '(' [value] ')'
+static_arguments  := '[' static_argument (',' static_argument)* ']'
+static_argument   := type | INT
+```
+
+A static argument is type syntax, read as a type or an effect according to
+the binder it fills, or an integer literal, which fills a `Nat` index
+binder: `pad[3](xs)` applies a computation declared
+`define pad[n : Nat](xs : Tensor[Real]([n])) ...` at extent three.
+
+### Disambiguation
+
+Three forms share the shape `NAME(...)`, and each is separated by a keyword
+or a qualifier rather than by precedence:
+
+- a **call** is a bare `NAME(...)` in computation position;
+- an **effect request** is qualified by its instance, `inst.op(...)`, and
+  introduced by `perform`; and
+- a **constructor value** is introduced by `construct` and closed by
+  `as TYPE`, and occurs in value position.
+
+There is one call syntax. A computation is invoked by ordinary application,
+and a handler clause resumes its continuation with `resume`, which is a
+keyword rather than a bound name, so no second spelling can drift from the
+first.
+
+### Bindings
+
+`let x = VALUE` binds a pure expression and `let x <- COMPUTATION` binds a
+computation's result. They are separate productions with separate typing
+rules, and neither is sugar for the other.
+
+### Pure expressions
+
+QIEC values and `program` let and score steps share one expression grammar.
+Operators bind from loosest to tightest as `||`, `&&`, comparison, `+ -`,
+`* / %`, then unary `-` and `not`; equal precedence associates left. A
+comparison against a negative literal needs parentheses, `x < (-1)`, because
+`<-` is the binding arrow.
+
+In a QIEC value every operator resolves to one primitive of the closed
+registry by the type of its operands, and both operands must have the same
+type: `+` is integer, real, or string concatenation; `%` is integer only;
+`==` and `!=` compare integers, reals, Booleans, or strings; `&&`, `||`, and
+`not` take Booleans. Integer division and remainder truncate toward zero on
+every target. The builtin applications `real`, `int`, `exp`, `log`, `sqrt`,
+`pow`, `abs`, `min`, and `max` resolve the same way. A tuple `(a, b)` builds a
+finite product and `t[i]` with an integer literal selects its component.
+A list literal `[a, b, c]` is a `Tensor` whose leading dimension is its
+entry count and whose entries share one type, so `[[1.0, 2.0], [3.0, 4.0]]`
+is a `Tensor[Real]([2, 2])`; a numeric literal list with any fractional
+entry is real. Applying a distribution family, `Normal(mu, 1.0)` or
+`Dirichlet([1.0, 2.0])`, fills the family's parameters in registry order and
+builds a `Sampleable`; `site("x")` is a `Site` at the type its position
+expects; `log_prob(d, x)` is the `LogWeight` of `d` at `x`.
+`if COND then ... else ...` branches on a Boolean at computation level, so the
+untaken branch is never entered and a recursive computation can stop.
+
+### Layout
+
+Every construct that takes a nested computation opens an indented block after
+a trailing `=>` or `in`: handler clauses, case branches, `handle ... in`, and
+`with instance ... in`. An inline computation, that is a call, a request, or
+a resumption, is one line and is followed by the rest of the computation at
+the same indentation.
+
+### Authored and foreign handlers
+
+An operation clause with a `=>` body is authored. A clause without one is a
+signature, and its declaration must say `[implementation=foreign]`, so a
+missing body never silently means "look up a callback at runtime". The
+complete grammar, worked examples, and implementation limits appear in the
+[QIEC developer note](../developer/qiec.md).
 
 ## References
 

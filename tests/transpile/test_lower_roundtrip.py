@@ -55,10 +55,10 @@ from quivers.transpile.ir import (
     IRScore,
 )
 from quivers.transpile.lower import (
-    Lower,
     _names_in_raw_arg,
     free_vars_in_let,
 )
+from quivers.transpile.plan import Lower
 
 
 _GALLERY_DIR = pathlib.Path(__file__).resolve().parents[2] / ("docs/examples/source")
@@ -99,6 +99,7 @@ _EXPECTED_LOWER_REFUSAL: dict[str, str] = {
     "deep_markov": "param-source:mlp",
     "gru_lm": "scan:no-lowering",
     "lstm_lm": "scan:no-lowering",
+    "montague_nli": "qiec:capability:search",
     "parametric_pooling": "family:school_effects",
     "pmf": "program:absent",
     "schema_chart_parser": "program:absent",

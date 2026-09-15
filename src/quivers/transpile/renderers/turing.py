@@ -106,7 +106,7 @@ from quivers.transpile.ir import (
     IRScore,
     Plate,
 )
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.renderers._python_helpers import (
     MarginalizeBody,
     marginal_support_size,
@@ -123,6 +123,10 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
     mixture_normal_components,
+)
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_helper_families_used,
 )
 
 
@@ -540,9 +544,12 @@ class TuringRenderer(RendererBase):
         # the source above the `@model function model` macrocall so the
         # body's `~ ContinuousBernoulli(...)` / `_qvr_rbf_kernel(...)`
         # call sites resolve through normal Julia name lookup.
-        if any(_ir_uses_family(ir.body, f) for f in _TURING_RUNTIME_HELPER_FAMILIES):
+        if any(
+            _ir_uses_family(ir.body, f) for f in _TURING_RUNTIME_HELPER_FAMILIES
+        ) or qiec_helper_families_used(ir, self.target):
             _graft_runtime_turing_helper(sb, counter, source)
         sb.edge(source, macro, "child_of")
+        render_computations_dynamic(sb, ir, target=self.target, root=source)
         return sb.build()
 
     # ----- IRNode dispatch (overrides RendererBase._dispatch_node) -----

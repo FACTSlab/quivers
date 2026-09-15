@@ -1,24 +1,25 @@
 """Transpile a compiled QVR module to other probabilistic-programming
 languages.
 
-The pipeline is a [`didactic.api.Mapping`][didactic.api.Mapping]
+The pipeline is a `didactic.api.Mapping`
 composition of three arrows:
 
     Module --Lower--> IRProgram --Renderer[T]--> panproto.Schema --emit_pretty--> bytes
 
-[`Lower`][quivers.transpile.lower.Lower] is target-independent; it
-walks the parsed module, resolves morphism / let references, builds
-an [`IRProgram`][quivers.transpile.ir.IRProgram] whose nodes carry
-the structural intent (sample, observe, marginalize, ...) plus the
-support / plate / argument shape derived from
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] +
-[`torch.distributions.Distribution.arg_constraints`][torch.distributions.Distribution.arg_constraints].
+[`Lower`][quivers.transpile.plan.Lower] is target-independent; it
+elaborates the parsed module to its checked kernel module and derives
+the program's plan from its computation: an
+[`IRProgram`][quivers.transpile.ir.IRProgram] carrying the module and
+the plan's nodes (sample, observe, marginalize, ...), each with the
+support / plate / argument shape read off the module's types,
+[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], and
+[`torch.distributions.Distribution.arg_constraints`][torch.distributions.distribution.Distribution.arg_constraints].
 
 Each target `T` has its own
 [`Renderer[T]`][quivers.transpile.renderers._base.RendererBase]
 subclass in `quivers.transpile.renderers.<target>`; the renderer
 consumes the IR and emits a target-specific
-[`panproto.Schema`][panproto.Schema]. The renderer's idiom (Stan's
+`panproto.Schema`. The renderer's idiom (Stan's
 `block` structure, NumPyro's `plate` contexts, BUGS's row-loop
 relations) is the only place target-specific vocabulary lives.
 
@@ -32,6 +33,8 @@ from typing import TYPE_CHECKING
 
 from quivers.transpile._api import (
     CHURCH_LIKE,
+    CATEGORICAL_METADATA_IGNORABLE,
+    QIEC_SURFACE,
     PYTHON_DEEP,
     STAN_LIKE,
     Backend,
@@ -41,12 +44,10 @@ from quivers.transpile._api import (
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import (
     EmitPretty,
-    SchemaTransform,
     parser_registry,
-    realize,
     target_protocol,
 )
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.renderers._base import RendererBase
 from quivers.transpile.renderers.bugs import BUGSRenderer
 from quivers.transpile.renderers.church import ChurchRenderer
@@ -110,7 +111,7 @@ def transpile(module: Module, *, target: str) -> bytes:
     renderer_cls, grammar, support_tier = _RENDERERS[target]
     unsupported_for(f"qvr-{target}", module, allow=support_tier)
     expanded = expand_composite_lets(module, target=target)
-    ir = Lower().forward(expanded)
+    ir = Lower().forward(expanded, target=target)
     schema = renderer_cls().render(ir)
     return bytes(parser_registry().emit_pretty(grammar, schema))
 
@@ -123,14 +124,14 @@ def available_targets() -> list[str]:
 __all__ = [
     "CHURCH_LIKE",
     "PYTHON_DEEP",
+    "CATEGORICAL_METADATA_IGNORABLE",
+    "QIEC_SURFACE",
     "STAN_LIKE",
     "Backend",
     "EmitPretty",
-    "SchemaTransform",
     "UnsupportedConstruct",
     "available_targets",
     "parser_registry",
-    "realize",
     "target_protocol",
     "transpile",
     "unsupported_for",

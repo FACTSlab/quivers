@@ -15,8 +15,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from quivers.cli.repl_complete import Completion, all_completions
-from quivers.cli.repl_session import ReplSession
+from quivers.cli.repl_complete import (
+    Completion,
+    all_completions,
+    public_meta_commands,
+)
+from quivers.cli.repl_session import ReplSession, _META_COMMANDS
 
 
 SOURCE = """\
@@ -45,6 +49,17 @@ def test_meta_commands_full_list_for_colon() -> None:
     # Every primary command should show up.
     for cmd in (":load", ":type", ":info", ":browse", ":help"):
         assert cmd in labels
+
+
+def test_public_meta_commands_cover_dispatch_without_aliases() -> None:
+    names = public_meta_commands()
+    handlers = [_META_COMMANDS[name] for name in names]
+
+    assert len(handlers) == len(set(handlers))
+    assert set(handlers) == set(_META_COMMANDS.values())
+    assert {"graph", "plate", "where", "effects", "shape"} <= set(names)
+    assert {"save", "watch", "unwatch"} <= set(names)
+    assert {"l", "p", "g", "s", "w", "q", "exit"}.isdisjoint(names)
 
 
 def test_env_completions_pull_objects_and_morphisms() -> None:

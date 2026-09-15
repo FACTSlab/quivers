@@ -64,6 +64,39 @@ program deterministic : X -> X [effects=[Pure]]
 See the [compositional effects guide](effects.md) for the algebraic
 basis of the effect surface.
 
+### QIEC typed computations
+
+The v0.19 **typed computation surface** is distinct from the probabilistic
+`program` block above. Its `define` header gives a value result and an instance
+row, while `perform` names an operation through a lexical effect instance:
+
+<!-- compile: qiec -->
+```qvr
+effect Tap
+    ping : Int -> Int
+
+instance tap : Tap
+
+define echo(value : Int) : Int !{tap} =
+    let answer <- perform tap.ping(value)
+    return answer
+```
+
+The stable computation terms are `return`, `let ... <- perform ...`, bare
+`perform` sequencing, `handle ... with ... in`, and indexed `case` with an
+explicit motive. Rows contain lexical instance names, as in `!{tap}`; an open
+row has the form `!{tap | rho lacks tap}`. The tail and each `lacks`
+constraint are checked rather than treated as comments.
+
+QIEC computations currently have no source call or recursion term, no scoped
+instance-allocation term, and no authored handler-clause body. They nevertheless
+parse, type-check, and lower to the stable QIEC module. Eight dynamic targets
+execute the full computation through generated target runtimes. Stan, BUGS, and
+JAGS lower closed monomorphic effect-free scalar computations and refuse other
+QIEC features before rendering. A module with QIEC declarations but no QIEC
+computation body remains valid on every target. The complete surface appears in
+[Quivers Indexed Effect Core](../developer/qiec.md).
+
 ### Kleisli bind syntax
 
 The `sample` keyword introduces a draw, and `<-` separates its
@@ -266,7 +299,20 @@ event-rank table lives in
 `iid_over=<axes>` is an optional readability assertion naming the
 batch axes (the complement of `over`). Any axis not in `over` is
 batched by default, which categorically is a product of independent
-distributions on that axis.
+distributions on that axis. On a sample step, the `: A` annotation
+beside an `over` clause is the batch plate: `sample rows : Doc <-
+Dirichlet(1.0) [over=Topic]` draws one point of the `Topic`-simplex
+per document, while an annotation naming one of the `over` axes
+restates it. Without an `over`, the annotation on a vector family
+names the family's own axis when nothing else fixes it (`sample pi :
+K <- Dirichlet(1.0)` draws one `K`-simplex point) and the batch plate
+when the arguments fix the event otherwise (`sample pc : Item <-
+Dirichlet(1.0, 2.0, 3.0)` draws one three-simplex point per item).
+
+A vector family's single parameter may be written with its entries
+spread, `Dirichlet(1.0, 2.0, 3.0)`, or as one literal, `Dirichlet(1.0)`,
+the symmetric concentration at the dimension the step's plate, or
+else the program's declared codomain, fixes.
 
 **Axis names.** Names resolve against the named factors of the
 surrounding morphism's dom and cod (or the type annotation `: T`

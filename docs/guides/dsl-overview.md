@@ -65,16 +65,21 @@ A few features distinguish the QVR surface from those alternatives:
 ```mermaid
 flowchart TB
     SRC[".qvr source"]
-    PARSE["tree-sitter parse via panproto-grammars-all"]
-    AST["AST nodes (didactic dx.Model)"]
-    COMPILER["Compiler statement dispatch"]
-    PROG["Program (nn.Module) ready to train"]
-    SRC --> PARSE --> AST --> COMPILER --> PROG
+    PARSE["tree-sitter parse from the packaged current grammar"]
+    AST["typed source AST (didactic dx.Model)"]
+    OLD["probabilistic compiler"]
+    QIEC["QIEC route: Didactic GADT + Quivers kernel"]
+    PROG["Program (nn.Module)"]
+    CORE["checked QiecModule"]
+    SRC --> PARSE --> AST
+    AST --> OLD --> PROG
+    AST --> QIEC --> CORE
 ```
 
-The grammar at `grammars/qvr/` is registered with panproto's
-`panproto-grammars-all` distribution; the AST nodes are documented
-in [`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
+The grammar at `grammars/qvr/` is authoritative. Quivers compiles that current
+source from the checkout during development and ships it in the wheel, avoiding
+a silent fallback to a stale grammar bundle. The AST nodes are documented in
+[`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
 syntactic [`ObjectExpr`](../api/dsl/ast_nodes.md) trees and runtime
 [`SetObject`](../api/core/objects.md) /
 [`ContinuousSpace`](../api/continuous/spaces.md) values is handled
@@ -115,6 +120,26 @@ compiler = Compiler(ast)
 program = compiler.compile()
 ```
 
+### The QIEC route
+
+QVR v0.19 adds a second typed route for indexed families and algebraic effects.
+The parser represents `index`, `family`, `effect`, `instance`, `handler`, and
+typed computation `define` declarations in a distinct AST. Quivers constructs
+a first-order projection through Didactic 0.15's public `GADT` API, which checks
+indexed-family declarations and constructor refinements through Panproto.
+Didactic then negotiates the exact route `qvr-source/v0.19` to
+`qiec-core/v1alpha1`; the QIEC checker retains the parameter/index distinction
+and validates effect rows, handler coverage, and branch-local evidence.
+
+The two routes may occur in one source module. Declaration-only QIEC metadata
+may accompany a probabilistic `program`, and each checked QIEC computation is
+retained beside the probabilistic IR. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
+WebPPL, and Church execute the complete QIEC graph through generated host
+runtimes. Stan, BUGS, and JAGS accept a checked, effect-free scalar subset and
+report a feature-specific capability diagnostic for other computations. See
+[Quivers Indexed Effect Core](../developer/qiec.md) for the complete surface and
+target boundary.
+
 ### Programs as panproto schemas
 
 After compilation, the resolved environment can be exported as a
@@ -141,7 +166,8 @@ available on `.qvr` programs without further work.
 ## Grammar
 
 The authoritative grammar is the tree-sitter source at
-`grammars/qvr/grammar.js` in the quivers repository. The summary
+`grammars/qvr/grammar.js` in the quivers repository and in the installed wheel.
+The summary
 below is a human-readable EBNF view of the same productions; the
 tree-sitter grammar is the source of truth.
 

@@ -5,7 +5,8 @@
 | Consumer | Engine | Comes from |
 |---|---|---|
 | Python tools: mkdocs, Sphinx, Jupyter, IPython, `pygmentize` | [Pygments](https://pygments.org/) | bundled with the `quivers` PyPI package |
-| Editors: Neovim, Helix, Emacs, Zed, VS Code (via tree-sitter extension) | [tree-sitter](https://tree-sitter.github.io/) | bundled with `panproto-grammars-all` and the in-tree `grammars/qvr/` source |
+| Editors: Neovim, Helix, Emacs, Zed | [tree-sitter](https://tree-sitter.github.io/) | the grammar and editor assets shipped by `quivers` |
+| VS Code and Cursor | TextMate for initial colorization; QVR LSP for semantic tokens | the first-party `vscode-qvr` extension |
 | GitHub.com source view, GitHub gists | [Linguist](https://github.com/github-linguist/linguist) | language registration (not yet upstream) |
 
 This page documents how to wire each one up.
@@ -37,12 +38,21 @@ The lexer source lives at [`src/quivers/dsl/pygments_lexer.py`](https://github.c
 
 ## Tree-sitter (editors)
 
-The tree-sitter grammar lives at [`grammars/qvr/`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr) in the quivers repository and is vendored by the [`panproto-grammars-all`](https://pypi.org/project/panproto-grammars-all/) distribution. Most editor integrations consume the grammar through one of two paths:
+The authoritative tree-sitter grammar lives at
+[`grammars/qvr/`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr)
+in the quivers repository. The Python package includes its generated source;
+platform wheels pair that source with a manifest-verified native parser. The
+Pygments lexer, CLI, REPL, and language server load this pair directly and fail
+closed if either component is absent or inconsistent. Editable checkouts may
+compile a content-addressed development parser after grammar changes.
+`panproto-grammars-all` remains a dependency for the eleven transpiler-target
+grammars, but it is not the QVR v0.19 source of truth.
 
-1. The vendored `parser.c` inside `panproto-grammars-all`.
-2. A direct clone of the quivers repo with a per-editor build step against `grammars/qvr/`.
-
-The Neovim, Helix, Emacs, and Zed instructions below cover (2). The grammar follows standard tree-sitter conventions; if your editor has a `:TSInstall qvr` or equivalent command and the grammar isn't on the upstream list yet, the manual paths below also work.
+Editor integrations use the first-party extensions below or clone the quivers
+repository and build against `grammars/qvr/`. The grammar follows standard
+tree-sitter conventions; if an editor has a `:TSInstall qvr` or equivalent
+command and the grammar is not on its upstream list yet, the manual paths below
+also work.
 
 ### Neovim
 
@@ -119,6 +129,14 @@ With [tree-sitter-langs](https://github.com/emacs-tree-sitter/tree-sitter-langs)
                     "deduction" "atoms" "start" "depth"
                     "lexicon" "let" "in" "sample" "observe"
                     "marginalize" "return" "factor" "score"
+                    "index" "family" "constructor" "effect"
+                    "instance" "handler" "perform" "handle"
+                    "case" "motive" "resumes" "construct"
+                    "for" "with" "lacks"
+                    "coverage"
+                    "forwards" "introduces" "unknown" "none"
+                    "total" "partial"
+                    "aff" "omega" "true" "false" "unit"
                     "export" "as" "over"
                     "algebra" "semigroupoid" "bilinear_form"
                     "rule"]

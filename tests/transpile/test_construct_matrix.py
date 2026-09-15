@@ -37,6 +37,7 @@ from quivers.transpile import (
 from quivers.transpile._api import (
     CATEGORICAL_METADATA_IGNORABLE,
     CHURCH_LIKE,
+    QIEC_SURFACE,
     STAN_LIKE,
 )
 from tests.transpile.fixtures import _load
@@ -81,7 +82,9 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
     tier = _SUPPORT_TIER[backend]
     kinds = {str(stmt.kind) for stmt in module.statements}
     has_program = "program_decl" in kinds
-    effective_tier = tier | CATEGORICAL_METADATA_IGNORABLE if has_program else tier
+    effective_tier = tier | QIEC_SURFACE
+    if has_program:
+        effective_tier |= CATEGORICAL_METADATA_IGNORABLE
     return {k for k in kinds if k not in effective_tier}
 
 
@@ -100,21 +103,31 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
 # entry. A regression surfaces because the raised kinds match a
 # different prefix; either update the entry or fix the renderer.
 _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
-    # Stan / BUGS / JAGS have no method-dispatch syntax for the
-    # chart-parser `parser.parse(sentence)` method call. The
-    # deduction graft that would supply the called function is
-    # blocked by `CATEGORICAL_METADATA_IGNORABLE` (Stan) or by
-    # dialect restrictions on user-defined model-body functions
-    # (BUGS, JAGS).
-    ("stan", "let_expressions", "let_expr_method_call"): "let-expr:",
-    ("bugs", "let_expressions", "let_expr_method_call"): "let-expr:",
-    ("jags", "let_expressions", "let_expr_method_call"): "let-expr:",
-    # Stan / BUGS / JAGS have no anonymous-function syntax in the
-    # model-body expression position, so a `param -> body` lambda is
-    # an orthogonal unsupported concern for these dialects.
-    ("stan", "let_expressions", "let_expr_lambda"): "let-expr:",
-    ("bugs", "let_expressions", "let_expr_lambda"): "let-expr:",
-    ("jags", "let_expressions", "let_expr_lambda"): "let-expr:",
+    # Static graphical targets preserve only the closed, monomorphic,
+    # effect-free scalar QIEC fragment.
+    ("stan", "statements", "qiec_effectful_computation"): "qiec:",
+    ("bugs", "statements", "qiec_effectful_computation"): "qiec:",
+    ("jags", "statements", "qiec_effectful_computation"): "qiec:",
+    # A program calling a deduction, `parse(D, sentence)` followed by
+    # `chart.goal_weight()`, is refused at the QIEC boundary on every
+    # target: the deduction enumerates its derivations through a search
+    # handler no target runtime carries.
+    **{
+        (backend, "let_expressions", "let_expr_method_call"): "qiec:"
+        for backend in (
+            "bugs",
+            "church",
+            "edward2",
+            "gen",
+            "jags",
+            "numpyro",
+            "pymc",
+            "pyro",
+            "stan",
+            "turing",
+            "webppl",
+        )
+    },
     # BUGS / JAGS dialects ship no MatrixNormal surface, so the
     # axes/matrix_kronecker fixture trips the family-target-name
     # check before the construct gate.

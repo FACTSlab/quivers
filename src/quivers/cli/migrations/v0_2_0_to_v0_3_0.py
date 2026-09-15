@@ -12,17 +12,27 @@ are byte-identical between v0.2.0 and v0.3.0 fall through to
 
 from __future__ import annotations
 
-from quivers.cli.migrations._common import DeclConverter, migrate_source
+from quivers.cli.migrations._common import DeclConverter, SchemaView, migrate_source
 
 
-_DECL_CONVERTERS: dict[str, DeclConverter] = {}
+def _preserve_rule_decl(view: SchemaView, vid: str) -> str:
+    """Preserve syntax while v0.3 reclassifies category-pattern nodes."""
+    text = view.text(vid)
+    return text if text.endswith("\n") else text + "\n"
+
+
+_DECL_CONVERTERS: dict[str, DeclConverter] = {
+    "rule_decl": _preserve_rule_decl,
+}
 
 
 def migrate(source: bytes) -> bytes:
     return migrate_source(source, "v0.2.0", "v0.3.0", _DECL_CONVERTERS)
 
 
-# Identity hop or no converters declared yet. The chain-coverage
-# check will flag every removed source rule as uncovered until
-# the hop's converters are written.
-SOURCE_RULE_COVERAGE: frozenset[str] = frozenset()
+# v0.3 folds the category-pattern grammar into `_type_expr`. The concrete
+# syntax and the containing `rule_decl` stay unchanged; the explicit parent
+# converter above passes the declaration through and target-validates it.
+SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(
+    {"_cat_pattern", "cat_atom", "cat_paren", "cat_product", "cat_slash"}
+)

@@ -29,7 +29,7 @@ The monad-side hierarchy:
 | `Foldable` / `Traversable` | `foldr`, `traverse` | distribute Applicative actions through a structure |
 | `MonadTrans` | `lift` | stack one monad on top of another |
 
-The arrow-side hierarchy (Hughes 2000, *Generalizing monads to arrows*, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
+The arrow-side hierarchy (Hughes 2000, *Generalising monads to arrows*, [doi:10.1016/S0167-6423(99)00023-4](https://doi.org/10.1016/S0167-6423(99)00023-4)):
 
 | Class | Adds | Use |
 |-------|------|-----|
@@ -133,6 +133,36 @@ Handlers compose with a `deduction` block to produce parsers
 that interpret their effect-typed denotation through registered
 handlers, ending in an effect-pure target.
 
+## QIEC effect interfaces and rows
+
+QVR v0.19 adds the **QIEC effect calculus**, a source-level interface that is
+separate from both the Python typeclass tower and the probabilistic
+`program [effects=[...]]` check. An `effect` may take heterogeneous static
+parameters and declares operations. An `instance` applies that
+interface and receives a lexical identity, so two instances of `State[Int]`
+remain different row entries. A typed computation records those entries in an
+exact or open row, including row-tail `lacks` constraints.
+
+Handlers match an applied interface and one lexical instance. Their stable
+declarations record total or partial coverage, forwarding policy, introduced
+effects, and a resumption grade for each operation. A total handler removes the
+matched instance from the residual row; a partial handler retains it. An
+explicitly forwarding partial handler passes structurally uncovered operations
+to an outer handler.
+
+This calculus unifies the types used by logic-style `Choose`, weighted
+accumulation, state, abort, random choice, and scoring. QIEC handler bodies
+remain process-local attachments. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
+WebPPL, and Church consume those attachments through corresponding, tested
+implementations of the stable-ID runtime ABI; this test evidence is not an
+equivalence proof. Stan, BUGS, and JAGS instead require a closed, empty effect
+row, an empty static telescope, a scalar result, and scalar `Return`/`Bind`
+forms. Stan may also accept named `Bool`, `Int`, and `Real` value parameters;
+BUGS and JAGS require parameterless computations. These targets reject
+unsupported control or value features explicitly. The
+[QIEC developer note](../developer/qiec.md) specifies the source forms,
+checker, serialization boundary, evaluator, and transpiler contracts.
+
 ## Bridges between the two towers
 
 `quivers.monadic.bridges` contains:
@@ -211,8 +241,8 @@ user would see if they enumerated the lifts manually.
 ## References
 
 - Andrej Bauer and Matija Pretnar. 2015. Programming with algebraic effects and handlers. *Journal of Logical and Algebraic Methods in Programming*, 84(1):108–123.
-- Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics (advance article).
-- Dylan Bumford and Simon Charlow. 2026. *Effect-Driven Interpretation: Functors for Natural Language Composition*. Cambridge Elements in Semantics. Cambridge University Press.
+- Charlow, S. (2025). [*Static and dynamic exceptional scope*](https://doi.org/10.1093/jos/ffad012). Journal of Semantics, 42(4), 353–398.
+- Dylan Bumford and Simon Charlow. Forthcoming, 2026. *Effect-Driven Interpretation: Functors for Natural Language Composition*. Cambridge Elements in Semantics. Cambridge University Press.
 - Gordon D. Plotkin and John Power. 2003. Algebraic operations and generic effects. *Applied Categorical Structures*, 11(1):69–94.
-- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - McBride, C. and Paterson, R. (2008). [*Applicative programming with effects*](https://doi.org/10.1017/S0956796807006326). Journal of Functional Programming, 18(1), 1–13.

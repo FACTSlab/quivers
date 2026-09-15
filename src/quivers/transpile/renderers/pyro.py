@@ -84,6 +84,10 @@ from quivers.transpile.renderers._base import (
     host_integer_input_names,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_helper_roots,
+)
 
 
 _TARGET = "pyro"
@@ -159,7 +163,9 @@ class PyroRenderer(RendererBase):
         # parsed helper `class` subtree onto the module above `model`
         # so a reader sees the helper classes first (the natural Python
         # idiom: define classes before consumers).
-        for helper_name in sorted(_ir_helper_classes_used(ir.body)):
+        for helper_name in sorted(
+            _ir_helper_classes_used(ir.body) | qiec_helper_roots(ir, _TARGET)
+        ):
             _emit_runtime_helper(pctx, helper_name)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
@@ -173,6 +179,9 @@ class PyroRenderer(RendererBase):
 
         pctx.body = body
         pctx.observed = frozenset(observed_names)
+        if not ir.body:
+            noop = pctx.v(pctx.fresh("pass"), "pass_statement")
+            pctx.e(body, noop, "child_of")
 
         # torch's advanced indexing requires integer index tensors, so
         # every host-integer input the program subscripts with is
@@ -211,6 +220,7 @@ class PyroRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
 
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- per-node dispatch driving pctx body emission -----
@@ -655,9 +665,8 @@ class PyroRenderer(RendererBase):
                 *positional,
             )
         # A family whose target class fixes a leading parameter the QVR
-        # call site never writes (`Horseshoe(scale)` -> `Normal(0,
-        # scale)`) gets that value prepended under the target's own
-        # parameter name.
+        # call site never writes gets that value prepended under the
+        # target's own parameter name.
         fixed_leading = _PYRO_FIXED_LEADING_ARGS.get(family)
         if fixed_leading is not None:
             positional = (
@@ -1613,14 +1622,10 @@ _PYRO_KEYWORD_BINDINGS: dict[str, dict[str, str]] = {
 
 #: Families whose Pyro target class carries a leading parameter that
 #: the QVR call site never writes because the family fixes it, mapped
-#: to the value that fills it. The horseshoe prior is
-#: `Normal(0, scale)` and QVR spells it `Horseshoe(scale)`; emitting
-#: that one argument positionally against `pyro.distributions.Normal`
-#: binds it to `loc` and scores a unit scale at a shifted location, so
-#: the renderer prepends the fixed location instead.
-_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {
-    "Horseshoe": 0.0,
-}
+#: to the value that fills it; emitting such a family's arguments
+#: positionally would bind the first to the fixed parameter, so the
+#: renderer prepends the fixed value instead.
+_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {}
 
 
 _RUNTIME_PYRO_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"

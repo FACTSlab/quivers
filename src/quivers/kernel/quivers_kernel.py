@@ -24,7 +24,7 @@ class QuiversKernel(Kernel):
     implementation = "quivers"
     implementation_version = "0.1.0"
     language = "qvr"
-    language_version = "0.9"
+    language_version = "0.19"
     language_info = {
         "name": "qvr",
         "mimetype": "text/x-qvr",
@@ -142,7 +142,7 @@ def _split_cell(code: str) -> list[str]:
 def _prefix_at(code: str, cursor_pos: int) -> str:
     text = code[:cursor_pos]
     i = len(text)
-    while i > 0 and (text[i - 1].isalnum() or text[i - 1] in "_:"):
+    while i > 0 and (text[i - 1].isalnum() or text[i - 1] in "_:."):
         i -= 1
     return text[i:]
 

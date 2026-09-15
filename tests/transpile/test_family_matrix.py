@@ -100,6 +100,14 @@ _ORTHOGONAL_REFUSALS: dict[tuple[str, str], str] = {
     # only thing it could emit is the latent as a draw. The family
     # itself is one Gen has.
     ("gen", "categorical"): "marginalize:",
+    # `wishart.qvr` writes its scale matrix as a literal, which JAGS's
+    # data block has no syntax for; the family itself is one JAGS has.
+    ("jags", "wishart"): "arg:matrix-literal",
+    # BUGS's data block has no literal vector or matrix syntax either,
+    # and its argument check runs before its family check.
+    ("bugs", "wishart"): "arg:matrix-literal",
+    ("bugs", "inversewishart"): "arg:matrix-literal",
+    ("bugs", "lowrankmvn"): "arg:list-literal",
 }
 
 

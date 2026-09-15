@@ -92,6 +92,31 @@ Gen.has_argument_grads(::HalfStudentTDist) = (false, false)
 
 (::HalfStudentTDist)(df, scale) = Gen.random(HalfStudentTDist(), df, scale)
 
+struct HalfCauchyDist <: Gen.Distribution{Float64} end
+
+const half_cauchy = HalfCauchyDist()
+
+function Gen.random(::HalfCauchyDist, scale::Real)
+    return abs(rand(Distributions.Cauchy(0, scale)))
+end
+
+function Gen.logpdf(::HalfCauchyDist, x::Real, scale::Real)
+    if x < 0
+        return -Inf
+    end
+    return Distributions.logpdf(Distributions.Cauchy(0, scale), x) + log(2)
+end
+
+function Gen.logpdf_grad(::HalfCauchyDist, x::Real, scale::Real)
+    return (nothing, nothing)
+end
+
+Gen.has_output_grad(::HalfCauchyDist) = false
+
+Gen.has_argument_grads(::HalfCauchyDist) = (false,)
+
+(::HalfCauchyDist)(scale) = Gen.random(HalfCauchyDist(), scale)
+
 struct KumaraswamyDist <: Gen.Distribution{Float64} end
 
 const kumaraswamy = KumaraswamyDist()

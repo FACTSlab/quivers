@@ -332,3 +332,53 @@ program labeled_tuple : A -> B * C
         (return_label_entry
           (identifier)
           (identifier))))))
+
+==================
+call step binding a named computation
+==================
+
+program calls : A -> B
+    sample m <- f
+    let total <- helper[Real](m, 2.0)
+    let plain <- nullary()
+    let sized <- padded[3](total)
+    return total
+
+---
+
+(source_file
+  (program_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (sample_step
+      (identifier)
+      (identifier))
+    (call_step
+      (identifier)
+      (qiec_call_computation
+        (identifier)
+        (qiec_static_argument
+          (qiec_type_name
+            (identifier)))
+        (let_var
+          (identifier))
+        (let_literal
+          (float))))
+    (call_step
+      (identifier)
+      (qiec_call_computation
+        (identifier)))
+    (call_step
+      (identifier)
+      (qiec_call_computation
+        (identifier)
+        (qiec_static_argument
+          (qiec_index_literal
+            (integer)))
+        (let_var
+          (identifier))))
+    (return_step
+      (identifier))))

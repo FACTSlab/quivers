@@ -1,6 +1,8 @@
 """Compiler: transform a quivers DSL AST into a trainable Program."""
 
 from __future__ import annotations
+
+from dataclasses import replace
 from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.objects import SetObject
 from quivers.program import Program
@@ -40,6 +42,14 @@ from quivers.dsl.compiler.structural import _StructuralMixin
 from quivers.dsl.compiler.deductions import _DeductionsMixin
 from quivers.dsl.compiler.resolution import _ResolutionMixin
 from quivers.dsl.compiler.expressions import _ExpressionsMixin
+from quivers.dsl.program_elaboration import GAP_CODE
+from quivers.dsl.qiec_lowering import (
+    QiecDiagnosticError,
+    has_qiec_surface,
+    lower_qvr_to_qiec,
+    non_qiec_projection,
+)
+from quivers.qiec import QiecModule
 
 
 class Compiler(
@@ -67,7 +77,23 @@ class Compiler(
         The parsed AST.
     """
 
-    def __init__(self, module: Module) -> None:
+    def __init__(
+        self,
+        module: Module,
+        *,
+        module_name: str | None = None,
+        file_path: str = "<source>",
+    ) -> None:
+        self._qiec_module: QiecModule | None = None
+        # The QIEC projection is lowered on first use, after the
+        # statements' own checks when `compile` drives it, so a source
+        # error the statement compiler names is reported by it.
+        self._qiec_source: Module | None = None
+        self._qiec_module_name = module_name
+        self._qiec_file_path = file_path
+        if has_qiec_surface(module):
+            self._qiec_source = module
+            module = non_qiec_projection(module)
         self._module = module
         self._algebra: Algebra = PRODUCT_FUZZY
         self._categories: list[str] = []
@@ -186,6 +212,64 @@ class Compiler(
         """User-declared transformation constructors / singletons."""
         return dict(self._transformations)
 
+    @property
+    def qiec_module(self) -> QiecModule | None:
+        """The checked QIEC module, or ``None`` when the source has no QIEC surface.
+
+        Returns
+        -------
+        QiecModule | None
+            The module, lowered on first access.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the source's QIEC surface fails to lower, other than by a
+            program gap, which the module records instead.
+        """
+        if self._qiec_source is not None and self._qiec_module is None:
+            self._qiec_module = self._lower_qiec(self._qiec_source)
+        return self._qiec_module
+
+    def _lower_qiec(self, module: Module) -> QiecModule:
+        """Lower the source's QIEC surface to a checked module.
+
+        Parameters
+        ----------
+        module : Module
+            The parsed source, QIEC surface included.
+
+        Returns
+        -------
+        QiecModule
+            The checked module; when a program falls in a gap of the
+            elaboration, the module of the other declarations with the
+            gap recorded.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the surface fails to lower other than by a program gap.
+        """
+        try:
+            return lower_qvr_to_qiec(
+                module,
+                module_name=self._qiec_module_name,
+                file_path=self._qiec_file_path,
+            )
+        except QiecDiagnosticError as error:
+            if error.code != GAP_CODE:
+                raise
+            return replace(
+                lower_qvr_to_qiec(
+                    module,
+                    module_name=self._qiec_module_name,
+                    file_path=self._qiec_file_path,
+                    elaborate_programs=False,
+                ),
+                gap=error.message,
+            )
+
     def compile(self) -> Program:
         """Compile the module into a trainable Program.
 
@@ -202,6 +286,7 @@ class Compiler(
         _register_extra_algebras()
         for stmt in self._module.statements:
             self._compile_statement(stmt)
+        qiec_module = self.qiec_module
         if self._output_expr is None:
             # A module may declare only structural artifacts
             # (signatures, encoders, decoders, losses) with no
@@ -240,6 +325,10 @@ class Compiler(
         program.encoders = getattr(self, "_encoders", {})
         program.decoders = getattr(self, "_decoders", {})
         program.losses = getattr(self, "_loss_registry", None)
+        # Preserve the checked projection on the compiled container.  A
+        # QIEC-only source thus becomes an inspection/evaluation container;
+        # its computation graph is never misrepresented as a PyTorch morphism.
+        object.__setattr__(program, "qiec", qiec_module)
         # Wire the loss registry into every compiled deduction so the
         # agenda's rule-firing and chart-completion paths can fire
         # rule-attached and chart-attached losses automatically.
@@ -299,6 +388,9 @@ class Compiler(
             self._compile_statement(stmt)
         env: dict = {}
         env["__algebra__"] = self._algebra
+        qiec_module = self.qiec_module
+        if qiec_module is not None:
+            env["__qiec__"] = qiec_module
         for name, obj in self._objects.items():
             env[name] = obj
         for name, space in self._spaces.items():

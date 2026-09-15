@@ -32,6 +32,7 @@ import didactic.api as dx
 from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.objects import ObjectExpr
+from quivers.dsl.ast_nodes.qiec import QiecCallComputation
 
 
 class DrawArg(dx.TaggedUnion, discriminator="kind"):
@@ -226,6 +227,20 @@ class LetStep(ProgramStep):
     kind: Literal["let_step"] = "let_step"
 
 
+class CallStep(ProgramStep):
+    """``let name <- computation(args)`` binding step.
+
+    The bound name takes the result of a named computation declared in
+    the module; the computation's effects join the program's row.
+    """
+
+    name: str
+    call: QiecCallComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["call_step"] = "call_step"
+
+
 class ScoreStep(ProgramStep):
     """``score name = value`` log-density factor step.
 
@@ -286,8 +301,10 @@ class GroupedMarginalizeStep(ProgramStep):
     The compiler lowers a surface `MarginalizeStep` into this
     shape after expanding the scope. ``class_size`` is the resolved
     cardinality of the latent index; ``probs_var`` names the env
-    slot holding the family's probability tensor; ``over_obj`` /
-    ``over_objs`` carry the grouping object (single or product);
+    slot holding the family's probability tensor, which
+    ``probs_indices`` gather rows of, left to right, when the prior is
+    written ``probs[latent]`` against an enclosing latent; ``over_obj``
+    / ``over_objs`` carry the grouping object (single or product);
     ``body_ll_var`` names the env slot that the grouped observe
     pushed its (N_m, K) log-likelihood into; ``body_observes`` lists
     the (ll_slot, fibration) entries that the runtime callable
@@ -297,6 +314,7 @@ class GroupedMarginalizeStep(ProgramStep):
     var_name: str
     class_size: int
     probs_var: str | None = None
+    probs_indices: tuple[str, ...] = ()
     over_obj: str | None = None
     over_objs: tuple[str, ...] | None = None
     body_ll_var: str = ""
@@ -425,6 +443,7 @@ class GroupedBodyObserveStep(ProgramStep):
 
 __all__ = [
     "BindStep",
+    "CallStep",
     "DrawStep",
     "GroupedBodyObserveStep",
     "GroupedLatentInitStep",

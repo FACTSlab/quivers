@@ -16,3 +16,12 @@ grammars/qvr/src/parser.c             linguist-generated=true
 grammars/qvr/src/grammar.json         linguist-generated=true
 grammars/qvr/src/node-types.json      linguist-generated=true
 grammars/qvr/src/tree_sitter/*.h      linguist-vendored=true
+
+# Migration manifests pin the exact parser-source bytes. Keep those bytes
+# identical when Git checks the snapshots out on Windows.
+grammars/qvr/vcs/parsers/** text eol=lf
+
+# Compiled parser libraries are binaries and must never be normalized.
+grammars/qvr/vcs/parsers/**/*.dylib binary
+grammars/qvr/vcs/parsers/**/*.so binary
+grammars/qvr/vcs/parsers/**/*.dll binary

@@ -46,15 +46,14 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     for i in range(num_levels):
         prog_lines.append(f"    sample probs_{i} : K_{i} <- HalfNormal(1.0)")
     # Only the innermost block has a fibration into a response
-    # plate; outer levels consume the inner block's already-
-    # scattered tensor with identity fibration.
-    prog_lines.append("    sample idx_inner : Resp <- HalfNormal(1.0)")
+    # plate, host data named by its ``via``; outer levels consume the
+    # inner block's already-scattered tensor with identity fibration.
     indent = "    "
     nested: list[str] = []
     for i in range(num_levels):
         pad = indent * (i + 1)
         nested.append(
-            f"{pad}marginalize lat_{i} : K_{i} <- Dirichlet(probs_{i}) [over=G_{i}]"
+            f"{pad}marginalize lat_{i} : K_{i} <- Categorical(probs_{i}) [over=G_{i}]"
         )
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.

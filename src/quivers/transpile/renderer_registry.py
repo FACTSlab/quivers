@@ -145,8 +145,8 @@ class BackendRenderer(ABC):
     emit function. Any [`IRArg`][quivers.transpile.ir.IRArg] a
     renderer needs to walk is dispatched through :meth:`emit_arg`.
 
-    Existing renderers under [`quivers.transpile.backends`][quivers.transpile.backends]
-    subclass [`RendererBase`][quivers.transpile.backends] instead
+    Existing renderers under [`quivers.transpile.renderers`][quivers.transpile.renderers]
+    subclass [`RendererBase`][quivers.transpile.renderers.RendererBase] instead
     and hard-code their emit tables; both paths coexist. Third-
     party renderers with a small backend surface pick this base
     for the extensibility; large in-tree backends stay on

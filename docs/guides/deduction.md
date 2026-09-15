@@ -100,6 +100,42 @@ schema = extract_deduction_schema(compiler)
 # schema is a panproto.Schema, usable with diff / lens-generation tooling.
 ```
 
+## The deduction as a kernel computation
+
+The same declaration elaborates to QIEC computations, which is how a
+`program` calls a deduction and how the reference machine scores one. The
+items become a closed family, the rules become a recursive derivation
+that searches through a [`Search`](../developer/qiec.md#qvr-surface)
+effect and adds weights through `Weight[K]`, and the entry answers the
+inside weight of the goal in the declared semiring, the number
+[`goal_weight`](../api/stochastic/agenda.md#quivers.stochastic.agenda.ChartView.goal_weight)
+reads off the chart for the whole sentence. A program writes
+`let chart = parse(D, sentence)` and scores `chart.goal_weight()`;
+[`run_deduction`](../api/qiec/program_runtime.md#quivers.qiec.program_runtime.run_deduction)
+runs the deduction alone on the reference machine, and
+[`deduction_item`](../api/qiec/program_runtime.md#quivers.qiec.program_runtime.deduction_item)
+builds the axioms of a system without a lexicon.
+
+```python
+from quivers.dsl import Compiler
+from quivers.dsl.parser import parse_file
+from quivers.qiec.program_runtime import run_deduction
+
+compiler = Compiler(parse_file("docs/examples/source/pcfg.qvr"))
+compiler.compile()
+module = compiler.qiec_module
+run = run_deduction(module, "PCFG", tokens=["the", "dog", "runs"])
+# run.weight is the log inside weight of S over the sentence.
+```
+
+The reference machine enumerates derivations, choosing split positions
+and rules through the search handler and combining the shots by the
+semiring's addition, while the agenda engine tabulates them; the two
+agree on every system whose derivations of the goal fit the declared
+`depth`. Learned weights reach the computation through the module's
+`params` instance under the names the engine keys its parameters by, so
+a run may be given a parameter store built from a fitted system.
+
 ## References
 
 - Dan Klein and Christopher D. Manning. 2001. Parsing and hypergraphs. In *Proceedings of the Seventh International Workshop on Parsing Technologies (IWPT)*, pages 123–134.
