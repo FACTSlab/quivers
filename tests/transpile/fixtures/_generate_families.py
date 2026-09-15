@@ -16,8 +16,6 @@ compiles for that family:
 - **Morphism kernel** (``morphism k : Obs -> Obs [role=kernel] ~ F``)
   for families that have a `Conditional<F>` class but no inline
   factory.
-- **Hand-written structural prior** for `Horseshoe` (no inline /
-  conditional surface; built from HalfCauchy + Normal).
 - **Vector / matrix families** (`Dirichlet`, `MultivariateNormal`,
   `Wishart`, `InverseWishart`, `MatrixNormal`, `LowRankMVN`, `GP`,
   `Categorical`, `RelaxedOneHotCategorical`) get hand-written
@@ -45,6 +43,7 @@ _INLINE_SAMPLE: dict[str, str] = {
     "Exponential": "1.0",
     "Gamma": "2.0, 1.0",
     "HalfCauchy": "1.0",
+    "Horseshoe": "1.5",
     "HalfNormal": "1.0",
     "LogNormal": "0.0, 1.0",
     "LogitNormal": "0.0, 1.0",
@@ -92,11 +91,6 @@ _VECTOR_FAMILIES: frozenset[str] = frozenset(
         "Wishart",
     }
 )
-
-
-# Families with no inline / conditional kernel surface; the fixture
-# is the structural prior built from primitives.
-_STRUCTURAL_PRIOR: frozenset[str] = frozenset({"Horseshoe"})
 
 
 _GENERATED_HEADER = "# Auto-generated fixture exercising the "
@@ -181,11 +175,22 @@ _MORPHISM_KERNEL_DEFAULT_ARGS: dict[str, str] = {
 _VECTOR_SOURCES: dict[str, str] = {
     "Categorical": (
         "# Hand-written Categorical fixture (vector family).\n"
+        "#\n"
+        "# The observed `cls` site is what carries the family-support claim.\n"
+        "# The `marginalize` block below draws on Categorical too, but a\n"
+        "# marginalized latent is integrated out rather than declared, so on\n"
+        "# every backend that lowers the integral to a weighted logsumexp the\n"
+        "# emitted source names the weights (`log(probs)`) and never the family.\n"
+        "# Naming the family there would take the *draw* lowering, which\n"
+        "# denotes a measure on a strictly larger space than the QVR reference\n"
+        "# integrates. The observed site keeps the matrix cell honest without\n"
+        "# reaching for it.\n"
         "object Item : FinSet 8\n"
         "object Comp : FinSet 4\n"
-        "program categorical_fixture(probs : Real) : Item -> Item\n"
-        "    sample probs <- Dirichlet(1.0) [over=Comp]\n"
-        "    marginalize cls : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]\n"
+        "program categorical_fixture : Item -> Item\n"
+        "    sample probs <- Dirichlet(concentration) [over=Comp]\n"
+        "    observe cls : Item <- Categorical(probs)\n"
+        "    marginalize z : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]\n"
         "        observe r : Item <- Normal(0.0, 1.0) [via=idx]\n"
         "    return probs\n"
         "export categorical_fixture\n"
@@ -194,8 +199,8 @@ _VECTOR_SOURCES: dict[str, str] = {
         "# Hand-written Dirichlet fixture (vector family).\n"
         "object Obs : FinSet 4\n"
         "object Comp : FinSet 3\n"
-        "program dirichlet_fixture(alpha : Real) : Obs -> Obs\n"
-        "    sample probs <- Dirichlet(alpha) [over=Comp]\n"
+        "program dirichlet_fixture : Obs -> Obs\n"
+        "    sample probs <- Dirichlet(concentration) [over=Comp]\n"
         "    return probs\n"
         "export dirichlet_fixture\n"
     ),
@@ -273,26 +278,6 @@ _VECTOR_SOURCES: dict[str, str] = {
 }
 
 
-# Hand-written sources for structural-only families.
-_STRUCTURAL_SOURCES: dict[str, str] = {
-    "Horseshoe": (
-        "# Hand-written Horseshoe fixture (structural prior; no inline\n"
-        "# or conditional kernel surface). The horseshoe is built as\n"
-        "# tau (global) * lambda_local (per-coord) * z_raw (standard\n"
-        "# Normal raw), per Carvalho-Polson-Scott (2010).\n"
-        "object Coef : FinSet 4\n"
-        "object Obs : FinSet 200\n"
-        "program horseshoe_fixture : Obs -> Obs\n"
-        "    sample tau <- HalfCauchy(1.0)\n"
-        "    sample lambda_local : Coef <- HalfCauchy(1.0)\n"
-        "    sample z_raw : Coef <- Normal(0.0, 1.0)\n"
-        "    let beta = tau * lambda_local * z_raw\n"
-        "    return beta\n"
-        "export horseshoe_fixture\n"
-    ),
-}
-
-
 def main() -> int:
     registry = _get_family_registry()
     out_dir = pathlib.Path(__file__).resolve().parent / "families"
@@ -312,8 +297,6 @@ def main() -> int:
             source = _morphism_kernel_source(family)
         elif family in _VECTOR_FAMILIES and family in _VECTOR_SOURCES:
             source = _VECTOR_SOURCES[family]
-        elif family in _STRUCTURAL_PRIOR and family in _STRUCTURAL_SOURCES:
-            source = _STRUCTURAL_SOURCES[family]
         else:
             uncovered.append(family)
             continue

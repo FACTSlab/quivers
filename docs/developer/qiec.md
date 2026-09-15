@@ -100,6 +100,22 @@ These handlers are executable specifications, not the optimized production
 implementations of a backend. Runtime samplers, observation tables, semiring
 operations, state cells, and trace recorders remain process-local attachments.
 
+A distribution construction evaluates to a
+[`RuntimeDistribution`](../api/qiec/distributions.md), which samples and
+scores through an installed
+[`DistributionBackend`](../api/qiec/distributions.md). The reference backend
+implements every family of the semantic registry in plain Python: the scalar
+core beside the backend and the structured and compositional families in
+[`quivers.qiec.reference_families`](../api/qiec/reference_families.md), with
+the small linear algebra the matrix families need written out rather than
+taken from a host library. Each density is held to the torch definition the
+transpile probes use, or to the torch runtime's own definition where torch has
+no class, so the reference machine is an oracle a host can be checked against.
+A family whose draw has a size no parameter fixes, the LKJ families, reads it
+from the constructed type's event extents. The `Transformed` chain names its
+transforms as a comma-separated string over `exp`, `log`, `sigmoid`, `logit`,
+`softplus`, `tanh`, and `neg`, applied left to right.
+
 ### Named execution boundary
 
 `qvr run FILE COMPUTATION [JSON ...]` selects one checked
