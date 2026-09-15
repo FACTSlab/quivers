@@ -102,6 +102,12 @@ class DistributionFamily:
     finite_support
         The finite set of values a sample ranges over, when the family
         has one independent of its parameters.
+    relaxes
+        The discrete family a continuous relaxation stands in for, and
+        the atoms of that family's support as the relaxation's samples
+        spell them: a marginalization over the relaxation enumerates
+        those atoms under the discrete family's masses, as the torch
+        runtime does.
     """
 
     name: str
@@ -115,6 +121,7 @@ class DistributionFamily:
     compositional: bool
     targets: Mapping[str, str] = field(default_factory=dict)
     finite_support: tuple[object, ...] | None = None
+    relaxes: tuple[str, tuple[object, ...]] | None = None
 
     def __post_init__(self) -> None:
         """Freeze the target spellings and check the parameter names.
@@ -592,8 +599,8 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
     DistributionFamily(
         "Pareto",
         (
-            FamilyParameter("alpha", "positive", 0),
             FamilyParameter("scale", "positive", 0),
+            FamilyParameter("alpha", "positive", 0),
         ),
         support="dependent",
         element=REAL,
@@ -661,6 +668,7 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
             "turing": "ContinuousBernoulli",
             "webppl": "ContinuousBernoulli",
         },
+        relaxes=("Bernoulli", (0.0, 1.0)),
     ),
     DistributionFamily(
         "FisherSnedecor",
@@ -754,6 +762,7 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
     DistributionFamily(
         "RelaxedBernoulli",
         (
+            FamilyParameter("temperature", "positive", 0),
             FamilyParameter("probs", "unit_interval", 0),
             FamilyParameter("logits", "real", 0),
         ),
@@ -769,10 +778,15 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
             "numpyro": "RelaxedBernoulli",
             "pyro": "RelaxedBernoulli",
         },
+        relaxes=("Bernoulli", (0.0, 1.0)),
     ),
     DistributionFamily(
         "RelaxedOneHotCategorical",
-        (FamilyParameter("probs", "simplex", 1), FamilyParameter("logits", "real", 1)),
+        (
+            FamilyParameter("temperature", "positive", 0),
+            FamilyParameter("probs", "simplex", 1),
+            FamilyParameter("logits", "real", 1),
+        ),
         support="simplex",
         element=REAL,
         event_rank=1,

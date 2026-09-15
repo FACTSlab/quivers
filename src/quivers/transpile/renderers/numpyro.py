@@ -77,7 +77,10 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_helper_roots
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_helper_roots,
+)
 
 
 #: The backend key used to look up `target_names` / `arg_aliases` in
@@ -221,7 +224,7 @@ class NumPyroRenderer(RendererBase):
             _emit_runtime_helper(py, cls_name)
         py.e("mod", func, "child_of")
 
-        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def declare(

@@ -7,7 +7,7 @@ import pytest
 from quivers.dsl.parser import parse
 from quivers.dsl.qiec_lowering import QiecDiagnosticError
 from quivers.transpile import UnsupportedConstruct, available_targets, transpile
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.qiec_ir import (
     IRQiecModule,
     IRQiecReturn,
@@ -79,13 +79,12 @@ def test_checked_qiec_metadata_can_accompany_old_program(target: str) -> None:
 def test_qiec_computation_enters_typed_ir_without_blanket_refusal() -> None:
     ir = Lower().forward(parse(_QIEC_COMPUTATION))
 
-    assert ir.qiec is not None
-    assert [item.name for item in ir.qiec.computations] == ["prog", "answer"]
-    computation = ir.qiec.computations[1]
+    assert [item.name for item in ir.module.computations] == ["prog", "answer"]
+    computation = ir.module.computations[1]
     assert computation.name == "answer"
     assert isinstance(computation.body, IRQiecReturn)
-    assert analyze_qiec_capabilities(ir.qiec, "pyro") == ()
-    assert analyze_qiec_capabilities(ir.qiec, "stan") == ()
+    assert analyze_qiec_capabilities(ir.module, "pyro") == ()
+    assert analyze_qiec_capabilities(ir.module, "stan") == ()
 
 
 @pytest.mark.parametrize("target", available_targets())
@@ -103,16 +102,14 @@ def test_qiec_declarations_lower_without_a_probabilistic_program() -> None:
 
     assert ir.body == ()
     assert ir.inputs == ()
-    assert ir.qiec is not None
-    assert [sort.name for sort in ir.qiec.index_sorts] == ["Nat"]
+    assert [sort.name for sort in ir.module.index_sorts] == ["Nat"]
 
 
 def test_checked_qiec_metadata_is_preserved_in_structural_ir() -> None:
     ir = Lower().forward(parse(_OLD_PROGRAM_WITH_QIEC_METADATA))
 
-    assert ir.qiec is not None
-    assert isinstance(ir.qiec, IRQiecModule)
-    assert [sort.name for sort in ir.qiec.index_sorts] == ["Nat"]
+    assert isinstance(ir.module, IRQiecModule)
+    assert [sort.name for sort in ir.module.index_sorts] == ["Nat"]
 
 
 def test_typed_qiec_ir_round_trips_through_didactic_json() -> None:
@@ -122,9 +119,8 @@ def test_typed_qiec_ir_round_trips_through_didactic_json() -> None:
 
 
 def test_capability_analysis_is_target_specific_and_source_located() -> None:
-    qiec = Lower().forward(parse(_EFFECTFUL_QIEC, "state.qvr")).qiec
+    qiec = Lower().forward(parse(_EFFECTFUL_QIEC, "state.qvr")).module
 
-    assert qiec is not None
     assert analyze_qiec_capabilities(qiec, "pyro") == ()
     diagnostics = analyze_qiec_capabilities(qiec, "stan")
     assert {diagnostic.feature for diagnostic in diagnostics} == {
@@ -148,9 +144,8 @@ def test_capability_analysis_is_target_specific_and_source_located() -> None:
 
 
 def test_graphical_targets_refuse_named_qiec_parameters() -> None:
-    qiec = Lower().forward(parse(_PARAMETERIZED_QIEC)).qiec
+    qiec = Lower().forward(parse(_PARAMETERIZED_QIEC)).module
 
-    assert qiec is not None
     assert analyze_qiec_capabilities(qiec, "stan") == ()
     for target in ("bugs", "jags"):
         diagnostics = analyze_qiec_capabilities(qiec, target)

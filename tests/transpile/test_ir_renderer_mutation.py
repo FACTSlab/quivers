@@ -29,7 +29,7 @@ from quivers.transpile.ir import (
     IRSample,
     Plate,
 )
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 
 
 _FIXTURE_SOURCES: dict[str, str] = {
@@ -123,12 +123,7 @@ def _mutate_swap_beta_args(ir: IRProgram) -> IRProgram:
         new_body.append(node)
     if not swapped:
         return ir
-    return IRProgram(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=tuple(new_body),
-        cards=ir.cards,
-    )
+    return ir.with_(body=tuple(new_body))
 
 
 def _mutate_normal_to_cauchy(ir: IRProgram) -> IRProgram:
@@ -177,12 +172,7 @@ def _mutate_normal_to_cauchy(ir: IRProgram) -> IRProgram:
         new_body.append(node)
     if not changed:
         return ir
-    return IRProgram(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=tuple(new_body),
-        cards=ir.cards,
-    )
+    return ir.with_(body=tuple(new_body))
 
 
 def _mutate_drop_observe(ir: IRProgram) -> IRProgram:
@@ -197,12 +187,7 @@ def _mutate_drop_observe(ir: IRProgram) -> IRProgram:
         new_body.append(node)
     if not dropped:
         return ir
-    return IRProgram(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=tuple(new_body),
-        cards=ir.cards,
-    )
+    return ir.with_(body=tuple(new_body))
 
 
 def _mutate_drop_sample(ir: IRProgram) -> IRProgram:
@@ -217,12 +202,7 @@ def _mutate_drop_sample(ir: IRProgram) -> IRProgram:
     for i in range(len(body) - 1, -1, -1):
         if isinstance(body[i], IRSample):
             body.pop(i)
-            return IRProgram(
-                name=ir.name,
-                inputs=ir.inputs,
-                body=tuple(body),
-                cards=ir.cards,
-            )
+            return ir.with_(body=tuple(body))
     return ir
 
 
@@ -285,12 +265,7 @@ def _mutate_flip_plate_dims(ir: IRProgram) -> IRProgram:
         else inp
         for inp in ir.inputs
     )
-    return IRProgram(
-        name=ir.name,
-        inputs=new_inputs,
-        body=tuple(new_body),
-        cards=ir.cards,
-    )
+    return ir.with_(inputs=new_inputs, body=tuple(new_body))
 
 
 _MUTATIONS: dict[str, object] = {

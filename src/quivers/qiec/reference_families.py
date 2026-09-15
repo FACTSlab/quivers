@@ -34,8 +34,37 @@ type Vector = tuple[float, ...]
 type Matrix = tuple[tuple[float, ...], ...]
 
 #: The relaxation temperature of the concrete Bernoulli and one-hot
-#: categorical families, which the registry fixes rather than exposing.
+#: categorical families when a construction leaves it out.
 RELAXATION_TEMPERATURE = 0.5
+
+
+def relaxation_temperature(a: Mapping[str, object], family: str) -> float:
+    """The temperature a relaxed family is constructed at.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    float
+        The ``temperature`` parameter, or the default when absent.
+
+    Raises
+    ------
+    DistributionError
+        If the temperature is not a positive number.
+    """
+    if "temperature" not in a:
+        return RELAXATION_TEMPERATURE
+    temperature = real_parameter(a, "temperature", family)
+    if not temperature > 0.0:
+        raise DistributionError(f"{family} needs a positive temperature")
+    return temperature
+
 
 #: Standard Gauss-Legendre nodes and weights on ``[-1, 1]`` for the
 #: horseshoe marginal, mapped to ``[0, 1]`` where they are used.
@@ -1539,7 +1568,7 @@ def _relaxedbernoulli_sample(a: Mapping[str, object], rng: random.Random) -> obj
         uniform = rng.random()
     logit = math.log(lam) - math.log1p(-lam)
     noise = math.log(uniform) - math.log1p(-uniform)
-    return _sigmoid((logit + noise) / RELAXATION_TEMPERATURE)
+    return _sigmoid((logit + noise) / relaxation_temperature(a, "RelaxedBernoulli"))
 
 
 def _relaxedbernoulli_density(a: Mapping[str, object], value: object) -> float:
@@ -1563,7 +1592,7 @@ def _relaxedbernoulli_density(a: Mapping[str, object], value: object) -> float:
     lam = probability(a, "RelaxedBernoulli")
     if not 0.0 < point < 1.0:
         return -math.inf
-    temperature = RELAXATION_TEMPERATURE
+    temperature = relaxation_temperature(a, "RelaxedBernoulli")
     logit = math.log(lam) - math.log1p(-lam)
     y = math.log(point) - math.log1p(-point)
     difference = logit - temperature * y
@@ -2139,14 +2168,13 @@ def _relaxedonehot_sample(a: Mapping[str, object], rng: random.Random) -> object
         by the temperature, through the softmax.
     """
     probabilities = simplex(a, "RelaxedOneHotCategorical")
+    temperature = relaxation_temperature(a, "RelaxedOneHotCategorical")
     perturbed: list[float] = []
     for item in probabilities:
         uniform = rng.random()
         while uniform <= 0.0:
             uniform = rng.random()
-        perturbed.append(
-            (math.log(item) - math.log(-math.log(uniform))) / RELAXATION_TEMPERATURE
-        )
+        perturbed.append((math.log(item) - math.log(-math.log(uniform))) / temperature)
     peak = max(perturbed)
     weights = [math.exp(item - peak) for item in perturbed]
     total = sum(weights)
@@ -2174,7 +2202,7 @@ def _relaxedonehot_density(a: Mapping[str, object], value: object) -> float:
     k = len(probabilities)
     if len(point) != k or any(item <= 0.0 for item in point):
         return -math.inf
-    temperature = RELAXATION_TEMPERATURE
+    temperature = relaxation_temperature(a, "RelaxedOneHotCategorical")
     log_scale = math.lgamma(k) + (k - 1) * math.log(temperature)
     scores = [
         math.log(probability_) - (temperature + 1) * math.log(item)
@@ -4120,6 +4148,7 @@ __all__ = [
     "DENSITIES",
     "LOG_MASSES",
     "RELAXATION_TEMPERATURE",
+    "relaxation_temperature",
     "SAMPLERS",
     "TRANSFORMS",
 ]

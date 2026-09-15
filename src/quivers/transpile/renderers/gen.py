@@ -108,7 +108,7 @@ from quivers.transpile.renderers._base import (
     mixture_normal_components,
 )
 from quivers.transpile.renderers._qiec import (
-    graft_qiec_dynamic,
+    render_computations_dynamic,
     qiec_helper_families_used,
 )
 
@@ -1082,7 +1082,7 @@ class GenRenderer(RendererBase):
         ) or qiec_helper_families_used(ir, self.target):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
-        graft_qiec_dynamic(sb, ir, target=self.target, root=src)
+        render_computations_dynamic(sb, ir, target=self.target, root=src)
         return sb.build()
 
     # ------------------------------------------------------------------

@@ -6,12 +6,13 @@ composition of three arrows:
 
     Module --Lower--> IRProgram --Renderer[T]--> panproto.Schema --emit_pretty--> bytes
 
-[`Lower`][quivers.transpile.lower.Lower] is target-independent; it
-walks the parsed module, resolves morphism / let references, builds
-an [`IRProgram`][quivers.transpile.ir.IRProgram] whose nodes carry
-the structural intent (sample, observe, marginalize, ...) plus the
-support / plate / argument shape derived from
-[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] +
+[`Lower`][quivers.transpile.plan.Lower] is target-independent; it
+elaborates the parsed module to its checked kernel module and derives
+the program's plan from its computation: an
+[`IRProgram`][quivers.transpile.ir.IRProgram] carrying the module and
+the plan's nodes (sample, observe, marginalize, ...), each with the
+support / plate / argument shape read off the module's types,
+[`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META], and
 [`torch.distributions.Distribution.arg_constraints`][torch.distributions.distribution.Distribution.arg_constraints].
 
 Each target `T` has its own
@@ -46,7 +47,7 @@ from quivers.transpile._pipeline import (
     parser_registry,
     target_protocol,
 )
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.renderers._base import RendererBase
 from quivers.transpile.renderers.bugs import BUGSRenderer
 from quivers.transpile.renderers.church import ChurchRenderer

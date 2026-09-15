@@ -521,19 +521,21 @@ needs.
 
 ## Integration contract
 
-The v0.19 integration establishes five results. First, QVR has one typed
-surface for indexed families, effect interfaces and instances, handler
-signatures, and stable computation terms. Second, Didactic and Panproto check
-the first-order indexed-family projection, after which the Quivers kernel checks
-branch refinement, effect rows, handler coverage, and resumption contracts and
-lowers the surface into a serializable `QiecModule`. Third, the compiler
-attaches that checked module to its environment and produces a `Program` without
-mixing it into probabilistic elaboration. Fourth, `Lower` projects the complete
-module into `IRQiecModule`, whose typed nodes retain declarations, rows,
-provenance, values, evidence, computations, and resumption grades. Fifth, the
-CLI, TUI, REPL, language server, Pygments and tree-sitter highlighters, TextMate
-grammar, Panproto migration assets, and transpilers share the v0.19 surface and
-diagnostic vocabulary.
+The integration establishes five results. First, QVR has one typed surface
+for indexed families, effect interfaces and instances, handler signatures,
+stable computation terms, and programs. Second, Didactic and Panproto check
+the first-order indexed-family projection, after which the Quivers kernel
+checks branch refinement, effect rows, handler coverage, and resumption
+contracts and lowers the surface, programs included, into a serializable
+`QiecModule`. Third, the compiler attaches that checked module to its
+environment and produces a `Program` whose execution runs the module's
+computations. Fourth, `Lower` derives each program's target plan from its
+checked computation and projects the complete module into `IRQiecModule`,
+whose typed nodes retain declarations, rows, provenance, values, evidence,
+computations, and resumption grades, so a renderer receives one lowered root.
+Fifth, the CLI, TUI, REPL, language server, Pygments and tree-sitter
+highlighters, TextMate grammar, Panproto migration assets, and transpilers
+share the surface and diagnostic vocabulary.
 
 A potential worry is that a common IR implies identical target capabilities.
 The **QIEC capability boundary** blocks that inference. Pyro, NumPyro, PyMC,
@@ -549,9 +551,10 @@ scalar, and be composed only of scalar `Return` and `Bind` forms over literal
 or variable values. An empty static telescope does not prohibit ordinary value
 parameters: Stan may bind named `Bool`, `Int`, and `Real` parameters. BUGS and
 JAGS currently require a parameterless entry point because their emitted graph
-has no callable parameter ABI. During rendering, `graft_qiec_dynamic` or
-`graft_qiec_static` runs the analyzer immediately before the QIEC definitions
-are grafted into the target schema. It reports each missing feature as
+has no callable parameter ABI. During rendering,
+`render_computations_dynamic` or `render_computations_static` runs the
+analyzer immediately before the module's computations are placed in the
+target schema. It reports each missing feature as
 `qiec:capability:<feature>:<computation>` at that boundary. Thus the static
 targets reject only the construct they cannot preserve.
 

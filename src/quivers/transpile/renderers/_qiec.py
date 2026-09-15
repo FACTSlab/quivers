@@ -109,7 +109,7 @@ def qiec_target_name(target: str) -> str:
     return target.removeprefix("qvr-")
 
 
-def has_qiec_computations(ir: IRProgram) -> bool:
+def has_runtime_computations(ir: IRProgram) -> bool:
     """Whether a program carries computations the host runtime must run.
 
     Parameters
@@ -123,17 +123,17 @@ def has_qiec_computations(ir: IRProgram) -> bool:
         ``True`` when the QIEC module has a computation that is neither a
         program entry point nor one of its marginal helpers.
     """
-    return bool(_runtime_computations(ir.qiec))
+    return bool(_runtime_computations(ir.module))
 
 
 def _runtime_computations(
-    module: IRQiecModule | None,
+    module: IRQiecModule,
 ) -> tuple[IRQiecNamedComputation, ...]:
     """The computations a host runtime carries for a module.
 
     Parameters
     ----------
-    module : IRQiecModule | None
+    module : IRQiecModule
         The module.
 
     Returns
@@ -142,8 +142,6 @@ def _runtime_computations(
         Every computation but the program entry points and their marginal
         helpers, which the renderer emits from the program's own plan.
     """
-    if module is None:
-        return ()
     programs = module.program_computations()
     return tuple(
         computation
@@ -152,16 +150,37 @@ def _runtime_computations(
     )
 
 
-def graft_qiec_dynamic(
+def render_computations_dynamic(
     sb: panproto.SchemaBuilder,
     ir: IRProgram,
     *,
     target: str,
     root: str,
 ) -> None:
-    """Append the shared runtime and named functions to a dynamic target."""
-    module = ir.qiec
-    if module is None or not _runtime_computations(module):
+    """Render the module's computations into a dynamic target's root.
+
+    The shared runtime, the target's distribution bridge, and one
+    function per computation the plan does not spell itself are
+    parsed and placed under ``root``.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    ir : IRProgram
+        The lowered root.
+    target : str
+        The renderer's target label.
+    root : str
+        The schema vertex the definitions are placed under.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the target lacks a capability a computation needs.
+    """
+    module = ir.module
+    if not _runtime_computations(module):
         return
     public_target = qiec_target_name(target)
     diagnostics = analyze_qiec_capabilities(module, public_target)
@@ -182,17 +201,32 @@ def graft_qiec_dynamic(
     )
 
 
-def graft_qiec_static(
+def render_computations_static(
     sb: panproto.SchemaBuilder,
     ir: IRProgram,
     *,
     target: str,
     destination: str,
 ) -> None:
-    """Append analyzer-proven pure scalar definitions to a static target."""
-    module = ir.qiec
-    if module is None:
-        return
+    """Render the module's pure computations into a static target's block.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    ir : IRProgram
+        The lowered root.
+    target : str
+        The renderer's target label.
+    destination : str
+        The schema vertex the definitions are placed under.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the target lacks a capability a computation needs.
+    """
+    module = ir.module
     public_target = qiec_target_name(target)
     diagnostics = analyze_qiec_capabilities(module, public_target)
     if diagnostics:
@@ -597,7 +631,7 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
         computations are left out: the renderer emits them from the
         program's plan, which spells their families itself.
     """
-    module = ir.qiec
+    module = ir.module
     if module is None:
         return frozenset()
     found: set[str] = set()
@@ -2007,8 +2041,8 @@ def _bound_locals(node: IRQiecComputation) -> tuple[IRQiecLocal, ...]:
 
 
 __all__ = [
-    "graft_qiec_dynamic",
-    "graft_qiec_static",
-    "has_qiec_computations",
+    "render_computations_dynamic",
+    "render_computations_static",
+    "has_runtime_computations",
     "qiec_target_name",
 ]

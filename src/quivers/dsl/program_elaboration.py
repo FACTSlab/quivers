@@ -563,6 +563,49 @@ def _per_row(head: Value, width: int, row: Local, rows_axis: PlateAxis) -> Value
     )
 
 
+def _names_support(record: DistributionFamily, axis: PlateAxis) -> bool:
+    """Whether a marginalization's annotated axis names the family's support.
+
+    Parameters
+    ----------
+    record : DistributionFamily
+        The family.
+    axis : PlateAxis
+        The annotated axis.
+
+    Returns
+    -------
+    bool
+        ``True`` for a class-index family, whose alphabet the axis
+        names; a family with a fixed set of atoms has nothing for the
+        axis to name, so the axis replicates the latent.
+    """
+    del axis
+    return record.name in _CLASS_INDEX_FAMILIES
+
+
+def _enumerable(record: DistributionFamily) -> bool:
+    """Whether a marginalization over a family sums a finite support.
+
+    Parameters
+    ----------
+    record : DistributionFamily
+        The family.
+
+    Returns
+    -------
+    bool
+        ``True`` for a family with a finite support, a class-index
+        family, or a continuous relaxation of a discrete family, whose
+        hard atoms the marginalization enumerates.
+    """
+    return (
+        record.finite_support is not None
+        or record.name in _CLASS_INDEX_FAMILIES
+        or record.relaxes is not None
+    )
+
+
 def _bare_init_family(morphism: MorphismDecl) -> str | None:
     """The family a morphism's bare ``~ Family`` initializer names.
 
@@ -948,6 +991,22 @@ def _is_number_text(text: str) -> bool:
     return True
 
 
+@dataclass(frozen=True, slots=True)
+class _Spread:
+    """A single literal filling every position of a vector parameter.
+
+    Parameters
+    ----------
+    value
+        The literal.
+    dimension
+        The vector's length.
+    """
+
+    value: float
+    dimension: int
+
+
 def _literal(value: float, integral: bool) -> LiteralValue:
     """A numeric literal at the type a parameter expects.
 
@@ -1273,7 +1332,12 @@ class _ProgramElaboration:
                 declaration.name,
                 identity,
                 tuple(
-                    ProgramParameter(name, role, scope.locals[name].type)
+                    ProgramParameter(
+                        name,
+                        role,
+                        scope.locals[name].type,
+                        state.parameter_axes.get(name, ()),
+                    )
                     for name, role in state.parameters
                 ),
                 tuple(declaration.return_vars),
@@ -1334,7 +1398,13 @@ class _ProgramElaboration:
                 if name in scanned:
                     type_ = self._sequence_type(name, type_, state)
                 self._declare_parameter(
-                    name, type_, "domain", scope, state, declaration
+                    name,
+                    type_,
+                    "domain",
+                    scope,
+                    state,
+                    declaration,
+                    axes=self._domain_axes(factor, type_),
                 )
         else:
             for factor in factors:
@@ -1353,7 +1423,13 @@ class _ProgramElaboration:
                     # of an open extent.
                     type_ = self._sequence_type(name, type_, state)
                 self._declare_parameter(
-                    name, type_, "domain", scope, state, declaration
+                    name,
+                    type_,
+                    "domain",
+                    scope,
+                    state,
+                    declaration,
+                    axes=self._domain_axes(factor, type_),
                 )
         if declaration.type_params is not None:
             for parameter in declaration.type_params:
@@ -1375,6 +1451,7 @@ class _ProgramElaboration:
         scope: _Scope,
         state: _ProgramState,
         node: object,
+        axes: tuple[str, ...] | None = None,
     ) -> Local:
         """Bind one program parameter in the body's scope.
 
@@ -1393,6 +1470,11 @@ class _ProgramElaboration:
             The program's accumulating state.
         node : object
             The source node the use is reported at.
+        axes : tuple[str, ...] | None
+            The name of each dimension of a tensor-typed parameter;
+            read off the type when absent: an open extent's variable,
+            else the one object of the dimension's cardinality, else
+            the dimension's position.
 
         Returns
         -------
@@ -1429,9 +1511,47 @@ class _ProgramElaboration:
         local = Local(name, type_)
         root.locals[name] = local
         state.parameters.append((name, role))
+        state.parameter_axes[name] = (
+            axes if axes is not None else self._axes_of_type(type_)
+        )
         if scope is not root:
             scope.referenced.add(name)
         return local
+
+    def _axes_of_type(self: _Elaborator, type_: TypeExpr) -> tuple[str, ...]:
+        """The axis names a tensor type suggests.
+
+        Parameters
+        ----------
+        type_ : TypeExpr
+            The type.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Per dimension: an open extent's variable name, the one
+            declared object of the dimension's cardinality when there
+            is exactly one, else ``axis<i>``.
+        """
+        shape = tensor_shape(type_)
+        if shape is None:
+            return ()
+        names: list[str] = []
+        for index, size in enumerate(shape[1]):
+            if isinstance(size, IndexVariable):
+                names.append(size.name)
+                continue
+            if isinstance(size, IndexLiteral):
+                matching = [
+                    name
+                    for name, info in self._program_objects.items()
+                    if info.extent == size.value or info.real_width == size.value
+                ]
+                if len(matching) == 1:
+                    names.append(matching[0])
+                    continue
+            names.append(f"axis{index}")
+        return tuple(names)
 
     # ------------------------------------------------------------------
     # steps
@@ -1697,7 +1817,16 @@ class _ProgramElaboration:
         )
         observed_type = self._sampled_type(distribution)
         observed = self._declare_parameter(
-            name, observed_type, "observation", scope, state, step
+            name,
+            observed_type,
+            "observation",
+            scope,
+            state,
+            step,
+            axes=tuple(
+                axis.name
+                for axis in (*distribution.plate.batch, *distribution.plate.event)
+            ),
         )
         state.sites.append(
             ProgramSite(
@@ -1742,7 +1871,7 @@ class _ProgramElaboration:
                         code="qiec-program",
                     )
                 fibration = self._fibration(
-                    via, batch[0].size, weight_scope, scope, state, step
+                    via, batch[0].size, batch[0].name, weight_scope, scope, state, step
                 )
                 weight = SegmentSum(
                     density,
@@ -2227,6 +2356,37 @@ class _ProgramElaboration:
             origin,
         )
 
+    def _domain_axes(
+        self: _Elaborator, factor: ObjectExpr, type_: TypeExpr
+    ) -> tuple[str, ...]:
+        """The axis names of a domain input.
+
+        Parameters
+        ----------
+        factor : ObjectExpr
+            The domain factor the input carries.
+        type_ : TypeExpr
+            The input's type.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The factor's object name for its width, after the extent's
+            variable name when the input is a sequence.
+        """
+        shape = tensor_shape(type_)
+        if shape is None:
+            return ()
+        names: list[str] = []
+        for size in shape[1]:
+            if isinstance(size, IndexVariable):
+                names.append(size.name)
+            elif isinstance(factor, TypeName):
+                names.append(factor.name)
+            else:
+                names.append(f"axis{len(names)}")
+        return tuple(names)
+
     def _sequence_type(
         self: _Elaborator, source: str, entry_type: TypeExpr, state: _ProgramState
     ) -> TypeExpr:
@@ -2648,15 +2808,27 @@ class _ProgramElaboration:
         if unknown is not None:
             self._fail(
                 node,
-                f"the call `{unknown}(...)` names no builtin, lambda, or "
-                "computation; a host function reached by name has no "
-                "elaboration",
+                f"let:call:unknown:{unknown}; the call `{unknown}(...)` names no "
+                "builtin, lambda, or computation; a host function reached by "
+                "name has no elaboration",
                 code=GAP_CODE,
             )
         for name in _free_let_names(expr):
             if scope.lookup(name) is None and name not in self._lambda_macros:
+                inferred = state.input_shapes.get(name)
+                axes = (
+                    (inferred[1].name,)
+                    if inferred is not None and inferred[1] is not None
+                    else None
+                )
                 self._declare_parameter(
-                    name, self._input_type(name, state), "data", scope, state, node
+                    name,
+                    self._input_type(name, state),
+                    "data",
+                    scope,
+                    state,
+                    node,
+                    axes=axes,
                 )
         return self._lower_value(
             expr,
@@ -2910,6 +3082,20 @@ class _ProgramElaboration:
         elif step.over_objs:
             factors = tuple(self._axis(name, step) for name in step.over_objs)
             group = factors[0] if len(factors) == 1 else _product_axis(factors)
+        elif step.index is not None:
+            # An annotated axis that is not the family's support
+            # replicates the latent: one marginal per element, which is
+            # a grouping by the axis with every row its own group.
+            record = self._marginal_family(step)
+            axis = self._object_axis(step.index, step)
+            if (
+                record is not None
+                and record.event_rank == 0
+                and _enumerable(record)
+                and not _names_support(record, axis)
+            ):
+                group = axis
+                factors = (axis,)
         inner = _Scope(outer=scope, group=group, factors=factors)
         remaining = self._hoist_draws(step, scope, state)
         latent_name = step.var
@@ -2955,10 +3141,7 @@ class _ProgramElaboration:
         if state.pending_alphabet is not None:
             state.alphabets[latent_name] = state.pending_alphabet
         record = FAMILIES[distribution.name]
-        if (
-            record.finite_support is None
-            and distribution.name not in _CLASS_INDEX_FAMILIES
-        ):
+        if not _enumerable(record):
             # Nothing finite to sum over: the latent is drawn once per
             # position and the scope runs in the enclosing scope, which
             # is what the runtime does with such a block.
@@ -3149,6 +3332,35 @@ class _ProgramElaboration:
             self._zero_weight(inner, state, node) for _ in range(dimensions[0].value)
         )
         return TensorValue(entries, weight_type)
+
+    def _marginal_family(
+        self: _Elaborator, step: MarginalizeStep
+    ) -> DistributionFamily | None:
+        """The family a marginalization's latent is drawn from.
+
+        Parameters
+        ----------
+        step : MarginalizeStep
+            The step.
+
+        Returns
+        -------
+        DistributionFamily | None
+            The registry family the step's morphism slot names, either
+            directly or through a morphism's bare initializer; ``None``
+            when neither names one.
+        """
+        name = OPERATOR_ALIASES.get(step.morphism, step.morphism)
+        record = FAMILIES.get(name)
+        if record is not None:
+            return record
+        morphism = self._program_morphisms.get(step.morphism)
+        if morphism is None:
+            return None
+        family = _bare_init_family(morphism)
+        if family is None and morphism.init_family is not None:
+            family = morphism.init_family.family
+        return FAMILIES.get(OPERATOR_ALIASES.get(family or "", family or ""))
 
     def _elaborate_continuous_marginalize(
         self: _Elaborator,
@@ -3610,9 +3822,12 @@ class _ProgramElaboration:
                 if record.event_rank > 0:
                     event.append(axis)
                 elif (
-                    record.finite_support is None
-                    and record.name not in _CLASS_INDEX_FAMILIES
-                ):
+                    not _enumerable(record) or not _names_support(record, axis)
+                ) and axis not in batch:
+                    # The annotation names the support only when the
+                    # family's atoms are as many as the axis's elements;
+                    # otherwise it replicates the latent, one per element,
+                    # which is the grouping when the block groups by it.
                     batch.append(axis)
             return PlateShape(tuple(batch), tuple(event))
         axes = step.axes
@@ -3970,7 +4185,7 @@ class _ProgramElaboration:
         del morphism
         structural: tuple[DrawArg, ...] = step.args or ()
         wire = tuple(resolved.args or ())
-        raw: list[DrawArg | str | float] = list(structural)
+        raw: list[DrawArg | str | float | _Spread] = list(structural)
         raw.extend(wire[len(structural) :])
         raw = self._bundle_vector_argument(record, raw, step, plate, state)
         if len(raw) > len(record.parameters):
@@ -3991,11 +4206,11 @@ class _ProgramElaboration:
     def _bundle_vector_argument(
         self: _Elaborator,
         record: DistributionFamily,
-        raw: list[DrawArg | str | float],
+        raw: list[DrawArg | str | float | _Spread],
         step: SampleStep | ObserveStep | MarginalizeStep,
         plate: PlateShape,
         state: _ProgramState,
-    ) -> list[DrawArg | str | float]:
+    ) -> list[DrawArg | str | float | _Spread]:
         """Gather scalar literals filling a family's one vector parameter.
 
         A family whose only parameter is a vector, such as ``Dirichlet``,
@@ -4009,7 +4224,7 @@ class _ProgramElaboration:
         ----------
         record : DistributionFamily
             The family.
-        raw : list[DrawArg | str | float]
+        raw : list[DrawArg | str | float | _Spread]
             The arguments as written.
         step : SampleStep | ObserveStep | MarginalizeStep
             The step.
@@ -4022,9 +4237,10 @@ class _ProgramElaboration:
 
         Returns
         -------
-        list[DrawArg | str | float]
+        list[DrawArg | str | float | _Spread]
             The arguments, the literals gathered into one list argument
-            when the family takes a vector; unchanged otherwise.
+            when the family takes a vector, a single literal spread over
+            its dimension; unchanged otherwise.
 
         Raises
         ------
@@ -4073,11 +4289,11 @@ class _ProgramElaboration:
                     code="qiec-program",
                 )
             dimension = info.extent
-        return [DrawArgList(items=items * dimension, line=step.line, col=step.col)]
+        return [_Spread(items[0].value, dimension)]
 
     def _draw_argument(
         self: _Elaborator,
-        argument: DrawArg | str | float,
+        argument: DrawArg | str | float | _Spread,
         parameter: FamilyParameter | _ScalarParameter,
         plate: PlateShape,
         scope: _Scope,
@@ -4088,8 +4304,9 @@ class _ProgramElaboration:
 
         Parameters
         ----------
-        argument : DrawArg | str | float
-            The argument: a tagged node, or wire text or a number.
+        argument : DrawArg | str | float | _Spread
+            The argument: a tagged node, wire text or a number, or a
+            literal spread over a vector.
         parameter : FamilyParameter | _ScalarParameter
             The family parameter, which fixes the element type and rank.
         plate : PlateShape
@@ -4118,6 +4335,16 @@ class _ProgramElaboration:
         constraint = parameter.constraint
         if constraint == "transform":
             return self._transform_chain(argument, node)
+        if isinstance(argument, _Spread):
+            # A single literal spread over a vector parameter is the
+            # same number at every position of the vector.
+            spread = Local(f"__spread_{state.current_site}", INT)
+            return Comprehension(
+                spread,
+                _extent(argument.dimension),
+                _literal(argument.value, integral),
+                tensor_type(element, (_extent(argument.dimension),)),
+            )
         if isinstance(argument, float | int):
             return _literal(float(argument), integral)
         if isinstance(argument, DrawArgScalar):
@@ -4698,7 +4925,9 @@ class _ProgramElaboration:
         rows = plate.batch[0].size
         grouped = _weight_scope(scope)
         assert grouped is not None
-        fibration = self._fibration(via, rows, grouped, scope, state, node)
+        fibration = self._fibration(
+            via, rows, plate.batch[0].name, grouped, scope, state, node
+        )
         return Gather(value, fibration, tensor_type(shape[0], (rows, *shape[1][1:])))
 
     def _refined(
@@ -4743,6 +4972,7 @@ class _ProgramElaboration:
         self: _Elaborator,
         via: tuple[str, ...],
         rows: IndexTerm,
+        rows_name: str,
         grouped: _Scope,
         scope: _Scope,
         state: _ProgramState,
@@ -4760,6 +4990,8 @@ class _ProgramElaboration:
             The fibration's names, one per factor of the group.
         rows : IndexTerm
             The observation's row extent.
+        rows_name : str
+            The row axis's name.
         grouped : _Scope
             The grouped marginalization scope, whose factors the names
             fill.
@@ -4805,7 +5037,7 @@ class _ProgramElaboration:
                 entry: Value = Var(bound)
             else:
                 parameter = self._declare_parameter(
-                    name, index_type, "fibration", scope, state, node
+                    name, index_type, "fibration", scope, state, node, axes=(rows_name,)
                 )
                 entry = Var(parameter)
             if flat is None:
@@ -5125,6 +5357,10 @@ class _ProgramElaboration:
                 scope,
                 state,
                 step,
+                axes=(
+                    f"{step.morphism}_layer{depth}_row",
+                    f"{step.morphism}_layer{depth}_col",
+                ),
             )
             layer_bias = self._declare_parameter(
                 f"{step.morphism}_param_layer{depth}_bias",
@@ -5133,6 +5369,7 @@ class _ProgramElaboration:
                 scope,
                 state,
                 step,
+                axes=(f"{step.morphism}_layer{depth}_row",),
             )
             hidden_type = tensor_type(REAL, (_extent(hidden),))
             activation = self._primitive(
@@ -5162,6 +5399,7 @@ class _ProgramElaboration:
             scope,
             state,
             step,
+            axes=(f"{step.morphism}_param_row", f"{step.morphism}_param_col"),
         )
         bias = self._declare_parameter(
             f"{step.morphism}_param_bias",
@@ -5170,6 +5408,7 @@ class _ProgramElaboration:
             scope,
             state,
             step,
+            axes=(f"{step.morphism}_param_row",),
         )
         arguments: list[tuple[str, Value]] = []
         for index, (name, transform) in enumerate(heads):
@@ -5544,6 +5783,7 @@ class _ProgramElaboration:
             scope,
             state,
             step,
+            axes=(name, f"{step.morphism}_param_row"),
         )
         arguments: list[tuple[str, Value]] = []
         for index, (head, transform) in enumerate(heads):
@@ -5661,7 +5901,13 @@ class _ProgramElaboration:
                     step, "GP length_scale must be a number", code="qiec-program"
                 )
             inputs = self._declare_parameter(
-                "x", tensor_type(REAL, (grid.size,)), "kernel-input", scope, state, step
+                "x",
+                tensor_type(REAL, (grid.size,)),
+                "kernel-input",
+                scope,
+                state,
+                step,
+                axes=("grid",),
             )
             zeros = TensorValue(
                 tuple(
@@ -5852,6 +6098,8 @@ class _ProgramState:
     input_shapes
         The element type and batch axis inferred for each free name a
         let expression reads.
+    parameter_axes
+        The axis names of each parameter's dimensions.
     random
         The canonical ``Random`` instance.
     score
@@ -5872,6 +6120,7 @@ class _ProgramState:
     input_shapes: dict[str, tuple[TypeApplication, PlateAxis | None]] = field(
         default_factory=dict
     )
+    parameter_axes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     random: NamedEffectInstance | None = None  # type: ignore[assignment]
     score: NamedEffectInstance | None = None  # type: ignore[assignment]
 

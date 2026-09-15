@@ -36,7 +36,7 @@ from quivers.dsl.parser import parse
 from quivers.transpile import transpile
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile.ir import IRDeterministic, IRMarginalize, IRNode
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 
 _GALLERY = Path(__file__).resolve().parents[2] / "docs" / "examples" / "source"
 

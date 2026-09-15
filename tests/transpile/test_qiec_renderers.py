@@ -18,7 +18,7 @@ from quivers.transpile import (
     transpile,
 )
 from quivers.transpile._pipeline import parser_registry
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.qiec_ir import (
     IRQiecAttachmentRef,
     IRQiecBind,
@@ -344,8 +344,7 @@ def test_dataflow_targets_refuse_named_computation_parameters(target: str) -> No
 @pytest.mark.parametrize("target", ("stan",))
 def test_static_targets_lower_pure_bind_ir(target: str) -> None:
     ir = Lower().forward(parse(PARAMETER))
-    assert ir.qiec is not None
-    computation = ir.qiec.computations[0]
+    computation = ir.module.computations[0]
     parameter = computation.parameters[0]
     binder = IRQiecLocal(name="bound", type=parameter.type)
     body = IRQiecBind(
@@ -357,34 +356,9 @@ def test_static_targets_lower_pure_bind_ir(target: str) -> None:
         ),
         then=IRQiecReturn(value=IRQiecVar(local=binder)),
     )
-    bound_computation = type(computation)(
-        id=computation.id,
-        name=computation.name,
-        telescope=computation.telescope,
-        parameters=computation.parameters,
-        body=body,
-        type=computation.type,
-        origin=computation.origin,
-    )
-    qiec = type(ir.qiec)(
-        module=ir.qiec.module,
-        source_protocol=ir.qiec.source_protocol,
-        index_sorts=ir.qiec.index_sorts,
-        families=ir.qiec.families,
-        constructors=ir.qiec.constructors,
-        effects=ir.qiec.effects,
-        instances=ir.qiec.instances,
-        handlers=ir.qiec.handlers,
-        computations=(bound_computation,),
-        abi=ir.qiec.abi,
-    )
-    ir = type(ir)(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=ir.body,
-        cards=ir.cards,
-        qiec=qiec,
-    )
+    bound_computation = computation.with_(body=body)
+    module = ir.module.with_(computations=(bound_computation,))
+    ir = ir.with_(module=module)
     renderer, grammar, _ = _RENDERERS[target]
     output = bytes(parser_registry().emit_pretty(grammar, renderer().render(ir)))
 
@@ -471,7 +445,7 @@ def test_generated_python_qiec_functions_execute(target: str) -> None:
 
 
 def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:
-    effect_ir = Lower().forward(parse(EFFECTFUL)).qiec
+    effect_ir = Lower().forward(parse(EFFECTFUL)).module
     assert effect_ir is not None
     request = effect_ir.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
@@ -494,7 +468,7 @@ def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:
     assert seen_request["result_type"]["kind"] == "type-application"  # type: ignore[index]
     assert "origin" in seen_request
 
-    handled_ir = Lower().forward(parse(HANDLED)).qiec
+    handled_ir = Lower().forward(parse(HANDLED)).module
     assert handled_ir is not None
     handler = handled_ir.handlers[0]
     operation = handler.clauses[0].operation.text
@@ -534,8 +508,7 @@ def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:
 
 
 def test_generated_python_request_preserves_operation_static_arguments() -> None:
-    qiec = Lower().forward(parse(GENERIC_REQUEST)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(GENERIC_REQUEST)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     seen: dict[str, object] = {}
     namespace: dict[str, object] = {}
@@ -556,8 +529,7 @@ def test_generated_python_request_preserves_operation_static_arguments() -> None
 
 
 def test_parameterized_handler_manifest_is_specialized_before_attachment() -> None:
-    qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
     seen: dict[str, object] = {}
@@ -580,8 +552,7 @@ def test_parameterized_handler_manifest_is_specialized_before_attachment() -> No
 
 
 def test_handler_validators_apply_at_resume_and_final_answer_boundaries() -> None:
-    qiec = Lower().forward(parse(HANDLED)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(HANDLED)).module
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
     namespace: dict[str, object] = {}
@@ -618,8 +589,7 @@ def test_handler_validators_apply_at_resume_and_final_answer_boundaries() -> Non
 
 
 def test_handler_lifecycle_is_exact_once_on_exit_and_drop() -> None:
-    qiec = Lower().forward(parse(HANDLED)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(HANDLED)).module
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
     namespace: dict[str, object] = {}
@@ -664,8 +634,7 @@ def test_handler_lifecycle_is_exact_once_on_exit_and_drop() -> None:
 
 
 def test_partial_handler_forwards_known_missing_clause_to_outer_handler() -> None:
-    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
     a, b = (clause.operation.text for clause in outer.clauses)
     namespace: dict[str, object] = {}
@@ -687,8 +656,7 @@ def test_partial_handler_forwards_known_missing_clause_to_outer_handler() -> Non
 
 
 def test_nested_forwarded_handler_lifecycles_drop_once_on_outer_failure() -> None:
-    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
     a, b = (clause.operation.text for clause in outer.clauses)
     namespace: dict[str, object] = {}
@@ -733,7 +701,7 @@ def test_nested_forwarded_handler_lifecycles_drop_once_on_outer_failure() -> Non
 
 
 def test_generated_python_gadt_constructor_and_case_execute() -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
     assert parameter_ir is not None
     int_type = parameter_ir.computations[0].parameters[0].type.model_dump()
     namespace: dict[str, object] = {}
@@ -756,7 +724,7 @@ def test_generated_python_gadt_constructor_and_case_execute() -> None:
 
 
 def test_generated_python_zero_index_branch_ignores_uniform_statics() -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
     assert parameter_ir is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     namespace: dict[str, object] = {}
@@ -774,11 +742,10 @@ def test_generated_python_zero_index_branch_ignores_uniform_statics() -> None:
 
 
 def test_existential_case_specializes_branch_effect_request() -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
     assert parameter_ir is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
-    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
     request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(EXISTENTIAL_REQUEST), target="pyro"), namespace)
@@ -804,8 +771,7 @@ def test_existential_case_specializes_branch_effect_request() -> None:
 
 def _attachment_program_ir():
     ir = Lower().forward(parse(PURE))
-    assert ir.qiec is not None
-    computation = ir.qiec.computations[0]
+    computation = ir.module.computations[0]
     attachment = IRQiecId(namespace="attachment", digest="a" * 64)
     body = IRQiecReturn(
         value=IRQiecAttachmentRef(
@@ -822,33 +788,14 @@ def _attachment_program_ir():
         type=computation.type,
         origin=computation.origin,
     )
-    qiec = type(ir.qiec)(
-        module=ir.qiec.module,
-        source_protocol=ir.qiec.source_protocol,
-        index_sorts=ir.qiec.index_sorts,
-        families=ir.qiec.families,
-        constructors=ir.qiec.constructors,
-        effects=ir.qiec.effects,
-        instances=ir.qiec.instances,
-        handlers=ir.qiec.handlers,
-        computations=(bound_computation,),
-        abi=ir.qiec.abi,
-    )
-    ir = type(ir)(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=ir.body,
-        cards=ir.cards,
-        qiec=qiec,
-    )
+    ir = ir.with_(module=ir.module.with_(computations=(bound_computation,)))
 
     return ir, attachment, _ir_data(computation.type.result)
 
 
 def _evidence_transport_program_ir():
     ir = Lower().forward(parse(PURE))
-    assert ir.qiec is not None
-    computation = ir.qiec.computations[0]
+    computation = ir.module.computations[0]
     assert isinstance(computation.body, IRQiecReturn)
     result_type = computation.type.result
     equality = IRQiecEqualityType(
@@ -884,24 +831,10 @@ def _evidence_transport_program_ir():
         type=computation.type,
         origin=computation.origin,
     )
-    qiec = type(ir.qiec)(
-        module=ir.qiec.module,
-        source_protocol=ir.qiec.source_protocol,
-        index_sorts=ir.qiec.index_sorts,
-        families=ir.qiec.families,
-        constructors=ir.qiec.constructors,
-        effects=ir.qiec.effects,
-        instances=ir.qiec.instances,
-        handlers=ir.qiec.handlers,
-        computations=(evidence_computation, transport_computation),
-        abi=ir.qiec.abi,
-    )
-    return type(ir)(
-        name=ir.name,
-        inputs=ir.inputs,
-        body=ir.body,
-        cards=ir.cards,
-        qiec=qiec,
+    return ir.with_(
+        module=ir.module.with_(
+            computations=(evidence_computation, transport_computation)
+        )
     )
 
 
@@ -970,8 +903,7 @@ def test_generated_python_attachment_lookup_uses_stable_id() -> None:
 
 
 def test_generated_python_multishot_resumptions_extend_addresses() -> None:
-    qiec = Lower().forward(parse(MULTISHOT)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(MULTISHOT)).module
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
@@ -1012,8 +944,7 @@ def test_generated_python_multishot_resumptions_extend_addresses() -> None:
 
 
 def test_unrestricted_resumption_requires_and_forks_captured_values() -> None:
-    qiec = Lower().forward(parse(MULTISHOT_CAPTURE)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(MULTISHOT_CAPTURE)).module
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
@@ -1068,8 +999,7 @@ def test_unrestricted_resumption_requires_and_forks_captured_values() -> None:
 
 
 def test_unrestricted_handler_forks_finalize_each_branch_exactly_once() -> None:
-    qiec = Lower().forward(parse(MULTISHOT)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(MULTISHOT)).module
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
@@ -1120,8 +1050,7 @@ def test_unrestricted_handler_forks_finalize_each_branch_exactly_once() -> None:
 
 
 def test_nested_state_handler_is_isolated_across_unrestricted_shots() -> None:
-    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
     choose_operation = choose.clauses[0].operation.text
     body = qiec.computations[0].body.computation.computation  # type: ignore[union-attr]
@@ -1213,8 +1142,7 @@ def test_generated_webppl_qiec_function_executes_in_javascript(
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_effect_dispatch_uses_stable_ids(tmp_path) -> None:
-    qiec = Lower().forward(parse(EFFECTFUL)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     key = request.instance.text + "|" + request.operation.text
     script = tmp_path / "qiec-effect.js"
@@ -1268,8 +1196,8 @@ def test_generated_webppl_evidence_and_transport_execute(tmp_path) -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_linear_grade_and_handler_specialization(tmp_path) -> None:
-    linear_qiec = Lower().forward(parse(HANDLED)).qiec
-    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).qiec
+    linear_qiec = Lower().forward(parse(HANDLED)).module
+    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
     assert linear_qiec is not None and parameterized_qiec is not None
     linear_handler = linear_qiec.handlers[0]
     parameterized_handler = parameterized_qiec.handlers[0]
@@ -1302,8 +1230,7 @@ def test_generated_webppl_linear_grade_and_handler_specialization(tmp_path) -> N
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) -> None:
-    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
     operations = {
         handler.name: [clause.operation.text for clause in handler.clauses]
@@ -1342,8 +1269,8 @@ def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
-    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
+    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
@@ -1367,8 +1294,7 @@ def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> None:
-    qiec = Lower().forward(parse(MULTISHOT)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(MULTISHOT)).module
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
     trace = qiec.computations[0].body.computation.steps[1].first.request  # type: ignore[union-attr]
@@ -1394,8 +1320,7 @@ def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> No
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
 def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None:
-    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
     trace_request = (
         qiec.computations[0].body.computation.computation.steps[2].first.request
@@ -1449,8 +1374,7 @@ def test_generated_church_qiec_function_executes_in_chez(tmp_path) -> None:
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_effect_dispatch_uses_structural_request(tmp_path) -> None:
-    qiec = Lower().forward(parse(EFFECTFUL)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     script = tmp_path / "qiec-effect.scm"
     operation_key = (
@@ -1519,8 +1443,8 @@ def test_generated_church_evidence_and_transport_execute(tmp_path) -> None:
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_linear_grade_and_handler_specialization(tmp_path) -> None:
-    linear_qiec = Lower().forward(parse(HANDLED)).qiec
-    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).qiec
+    linear_qiec = Lower().forward(parse(HANDLED)).module
+    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
     assert linear_qiec is not None and parameterized_qiec is not None
     linear_handler = linear_qiec.handlers[0]
     parameterized_handler = parameterized_qiec.handlers[0]
@@ -1557,8 +1481,8 @@ def test_generated_church_linear_grade_and_handler_specialization(tmp_path) -> N
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_existential_case_specializes_request(tmp_path) -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
-    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
+    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
@@ -1590,8 +1514,7 @@ def test_generated_church_existential_case_specializes_request(tmp_path) -> None
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_partial_handler_forwards_to_outer_handler(tmp_path) -> None:
-    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
     script = tmp_path / "qiec-partial.scm"
     script.write_bytes(
@@ -1623,8 +1546,7 @@ def test_generated_church_partial_handler_forwards_to_outer_handler(tmp_path) ->
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_nested_mutable_state_is_branch_local(tmp_path) -> None:
-    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
     trace_request = (
         qiec.computations[0].body.computation.computation.steps[2].first.request
@@ -1707,8 +1629,7 @@ def test_generated_julia_effect_dispatch_uses_stable_ids(
     macro: str,
     tmp_path,
 ) -> None:
-    qiec = Lower().forward(parse(EFFECTFUL)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     script = tmp_path / f"qiec-effect-{target}.jl"
     script.write_text(
@@ -1785,7 +1706,7 @@ def test_generated_julia_indexed_constructor_and_case_execute(
     macro: str,
     tmp_path,
 ) -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
     assert parameter_ir is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     script = tmp_path / f"qiec-indexed-{target}.jl"
@@ -1814,8 +1735,8 @@ def test_generated_julia_existential_case_specializes_request(
     macro: str,
     tmp_path,
 ) -> None:
-    parameter_ir = Lower().forward(parse(PARAMETER)).qiec
-    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
+    parameter_ir = Lower().forward(parse(PARAMETER)).module
+    qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
@@ -1845,8 +1766,8 @@ def test_generated_julia_linear_grade_and_handler_specialization(
     macro: str,
     tmp_path,
 ) -> None:
-    linear_qiec = Lower().forward(parse(HANDLED)).qiec
-    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).qiec
+    linear_qiec = Lower().forward(parse(HANDLED)).module
+    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
     assert linear_qiec is not None and parameterized_qiec is not None
     linear_handler = linear_qiec.handlers[0]
     parameterized_handler = parameterized_qiec.handlers[0]
@@ -1888,8 +1809,7 @@ def test_generated_julia_partial_handler_forwards_to_outer_handler(
     macro: str,
     tmp_path,
 ) -> None:
-    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
     script = tmp_path / f"qiec-partial-{target}.jl"
     script.write_text(
@@ -1924,8 +1844,7 @@ def test_generated_julia_nested_mutable_state_is_branch_local(
     macro: str,
     tmp_path,
 ) -> None:
-    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
-    assert qiec is not None
+    qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
     trace_request = (
         qiec.computations[0].body.computation.computation.steps[2].first.request

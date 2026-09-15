@@ -31,15 +31,15 @@ What this page does not cover is whether a rendered program's density agrees wit
 
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
-| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 39 / 48    |
+| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 40 / 48    |
 | [church](semantics/transpile-correctness/church.md)   | 22 / 46          | 42 / 48    |
 | [edward2](semantics/transpile-correctness/edward2.md) | 30 / 46          | 42 / 48    |
 | [gen](semantics/transpile-correctness/gen.md)         | 28 / 46          | 41 / 48    |
-| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 39 / 48    |
+| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 40 / 48    |
 | [numpyro](semantics/transpile-correctness/numpyro.md) | 31 / 46          | 44 / 48    |
 | [pymc](semantics/transpile-correctness/pymc.md)       | 30 / 46          | 42 / 48    |
 | [pyro](semantics/transpile-correctness/pyro.md)       | 31 / 46          | 44 / 48    |
-| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 40 / 48    |
+| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 41 / 48    |
 | [turing](semantics/transpile-correctness/turing.md)   | 30 / 46          | 42 / 48    |
 | [webppl](semantics/transpile-correctness/webppl.md)   | 31 / 46          | 42 / 48    |
 
@@ -147,7 +147,7 @@ One minimal program per surface construct, so a `no` here isolates the construct
 | `let_expressions/let_expr_call`        | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_factor`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_index`       | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `let_expressions/let_expr_lambda`      | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
+| `let_expressions/let_expr_lambda`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_list`        | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_literal`     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `let_expressions/let_expr_method_call` | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
@@ -245,12 +245,10 @@ Reported kinds:
 family:school_effects
 ```
 
-Every backend reports it in the same words. `bugs` on `parametric_pooling` reports:
+Each backend words it differently; this is bugs's. `bugs` on `parametric_pooling` reports:
 
 ```text
-no transpile target can transpile this program:
-  - no transpile target has `school_effects` distribution: the family registry contains no matching target distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
-  - no transpile target can transpile this program. The refusal is tagged `sample / observe step references 'school_effects' which is neither a family in the registry, a declared morphism, nor a let-bound name`, which has no explanation registered yet; please report it.
+bugs has no `school_effects` distribution: the family registry contains no matching target distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
 ### `loss_decl`
@@ -557,24 +555,6 @@ family:MixtureNormal:no-free-density-term: a finite mixture is an explicit weigh
 
 ```text
 bugs cannot score a draw from `MixtureNormal`: a finite mixture is an explicit weighted density in the BUGS function library, but adding one to the joint needs a free log-density term the language has no statement for
-```
-
-**`let-expr:LetExprLambda:bugs`**
-
-Refused for: `let_expressions/let_expr_lambda`.
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprLambda:bugs: BUGS / JAGS have no anonymous function syntax
-```
-
-`bugs` on `let_expressions/let_expr_lambda` reports:
-
-```text
-bugs-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: BUGS / JAGS have no anonymous function syntax
 ```
 
 **`marginalize:ungrouped-over-plate:state`**
@@ -1058,24 +1038,6 @@ family:no-target-name:MatrixNormal
 jags has no `MatrixNormal` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
-**`let-expr:LetExprLambda:jags`**
-
-Refused for: `let_expressions/let_expr_lambda`.
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprLambda:jags: BUGS / JAGS have no anonymous function syntax
-```
-
-`jags` on `let_expressions/let_expr_lambda` reports:
-
-```text
-jags-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: BUGS / JAGS have no anonymous function syntax
-```
-
 **`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
@@ -1225,24 +1187,6 @@ encoder_decl
 
 ```text
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Stan has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`let-expr:LetExprLambda`**
-
-Refused for: `let_expressions/let_expr_lambda`.
-
-Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-let-expr:LetExprLambda: Stan has no anonymous function syntax in user-program expression position
-```
-
-`stan` on `let_expressions/let_expr_lambda` reports:
-
-```text
-stan-helper has no anonymous-function syntax in a model-body expression, so a `param -> body` lambda in a `let` has no form to take. Inline the lambda's body at its use site.: Stan has no anonymous function syntax in user-program expression position
 ```
 
 **`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**

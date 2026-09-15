@@ -357,6 +357,7 @@ _CONSTRAINT_SORTS = [
     "total",
     "batch",
     "event",
+    "axes",
     "gap",
 ]
 
@@ -839,6 +840,8 @@ class _KernelWriter:
             self._builder.constraint(pvid, "name", parameter.name)
             self._builder.constraint(pvid, "role", parameter.role)
             self._builder.constraint(pvid, "type", render_static(parameter.type))
+            if parameter.axes:
+                self._builder.constraint(pvid, "axes", ", ".join(parameter.axes))
             self._builder.edge(vid, pvid, "parameter")
         for site in entry.sites:
             svid = f"{vid}/site::{site.name}"

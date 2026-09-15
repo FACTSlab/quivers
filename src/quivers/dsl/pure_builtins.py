@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from quivers.dsl.ast_nodes.let_expressions import LetBinaryOperator
 from quivers.qiec.canonical import LOG_WEIGHT
 from quivers.qiec.terms import ReductionOperator, RowwiseOperator
 from quivers.qiec.types import BOOL, INT, REAL, STRING, TypeExpr
 
 #: Operator and operand type to the primitive that implements it.
-_BINARY_PRIMITIVES: Mapping[str, Mapping[TypeExpr, str]] = {
+_BINARY_PRIMITIVES: Mapping[LetBinaryOperator, Mapping[TypeExpr, str]] = {
     "+": {INT: "add_int", REAL: "add_real", STRING: "concat"},
     "-": {INT: "sub_int", REAL: "sub_real"},
     "*": {INT: "mul_int", REAL: "mul_real"},
@@ -118,5 +119,19 @@ PURE_BUILTINS: frozenset[str] = frozenset(
     (*_BUILTIN_PRIMITIVES, *_REDUCTIONS, *_ROWWISE)
 )
 
+#: The operator each binary primitive reads back as.
+PRIMITIVE_OPERATORS: Mapping[str, LetBinaryOperator] = {
+    primitive: operator
+    for operator, by_type in _BINARY_PRIMITIVES.items()
+    for primitive in by_type.values()
+}
 
-__all__ = ["PURE_BUILTINS"]
+#: The builtin each call primitive reads back as.
+PRIMITIVE_BUILTINS: Mapping[str, str] = {
+    primitive: builtin
+    for builtin, by_types in _BUILTIN_PRIMITIVES.items()
+    for primitive in by_types.values()
+}
+
+
+__all__ = ["PRIMITIVE_BUILTINS", "PRIMITIVE_OPERATORS", "PURE_BUILTINS"]

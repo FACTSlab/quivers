@@ -334,7 +334,8 @@ nav:
       - Reparameterisation: api/effects/reparam.md
     - Transpile:
       - Overview: api/transpile/index.md
-      - Lowering: api/transpile/lower.md
+      - Plan: api/transpile/plan.md
+      - Lowering support: api/transpile/lower.md
       - Structural IR: api/transpile/ir.md
       - Kernel IR: api/transpile/qiec_ir.md
       - Family metadata: api/transpile/family_meta.md

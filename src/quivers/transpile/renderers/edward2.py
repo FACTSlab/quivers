@@ -105,7 +105,10 @@ from quivers.transpile.renderers._base import (
     ir_uses_family,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_families_used
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_families_used,
+)
 
 
 _TARGET = "edward2"
@@ -272,7 +275,7 @@ class Edward2Renderer(RendererBase):
         for node in ir.body:
             self._emit_node(py, ctx, body_vid, node, input_specs, bindings)
 
-        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def emit_bytes(self, ir: IRProgram) -> bytes:

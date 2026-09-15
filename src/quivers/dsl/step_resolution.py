@@ -1052,8 +1052,8 @@ _FAMILY_DEFAULT_ARGS: dict[str, tuple[str | float, ...]] = {
     # `MatrixNormal`, `GP`) have no entry here. They opt in to
     # structured lowering via the `structured_lowering` field on their
     # [`FamilyMeta`][quivers.transpile.family_meta.FamilyMeta]; the
-    # [`Lower._lower_sample_from_meta`][quivers.transpile.lower.Lower._lower_sample_from_meta]
-    # dispatch then intercepts the bare ``~ Family`` form and
+    # plan then reads the bare ``~ Family`` form's structured
+    # arguments off the checked construction and
     # synthesises the data-input names with the right matrix / vector
     # / cov-matrix shape from the morphism's `[over=...]` axes. A
     # placeholder string here would survive into the data block as a

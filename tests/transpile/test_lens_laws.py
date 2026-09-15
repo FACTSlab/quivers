@@ -4,7 +4,7 @@ composition.
 The transpile pipeline composes three
 [`didactic.api.Mapping`][didactic.api.Mapping] arrows:
 
-- [`Lower`][quivers.transpile.lower.Lower] (`Module` → `IRProgram`)
+- [`Lower`][quivers.transpile.plan.Lower] (`Module` → `IRProgram`)
 - per-backend `Renderer` wrapped as a Mapping (`IRProgram` →
   `panproto.Schema`)
 - `EmitPretty(grammar)` (`panproto.Schema` → `bytes`)
@@ -36,7 +36,7 @@ from quivers.transpile import (
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import EmitPretty
 from quivers.transpile.ir import IRProgram
-from quivers.transpile.lower import Lower
+from quivers.transpile.plan import Lower
 from quivers.transpile.renderers._base import RendererBase
 
 
@@ -54,7 +54,7 @@ export flip
 
 class _ExpandAndLower(dx.Mapping[Module, IRProgram]):
     """`Module` -> `IRProgram`: per-target composite-let expansion
-    followed by [`Lower`][quivers.transpile.lower.Lower].
+    followed by [`Lower`][quivers.transpile.plan.Lower].
 
     The production `transpile()` calls `expand_composite_lets(...,
     target=backend)` before `Lower().forward(...)`; the lens-law

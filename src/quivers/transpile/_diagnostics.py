@@ -671,6 +671,66 @@ def _render_qiec_kind(backend: str, tail: str) -> str:
             "Choose a target whose QIEC capability set includes this feature, "
             "or change the computation; silently erasing it would change the program."
         )
+    if reason == "call":
+        callee, _, program = name.partition(":")
+        return (
+            f"program `{program}` calls the computation `{callee}`, and the "
+            f"plan {_language(backend)} is rendered from has a statement for "
+            f"a draw, an observation, a binding, a score, and a "
+            f"marginalization, not for a call. Inline the computation's "
+            f"steps into the program, or keep the call out of the "
+            f"transpiled model."
+        )
+    if reason == "effect":
+        effect, _, program = name.partition(":")
+        return (
+            f"program `{program}` performs on a `{effect}` instance, and "
+            f"{_language(backend)} carries only the canonical `Random` and "
+            f"`Score` requests of a program. Handle the instance inside a "
+            f"computation the program calls, or keep it out of the "
+            f"transpiled model."
+        )
+    if reason == "computation":
+        form, _, program = name.partition(":")
+        return (
+            f"program `{program}` elaborates to a `{form}` computation form, "
+            f"which the plan {_language(backend)} is rendered from has no "
+            f"statement for. Write the program with sample, observe, let, "
+            f"score, and marginalize steps, or keep the form out of the "
+            f"transpiled model."
+        )
+    if reason == "argument":
+        term, _, rest = name.partition(":")
+        site, _, head = rest.partition(":")
+        return (
+            f"the `{head}` argument of the draw at `{site}` is a `{term}` "
+            f"term of the checked module, which has no wire form in "
+            f"{_language(backend)}: a family argument on the wire is a "
+            f"literal, a bound name, an indexed name, a list, or a "
+            f"broadcast. Bind the value with a `let` before the draw."
+        )
+    if reason == "expression":
+        term, _, program = name.partition(":")
+        return (
+            f"a binding of program `{program}` is a `{term}` term of the "
+            f"checked module, which has no expression form in "
+            f"{_language(backend)}. Write the binding with the arithmetic, "
+            f"calls, indexing, lists, and factors of a let expression."
+        )
+    if reason == "fibration":
+        return (
+            f"program `{name}` fibres an observation by an index that is "
+            f"not a program input, and {_language(backend)} reads a "
+            f"fibration only as a data input. Pass the fibration as data."
+        )
+    if reason == "sample":
+        return (
+            f"a `Random.sample` request of the program does not carry a "
+            f"site and a family construction, so the plan {_language(backend)} "
+            f"is rendered from cannot read it as a draw. This is a defect in "
+            f"the elaboration rather than in the program; please report it "
+            f"with the module that provoked it."
+        )
     return f"{_cannot(backend, 'transpile this checked QIEC construct')}: {tail}"
 
 
@@ -871,6 +931,16 @@ def _render_let_kind(backend: str, tail: str, explained: bool) -> str:
             f"with a direct `~ Family(args)` declaration, or write "
             f"one `sample` step per stochastic link."
         )
+    if tail.startswith("call:unknown:"):
+        name = tail.partition("call:unknown:")[2]
+        return (
+            f"a `let` calls `{name}(...)`, which names no builtin of the "
+            f"expression language, no lambda, and no computation of the "
+            f"module, so nothing fixes what the call computes and "
+            f"{_language(backend)} would be handed an unresolved name. "
+            f"Write the computation as a `define` of the module, or as "
+            f"arithmetic and builtins the expression language has."
+        )
     if explained:
         return _cannot(backend, "resolve this `let` binding")
     return f"{_cannot(backend, 'resolve this `let` binding')}: {tail}"
@@ -1007,6 +1077,16 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"rewrite for {surface}. Move that expression out of the "
             f"`marginalize` block, or bind it with a `let` before the "
             f"block and reference the bound name inside."
+        )
+    if tail.startswith("shape:"):
+        helper = tail.partition(":")[2]
+        return (
+            f"the marginalization helper `{helper}` of the checked module "
+            f"is not one enumerated draw over a collected scope, so the "
+            f"plan cannot read it back as a `marginalize` block for "
+            f"{backend}. This is a defect in the elaboration rather "
+            f"than in the program; please report it with the module "
+            f"that provoked it."
         )
     if tail == "no-enclosing-body":
         if explained:
@@ -1168,6 +1248,15 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
             f"target to read it as. Write `[param_source=<kind>]` "
             f"with an architecture name."
         )
+    elif kind == "table":
+        return (
+            f"the morphism `{name}` is a kernel over a finite domain, whose "
+            f"parameters are read from a learned table with one row per "
+            f"element, and {_language(backend)} has no wire form for a "
+            f"table-indexed parameter map. Draw the row's parameters as "
+            f"sites indexed by the element, or write the step against a "
+            f"closed-form family."
+        )
     else:
         headline = (
             f"a morphism draws its parameters from a `{kind}` network, "
@@ -1257,6 +1346,13 @@ def _render_program_kind(backend: str, tail: str, explained: bool) -> str:
         )
     if explained:
         return _cannot(backend, f"emit program `{rest or reason}`")
+    if reason == "unelaborated":
+        return (
+            f"program `{rest}` has no computation in the checked module, so "
+            f"the plan {_language(backend)} is rendered from cannot be "
+            f"derived. This is a defect in the elaboration rather than in "
+            f"the program; please report it with the module that provoked it."
+        )
     return f"{_cannot(backend, 'emit this program')}: {tail}"
 
 
