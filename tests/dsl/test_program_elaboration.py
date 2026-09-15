@@ -31,6 +31,7 @@ from quivers.qiec import (
     Perform,
     QiecModule,
     SegmentSum,
+    SiteValue,
     dumps,
     loads,
     tensor_type,
@@ -511,3 +512,450 @@ def test_open_extents_reach_marginal_helpers_and_callers() -> None:
     for name in ("prog", "outer"):
         run = run_program(module, name, data=data, sites=sites)
         assert run.log_joint == pytest.approx(expected, rel=1e-6)
+
+
+REDUCED = """\
+object Component : FinSet 3
+object Item : FinSet 2
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample probs <- Dirichlet(1.5) [over=Component]
+    sample mu : Component <- Normal(0.0, 5.0)
+    sample sigma : Component <- HalfNormal(1.0)
+    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=REDUCTION]
+        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
+    return probs
+export prog
+"""
+
+PRODUCT_GROUP = """\
+object Component : FinSet 2
+object Item : FinSet 2
+object Subj : FinSet 3
+object Resp : FinSet 6
+program prog : Resp -> Resp
+    sample probs <- Dirichlet(1.0) [over=Component]
+    sample mu : Component <- Normal(0.0, 5.0)
+    sample sigma : Component <- HalfNormal(1.0)
+    marginalize cls : Component <- Categorical(probs) [over=[Item, Subj]]
+        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=[item_idx, subj_idx]]
+    return probs
+export prog
+"""
+
+NESTED_SAME_GROUP = """\
+object Outer : FinSet 2
+object Inner : FinSet 2
+object Item : FinSet 2
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample probs_outer <- Dirichlet(1.0) [over=Outer]
+    sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
+    sample mu : Inner <- Normal(0.0, 5.0)
+    sample sigma : Inner <- HalfNormal(1.0)
+    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs_inner[z]) [over=Item]
+            observe r : Resp <- Normal(mu[s], sigma[s]) [via=idx]
+    return probs_outer
+export prog
+"""
+
+NESTED_PROJECTED = """\
+object Outer : FinSet 2
+object Inner : FinSet 2
+object Item : FinSet 2
+object Subj : FinSet 2
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample probs_outer <- Dirichlet(1.0) [over=Outer]
+    sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
+    sample mu : Inner <- Normal(0.0, 5.0)
+    sample sigma : Inner <- HalfNormal(1.0)
+    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs_inner[z]) [over=[Item, Subj]]
+            observe r : Resp <- Normal(mu[s], sigma[s]) [via=[item_idx, subj_idx]]
+    return probs_outer
+export prog
+"""
+
+HOISTED_DRAW = """\
+object Component : FinSet 2
+object Resp : FinSet 4
+program prog : Resp -> Resp
+    sample probs <- Dirichlet(1.0) [over=Component]
+    marginalize cls : Component <- Categorical(probs)
+        sample mu : Component <- Normal(0.0, 5.0)
+        observe r : Resp <- Normal(mu[cls], 1.0)
+    return probs
+export prog
+"""
+
+
+def _sampled_types(module: QiecModule, name: str) -> dict[str, str]:
+    """The sampled type of every site a program's body draws at.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The checked module.
+    name : str
+        The program's name.
+
+    Returns
+    -------
+    dict[str, str]
+        By site label, the rendered static argument of its
+        ``Random.sample`` request.
+    """
+    computation = next(item for item in module.computations if item.name == name)
+    found: dict[str, str] = {}
+    node = computation.body
+    while isinstance(node, Bind):
+        first = node.first
+        if isinstance(first, Perform) and first.request.arguments:
+            label = first.request.arguments[0]
+            if isinstance(label, SiteValue):
+                found[label.label] = render_static(first.request.static_arguments[0])
+        node = node.then
+    return found
+
+
+def _mixture_rows(mu: torch.Tensor, responses: torch.Tensor) -> torch.Tensor:
+    """Per-row, per-class log-likelihoods of unit-scale normal responses.
+
+    Parameters
+    ----------
+    mu : torch.Tensor
+        One location per class.
+    responses : torch.Tensor
+        The responses.
+
+    Returns
+    -------
+    torch.Tensor
+        A ``(rows, classes)`` matrix of log densities.
+    """
+    return td.Normal(mu.unsqueeze(0), 1.0).log_prob(responses.unsqueeze(-1))
+
+
+def _priors(
+    probs: torch.Tensor, mu: torch.Tensor, concentration: float
+) -> torch.Tensor:
+    """The prior density of a mixture's class probabilities and components.
+
+    Parameters
+    ----------
+    probs : torch.Tensor
+        The class probabilities, under a symmetric Dirichlet.
+    mu : torch.Tensor
+        The component locations, under ``Normal(0, 5)``, whose scales
+        are clamped at one under ``HalfNormal(1)``.
+    concentration : float
+        The Dirichlet's symmetric concentration.
+
+    Returns
+    -------
+    torch.Tensor
+        The summed prior log density.
+    """
+    classes = probs.shape[-1]
+    return (
+        td.Dirichlet(torch.full((classes,), concentration)).log_prob(probs).sum()
+        + td.Normal(0.0, 5.0).log_prob(mu).sum()
+        + td.HalfNormal(1.0).log_prob(torch.ones_like(mu)).sum()
+    )
+
+
+@pytest.mark.parametrize("reduction", ["logsumexp", "sum", "mean"])
+def test_marginalization_reductions_aggregate_the_grouped_shots(
+    reduction: str,
+) -> None:
+    source = REDUCED.replace("REDUCTION", reduction)
+    module = _module(source)
+    data = {"r": (0.1, 0.5, -0.3, 2.0), "idx": (0, 0, 1, 1)}
+    sites = {
+        "probs": (0.2, 0.3, 0.5),
+        "mu": (0.0, 1.0, -1.0),
+        "sigma": (1.0, 1.0, 1.0),
+    }
+    run = run_program(module, "prog", data=data, sites=sites)
+    probs, mu = torch.tensor(sites["probs"]), torch.tensor(sites["mu"])
+    responses, index = torch.tensor(data["r"]), torch.tensor(data["idx"])
+    per_row = _mixture_rows(mu, responses)
+    closed = _priors(probs, mu, 1.5)
+    for item in range(2):
+        weighted = probs.log() + per_row[index == item].sum(0)
+        if reduction == "logsumexp":
+            closed = closed + torch.logsumexp(weighted, dim=0)
+        elif reduction == "sum":
+            closed = closed + weighted.sum()
+        else:
+            closed = closed + weighted.mean()
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+    classic = _classic_log_joint(source, {**data, **sites})
+    assert run.log_joint == pytest.approx(classic, rel=1e-5)
+
+
+def test_a_reduction_on_a_continuous_latent_is_refused() -> None:
+    source = (
+        "object Obs : FinSet 4\nprogram prog : Obs -> Obs\n"
+        "    marginalize z <- Normal(0.0, 1.0) [reduction=logsumexp]\n"
+        "        observe y <- Normal(z, 1.0)\n    return z\nexport prog\n"
+    )
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert "finite support" in captured.value.message
+
+
+def test_a_product_group_flattens_its_fibrations_row_major() -> None:
+    module = _module(PRODUCT_GROUP)
+    data = {
+        "r": (0.1, 0.5, -0.3, 2.0, 1.0, -1.5),
+        "item_idx": (0, 0, 1, 1, 0, 1),
+        "subj_idx": (0, 1, 2, 0, 2, 1),
+    }
+    sites = {"probs": (0.4, 0.6), "mu": (0.0, 1.0), "sigma": (1.0, 1.0)}
+    run = run_program(module, "prog", data=data, sites=sites)
+    probs, mu = torch.tensor(sites["probs"]), torch.tensor(sites["mu"])
+    responses = torch.tensor(data["r"])
+    flat = torch.tensor(data["item_idx"]) * 3 + torch.tensor(data["subj_idx"])
+    per_row = _mixture_rows(mu, responses)
+    closed = _priors(probs, mu, 1.0)
+    for group in range(6):
+        closed = closed + torch.logsumexp(
+            probs.log() + per_row[flat == group].sum(0), dim=0
+        )
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+    classic = _classic_log_joint(PRODUCT_GROUP, {**data, **sites})
+    assert run.log_joint == pytest.approx(classic, rel=1e-5)
+
+
+def test_a_product_fibration_must_match_the_group_arity() -> None:
+    source = PRODUCT_GROUP.replace("[via=[item_idx, subj_idx]]", "[via=item_idx]")
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert "names 1 factor(s) but the group 'ItemxSubj' has 2" in captured.value.message
+
+
+def _nested_closed_form(
+    probs_outer: torch.Tensor,
+    probs_inner: torch.Tensor,
+    mu: torch.Tensor,
+    responses: torch.Tensor,
+    inner_index: torch.Tensor,
+    inner_groups: int,
+    projection: torch.Tensor,
+) -> torch.Tensor:
+    """The joint of a nested grouped mixture by explicit enumeration.
+
+    Parameters
+    ----------
+    probs_outer : torch.Tensor
+        The outer class prior.
+    probs_inner : torch.Tensor
+        One inner class prior per outer class.
+    mu : torch.Tensor
+        One location per inner class.
+    responses : torch.Tensor
+        The responses.
+    inner_index : torch.Tensor
+        Each response's inner group.
+    inner_groups : int
+        The number of inner groups.
+    projection : torch.Tensor
+        Each inner group's outer group.
+
+    Returns
+    -------
+    torch.Tensor
+        The log joint.
+    """
+    per_row = _mixture_rows(mu, responses)
+    total = td.Dirichlet(torch.ones(2)).log_prob(probs_outer) + _priors(
+        probs_inner, mu, 1.0
+    )
+    for group in range(int(projection.max()) + 1):
+        shots = []
+        for z in range(2):
+            inner_total = torch.zeros(())
+            for inner_group in range(inner_groups):
+                if int(projection[inner_group]) != group:
+                    continue
+                rows = per_row[inner_index == inner_group].sum(0)
+                inner_total = inner_total + torch.logsumexp(
+                    probs_inner[z].log() + rows, dim=0
+                )
+            shots.append(probs_outer[z].log() + inner_total)
+        total = total + torch.logsumexp(torch.stack(shots), dim=0)
+    return total
+
+
+def test_a_nested_grouped_marginalization_adds_per_group_marginals() -> None:
+    module = _module(NESTED_SAME_GROUP)
+    data = {"r": (0.1, 0.5, -0.3, 2.0), "idx": (0, 0, 1, 1)}
+    sites = {
+        "probs_outer": (0.3, 0.7),
+        "probs_inner": ((0.5, 0.5), (0.1, 0.9)),
+        "mu": (0.0, 1.0),
+        "sigma": (1.0, 1.0),
+    }
+    run = run_program(module, "prog", data=data, sites=sites)
+    closed = _nested_closed_form(
+        torch.tensor(sites["probs_outer"]),
+        torch.tensor(sites["probs_inner"]),
+        torch.tensor(sites["mu"]),
+        torch.tensor(data["r"]),
+        torch.tensor(data["idx"]),
+        2,
+        torch.arange(2),
+    )
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+def test_a_nested_product_group_projects_onto_the_outer_group() -> None:
+    module = _module(NESTED_PROJECTED)
+    data = {
+        "r": (0.1, 0.5, -0.3, 2.0),
+        "item_idx": (0, 0, 1, 1),
+        "subj_idx": (0, 1, 0, 1),
+    }
+    sites = {
+        "probs_outer": (0.3, 0.7),
+        "probs_inner": ((0.5, 0.5), (0.1, 0.9)),
+        "mu": (0.0, 1.0),
+        "sigma": (1.0, 1.0),
+    }
+    run = run_program(module, "prog", data=data, sites=sites)
+    flat = torch.tensor(data["item_idx"]) * 2 + torch.tensor(data["subj_idx"])
+    closed = _nested_closed_form(
+        torch.tensor(sites["probs_outer"]),
+        torch.tensor(sites["probs_inner"]),
+        torch.tensor(sites["mu"]),
+        torch.tensor(data["r"]),
+        flat,
+        4,
+        torch.tensor([0, 0, 1, 1]),
+    )
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+def test_a_nested_group_unrelated_to_the_outer_is_refused() -> None:
+    source = (
+        NESTED_PROJECTED.replace("[over=[Item, Subj]]", "[over=Subj]")
+        .replace("[via=[item_idx, subj_idx]]", "[via=subj_idx]")
+        .replace("object Subj : FinSet 2", "object Subj : FinSet 3")
+        .replace("Categorical(probs_inner[z])", "Categorical(probs_outer)")
+    )
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert "projected onto it" in captured.value.message
+
+
+def test_a_draw_inside_a_block_is_drawn_once_before_it() -> None:
+    module = _module(HOISTED_DRAW)
+    entry = program_entry(module, "prog")
+    assert [site.name for site in entry.sites] == ["probs", "mu", "cls", "r"]
+    data = {"r": (0.1, 0.5, -0.3, 2.0)}
+    sites = {"probs": (0.4, 0.6), "mu": (0.0, 1.0)}
+    run = run_program(module, "prog", data=data, sites=sites)
+    probs, mu = torch.tensor(sites["probs"]), torch.tensor(sites["mu"])
+    per_row = _mixture_rows(mu, torch.tensor(data["r"]))
+    closed = (
+        td.Dirichlet(torch.ones(2)).log_prob(probs)
+        + td.Normal(0.0, 5.0).log_prob(mu).sum()
+        + torch.logsumexp(probs.log() + per_row.sum(0), dim=0)
+    )
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+def test_a_draw_reading_the_latent_inside_a_block_is_refused() -> None:
+    source = HOISTED_DRAW.replace(
+        "sample mu : Component <- Normal(0.0, 5.0)", "sample mu <- Normal(cls, 5.0)"
+    ).replace("Normal(mu[cls], 1.0)", "Normal(mu, 1.0)")
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert "draw per value of the latent" in captured.value.message
+
+
+@pytest.mark.parametrize(
+    ("draw", "shape"),
+    [
+        ("sample pc <- Dirichlet(1.0)", (3,)),
+        ("sample pc : Cat <- Dirichlet(1.0)", (3,)),
+        ("sample pc : Item <- Dirichlet(1.0, 2.0)", (5, 2)),
+        ("sample pc : Item <- Dirichlet(1.0) [over=Cat]", (5, 3)),
+        ("sample pc <- Dirichlet(1.0, 2.0, 3.0, 4.0)", (4,)),
+    ],
+)
+def test_a_vector_family_gathers_its_spread_literals(
+    draw: str, shape: tuple[int, ...]
+) -> None:
+    source = (
+        "object Cat : FinSet 3\nobject Item : FinSet 5\n"
+        f"program prog : Cat -> Cat\n    {draw}\n    return pc\nexport prog\n"
+    )
+    module = _module(source)
+    sampled = _sampled_types(module, "prog")["pc"]
+    assert sampled == f"Tensor[Real]([{', '.join(map(str, shape))}])"
+
+
+def test_an_integer_atom_beside_an_integer_family_shares_its_element() -> None:
+    source = (
+        "object Obs : FinSet 4\nprogram prog : Obs -> Obs\n"
+        "    sample rate <- Gamma(2.0, 1.0)\n"
+        "    sample y <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(rate)])\n"
+        "    return rate\nexport prog\n"
+    )
+    module = _module(source)
+    assert _sampled_types(module, "prog")["y"] == "Int"
+    run = run_program(module, "prog", data={}, sites={"rate": 1.5, "y": 0})
+    closed = td.Gamma(2.0, 1.0).log_prob(torch.tensor(1.5)) + math.log(
+        0.3 + 0.7 * math.exp(-1.5)
+    )
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+FINITE_KERNEL = """\
+object Cls : FinSet 3
+object Obs : Real 2
+morphism kernel : Cls -> Obs [role=kernel] ~ Normal
+program prog : Cls -> Obs
+    sample x <- kernel
+    return x
+export prog
+"""
+
+
+def test_a_kernel_over_a_finite_domain_reads_its_table() -> None:
+    torch.manual_seed(1)
+    program = Compiler(parse(FINITE_KERNEL)).compile()
+    monadic = program._morphism
+    table = next(
+        value
+        for name, value in dict(monadic.named_parameters()).items()
+        if name.endswith("table")
+    )
+    torch.manual_seed(0)
+    classic = trace(
+        monadic, torch.tensor([2]), observations={"x": torch.tensor([0.5, 0.1])}
+    ).log_joint
+    assert classic is not None
+    module = _module(FINITE_KERNEL)
+    assert loads(dumps(module)) == module
+    entry = program_entry(module, "prog")
+    assert [(parameter.name, parameter.role) for parameter in entry.parameters] == [
+        ("cls", "domain"),
+        ("kernel_param_table", "table"),
+    ]
+    rows = tuple(tuple(float(v) for v in row) for row in table.detach())
+    run = run_program(
+        module,
+        "prog",
+        data={"cls": 2, "kernel_param_table": rows},
+        sites={"x": (0.5, 0.1)},
+    )
+    assert run.log_joint == pytest.approx(float(classic.sum()), rel=1e-5)
+    loc = torch.tensor(rows[2][:2])
+    scale = torch.tensor(rows[2][2:]).exp()
+    closed = td.Normal(loc, scale).log_prob(torch.tensor([0.5, 0.1])).sum()
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)

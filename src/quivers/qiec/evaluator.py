@@ -63,6 +63,7 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    TableMap,
     SCALE_FLOOR,
     Reduction,
     Rowwise,
@@ -1689,6 +1690,56 @@ def _affine(
     return coordinates[0] if head.rows == 1 else tuple(coordinates)
 
 
+def _table(
+    head: TableMap,
+    evaluate: Callable[[Value, Mapping[Local, object]], object],
+    environment: Mapping[Local, object],
+) -> object:
+    """Read one head of a table-indexed map at its index.
+
+    Parameters
+    ----------
+    head : TableMap
+        The head.
+    evaluate : Callable[[Value, Mapping[Local, object]], object]
+        Evaluates a value term.
+    environment : Mapping[Local, object]
+        The runtime environment.
+
+    Returns
+    -------
+    object
+        The head's coordinates as a tuple, or a float for a one-column
+        head.
+
+    Raises
+    ------
+    EvaluationError
+        If the table is not a matrix, the index not an integer within
+        it, or the block not within a row.
+    """
+    table = evaluate(head.table, environment)
+    index = evaluate(head.index, environment)
+    if not isinstance(table, tuple) or not isinstance(index, int):
+        raise EvaluationError("a table map reads a tensor at an Int index")
+    if index < 0 or index >= len(table):
+        raise EvaluationError(
+            f"a table map's index {index} lies outside its {len(table)} rows"
+        )
+    row = table[index]
+    if not isinstance(row, tuple) or head.row_offset + head.rows > len(row):
+        raise EvaluationError("a table map's block does not fit its table row")
+    coordinates = []
+    for offset in range(head.rows):
+        total = float(row[head.row_offset + offset])  # type: ignore[arg-type]
+        if head.transform == "exp":
+            total = math.exp(total)
+        elif head.transform == "exp_floor":
+            total = max(math.exp(total), SCALE_FLOOR)
+        coordinates.append(total)
+    return coordinates[0] if head.rows == 1 else tuple(coordinates)
+
+
 class Evaluator:
     """Execute QIEC computations with explicit runtime attachments.
 
@@ -2039,6 +2090,8 @@ class Evaluator:
             )
         if isinstance(value, AffineMap):
             return _affine(value, self._value, environment)
+        if isinstance(value, TableMap):
+            return _table(value, self._value, environment)
         if isinstance(value, Reduction):
             return _reduce(value.operator, self._value(value.value, environment))
         if isinstance(value, Rowwise):

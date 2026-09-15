@@ -57,6 +57,7 @@ from quivers.qiec.identifiers import (
 from quivers.qiec.kinds import TypeBinder
 from quivers.qiec.terms import Perform
 from quivers.qiec.types import (
+    STRING,
     UNIT,
     EffectRef,
     TypeApplication,
@@ -217,6 +218,54 @@ WEIGHT_EFFECT = EffectDef(
     ),
 )
 
+_X_BINDER = TypeBinder("input")
+INPUT = TypeVariable("input")
+
+COMPUTE = _effect_ref("Compute")
+COMPUTE_APPLY = _operation_id(COMPUTE, "apply")
+COMPUTE_EFFECT = EffectDef(
+    COMPUTE,
+    (_X_BINDER, _ANSWER_BINDER),
+    (
+        OperationDef(
+            COMPUTE_APPLY,
+            "apply",
+            (),
+            (ArgumentDef("argument", INPUT),),
+            ANSWER,
+        ),
+    ),
+)
+"""``Compute[X, A]``: a host computation as an effect interface.
+
+A morphism, a closure, or any other process-local function a program
+depends on is not a kernel value; performing ``apply`` on an instance of
+this interface asks the handler installed for it, which a runtime
+provider supplies, so the dependence is explicit in the row.
+"""
+
+PARAM = _effect_ref("Param")
+PARAM_GET = _operation_id(PARAM, "get")
+PARAM_EFFECT = EffectDef(
+    PARAM,
+    (),
+    (
+        OperationDef(
+            PARAM_GET,
+            "get",
+            (_A_BINDER,),
+            (ArgumentDef("name", STRING),),
+            A,
+        ),
+    ),
+)
+"""``Param``: learned parameter lookup as an effect.
+
+A host computation reads each learned tensor it depends on by name
+through ``get``, so a handler between it and the parameter store can
+answer with a perturbed value, as a prior lift does, or record the read.
+"""
+
 BUILTIN_EFFECTS = (
     RANDOM_EFFECT,
     SCORE_EFFECT,
@@ -224,6 +273,8 @@ BUILTIN_EFFECTS = (
     ABORT_EFFECT,
     CHOOSE_EFFECT,
     WEIGHT_EFFECT,
+    COMPUTE_EFFECT,
+    PARAM_EFFECT,
 )
 
 _RUNTIME_ADD = cast(Callable[[object, object], object], operator.add)
@@ -783,6 +834,45 @@ def _reshape(entries: list[float], shape: tuple[int, ...]) -> object:
     )
 
 
+def _weight_shape(value: object) -> tuple[int, ...]:
+    """The shape of a host tensor of weights.
+
+    Parameters
+    ----------
+    value : object
+        A float or nested tuples of floats.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The nesting's extents, outermost first; empty for a float.
+    """
+    if isinstance(value, tuple):
+        return (len(value), *(_weight_shape(value[0]) if value else ()))
+    return ()
+
+
+def _aggregate(values: list[float], reduction: str) -> float:
+    """Aggregate the weighted shots of an enumeration at one position.
+
+    Parameters
+    ----------
+    values : list[float]
+        One weighted shot per support value.
+    reduction : str
+        ``"logsumexp"``, ``"sum"``, or ``"mean"``.
+
+    Returns
+    -------
+    float
+        The aggregate.
+    """
+    if reduction == "logsumexp":
+        return _log_sum_exp(values)
+    total = math.fsum(values)
+    return total / len(values) if reduction == "mean" else total
+
+
 def _log_sum_exp(values: list[float]) -> float:
     """The log of a sum of exponentials, stably.
 
@@ -844,16 +934,22 @@ def enumerate_handler(
     result_validator: RuntimeValidator,
     *,
     answer_type: TypeExpr = ANSWER,
+    weight_type: TypeExpr | None = None,
+    reduction: str = "logsumexp",
     key: str = "enumerate",
 ) -> RuntimeHandler:
-    """Interpret ``Random.sample`` by summing over a finite support.
+    """Interpret ``Random.sample`` by aggregating over a finite support.
 
     The handled computation must answer with its value paired with the
     log weight it accumulated, as the collecting ``Weight`` handler
     answers. The clause resumes once per support value, adds each shot's
-    weight to the prior log probability of its value, and answers with
-    the log of the summed probabilities, totalled over the plate's
-    positions when the latent is plated.
+    weight to the prior log probability of its value, and aggregates the
+    shots by the reduction: ``logsumexp`` answers the log of the summed
+    probabilities, the marginal; ``sum`` the sum of the weighted shots;
+    ``mean`` their average. The aggregate is totalled over the plate's
+    positions when the latent is plated, or kept one per position when
+    a weight type is given, which is what a marginalization nested in a
+    grouped one adds to its group's weights.
 
     Parameters
     ----------
@@ -862,6 +958,14 @@ def enumerate_handler(
         result type.
     answer_type
         What the handled computation answers with.
+    weight_type
+        The type of the per-position weights the clause answers with,
+        the collected weights' own tensor type, whose shape the answer
+        takes from the shots' weights; ``None`` totals the positions
+        into one ``LogWeight``.
+    reduction
+        How the shots aggregate: ``"logsumexp"``, ``"sum"``, or
+        ``"mean"``.
     key
         Distinguishes this handler from others of the same name.
 
@@ -869,16 +973,26 @@ def enumerate_handler(
     -------
     RuntimeHandler
         The attachment.
+
+    Raises
+    ------
+    ValueError
+        If the reduction is not one of the three.
     """
+    if reduction not in ("logsumexp", "sum", "mean"):
+        raise ValueError(
+            f"enumeration reduces by logsumexp, sum, or mean, not {reduction!r}"
+        )
     definition = _handler_def(
         "Random.enumerate",
         RANDOM,
         ((RANDOM_SAMPLE, ResumptionGrade.UNRESTRICTED),),
         key=key,
         input_type=answer_type,
-        output_type=LOG_WEIGHT,
+        output_type=LOG_WEIGHT if weight_type is None else weight_type,
         telescope=_generic_binders(answer_type=answer_type),
     )
+    per_position = weight_type is not None
 
     def sample(
         request: RuntimeRequest,
@@ -898,21 +1012,24 @@ def enumerate_handler(
 
         Returns
         -------
-        float
-            The log of the marginal likelihood the scope accumulates.
+        object
+            The log of the marginal likelihood the scope accumulates, or
+            the per-position marginals shaped by the weight type.
 
         Raises
         ------
         InvalidHandlerError
             If the request does not carry a site and a sampleable, the
-            family has no finite support, or a shot answers with
-            something other than a value paired with its weight.
+            family has no finite support, a shot answers with something
+            other than a value paired with its weight, or the shots'
+            weights do not fill the weight type's positions.
         """
         _site, sampleable = _expect_arguments(request, 2, definition.name)
         support = _support(sampleable)
         distribution = cast(RuntimeDistribution, sampleable)
         shape = (*distribution.batch, *distribution.event)
         totals: list[list[float]] = []
+        shapes: list[tuple[int, ...]] = []
         for choice in support:
             value = _reshape([choice] * math.prod(shape), shape) if shape else choice  # type: ignore[list-item]
             prior = distribution.log_prob(value, keep_batch=True)
@@ -924,11 +1041,21 @@ def enumerate_handler(
                 )
             weight = add_weights(prior, answer[1])
             totals.append(_entries(weight))
+            shapes.append(_weight_shape(weight))
         width = max(len(entries) for entries in totals)
-        return math.fsum(
-            _log_sum_exp([entries[position] for entries in totals])
+        marginals = [
+            _aggregate([entries[position] for entries in totals], reduction)
             for position in range(width)
-        )
+        ]
+        if not per_position:
+            return math.fsum(marginals)
+        widest = max(shapes, key=len)
+        if any(shape not in ((), widest) for shape in shapes):
+            raise InvalidHandlerError(
+                "enumeration answers per-position weights only when every "
+                "shot's weights share one shape"
+            )
+        return _reshape(marginals, widest)
 
     return RuntimeHandler(
         definition,
@@ -964,6 +1091,7 @@ def score_handler(
     expose_total: bool = False,
     answer_type: TypeExpr = ANSWER,
     key: str = "score",
+    observer: Callable[[RuntimeRequest, object], None] | None = None,
 ) -> tuple[RuntimeHandler, ScoreAccumulator]:
     """Accumulate ``Score.add`` contributions in their evaluation order.
 
@@ -987,6 +1115,10 @@ def score_handler(
     key
         Distinguishes this handler from others of the same name,
         entering its derived identity.
+    observer
+        Called with each request and its contribution as it is
+        accumulated, so a caller can attribute contributions to the
+        sites their provenance names.
 
     Returns
     -------
@@ -1055,6 +1187,8 @@ def score_handler(
             _require(weight, weight_validator, LOG_WEIGHT, "score contribution")
             local.contributions.append(weight)
             local.total = combine(local.total, weight)
+            if observer is not None:
+                observer(request, weight)
             return resume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
@@ -1220,6 +1354,16 @@ def _emit_score(
         validator=weight_validator,
     )
     source = request.core.origin.origin
+    # A contribution derived from a contribution keeps the site the first
+    # one was derived from, and the derived provenance carries the site's
+    # full dynamic address, so a transformer between a site's handler and
+    # the accumulator does not cut the attribution and the site's frames
+    # survive the clause being evaluated outside the call that reached it.
+    parents = request.core.origin.parents or (request.core.origin.static_site,)
+    if request.core.origin.parents:
+        dynamic_path = request.core.origin.dynamic_path
+    else:
+        dynamic_path = (*request.core.origin.dynamic_path, *request.dynamic_path)
     generated_origin = request.core.origin.__class__(
         SourceOrigin(
             source.module,
@@ -1230,10 +1374,10 @@ def _emit_score(
             source.line,
             source.column,
         ),
-        request.core.origin.dynamic_path,
+        dynamic_path,
         request.core.origin.resumption_path,
         "duplicate",
-        (request.core.origin.static_site,),
+        parents,
     )
     context.evaluate(
         Perform(
@@ -2427,6 +2571,552 @@ def weight_handler(
     return prototype, accumulator
 
 
+def draw_scoring_handler(
+    *,
+    score_instance: EffectInstanceId,
+    result_validator: RuntimeValidator,
+    weight_validator: RuntimeValidator = lambda _value: True,
+    draw: Callable[[object, object, RuntimeRequest], object] | None = None,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "draw-scoring",
+) -> RuntimeHandler:
+    """Interpret ``Random.sample`` by drawing once and scoring the draw.
+
+    The draw's log density under its own sampleable is sent to a `Score`
+    instance, so a run whose latent sites are drawn accumulates the joint
+    density of the draw, which is what a trace of the run reports.
+
+    Parameters
+    ----------
+    score_instance
+        The lexical `Score` instance each draw's log density is sent to.
+    result_validator
+        Checks the value a resumption carries inhabits the operation's
+        result type.
+    weight_validator
+        Checks each log-density contribution.
+    draw
+        Supplies the drawn value, given the site, the sampleable, and
+        the request. None uses the sampleable's own sampling interface.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Random.draw-scoring",
+        RANDOM,
+        ((RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        introduced=EffectRow((RowEntry(score_instance, SCORE),)),
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def sample(
+        request: RuntimeRequest,
+        resume: Resumption,
+        context: ClauseContext,
+    ) -> object:
+        """Answer a `Random.sample` request by drawing and scoring.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        context
+            Runtime services available to the clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry a site and a sampleable, or the
+            sampleable offers no sampling or scoring interface.
+        """
+        site, sampleable = _site_and_sampleable(request, definition.name)
+        value = (
+            draw(site, sampleable, request)
+            if draw is not None
+            else _default_draw(sampleable)
+        )
+        _emit_score(
+            context,
+            request,
+            score_instance,
+            _log_density(sampleable, value),
+            weight_validator,
+            role="draw-score",
+        )
+        return resume(value)
+
+    return RuntimeHandler(
+        definition,
+        {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)},
+    )
+
+
+def intervene_handler(
+    values: Mapping[object, object],
+    *,
+    result_validator: RuntimeValidator,
+    on_intervene: Callable[[RuntimeRequest, object], None] | None = None,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "intervene",
+) -> RuntimeHandler:
+    """Fix selected sites to given values without scoring them.
+
+    An intervened site's distribution is replaced by a point mass, so it
+    contributes nothing to the joint; sites without a value forward.
+
+    Parameters
+    ----------
+    values
+        The value for each intervened site, keyed by site.
+    result_validator
+        Checks an intervened value inhabits the request's result type.
+    on_intervene
+        Called with the request and the value fixed for it, so a caller
+        can mark the site as deterministic.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Random.intervene",
+        RANDOM,
+        ((RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        total=False,
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def sample(
+        request: RuntimeRequest,
+        resume: Resumption,
+        _context: ClauseContext,
+    ) -> object:
+        """Answer a `Random.sample` request with the intervened value.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced, or a `Forward` when
+            the site is not intervened.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry a site and a sampleable.
+        RuntimeTypeMismatch
+            If the value does not inhabit the site's type.
+        """
+        site, _ = _site_and_sampleable(request, definition.name)
+        if site not in values:
+            return Forward()
+        value = values[site]
+        _require(
+            value, result_validator, request.core.result_type, f"intervention {site!r}"
+        )
+        if on_intervene is not None:
+            on_intervene(request, value)
+        return resume(value)
+
+    return RuntimeHandler(
+        definition, {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)}
+    )
+
+
+def reweight_handler(
+    transform: Callable[[object], object],
+    *,
+    score_instance: EffectInstanceId,
+    weight_validator: RuntimeValidator = lambda _value: True,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "reweight",
+) -> RuntimeHandler:
+    """Transform every ``Score.add`` contribution before passing it outward.
+
+    Scaling and masking are transformers: each contribution arriving at
+    the handler is replaced by its image and sent to the same instance's
+    outer handler, with the provenance of the site it came from kept.
+
+    Parameters
+    ----------
+    transform
+        The map applied to each contribution.
+    score_instance
+        The lexical `Score` instance handled, which the transformed
+        contribution is sent on to.
+    weight_validator
+        Checks each transformed contribution.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Score.reweight",
+        SCORE,
+        ((SCORE_ADD, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        introduced=EffectRow((RowEntry(score_instance, SCORE),)),
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def add(
+        request: RuntimeRequest,
+        resume: Resumption,
+        context: ClauseContext,
+    ) -> object:
+        """Answer a `Score.add` request by re-emitting the transformed weight.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        context
+            Runtime services available to the clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry exactly one argument.
+        RuntimeTypeMismatch
+            If the transformed contribution does not inhabit the weight
+            type.
+        """
+        (weight,) = _expect_arguments(request, 1, definition.name)
+        # The transformed contribution keeps the role the original was
+        # emitted under, so a reader of the accumulator still knows
+        # whether the site was drawn, conditioned, or replayed.
+        _emit_score(
+            context,
+            request,
+            score_instance,
+            transform(weight),
+            weight_validator,
+            role=request.core.origin.origin.role,
+        )
+        return resume(None)
+
+    return RuntimeHandler(definition, {SCORE_ADD: RuntimeClause(add, _unit)})
+
+
+def block_handler(
+    hidden: Callable[[object], bool],
+    *,
+    score_instance: EffectInstanceId,
+    result_validator: RuntimeValidator,
+    weight_validator: RuntimeValidator = lambda _value: True,
+    draw: Callable[[object, object, RuntimeRequest], object] | None = None,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "block",
+) -> RuntimeHandler:
+    """Answer hidden sites locally so no outer handler sees them.
+
+    A hidden site is drawn and scored here, exactly as the default
+    scoring draw would; every other site forwards.
+
+    Parameters
+    ----------
+    hidden
+        Whether a site is hidden from the handlers outside this one.
+    score_instance
+        The lexical `Score` instance a hidden draw's log density is sent
+        to.
+    result_validator
+        Checks the value a resumption carries inhabits the operation's
+        result type.
+    weight_validator
+        Checks each log-density contribution.
+    draw
+        Supplies the drawn value for a hidden site, given the site, the
+        sampleable, and the request. None uses the sampleable's own
+        sampling interface.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Random.block",
+        RANDOM,
+        ((RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        introduced=EffectRow((RowEntry(score_instance, SCORE),)),
+        total=False,
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def sample(
+        request: RuntimeRequest,
+        resume: Resumption,
+        context: ClauseContext,
+    ) -> object:
+        """Answer a hidden site's `Random.sample` request locally.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        context
+            Runtime services available to the clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced, or a `Forward` for a
+            site that is not hidden.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry a site and a sampleable, or the
+            sampleable offers no sampling or scoring interface.
+        """
+        site, sampleable = _site_and_sampleable(request, definition.name)
+        if not hidden(site):
+            return Forward()
+        value = (
+            draw(site, sampleable, request)
+            if draw is not None
+            else _default_draw(sampleable)
+        )
+        _emit_score(
+            context,
+            request,
+            score_instance,
+            _log_density(sampleable, value),
+            weight_validator,
+            role="block-score",
+        )
+        return resume(value)
+
+    return RuntimeHandler(
+        definition, {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)}
+    )
+
+
+def compute_handler(
+    function: Callable[[object, ClauseContext], object],
+    *,
+    effect: EffectRef,
+    result_validator: RuntimeValidator,
+    introduced: EffectRow = EffectRow(),
+    answer_type: TypeExpr = ANSWER,
+    key: str = "compute",
+) -> RuntimeHandler:
+    """Serve a ``Compute`` instance with a host function.
+
+    Parameters
+    ----------
+    function
+        The host function, called with the request's argument and the
+        clause context, through which it may perform effects the
+        ``introduced`` row names.
+    effect
+        The applied ``Compute[X, A]`` interface the instance carries.
+    result_validator
+        Checks the function's result inhabits the operation's result
+        type.
+    introduced
+        Effects the host function performs.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Compute.host",
+        effect,
+        ((COMPUTE_APPLY, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        introduced=introduced,
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def apply(
+        request: RuntimeRequest,
+        resume: Resumption,
+        context: ClauseContext,
+    ) -> object:
+        """Answer a `Compute.apply` request with the host function's result.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        context
+            Runtime services available to the clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry exactly one argument.
+        """
+        (argument,) = _expect_arguments(request, 1, definition.name)
+        return resume(function(argument, context))
+
+    return RuntimeHandler(
+        definition, {COMPUTE_APPLY: RuntimeClause(apply, result_validator)}
+    )
+
+
+def param_handler(
+    lookup: Callable[[str, RuntimeRequest], object],
+    *,
+    result_validator: RuntimeValidator,
+    total: bool = True,
+    answer_type: TypeExpr = ANSWER,
+    key: str = "param",
+) -> RuntimeHandler:
+    """Serve ``Param.get`` from a host parameter store.
+
+    Parameters
+    ----------
+    lookup
+        Returns the value of the named parameter, given the name and the
+        request.
+    result_validator
+        Checks a value inhabits the request's result type.
+    total
+        Whether the handler discharges the instance; a handler layered
+        over a store leaves the instance in the row so the store stays
+        required outside it.
+    answer_type
+        What the handler answers with.
+    key
+        Distinguishes this handler from others of the same name,
+        entering its derived identity.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment, ready to bind into a runtime environment.
+    """
+    definition = _handler_def(
+        "Param.store",
+        PARAM,
+        ((PARAM_GET, ResumptionGrade.LINEAR),),
+        key=key,
+        input_type=answer_type,
+        output_type=answer_type,
+        total=total,
+        telescope=_generic_binders(answer_type=answer_type),
+    )
+
+    def get(
+        request: RuntimeRequest,
+        resume: Resumption,
+        _context: ClauseContext,
+    ) -> object:
+        """Answer a `Param.get` request with the stored value.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, invoked within the clause's declared grade.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+            What the resumed computation produced.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry exactly one string argument.
+        RuntimeTypeMismatch
+            If the value does not inhabit the request's result type.
+        """
+        (name,) = _expect_arguments(request, 1, definition.name)
+        if not isinstance(name, str):
+            raise InvalidHandlerError("Param.get takes a parameter name")
+        value = lookup(name, request)
+        _require(
+            value, result_validator, request.core.result_type, f"parameter {name!r}"
+        )
+        return resume(value)
+
+    return RuntimeHandler(definition, {PARAM_GET: RuntimeClause(get, result_validator)})
+
+
 __all__ = [
     "A",
     "add_weights",
@@ -2442,6 +3132,13 @@ __all__ = [
     "CHOOSE_EFFECT",
     "CHOICES_A",
     "CHOICE_RESULTS_A",
+    "COMPUTE",
+    "COMPUTE_APPLY",
+    "COMPUTE_EFFECT",
+    "INPUT",
+    "PARAM",
+    "PARAM_EFFECT",
+    "PARAM_GET",
     "ExtraValuePolicy",
     "K",
     "LOG_WEIGHT",
@@ -2471,9 +3168,15 @@ __all__ = [
     "WeightAccumulator",
     "abort_handler",
     "abort_effect",
+    "block_handler",
     "choose_handler",
+    "compute_handler",
     "condition_handler",
     "draw_handler",
+    "draw_scoring_handler",
+    "intervene_handler",
+    "param_handler",
+    "reweight_handler",
     "replay_handler",
     "score_handler",
     "state_handler",

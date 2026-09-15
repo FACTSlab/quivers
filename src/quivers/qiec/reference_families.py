@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 import math
 import random
 
+from quivers.qiec.families import FAMILIES
 from quivers.qiec.reference_support import (
     Density,
     DistributionError,
@@ -916,57 +917,71 @@ def _sampleable(arguments: Mapping[str, object], name: str, family: str) -> obje
     return value
 
 
-def _component_count(component: object) -> int:
-    """The number of components a mixture's plated component holds.
+def _components(arguments: Mapping[str, object], family: str) -> tuple[object, ...]:
+    """The components of a mixture, one distribution each.
 
     Parameters
     ----------
-    component : object
-        The component distribution, plated over its first batch axis.
+    arguments : Mapping[str, object]
+        The family's named parameters, whose ``component`` is either a
+        distribution plated over the mixture axis or a tuple of
+        distributions.
+    family : str
+        The family, for the diagnostic.
 
     Returns
     -------
-    int
-        The batch extent.
+    tuple[object, ...]
+        The components, each offering ``log_prob``, ``sample``, and
+        ``log_mass``.
 
     Raises
     ------
     DistributionError
-        If the component is not plated over a batch axis.
+        If the parameter is absent, a plated distribution has no batch
+        axis to index, or an entry of the tuple is not a distribution.
     """
-    batch = getattr(component, "batch", ())
-    if not batch:
+    try:
+        component = arguments["component"]
+    except KeyError as error:
         raise DistributionError(
-            "a mixture's component must be plated over the mixture axis"
+            f"reference backend needs parameter 'component' of {family}"
+        ) from error
+    if isinstance(component, tuple):
+        for item in component:
+            if not callable(getattr(item, "log_prob", None)):
+                raise DistributionError(
+                    f"a component of {family} is not a distribution"
+                )
+        return component
+    batch = getattr(component, "batch", ())
+    at = getattr(component, "at", None)
+    if not batch or not callable(at):
+        raise DistributionError(
+            f"the component of {family} must be plated over the mixture axis or "
+            "be a vector of distributions"
         )
-    return int(batch[0])
+    return tuple(at((index,)) for index in range(int(batch[0])))
 
 
-def _component_at(component: object, index: int) -> object:
-    """One component of a plated distribution as a distribution of its own.
+def _log_mass_of(distribution: object) -> float:
+    """The log mass of a nested distribution.
 
     Parameters
     ----------
-    component : object
-        The component distribution, plated over its first batch axis.
-    index : int
-        The component.
+    distribution : object
+        The distribution.
 
     Returns
     -------
-    object
-        The distribution at that batch position, unplated, offering
-        ``log_prob`` and ``sample``.
-
-    Raises
-    ------
-    DistributionError
-        If the component cannot be indexed.
+    float
+        Its ``log_mass``, zero for a distribution that offers none, which
+        is a probability measure.
     """
-    at = getattr(component, "at", None)
-    if not callable(at):
-        raise DistributionError("a mixture's component cannot be indexed")
-    return at((index,))
+    log_mass = getattr(distribution, "log_mass", None)
+    if callable(log_mass):
+        return float(log_mass())
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -3019,40 +3034,70 @@ def _lkjfactor_density(a: Mapping[str, object], value: object) -> float:
 # compositional families
 
 
+def _mixture_weights(a: Mapping[str, object]) -> Vector:
+    """The mixture weights, which must be nonnegative and not all zero.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+
+    Returns
+    -------
+    Vector
+        The raw weights; a mixture is a weighted sum of measures and its
+        mass is the weights' sum of the components' masses.
+
+    Raises
+    ------
+    DistributionError
+        If a weight is negative or every weight is zero.
+    """
+    weights = vector_parameter(a, "weights", "Mixture")
+    if any(weight < 0.0 for weight in weights) or not any(weights):
+        raise DistributionError("Mixture weights must be nonnegative and not all zero")
+    return weights
+
+
 def _mixture_sample(a: Mapping[str, object], rng: random.Random) -> object:
     """Draw one value from ``Mixture``.
 
     Parameters
     ----------
     a : Mapping[str, object]
-        The family's named parameters: the ``weights`` and a ``component``
-        distribution plated over the mixture axis.
+        The family's named parameters: the ``weights`` and the
+        ``component`` distributions.
     rng : random.Random
         The generator to draw from.
 
     Returns
     -------
     object
-        A draw from the component the weights select.
+        A draw from a component chosen with probability proportional to
+        its weight times its mass.
 
     Raises
     ------
     DistributionError
         If the weights and the components differ in number.
     """
-    weights = vector_parameter(a, "weights", "Mixture")
-    component = _sampleable(a, "component", "Mixture")
-    if _component_count(component) != len(weights):
+    weights = _mixture_weights(a)
+    components = _components(a, "Mixture")
+    if len(components) != len(weights):
         raise DistributionError("Mixture weights and components differ in number")
-    uniform = rng.random() * sum(weights)
+    masses = [
+        weight * math.exp(_log_mass_of(component))
+        for weight, component in zip(weights, components, strict=True)
+    ]
+    uniform = rng.random() * sum(masses)
     total = 0.0
     chosen = len(weights) - 1
-    for index, weight in enumerate(weights):
-        total += weight
+    for index, mass in enumerate(masses):
+        total += mass
         if uniform < total:
             chosen = index
             break
-    return _component_at(component, chosen).sample(rng)  # type: ignore[attr-defined]
+    return components[chosen].sample(rng)  # type: ignore[attr-defined]
 
 
 def _mixture_density(a: Mapping[str, object], value: object) -> float:
@@ -3068,23 +3113,54 @@ def _mixture_density(a: Mapping[str, object], value: object) -> float:
     Returns
     -------
     float
-        The log of the weighted sum of the component densities.
+        The log of the weighted sum of the component densities, the
+        density of the mixture as a measure; ``Normalize`` divides it by
+        the mixture's mass.
 
     Raises
     ------
     DistributionError
         If the weights and the components differ in number.
     """
-    weights = vector_parameter(a, "weights", "Mixture")
-    component = _sampleable(a, "component", "Mixture")
-    if _component_count(component) != len(weights):
+    weights = _mixture_weights(a)
+    components = _components(a, "Mixture")
+    if len(components) != len(weights):
         raise DistributionError("Mixture weights and components differ in number")
-    total = sum(weights)
     return _logsumexp(
         [
-            math.log(weight / total)
-            + float(_component_at(component, index).log_prob(value))  # type: ignore[attr-defined]
-            for index, weight in enumerate(weights)
+            math.log(weight) + float(component.log_prob(value))  # type: ignore[attr-defined]
+            for weight, component in zip(weights, components, strict=True)
+            if weight > 0.0
+        ]
+    )
+
+
+def _mixture_log_mass(a: Mapping[str, object]) -> float:
+    """The log mass of ``Mixture``: the weights' sum of the components' masses.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+
+    Returns
+    -------
+    float
+        ``log(sum(w_k * m_k))``.
+
+    Raises
+    ------
+    DistributionError
+        If the weights and the components differ in number.
+    """
+    weights = _mixture_weights(a)
+    components = _components(a, "Mixture")
+    if len(components) != len(weights):
+        raise DistributionError("Mixture weights and components differ in number")
+    return _logsumexp(
+        [
+            math.log(weight) + _log_mass_of(component)
+            for weight, component in zip(weights, components, strict=True)
             if weight > 0.0
         ]
     )
@@ -3447,6 +3523,506 @@ def _truncated_density(a: Mapping[str, object], value: object) -> float:
     return float(base.log_prob(point)) - math.log(mass)  # type: ignore[attr-defined]
 
 
+def _zip_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``ZeroInflatedPoisson``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        Zero with the inflation probability, else a Poisson draw.
+    """
+    if rng.random() < real_parameter(a, "zero_prob", "ZeroInflatedPoisson"):
+        return 0
+    rate = real_parameter(a, "rate", "ZeroInflatedPoisson")
+    limit = math.exp(-rate)
+    count = 0
+    product = rng.random()
+    while product > limit:
+        count += 1
+        product *= rng.random()
+    return count
+
+
+def _poisson_log_mass(count: int, rate: float) -> float:
+    """The Poisson log mass at a count.
+
+    Parameters
+    ----------
+    count : int
+        The count.
+    rate : float
+        The rate.
+
+    Returns
+    -------
+    float
+        ``count log rate - rate - lgamma(count + 1)``.
+    """
+    return count * math.log(rate) - rate - math.lgamma(count + 1)
+
+
+def _zip_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``ZeroInflatedPoisson`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        ``log(pi + (1 - pi) e^-rate)`` at zero, ``log(1 - pi)`` plus the
+        Poisson log mass elsewhere, ``-inf`` below zero.
+    """
+    count = int(finite_value(value, "ZeroInflatedPoisson"))
+    zero_prob = real_parameter(a, "zero_prob", "ZeroInflatedPoisson")
+    rate = real_parameter(a, "rate", "ZeroInflatedPoisson")
+    if count < 0:
+        return -math.inf
+    if count == 0:
+        return math.log(zero_prob + (1.0 - zero_prob) * math.exp(-rate))
+    return math.log1p(-zero_prob) + _poisson_log_mass(count, rate)
+
+
+def _hurdle_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``HurdlePoisson``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        Zero with the hurdle probability, else a zero-truncated Poisson
+        draw by rejection.
+    """
+    if rng.random() < real_parameter(a, "zero_prob", "HurdlePoisson"):
+        return 0
+    rate = real_parameter(a, "rate", "HurdlePoisson")
+    limit = math.exp(-rate)
+    while True:
+        count = 0
+        product = rng.random()
+        while product > limit:
+            count += 1
+            product *= rng.random()
+        if count > 0:
+            return count
+
+
+def _hurdle_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``HurdlePoisson`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        ``log pi`` at zero, ``log(1 - pi)`` plus the zero-truncated
+        Poisson log mass elsewhere, ``-inf`` below zero.
+    """
+    count = int(finite_value(value, "HurdlePoisson"))
+    zero_prob = real_parameter(a, "zero_prob", "HurdlePoisson")
+    rate = real_parameter(a, "rate", "HurdlePoisson")
+    if count < 0:
+        return -math.inf
+    if count == 0:
+        return math.log(zero_prob)
+    return (
+        math.log1p(-zero_prob)
+        + _poisson_log_mass(count, rate)
+        - math.log(-math.expm1(-rate))
+    )
+
+
+def _zoib_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``ZeroOneInflatedBeta``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        An endpoint with the inflation probabilities, else a beta draw in
+        the mean-precision parameterization.
+    """
+    zoi = real_parameter(a, "zoi", "ZeroOneInflatedBeta")
+    coi = real_parameter(a, "coi", "ZeroOneInflatedBeta")
+    if rng.random() < zoi:
+        return 1.0 if rng.random() < coi else 0.0
+    mu = real_parameter(a, "mu", "ZeroOneInflatedBeta")
+    phi = real_parameter(a, "phi", "ZeroOneInflatedBeta")
+    return rng.betavariate(mu * phi, (1.0 - mu) * phi)
+
+
+def _zoib_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``ZeroOneInflatedBeta`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        ``log(zoi (1 - coi))`` at zero, ``log(zoi coi)`` at one, and
+        ``log(1 - zoi)`` plus the beta log density between, ``-inf``
+        outside the closed unit interval.
+    """
+    point = finite_value(value, "ZeroOneInflatedBeta")
+    zoi = real_parameter(a, "zoi", "ZeroOneInflatedBeta")
+    coi = real_parameter(a, "coi", "ZeroOneInflatedBeta")
+    if point < 0.0 or point > 1.0:
+        return -math.inf
+    if point == 0.0:
+        return math.log(zoi) + math.log1p(-coi)
+    if point == 1.0:
+        return math.log(zoi) + math.log(coi)
+    mu = real_parameter(a, "mu", "ZeroOneInflatedBeta")
+    phi = real_parameter(a, "phi", "ZeroOneInflatedBeta")
+    first = mu * phi
+    second = (1.0 - mu) * phi
+    return (
+        math.log1p(-zoi)
+        + (first - 1.0) * math.log(point)
+        + (second - 1.0) * math.log1p(-point)
+        - _log_beta(first, second)
+    )
+
+
+def _optional_bound(a: Mapping[str, object], name: str, family: str) -> float | None:
+    """Read an optional interval bound.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    name : str
+        ``low`` or ``high``.
+    family : str
+        The family, for the diagnostic.
+
+    Returns
+    -------
+    float | None
+        The bound, or ``None`` when the parameter is absent or not
+        finite, which leaves that side of the interval open.
+    """
+    if name not in a:
+        return None
+    bound = real_parameter(a, name, family)
+    return None if math.isinf(bound) else bound
+
+
+def _within(point: float, low: float | None, high: float | None) -> bool:
+    """Whether a point lies in a closed interval with optional ends.
+
+    Parameters
+    ----------
+    point : float
+        The point.
+    low : float | None
+        The lower end, or ``None`` for none.
+    high : float | None
+        The upper end, or ``None`` for none.
+
+    Returns
+    -------
+    bool
+        True when the point is inside.
+    """
+    return (low is None or point >= low) and (high is None or point <= high)
+
+
+def _base_is_discrete(base: object) -> bool:
+    """Whether a nested distribution is discrete.
+
+    Parameters
+    ----------
+    base : object
+        The distribution, which names its family.
+
+    Returns
+    -------
+    bool
+        The registry's discreteness of the family, false for a
+        distribution naming none.
+    """
+    name = getattr(base, "family", None)
+    if not isinstance(name, str) or name not in FAMILIES:
+        return False
+    return FAMILIES[name].discrete
+
+
+def _restrict_log_mass_of(base: object, low: float | None, high: float | None) -> float:
+    """The log mass a base places on an interval.
+
+    Parameters
+    ----------
+    base : object
+        The base distribution.
+    low : float | None
+        The lower end, or ``None`` for none.
+    high : float | None
+        The upper end, or ``None`` for none.
+
+    Returns
+    -------
+    float
+        For a continuous base the log of the integral of its density
+        over the interval; for a discrete base the log of the sum of its
+        mass over the integers in the interval, an open upper end summed
+        until the tail is negligible.
+    """
+    if _base_is_discrete(base):
+        start = 0 if low is None else int(math.ceil(low))
+        stop = high if high is not None else None
+        total = 0.0
+        count = start
+        tail = 0
+        while stop is None or count <= stop:
+            mass = math.exp(float(base.log_prob(count)))  # type: ignore[attr-defined]
+            total += mass
+            tail = tail + 1 if mass < 1e-16 * max(total, 1e-300) else 0
+            if stop is None and tail > 50 and count > 50:
+                break
+            count += 1
+        return math.log(total) if total > 0.0 else -math.inf
+    mass = _truncated_mass(
+        base, -math.inf if low is None else low, math.inf if high is None else high
+    )
+    return math.log(mass) if mass > 0.0 else -math.inf
+
+
+def _restrict_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Restrict`` by rejection from the base.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        A base draw inside the interval.
+
+    Raises
+    ------
+    DistributionError
+        If the base places so little mass on the interval that no draw
+        lands in it within the attempt budget.
+    """
+    base = _sampleable(a, "base", "Restrict")
+    low = _optional_bound(a, "low", "Restrict")
+    high = _optional_bound(a, "high", "Restrict")
+    for _ in range(100_000):
+        draw = finite_value(base.sample(rng), "Restrict base")  # type: ignore[attr-defined]
+        if _within(draw, low, high):
+            return draw
+    raise DistributionError("Restrict found no base draw inside its interval")
+
+
+def _restrict_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Restrict`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The base's log density inside the interval, ``-inf`` outside;
+        the restriction is a sub-probability measure, and ``Normalize``
+        divides by its mass.
+    """
+    base = _sampleable(a, "base", "Restrict")
+    low = _optional_bound(a, "low", "Restrict")
+    high = _optional_bound(a, "high", "Restrict")
+    point = finite_value(value, "Restrict")
+    if not _within(point, low, high):
+        return -math.inf
+    return float(base.log_prob(value))  # type: ignore[attr-defined]
+
+
+def _restrict_log_mass(a: Mapping[str, object]) -> float:
+    """The log mass of ``Restrict``: the base's mass on the interval.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+
+    Returns
+    -------
+    float
+        The log mass.
+    """
+    base = _sampleable(a, "base", "Restrict")
+    return _log_mass_of(base) + _restrict_log_mass_of(
+        base,
+        _optional_bound(a, "low", "Restrict"),
+        _optional_bound(a, "high", "Restrict"),
+    )
+
+
+def _normalize_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``Normalize``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator to draw from.
+
+    Returns
+    -------
+    object
+        A draw of the base, whose sampler already draws from the
+        normalized measure.
+    """
+    return _sampleable(a, "base", "Normalize").sample(rng)  # type: ignore[attr-defined]
+
+
+def _normalize_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``Normalize`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        The base's log density less its log mass.
+    """
+    base = _sampleable(a, "base", "Normalize")
+    log_density = float(base.log_prob(value))  # type: ignore[attr-defined]
+    if log_density == -math.inf:
+        return log_density
+    return log_density - _log_mass_of(base)
+
+
+def _pointmass_sample(a: Mapping[str, object], rng: random.Random) -> object:
+    """Draw one value from ``PointMass``.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    rng : random.Random
+        The generator, unused.
+
+    Returns
+    -------
+    object
+        The point.
+    """
+    del rng
+    return real_parameter(a, "value", "PointMass")
+
+
+def _pointmass_density(a: Mapping[str, object], value: object) -> float:
+    """The log density of ``PointMass`` at a point.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+    value : object
+        The point evaluated.
+
+    Returns
+    -------
+    float
+        Zero at the point, ``-inf`` elsewhere: the Dirac measure's
+        density against counting measure at its point.
+    """
+    point = finite_value(value, "PointMass")
+    atom = real_parameter(a, "value", "PointMass")
+    return 0.0 if math.isclose(point, atom, rel_tol=1e-12, abs_tol=1e-12) else -math.inf
+
+
+def _transformed_log_mass(a: Mapping[str, object]) -> float:
+    """The log mass of ``Transformed``, which is its base's.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+
+    Returns
+    -------
+    float
+        The base's log mass; a bijection moves mass without changing it.
+    """
+    return _log_mass_of(_sampleable(a, "base", "Transformed"))
+
+
+def _independent_log_mass(a: Mapping[str, object]) -> float:
+    """The log mass of ``Independent``, which is its base's over the plate.
+
+    Parameters
+    ----------
+    a : Mapping[str, object]
+        The family's named parameters.
+
+    Returns
+    -------
+    float
+        The base's log mass, which a plated base totals over its plate.
+    """
+    return _log_mass_of(_sampleable(a, "base", "Independent"))
+
+
+#: Log masses of the families that are not probability measures, or are
+#: built from ones that may not be, by family name; a family absent here
+#: has mass one.
+LOG_MASSES: Mapping[str, Callable[[Mapping[str, object]], float]] = {
+    "Restrict": _restrict_log_mass,
+    "Mixture": _mixture_log_mass,
+    "Transformed": _transformed_log_mass,
+    "Independent": _independent_log_mass,
+}
+
+
 #: Samplers of the families beyond the scalar core, by family name.
 SAMPLERS: Mapping[str, Sampler] = {
     "LogitNormal": _logitnormal_sample,
@@ -3485,6 +4061,12 @@ SAMPLERS: Mapping[str, Sampler] = {
     "Independent": _independent_sample,
     "Transformed": _transformed_sample,
     "Truncated": _truncated_sample,
+    "Restrict": _restrict_sample,
+    "Normalize": _normalize_sample,
+    "PointMass": _pointmass_sample,
+    "ZeroInflatedPoisson": _zip_sample,
+    "HurdlePoisson": _hurdle_sample,
+    "ZeroOneInflatedBeta": _zoib_sample,
 }
 
 #: Log densities of the families beyond the scalar core, by family name.
@@ -3525,7 +4107,19 @@ DENSITIES: Mapping[str, Density] = {
     "Independent": _independent_density,
     "Transformed": _transformed_density,
     "Truncated": _truncated_density,
+    "Restrict": _restrict_density,
+    "Normalize": _normalize_density,
+    "PointMass": _pointmass_density,
+    "ZeroInflatedPoisson": _zip_density,
+    "HurdlePoisson": _hurdle_density,
+    "ZeroOneInflatedBeta": _zoib_density,
 }
 
 
-__all__ = ["DENSITIES", "RELAXATION_TEMPERATURE", "SAMPLERS", "TRANSFORMS"]
+__all__ = [
+    "DENSITIES",
+    "LOG_MASSES",
+    "RELAXATION_TEMPERATURE",
+    "SAMPLERS",
+    "TRANSFORMS",
+]

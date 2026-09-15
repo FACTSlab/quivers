@@ -90,6 +90,7 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    TableMap,
     Reduction,
     Rowwise,
     Comprehension,
@@ -1736,9 +1737,25 @@ def _parameter_expectation(
         suffix of the plate's axes.
     """
     if parameter.constraint == "sampleable":
-        return None if sampled_element(actual) is not None else "a Sampleable"
+        if sampled_element(actual) is not None:
+            return None
+        shape = tensor_shape(actual)
+        if (
+            shape is not None
+            and len(shape[1]) == 1
+            and sampled_element(shape[0]) is not None
+        ):
+            return None
+        return "a Sampleable, or a vector of them"
     if parameter.constraint == "transform":
         return None if actual == STRING else "a String naming the transforms"
+    if parameter.constraint == "numeric":
+        if actual in (INT, REAL):
+            return None
+        shape = tensor_shape(actual)
+        if shape is not None and shape[0] in (INT, REAL):
+            return None
+        return "an Int or a Real"
     if parameter.constraint == "boolean":
         element: TypeApplication = BOOL
     elif "integer" in parameter.constraint:
@@ -1797,6 +1814,31 @@ def _plated_sample_type(
         parameter, or the two disagree.
     """
     element = family.element
+    numeric = next(
+        (item.name for item in family.parameters if item.constraint == "numeric"),
+        None,
+    )
+    if numeric is not None and numeric in argument_types:
+        # An atom samples what its value is: an integer atom is a mass on
+        # the integers, a real one on the reals.
+        atom_type = argument_types[numeric]
+        shape = tensor_shape(atom_type)
+        element = shape[0] if shape is not None else atom_type
+    if family.compositional:
+        # A measure built from another samples what that one samples: the
+        # base of a restriction or normalization, the components of a
+        # mixture, whichever the family names.
+        for name in ("base", "component"):
+            source_type = argument_types.get(name)
+            if source_type is None:
+                continue
+            inner = sampled_element(source_type)
+            if inner is None:
+                shape = tensor_shape(source_type)
+                inner = sampled_element(shape[0]) if shape is not None else None
+            if inner is not None:
+                element = inner
+            break
     element_name = (
         element.constructor.name
         if isinstance(element, TypeApplication)
@@ -2017,6 +2059,62 @@ def _infer_segment_sum(
         )
     registry.validate_type(expected)
     _check_static_variable_scope(expected, context, subject="segment sum type")
+    return expected
+
+
+def _infer_table_map(
+    value: TableMap, registry: KernelRegistry, context: CheckContext
+) -> TypeExpr:
+    """Type one head of a table-indexed parameter map.
+
+    Parameters
+    ----------
+    value : TableMap
+        The head.
+    registry : KernelRegistry
+        The module's declarations.
+    context : CheckContext
+        Value bindings in scope.
+
+    Returns
+    -------
+    TypeExpr
+        ``Tensor[Real]([rows])``, or ``Real`` for a one-column head.
+
+    Raises
+    ------
+    KernelError
+        If the table is not a real matrix, the index not an ``Int``,
+        the block lies outside the table's columns, or the claimed type
+        is not the head's.
+    """
+    table = tensor_shape(infer_value(value.table, registry, context))
+    if table is None or table[0] != REAL or len(table[1]) != 2:
+        raise KernelError(
+            "a table map's table is a Tensor[Real] of rank 2", "qiec-primitive"
+        )
+    if infer_value(value.index, registry, context) != INT:
+        raise KernelError("a table map's index is an Int", "qiec-primitive")
+    if value.rows <= 0 or value.row_offset < 0:
+        raise KernelError(
+            "a table map's block needs a nonnegative offset and positive width",
+            "qiec-primitive",
+        )
+    columns = table[1][1]
+    if isinstance(columns, IndexLiteral) and isinstance(columns.value, int):
+        if value.row_offset + value.rows > columns.value:
+            raise KernelError(
+                "a table map's block lies outside its table", "qiec-primitive"
+            )
+    expected: TypeExpr = (
+        REAL if value.rows == 1 else tensor_type(REAL, (IndexLiteral(value.rows, NAT),))
+    )
+    if value.result_type != expected:
+        raise KernelError(
+            f"table map has type {render_static(expected)}, not the claimed "
+            f"{render_static(value.result_type)}",
+            "qiec-primitive",
+        )
     return expected
 
 
@@ -2393,6 +2491,8 @@ def infer_value(
         return expected
     if isinstance(value, AffineMap):
         return _infer_affine_map(value, registry, context)
+    if isinstance(value, TableMap):
+        return _infer_table_map(value, registry, context)
     if isinstance(value, Reduction):
         shape = tensor_shape(infer_value(value.value, registry, context))
         if shape is None:

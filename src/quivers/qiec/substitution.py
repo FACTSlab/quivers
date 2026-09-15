@@ -44,6 +44,7 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    TableMap,
     Reduction,
     Rowwise,
     Comprehension,
@@ -589,6 +590,15 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
             substitute_value(value.weight, substitution),
             substitute_value(value.bias, substitution),
             tuple(substitute_value(item, substitution) for item in value.sources),
+            value.row_offset,
+            value.rows,
+            value.transform,
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, TableMap):
+        return TableMap(
+            substitute_value(value.table, substitution),
+            substitute_value(value.index, substitution),
             value.row_offset,
             value.rows,
             value.transform,

@@ -377,6 +377,61 @@ def _weights_validator(type_: TypeExpr) -> RuntimeValidator:
     return validator if validator is not None else _weights
 
 
+def _enumerate_grouped(options: Mapping[str, object], name: str) -> bool:
+    """Whether an enumerating handler answers per group position.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+    name : str
+        The handler's name, for the error.
+
+    Returns
+    -------
+    bool
+        The ``grouped`` option, ``False`` when absent.
+
+    Raises
+    ------
+    ValueError
+        If the option is not a boolean.
+    """
+    grouped = options.get("grouped", False)
+    if not isinstance(grouped, bool):
+        raise ValueError(f"core handler {name!r} option 'grouped' must be a boolean")
+    return grouped
+
+
+def _enumerate_reduction(options: Mapping[str, object], name: str) -> str:
+    """The reduction an enumerating handler aggregates by.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+    name : str
+        The handler's name, for the error.
+
+    Returns
+    -------
+    str
+        The ``reduction`` option, ``"logsumexp"`` when absent.
+
+    Raises
+    ------
+    ValueError
+        If the option is not one of ``logsumexp``, ``sum``, and ``mean``.
+    """
+    reduction = options.get("reduction", "logsumexp")
+    if reduction not in ("logsumexp", "sum", "mean"):
+        raise ValueError(
+            f"core handler {name!r} option 'reduction' must be logsumexp, sum, "
+            f"or mean, not {reduction!r}"
+        )
+    return reduction
+
+
 def _weight_type(definition: HandlerDef) -> TypeExpr:
     """The weight type a ``Weight[K]`` handler declaration accumulates.
 
@@ -449,7 +504,10 @@ class CoreRuntimeProvider:
         ValueError
             If ``options.handlers`` is not an object, names a handler the module
             does not declare, holds a non-object configuration, or requests a
-            kind other than ``passthrough``, ``scripted``, or ``state``.
+            kind other than ``passthrough``, ``scripted``, ``state``, or one
+            of the prelude kinds ``draw``, ``enumerate`` (with the options
+            ``grouped`` and ``reduction``), ``replay``, ``collect``, and
+            ``score``.
         """
         configured = self.options.get("handlers", {})
         if not isinstance(configured, Mapping):
@@ -481,7 +539,20 @@ class CoreRuntimeProvider:
             elif kind == "draw":
                 runtime = self._prelude(definition, draw_handler, "Random")
             elif kind == "enumerate":
-                runtime = self._prelude(definition, enumerate_handler, "Random")
+                runtime = self._prelude(
+                    definition,
+                    lambda result_validator, answer_type: enumerate_handler(
+                        result_validator,
+                        answer_type=answer_type,
+                        weight_type=(
+                            definition.output_type
+                            if _enumerate_grouped(raw_options, definition.name)
+                            else None
+                        ),
+                        reduction=_enumerate_reduction(raw_options, definition.name),
+                    ),
+                    "Random",
+                )
             elif kind == "replay":
                 runtime = self._prelude(
                     definition,

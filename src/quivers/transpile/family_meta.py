@@ -17,6 +17,7 @@ import torch.distributions as td
 import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
+from quivers.continuous.measure import Normalize, PointMass, Restrict
 from quivers.continuous.families import (
     ConditionalBernoulli,
     ConditionalBeta,
@@ -69,7 +70,12 @@ from quivers.continuous.families import (
     LKJCorrelationFactor,
     Truncated,
 )
-from quivers.continuous._zip_hurdle import MixtureNormal
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
+)
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.ordered import (
     ConditionalOrderedLogistic,
@@ -1437,6 +1443,36 @@ FAMILY_META: dict[str, FamilyMeta] = {
         arg_aliases={
             "pymc": {"base_distribution": "dist"},
         },
+    ),
+    "ZeroInflatedPoisson": FamilyMeta(
+        qvr_name="ZeroInflatedPoisson",
+        distribution_class=ZeroInflatedPoisson,
+        target_names={},
+    ),
+    "HurdlePoisson": FamilyMeta(
+        qvr_name="HurdlePoisson",
+        distribution_class=HurdlePoisson,
+        target_names={},
+    ),
+    "ZeroOneInflatedBeta": FamilyMeta(
+        qvr_name="ZeroOneInflatedBeta",
+        distribution_class=ZeroOneInflatedBeta,
+        target_names={},
+    ),
+    "Restrict": FamilyMeta(
+        qvr_name="Restrict",
+        distribution_class=Restrict,
+        target_names={},
+    ),
+    "Normalize": FamilyMeta(
+        qvr_name="Normalize",
+        distribution_class=Normalize,
+        target_names={},
+    ),
+    "PointMass": FamilyMeta(
+        qvr_name="PointMass",
+        distribution_class=PointMass,
+        target_names={},
     ),
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",

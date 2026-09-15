@@ -756,6 +756,21 @@ QVR-110.
 - Conditioning, replay, intervention, trace, mask, scale, and reparameterization
   compose with authored handlers and effectful computation calls.
 
+**Transition state:** `src/quivers/effects/program_module.py` encodes a
+`MonadicProgram` to a kernel module whose draws are `Random.sample` requests
+and whose densities are `Score.add` requests, and
+`src/quivers/effects/interpreter.py` runs it on the reference `Evaluator`
+with torch tensors as host values. Every `EffectHandler` is a description
+of prelude handlers installed on the program's `random`, `score`, or
+`param` instance, in stack order, so composition is the kernel's; the
+message classes and the dispatch loop of the previous engine are gone.
+`TraceHandler` reads densities from the contributions that reached the
+accumulator under each site's provenance. The elaboration of programs
+covers reductions, product groups and fibrations, nested grouped blocks,
+hoisted draws, and the measure algebra families, and the classic compiler's
+own diagnostics are reported before the elaboration's. What remains open is
+the deduction and network gaps recorded on the module (QVR-090, QVR-100).
+
 ### QVR-090 — Integrate logic-programming components
 
 **Depends on:** QVR-040, QVR-050, QVR-080.

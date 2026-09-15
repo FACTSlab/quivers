@@ -319,6 +319,18 @@ nav:
       - Families & Links: api/formulas/family.md
       - Fit Entry Point: api/formulas/fit.md
     - Program: api/program.md
+    - Effects:
+      - Overview: api/effects/index.md
+      - Handler base: api/effects/base.md
+      - Program encoding: api/effects/program_module.md
+      - Interpreter: api/effects/interpreter.md
+      - Sampleables: api/effects/sites.md
+      - Traces: api/effects/trace.md
+      - Trace types: api/effects/trace_types.md
+      - Handlers: api/effects/handlers.md
+      - Collapse: api/effects/collapse.md
+      - Conjugate marginals: api/effects/conjugate.md
+      - Reparameterisation: api/effects/reparam.md
     - Transpile:
       - Overview: api/transpile/index.md
       - Lowering: api/transpile/lower.md

@@ -285,7 +285,9 @@ $$
 
 where $\ell_m(n, k) = \log p_{F_m}\bigl(r^{\mathrm{obs}}_m(n);\, \theta_m(n, k, \phi)\bigr)$ is the per-row per-class log-likelihood of observe $m$, $\pi$ is the per-group per-class prior weight, and $\mathrm{aggr}_R \in \{\mathrm{logsumexp}, \mathrm{sum}, \mathrm{mean}\}$ is the reduction selected by the optional `reduction = R` annotation (default `logsumexp`, the canonical mixture-marginalization form).
 
-The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1, idx_2, …)` on each observe extends the right-Kan-extension target to a flat plate of cardinality $\prod_i |G_i|$; the surface arity must match.
+The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1, idx_2, …)` on each observe extends the right-Kan-extension target to a flat plate of cardinality $\prod_i |G_i|$; the surface arity must match. The flat position of a row is the row-major combination of its factor indices, $\iota(n) = \sum_i \iota_i(n) \prod_{j > i} |G_j|$, so the last factor varies fastest.
+
+A grouped block may nest inside another. The inner block then contributes one aggregate per position of its own group to the outer group's accumulator rather than a single number, and its group must stand in one of two relations to the outer group $G$: it is an axis of the same extent, identified with $G$ position by position, or it is a product $G \times H$ with $G$ as a factor, in which case the inner per-position aggregates are summed along the projection $G \times H \to G$ and any inner argument indexed by $G$ (a prior `theta[z]` selected by the outer latent) is pulled back along that projection. A `sample` inside a block that reads nothing the block binds is drawn once before the block, since every value of the latent shares it; a draw whose arguments read the latent would be a draw per class and is rejected.
 
 ### 2.8 Effect signatures
 

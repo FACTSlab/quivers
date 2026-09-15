@@ -625,6 +625,36 @@ class IRQiecAffineMap(IRQiecValue):
     kind: Literal["affine_map"] = "affine_map"
 
 
+class IRQiecTableMap(IRQiecValue):
+    """One head of a table-indexed parameter map.
+
+    Parameters
+    ----------
+    table
+        The parameter table, one row per element of the domain.
+    index
+        The element of the domain.
+    row_offset
+        The first column of the head's block.
+    rows
+        The block's width.
+    transform
+        ``"identity"``, ``"exp"``, or ``"exp_floor"``.
+    result_type
+        The head's type.
+    kind
+        The discriminator; always ``"table_map"``.
+    """
+
+    table: IRQiecValue
+    index: IRQiecValue
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp", "exp_floor"]
+    result_type: IRQiecStatic
+    kind: Literal["table_map"] = "table_map"
+
+
 class IRQiecSiteValue(IRQiecValue):
     """A named sample site.
 
@@ -1425,6 +1455,15 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             transform=value.transform,
             result_type=cast(IRQiecStatic, _convert(value.result_type)),
         )
+    if isinstance(value, tm.TableMap):
+        return IRQiecTableMap(
+            table=cast(IRQiecValue, _convert(value.table)),
+            index=cast(IRQiecValue, _convert(value.index)),
+            row_offset=value.row_offset,
+            rows=value.rows,
+            transform=value.transform,
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
     if isinstance(value, tm.SiteValue):
         return IRQiecSiteValue(
             label=value.label,
@@ -1632,6 +1671,7 @@ type QiecFeature = Literal[
     "segment-sum",
     "kernel-matrix",
     "affine-map",
+    "table-map",
     "reduction",
     "rowwise",
     "comprehension",
@@ -1897,6 +1937,10 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             value(item.bias)
             for source in item.sources:
                 value(source)
+        elif isinstance(item, IRQiecTableMap):
+            required.add("table-map")
+            value(item.table)
+            value(item.index)
         elif isinstance(item, IRQiecReduction):
             required.add("reduction")
             value(item.value)

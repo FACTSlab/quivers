@@ -180,6 +180,27 @@ def _oracle_log_prob(family: str, arguments: dict[str, object], point: object) -
         low, high = _tensor(arguments["low"]), _tensor(arguments["high"])
         mass = normal.cdf(high) - normal.cdf(low)
         return float(normal.log_prob(_tensor(point)) - mass.log())
+    if family == "Restrict":
+        base = arguments["base"]
+        assert isinstance(base, RuntimeDistribution)
+        normal = td.Normal(
+            _tensor(base.arguments["loc"]), _tensor(base.arguments["scale"])
+        )
+        return float(normal.log_prob(_tensor(point)))
+    if family == "Normalize":
+        restricted = arguments["base"]
+        assert isinstance(restricted, RuntimeDistribution)
+        base = restricted.arguments["base"]
+        assert isinstance(base, RuntimeDistribution)
+        normal = td.Normal(
+            _tensor(base.arguments["loc"]), _tensor(base.arguments["scale"])
+        )
+        low = _tensor(restricted.arguments["low"])
+        high = _tensor(restricted.arguments["high"])
+        mass = normal.cdf(high) - normal.cdf(low)
+        return float(normal.log_prob(_tensor(point)) - mass.log())
+    if family == "PointMass":
+        return 0.0
     if family == "MixtureNormal":
         distribution = td.MixtureSameFamily(
             td.Categorical(probs=_tensor(arguments["weights"])),
@@ -304,11 +325,74 @@ CASES: dict[str, tuple[dict[str, object], tuple[object, ...]]] = {
         {"total_count": 10, "concentration1": 2.0, "concentration0": 3.0},
         (2, 7),
     ),
+    "Restrict": (
+        {
+            "base": RuntimeDistribution("Normal", {"loc": 0.5, "scale": 1.5}),
+            "low": -1.0,
+            "high": 2.0,
+        },
+        (-0.5, 1.2),
+    ),
+    "Normalize": (
+        {
+            "base": RuntimeDistribution(
+                "Restrict",
+                {
+                    "base": RuntimeDistribution("Normal", {"loc": 0.5, "scale": 1.5}),
+                    "low": -1.0,
+                    "high": 2.0,
+                },
+            )
+        },
+        (-0.5, 1.2),
+    ),
+    "PointMass": ({"value": 0.75}, (0.75,)),
+    "ZeroInflatedPoisson": ({"zero_prob": 0.3, "rate": 2.5}, (0, 3)),
+    "HurdlePoisson": ({"zero_prob": 0.3, "rate": 2.5}, (0, 3)),
+    "ZeroOneInflatedBeta": (
+        {"mu": 0.4, "phi": 5.0, "zoi": 0.2, "coi": 0.6},
+        (0.0, 1.0, 0.35),
+    ),
     "OrderedLogistic": ({"eta": 0.3, "cutpoints": (-1.0, 0.0, 1.0)}, (0, 2, 3)),
     "OrderedProbit": ({"eta": 0.3, "cutpoints": (-1.0, 0.0, 1.0)}, (0, 2, 3)),
     "Logistic": ({"loc": 0.5, "scale": 2.0}, (0.0, 3.0)),
     "HalfStudentT": ({"df": 4.0, "scale": 2.0}, (0.3, 3.0)),
 }
+
+
+def test_measure_algebra_masses() -> None:
+    """A restriction's mass is its base's on the interval, a mixture's the
+    weighted sum, and normalizing divides the density by the mass."""
+    normal = RuntimeDistribution("Normal", {"loc": 0.5, "scale": 1.5})
+    restricted = RuntimeDistribution(
+        "Restrict", {"base": normal, "low": -1.0, "high": 2.0}
+    )
+    torch_normal = td.Normal(0.5, 1.5)
+    expected = float(
+        (torch_normal.cdf(_tensor(2.0)) - torch_normal.cdf(_tensor(-1.0))).log()
+    )
+    assert restricted.log_mass() == pytest.approx(expected, rel=1e-7)
+    assert normal.log_mass() == 0.0
+    counts = RuntimeDistribution("Poisson", {"rate": 2.0})
+    bounded = RuntimeDistribution("Restrict", {"base": counts, "low": 1.0, "high": 3.0})
+    pmf = td.Poisson(2.0).log_prob(torch.tensor([1.0, 2.0, 3.0])).exp().sum().log()
+    assert bounded.log_mass() == pytest.approx(float(pmf), rel=1e-7)
+    mixture = RuntimeDistribution(
+        "Mixture", {"weights": (0.3, 0.7), "component": (restricted, normal)}
+    )
+    assert mixture.log_mass() == pytest.approx(math.log(0.3 * math.exp(expected) + 0.7))
+    normalized = RuntimeDistribution("Normalize", {"base": mixture})
+    assert normalized.log_mass() == 0.0
+    point = 1.2
+    density = float(torch_normal.log_prob(_tensor(point)))
+    unnormalized = math.log(0.3 * math.exp(density) + 0.7 * math.exp(density))
+    assert normalized.log_prob(point) == pytest.approx(
+        unnormalized - mixture.log_mass(), rel=1e-7
+    )
+    atom = RuntimeDistribution("PointMass", {"value": 0.75})
+    assert atom.log_prob(0.75) == 0.0
+    assert atom.log_prob(0.8) == -math.inf
+    assert atom.sample() == 0.75
 
 
 def test_every_registry_family_is_covered() -> None:

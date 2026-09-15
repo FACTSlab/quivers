@@ -122,6 +122,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
             module_name=qiec_module_name(path),
             file_path=str(path),
         )
+        compiler.qiec_module
     except Exception as error:
         if not has_qiec_surface(module):
             raise

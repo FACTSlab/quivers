@@ -302,7 +302,25 @@ instance, and answers the log marginal, which the enclosing scope scores.
 Plates are typed: `xs : N <- Normal(0.0, 1.0)` samples a
 `Tensor[Real]([|N|])` from a construction plated over `N`, and a grouped
 marginalization's `via` fibration re-indexes the latent's arguments to the
-observation rows and segments the weights back to the groups. Programs and
+observation rows and segments the weights back to the groups. A product
+group `[over=[G, H]]` is one flat axis of extent `|G| * |H|`, and the
+product fibration `[via=[g, h]]` its row-major flattening, the last
+factor varying fastest. The block's `reduction` selects the enumeration
+handler: `enumerate_marginal` answers the log-sum-exp of the weighted
+shots, `enumerate_marginal_sum` their sum, and `enumerate_marginal_mean`
+their average; each has an `enumerate_grouped_` counterpart that answers
+one aggregate per group position, which is what a block nested inside a
+grouped block adds to the enclosing group's weights. The nested block's
+group must be the enclosing group's extent, identified with it position
+by position, or a product with the enclosing axis as a factor, whose
+per-position marginals are segment-summed onto the enclosing positions
+and whose arguments shaped by the enclosing group are gathered by that
+projection. A `sample` inside a block that reads nothing the block binds
+is drawn once, before the block, since every shot shares it; a draw that
+reads the latent is refused. A `sample` of a vector family written with
+its entries spread, `Dirichlet(1.0, 2.0, 3.0)`, gathers them into one
+concentration, and a single literal is the symmetric concentration at the
+dimension the step's plate or the program's codomain fixes. Programs and
 computations call each other by ordinary application: a program body
 binds a call with `let x <- helper(args)`, and a computation calls a
 program by its name.

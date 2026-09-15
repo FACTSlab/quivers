@@ -299,7 +299,20 @@ event-rank table lives in
 `iid_over=<axes>` is an optional readability assertion naming the
 batch axes (the complement of `over`). Any axis not in `over` is
 batched by default, which categorically is a product of independent
-distributions on that axis.
+distributions on that axis. On a sample step, the `: A` annotation
+beside an `over` clause is the batch plate: `sample rows : Doc <-
+Dirichlet(1.0) [over=Topic]` draws one point of the `Topic`-simplex
+per document, while an annotation naming one of the `over` axes
+restates it. Without an `over`, the annotation on a vector family
+names the family's own axis when nothing else fixes it (`sample pi :
+K <- Dirichlet(1.0)` draws one `K`-simplex point) and the batch plate
+when the arguments fix the event otherwise (`sample pc : Item <-
+Dirichlet(1.0, 2.0, 3.0)` draws one three-simplex point per item).
+
+A vector family's single parameter may be written with its entries
+spread, `Dirichlet(1.0, 2.0, 3.0)`, or as one literal, `Dirichlet(1.0)`,
+the symmetric concentration at the dimension the step's plate, or
+else the program's declared codomain, fixes.
 
 **Axis names.** Names resolve against the named factors of the
 surrounding morphism's dom and cod (or the type annotation `: T`

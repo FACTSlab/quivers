@@ -20,6 +20,7 @@ from typing import Protocol
 
 from quivers.qiec.reference_families import (
     DENSITIES as _STRUCTURED_DENSITIES,
+    LOG_MASSES as _LOG_MASSES,
     SAMPLERS as _STRUCTURED_SAMPLERS,
 )
 from quivers.qiec.reference_support import (
@@ -83,6 +84,25 @@ class DistributionBackend(Protocol):
         -------
         float
             The log density.
+        """
+        ...
+
+    def log_mass(self, family: str, arguments: Mapping[str, object]) -> float:
+        """The log of the total mass of a construction.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+
+        Returns
+        -------
+        float
+            Zero for a probability measure; the log mass of a restriction
+            or of a mixture of restrictions, which ``Normalize`` divides
+            by.
         """
         ...
 
@@ -369,6 +389,24 @@ class RuntimeDistribution:
                 for position in _positions(shape)
             },
             shape,
+        )
+
+    def log_mass(self) -> float:
+        """The log of the distribution's total mass through the installed backend.
+
+        Returns
+        -------
+        float
+            Zero for a probability measure; over a plate, the sum of the
+            masses at every position, since the plate's draw is their
+            product.
+        """
+        if not self.plated:
+            return _backend.log_mass(self.family, self._at(()))
+        shape = (*self.batch, *self.event)
+        return math.fsum(
+            _backend.log_mass(self.family, self._at(position))
+            for position in _positions(shape)
         )
 
     def log_prob(self, value: object, keep_batch: bool = False) -> object:
@@ -1264,6 +1302,34 @@ class ReferenceBackend:
                 "distribution backend for it"
             )
         return density(arguments, value)
+
+    def log_mass(self, family: str, arguments: Mapping[str, object]) -> float:
+        """The log of the total mass of a construction.
+
+        Parameters
+        ----------
+        family : str
+            The family's source name.
+        arguments : Mapping[str, object]
+            The named parameters as host values.
+
+        Returns
+        -------
+        float
+            The family's log mass, zero for every probability family.
+
+        Raises
+        ------
+        DistributionError
+            If the family is not implemented here.
+        """
+        if family not in _DENSITIES:
+            raise DistributionError(
+                f"the reference backend cannot weigh {family}; install a "
+                "distribution backend for it"
+            )
+        mass = _LOG_MASSES.get(family)
+        return 0.0 if mass is None else mass(arguments)
 
 
 _RNG = random.Random(0)
