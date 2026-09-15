@@ -529,6 +529,9 @@ None imports from any other.
 The canonical Latent Dirichlet Allocation source:
 
 ```qvr
+object Doc : FinSet 20
+object Topic : FinSet 3
+object Word : FinSet 200
 program lda(alpha : Real, beta : Real) : Word -> Word
     sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
     sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
@@ -537,7 +540,6 @@ program lda(alpha : Real, beta : Real) : Word -> Word
     return theta
 ```
 
-Cardinalities: Doc=20, Topic=3, Word=200.
 
 After `Lower`, the IR carries:
 

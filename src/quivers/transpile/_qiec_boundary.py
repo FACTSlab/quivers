@@ -66,7 +66,7 @@ def check_qiec_transpile_boundary(module: Module, *, target: str) -> QiecModule 
             qiec_module = lower_qvr_to_qiec(module, elaborate_programs=False)
             validate_module(qiec_module)
             return replace(qiec_module, gap=error.message)
-        if error.code != "qiec-program":
+        if error.code != "qiec-program" and error.program is None:
             raise
         raise UnsupportedConstruct(f"qvr-{target}", [error.message]) from error
     validate_module(qiec_module)

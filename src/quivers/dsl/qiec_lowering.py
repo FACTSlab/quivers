@@ -39,6 +39,13 @@ from quivers.qiec.canonical import (
 from quivers.qiec.builtins import BUILTIN_EFFECTS
 from quivers.qiec.families import FAMILIES, DistributionFamily
 from quivers.qiec.programs import ProgramEntry
+from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
+from quivers.dsl.pure_builtins import (
+    _BINARY_PRIMITIVES,
+    _BUILTIN_PRIMITIVES,
+    _REDUCTIONS,
+    _ROWWISE,
+)
 from quivers.dsl.program_elaboration import (
     ObjectInfo,
     _object_expr_info,
@@ -59,9 +66,7 @@ from quivers.qiec import (
     Value,
     Gather,
     Reduction,
-    ReductionOperator,
     Rowwise,
-    RowwiseOperator,
     Comprehension,
     primitive,
     substitute_row,
@@ -186,27 +191,6 @@ PROGRAM_CONTEXT_TYPES = (
 )
 
 
-class QiecDiagnosticError(ValueError):
-    """A source-located, stable-code diagnostic from QIEC elaboration."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str,
-        file: str,
-        line: int = 0,
-        column: int = 0,
-    ) -> None:
-        self.message = message
-        self.code = code
-        self.file = file
-        self.line = line
-        self.column = column
-        location = f"{file}:{line}:{column}" if line else file
-        super().__init__(f"{location}: [{code}] {message}")
-
-
 @dataclass(frozen=True, slots=True)
 class QvrQiecSource:
     """A parsed QVR projection plus the identity absent from the AST root.
@@ -233,7 +217,13 @@ class QvrQiecSource:
 
 @dataclass(frozen=True, slots=True)
 class CheckedQvrQiec:
-    """The checked result passed between Didactic's ordered stages."""
+    """The checked result passed between Didactic's ordered stages.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The kernel module the stages produced.
+    """
 
     module: QiecModule
 
@@ -323,102 +313,6 @@ def non_qiec_projection(module: surface.Module) -> surface.Module:
 #: The prelude's effect interfaces, resolvable from any module by name.
 _PRELUDE_EFFECTS: Mapping[str, EffectDef] = {
     effect.ref.name: effect for effect in BUILTIN_EFFECTS
-}
-
-#: Operator and operand type to the primitive that implements it.
-_BINARY_PRIMITIVES: Mapping[str, Mapping[TypeExpr, str]] = {
-    "+": {INT: "add_int", REAL: "add_real", STRING: "concat"},
-    "-": {INT: "sub_int", REAL: "sub_real"},
-    "*": {INT: "mul_int", REAL: "mul_real"},
-    "/": {INT: "div_int", REAL: "div_real"},
-    "%": {INT: "mod_int"},
-    "==": {INT: "eq_int", REAL: "eq_real", BOOL: "eq_bool", STRING: "eq_string"},
-    "!=": {INT: "ne_int", REAL: "ne_real", BOOL: "ne_bool", STRING: "ne_string"},
-    "<": {INT: "lt_int", REAL: "lt_real"},
-    "<=": {INT: "le_int", REAL: "le_real"},
-    ">": {INT: "gt_int", REAL: "gt_real"},
-    ">=": {INT: "ge_int", REAL: "ge_real"},
-    "&&": {BOOL: "and"},
-    "||": {BOOL: "or"},
-}
-
-#: Builtin name and argument types to the primitive that implements it.
-_BUILTIN_PRIMITIVES: Mapping[str, Mapping[tuple[TypeExpr, ...], str]] = {
-    "real": {(INT,): "int_to_real"},
-    "int": {(REAL,): "real_to_int"},
-    "exp": {(REAL,): "exp"},
-    "log": {(REAL,): "log"},
-    "sqrt": {(REAL,): "sqrt"},
-    "pow": {(REAL, REAL): "pow_real"},
-    "abs": {(INT,): "abs_int", (REAL,): "abs_real"},
-    "min": {(INT, INT): "min_int", (REAL, REAL): "min_real"},
-    "max": {(INT, INT): "max_int", (REAL, REAL): "max_real"},
-    "weight": {(REAL,): "as_weight"},
-    "weight_value": {(LOG_WEIGHT,): "weight_value"},
-    **{
-        name: {(REAL,): name}
-        for name in (
-            "expm1",
-            "log1p",
-            "log2",
-            "log10",
-            "rsqrt",
-            "square",
-            "sign",
-            "reciprocal",
-            "sin",
-            "cos",
-            "tan",
-            "asin",
-            "acos",
-            "atan",
-            "sinh",
-            "cosh",
-            "tanh",
-            "asinh",
-            "acosh",
-            "atanh",
-            "floor",
-            "ceil",
-            "round",
-            "trunc",
-            "erf",
-            "erfc",
-            "erfinv",
-            "lgamma",
-            "digamma",
-            "sigmoid",
-            "relu",
-            "relu6",
-            "elu",
-            "selu",
-            "gelu",
-            "silu",
-            "mish",
-            "softplus",
-            "logsigmoid",
-            "softsign",
-        )
-    },
-}
-
-#: Builtin names that reduce a whole tensor to one number.
-_REDUCTIONS: Mapping[str, ReductionOperator] = {
-    "sum": "sum",
-    "mean": "mean",
-    "max": "max",
-    "min": "min",
-    "logsumexp": "logsumexp",
-    "prod": "prod",
-}
-
-#: Builtin names that act along a tensor's last axis.
-_ROWWISE: Mapping[str, RowwiseOperator] = {
-    "softmax": "softmax",
-    "log_softmax": "log_softmax",
-    "cumsum": "cumsum",
-    "sort": "sort",
-    "normalize": "normalize",
 }
 
 
@@ -671,6 +565,17 @@ class _DidacticGadtProjection:
     of a coded type inhabit an indexed carrier.  QIEC indexed families remain
     genuine Didactic families, so constructor result refinements and dependent
     field telescopes are checked without flattening their indices.
+
+    Parameters
+    ----------
+    module_name : str
+        The module the declarations come from; it prefixes Didactic names.
+    index_sorts : tuple[UserIndexSort, ...]
+        The module's user index sorts.
+    families : tuple[FamilyDecl, ...]
+        The indexed families to project.
+    constructors : tuple[ConstructorDecl, ...]
+        The constructors of those families.
     """
 
     def __init__(
@@ -1104,6 +1009,20 @@ class _DidacticGadtProjection:
 
 
 class _Elaborator(_ProgramElaboration):
+    """Lower one parsed source to a checked kernel module.
+
+    The elaborator keeps the declarations it has processed in dictionaries
+    keyed by source name and lowers bodies against them, so every pass of
+    :meth:`elaborate` sees the results of the passes before it. The program
+    passes it inherits from :class:`_ProgramElaboration` share the same
+    state.
+
+    Parameters
+    ----------
+    source : QvrQiecSource
+        The parsed source with its projection and options.
+    """
+
     def __init__(self, source: QvrQiecSource) -> None:
         self.source = source
         self.statements = source.syntax.statements

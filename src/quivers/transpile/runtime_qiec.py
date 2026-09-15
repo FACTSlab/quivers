@@ -211,9 +211,13 @@ _qvr_qiec_primitives = {
     "relu": lambda a: max(a, 0.0),
     "relu6": lambda a: min(max(a, 0.0), 6.0),
     "elu": lambda a: a if a > 0.0 else _qvr_qiec_math.expm1(a),
-    "selu": lambda a: 1.0507009873554805
-    * (a if a > 0.0 else 1.6732632423543772 * (_qvr_qiec_math.exp(a) - 1.0)),
-    "gelu": lambda a: 0.5 * a * (1.0 + _qvr_qiec_math.erf(a / _qvr_qiec_math.sqrt(2.0))),
+    "selu": lambda a: (
+        1.0507009873554805
+        * (a if a > 0.0 else 1.6732632423543772 * (_qvr_qiec_math.exp(a) - 1.0))
+    ),
+    "gelu": lambda a: (
+        0.5 * a * (1.0 + _qvr_qiec_math.erf(a / _qvr_qiec_math.sqrt(2.0)))
+    ),
     "silu": lambda a: a * _qvr_qiec_sigmoid(a),
     "mish": lambda a: a * _qvr_qiec_math.tanh(_qvr_qiec_softplus(a)),
     "softplus": lambda a: _qvr_qiec_softplus(a),
@@ -252,17 +256,33 @@ def _qvr_qiec_erfinv(value):
         square = magnitude * magnitude
         estimate = (
             magnitude
-            * (((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square + 0.886226899)
-            / ((((0.012229801 * square - 0.329097515) * square + 1.442710462) * square - 2.118377725) * square + 1.0)
+            * (
+                ((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square
+                + 0.886226899
+            )
+            / (
+                (
+                    ((0.012229801 * square - 0.329097515) * square + 1.442710462)
+                    * square
+                    - 2.118377725
+                )
+                * square
+                + 1.0
+            )
         )
     else:
         tail = _qvr_qiec_math.sqrt(-_qvr_qiec_math.log((1.0 - magnitude) / 2.0))
-        estimate = (((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail - 1.970840454) / (
-            (1.637067800 * tail + 3.543889200) * tail + 1.0
-        )
+        estimate = (
+            ((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail
+            - 1.970840454
+        ) / ((1.637067800 * tail + 3.543889200) * tail + 1.0)
     for _ in range(3):
         error = _qvr_qiec_math.erf(estimate) - magnitude
-        estimate -= error / (2.0 / _qvr_qiec_math.sqrt(_qvr_qiec_math.pi) * _qvr_qiec_math.exp(-estimate * estimate))
+        estimate -= error / (
+            2.0
+            / _qvr_qiec_math.sqrt(_qvr_qiec_math.pi)
+            * _qvr_qiec_math.exp(-estimate * estimate)
+        )
     return sign * estimate
 
 
@@ -270,15 +290,28 @@ def _qvr_qiec_digamma(value):
     if value <= 0.0 and value == _qvr_qiec_math.floor(value):
         raise ValueError("digamma has a pole at nonpositive integers")
     if value < 0.0:
-        return _qvr_qiec_digamma(1.0 - value) - _qvr_qiec_math.pi / _qvr_qiec_math.tan(_qvr_qiec_math.pi * value)
+        return _qvr_qiec_digamma(1.0 - value) - _qvr_qiec_math.pi / _qvr_qiec_math.tan(
+            _qvr_qiec_math.pi * value
+        )
     result = 0.0
     while value < 6.0:
         result -= 1.0 / value
         value += 1.0
     inverse = 1.0 / value
     square = inverse * inverse
-    return result + _qvr_qiec_math.log(value) - 0.5 * inverse - square * (
-        1.0 / 12.0 - square * (1.0 / 120.0 - square * (1.0 / 252.0 - square * (1.0 / 240.0 - square / 132.0)))
+    return (
+        result
+        + _qvr_qiec_math.log(value)
+        - 0.5 * inverse
+        - square
+        * (
+            1.0 / 12.0
+            - square
+            * (
+                1.0 / 120.0
+                - square * (1.0 / 252.0 - square * (1.0 / 240.0 - square / 132.0))
+            )
+        )
     )
 
 
@@ -292,7 +325,10 @@ def _qvr_qiec_broadcast(implementation, arguments):
     return tuple(
         _qvr_qiec_broadcast(
             implementation,
-            tuple(argument[index] if isinstance(argument, tuple) else argument for argument in arguments),
+            tuple(
+                argument[index] if isinstance(argument, tuple) else argument
+                for argument in arguments
+            ),
         )
         for index in range(length)
     )
@@ -302,7 +338,9 @@ def _qvr_qiec_primitive(name, arguments):
     implementation = _qvr_qiec_primitives.get(name)
     if implementation is None:
         raise KeyError("unknown QIEC primitive " + name)
-    return _qvr_qiec_broadcast(implementation, tuple(_qvr_qiec_value(argument) for argument in arguments))
+    return _qvr_qiec_broadcast(
+        implementation, tuple(_qvr_qiec_value(argument) for argument in arguments)
+    )
 
 
 def _qvr_qiec_gather(value, index):
@@ -337,7 +375,9 @@ def _qvr_qiec_reduce(operator, value):
             result *= entry
         return result
     peak = max(entries)
-    return peak + _qvr_qiec_math.log(sum(_qvr_qiec_math.exp(entry - peak) for entry in entries))
+    return peak + _qvr_qiec_math.log(
+        sum(_qvr_qiec_math.exp(entry - peak) for entry in entries)
+    )
 
 
 def _qvr_qiec_rowwise(operator, value):
@@ -352,7 +392,9 @@ def _qvr_qiec_rowwise(operator, value):
         return tuple(weight / total for weight in weights)
     if operator == "log_softmax":
         peak = max(row)
-        normalizer = peak + _qvr_qiec_math.log(sum(_qvr_qiec_math.exp(item - peak) for item in row))
+        normalizer = peak + _qvr_qiec_math.log(
+            sum(_qvr_qiec_math.exp(item - peak) for item in row)
+        )
         return tuple(item - normalizer for item in row)
     if operator == "cumsum":
         running = 0.0

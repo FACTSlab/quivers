@@ -1147,8 +1147,8 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
         "MixtureNormal",
         (
             FamilyParameter("weights", "simplex", 1),
-            FamilyParameter("loc", "real", 0),
-            FamilyParameter("scale", "positive", 0),
+            FamilyParameter("loc", "real", 1),
+            FamilyParameter("scale", "positive", 1),
         ),
         support="real",
         element=REAL,
