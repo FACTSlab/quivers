@@ -12,6 +12,7 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
+    CallStep,
     DrawArg,
     DrawArgName,
     Expr,
@@ -33,9 +34,10 @@ from quivers.dsl.ast_nodes import (
     OptionName,
     OptionNumber,
     ProgramDecl,
-    TypeName,
     ProgramStep,
+    QiecCallComputation,
     SampleStep,
+    TypeName,
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
@@ -76,10 +78,12 @@ class _DeterministicLeaf(_ChainElem):
 
 class _ScanLeaf(_ChainElem):
     """A `scan(cell)` higher-order combinator; emits a `LetStep`
-    whose RHS is `scan(cell, prev)`. Both `scan` and the cell
-    name are free identifiers."""
+    whose RHS is `scan(step, input)` over a step program built from
+    the cell, with the learned initial state's name as a third
+    argument when the scan declares one."""
 
     name: str
+    init: str = "zeros"
     kind: Literal["scan"] = "scan"
 
 
@@ -130,18 +134,30 @@ def expand_composite_lets(
     let_table: dict[str, Expr] = {
         s.name: s.expr for s in module.statements if isinstance(s, DefineDecl)
     }
+    program_table: dict[str, ProgramDecl] = {
+        s.name: s for s in module.statements if isinstance(s, ProgramDecl)
+    }
 
     del target
     declared = set(morphism_table)
+    declared_programs = set(program_table)
     new_statements: list = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
-            new_draws = _expand_draws(
-                stmt.draws,
-                morphisms=morphism_table,
-                lets=let_table,
-                domain_names=_domain_names(stmt),
+            program = _Program(
+                morphism_table,
+                let_table,
+                program_table,
+                _domain_names(stmt),
+                _domain_factors(stmt.domain),
             )
+            new_draws = _expand_draws(stmt.draws, program)
+            # A scan's step program is declared before the program that
+            # scans with it, so a consumer reading in order sees it.
+            for name, declaration in program.programs.items():
+                if name not in declared_programs:
+                    declared_programs.add(name)
+                    new_statements.append(declaration)
             if new_draws is stmt.draws:
                 new_statements.append(stmt)
             else:
@@ -303,11 +319,7 @@ def _copied(
 
 
 def _expand_draws(
-    draws: tuple[ProgramStep, ...],
-    *,
-    morphisms: dict[str, MorphismDecl],
-    lets: dict[str, Expr],
-    domain_names: tuple[str, ...],
+    draws: tuple[ProgramStep, ...], program: _Program
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
     resolves to a composite-let chain.
@@ -323,14 +335,8 @@ def _expand_draws(
     ----------
     draws
         The steps.
-    morphisms
-        The morphism table.
-    lets
-        The define table.
-    domain_names
-        The names the program's domain factors are read through, which
-        a tensor product at the head of a chain conditions its branches
-        on.
+    program
+        The enclosing program's expansion.
 
     Returns
     -------
@@ -340,15 +346,9 @@ def _expand_draws(
     """
     any_changed = False
     out: list[ProgramStep] = []
-    counter = 0
     for step in draws:
         if isinstance(step, MarginalizeStep):
-            scope_expanded = _expand_draws(
-                step.scope,
-                morphisms=morphisms,
-                lets=lets,
-                domain_names=domain_names,
-            )
+            scope_expanded = _expand_draws(step.scope, program)
             if scope_expanded is step.scope:
                 out.append(step)
             else:
@@ -358,19 +358,12 @@ def _expand_draws(
         if isinstance(step, (SampleStep, ObserveStep)):
             chain = _resolve_to_chain(
                 step.morphism,
-                morphisms=morphisms,
-                lets=lets,
+                morphisms=program.morphisms,
+                lets=program.lets,
             )
             if chain is not None:
                 any_changed = True
-                expanded, counter = _expand_step(
-                    step,
-                    chain,
-                    morphisms=morphisms,
-                    counter=counter,
-                    domain_names=domain_names,
-                )
-                out.extend(expanded)
+                out.extend(_expand_step(step, chain, program))
                 continue
         out.append(step)
     return tuple(out) if any_changed else draws
@@ -555,7 +548,7 @@ def _flatten_compose(
             cell_name = _expr_to_name(e.expr)
             if cell_name is None:
                 return False
-            out.append(_ScanLeaf(name=cell_name))
+            out.append(_ScanLeaf(name=cell_name, init=e.init))
             return True
         return False
 
@@ -666,14 +659,61 @@ def _expr_to_name(e: Expr) -> str | None:
     return None
 
 
+class _Program:
+    """What one program's expansion carries along its steps.
+
+    Parameters
+    ----------
+    morphisms
+        The morphism table, extended with replicas and copies.
+    lets
+        The define table.
+    programs
+        The module's program declarations by name, extended with the
+        step programs of scans.
+    domain_names
+        The names the program's domain factors are read through.
+    domain_factors
+        The program's domain factors, in order.
+    """
+
+    def __init__(
+        self,
+        morphisms: dict[str, MorphismDecl],
+        lets: dict[str, Expr],
+        programs: dict[str, ProgramDecl],
+        domain_names: tuple[str, ...],
+        domain_factors: tuple[ObjectExpr, ...],
+    ) -> None:
+        self.morphisms = morphisms
+        self.lets = lets
+        self.programs = programs
+        self.domain_names = domain_names
+        self.domain_factors = domain_factors
+        self.counter = 0
+
+    def fresh(self, stem: str) -> str:
+        """A name no earlier step of the expansion bound.
+
+        Parameters
+        ----------
+        stem : str
+            The name's stem.
+
+        Returns
+        -------
+        str
+            The stem with the next serial.
+        """
+        self.counter += 1
+        return f"{stem}_{self.counter}"
+
+
 def _expand_step(
     step: SampleStep | ObserveStep,
     chain: tuple[_ChainElem, ...],
-    *,
-    morphisms: dict[str, MorphismDecl],
-    counter: int,
-    domain_names: tuple[str, ...],
-) -> tuple[list[ProgramStep], int]:
+    program: _Program,
+) -> list[ProgramStep]:
     """Convert a single sample / observe step that references a
     composite-let chain into N atomic steps.
 
@@ -687,7 +727,9 @@ def _expand_step(
       family, with the previous chain output threaded into the
       first positional slot.
     * deterministic -> `LetStep` whose RHS is `name(prev)`.
-    * scan -> `LetStep` whose RHS is `scan(cell, prev)`.
+    * scan -> `LetStep` whose RHS is `scan(step, input)`, the step
+      program built from the chain's elements before the scan and
+      the scan's cell, applied at every position of the input.
     * parallel -> one chain per branch sharing the same upstream
       input, or, for a tensor product, each branch on its own
       factor of the input, followed by a final `LetStep`
@@ -699,31 +741,21 @@ def _expand_step(
         The step.
     chain
         The chain its morphism slot resolves to.
-    morphisms
-        The morphism table.
-    counter
-        The fresh-name counter.
-    domain_names
-        The names the program's domain factors are read through.
+    program
+        The enclosing program's expansion.
 
     Returns
     -------
-    tuple[list[ProgramStep], int]
-        The atomic steps and the updated counter.
+    list[ProgramStep]
+        The atomic steps.
     """
     if len(chain) < 1:
-        return [step], counter
-    base_name = (
-        step.vars[0]
-        if isinstance(step, SampleStep) and step.vars
-        else step.vars[0]
-        if isinstance(step, ObserveStep) and step.vars
-        else "tmp"
-    )
+        return [step]
+    base_name = step.vars[0] if step.vars else "tmp"
     if len(chain) == 1 and isinstance(chain[0], _StochasticLeaf):
         elem = chain[0]
         if elem.name == step.morphism:
-            return [step], counter
+            return [step]
         if isinstance(step, ObserveStep):
             return [
                 ObserveStep(
@@ -738,7 +770,7 @@ def _expand_step(
                     line=step.line,
                     col=step.col,
                 )
-            ], counter
+            ]
         return [
             SampleStep(
                 vars=(base_name,),
@@ -750,32 +782,337 @@ def _expand_step(
                 line=step.line,
                 col=step.col,
             )
-        ], counter
+        ]
+    return _emit_chain(
+        chain,
+        base_name=base_name,
+        terminal_var=base_name,
+        prev_var=None,
+        head_args=step.args,
+        original=step,
+        program=program,
+        keep_last=True,
+    )
 
+
+def _emit_chain(
+    chain: tuple[_ChainElem, ...],
+    *,
+    base_name: str,
+    terminal_var: str,
+    prev_var: str | None,
+    head_args: tuple[DrawArg, ...] | None,
+    original: SampleStep | ObserveStep,
+    program: _Program,
+    keep_last: bool,
+) -> list[ProgramStep]:
+    """Emit the steps of a chain, threading each output into the next.
+
+    A scan in the chain absorbs the elements before it: they and the
+    scan's cell form a step program applied at every position of the
+    chain's input, and the chain resumes from the scan's final state.
+
+    Parameters
+    ----------
+    chain
+        The chain.
+    base_name
+        The stem intermediate names are built from.
+    terminal_var
+        The name the chain's output binds.
+    prev_var
+        The upstream output, or ``None`` when the chain reads the
+        step's row or the program's input.
+    head_args
+        The row the chain's head conditions on.
+    original
+        The step being expanded.
+    program
+        The enclosing program's expansion.
+    keep_last
+        Whether the last element keeps the original step's shape (an
+        observation, its annotations); a branch of a parallel element
+        never does.
+
+    Returns
+    -------
+    list[ProgramStep]
+        The emitted steps.
+    """
     out: list[ProgramStep] = []
-    prev_var: str | None = None
-    last_idx = len(chain) - 1
-    for i, elem in enumerate(chain):
-        is_last = i == last_idx
-        if is_last:
-            terminal_var = base_name
-        else:
-            counter += 1
-            terminal_var = f"{base_name}_chain_{counter}"
-        out_step, counter = _emit_chain_elem(
-            elem=elem,
-            terminal_var=terminal_var,
-            prev_var=prev_var,
-            is_last=is_last,
-            original=step,
-            morphisms=morphisms,
-            counter=counter,
-            head_args=step.args,
-            domain_names=domain_names,
+    elements = list(chain)
+    while elements:
+        scan_index = next(
+            (
+                index
+                for index, elem in enumerate(elements)
+                if isinstance(elem, _ScanLeaf)
+            ),
+            None,
         )
-        out.extend(out_step)
-        prev_var = terminal_var
-    return out, counter
+        if scan_index is not None:
+            scan = elements[scan_index]
+            assert isinstance(scan, _ScanLeaf)
+            prefix = tuple(elements[:scan_index])
+            rest = elements[scan_index + 1 :]
+            source = _scan_input(prev_var, head_args, program, original)
+            var = terminal_var if not rest else program.fresh(f"{base_name}_chain")
+            step_name = _scan_step_program(scan.name, prefix, program, original)
+            arguments: tuple[LetExprNode, ...] = (
+                LetExprVar(name=step_name),
+                LetExprVar(name=source),
+            )
+            if scan.init == "learned":
+                arguments = (*arguments, LetExprVar(name=f"{scan.name}_scan_init"))
+            out.append(
+                LetStep(
+                    name=var,
+                    value=LetExprCall(func="scan", args=arguments),
+                    line=original.line,
+                    col=original.col,
+                )
+            )
+            prev_var = var
+            head_args = None
+            elements = rest
+            continue
+        last_index = len(elements) - 1
+        for index, elem in enumerate(elements):
+            is_last = index == last_index
+            var = terminal_var if is_last else program.fresh(f"{base_name}_chain")
+            out.extend(
+                _emit_chain_elem(
+                    elem=elem,
+                    terminal_var=var,
+                    prev_var=prev_var,
+                    is_last=is_last and keep_last,
+                    original=original,
+                    program=program,
+                    head_args=head_args,
+                )
+            )
+            prev_var = var
+        elements = []
+    return out
+
+
+def _scan_input(
+    prev_var: str | None,
+    head_args: tuple[DrawArg, ...] | None,
+    program: _Program,
+    original: SampleStep | ObserveStep,
+) -> str:
+    """The name of the sequence a scan runs over.
+
+    Parameters
+    ----------
+    prev_var
+        The upstream output, when the scan is not at the chain's head.
+    head_args
+        The row the chain's head conditions on.
+    program
+        The enclosing program's expansion.
+    original
+        The step being expanded.
+
+    Returns
+    -------
+    str
+        The upstream output, else the step's one named argument, else
+        the program's one domain input.
+
+    Raises
+    ------
+    StepResolutionError
+        If the scan's input is not one named sequence.
+    """
+    if prev_var is not None:
+        return prev_var
+    if head_args:
+        if len(head_args) == 1 and isinstance(head_args[0], DrawArgName):
+            return head_args[0].text
+        raise StepResolutionError(
+            "qvr-expand",
+            [
+                f"scan:input:{original.morphism}",
+                f"the scan drawn at line {original.line} runs over one sequence, "
+                f"but the step conditions on {len(head_args)} arguments",
+            ],
+        )
+    if len(program.domain_names) == 1 and program.domain_names[0]:
+        return program.domain_names[0]
+    raise StepResolutionError(
+        "qvr-expand",
+        [
+            f"scan:input:{original.morphism}",
+            f"the scan drawn at line {original.line} runs over the program's "
+            f"input, which is not one named factor",
+        ],
+    )
+
+
+def _scan_step_program(
+    cell: str,
+    prefix: tuple[_ChainElem, ...],
+    program: _Program,
+    original: SampleStep | ObserveStep,
+) -> str:
+    """Declare the program a scan applies at every position.
+
+    The step program takes the position's input and the previous
+    state, draws the chain's elements before the scan at the input,
+    and applies the cell to the result and the state. A cell that is a
+    program is called; one that is a morphism is drawn through.
+
+    Parameters
+    ----------
+    cell
+        The scan's cell, a program or a morphism.
+    prefix
+        The chain's elements before the scan.
+    program
+        The enclosing program's expansion, which gains the step program.
+    original
+        The step being expanded.
+
+    Returns
+    -------
+    str
+        The step program's name.
+
+    Raises
+    ------
+    StepResolutionError
+        If the cell is neither a program nor a morphism, or the input
+        object cannot be read off the chain.
+    """
+    name = f"{cell}__scan_step"
+    cell_program = program.programs.get(cell)
+    cell_morphism = program.morphisms.get(cell)
+    if cell_program is not None:
+        state_object = cell_program.codomain
+        cell_domain = _domain_factors(cell_program.domain)
+    elif cell_morphism is not None:
+        state_object = cell_morphism.codomain
+        cell_domain = _domain_factors(cell_morphism.domain)
+    else:
+        raise StepResolutionError(
+            "qvr-expand",
+            [
+                f"scan:cell:{cell}",
+                f"`scan({cell})` names neither a program nor a morphism",
+            ],
+        )
+    if len(cell_domain) != 2:
+        raise StepResolutionError(
+            "qvr-expand",
+            [
+                f"scan:cell:{cell}",
+                f"the cell {cell!r} of a scan takes an input and a state; its "
+                f"domain has {len(cell_domain)} factors",
+            ],
+        )
+    input_object: ObjectExpr | None = None
+    if prefix:
+        head = prefix[0]
+        if isinstance(head, _StochasticLeaf | _DeterministicLeaf):
+            decl = program.morphisms.get(head.name)
+            if decl is not None:
+                input_object = decl.domain
+    else:
+        input_object = cell_domain[0]
+    if input_object is None:
+        raise StepResolutionError(
+            "qvr-expand",
+            [
+                f"scan:input:{cell}",
+                f"the input object of the scan over {cell!r} cannot be read off "
+                f"its chain",
+            ],
+        )
+    steps: list[ProgramStep] = []
+    fed = "x_t"
+    if prefix:
+        fed = "x_in"
+        steps.extend(
+            _emit_chain(
+                prefix,
+                base_name=fed,
+                terminal_var=fed,
+                prev_var=None,
+                head_args=(DrawArgName(text="x_t"),),
+                original=original,
+                program=program,
+                keep_last=False,
+            )
+        )
+    if cell_program is not None:
+        steps.append(
+            CallStep(
+                name="h",
+                call=QiecCallComputation(
+                    callee=cell,
+                    arguments=(LetExprVar(name=fed), LetExprVar(name="h_prev")),
+                ),
+                line=original.line,
+                col=original.col,
+            )
+        )
+    else:
+        steps.append(
+            SampleStep(
+                vars=("h",),
+                morphism=cell,
+                args=(DrawArgName(text=fed), DrawArgName(text="h_prev")),
+                line=original.line,
+                col=original.col,
+            )
+        )
+    declaration = ProgramDecl(
+        name=name,
+        params=("x_t", "h_prev"),
+        domain=ObjectProduct(components=(input_object, state_object)),
+        codomain=state_object,
+        draws=tuple(steps),
+        return_vars=("h",),
+        line=original.line,
+        col=original.col,
+    )
+    # The same cell scanned after another chain is another step
+    # program, named apart by its serial.
+    while name in program.programs and not _same_program(
+        program.programs[name], declaration
+    ):
+        name = program.fresh(f"{cell}__scan_step")
+        declaration = declaration.with_(name=name)
+    program.programs[name] = declaration
+    return name
+
+
+def _same_program(left: ProgramDecl, right: ProgramDecl) -> bool:
+    """Whether two program declarations agree apart from their position.
+
+    Parameters
+    ----------
+    left : ProgramDecl
+        One declaration.
+    right : ProgramDecl
+        The other.
+
+    Returns
+    -------
+    bool
+        ``True`` when their names, parameters, objects, steps, and
+        returns agree.
+    """
+    return (
+        left.name == right.name
+        and left.params == right.params
+        and left.domain == right.domain
+        and left.codomain == right.codomain
+        and left.draws == right.draws
+        and left.return_vars == right.return_vars
+    )
 
 
 def _emit_chain_elem(
@@ -785,11 +1122,9 @@ def _emit_chain_elem(
     prev_var: str | None,
     is_last: bool,
     original: SampleStep | ObserveStep,
-    morphisms: dict[str, MorphismDecl],
-    counter: int,
+    program: _Program,
     head_args: tuple[DrawArg, ...] | None,
-    domain_names: tuple[str, ...],
-) -> tuple[list[ProgramStep], int]:
+) -> list[ProgramStep]:
     """Emit the program steps for one chain element.
 
     Parameters
@@ -801,23 +1136,20 @@ def _emit_chain_elem(
     prev_var
         The upstream chain output, or ``None`` at the head.
     is_last
-        Whether the element is the chain's last.
+        Whether the element is the chain's last and keeps the original
+        step's shape.
     original
         The step being expanded.
-    morphisms
-        The morphism table.
-    counter
-        The fresh-name counter.
+    program
+        The enclosing program's expansion.
     head_args
         The row the chain's head conditions on: the original step's
         arguments, or a branch's factor of them.
-    domain_names
-        The names the program's domain factors are read through.
 
     Returns
     -------
-    tuple[list[ProgramStep], int]
-        The emitted steps and the updated counter.
+    list[ProgramStep]
+        The emitted steps.
 
     Raises
     ------
@@ -829,7 +1161,7 @@ def _emit_chain_elem(
             morphism_name=elem.name,
             prev_var=prev_var,
             head_args=head_args,
-            morphisms=morphisms,
+            morphisms=program.morphisms,
         )
         if is_last and isinstance(original, ObserveStep):
             return [
@@ -845,7 +1177,7 @@ def _emit_chain_elem(
                     line=original.line,
                     col=original.col,
                 )
-            ], counter
+            ]
         sample_options = (
             original.options if (is_last and isinstance(original, SampleStep)) else ()
         )
@@ -866,7 +1198,7 @@ def _emit_chain_elem(
                 line=original.line,
                 col=original.col,
             )
-        ], counter
+        ]
     if isinstance(elem, _DeterministicLeaf):
         rhs = _function_call_expr(elem.name, prev_var)
         return [
@@ -876,27 +1208,15 @@ def _emit_chain_elem(
                 line=original.line,
                 col=original.col,
             )
-        ], counter
-    if isinstance(elem, _ScanLeaf):
-        rhs = _scan_call_expr(elem.name, prev_var)
-        return [
-            LetStep(
-                name=terminal_var,
-                value=rhs,
-                line=original.line,
-                col=original.col,
-            )
-        ], counter
+        ]
     if isinstance(elem, _ParallelLeaf):
         return _emit_parallel(
             elem=elem,
             terminal_var=terminal_var,
             prev_var=prev_var,
             original=original,
-            morphisms=morphisms,
-            counter=counter,
+            program=program,
             head_args=head_args,
-            domain_names=domain_names,
         )
     raise AssertionError(
         f"_emit_chain_elem: unhandled chain-elem variant {type(elem).__name__!r}"
@@ -909,11 +1229,9 @@ def _emit_parallel(
     terminal_var: str,
     prev_var: str | None,
     original: SampleStep | ObserveStep,
-    morphisms: dict[str, MorphismDecl],
-    counter: int,
+    program: _Program,
     head_args: tuple[DrawArg, ...] | None,
-    domain_names: tuple[str, ...],
-) -> tuple[list[ProgramStep], int]:
+) -> list[ProgramStep]:
     """Emit each parallel branch's steps against the same upstream
     input, then bundle the branch tails into a list literal bound to
     `terminal_var`.
@@ -940,53 +1258,45 @@ def _emit_parallel(
         The upstream chain output, or ``None`` at the head.
     original
         The step being expanded.
-    morphisms
-        The morphism table.
-    counter
-        The fresh-name counter.
+    program
+        The enclosing program's expansion.
     head_args
         The row the chain's head conditions on.
-    domain_names
-        The names the program's domain factors are read through.
 
     Returns
     -------
-    tuple[list[ProgramStep], int]
-        The emitted steps and the updated counter.
+    list[ProgramStep]
+        The emitted steps.
     """
     out: list[ProgramStep] = []
     branch_tails: list[str] = []
     for branch_idx, branch in enumerate(elem.branches):
-        branch_prev = prev_var
         branch_head = head_args
         if elem.product and prev_var is None:
             if head_args and len(head_args) == len(elem.branches):
                 branch_head = (head_args[branch_idx],)
             elif (
                 not head_args
-                and len(domain_names) == len(elem.branches)
-                and domain_names[branch_idx]
+                and len(program.domain_names) == len(elem.branches)
+                and program.domain_names[branch_idx]
             ):
-                branch_head = (DrawArgName(text=domain_names[branch_idx]),)
-        for sub_elem in branch:
-            counter += 1
-            sub_var = f"{terminal_var}_par_{branch_idx}_{counter}"
-            sub_step, counter = _emit_chain_elem(
-                elem=sub_elem,
-                terminal_var=sub_var,
-                prev_var=branch_prev,
-                is_last=False,
-                original=original,
-                morphisms=morphisms,
-                counter=counter,
-                head_args=branch_head,
-                domain_names=domain_names,
-            )
-            out.extend(sub_step)
-            branch_prev = sub_var
-        if branch_prev is None:
+                branch_head = (DrawArgName(text=program.domain_names[branch_idx]),)
+        if not branch:
             continue
-        branch_tails.append(branch_prev)
+        tail = program.fresh(f"{terminal_var}_par_{branch_idx}")
+        out.extend(
+            _emit_chain(
+                branch,
+                base_name=f"{terminal_var}_par_{branch_idx}",
+                terminal_var=tail,
+                prev_var=prev_var,
+                head_args=branch_head,
+                original=original,
+                program=program,
+                keep_last=False,
+            )
+        )
+        branch_tails.append(tail)
     if not branch_tails:
         out.append(
             LetStep(
@@ -996,7 +1306,7 @@ def _emit_parallel(
                 col=original.col,
             )
         )
-        return out, counter
+        return out
     out.append(
         LetStep(
             name=terminal_var,
@@ -1007,7 +1317,7 @@ def _emit_parallel(
             col=original.col,
         )
     )
-    return out, counter
+    return out
 
 
 def _function_call_expr(func_name: str, prev_var: str | None) -> LetExprNode:
@@ -1034,28 +1344,6 @@ def _function_call_expr(func_name: str, prev_var: str | None) -> LetExprNode:
         left=LetExprVar(name=func_name),
         right=LetExprVar(name=prev_var),
     )
-
-
-def _scan_call_expr(cell_name: str, prev_var: str | None) -> LetExprNode:
-    """Refuse an `ExprScan(cell)` leaf.
-
-    `scan(cell)` threads `cell` across the positions of a sequence,
-    so the measure it denotes is the product of one cell density per
-    position, over intermediate states that are drawn rather than
-    given. Writing that out needs a loop whose bound is the sequence
-    length and one sample site per position, and the sequence axis is
-    not an object the module declares: it arrives with the data, so
-    there is no extent to size the loop from and no name to bind the
-    per-position states to.
-
-    There is no lowering that keeps the measure, and a target given a
-    program that reads `cell` as a free input would score a different
-    one: the recurrent density would be absent from the joint
-    entirely, leaving a program whose log density does not depend on
-    the parameters the chain declares. This refuses instead.
-    """
-    del prev_var
-    raise StepResolutionError("qvr-expand", [f"scan:no-lowering:{cell_name}"])
 
 
 def _derive_chain_args(

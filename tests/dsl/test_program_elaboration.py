@@ -17,6 +17,7 @@ import torch.distributions as td
 
 from quivers.continuous.morphisms import SampledComposition
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.scan import ScanMorphism
 from quivers.dsl import Compiler, parse
 from quivers.dsl.compiler import CompileError
 from quivers.dsl.emit import module_to_source
@@ -1242,14 +1243,14 @@ export prog
     assert "right" in names
     assert "right_embed_param_table" in names
     assert [site.name for site in entry.sites] == [
+        "h_chain_1_par_0_chain_3",
+        "h_chain_1_par_0_chain_4",
         "h_chain_1_par_0_2",
-        "h_chain_1_par_0_3",
-        "h_chain_1_par_0_4",
         "h_chain_1_par_1_5",
         "h",
     ]
     types = _sampled_types(module, "prog")
-    assert types["h_chain_1_par_0_2"] == "Tensor[Real]([2])"
+    assert types["h_chain_1_par_0_chain_3"] == "Tensor[Real]([2])"
     assert types["h"] == "Tensor[Real]([2])"
 
 
@@ -1288,4 +1289,310 @@ export prog
     )
     rows = table[torch.tensor([0, 1, 0])]
     closed = td.Normal(rows[:, :2], rows[:, 2:].exp()).log_prob(draws).sum()
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+KERNEL_HEADS = """\
+object In : Real 2
+object Out : {codomain}
+morphism kernel : In -> Out ~ {family}
+program prog : In -> Out
+    sample x <- kernel
+    return x
+export prog
+"""
+
+
+@pytest.mark.parametrize(
+    ("family", "codomain", "value", "site"),
+    [
+        ("Gamma", "Real 1", torch.tensor([1.3]), (1.3,)),
+        ("Poisson", "Real 1", torch.tensor([2.0]), (2,)),
+        ("Beta", "Real 1", torch.tensor([0.4]), (0.4,)),
+        ("Exponential", "Real 2", torch.tensor([0.3, 0.9]), (0.3, 0.9)),
+        ("LogitNormal", "Real 2", torch.tensor([0.3, 0.9]), (0.3, 0.9)),
+        ("StudentT", "Real 2", torch.tensor([0.3, -0.7]), (0.3, -0.7)),
+        ("Dirichlet", "Real 3", torch.tensor([0.2, 0.5, 0.3]), (0.2, 0.5, 0.3)),
+        ("Categorical", "FinSet 4", torch.tensor([2]), 2),
+        ("Bernoulli", "FinSet 2", torch.tensor([1]), True),
+    ],
+)
+def test_kernel_heads_follow_the_torch_parameterization(
+    family: str, codomain: str, value: torch.Tensor, site: object
+) -> None:
+    source = KERNEL_HEADS.format(family=family, codomain=codomain)
+    torch.manual_seed(4)
+    program = Compiler(parse(source)).compile()
+    monadic = program._morphism
+    assert isinstance(monadic, MonadicProgram)
+    parameters = {name: item.detach() for name, item in monadic.named_parameters()}
+    classic = trace(
+        monadic, torch.tensor([[0.3, -0.2]]), observations={"x": value.unsqueeze(0)}
+    ).log_joint
+    assert classic is not None
+    module = _module(source)
+    run = run_program(
+        module,
+        "prog",
+        data={
+            "in": (0.3, -0.2),
+            "kernel_param_weight": _nested(
+                parameters["_step_x.param_source.linear.weight"]
+            ),
+            "kernel_param_bias": _nested(
+                parameters["_step_x.param_source.linear.bias"]
+            ),
+        },
+        sites={"x": site},
+    )
+    assert run.log_joint == pytest.approx(float(classic.detach().sum()), rel=1e-5)
+
+
+SCANNED = """\
+object Input : Real 2
+object Hidden : Real 3
+morphism cell : Input * Hidden -> Hidden ~ Normal
+define rnn = scan(cell)
+program prog : Input -> Hidden
+    sample h <- rnn
+    return h
+export prog
+"""
+
+
+def test_a_scan_recurs_over_a_sequence() -> None:
+    torch.manual_seed(2)
+    program = Compiler(parse(SCANNED)).compile()
+    monadic = program._morphism
+    assert isinstance(monadic, MonadicProgram)
+    parameters = {name: item.detach() for name, item in monadic.named_parameters()}
+    weight = parameters["_step_h._cell.param_source.linear.weight"]
+    bias = parameters["_step_h._cell.param_source.linear.bias"]
+    module = _module(SCANNED)
+    assert loads(dumps(module)) == module
+    assert [item.name for item in module.computations] == [
+        "cell__scan_step",
+        "prog",
+        "prog__h_scan",
+    ]
+    entry = program_entry(module, "prog")
+    assert [
+        (item.name, item.role, render_static(item.type)) for item in entry.parameters
+    ] == [
+        ("input", "domain", "Tensor[Real]([input_extent, 2])"),
+        ("cell_param_weight", "weight", "Tensor[Real]([6, 5])"),
+        ("cell_param_bias", "bias", "Tensor[Real]([6])"),
+    ]
+    assert [binder.name for binder in entry.telescope] == ["input_extent"]
+    inputs = torch.randn(4, 2)
+    states = torch.randn(4, 3)
+    run = run_program(
+        module,
+        "prog",
+        data={
+            "input": _nested(inputs),
+            "cell_param_weight": _nested(weight),
+            "cell_param_bias": _nested(bias),
+        },
+        sites={f"h@{position}": _nested(states[position]) for position in range(4)},
+    )
+    previous = torch.zeros(3)
+    closed = torch.tensor(0.0)
+    for position in range(4):
+        raw = weight @ torch.cat([inputs[position], previous]) + bias
+        closed = (
+            closed + td.Normal(raw[:3], raw[3:].exp()).log_prob(states[position]).sum()
+        )
+        previous = states[position]
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+    assert run.value == _nested(states[3])
+    scan = monadic.get_submodule("_step_h")
+    assert isinstance(scan, ScanMorphism)
+    classic = scan.log_joint(inputs.unsqueeze(0), states.unsqueeze(0)).detach()
+    assert run.log_joint == pytest.approx(float(classic.sum()), rel=1e-5)
+
+
+RECURRENT_CELL = """\
+object Token : FinSet 5
+object Embedded : Real 2
+object Hidden : Real 3
+morphism tok_embed : Token -> Embedded [role=embed]
+morphism cell : Embedded * Hidden -> Hidden ~ LogitNormal
+morphism lm_head : Hidden -> Token ~ Categorical
+program rnn_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
+    sample squashed <- cell(x_t, h_prev)
+    let h_new = 2.0 * squashed - 1.0
+    return h_new
+define backbone = tok_embed >> scan(rnn_cell)
+program lm : Token -> Token
+    sample h <- backbone
+    observe next_token <- lm_head(h)
+    return next_token
+export lm
+"""
+
+
+def test_a_scan_step_program_carries_the_cells_inputs() -> None:
+    module = _module(RECURRENT_CELL)
+    assert loads(dumps(module)) == module
+    assert [item.name for item in module.computations] == [
+        "rnn_cell",
+        "rnn_cell__scan_step",
+        "lm",
+        "lm__h_scan",
+    ]
+    step = program_entry(module, "rnn_cell__scan_step")
+    assert [(item.name, item.role) for item in step.parameters] == [
+        ("x_t", "domain"),
+        ("h_prev", "domain"),
+        ("tok_embed_param_table", "table"),
+        ("cell_param_weight", "weight"),
+        ("cell_param_bias", "bias"),
+    ]
+    assert [(site.name, site.family) for site in step.sites] == [("x_in", "Normal")]
+    entry = program_entry(module, "lm")
+    assert [
+        (item.name, item.role, render_static(item.type)) for item in entry.parameters
+    ] == [
+        ("token", "domain", "Tensor[Int]([token_extent])"),
+        ("tok_embed_param_table", "table", "Tensor[Real]([5, 4])"),
+        ("cell_param_weight", "weight", "Tensor[Real]([6, 5])"),
+        ("cell_param_bias", "bias", "Tensor[Real]([6])"),
+        ("lm_head_param_weight", "weight", "Tensor[Real]([5, 3])"),
+        ("lm_head_param_bias", "bias", "Tensor[Real]([5])"),
+        ("next_token", "observation", "Int"),
+    ]
+    torch.manual_seed(5)
+    table = torch.randn(5, 4)
+    weight = torch.randn(6, 5)
+    bias = torch.randn(6)
+    head_weight = torch.randn(5, 3)
+    head_bias = torch.randn(5)
+    tokens = (1, 4, 0)
+    embedded = torch.randn(3, 2)
+    squashed = torch.rand(3, 3)
+    run = run_program(
+        module,
+        "lm",
+        data={
+            "token": tokens,
+            "tok_embed_param_table": _nested(table),
+            "cell_param_weight": _nested(weight),
+            "cell_param_bias": _nested(bias),
+            "lm_head_param_weight": _nested(head_weight),
+            "lm_head_param_bias": _nested(head_bias),
+            "next_token": 3,
+        },
+        sites={
+            **{f"x_in@{t}": _nested(embedded[t]) for t in range(3)},
+            **{f"squashed@{t}": _nested(squashed[t]) for t in range(3)},
+        },
+    )
+    previous = torch.zeros(3)
+    closed = torch.tensor(0.0)
+    for position in range(3):
+        row = table[tokens[position]]
+        closed = (
+            closed
+            + td.Normal(row[:2], row[2:].exp()).log_prob(embedded[position]).sum()
+        )
+        raw = weight @ torch.cat([embedded[position], previous]) + bias
+        point = squashed[position].clamp(1e-7, 1 - 1e-7)
+        logit = torch.log(point / (1 - point))
+        closed = (
+            closed
+            + (
+                td.Normal(raw[:3], raw[3:].exp()).log_prob(logit)
+                - torch.log(point * (1 - point))
+            ).sum()
+        )
+        previous = 2.0 * squashed[position] - 1.0
+    logits = head_weight @ previous + head_bias
+    closed = closed + td.Categorical(logits=logits).log_prob(torch.tensor(3))
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+    assert run.value == 3
+
+
+def test_a_scalar_family_broadcasts_over_a_vector_argument() -> None:
+    source = """\
+object Obs : Real 3
+program prog : Obs -> Obs
+    let mu = [0.5, -1.0, 2.0]
+    sample h <- Normal(mu, 0.5)
+    return h
+export prog
+"""
+    module = _module(source)
+    assert _sampled_types(module, "prog")["h"] == "Tensor[Real]([3])"
+    run = run_program(
+        module, "prog", data={"obs": (0.0, 0.0, 0.0)}, sites={"h": (0.4, -0.9, 2.5)}
+    )
+    closed = td.Normal(torch.tensor([0.5, -1.0, 2.0]), 0.5).log_prob(
+        torch.tensor([0.4, -0.9, 2.5])
+    )
+    assert run.log_joint == pytest.approx(float(closed.sum()), rel=1e-5)
+
+
+def test_a_call_passes_the_callees_inputs_through() -> None:
+    source = """\
+object In : Real 2
+object Out : Real 1
+morphism kernel : In -> Out ~ Normal
+program inner(x) : In -> Out
+    sample y <- kernel(x)
+    return y
+program outer : In -> Out
+    let y <- inner(in)
+    return y
+export outer
+"""
+    module = _module(source)
+    entry = program_entry(module, "outer")
+    assert [(item.name, item.role) for item in entry.parameters] == [
+        ("in", "domain"),
+        ("kernel_param_weight", "weight"),
+        ("kernel_param_bias", "bias"),
+    ]
+    run = run_program(
+        module,
+        "outer",
+        data={
+            "in": (0.3, -0.2),
+            "kernel_param_weight": ((1.0, 2.0), (0.0, 0.0)),
+            "kernel_param_bias": (0.5, 0.0),
+        },
+        sites={"y": (1.0,)},
+    )
+    closed = td.Normal(0.3 + 2.0 * -0.2 + 0.5, 1.0).log_prob(torch.tensor(1.0))
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+def test_a_scan_may_start_from_a_learned_state() -> None:
+    source = SCANNED.replace("scan(cell)", "scan(cell, init=learned)")
+    module = _module(source)
+    entry = program_entry(module, "prog")
+    assert [(item.name, item.role) for item in entry.parameters][-1] == (
+        "cell_scan_init",
+        "weight",
+    )
+    weight = torch.zeros(6, 5)
+    bias = torch.tensor([0.0, 0.0, 0.0, -1.0, -1.0, -1.0])
+    weight[:3, 2:] = torch.eye(3)
+    initial = torch.tensor([0.5, -0.5, 1.0])
+    states = torch.tensor([[0.4, -0.6, 1.1], [0.5, -0.4, 0.9]])
+    run = run_program(
+        module,
+        "prog",
+        data={
+            "input": ((0.0, 0.0), (0.0, 0.0)),
+            "cell_param_weight": _nested(weight),
+            "cell_param_bias": _nested(bias),
+            "cell_scan_init": _nested(initial),
+        },
+        sites={"h@0": _nested(states[0]), "h@1": _nested(states[1])},
+    )
+    closed = (
+        td.Normal(initial, math.exp(-1.0)).log_prob(states[0]).sum()
+        + td.Normal(states[0], math.exp(-1.0)).log_prob(states[1]).sum()
+    )
     assert run.log_joint == pytest.approx(float(closed), rel=1e-5)

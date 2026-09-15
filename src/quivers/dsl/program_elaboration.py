@@ -130,6 +130,7 @@ from quivers.qiec.terms import (
     DistributionValue,
     Gather,
     Handle,
+    If,
     KernelMatrix,
     LiteralValue,
     Local,
@@ -138,6 +139,7 @@ from quivers.qiec.terms import (
     Perform,
     PlateAxis,
     PlateShape,
+    Reduction,
     Return,
     SegmentSum,
     SiteValue,
@@ -238,13 +240,60 @@ GAP_CODE = "qiec-program-gap"
 #: Let-expression builtins that build or read a deduction chart.
 _CHART_BUILTINS = frozenset({"parse", "chart", "chart_fold", "op_apply"})
 
+#: How a kernel morphism's parameter map is read into one family
+#: parameter: as it is, exponentiated and clamped at the scale floor,
+#: through a softplus lifted off zero, through a softplus shifted by a
+#: tenth, or through a sigmoid.
+HeadTransform = Literal[
+    "identity", "exp_floor", "softplus", "softplus_shifted", "sigmoid"
+]
+
+#: The lift a ``softplus`` head adds, so the parameter stays positive.
+SOFTPLUS_LIFT = 1e-7
+
+#: The shift a ``softplus_shifted`` head adds.
+SOFTPLUS_SHIFT = 0.1
+
 #: Families whose bare ``~ Family`` kernel morphism reads its arguments off
-#: an affine parameter map, with each head's transform.
-_CONDITIONAL_HEADS: dict[
-    str, tuple[tuple[str, Literal["identity", "exp_floor"]], ...]
-] = {
+#: a parameter map, with each head's transform, in the torch runtime's
+#: parameterization of the same kernel.
+_CONDITIONAL_HEADS: dict[str, tuple[tuple[str, HeadTransform], ...]] = {
     "Normal": (("loc", "identity"), ("scale", "exp_floor")),
+    "LogitNormal": (("loc", "identity"), ("scale", "exp_floor")),
+    "Cauchy": (("loc", "identity"), ("scale", "softplus")),
+    "Laplace": (("loc", "identity"), ("scale", "softplus")),
+    "Gumbel": (("loc", "identity"), ("scale", "softplus")),
+    "LogNormal": (("loc", "identity"), ("scale", "softplus")),
+    "StudentT": (
+        ("df", "softplus_shifted"),
+        ("loc", "identity"),
+        ("scale", "softplus"),
+    ),
+    "Exponential": (("rate", "softplus"),),
+    "Gamma": (("concentration", "softplus_shifted"), ("rate", "softplus")),
+    "Chi2": (("df", "softplus_shifted"),),
+    "HalfCauchy": (("scale", "softplus"),),
+    "HalfNormal": (("scale", "softplus"),),
+    "InverseGamma": (("concentration", "softplus_shifted"), ("rate", "softplus")),
+    "Weibull": (("scale", "softplus"), ("concentration", "softplus")),
+    "Pareto": (("scale", "softplus"), ("alpha", "softplus")),
+    "ContinuousBernoulli": (("logits", "identity"),),
+    "Poisson": (("rate", "softplus"),),
+    "Geometric": (("probs", "sigmoid"),),
+    "NegativeBinomial": (("total_count", "softplus_shifted"), ("probs", "sigmoid")),
+    "VonMises": (("loc", "identity"), ("concentration", "softplus")),
+    "Beta": (
+        ("concentration1", "softplus_shifted"),
+        ("concentration0", "softplus_shifted"),
+    ),
+    "Dirichlet": (("concentration", "softplus_shifted"),),
+    "Bernoulli": (("logits", "identity"),),
+    "Categorical": (("logits", "identity"),),
 }
+
+#: Families whose kernel head is one row of logits over the codomain's
+#: elements rather than one coordinate per real dimension.
+_LOGIT_HEAD_FAMILIES: frozenset[str] = frozenset({"Bernoulli", "Categorical"})
 
 #: Families whose sample is an index into their own alphabet, with the
 #: argument naming the alphabet.
@@ -352,6 +401,107 @@ class _Scope:
         for item in reversed(chain):
             locals_.extend(item.locals.values())
         return CheckContext(tuple(locals_))
+
+
+def _scanned_names(steps: tuple[ProgramStep, ...]) -> frozenset[str]:
+    """The names a program's let steps scan over.
+
+    Parameters
+    ----------
+    steps : tuple[ProgramStep, ...]
+        The steps, searched through marginalization scopes.
+
+    Returns
+    -------
+    frozenset[str]
+        The sequence names of every ``scan(step, xs)`` let.
+    """
+    found: set[str] = set()
+    for step in steps:
+        if isinstance(step, MarginalizeStep):
+            found |= _scanned_names(step.scope)
+        elif isinstance(step, LetStep):
+            scan = _scan_call(step.value)
+            if scan is not None:
+                found.add(scan[1])
+    return frozenset(found)
+
+
+def _scan_call(expr: LetExprNode) -> tuple[str, str, str | None] | None:
+    """Read ``scan(step, xs)`` or ``scan(step, xs, init)`` off a let expression.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+
+    Returns
+    -------
+    tuple[str, str, str | None] | None
+        The step program's name, the sequence's name, and the learned
+        initial state's name when there is one; ``None`` when the
+        expression is not a scan of names.
+    """
+    if not isinstance(expr, LetExprCall) or expr.func != "scan":
+        return None
+    if len(expr.args) not in (2, 3) or not all(
+        isinstance(argument, LetExprVar) for argument in expr.args
+    ):
+        return None
+    names = [
+        argument.name for argument in expr.args if isinstance(argument, LetExprVar)
+    ]
+    return names[0], names[1], names[2] if len(names) == 3 else None
+
+
+def _zero_of(type_: TypeExpr) -> Value:
+    """The zero of a state type.
+
+    Parameters
+    ----------
+    type_ : TypeExpr
+        ``Real``, ``Int``, or a tensor of either with literal extents.
+
+    Returns
+    -------
+    Value
+        The literal zero, or a tensor of zeros.
+
+    Raises
+    ------
+    ValueError
+        If the type has no zero.
+    """
+    if type_ == REAL:
+        return LiteralValue(0.0, REAL)
+    if type_ == INT:
+        return LiteralValue(0, INT)
+    shape = tensor_shape(type_)
+    if shape is None or not shape[1] or not isinstance(shape[1][0], IndexLiteral):
+        raise ValueError(f"{render_static(type_)} has no zero")
+    inner: TypeExpr = (
+        shape[0] if len(shape[1]) == 1 else tensor_type(shape[0], shape[1][1:])
+    )
+    return TensorValue(
+        tuple(_zero_of(inner) for _ in range(int(shape[1][0].value))), type_
+    )
+
+
+def _map_transform(transform: HeadTransform) -> Literal["identity", "exp_floor"]:
+    """The transform a parameter map carries for a head.
+
+    Parameters
+    ----------
+    transform : HeadTransform
+        The head's transform.
+
+    Returns
+    -------
+    Literal["identity", "exp_floor"]
+        ``exp_floor`` when the map exponentiates the head itself, else
+        ``identity``; a softplus or sigmoid applies after the map.
+    """
+    return "exp_floor" if transform == "exp_floor" else "identity"
 
 
 def _rows_axis(
@@ -1164,6 +1314,7 @@ class _ProgramElaboration:
             has no readable shape.
         """
         factors = _factors(declaration.domain)
+        scanned = _scanned_names(declaration.draws)
         if declaration.params is not None:
             if len(declaration.params) != len(factors):
                 self._fail(
@@ -1180,6 +1331,8 @@ class _ProgramElaboration:
                     type_ = INT
                 else:
                     type_ = REAL
+                if name in scanned:
+                    type_ = self._sequence_type(name, type_, state)
                 self._declare_parameter(
                     name, type_, "domain", scope, state, declaration
                 )
@@ -1188,15 +1341,19 @@ class _ProgramElaboration:
                 if not isinstance(factor, TypeName):
                     continue
                 info = self._program_objects.get(factor.name)
-                if info is None or info.real_width is None:
+                name = factor.name.lower()
+                if info is not None and info.real_width is not None:
+                    type_ = tensor_type(REAL, (_extent(info.real_width),))
+                elif info is not None and info.finite and name in scanned:
+                    type_ = INT
+                else:
                     continue
+                if name in scanned:
+                    # A scanned input is a sequence, one entry per position
+                    # of an open extent.
+                    type_ = self._sequence_type(name, type_, state)
                 self._declare_parameter(
-                    factor.name.lower(),
-                    tensor_type(REAL, (_extent(info.real_width),)),
-                    "domain",
-                    scope,
-                    state,
-                    declaration,
+                    name, type_, "domain", scope, state, declaration
                 )
         if declaration.type_params is not None:
             for parameter in declaration.type_params:
@@ -1734,6 +1891,11 @@ class _ProgramElaboration:
             call = self._deduction_call(deduction, scope, state, step)
             self._bind_step(scope, step.name, call.result_type, call, step)
             return
+        scan = _scan_call(step.value)
+        if scan is not None:
+            call = self._scan_call(scan, scope, state, step)
+            self._bind_step(scope, step.name, call.result_type, call, step)
+            return
         value = self._let_value(step.value, scope, state, step)
         type_ = self._value_type(value, scope.context(), step.value)
         self._bind_step(scope, step.name, type_, Return(value), step)
@@ -1841,6 +2003,260 @@ class _ProgramElaboration:
             ),
         )
 
+    def _scan_call(
+        self: _Elaborator,
+        scan: tuple[str, str, str | None],
+        scope: _Scope,
+        state: _ProgramState,
+        node: LetStep,
+    ) -> Call:
+        """Elaborate ``let h = scan(step, xs)`` to a call of a recurrence.
+
+        The recurrence is a helper computation over the sequence's
+        positions: at position ``t`` it reads the sequence's entry,
+        calls the step program with the entry and the state, and
+        recurs at ``t + 1`` with the step's result, answering the state
+        once ``t`` reaches the sequence's length. The initial state is
+        zero, or a learned state read as a ``weight`` input when the
+        scan names one. A sequence that is a program input was typed
+        over an open extent when the program's parameters were
+        declared, an entry per position of the domain factor it reads.
+
+        Parameters
+        ----------
+        scan : tuple[str, str, str | None]
+            The step program's name, the sequence's name, and the
+            learned initial state's name when there is one.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state, which gains the helper.
+        node : LetStep
+            The step.
+
+        Returns
+        -------
+        Call
+            The call of the recurrence at position zero.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the step program is not a program of two parameters
+            returning its state, or the sequence is neither a program
+            input nor a tensor with a leading axis of entries the step
+            reads.
+        """
+        step_name, source, init = scan
+        signature = self.computation_signatures.get(step_name)
+        step_entry = next(
+            (item for item in self.entries if item.name == step_name), None
+        )
+        if (
+            signature is None
+            or step_entry is None
+            or len(signature.parameters) < 2
+            or signature.telescope
+            or signature.parameters[1] != signature.result
+            or [parameter.role for parameter in step_entry.parameters[:2]]
+            != ["domain", "domain"]
+        ):
+            self._fail(
+                node,
+                f"scan steps with {step_name!r}, which is not a program of an "
+                "input and a state returning the state",
+                code="qiec-program",
+            )
+        entry_type, state_type = signature.parameters[:2]
+        # The step's remaining inputs, the numbers of its parameter
+        # maps, pass through the recurrence from the scanning program.
+        passed: list[Local] = []
+        for parameter in step_entry.parameters[2:]:
+            existing = scope.lookup(parameter.name)
+            if existing is None:
+                existing = self._declare_parameter(
+                    parameter.name, parameter.type, parameter.role, scope, state, node
+                )
+            passed.append(existing)
+        local = scope.lookup(source)
+        if local is None:
+            self._fail(
+                node,
+                f"scan runs over {source!r}, which is neither bound nor a "
+                "program input",
+                code="qiec-program",
+            )
+        shape = tensor_shape(local.type)
+        if shape is None or not shape[1]:
+            self._fail(
+                node,
+                f"scan runs over {source!r}, which is not a sequence",
+                code="qiec-program",
+            )
+        extent = shape[1][0]
+        per_position: TypeExpr = (
+            shape[0] if len(shape[1]) == 1 else tensor_type(shape[0], shape[1][1:])
+        )
+        if per_position != entry_type:
+            self._fail(
+                node,
+                f"scan feeds {step_name!r} entries of {render_static(per_position)}, "
+                f"not the {render_static(entry_type)} it reads",
+                code="qiec-program",
+            )
+        name = f"{state.declaration.name}__{node.name}_scan"
+        if name in self.computation_signatures:
+            self._fail(
+                node,
+                f"scan helper {name!r} is declared twice",
+                code="qiec-program",
+            )
+        mentioned = _index_variables_in((local.type,))
+        telescope = tuple(
+            binder for name_, binder in state.extents.items() if name_ in mentioned
+        )
+        statics: tuple[StaticArgument, ...] = tuple(
+            IndexVariable(binder.name, binder.sort) for binder in telescope
+        )
+        position = Local("__scan_t", INT)
+        sequence = Local("__scan_xs", local.type)
+        current = Local("__scan_h", state_type)
+        carried = tuple(Local(f"__scan_{item.name}", item.type) for item in passed)
+        identity = ComputationId.derive(self.source.module_name, "computation", name)
+        helper = ComputationSignature(
+            identity,
+            name,
+            telescope,
+            (INT, local.type, state_type, *(item.type for item in carried)),
+            state_type,
+            signature.effects,
+        )
+        try:
+            self.registry.register_computation(helper)
+        except (KernelError, TypeError, ValueError) as error:
+            self._fail_kernel(node, error, fallback="qiec-program")
+        self.computation_signatures[name] = helper
+        path = ("programs", state.declaration.name, "scans", node.name)
+        counter = Local("__scan_k", INT)
+        length: Value = Reduction(
+            "sum",
+            Comprehension(
+                counter, extent, LiteralValue(1, INT), tensor_type(INT, (extent,))
+            ),
+            INT,
+        )
+        entry = Local("__scan_x", entry_type)
+        following = Local("__scan_next", state_type)
+        origin = _origin_at(self, path, "call", node)
+        recur = Call(
+            identity,
+            name,
+            statics,
+            (
+                self._primitive(
+                    "add_int",
+                    (Var(position), LiteralValue(1, INT)),
+                    node,
+                    (*path, "successor"),
+                ),
+                Var(sequence),
+                Var(following),
+                *(Var(item) for item in carried),
+            ),
+            state_type,
+            signature.effects,
+            origin,
+        )
+        body: Computation = If(
+            self._primitive(
+                "eq_int", (Var(position), length), node, (*path, "finished")
+            ),
+            Return(Var(current)),
+            Bind(
+                entry,
+                Return(Gather(Var(sequence), Var(position), entry_type)),
+                Bind(
+                    following,
+                    Call(
+                        signature.id,
+                        signature.name,
+                        (),
+                        (Var(entry), Var(current), *(Var(item) for item in carried)),
+                        state_type,
+                        signature.effects,
+                        _origin_at(self, (*path, "step"), "call", node),
+                    ),
+                    recur,
+                ),
+            ),
+        )
+        state.helpers.append(
+            self._checked_computation(
+                helper, (position, sequence, current, *carried), body, node, path
+            )
+        )
+        params = self.instances.get(PARAMS_INSTANCE)
+        assert state.random is not None and state.score is not None
+        for row_entry in signature.effects.entries:
+            if row_entry.instance == state.random.entry.instance:
+                state.uses_random = True
+            elif row_entry.instance == state.score.entry.instance:
+                state.uses_score = True
+            elif params is not None and row_entry.instance == params.entry.instance:
+                state.uses_params = True
+        initial: Value = _zero_of(state_type)
+        if init is not None:
+            learned = scope.lookup(init)
+            if learned is None:
+                learned = self._declare_parameter(
+                    init, state_type, "weight", scope, state, node
+                )
+            initial = Var(learned)
+        return Call(
+            identity,
+            name,
+            statics,
+            (
+                LiteralValue(0, INT),
+                Var(local),
+                initial,
+                *(Var(item) for item in passed),
+            ),
+            state_type,
+            signature.effects,
+            origin,
+        )
+
+    def _sequence_type(
+        self: _Elaborator, source: str, entry_type: TypeExpr, state: _ProgramState
+    ) -> TypeExpr:
+        """The type of a program input read as a sequence.
+
+        Parameters
+        ----------
+        source : str
+            The input's name.
+        entry_type : TypeExpr
+            The type of one position's entry.
+        state : _ProgramState
+            The program's accumulating state, which gains the extent.
+
+        Returns
+        -------
+        TypeExpr
+            A tensor with one entry per position of an open extent
+            named ``<source>_extent``.
+        """
+        binder = state.extents.get(f"{source}_extent")
+        if binder is None:
+            binder = IndexBinder(f"{source}_extent", NAT)
+            state.extents[binder.name] = binder
+        extent = IndexVariable(binder.name, binder.sort)
+        entry_shape = tensor_shape(entry_type)
+        if entry_shape is None:
+            return tensor_type(entry_type, (extent,))
+        return tensor_type(entry_shape[0], (extent, *entry_shape[1]))
+
     def _elaborate_call(
         self: _Elaborator, step: CallStep, scope: _Scope, state: _ProgramState
     ) -> None:
@@ -1864,6 +2280,7 @@ class _ProgramElaboration:
         path = ("programs", state.declaration.name, "calls", step.name)
         signature = self.computation_signatures.get(step.call.callee)
         extents: dict[str, IndexTerm] = {}
+        step = self._with_passed_inputs(step, scope, state, extents)
         for position, argument in enumerate(step.call.arguments):
             for name in _free_let_names(argument):
                 if scope.lookup(name) is not None or name in self._lambda_macros:
@@ -1906,6 +2323,58 @@ class _ProgramElaboration:
                     code="qiec-program",
                 )
         self._bind_step(scope, step.name, call.result_type, call, step)
+
+    def _with_passed_inputs(
+        self: _Elaborator,
+        step: CallStep,
+        scope: _Scope,
+        state: _ProgramState,
+        extents: dict[str, IndexTerm],
+    ) -> CallStep:
+        """Pass a called program's remaining inputs through the caller.
+
+        A program's computation takes every input the program reads:
+        its domain, and then its data, observations, fibrations, and
+        the numbers of its parameter maps. A call that supplies the
+        leading parameters alone passes the rest through: each becomes
+        an input of the caller under the callee's name and role, and
+        fills the callee's parameter.
+
+        Parameters
+        ----------
+        step : CallStep
+            The step.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+        extents : dict[str, IndexTerm]
+            The callee's index variables tied to extents of this
+            program so far, extended in place.
+
+        Returns
+        -------
+        CallStep
+            The step with the passed inputs appended to its arguments;
+            the step itself when the callee is not a program or the
+            call supplies every parameter.
+        """
+        entry = next(
+            (item for item in self.entries if item.name == step.call.callee), None
+        )
+        if entry is None or len(step.call.arguments) >= len(entry.parameters):
+            return step
+        passed = list(step.call.arguments)
+        for parameter in entry.parameters[len(step.call.arguments) :]:
+            if scope.lookup(parameter.name) is None:
+                type_ = self._passed_input_type(
+                    parameter.name, parameter.type, state, extents
+                )
+                self._declare_parameter(
+                    parameter.name, type_, parameter.role, scope, state, step
+                )
+            passed.append(LetExprVar(name=parameter.name))
+        return step.with_(call=step.call.with_(arguments=tuple(passed)))
 
     def _passed_input_type(
         self: _Elaborator,
@@ -3022,6 +3491,7 @@ class _ProgramElaboration:
             plate = self._annotated_plate(
                 record, step, morphism, plate, arguments, scope
             )
+            plate = self._broadcast_plate(record, step, plate, arguments, scope)
         if refinement is not None:
             arguments = [
                 (name, self._refined(value, refinement, plate, scope, step))
@@ -3281,6 +3751,74 @@ class _ProgramElaboration:
         if natural == tuple(axis.size for axis in plate.event):
             return plate
         return PlateShape((self._object_axis(step.index, step),), ())
+
+    def _broadcast_plate(
+        self: _Elaborator,
+        record: DistributionFamily,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        plate: PlateShape,
+        arguments: list[tuple[str, Value]],
+        scope: _Scope,
+    ) -> PlateShape:
+        """Read an unplated scalar family's plate off a tensor argument.
+
+        ``Normal(mu, 0.5)`` with ``mu`` a vector draws one coordinate
+        per entry of ``mu``, as the torch runtime broadcasts it: the
+        argument's axes are the batch, named after the argument when it
+        is a binding.
+
+        Parameters
+        ----------
+        record : DistributionFamily
+            The family.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        plate : PlateShape
+            The plate read off the step.
+        arguments : list[tuple[str, Value]]
+            The lowered arguments.
+        scope : _Scope
+            The scope.
+
+        Returns
+        -------
+        PlateShape
+            The plate unchanged when the step fixes one or the family
+            has an event; else the widest tensor argument's axes.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If two tensor arguments disagree in shape.
+        """
+        if plate.batch or plate.event or record.event_rank > 0:
+            return plate
+        ranks = {parameter.name: parameter.rank for parameter in record.parameters}
+        axes: tuple[PlateAxis, ...] | None = None
+        for name, value in arguments:
+            if ranks.get(name, 0) != 0:
+                continue
+            shape = tensor_shape(self._value_type(value, scope.context(), step))
+            if shape is None or not shape[1]:
+                continue
+            stem = value.local.name if isinstance(value, Var) else name
+            found = tuple(
+                PlateAxis(stem if index == 0 else f"{stem}_{index}", size)
+                for index, size in enumerate(shape[1])
+            )
+            if axes is None:
+                axes = found
+            elif tuple(axis.size for axis in axes) != tuple(
+                axis.size for axis in found
+            ):
+                self._fail(
+                    step,
+                    f"arguments of {record.name} broadcast over different shapes",
+                    code="qiec-program",
+                )
+        if axes is None:
+            return plate
+        return PlateShape(axes, ())
 
     def _axis(self: _Elaborator, name: str, node: object) -> PlateAxis:
         """A plate axis named by an object with a known extent.
@@ -4452,20 +4990,7 @@ class _ProgramElaboration:
             If the codomain has no real width, the conditioning row is
             not made of bindings, or its width differs from the domain's.
         """
-        codomain = morphism.codomain
-        info = (
-            self._program_objects.get(codomain.name)
-            if isinstance(codomain, TypeName)
-            else None
-        )
-        if info is None or info.real_width is None:
-            self._fail(
-                step,
-                f"morphism {step.morphism!r} maps its parameters onto a codomain with no "
-                "real width",
-                code="qiec-program",
-            )
-        width = info.real_width
+        width = self._head_width(record, morphism, step)
         heads = _CONDITIONAL_HEADS[record.name]
         finite = self._finite_domain(morphism)
         if finite is not None and len(step.args or ()) <= 1:
@@ -4657,14 +5182,125 @@ class _ProgramElaboration:
                 tuple(sources),
                 index * width,
                 width,
-                transform,
+                _map_transform(transform),
                 result,
             )
+            head = self._transformed_head(head, transform, width, step, state, name)
             if batched:
                 assert rows_axis is not None
                 head = _per_row(head, width, row, rows_axis)
             arguments.append((name, head))
         return arguments
+
+    def _head_width(
+        self: _Elaborator,
+        record: DistributionFamily,
+        morphism: MorphismDecl,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+    ) -> int:
+        """The width of one head of a kernel morphism's parameter map.
+
+        Parameters
+        ----------
+        record : DistributionFamily
+            The family.
+        morphism : MorphismDecl
+            The morphism.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+
+        Returns
+        -------
+        int
+            The codomain's real width, or, for a family whose head is a
+            row of logits, the number of the codomain's elements, one
+            for a two-element codomain of ``Bernoulli``.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the codomain has no width the head can fill.
+        """
+        codomain = morphism.codomain
+        info = (
+            self._program_objects.get(codomain.name)
+            if isinstance(codomain, TypeName)
+            else None
+        )
+        if record.name in _LOGIT_HEAD_FAMILIES:
+            if info is None or not info.finite or info.extent is None:
+                self._fail(
+                    step,
+                    f"morphism {step.morphism!r} draws from {record.name} onto a "
+                    "codomain that is not a finite object",
+                    code="qiec-program",
+                )
+            if record.name == "Bernoulli":
+                if info.extent != 2:
+                    self._fail(
+                        step,
+                        f"morphism {step.morphism!r} draws from Bernoulli onto a "
+                        f"codomain of {info.extent} elements, not two",
+                        code="qiec-program",
+                    )
+                return 1
+            return info.extent
+        if info is None or info.real_width is None:
+            self._fail(
+                step,
+                f"morphism {step.morphism!r} maps its parameters onto a codomain with no "
+                "real width",
+                code="qiec-program",
+            )
+        return info.real_width
+
+    def _transformed_head(
+        self: _Elaborator,
+        head: Value,
+        transform: HeadTransform,
+        width: int,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        state: _ProgramState,
+        name: str,
+    ) -> Value:
+        """Apply a head's transform the map itself does not carry.
+
+        Parameters
+        ----------
+        head : Value
+            The head, read as it is off the map.
+        transform : HeadTransform
+            The head's transform.
+        width : int
+            The head's width.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        state : _ProgramState
+            The program's accumulating state.
+        name : str
+            The family parameter the head fills.
+
+        Returns
+        -------
+        Value
+            The head under a softplus lifted or shifted, under a
+            sigmoid, or unchanged when the map carries the transform.
+        """
+        if transform in ("identity", "exp_floor"):
+            return head
+        path = ("programs", state.declaration.name, "heads", step.morphism, name)
+        shape: tuple[IndexTerm, ...] | None = None if width == 1 else (_extent(width),)
+        if transform == "sigmoid":
+            return self._primitive("sigmoid", (head,), step, path, shape)
+        lifted = self._primitive("softplus", (head,), step, (*path, "softplus"), shape)
+        offset = SOFTPLUS_LIFT if transform == "softplus" else SOFTPLUS_SHIFT
+        return self._primitive(
+            "add_real",
+            (lifted, LiteralValue(offset, REAL)),
+            step,
+            (*path, "offset"),
+            shape,
+        )
 
     def _hidden_widths(
         self: _Elaborator, morphism: MorphismDecl, node: object
@@ -4794,7 +5430,7 @@ class _ProgramElaboration:
         self: _Elaborator,
         morphism: MorphismDecl,
         step: SampleStep | ObserveStep | MarginalizeStep,
-        heads: tuple[tuple[str, Literal["identity", "exp_floor"]], ...],
+        heads: tuple[tuple[str, HeadTransform], ...],
         width: int,
         finite: tuple[str, int],
         plate: PlateShape,
@@ -4919,9 +5555,10 @@ class _ProgramElaboration:
                 index_value,
                 index * width,
                 width,
-                transform,
+                _map_transform(transform),
                 result,
             )
+            value = self._transformed_head(value, transform, width, step, state, head)
             if batched:
                 assert rows_axis is not None
                 value = _per_row(value, width, row, rows_axis)

@@ -395,6 +395,38 @@ the head of a chain each read their own factor of the program's domain.
 The expanded module declares every replica and copy, so the entry's
 inputs name each one.
 
+The heads a kernel morphism's map fills follow the torch runtime's
+parameterization of the same kernel, family by family: a location is
+read as it is, a scale exponentiated and clamped at the scale floor, a
+rate or concentration through a softplus lifted off zero or shifted by
+a tenth, a probability through a sigmoid, and the logits of
+`Categorical` or `Bernoulli` as one row over the codomain's elements.
+A scalar family applied to a vector, `Normal(mu, 0.5)` with `mu` a
+`Tensor[Real]([3])`, draws one coordinate per entry, the argument's
+axes being the plate. A program calling a program with its domain
+arguments alone, `let y <- inner(x)`, passes the callee's remaining
+inputs through: each becomes an input of the caller under the callee's
+name and role.
+
+A `scan` in a chain, `sample h <- tok_embed >> scan(cell)`, expands to a
+step program `<cell>__scan_step(x_t, h_prev)`, which draws the chain's
+elements before the scan at one position's entry and applies the cell
+to the result and the previous state, and to `let h = scan(<step>, xs)`
+over the chain's input. The scanned input is a sequence, one entry per
+position of an open extent the program binds, so a scanned domain
+factor `Token` reads as `Tensor[Int]([token_extent])`. The let
+elaborates to a helper computation `<program>__<h>_scan(t, xs, h, ...)`
+that answers `h` once `t` reaches the sequence's length and otherwise
+calls the step at `xs[t]` and recurs at `t + 1`, carrying the step's
+inputs along; the initial state is zero, or, under `init=learned`, a
+`weight` input `<cell>_scan_init`. The step's sites are reached
+once per position, and `run_program` replays the `n`-th occurrence of
+a site from the value keyed `"<site>@<n>"`, so the reference machine
+scores the trajectory the torch runtime's `ScanMorphism.log_joint`
+scores. No transpile target has a lowering that keeps the measure, since
+the sequence axis is not an object the module declares, and the
+boundary refuses the scan with `scan:no-lowering:<cell>`.
+
 Logic programming uses the same handler and resumption rules:
 
 <!-- compile: qiec -->
