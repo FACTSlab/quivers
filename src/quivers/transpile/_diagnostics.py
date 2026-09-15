@@ -1188,6 +1188,45 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
     )
 
 
+def _render_embed_kind(backend: str, tail: str, explained: bool) -> str:
+    """`embed:<name>` -- a draw through an embedding morphism, whose
+    centres and scales are learned tables rather than sites the program
+    declares.
+
+    Parameters
+    ----------
+    backend : str
+        The target the refusal is reported for.
+    tail : str
+        The morphism's name.
+    explained : bool
+        Whether the raise site's own account follows the headline.
+
+    Returns
+    -------
+    str
+        The rendered explanation.
+    """
+    headline = (
+        f"the morphism `{tail}` is an embedding, a Normal kernel placed at "
+        f"each element's learned centre, whose centres and scales are not "
+        f"sites the program declares"
+    )
+    if explained:
+        return headline
+    unable = (
+        "no target can reconstruct"
+        if backend in _STAGE_TARGETS
+        else f"{_language(backend)} cannot reconstruct"
+    )
+    return (
+        f"{headline}, so {unable} the kernel it draws from. Sample the "
+        f"centres and scales as explicit sites indexed by the element, or "
+        f"write the step as a `sample` / `observe` against a closed-form "
+        f"family."
+    )
+
+
 def _render_program_kind(backend: str, tail: str, explained: bool) -> str:
     """`program:<reason>[:<name>]` -- something about the program as a
     whole rather than about one step."""
@@ -1672,6 +1711,8 @@ def _render_head(
         return _render_plate_kind(backend, tail, explained)
     if head == "param-source":
         return _render_param_source_kind(backend, tail, explained)
+    if head == "embed":
+        return _render_embed_kind(backend, tail, explained)
     if head == "program":
         return _render_program_kind(backend, tail, explained)
     if head == "program-domain":

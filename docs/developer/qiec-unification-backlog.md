@@ -693,13 +693,13 @@ every entry-point program (a program without object or morphism template
 parameters) before `Lower` builds its plan, and `Lower.forward` and
 `transpile` refuse a program the elaboration rejects. Two program constructs
 have no elaboration yet and are reported under the diagnostic code
-`qiec-program-gap` rather than approximated: a deduction chart (`parse`,
-`chart_fold`, a chart method call), which QVR-090 brings into the calculus,
-and a morphism parameterized by a network (`param-source:mlp` and kin), which
-QVR-100 does. For such a program the transpile boundary and `Compiler` lower
-the module again without its programs and record the gap on the module
-(`QiecModule.gap`), so the program reaches the renderer through its plan
-alone until those packages land. `Lower` still builds `IRProgram.body` from
+`qiec-program-gap` rather than approximated: the schema chart parser
+(`chart_fold`, a chart method call on a parser bundle), and a `scan`
+recurrence, whose sequence axis arrives with the data. For such a program the
+transpile boundary and `Compiler` lower the module again without its
+programs and record the gap on the module (`QiecModule.gap`), so the program
+reaches the renderer through its plan alone until those constructs land.
+`Lower` still builds `IRProgram.body` from
 the source after the elaboration has checked it; deriving the plan from the
 checked module is QVR-110. `Compiler.qiec_module` is the compiler's one
 checked-module product, and `Program.qiec` carries the same object on the
@@ -860,6 +860,26 @@ package and stays with QVR-100.
 - Gradients reach attached parameters in PyTorch-backed execution.
 - A target without the required neural facility rejects the exact call or
   effect with a source-located diagnostic.
+
+**Transition state:** a kernel morphism's parameter map is part of the
+program's computation: `src/quivers/dsl/program_elaboration.py` reads the
+map's learned tensors as typed inputs (`weight`, `bias`, `table` roles) and
+composes affine maps, `tanh` layers for `[param_source=mlp]`, table lookups
+for kernels over finite domains and `[role=embed]` embeddings, and per-row
+comprehensions under a plate, so a neural conditional distribution is one
+checked term whose inputs match the torch runtime's `MLPSource` and `Embed`
+parameters shape for shape. `src/quivers/dsl/composite_lets.py` expands a
+draw from a composite into one site per factor, declaring the replicas of a
+`[replicate=k]` morphism and the copies a `stack` makes as morphisms of the
+expanded module, threading the step's row into the chain's head and a tensor
+product's factors into its branches. The transpile targets keep refusing
+network and embedding kernels at the boundary (`param-source:<kind>`,
+`embed:<name>`) since their tensors have no spelling in the wire form.
+Gradients reach the parameters through the effects route, where the torch
+runtime's morphisms are the host values of the kernel computation. Open:
+`scan` recurrences (the sequence axis is not an object the module declares),
+the schema chart parser, and the encoder, decoder, and loss declarations of
+the structural package.
 
 ### QVR-110 — Replace the split transpiler IR
 

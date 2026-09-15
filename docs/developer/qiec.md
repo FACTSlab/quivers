@@ -366,6 +366,35 @@ A run reads each extent off the data, a call step from another program
 takes the extent as its own, and an authored computation names it with an
 index literal, `prog[3](alpha)`.
 
+A draw through a declared kernel morphism reads the family's parameters
+off the morphism's parameter map, whose learned tensors are typed
+program inputs with the roles `weight`, `bias`, and `table`: a kernel
+with a real domain applies an affine map to its conditioning row, the
+step's arguments or the program's domain inputs, and the heads of the
+family read their row blocks; a kernel over a finite domain reads a row
+of a table at the element the step names. A morphism carrying
+`[param_source=mlp]` interposes hidden layers, each an affine map
+followed by `tanh`, with the widths the option spells (`mlp(a, b)`, or
+`hidden_dim`, or two layers of sixty-four), and its inputs
+`<m>_param_layer<i>_weight` and `<m>_param_layer<i>_bias` match the shapes
+of the torch runtime's `MLPSource` layer by layer. An embedding
+morphism, `[role=embed]`, is a Normal kernel over its finite domain whose
+table concatenates the centres and log scales the torch runtime learns.
+Under a plate the map applies at every row: an unbound conditioning name
+of `observe y : Resp <- net(x)` becomes a `Tensor[Real]([|Resp|, width])`
+data input, an unbound index of an embedding a `Tensor[Int]([|Resp|])`,
+and each head is a comprehension over the rows. A composite drawn from
+in one step, `sample h <- embed >> fan(head) >> out`, expands into one
+site per factor before elaboration: `fan` over a `[replicate=k]`
+morphism draws through each replica `head_0` through `head_{k-1}` and
+bundles the draws, a kernel conditioned on a bundle reads its rows in
+order, `stack(block, n)` composes `n` copies whose morphisms past the
+first are declared afresh under `_copy<i>` names with parameters of
+their own, and the branches of a tensor product `encoder @ decoder` at
+the head of a chain each read their own factor of the program's domain.
+The expanded module declares every replica and copy, so the entry's
+inputs name each one.
+
 Logic programming uses the same handler and resumption rules:
 
 <!-- compile: qiec -->

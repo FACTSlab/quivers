@@ -54,11 +54,13 @@ from quivers.dsl.ast_nodes import (
     ObjectExpr,
     ObjectProduct,
     ObserveStep,
+    OptionCall,
     OptionEntry,
     OptionList,
     OptionName,
     OptionNumber,
     OptionString,
+    OptionValue,
     ProgramDecl,
     ProgramStep,
     ReturnStep,
@@ -123,6 +125,7 @@ from quivers.qiec.terms import (
     AffineMap,
     Bind,
     Call,
+    Comprehension,
     Computation,
     DistributionValue,
     Gather,
@@ -170,7 +173,7 @@ from quivers.dsl.step_resolution import (
     ResolvedDist,
     StepResolutionError,
     build_let_table,
-    build_morphism_table,
+    morphism_table,
     resolve_step_dist,
 )
 
@@ -349,6 +352,110 @@ class _Scope:
         for item in reversed(chain):
             locals_.extend(item.locals.values())
         return CheckContext(tuple(locals_))
+
+
+def _rows_axis(
+    plate: PlateShape, step: SampleStep | ObserveStep | MarginalizeStep
+) -> PlateAxis | None:
+    """The plate axis a kernel's parameters vary along, if any.
+
+    Parameters
+    ----------
+    plate : PlateShape
+        The distribution's plate.
+    step : SampleStep | ObserveStep | MarginalizeStep
+        The step.
+
+    Returns
+    -------
+    PlateAxis | None
+        The leading batch axis when the step's ``: Axis`` annotation
+        names it, else ``None``.
+    """
+    if (
+        plate.batch
+        and isinstance(step.index, TypeName)
+        and plate.batch[0].name == step.index.name
+    ):
+        return plate.batch[0]
+    return None
+
+
+def _per_row(head: Value, width: int, row: Local, rows_axis: PlateAxis) -> Value:
+    """A parameter head evaluated at every row of a plate.
+
+    The plate's trailing axis is the codomain's width, so a per-row
+    head keeps that axis even at width one.
+
+    Parameters
+    ----------
+    head : Value
+        The head at one row, reading the row through ``row``.
+    width : int
+        The head's width.
+    row : Local
+        The ``Int`` local the head reads the row through.
+    rows_axis : PlateAxis
+        The plate axis of the rows.
+
+    Returns
+    -------
+    Value
+        A ``Tensor[Real]([rows, width])`` comprehension.
+    """
+    if width == 1:
+        head = TensorValue((head,), tensor_type(REAL, (_extent(1),)))
+    return Comprehension(
+        row,
+        rows_axis.size,
+        head,
+        tensor_type(REAL, (rows_axis.size, _extent(width))),
+    )
+
+
+def _bare_init_family(morphism: MorphismDecl) -> str | None:
+    """The family a morphism's bare ``~ Family`` initializer names.
+
+    Parameters
+    ----------
+    morphism : MorphismDecl
+        The morphism.
+
+    Returns
+    -------
+    str | None
+        The family's name when the initializer is a family with no
+        arguments, written as a call or as a bare identifier; ``None``
+        otherwise.
+    """
+    init = morphism.init_family
+    if init is not None:
+        return init.family if not init.args else None
+    if isinstance(morphism.init_expr, ExprIdent):
+        return morphism.init_expr.name
+    return None
+
+
+def _option_entry(options: tuple[OptionEntry, ...], key: str) -> OptionValue | None:
+    """Read an option's value off an option block.
+
+    Parameters
+    ----------
+    options : tuple[OptionEntry, ...]
+        The block.
+    key : str
+        The option's key.
+
+    Returns
+    -------
+    OptionValue | None
+        The value of the first entry under the key, or ``None`` when
+        absent.
+    """
+    for entry in options:
+        if entry.key == key:
+            return entry.value
+    return None
 
 
 def _option_value(options: tuple[OptionEntry, ...], key: str) -> str | float | None:
@@ -767,7 +874,7 @@ class _ProgramElaboration:
             return ()
         try:
             expanded = expand_composite_lets(self.source.syntax)
-            self._program_morphisms = build_morphism_table(expanded)
+            self._program_morphisms = morphism_table(expanded)
         except StepResolutionError as error:
             self._fail(
                 declarations[0],
@@ -2852,11 +2959,14 @@ class _ProgramElaboration:
                     target="qvr-qiec",
                 )
             except StepResolutionError as error:
-                self._fail(
-                    step,
-                    "; ".join(error.kinds),
-                    code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
-                )
+                network = self._network_kernel(step, error.kinds)
+                if network is None:
+                    self._fail(
+                        step,
+                        "; ".join(error.kinds),
+                        code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
+                    )
+                resolved = network
         family_name = OPERATOR_ALIASES.get(resolved.family, resolved.family)
         record = FAMILIES.get(family_name)
         if record is None:
@@ -4283,18 +4393,14 @@ class _ProgramElaboration:
             heads the option block writes.
         """
         role = _option_value(morphism.options, "role")
+        if role == "embed":
+            return family == "Normal"
         if role is not None and role != "kernel":
             return False
         heads = _CONDITIONAL_HEADS.get(family)
         if heads is None:
             return False
-        init = morphism.init_family
-        bare = (init is not None and init.family == family and not init.args) or (
-            init is None
-            and isinstance(morphism.init_expr, ExprIdent)
-            and morphism.init_expr.name == family
-        )
-        if not bare:
+        if _bare_init_family(morphism) != family:
             return False
         names = {head for head, _ in heads}
         return not any(
@@ -4346,7 +4452,6 @@ class _ProgramElaboration:
             If the codomain has no real width, the conditioning row is
             not made of bindings, or its width differs from the domain's.
         """
-        del plate
         codomain = morphism.codomain
         info = (
             self._program_objects.get(codomain.name)
@@ -4363,12 +4468,29 @@ class _ProgramElaboration:
         width = info.real_width
         heads = _CONDITIONAL_HEADS[record.name]
         finite = self._finite_domain(morphism)
-        if finite is not None and not step.args:
+        if finite is not None and len(step.args or ()) <= 1:
             return self._table_arguments(
-                morphism, step, heads, width, finite, scope, state
+                morphism, step, heads, width, finite, plate, scope, state
             )
+        declared = 0
+        for factor in _factors(morphism.domain):
+            factor_info = (
+                self._program_objects.get(factor.name)
+                if isinstance(factor, TypeName)
+                else None
+            )
+            if factor_info is None or factor_info.real_width is None:
+                self._fail(
+                    step,
+                    f"morphism {step.morphism!r} has a domain factor with no real width",
+                    code="qiec-program",
+                )
+            declared += factor_info.real_width
+        rows_axis = _rows_axis(plate, step)
         sources: list[Value] = []
         widths: list[int] = []
+        batched = False
+        row = Local(f"__{step.morphism}_row", INT)
         if step.args:
             for argument in step.args:
                 if not isinstance(argument, DrawArgName):
@@ -4379,27 +4501,71 @@ class _ProgramElaboration:
                     )
                 local = scope.lookup(argument.text)
                 if local is None:
-                    self._fail(
+                    if rows_axis is None or len(step.args) != 1:
+                        self._fail(
+                            step,
+                            f"conditioning binding {argument.text!r} is not bound",
+                            code="qiec-program",
+                        )
+                    # An unbound conditioning name under a plate is a
+                    # data input with one row of the morphism's domain
+                    # per position of the plate.
+                    local = self._declare_parameter(
+                        argument.text,
+                        tensor_type(REAL, (rows_axis.size, _extent(declared))),
+                        "data",
+                        scope,
+                        state,
                         step,
-                        f"conditioning binding {argument.text!r} is not bound",
-                        code="qiec-program",
                     )
                 shape = tensor_shape(local.type)
                 if local.type == REAL:
                     widths.append(1)
+                    sources.append(Var(local))
                 elif (
                     shape is not None
                     and len(shape[1]) == 1
                     and isinstance(shape[1][0], IndexLiteral)
                 ):
                     widths.append(int(shape[1][0].value))
+                    sources.append(Var(local))
+                elif (
+                    shape is not None
+                    and rows_axis is not None
+                    and len(shape[1]) == 2
+                    and shape[1][0] == rows_axis.size
+                    and isinstance(shape[1][1], IndexLiteral)
+                ):
+                    # A row of the binding per position of the plate:
+                    # the map applies at each row.
+                    batched = True
+                    widths.append(int(shape[1][1].value))
+                    sources.append(
+                        Gather(Var(local), Var(row), tensor_type(REAL, (shape[1][1],)))
+                    )
+                elif (
+                    shape is not None
+                    and len(shape[1]) == 2
+                    and isinstance(shape[1][0], IndexLiteral)
+                    and isinstance(shape[1][1], IndexLiteral)
+                ):
+                    # A bundle of rows, as a fan or a product leaves
+                    # behind, conditions on the rows in order.
+                    for position in range(int(shape[1][0].value)):
+                        widths.append(int(shape[1][1].value))
+                        sources.append(
+                            Gather(
+                                Var(local),
+                                LiteralValue(position, INT),
+                                tensor_type(REAL, (shape[1][1],)),
+                            )
+                        )
                 else:
                     self._fail(
                         step,
                         f"conditioning binding {argument.text!r} has no static width",
                         code="qiec-program",
                     )
-                sources.append(Var(local))
         else:
             for name, role in state.parameters:
                 if role != "domain":
@@ -4415,20 +4581,6 @@ class _ProgramElaboration:
                     continue
                 widths.append(int(shape[1][0].value))
                 sources.append(Var(local))
-        declared = 0
-        for factor in _factors(morphism.domain):
-            factor_info = (
-                self._program_objects.get(factor.name)
-                if isinstance(factor, TypeName)
-                else None
-            )
-            if factor_info is None or factor_info.real_width is None:
-                self._fail(
-                    step,
-                    f"morphism {step.morphism!r} has a domain factor with no real width",
-                    code="qiec-program",
-                )
-            declared += factor_info.real_width
         if declared != sum(widths):
             self._fail(
                 step,
@@ -4436,10 +4588,51 @@ class _ProgramElaboration:
                 f"conditioned on {sum(widths)} coordinates",
                 code="qiec-program",
             )
+        # A network's hidden layers each read the previous layer's
+        # activations through an affine map followed by a tanh; the
+        # family's heads read the last layer.
+        fan_in = declared
+        for depth, hidden in enumerate(self._hidden_widths(morphism, step)):
+            layer_weight = self._declare_parameter(
+                f"{step.morphism}_param_layer{depth}_weight",
+                tensor_type(REAL, (_extent(hidden), _extent(fan_in))),
+                "weight",
+                scope,
+                state,
+                step,
+            )
+            layer_bias = self._declare_parameter(
+                f"{step.morphism}_param_layer{depth}_bias",
+                tensor_type(REAL, (_extent(hidden),)),
+                "bias",
+                scope,
+                state,
+                step,
+            )
+            hidden_type = tensor_type(REAL, (_extent(hidden),))
+            activation = self._primitive(
+                "tanh",
+                (
+                    AffineMap(
+                        Var(layer_weight),
+                        Var(layer_bias),
+                        tuple(sources),
+                        0,
+                        hidden,
+                        "identity",
+                        hidden_type,
+                    ),
+                ),
+                step,
+                ("programs", state.declaration.name, "layers", step.morphism, depth),
+                (_extent(hidden),),
+            )
+            sources = [activation]
+            fan_in = hidden
         rows = width * len(heads)
         weight = self._declare_parameter(
             f"{step.morphism}_param_weight",
-            tensor_type(REAL, (_extent(rows), _extent(declared))),
+            tensor_type(REAL, (_extent(rows), _extent(fan_in))),
             "weight",
             scope,
             state,
@@ -4458,21 +4651,120 @@ class _ProgramElaboration:
             result: TypeExpr = (
                 REAL if width == 1 else tensor_type(REAL, (_extent(width),))
             )
-            arguments.append(
-                (
-                    name,
-                    AffineMap(
-                        Var(weight),
-                        Var(bias),
-                        tuple(sources),
-                        index * width,
-                        width,
-                        transform,
-                        result,
-                    ),
-                )
+            head: Value = AffineMap(
+                Var(weight),
+                Var(bias),
+                tuple(sources),
+                index * width,
+                width,
+                transform,
+                result,
             )
+            if batched:
+                assert rows_axis is not None
+                head = _per_row(head, width, row, rows_axis)
+            arguments.append((name, head))
         return arguments
+
+    def _hidden_widths(
+        self: _Elaborator, morphism: MorphismDecl, node: object
+    ) -> tuple[int, ...]:
+        """The hidden layer widths a network-parameterized morphism declares.
+
+        Parameters
+        ----------
+        morphism : MorphismDecl
+            The morphism.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        tuple[int, ...]
+            Empty for a linear map; for ``[param_source=mlp]`` the
+            widths ``mlp(a, b, ...)`` lists, else the ``hidden_dim``
+            option's one width or list of widths, else two layers of
+            sixty-four.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a width is not a positive integer.
+        """
+        source = _option_entry(morphism.options, "param_source")
+        if source is None:
+            return ()
+        kind = (
+            source.func
+            if isinstance(source, OptionCall)
+            else source.value
+            if isinstance(source, OptionName)
+            else None
+        )
+        if kind != "mlp":
+            return ()
+        raw: list[OptionValue] = []
+        if isinstance(source, OptionCall) and source.args:
+            raw = list(source.args)
+        else:
+            hidden = _option_entry(morphism.options, "hidden_dim")
+            if isinstance(hidden, OptionList):
+                raw = list(hidden.items)
+            elif hidden is not None:
+                raw = [hidden]
+        if not raw:
+            return (64, 64)
+        widths: list[int] = []
+        for item in raw:
+            if not isinstance(item, OptionNumber) or not float(item.value).is_integer():
+                self._fail(
+                    node,
+                    f"morphism {morphism.names[0]!r} declares a hidden width that is "
+                    "not an integer",
+                    code="qiec-program",
+                )
+            widths.append(int(item.value))
+        return tuple(widths)
+
+    def _network_kernel(
+        self: _Elaborator,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        kinds: Sequence[str],
+    ) -> ResolvedDist | None:
+        """Resolve a draw through a network-parameterized kernel morphism.
+
+        The resolver refuses a morphism whose parameters come from a
+        network or an embedding table, since no transpile target can
+        read them; the elaboration reads them as typed inputs and maps
+        them through the network's layers, so a multilayer perceptron
+        with a bare family initializer resolves to that family, and an
+        embedding to the Gaussian kernel at each element's centre.
+
+        Parameters
+        ----------
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        kinds : Sequence[str]
+            The resolver's structured kinds.
+
+        Returns
+        -------
+        ResolvedDist | None
+            The family the morphism draws from, or ``None`` when the
+            refusal is neither a perceptron nor an embedding at the
+            site itself.
+        """
+        morphism = self._program_morphisms.get(step.morphism)
+        if morphism is None:
+            return None
+        if f"embed:{step.morphism}" in kinds:
+            return ResolvedDist("Normal", (), step.morphism)
+        if "param-source:mlp" not in kinds:
+            return None
+        family = _bare_init_family(morphism)
+        if family is None or family not in _CONDITIONAL_HEADS:
+            return None
+        return ResolvedDist(family, (), step.morphism)
 
     def _finite_domain(
         self: _Elaborator, morphism: MorphismDecl
@@ -4505,14 +4797,18 @@ class _ProgramElaboration:
         heads: tuple[tuple[str, Literal["identity", "exp_floor"]], ...],
         width: int,
         finite: tuple[str, int],
+        plate: PlateShape,
         scope: _Scope,
         state: _ProgramState,
     ) -> list[tuple[str, Value]]:
         """The arguments of a draw through a kernel over a finite domain.
 
         The morphism's table is a program input with one row per
-        element of the domain and one column per head coordinate; the
-        program's domain input names the row.
+        element of the domain and one column per head coordinate. The
+        step's one argument names the row: a bound ``Int``, a name of
+        the program's domain, or, under a plate, a ``Tensor[Int]`` with
+        one element per position, which reads a row per position.
+        Without an argument the program's domain input names the row.
 
         Parameters
         ----------
@@ -4526,6 +4822,8 @@ class _ProgramElaboration:
             The codomain's real width.
         finite : tuple[str, int]
             The domain object's name and extent.
+        plate : PlateShape
+            The distribution's plate.
         scope : _Scope
             The scope.
         state : _ProgramState
@@ -4535,12 +4833,73 @@ class _ProgramElaboration:
         -------
         list[tuple[str, Value]]
             One table head per family parameter.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument is not a binding, is unbound and not a
+            domain name, or is not an index.
         """
         del morphism
         name, extent = finite
-        element = self._declare_parameter(
-            name.lower(), INT, "domain", scope, state, step
-        )
+        rows_axis = _rows_axis(plate, step)
+        row = Local(f"__{step.morphism}_row", INT)
+        index_value: Value
+        batched = False
+        if step.args:
+            argument = step.args[0]
+            if not isinstance(argument, DrawArgName):
+                self._fail(
+                    step,
+                    f"morphism {step.morphism!r} conditions on a value, not a "
+                    f"{argument.kind} argument",
+                    code="qiec-program",
+                )
+            local = scope.lookup(argument.text)
+            if local is None:
+                if argument.text in self._domain_names(state.declaration):
+                    local = self._declare_parameter(
+                        argument.text, INT, "domain", scope, state, step
+                    )
+                elif rows_axis is not None:
+                    # An unbound index under a plate is a data input
+                    # with one element of the domain per position.
+                    local = self._declare_parameter(
+                        argument.text,
+                        tensor_type(INT, (rows_axis.size,)),
+                        "data",
+                        scope,
+                        state,
+                        step,
+                    )
+                else:
+                    self._fail(
+                        step,
+                        f"conditioning binding {argument.text!r} is not bound",
+                        code="qiec-program",
+                    )
+            shape = tensor_shape(local.type)
+            if local.type == INT:
+                index_value = Var(local)
+            elif (
+                shape is not None
+                and shape[0] == INT
+                and rows_axis is not None
+                and len(shape[1]) == 1
+                and shape[1][0] == rows_axis.size
+            ):
+                batched = True
+                index_value = Gather(Var(local), Var(row), INT)
+            else:
+                self._fail(
+                    step,
+                    f"conditioning binding {argument.text!r} is not an index of {name}",
+                    code="qiec-program",
+                )
+        else:
+            index_value = Var(
+                self._declare_parameter(name.lower(), INT, "domain", scope, state, step)
+            )
         rows = width * len(heads)
         table = self._declare_parameter(
             f"{step.morphism}_param_table",
@@ -4555,20 +4914,41 @@ class _ProgramElaboration:
             result: TypeExpr = (
                 REAL if width == 1 else tensor_type(REAL, (_extent(width),))
             )
-            arguments.append(
-                (
-                    head,
-                    TableMap(
-                        Var(table),
-                        Var(element),
-                        index * width,
-                        width,
-                        transform,
-                        result,
-                    ),
-                )
+            value: Value = TableMap(
+                Var(table),
+                index_value,
+                index * width,
+                width,
+                transform,
+                result,
             )
+            if batched:
+                assert rows_axis is not None
+                value = _per_row(value, width, row, rows_axis)
+            arguments.append((head, value))
         return arguments
+
+    def _domain_names(self: _Elaborator, declaration: ProgramDecl) -> tuple[str, ...]:
+        """The names a program's domain factors are read through.
+
+        Parameters
+        ----------
+        declaration : ProgramDecl
+            The program.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The declared parameter names when the program names them,
+            else each named factor's object name in lowercase.
+        """
+        if declaration.params is not None:
+            return tuple(declaration.params)
+        return tuple(
+            factor.name.lower()
+            for factor in _factors(declaration.domain)
+            if isinstance(factor, TypeName)
+        )
 
     def _structured_arguments(
         self: _Elaborator,

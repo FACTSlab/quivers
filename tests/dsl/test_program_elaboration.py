@@ -15,6 +15,8 @@ import pytest
 import torch
 import torch.distributions as td
 
+from quivers.continuous.morphisms import SampledComposition
+from quivers.continuous.programs import MonadicProgram
 from quivers.dsl import Compiler, parse
 from quivers.dsl.compiler import CompileError
 from quivers.dsl.emit import module_to_source
@@ -958,4 +960,332 @@ def test_a_kernel_over_a_finite_domain_reads_its_table() -> None:
     loc = torch.tensor(rows[2][:2])
     scale = torch.tensor(rows[2][2:]).exp()
     closed = td.Normal(loc, scale).log_prob(torch.tensor([0.5, 0.1])).sum()
+    assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
+
+
+NETWORK_KERNEL = """\
+object Feature : Real 2
+object Target : Real 1
+object Resp : FinSet 6
+morphism net : Feature -> Target [param_source=mlp(5, 3)] ~ Normal
+program prog : Resp -> Target
+    observe y : Resp <- net(x)
+    return y
+export prog
+"""
+
+
+def _nested(value: torch.Tensor) -> object:
+    """A tensor as nested tuples of floats.
+
+    Parameters
+    ----------
+    value : torch.Tensor
+        The tensor.
+
+    Returns
+    -------
+    object
+        Nested tuples down to floats, or a float for a scalar.
+    """
+    if value.dim() == 0:
+        return float(value)
+    return tuple(_nested(row) for row in value)
+
+
+def _network_data(
+    parameters: dict[str, torch.Tensor], prefix: str, morphism: str, depth: int
+) -> dict[str, object]:
+    """The program inputs a torch multilayer perceptron's weights fill.
+
+    Parameters
+    ----------
+    parameters : dict[str, torch.Tensor]
+        The classic program's named parameters.
+    prefix : str
+        The parameter prefix of the perceptron's ``net`` sequential.
+    morphism : str
+        The morphism the inputs belong to.
+    depth : int
+        The number of hidden layers.
+
+    Returns
+    -------
+    dict[str, object]
+        The hidden layers' and the heads' weights and biases by input
+        name.
+    """
+    data: dict[str, object] = {}
+    for layer in range(depth):
+        data[f"{morphism}_param_layer{layer}_weight"] = _nested(
+            parameters[f"{prefix}{2 * layer}.weight"]
+        )
+        data[f"{morphism}_param_layer{layer}_bias"] = _nested(
+            parameters[f"{prefix}{2 * layer}.bias"]
+        )
+    data[f"{morphism}_param_weight"] = _nested(
+        parameters[f"{prefix}{2 * depth}.weight"]
+    )
+    data[f"{morphism}_param_bias"] = _nested(parameters[f"{prefix}{2 * depth}.bias"])
+    return data
+
+
+def test_a_network_kernel_reads_its_layers_at_every_row() -> None:
+    torch.manual_seed(1)
+    program = Compiler(parse(NETWORK_KERNEL)).compile()
+    monadic = program._morphism
+    assert isinstance(monadic, MonadicProgram)
+    parameters = {name: value.detach() for name, value in monadic.named_parameters()}
+    assert [tuple(value.shape) for value in parameters.values()] == [
+        (5, 2),
+        (5,),
+        (3, 5),
+        (3,),
+        (2, 3),
+        (2,),
+    ]
+    torch.manual_seed(0)
+    x = torch.randn(6, 2)
+    y = torch.randn(6, 1)
+    classic = trace(monadic, torch.zeros(6, 1), observations={"y": y, "x": x}).log_joint
+    assert classic is not None
+    classic = classic.detach()
+    module = _module(NETWORK_KERNEL)
+    assert loads(dumps(module)) == module
+    entry = program_entry(module, "prog")
+    assert [(parameter.name, parameter.role) for parameter in entry.parameters] == [
+        ("x", "data"),
+        ("net_param_layer0_weight", "weight"),
+        ("net_param_layer0_bias", "bias"),
+        ("net_param_layer1_weight", "weight"),
+        ("net_param_layer1_bias", "bias"),
+        ("net_param_weight", "weight"),
+        ("net_param_bias", "bias"),
+        ("y", "observation"),
+    ]
+    assert render_static(entry.parameters[-1].type) == "Tensor[Real]([6, 1])"
+    assert render_static(entry.parameters[0].type) == "Tensor[Real]([6, 2])"
+    data = _network_data(parameters, "_step_y._family.param_source.net.", "net", 2)
+    run = run_program(
+        module, "prog", data={"x": _nested(x), "y": _nested(y), **data}, sites={}
+    )
+    assert run.log_joint == pytest.approx(float(classic.sum()), rel=1e-5)
+    layers = "_step_y._family.param_source.net."
+    hidden = torch.tanh(
+        x @ parameters[layers + "0.weight"].T + parameters[layers + "0.bias"]
+    )
+    hidden = torch.tanh(
+        hidden @ parameters[layers + "2.weight"].T + parameters[layers + "2.bias"]
+    )
+    heads = hidden @ parameters[layers + "4.weight"].T + parameters[layers + "4.bias"]
+    closed = td.Normal(heads[:, :1], heads[:, 1:].exp().clamp(min=1e-7)).log_prob(y)
+    assert run.log_joint == pytest.approx(float(closed.sum()), rel=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("options", "widths"),
+    [
+        ("[param_source=mlp]", ((64, 2), (64,), (64, 64), (64,), (2, 64), (2,))),
+        ("[param_source=mlp, hidden_dim=8]", ((8, 2), (8,), (2, 8), (2,))),
+        (
+            "[param_source=mlp, hidden_dim=[4, 6]]",
+            ((4, 2), (4,), (6, 4), (6,), (2, 6), (2,)),
+        ),
+    ],
+)
+def test_hidden_widths_follow_the_option_block(
+    options: str, widths: tuple[tuple[int, ...], ...]
+) -> None:
+    source = NETWORK_KERNEL.replace("[param_source=mlp(5, 3)]", options)
+    module = _module(source)
+    entry = program_entry(module, "prog")
+    shapes = tuple(
+        render_static(parameter.type)
+        for parameter in entry.parameters
+        if parameter.role in {"weight", "bias"}
+    )
+    assert shapes == tuple(
+        f"Tensor[Real]([{', '.join(str(dimension) for dimension in shape)}])"
+        for shape in widths
+    )
+
+
+def test_a_network_kernel_rejects_a_fractional_width() -> None:
+    source = NETWORK_KERNEL.replace("mlp(5, 3)", "mlp(2.5)")
+    with pytest.raises(
+        QiecDiagnosticError, match="hidden width that is not an integer"
+    ):
+        _module(source)
+
+
+TOWER = """\
+object Token : FinSet 5
+object Latent : Real 3
+object HeadOut : Real 2
+object Wide : Real 4
+morphism emb : Token -> Latent [role=embed]
+morphism head : Latent -> HeadOut [replicate=2, param_source=mlp(3)] ~ Normal
+morphism out : Wide -> Latent ~ Normal
+define tower = emb >> fan(head) >> out
+program prog : Token -> Latent
+    sample h <- tower
+    return h
+export prog
+"""
+
+
+def test_an_embedding_fan_and_bundle_elaborate_as_sites() -> None:
+    torch.manual_seed(3)
+    program = Compiler(parse(TOWER)).compile()
+    monadic = program._morphism
+    assert isinstance(monadic, MonadicProgram)
+    parameters = {name: value.detach() for name, value in monadic.named_parameters()}
+    module = _module(TOWER)
+    assert loads(dumps(module)) == module
+    entry = program_entry(module, "prog")
+    assert [(site.name, site.family) for site in entry.sites] == [
+        ("h_chain_1", "Normal"),
+        ("h_chain_2_par_0_3", "Normal"),
+        ("h_chain_2_par_1_4", "Normal"),
+        ("h", "Normal"),
+    ]
+    assert [parameter.name for parameter in entry.parameters] == [
+        "token",
+        "emb_param_table",
+        "head_0_param_layer0_weight",
+        "head_0_param_layer0_bias",
+        "head_0_param_weight",
+        "head_0_param_bias",
+        "head_1_param_layer0_weight",
+        "head_1_param_layer0_bias",
+        "head_1_param_weight",
+        "head_1_param_bias",
+        "out_param_weight",
+        "out_param_bias",
+    ]
+    root = "_step_h."
+    data: dict[str, object] = {
+        "token": 2,
+        "emb_param_table": _nested(
+            torch.cat(
+                [
+                    parameters[root + "left.left.centers"],
+                    parameters[root + "left.left.log_sigma"],
+                ],
+                dim=-1,
+            )
+        ),
+        "out_param_weight": _nested(
+            parameters[root + "right.param_source.linear.weight"]
+        ),
+        "out_param_bias": _nested(parameters[root + "right.param_source.linear.bias"]),
+    }
+    for index in range(2):
+        data.update(
+            _network_data(
+                parameters,
+                f"{root}left.right._components.{index}.param_source.net.",
+                f"head_{index}",
+                1,
+            )
+        )
+    embedded = torch.tensor([0.1, -0.3, 0.5])
+    first = torch.tensor([0.2, 0.4])
+    second = torch.tensor([-0.1, 0.9])
+    output = torch.tensor([0.3, 0.1, -0.2])
+    run = run_program(
+        module,
+        "prog",
+        data=data,
+        sites={
+            "h_chain_1": _nested(embedded),
+            "h_chain_2_par_0_3": _nested(first),
+            "h_chain_2_par_1_4": _nested(second),
+            "h": _nested(output),
+        },
+    )
+    chain = monadic.get_submodule("_step_h")
+    assert isinstance(chain, SampledComposition)
+    embed, fan, out = chain.factors
+    bundle = torch.cat([first, second]).unsqueeze(0)
+    classic = (
+        embed.log_prob(torch.tensor([2]), embedded.unsqueeze(0))
+        + fan.log_prob(embedded.unsqueeze(0), bundle)
+        + out.log_prob(bundle, output.unsqueeze(0))
+    )
+    assert run.log_joint == pytest.approx(float(classic.sum()), rel=1e-5)
+    assert run.value == _nested(output)
+
+
+def test_a_stack_copies_its_morphisms_and_a_product_splits_its_input() -> None:
+    source = """\
+object Left, Right : FinSet 3
+object Latent : Real 2
+object Wide : Real 4
+morphism left_embed : Left -> Latent [role=embed]
+morphism right_embed : Right -> Latent [role=embed]
+morphism deep : Latent -> Latent [param_source=mlp(2)] ~ Normal
+morphism join : Wide -> Latent ~ Normal
+define tower = left_embed >> stack(deep, 2)
+define backbone = (tower @ right_embed) >> join
+program prog : Left * Right -> Latent
+    sample h <- backbone
+    return h
+export prog
+"""
+    module = _module(source)
+    entry = program_entry(module, "prog")
+    names = [parameter.name for parameter in entry.parameters]
+    assert names[:2] == ["left", "left_embed_param_table"]
+    assert "deep_param_weight" in names
+    assert "deep_copy1_param_weight" in names
+    assert "right" in names
+    assert "right_embed_param_table" in names
+    assert [site.name for site in entry.sites] == [
+        "h_chain_1_par_0_2",
+        "h_chain_1_par_0_3",
+        "h_chain_1_par_0_4",
+        "h_chain_1_par_1_5",
+        "h",
+    ]
+    types = _sampled_types(module, "prog")
+    assert types["h_chain_1_par_0_2"] == "Tensor[Real]([2])"
+    assert types["h"] == "Tensor[Real]([2])"
+
+
+def test_an_embedding_under_a_plate_reads_a_row_per_position() -> None:
+    source = """\
+object Token : FinSet 4
+object Latent : Real 2
+object Pos : FinSet 3
+morphism emb : Token -> Latent [role=embed]
+program prog : Pos -> Latent
+    sample e : Pos <- emb(tokens)
+    return e
+export prog
+"""
+    module = _module(source)
+    entry = program_entry(module, "prog")
+    assert [(parameter.name, parameter.role) for parameter in entry.parameters] == [
+        ("tokens", "data"),
+        ("emb_param_table", "table"),
+    ]
+    assert _sampled_types(module, "prog")["e"] == "Tensor[Real]([3, 2])"
+    table = torch.tensor(
+        [
+            [0.0, 1.0, 0.0, 0.0],
+            [2.0, 3.0, 0.5, -0.5],
+            [4.0, 5.0, 1.0, 1.0],
+            [6.0, 7.0, 0.0, 0.2],
+        ]
+    )
+    draws = torch.tensor([[0.1, 1.2], [2.3, 2.9], [0.0, 1.0]])
+    run = run_program(
+        module,
+        "prog",
+        data={"tokens": (0, 1, 0), "emb_param_table": _nested(table)},
+        sites={"e": _nested(draws)},
+    )
+    rows = table[torch.tensor([0, 1, 0])]
+    closed = td.Normal(rows[:, :2], rows[:, 2:].exp()).log_prob(draws).sum()
     assert run.log_joint == pytest.approx(float(closed), rel=1e-5)
