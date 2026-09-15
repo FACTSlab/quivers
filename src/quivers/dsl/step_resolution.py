@@ -171,6 +171,25 @@ def _format_number(value: float) -> str:
     return repr(value)
 
 
+def _role_of(decl: MorphismDecl) -> str | None:
+    """The role a morphism declaration's option block names.
+
+    Parameters
+    ----------
+    decl
+        The declaration.
+
+    Returns
+    -------
+    str | None
+        The ``role=`` option's name, or ``None`` when absent.
+    """
+    for entry in decl.options:
+        if entry.key == "role" and isinstance(entry.value, OptionName):
+            return entry.value.value
+    return None
+
+
 def param_source_kind(decl: MorphismDecl, *, target: str) -> str | None:
     """Return the parameter-source kind a morphism declaration names
     in its ``[param_source=...]`` option, or ``None`` when it carries
@@ -611,21 +630,28 @@ def _reject_reachable_param_source(
             frontier.append((nxt, (*chain, name)))
 
 
-def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
+def morphism_table(module: Module) -> dict[str, MorphismDecl]:
     """Return name → MorphismDecl for every morphism declaration in
-    ``module``. A plural-name declaration contributes one entry per
-    name (each name is an independent morphism with the same
-    signature and init). Duplicate names are an error (the QVR
-    compiler also rejects them, but the resolver catches it locally
-    with a clearer transpile-time message).
+    ``module``, without the parameter-source boundary check.
 
-    Building the table is also where a module is checked for
-    parameter-source morphisms it consumes, in a site, value or
-    composite position; see
-    ``_reject_param_source_consumed``.
-    The table is the resolver's authority on what each name denotes,
-    so it is the one place that sees every declaration at once, which
-    is what deciding a module-wide boundary needs.
+    A plural-name declaration contributes one entry per name (each
+    name is an independent morphism with the same signature and
+    init). Duplicate names are an error.
+
+    Parameters
+    ----------
+    module
+        The parsed module.
+
+    Returns
+    -------
+    dict[str, MorphismDecl]
+        The declaration each morphism name denotes.
+
+    Raises
+    ------
+    StepResolutionError
+        If a morphism name is declared twice.
     """
     out: dict[str, MorphismDecl] = {}
     for stmt in module.statements:
@@ -639,6 +665,38 @@ def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
                     )
                     raise StepResolutionError("qvr-transpile", [msg])
                 out[name] = stmt
+    return out
+
+
+def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
+    """Return name → MorphismDecl for every morphism declaration in
+    ``module``, checked for the transpile boundary.
+
+    The table is [`morphism_table`][quivers.dsl.step_resolution.morphism_table]'s;
+    building it is also where a module is checked for parameter-source
+    morphisms it consumes, in a site, value or composite position; see
+    ``_reject_param_source_consumed``. The table is the resolver's
+    authority on what each name denotes, so it is the one place that
+    sees every declaration at once, which is what deciding a
+    module-wide boundary needs.
+
+    Parameters
+    ----------
+    module
+        The parsed module.
+
+    Returns
+    -------
+    dict[str, MorphismDecl]
+        The declaration each morphism name denotes.
+
+    Raises
+    ------
+    StepResolutionError
+        If a morphism name is declared twice, or a parameter-source
+        morphism is consumed.
+    """
+    out = morphism_table(module)
     _reject_param_source_consumed(module, out)
     return out
 
@@ -771,6 +829,15 @@ def resolve_step_dist(
                 target=target,
                 chain=chain,
             )
+        if _role_of(decl) == "embed":
+            msg = (
+                f"morphism {morphism_name!r} is an embedding, which places a "
+                f"Gaussian kernel at each element's learned centre; the "
+                f"centres and scales are model-internal tables that appear "
+                f"in neither the wire form nor the sample sites, so no "
+                f"backend can reconstruct the kernel."
+            )
+            raise StepResolutionError(target, [f"embed:{morphism_name}", msg])
         msg = (
             f"morphism {morphism_name!r} has neither `~ Family(...)` "
             f"nor `~ <expr>` init clause; transpile cannot derive a "
@@ -1039,6 +1106,7 @@ __all__ = [
     "ResolvedDist",
     "build_let_table",
     "build_morphism_table",
+    "morphism_table",
     "param_source_kind",
     "resolve_step_dist",
 ]

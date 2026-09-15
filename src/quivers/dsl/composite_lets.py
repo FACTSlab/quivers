@@ -13,6 +13,7 @@ import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgName,
     Expr,
     ExprCompose,
     ExprFan,
@@ -26,8 +27,13 @@ from quivers.dsl.ast_nodes import (
     MarginalizeStep,
     Module,
     MorphismDecl,
+    ObjectExpr,
+    ObjectProduct,
     ObserveStep,
+    OptionName,
+    OptionNumber,
     ProgramDecl,
+    TypeName,
     ProgramStep,
     SampleStep,
 )
@@ -85,6 +91,7 @@ class _ParallelLeaf(_ChainElem):
     element sequences."""
 
     branches: tuple[tuple[_ChainElem, ...], ...] = ()
+    product: bool = False
     kind: Literal["parallel"] = "parallel"
 
 
@@ -125,6 +132,7 @@ def expand_composite_lets(
     }
 
     del target
+    declared = set(morphism_table)
     new_statements: list = []
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
@@ -132,6 +140,7 @@ def expand_composite_lets(
                 stmt.draws,
                 morphisms=morphism_table,
                 lets=let_table,
+                domain_names=_domain_names(stmt),
             )
             if new_draws is stmt.draws:
                 new_statements.append(stmt)
@@ -139,7 +148,158 @@ def expand_composite_lets(
                 new_statements.append(stmt.with_(draws=tuple(new_draws)))
         else:
             new_statements.append(stmt)
+    # A replica of a `[replicate=k]` morphism and a copy a `stack`
+    # makes are morphisms of their own, with their own parameters;
+    # the expanded module declares them so every consumer sees them.
+    synthesized = [
+        decl for name, decl in morphism_table.items() if name not in declared
+    ]
+    if synthesized:
+        last = max(
+            index
+            for index, stmt in enumerate(new_statements)
+            if isinstance(stmt, MorphismDecl)
+        )
+        new_statements[last + 1 : last + 1] = synthesized
     return module.with_(statements=tuple(new_statements))
+
+
+def _domain_names(program: ProgramDecl) -> tuple[str, ...]:
+    """The names a program's domain factors are read through.
+
+    Parameters
+    ----------
+    program : ProgramDecl
+        The program.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The declared parameter names when the program names them,
+        else each factor's object name in lowercase.
+    """
+    if program.params:
+        return tuple(program.params)
+    return tuple(
+        factor.name.lower() if isinstance(factor, TypeName) else ""
+        for factor in _domain_factors(program.domain)
+    )
+
+
+def _domain_factors(domain: ObjectExpr) -> tuple[ObjectExpr, ...]:
+    """A domain's product factors, left to right.
+
+    Parameters
+    ----------
+    domain : ObjectExpr
+        The domain expression.
+
+    Returns
+    -------
+    tuple[ObjectExpr, ...]
+        The factors of a product, or the expression itself.
+    """
+    if isinstance(domain, ObjectProduct):
+        return tuple(
+            factor
+            for component in domain.components
+            for factor in _domain_factors(component)
+        )
+    return (domain,)
+
+
+def _replicas(name: str, morphisms: dict[str, MorphismDecl]) -> tuple[str, ...] | None:
+    """The replica names of a ``[replicate=k]`` morphism.
+
+    Each replica is declared in ``morphisms`` as a single-name copy of
+    the declaration without the ``replicate`` option.
+
+    Parameters
+    ----------
+    name : str
+        The morphism.
+    morphisms : dict[str, MorphismDecl]
+        The morphism table, extended with the replicas.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        ``name_0`` through ``name_{k-1}``, or ``None`` when the
+        morphism is not replicated.
+    """
+    decl = morphisms.get(name)
+    if decl is None:
+        return None
+    count = next(
+        (
+            int(entry.value.value)
+            for entry in decl.options
+            if entry.key == "replicate" and isinstance(entry.value, OptionNumber)
+        ),
+        None,
+    )
+    if count is None:
+        return None
+    names = tuple(f"{name}_{index}" for index in range(count))
+    for member in names:
+        if member not in morphisms:
+            morphisms[member] = decl.with_(
+                names=(member,),
+                options=tuple(
+                    entry for entry in decl.options if entry.key != "replicate"
+                ),
+            )
+    return names
+
+
+def _copied(
+    chain: tuple[_ChainElem, ...],
+    suffix: str,
+    morphisms: dict[str, MorphismDecl],
+) -> tuple[_ChainElem, ...]:
+    """A chain with every declared morphism replaced by a fresh copy.
+
+    A ``stack`` composes copies of its morphism that share nothing: the
+    copy's parameters are its own, so each copy is a morphism of its
+    own, declared in ``morphisms`` under the suffixed name.
+
+    Parameters
+    ----------
+    chain : tuple[_ChainElem, ...]
+        The chain to copy.
+    suffix : str
+        The suffix the copies' names carry.
+    morphisms : dict[str, MorphismDecl]
+        The morphism table, extended with the copies.
+
+    Returns
+    -------
+    tuple[_ChainElem, ...]
+        The chain over the copies; names that are not declared
+        morphisms are left as they are.
+    """
+    out: list[_ChainElem] = []
+    for elem in chain:
+        if isinstance(elem, _StochasticLeaf | _DeterministicLeaf):
+            decl = morphisms.get(elem.name)
+            if decl is None:
+                out.append(elem)
+                continue
+            copy_name = f"{elem.name}{suffix}"
+            if copy_name not in morphisms:
+                morphisms[copy_name] = decl.with_(names=(copy_name,))
+            out.append(elem.with_(name=copy_name))
+        elif isinstance(elem, _ParallelLeaf):
+            out.append(
+                elem.with_(
+                    branches=tuple(
+                        _copied(branch, suffix, morphisms) for branch in elem.branches
+                    )
+                )
+            )
+        else:
+            out.append(elem)
+    return tuple(out)
 
 
 def _expand_draws(
@@ -147,6 +307,7 @@ def _expand_draws(
     *,
     morphisms: dict[str, MorphismDecl],
     lets: dict[str, Expr],
+    domain_names: tuple[str, ...],
 ) -> tuple[ProgramStep, ...]:
     """Expand every SampleStep / ObserveStep whose morphism slot
     resolves to a composite-let chain.
@@ -157,6 +318,25 @@ def _expand_draws(
     a distinction `SampleStep` has no slot for. Only the step's scope
     is rewritten, so composite-let references nested under a
     marginalize still expand.
+
+    Parameters
+    ----------
+    draws
+        The steps.
+    morphisms
+        The morphism table.
+    lets
+        The define table.
+    domain_names
+        The names the program's domain factors are read through, which
+        a tensor product at the head of a chain conditions its branches
+        on.
+
+    Returns
+    -------
+    tuple[ProgramStep, ...]
+        The steps with every composite draw expanded; the input itself
+        when nothing expanded.
     """
     any_changed = False
     out: list[ProgramStep] = []
@@ -167,6 +347,7 @@ def _expand_draws(
                 step.scope,
                 morphisms=morphisms,
                 lets=lets,
+                domain_names=domain_names,
             )
             if scope_expanded is step.scope:
                 out.append(step)
@@ -187,6 +368,7 @@ def _expand_draws(
                     chain,
                     morphisms=morphisms,
                     counter=counter,
+                    domain_names=domain_names,
                 )
                 out.extend(expanded)
                 continue
@@ -284,15 +466,18 @@ def _flatten_compose(
             inner = _expr_to_name(e.expr)
             if inner is None or e.count is None or e.count <= 0:
                 return False
-            for _ in range(e.count):
-                if not _resolve_ident_leaf(
-                    inner,
-                    morphisms=morphisms,
-                    lets=lets,
-                    seen=seen,
-                    out=out,
-                ):
-                    return False
+            first: list[_ChainElem] = []
+            if not _resolve_ident_leaf(
+                inner,
+                morphisms=morphisms,
+                lets=lets,
+                seen=seen,
+                out=first,
+            ):
+                return False
+            out.extend(first)
+            for index in range(1, e.count):
+                out.extend(_copied(tuple(first), f"_copy{index}", morphisms))
             return True
         if isinstance(e, ExprRepeat):
             inner = _expr_to_name(e.expr)
@@ -311,6 +496,23 @@ def _flatten_compose(
         if isinstance(e, ExprFan):
             branches: list[tuple[_ChainElem, ...]] = []
             for sub in e.exprs:
+                replicas = (
+                    _replicas(sub.name, morphisms)
+                    if isinstance(sub, ExprIdent)
+                    else None
+                )
+                if replicas is not None:
+                    for member in replicas:
+                        member_out: list[_ChainElem] = []
+                        _resolve_ident_leaf(
+                            member,
+                            morphisms=morphisms,
+                            lets=lets,
+                            seen=seen,
+                            out=member_out,
+                        )
+                        branches.append(tuple(member_out))
+                    continue
                 sub_out: list[_ChainElem] = []
                 if not _walk_into(
                     sub,
@@ -345,6 +547,7 @@ def _flatten_compose(
             out.append(
                 _ParallelLeaf(
                     branches=(tuple(left_out), tuple(right_out)),
+                    product=True,
                 )
             )
             return True
@@ -442,12 +645,18 @@ def _resolve_ident_leaf(
 
 def _morphism_is_stochastic(decl: MorphismDecl) -> bool:
     """True iff `decl` carries either a `~ Family(args)` init clause
-    or a `~ <bare-family-identifier>` init clause."""
+    or a `~ <bare-family-identifier>` init clause, or is an embedding,
+    which places a Gaussian kernel at each element's centre."""
     if decl.init_family is not None:
         return True
     if isinstance(decl.init_expr, ExprIdent):
         return True
-    return False
+    return any(
+        entry.key == "role"
+        and isinstance(entry.value, OptionName)
+        and entry.value.value == "embed"
+        for entry in decl.options
+    )
 
 
 def _expr_to_name(e: Expr) -> str | None:
@@ -463,6 +672,7 @@ def _expand_step(
     *,
     morphisms: dict[str, MorphismDecl],
     counter: int,
+    domain_names: tuple[str, ...],
 ) -> tuple[list[ProgramStep], int]:
     """Convert a single sample / observe step that references a
     composite-let chain into N atomic steps.
@@ -479,8 +689,27 @@ def _expand_step(
     * deterministic -> `LetStep` whose RHS is `name(prev)`.
     * scan -> `LetStep` whose RHS is `scan(cell, prev)`.
     * parallel -> one chain per branch sharing the same upstream
-      input, followed by a final `LetStep` aggregating the
-      branch tails into a list literal.
+      input, or, for a tensor product, each branch on its own
+      factor of the input, followed by a final `LetStep`
+      aggregating the branch tails into a list literal.
+
+    Parameters
+    ----------
+    step
+        The step.
+    chain
+        The chain its morphism slot resolves to.
+    morphisms
+        The morphism table.
+    counter
+        The fresh-name counter.
+    domain_names
+        The names the program's domain factors are read through.
+
+    Returns
+    -------
+    tuple[list[ProgramStep], int]
+        The atomic steps and the updated counter.
     """
     if len(chain) < 1:
         return [step], counter
@@ -541,6 +770,8 @@ def _expand_step(
             original=step,
             morphisms=morphisms,
             counter=counter,
+            head_args=step.args,
+            domain_names=domain_names,
         )
         out.extend(out_step)
         prev_var = terminal_var
@@ -556,13 +787,48 @@ def _emit_chain_elem(
     original: SampleStep | ObserveStep,
     morphisms: dict[str, MorphismDecl],
     counter: int,
+    head_args: tuple[DrawArg, ...] | None,
+    domain_names: tuple[str, ...],
 ) -> tuple[list[ProgramStep], int]:
-    """Emit the program steps for one chain element. Returns the
-    emitted step list and the updated fresh-name counter."""
+    """Emit the program steps for one chain element.
+
+    Parameters
+    ----------
+    elem
+        The element.
+    terminal_var
+        The name its output binds.
+    prev_var
+        The upstream chain output, or ``None`` at the head.
+    is_last
+        Whether the element is the chain's last.
+    original
+        The step being expanded.
+    morphisms
+        The morphism table.
+    counter
+        The fresh-name counter.
+    head_args
+        The row the chain's head conditions on: the original step's
+        arguments, or a branch's factor of them.
+    domain_names
+        The names the program's domain factors are read through.
+
+    Returns
+    -------
+    tuple[list[ProgramStep], int]
+        The emitted steps and the updated counter.
+
+    Raises
+    ------
+    AssertionError
+        If the element is of no known variant.
+    """
     if isinstance(elem, _StochasticLeaf):
         args = _derive_chain_args(
             morphism_name=elem.name,
             prev_var=prev_var,
+            head_args=head_args,
             morphisms=morphisms,
         )
         if is_last and isinstance(original, ObserveStep):
@@ -629,6 +895,8 @@ def _emit_chain_elem(
             original=original,
             morphisms=morphisms,
             counter=counter,
+            head_args=head_args,
+            domain_names=domain_names,
         )
     raise AssertionError(
         f"_emit_chain_elem: unhandled chain-elem variant {type(elem).__name__!r}"
@@ -643,10 +911,17 @@ def _emit_parallel(
     original: SampleStep | ObserveStep,
     morphisms: dict[str, MorphismDecl],
     counter: int,
+    head_args: tuple[DrawArg, ...] | None,
+    domain_names: tuple[str, ...],
 ) -> tuple[list[ProgramStep], int]:
     """Emit each parallel branch's steps against the same upstream
     input, then bundle the branch tails into a list literal bound to
     `terminal_var`.
+
+    A fan's branches all read the upstream input; a tensor product's
+    each read their own factor of it, which at the head of a chain is
+    the original step's argument at their position or, absent
+    arguments, the program's domain factor at their position.
 
     A branch's steps run in declaration order, with each branch's
     own fresh chain-position vars. The aggregated list literal lets
@@ -654,11 +929,45 @@ def _emit_parallel(
     result; even when no downstream consumer reads the parallel
     element, the list materialises so the program's return value
     has a deterministic shape.
+
+    Parameters
+    ----------
+    elem
+        The parallel element.
+    terminal_var
+        The name the bundle binds.
+    prev_var
+        The upstream chain output, or ``None`` at the head.
+    original
+        The step being expanded.
+    morphisms
+        The morphism table.
+    counter
+        The fresh-name counter.
+    head_args
+        The row the chain's head conditions on.
+    domain_names
+        The names the program's domain factors are read through.
+
+    Returns
+    -------
+    tuple[list[ProgramStep], int]
+        The emitted steps and the updated counter.
     """
     out: list[ProgramStep] = []
     branch_tails: list[str] = []
     for branch_idx, branch in enumerate(elem.branches):
         branch_prev = prev_var
+        branch_head = head_args
+        if elem.product and prev_var is None:
+            if head_args and len(head_args) == len(elem.branches):
+                branch_head = (head_args[branch_idx],)
+            elif (
+                not head_args
+                and len(domain_names) == len(elem.branches)
+                and domain_names[branch_idx]
+            ):
+                branch_head = (DrawArgName(text=domain_names[branch_idx]),)
         for sub_elem in branch:
             counter += 1
             sub_var = f"{terminal_var}_par_{branch_idx}_{counter}"
@@ -670,6 +979,8 @@ def _emit_parallel(
                 original=original,
                 morphisms=morphisms,
                 counter=counter,
+                head_args=branch_head,
+                domain_names=domain_names,
             )
             out.extend(sub_step)
             branch_prev = sub_var
@@ -751,6 +1062,7 @@ def _derive_chain_args(
     *,
     morphism_name: str,
     prev_var: str | None,
+    head_args: tuple[DrawArg, ...] | None,
     morphisms: dict[str, MorphismDecl],
 ) -> tuple[DrawArg, ...] | None:
     """Compute the chain-position args for a kernel morphism.
@@ -762,7 +1074,8 @@ def _derive_chain_args(
     is what the runtime assembles from the list before applying the
     morphism.
     A chained kernel thus conditions on the upstream step's
-    output, and an absent list conditions on the chain's own input,
+    output; the chain's head conditions on the row the original step
+    wrote, and an absent list conditions on the chain's own input,
     which is exactly the pair of draws
     [`SampledComposition`][quivers.continuous.morphisms.SampledComposition]
     makes: ``y ~ f(x, .)`` then ``z ~ g(y, .)``.
@@ -770,6 +1083,23 @@ def _derive_chain_args(
     A declaration that writes its own parameters (``~ Normal(0, 1)``)
     means them: it denotes a constant kernel, so the chain position
     keeps the declared arguments and reads nothing upstream.
+
+    Parameters
+    ----------
+    morphism_name
+        The kernel at this chain position.
+    prev_var
+        The upstream chain output, or ``None`` at the head.
+    head_args
+        The original step's argument list, which the head conditions on.
+    morphisms
+        The module's morphism table.
+
+    Returns
+    -------
+    tuple[DrawArg, ...] | None
+        The position's argument list, or ``None`` when the position
+        conditions on the chain's own input.
     """
     decl = morphisms.get(morphism_name)
     if decl is not None and decl.init_family is not None:
@@ -777,7 +1107,7 @@ def _derive_chain_args(
         if explicit_args:
             return tuple(atom_to_draw_arg(a) for a in explicit_args)
     if prev_var is None:
-        return None
+        return head_args if head_args else None
     return (atom_to_draw_arg(prev_var),)
 
 
