@@ -42,10 +42,10 @@ from quivers.dsl.ast_nodes import (
     SampleStep,
 )
 from quivers.dsl.constraints import Violation
-from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._draw_args import is_matrix
-from quivers.transpile._resolve import (
+from quivers.dsl.draw_args import is_matrix
+from quivers.dsl.step_resolution import (
     ResolvedDist,
+    StepResolutionError,
     build_let_table,
     build_morphism_table,
     resolve_step_dist,
@@ -157,7 +157,7 @@ def _check_step(
             family_registry=family_set,
             target="qvr-validate",
         )
-    except UnsupportedConstruct:
+    except StepResolutionError:
         return
     meta = FAMILY_META.get(resolved.family)
     if meta is None:

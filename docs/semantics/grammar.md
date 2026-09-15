@@ -493,6 +493,12 @@ observe_step        := 'observe' IDENT [ ':' type_expr ]
 
 score_step          := 'score' IDENT '=' let_arith
 
+call_step           := 'let' IDENT '<-' qiec_call
+# ``let x <- helper[Real](a, 2.0)`` binds the result of a named
+# computation declared with ``define``; the callee's effect row joins
+# the program's. A call step runs only through the checked QIEC
+# module, since the runtime compiler has no computation to invoke.
+
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
                        [ option_block ]

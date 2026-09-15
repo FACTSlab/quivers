@@ -9289,6 +9289,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "call_step"
+        },
+        {
+          "type": "SYMBOL",
           "name": "score_step"
         }
       ]
@@ -10035,6 +10039,35 @@
         {
           "type": "SYMBOL",
           "name": "_newline"
+        }
+      ]
+    },
+    "call_step": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "let"
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "<-"
+        },
+        {
+          "type": "FIELD",
+          "name": "call",
+          "content": {
+            "type": "SYMBOL",
+            "name": "qiec_call_computation"
+          }
         }
       ]
     },

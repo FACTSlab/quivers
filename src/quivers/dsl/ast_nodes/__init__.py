@@ -119,6 +119,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
 from quivers.dsl.ast_nodes.module import Module
 from quivers.dsl.ast_nodes.program_steps import (
     BindStep,
+    CallStep,
     DrawArg,
     DrawArgDist,
     DrawArgIndex,
@@ -236,6 +237,7 @@ __all__ = [
     "BinderDecl",
     "BinderVar",
     "BindStep",
+    "CallStep",
     "BundleDecl",
     "CategoryDecl",
     "CompositionDecl",

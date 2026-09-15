@@ -17,7 +17,7 @@ from typing import Literal
 
 import didactic.api as dx
 
-from quivers.dsl.ast_nodes.declarations import Statement
+from quivers.dsl.ast_nodes._shared import Statement
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 
 

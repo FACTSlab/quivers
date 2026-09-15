@@ -8,6 +8,11 @@ against the QIEC convention is wrapped with its offset, and the offset
 is added to the scored value.
 """
 
+# ruff: noqa: F821
+# The bridge is grafted after the shared runtime into a generated module,
+# which binds the host library names and the runtime's helpers before the
+# bridge is read.
+
 
 class _QvrQiecShifted:
     def __init__(self, distribution, offset):

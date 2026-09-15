@@ -212,6 +212,32 @@
     }
   },
   {
+    "type": "call_step",
+    "named": true,
+    "fields": {
+      "call": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "cap_expr",
     "named": true,
     "fields": {
@@ -5272,6 +5298,10 @@
         "required": false,
         "types": [
           {
+            "type": "call_step",
+            "named": true
+          },
+          {
             "type": "let_step",
             "named": true
           },
@@ -6849,6 +6879,10 @@
         "multiple": true,
         "required": false,
         "types": [
+          {
+            "type": "call_step",
+            "named": true
+          },
           {
             "type": "let_step",
             "named": true

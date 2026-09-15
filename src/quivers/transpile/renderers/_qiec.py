@@ -53,7 +53,10 @@ from quivers.transpile.qiec_ir import (
     IRQiecResume,
     IRQiecReturn,
     IRQiecAffineMap,
+    IRQiecComprehension,
     IRQiecDistributionValue,
+    IRQiecReduction,
+    IRQiecRowwise,
     IRQiecGather,
     IRQiecKernelMatrix,
     IRQiecLogDensity,
@@ -105,7 +108,46 @@ def qiec_target_name(target: str) -> str:
 
 
 def has_qiec_computations(ir: IRProgram) -> bool:
-    return ir.qiec is not None and bool(ir.qiec.computations)
+    """Whether a program carries computations the host runtime must run.
+
+    Parameters
+    ----------
+    ir : IRProgram
+        The lowered program.
+
+    Returns
+    -------
+    bool
+        ``True`` when the QIEC module has a computation that is neither a
+        program entry point nor one of its marginal helpers.
+    """
+    return bool(_runtime_computations(ir.qiec))
+
+
+def _runtime_computations(
+    module: IRQiecModule | None,
+) -> tuple[IRQiecNamedComputation, ...]:
+    """The computations a host runtime carries for a module.
+
+    Parameters
+    ----------
+    module : IRQiecModule | None
+        The module.
+
+    Returns
+    -------
+    tuple[IRQiecNamedComputation, ...]
+        Every computation but the program entry points and their marginal
+        helpers, which the renderer emits from the program's own plan.
+    """
+    if module is None:
+        return ()
+    programs = module.program_computations()
+    return tuple(
+        computation
+        for computation in module.computations
+        if computation.id.text not in programs
+    )
 
 
 def graft_qiec_dynamic(
@@ -117,7 +159,7 @@ def graft_qiec_dynamic(
 ) -> None:
     """Append the shared runtime and named functions to a dynamic target."""
     module = ir.qiec
-    if module is None or not module.computations:
+    if module is None or not _runtime_computations(module):
         return
     public_target = qiec_target_name(target)
     diagnostics = analyze_qiec_capabilities(module, public_target)
@@ -155,7 +197,7 @@ def graft_qiec_static(
         raise UnsupportedConstruct(
             f"qvr-{public_target}", [diagnostic.kind for diagnostic in diagnostics]
         )
-    if not module.computations:
+    if not _runtime_computations(module):
         if public_target not in {"bugs", "jags"}:
             return
         source, source_root_kind = "model {\nqiec_declarations <- 0\n}\n", "model_block"
@@ -404,7 +446,7 @@ def _dynamic_definitions(module: IRQiecModule, grammar: str, target: str) -> str
             *authored,
             *(
                 generators[grammar](target, item, module)
-                for item in module.computations
+                for item in _runtime_computations(module)
             ),
         )
     )
@@ -493,6 +535,10 @@ def _free_runtime_capture(
             value(item.bias, locally_bound)
             for source in item.sources:
                 value(source, locally_bound)
+        elif isinstance(item, IRQiecReduction | IRQiecRowwise):
+            value(item.value, locally_bound)
+        elif isinstance(item, IRQiecComprehension):
+            value(item.body, locally_bound | {item.binder.name})
 
     def computation(item: IRQiecComputation, locally_bound: frozenset[str]) -> None:
         if isinstance(item, IRQiecReturn):
@@ -567,6 +613,10 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
             value(item.bias)
             for source in item.sources:
                 value(source)
+        elif isinstance(item, IRQiecReduction | IRQiecRowwise):
+            value(item.value)
+        elif isinstance(item, IRQiecComprehension):
+            value(item.body)
         elif isinstance(item, IRQiecConstructorValue):
             for field in item.fields:
                 value(field)
@@ -697,6 +747,30 @@ def _event_shape(result_type: IRQiecStatic) -> tuple[int, ...] | None:
             return None
         dimensions.append(dimension.value)
     return tuple(dimensions)
+
+
+def _extent_literal(term: IRQiecStatic) -> int:
+    """The literal value of an index term a runtime needs as a number.
+
+    Parameters
+    ----------
+    term : IRQiecStatic
+        The index term.
+
+    Returns
+    -------
+    int
+        Its value.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the term is not a literal natural number; a host runtime
+        cannot size a segment or a comprehension by an open index.
+    """
+    if isinstance(term, IRQiecIndexLiteral) and isinstance(term.value, int):
+        return term.value
+    raise UnsupportedConstruct("qvr-lower", ["qiec:open-extent"])
 
 
 def _spelled(
@@ -982,6 +1056,28 @@ def _python_value(target: str, node: IRQiecValue) -> str:
         )
     if isinstance(node, IRQiecSiteValue):
         return repr(node.label)
+    if isinstance(node, IRQiecGather):
+        return (
+            f"_qvr_qiec_gather({_python_value(target, node.value)}, "
+            f"{_python_value(target, node.index)})"
+        )
+    if isinstance(node, IRQiecWeightSum):
+        return f"_qvr_qiec_weight_sum({_python_value(target, node.value)})"
+    if isinstance(node, IRQiecSegmentSum):
+        return (
+            f"_qvr_qiec_segment_sum({_python_value(target, node.value)}, "
+            f"{_python_value(target, node.index)}, {_extent_literal(node.groups)})"
+        )
+    if isinstance(node, IRQiecReduction):
+        return f"_qvr_qiec_reduce({node.operator!r}, {_python_value(target, node.value)})"
+    if isinstance(node, IRQiecRowwise):
+        return f"_qvr_qiec_rowwise({node.operator!r}, {_python_value(target, node.value)})"
+    if isinstance(node, IRQiecComprehension):
+        binder = _local_name(node.binder.name)
+        return (
+            f"tuple({_python_value(target, node.body)} for {binder} in "
+            f"range({_extent_literal(node.extent)}))"
+        )
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1190,6 +1286,34 @@ def _julia_value(target: str, node: IRQiecValue) -> str:
         )
     if isinstance(node, IRQiecSiteValue):
         return _julia_string(node.label)
+    if isinstance(node, IRQiecGather):
+        return (
+            f"_qvr_qiec_gather({_julia_value(target, node.value)}, "
+            f"{_julia_value(target, node.index)})"
+        )
+    if isinstance(node, IRQiecWeightSum):
+        return f"_qvr_qiec_weight_sum({_julia_value(target, node.value)})"
+    if isinstance(node, IRQiecSegmentSum):
+        return (
+            f"_qvr_qiec_segment_sum({_julia_value(target, node.value)}, "
+            f"{_julia_value(target, node.index)}, {_extent_literal(node.groups)})"
+        )
+    if isinstance(node, IRQiecReduction):
+        return (
+            f"_qvr_qiec_reduce({_julia_string(node.operator)}, "
+            f"{_julia_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecRowwise):
+        return (
+            f"_qvr_qiec_rowwise({_julia_string(node.operator)}, "
+            f"{_julia_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecComprehension):
+        binder = _local_name(node.binder.name)
+        return (
+            f"Tuple({_julia_value(target, node.body)} for {binder} in "
+            f"0:({_extent_literal(node.extent)} - 1))"
+        )
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1430,6 +1554,34 @@ def _javascript_value(target: str, node: IRQiecValue) -> str:
         )
     if isinstance(node, IRQiecSiteValue):
         return json.dumps(node.label)
+    if isinstance(node, IRQiecGather):
+        return (
+            f"_qvr_qiec_gather({_javascript_value(target, node.value)}, "
+            f"{_javascript_value(target, node.index)})"
+        )
+    if isinstance(node, IRQiecWeightSum):
+        return f"_qvr_qiec_weight_sum({_javascript_value(target, node.value)})"
+    if isinstance(node, IRQiecSegmentSum):
+        return (
+            f"_qvr_qiec_segment_sum({_javascript_value(target, node.value)}, "
+            f"{_javascript_value(target, node.index)}, {_extent_literal(node.groups)})"
+        )
+    if isinstance(node, IRQiecReduction):
+        return (
+            f"_qvr_qiec_reduce({json.dumps(node.operator)}, "
+            f"{_javascript_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecRowwise):
+        return (
+            f"_qvr_qiec_rowwise({json.dumps(node.operator)}, "
+            f"{_javascript_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecComprehension):
+        binder = _local_name(node.binder.name)
+        return (
+            f"Object.freeze(Array.from({{length: {_extent_literal(node.extent)}}}, "
+            f"function(_, {binder}) {{ return {_javascript_value(target, node.body)}; }}))"
+        )
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1636,6 +1788,34 @@ def _scheme_value(target: str, node: IRQiecValue) -> str:
         )
     if isinstance(node, IRQiecSiteValue):
         return _scheme_string(node.label)
+    if isinstance(node, IRQiecGather):
+        return (
+            f"(_qvr-qiec-gather {_scheme_value(target, node.value)} "
+            f"{_scheme_value(target, node.index)})"
+        )
+    if isinstance(node, IRQiecWeightSum):
+        return f"(_qvr-qiec-weight-sum {_scheme_value(target, node.value)})"
+    if isinstance(node, IRQiecSegmentSum):
+        return (
+            f"(_qvr-qiec-segment-sum {_scheme_value(target, node.value)} "
+            f"{_scheme_value(target, node.index)} {_extent_literal(node.groups)})"
+        )
+    if isinstance(node, IRQiecReduction):
+        return (
+            f"(_qvr-qiec-reduce {_scheme_string(node.operator)} "
+            f"{_scheme_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecRowwise):
+        return (
+            f"(_qvr-qiec-rowwise {_scheme_string(node.operator)} "
+            f"{_scheme_value(target, node.value)})"
+        )
+    if isinstance(node, IRQiecComprehension):
+        binder = _local_name(node.binder.name)
+        return (
+            f"(_qvr-qiec-tuple (map (lambda ({binder}) {_scheme_value(target, node.body)}) "
+            f"(iota {_extent_literal(node.extent)})))"
+        )
     raise TypeError(f"unknown QIEC value {node!r}")
 
 
@@ -1685,11 +1865,12 @@ def _scheme_data(value: object) -> str:
 
 
 def _static_definitions(module: IRQiecModule, target: str) -> tuple[str, str]:
+    computations = _runtime_computations(module)
     if target == "stan":
-        definitions = "\n".join(_stan_function(item) for item in module.computations)
+        definitions = "\n".join(_stan_function(item) for item in computations)
         return f"functions {{\n{definitions}\n}}\n", "functions"
     assignments = []
-    for item in module.computations:
+    for item in computations:
         statements, value = _linearize(item.body)
         environment: dict[str, str] = {}
         for position, (binder, bound) in enumerate(statements):

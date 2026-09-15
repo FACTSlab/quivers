@@ -88,6 +88,7 @@ from quivers.qiec.kinds import (
     UserIndexSort,
 )
 from quivers.qiec.module import NamedComputation, NamedEffectInstance, QiecModule
+from quivers.qiec.programs import ProgramEntry, ProgramParameter, ProgramSite
 from quivers.qiec.substitution import StaticSubstitution
 from quivers.qiec.terms import (
     NewInstance,
@@ -121,6 +122,9 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    Reduction,
+    Rowwise,
+    Comprehension,
     Computation,
     LiteralData,
     Value,
@@ -243,6 +247,9 @@ _NODE_CLASSES = (
     NamedEffectInstance,
     NamedComputation,
     QiecModule,
+    ProgramEntry,
+    ProgramParameter,
+    ProgramSite,
     StaticSubstitution,
     # equality and coverage results
     Reflexivity,
@@ -270,6 +277,9 @@ _NODE_CLASSES = (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    Reduction,
+    Rowwise,
+    Comprehension,
     LogDensity,
     SiteValue,
     Return,

@@ -139,6 +139,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
     GroupedMarginalizeStep,
+    CallStep,
     LetStep,
     MarginalizeStep,
     ObserveStep,
@@ -814,6 +815,10 @@ def _emit_program_step(step: ProgramStep, indent: int) -> list[str]:
         return lines
     if isinstance(step, LetStep):
         return [f"{_pad(indent)}let {step.name} = {_emit_let_expr(step.value)}"]
+    if isinstance(step, CallStep):
+        return [
+            f"{_pad(indent)}let {step.name} <- {_emit_qiec_inline_computation(step.call)}"
+        ]
     if isinstance(step, ScoreStep):
         return [f"{_pad(indent)}score {step.name} = {_emit_let_expr(step.value)}"]
     if isinstance(step, ReturnStep):

@@ -63,9 +63,14 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    SCALE_FLOOR,
+    Reduction,
+    Rowwise,
+    Comprehension,
     Value,
     Var,
 )
+from quivers.qiec.canonical import sampled_element, tensor_shape
 from quivers.qiec.distributions import RuntimeDistribution
 from quivers.qiec.families import family
 from quivers.qiec.primitives import IMPLEMENTATIONS
@@ -1431,6 +1436,159 @@ def _extent(axis: PlateAxis) -> int:
     raise EvaluationError(f"plate axis {axis.name!r} has no literal extent")
 
 
+def _broadcast(
+    implementation: Callable[..., object], arguments: tuple[object, ...]
+) -> object:
+    """Apply a scalar primitive entrywise over tensor arguments.
+
+    Parameters
+    ----------
+    implementation : Callable[..., object]
+        The scalar implementation.
+    arguments : tuple[object, ...]
+        The host arguments: scalars, or nested tuples of one shape.
+
+    Returns
+    -------
+    object
+        The scalar result when no argument is a tensor, else nested
+        tuples of results shaped like the tensor arguments, scalars
+        broadcast over every position.
+
+    Raises
+    ------
+    EvaluationError
+        If two tensor arguments differ in length at some level.
+    """
+    tensors = [argument for argument in arguments if isinstance(argument, tuple)]
+    if not tensors:
+        return implementation(*arguments)
+    length = len(tensors[0])
+    if any(len(tensor) != length for tensor in tensors):
+        raise EvaluationError("primitive applied to tensors of differing shapes")
+    return tuple(
+        _broadcast(
+            implementation,
+            tuple(
+                argument[index] if isinstance(argument, tuple) else argument
+                for argument in arguments
+            ),
+        )
+        for index in range(length)
+    )
+
+
+def _flat(value: object) -> list[float]:
+    """Every entry of a host tensor in row-major order.
+
+    Parameters
+    ----------
+    value : object
+        A number or nested tuples of numbers.
+
+    Returns
+    -------
+    list[float]
+        The entries.
+    """
+    if isinstance(value, tuple):
+        return [entry for item in value for entry in _flat(item)]
+    return [value]  # type: ignore[list-item]
+
+
+def _reduce(operator: str, value: object) -> object:
+    """Summarize every entry of a host tensor.
+
+    Parameters
+    ----------
+    operator : str
+        The reduction.
+    value : object
+        The tensor.
+
+    Returns
+    -------
+    object
+        The number.
+
+    Raises
+    ------
+    EvaluationError
+        If the tensor is empty.
+    """
+    entries = _flat(value)
+    if not entries:
+        raise EvaluationError(f"{operator} of an empty tensor")
+    if operator == "sum":
+        return (
+            sum(entries)
+            if all(isinstance(e, int) for e in entries)
+            else math.fsum(entries)
+        )
+    if operator == "mean":
+        return math.fsum(entries) / len(entries)
+    if operator == "max":
+        return max(entries)
+    if operator == "min":
+        return min(entries)
+    if operator == "prod":
+        result: float = 1
+        for entry in entries:
+            result *= entry
+        return result
+    peak = max(entries)
+    if peak == float("-inf"):
+        return peak
+    return peak + math.log(math.fsum(math.exp(entry - peak) for entry in entries))
+
+
+def _rowwise(operator: str, value: object) -> object:
+    """Apply an operation along a host tensor's last axis.
+
+    Parameters
+    ----------
+    operator : str
+        The operation.
+    value : object
+        The tensor.
+
+    Returns
+    -------
+    object
+        A tensor of the same shape.
+
+    Raises
+    ------
+    EvaluationError
+        If the value is not a tensor.
+    """
+    if not isinstance(value, tuple):
+        raise EvaluationError(f"{operator} takes a tensor")
+    if value and isinstance(value[0], tuple):
+        return tuple(_rowwise(operator, item) for item in value)
+    row = [float(item) for item in value]  # type: ignore[arg-type]
+    if operator == "softmax":
+        peak = max(row)
+        weights = [math.exp(item - peak) for item in row]
+        total = math.fsum(weights)
+        return tuple(weight / total for weight in weights)
+    if operator == "log_softmax":
+        peak = max(row)
+        normalizer = peak + math.log(math.fsum(math.exp(item - peak) for item in row))
+        return tuple(item - normalizer for item in row)
+    if operator == "cumsum":
+        running = 0.0
+        out = []
+        for item in row:
+            running += item
+            out.append(running)
+        return tuple(out)
+    if operator == "sort":
+        return tuple(sorted(row))
+    total = math.fsum(row)
+    return tuple(item / total for item in row)
+
+
 def _gather(source: object, index: object) -> object:
     """Select along a host tensor's outermost axis.
 
@@ -1524,7 +1682,11 @@ def _affine(
             raise EvaluationError("an affine map's weight row does not fit its sources")
         total = math.fsum(float(w) * x for w, x in zip(weights, row, strict=True))  # type: ignore[arg-type]
         total += float(bias[index])  # type: ignore[arg-type]
-        coordinates.append(math.exp(total) if head.transform == "exp" else total)
+        if head.transform == "exp":
+            total = math.exp(total)
+        elif head.transform == "exp_floor":
+            total = max(math.exp(total), SCALE_FLOOR)
+        coordinates.append(total)
     return coordinates[0] if head.rows == 1 else tuple(coordinates)
 
 
@@ -1793,7 +1955,7 @@ class Evaluator:
                 self._value(argument, environment) for argument in value.arguments
             )
             try:
-                return implementation(*arguments)
+                return _broadcast(implementation, arguments)
             except (ArithmeticError, ValueError) as error:
                 raise EvaluationError(
                     f"primitive {value.name!r} failed: {error}"
@@ -1809,6 +1971,14 @@ class Evaluator:
             return source[value.position]
         if isinstance(value, DistributionValue):
             record = family(value.name)
+            sampled = sampled_element(value.result_type)
+            split = tensor_shape(sampled) if sampled is not None else None
+            natural: tuple[int, ...] = ()
+            if split is not None and record.event_rank > 0:
+                natural = tuple(
+                    _extent(PlateAxis("event", dimension))
+                    for dimension in split[1][len(split[1]) - record.event_rank :]
+                )
             return RuntimeDistribution(
                 value.name,
                 {
@@ -1820,6 +1990,7 @@ class Evaluator:
                     : max(len(value.plate.event) - record.event_rank, 0)
                 ],
                 {parameter.name: parameter.rank for parameter in record.parameters},
+                natural,
             )
         if isinstance(value, LogDensity):
             sampleable = self._value(value.sampleable, environment)
@@ -1871,6 +2042,16 @@ class Evaluator:
             )
         if isinstance(value, AffineMap):
             return _affine(value, self._value, environment)
+        if isinstance(value, Reduction):
+            return _reduce(value.operator, self._value(value.value, environment))
+        if isinstance(value, Rowwise):
+            return _rowwise(value.operator, self._value(value.value, environment))
+        if isinstance(value, Comprehension):
+            extent = _extent(PlateAxis("comprehension", value.extent))
+            return tuple(
+                self._value(value.body, {**environment, value.binder: index})
+                for index in range(extent)
+            )
         raise TypeError(f"unsupported QIEC value {type(value).__name__}")
 
     def _validate_handler_manifest(self, manifest: HandlerManifest) -> None:

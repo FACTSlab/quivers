@@ -25,6 +25,7 @@ from quivers.qiec.effects import (
     HandlerDef,
     RowEntry,
 )
+from quivers.qiec.programs import ProgramEntry
 from quivers.qiec.identifiers import (
     ComputationId,
     EffectInstanceId,
@@ -160,6 +161,12 @@ class QiecModule:
         The handler declarations.
     computations
         The named computations.
+    entries
+        The program entry points, each naming one of the computations.
+    gap
+        The diagnostic of a program the module lowered without, because
+        it uses a construct whose elaboration is not yet defined; empty
+        when every program elaborated.
     abi
         The kernel ABI the module is expressed against; must equal
         :data:`QIEC_ABI`.
@@ -174,6 +181,8 @@ class QiecModule:
     instances: tuple[NamedEffectInstance, ...] = ()
     handlers: tuple[HandlerDef, ...] = ()
     computations: tuple[NamedComputation, ...] = ()
+    entries: tuple[ProgramEntry, ...] = ()
+    gap: str = ""
     abi: str = QIEC_ABI
 
     def __post_init__(self) -> None:

@@ -452,6 +452,88 @@ class KernelMatrix:
     tag: Literal["kernel_matrix"] = "kernel_matrix"
 
 
+type ReductionOperator = Literal["sum", "mean", "max", "min", "logsumexp", "prod"]
+"""The reductions of a whole tensor to one number."""
+
+type RowwiseOperator = Literal["softmax", "log_softmax", "cumsum", "sort", "normalize"]
+"""The operations along a tensor's last axis that keep its shape."""
+
+
+@dataclass(frozen=True, slots=True)
+class Reduction:
+    """A number summarizing every entry of a tensor.
+
+    Parameters
+    ----------
+    operator
+        The reduction.
+    value
+        A tensor of reals, or of integers for ``sum``, ``max``, ``min``,
+        and ``prod``.
+    result_type
+        The element type.
+    tag
+        The serialization discriminator; always ``"reduction"``.
+    """
+
+    operator: ReductionOperator
+    value: Value
+    result_type: TypeExpr
+    tag: Literal["reduction"] = "reduction"
+
+
+@dataclass(frozen=True, slots=True)
+class Rowwise:
+    """An operation along a tensor's last axis keeping its shape.
+
+    Parameters
+    ----------
+    operator
+        The operation.
+    value
+        A tensor of reals.
+    result_type
+        The tensor's own type.
+    tag
+        The serialization discriminator; always ``"rowwise"``.
+    """
+
+    operator: RowwiseOperator
+    value: Value
+    result_type: TypeExpr
+    tag: Literal["rowwise"] = "rowwise"
+
+
+@dataclass(frozen=True, slots=True)
+class Comprehension:
+    """A tensor built by evaluating a body at every index of an axis.
+
+    Parameters
+    ----------
+    binder
+        The ``Int`` local the body reads the index through.
+    extent
+        The axis's extent, an index term of the nat sort.
+    body
+        The entry at each index.
+    result_type
+        ``Tensor[T]([extent])`` for the body's type ``T``, or, when the
+        body is itself a tensor, the tensor with ``extent`` prepended.
+    tag
+        The serialization discriminator; always ``"comprehension"``.
+    """
+
+    binder: Local
+    extent: IndexTerm
+    body: Value
+    result_type: TypeExpr
+    tag: Literal["comprehension"] = "comprehension"
+
+
+#: The floor an exponentiated scale head is clamped at.
+SCALE_FLOOR = 1e-7
+
+
 @dataclass(frozen=True, slots=True)
 class AffineMap:
     """One head of an affine parameter map, ``W x + b`` on a row block.
@@ -459,7 +541,8 @@ class AffineMap:
     For ``i`` below ``rows`` the head's coordinate ``i`` is the sum over
     ``j`` of ``weight[row_offset + i, j] * x[j]`` plus
     ``bias[row_offset + i]``, where ``x`` concatenates the sources in
-    order; ``exp`` exponentiates every coordinate afterwards.
+    order; ``exp`` exponentiates every coordinate afterwards, and
+    ``exp_floor`` exponentiates and clamps each at the scale floor.
 
     Parameters
     ----------
@@ -475,7 +558,7 @@ class AffineMap:
     rows
         The block's height.
     transform
-        ``"identity"`` or ``"exp"``.
+        ``"identity"``, ``"exp"``, or ``"exp_floor"``.
     result_type
         ``Tensor[Real]([rows])``, or ``Real`` for a one-row head.
     tag
@@ -487,7 +570,7 @@ class AffineMap:
     sources: tuple[Value, ...]
     row_offset: int
     rows: int
-    transform: Literal["identity", "exp"]
+    transform: Literal["identity", "exp", "exp_floor"]
     result_type: TypeExpr
     tag: Literal["affine_map"] = "affine_map"
 
@@ -562,6 +645,9 @@ type Value = (
     | SegmentSum
     | KernelMatrix
     | AffineMap
+    | Reduction
+    | Rowwise
+    | Comprehension
 )
 
 
@@ -870,6 +956,12 @@ __all__ = [
     "SegmentSum",
     "KernelMatrix",
     "AffineMap",
+    "SCALE_FLOOR",
+    "Reduction",
+    "ReductionOperator",
+    "Rowwise",
+    "RowwiseOperator",
+    "Comprehension",
     "Value",
     "Var",
 ]

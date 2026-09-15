@@ -90,6 +90,9 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    Reduction,
+    Rowwise,
+    Comprehension,
     TransportValue,
     TensorValue,
     TupleValue,
@@ -2272,23 +2275,40 @@ def infer_value(
                 f"argument(s), got {len(value.arguments)}",
                 "qiec-primitive",
             )
+        broadcast: tuple[IndexTerm, ...] | None = None
         for position, (argument, expected) in enumerate(
             zip(value.arguments, signature.parameters, strict=True)
         ):
             actual = infer_value(argument, registry, context)
-            if actual != expected:
+            if actual == expected:
+                continue
+            shape = tensor_shape(actual)
+            if shape is None or shape[0] != expected:
                 raise KernelError(
                     f"argument {position} of primitive {value.name!r} has type "
-                    f"{actual!r}; the primitive takes {expected!r}",
+                    f"{actual!r}; the primitive takes {expected!r} or a Tensor "
+                    "of it",
                     "qiec-primitive",
                 )
-        if value.result_type != signature.result:
+            if broadcast is not None and tuple(shape[1]) != broadcast:
+                raise KernelError(
+                    f"primitive {value.name!r} is applied to tensors of shapes "
+                    f"{broadcast!r} and {tuple(shape[1])!r}, which do not agree",
+                    "qiec-primitive",
+                )
+            broadcast = tuple(shape[1])
+        expected_result: TypeExpr = (
+            signature.result
+            if broadcast is None
+            else tensor_type(signature.result, broadcast)
+        )
+        if value.result_type != expected_result:
             raise KernelError(
-                f"primitive {value.name!r} produces {signature.result!r}, not "
+                f"primitive {value.name!r} produces {expected_result!r}, not "
                 f"the claimed {value.result_type!r}",
                 "qiec-primitive",
             )
-        return signature.result
+        return expected_result
     if isinstance(value, DistributionValue):
         return _infer_distribution(value, registry, context)
     if isinstance(value, SiteValue):
@@ -2375,6 +2395,64 @@ def infer_value(
         return expected
     if isinstance(value, AffineMap):
         return _infer_affine_map(value, registry, context)
+    if isinstance(value, Reduction):
+        shape = tensor_shape(infer_value(value.value, registry, context))
+        if shape is None:
+            raise KernelError(
+                f"a {value.operator} reduction takes a Tensor", "qiec-primitive"
+            )
+        element = shape[0]
+        integral = value.operator in ("sum", "max", "min", "prod")
+        if element != REAL and not (integral and element == INT):
+            raise KernelError(
+                f"a {value.operator} reduction takes a Tensor[Real]"
+                + (" or a Tensor[Int]" if integral else "")
+                + f", not one of {element!r}",
+                "qiec-primitive",
+            )
+        if value.result_type != element:
+            raise KernelError(
+                f"reduction has type {element!r}, not the claimed "
+                f"{value.result_type!r}",
+                "qiec-primitive",
+            )
+        return element
+    if isinstance(value, Rowwise):
+        actual = infer_value(value.value, registry, context)
+        shape = tensor_shape(actual)
+        if shape is None or shape[0] != REAL:
+            raise KernelError(
+                f"a {value.operator} takes a Tensor[Real], not {actual!r}",
+                "qiec-primitive",
+            )
+        if value.result_type != actual:
+            raise KernelError(
+                f"{value.operator} keeps its argument's type {actual!r}, not the "
+                f"claimed {value.result_type!r}",
+                "qiec-primitive",
+            )
+        return actual
+    if isinstance(value, Comprehension):
+        if value.binder.type != INT:
+            raise KernelError(
+                "a comprehension's binder is an Int index", "qiec-primitive"
+            )
+        registry.validate_type(value.result_type)
+        body = infer_value(value.body, registry, context.extend(value.binder))
+        inner = tensor_shape(body)
+        expected = (
+            tensor_type(body, (value.extent,))
+            if inner is None
+            else tensor_type(inner[0], (value.extent, *inner[1]))
+        )
+        if value.result_type != expected:
+            raise KernelError(
+                f"comprehension has type {expected!r}, not the claimed "
+                f"{value.result_type!r}",
+                "qiec-primitive",
+            )
+        _check_static_variable_scope(expected, context, subject="comprehension type")
+        return expected
     if isinstance(value, TupleValue):
         components = tuple(infer_value(item, registry, context) for item in value.items)
         expected = product_type(*components)

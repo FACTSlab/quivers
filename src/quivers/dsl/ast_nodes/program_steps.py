@@ -32,6 +32,7 @@ import didactic.api as dx
 from quivers.dsl.ast_nodes._shared import AxisSpec, OptionEntry
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
 from quivers.dsl.ast_nodes.objects import ObjectExpr
+from quivers.dsl.ast_nodes.qiec import QiecCallComputation
 
 
 class DrawArg(dx.TaggedUnion, discriminator="kind"):
@@ -224,6 +225,20 @@ class LetStep(ProgramStep):
     line: int = 0
     col: int = 0
     kind: Literal["let_step"] = "let_step"
+
+
+class CallStep(ProgramStep):
+    """``let name <- computation(args)`` binding step.
+
+    The bound name takes the result of a named computation declared in
+    the module; the computation's effects join the program's row.
+    """
+
+    name: str
+    call: QiecCallComputation
+    line: int = 0
+    col: int = 0
+    kind: Literal["call_step"] = "call_step"
 
 
 class ScoreStep(ProgramStep):
@@ -425,6 +440,7 @@ class GroupedBodyObserveStep(ProgramStep):
 
 __all__ = [
     "BindStep",
+    "CallStep",
     "DrawStep",
     "GroupedBodyObserveStep",
     "GroupedLatentInitStep",

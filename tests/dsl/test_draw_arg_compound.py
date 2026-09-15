@@ -22,7 +22,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.compiler._validate import validate_family_arg_shapes
 from quivers.dsl.parser import parse
-from quivers.transpile._draw_args import is_matrix, list_atoms, matrix_rows
+from quivers.dsl.draw_args import is_matrix, list_atoms, matrix_rows
 
 
 def _parse(src: str):
