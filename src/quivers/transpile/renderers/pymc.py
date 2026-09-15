@@ -178,13 +178,9 @@ class PyMCRenderer(RendererBase):
 
         # Graft runtime helpers for families PyMC does not ship, once,
         # as top-level definitions preceding `build_model`.
-        if (
-            any(
-                _ir_uses_family(ir.body, family)
-                for family in _PYMC_RUNTIME_HELPER_FAMILIES
-            )
-            or qiec_helper_families_used(ir, self.target)
-        ):
+        if any(
+            _ir_uses_family(ir.body, family) for family in _PYMC_RUNTIME_HELPER_FAMILIES
+        ) or qiec_helper_families_used(ir, self.target):
             _graft_runtime_pymc_helpers(py)
 
         # Trailing `return model` inside the function body (outside

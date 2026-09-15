@@ -6,6 +6,11 @@ it becomes a floating JAX array; a log density is the distribution's own
 discrete family can index its probabilities with it.
 """
 
+# ruff: noqa: F821
+# The bridge is grafted after the shared runtime into a generated module,
+# which binds the host library names and the runtime's helpers before the
+# bridge is read.
+
 
 def _qvr_qiec_nested(value):
     if isinstance(value, tuple):

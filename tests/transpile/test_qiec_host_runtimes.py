@@ -11,6 +11,7 @@ and an authored handler needs no attachment.
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import shutil
 import subprocess
@@ -495,3 +496,101 @@ def test_scheme_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     assert [float(item) for item in values[2:]] == pytest.approx(
         [_mixed_expected(-7, 2.5), _mixed_expected(9, 1.0), _mixed_expected(4, 0.1)]
     )
+
+
+TENSORS = """\
+object K : FinSet 3
+
+define stats(v : Tensor[Real]([3])) : Real !{} =
+    let scaled = tanh(v) * 2.0 + sigmoid(0.0)
+    let weights = softmax(v)
+    let squares = factor k : K in real(k) * real(k)
+    return sum(scaled) + max(weights) + squares[2] + v[1] + erf(0.5) + lgamma(4.5)
+"""
+
+
+def _stats_expected(v: tuple[float, ...]) -> float:
+    """The reference value of ``stats``, computed in Python.
+
+    Parameters
+    ----------
+    v : tuple[float, ...]
+        The vector argument.
+
+    Returns
+    -------
+    float
+        What every runtime must produce.
+    """
+    scaled = sum(math.tanh(x) * 2.0 + 0.5 for x in v)
+    weights = [math.exp(x) for x in v]
+    total = sum(weights)
+    return (
+        scaled
+        + max(w / total for w in weights)
+        + 4.0
+        + v[1]
+        + math.erf(0.5)
+        + math.lgamma(4.5)
+    )
+
+
+_TENSOR_POINT = (0.3, -1.2, 2.0)
+
+
+def test_python_tensor_expressions() -> None:
+    namespace: dict[str, object] = {}
+    exec(transpile(parse(TENSORS), target="pyro"), namespace)
+    assert namespace["qiec_stats"](_TENSOR_POINT) == pytest.approx(  # type: ignore[operator]
+        _stats_expected(_TENSOR_POINT)
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+def test_javascript_tensor_expressions(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "tensors.js"
+    script.write_bytes(
+        transpile(parse(TENSORS), target="webppl")
+        + (
+            f"console.log(JSON.stringify(qiec_stats(Object.freeze({list(_TENSOR_POINT)}), "
+            "[], {}, {}, {})));\n"
+        ).encode()
+    )
+    completed = subprocess.run(
+        ["node", str(script)], check=True, capture_output=True, text=True
+    )
+    assert json.loads(completed.stdout) == pytest.approx(_stats_expected(_TENSOR_POINT))
+
+
+@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
+def test_julia_tensor_expressions(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "tensors.jl"
+    script.write_text(
+        "macro model(expression)\n    esc(expression)\nend\n"
+        + transpile(parse(TENSORS), target="turing").decode()
+        + f"\nprintln(qiec_stats({_TENSOR_POINT}))\n"
+    )
+    completed = subprocess.run(
+        ["julia", "--startup-file=no", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert float(completed.stdout.strip()) == pytest.approx(_stats_expected(_TENSOR_POINT))
+
+
+@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
+def test_scheme_tensor_expressions(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "tensors.scm"
+    point = " ".join(str(x) for x in _TENSOR_POINT)
+    script.write_bytes(
+        transpile(parse(TENSORS), target="church")
+        + f"(display (qiec_stats (_qvr-qiec-tuple (list {point})))) (newline)\n".encode()
+    )
+    completed = subprocess.run(
+        [SCHEME_EXECUTABLE, "--script", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert float(completed.stdout.strip()) == pytest.approx(_stats_expected(_TENSOR_POINT))

@@ -39,6 +39,8 @@ from quivers.qiec.builtins import (
     add_weights,
     draw_handler,
     enumerate_handler,
+    ReplayPolicy,
+    replay_handler,
     score_handler,
     weight_handler,
 )
@@ -50,7 +52,7 @@ from quivers.qiec.canonical import (
 )
 from quivers.qiec.effects import HandlerDef
 from quivers.qiec.evidence import BranchGiven, Reflexivity
-from quivers.qiec.identifiers import OperationId, SourceOrigin
+from quivers.qiec.identifiers import EffectInstanceId, OperationId, SourceOrigin
 from quivers.qiec.kinds import (
     EffectBinder,
     IndexBinder,
@@ -252,6 +254,91 @@ class RuntimeProvider(Protocol):
         ...
 
 
+def _replay_values(
+    options: Mapping[str, object], handler: str
+) -> Mapping[object, object]:
+    """The site table a replay handler is configured with.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+    handler : str
+        The handler's name, for the diagnostic.
+
+    Returns
+    -------
+    Mapping[object, object]
+        Site label to the value replayed there.
+
+    Raises
+    ------
+    ValueError
+        If the configuration carries no ``values`` mapping.
+    """
+    values = options.get("values")
+    if not isinstance(values, Mapping):
+        raise ValueError(f"core replay handler {handler!r} needs a `values` mapping")
+    return values
+
+
+def _replay_policy(options: Mapping[str, object], handler: str) -> ReplayPolicy:
+    """The scoring policy a replay handler is configured with.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+    handler : str
+        The handler's name, for the diagnostic.
+
+    Returns
+    -------
+    ReplayPolicy
+        The policy named by ``policy``; scoring replay by default.
+
+    Raises
+    ------
+    ValueError
+        If the policy is not one of the enumeration's values.
+    """
+    policy = options.get("policy", ReplayPolicy.CLAMP_AND_SCORE.value)
+    try:
+        return ReplayPolicy(policy)
+    except ValueError as error:
+        raise ValueError(
+            f"core replay handler {handler!r} has unknown policy {policy!r}"
+        ) from error
+
+
+def _replay_score_instance(options: Mapping[str, object]) -> EffectInstanceId | None:
+    """The score instance a scoring replay handler adds densities to.
+
+    Parameters
+    ----------
+    options : Mapping[str, object]
+        The handler's configuration.
+
+    Returns
+    -------
+    EffectInstanceId | None
+        The instance named by ``score_instance``, or ``None``.
+
+    Raises
+    ------
+    ValueError
+        If the option is present but is no instance identity.
+    """
+    instance = options.get("score_instance")
+    if instance is None:
+        return None
+    if not isinstance(instance, EffectInstanceId):
+        raise ValueError(
+            "core replay handler's `score_instance` must be an instance identity"
+        )
+    return instance
+
+
 def _weights(value: object) -> bool:
     """Whether a host value is a log weight or a tensor of them.
 
@@ -395,6 +482,18 @@ class CoreRuntimeProvider:
                 runtime = self._prelude(definition, draw_handler, "Random")
             elif kind == "enumerate":
                 runtime = self._prelude(definition, enumerate_handler, "Random")
+            elif kind == "replay":
+                runtime = self._prelude(
+                    definition,
+                    lambda result_validator, answer_type: replay_handler(
+                        _replay_values(raw_options, definition.name),
+                        result_validator=result_validator,
+                        policy=_replay_policy(raw_options, definition.name),
+                        score_instance=_replay_score_instance(raw_options),
+                        answer_type=answer_type,
+                    ),
+                    "Random",
+                )
             elif kind == "collect":
                 runtime = self._prelude(
                     definition,

@@ -125,10 +125,175 @@ const _qvr_qiec_primitives = Dict{String, Any}(
     "concat" => (a, b) -> a * b,
     "int_to_real" => a -> Float64(a),
     "real_to_int" => a -> Int(trunc(a)),
+    "expm1" => expm1,
+    "log1p" => log1p,
+    "log2" => log2,
+    "log10" => log10,
+    "rsqrt" => a -> 1.0 / sqrt(a),
+    "square" => a -> a * a,
+    "sign" => a -> Float64(sign(a)),
+    "reciprocal" => a -> 1.0 / a,
+    "sin" => sin,
+    "cos" => cos,
+    "tan" => tan,
+    "asin" => asin,
+    "acos" => acos,
+    "atan" => atan,
+    "sinh" => sinh,
+    "cosh" => cosh,
+    "tanh" => tanh,
+    "asinh" => asinh,
+    "acosh" => acosh,
+    "atanh" => atanh,
+    "floor" => a -> floor(Float64(a)),
+    "ceil" => a -> ceil(Float64(a)),
+    "round" => a -> round(Float64(a)),
+    "trunc" => a -> trunc(Float64(a)),
+    "erf" => a -> _qvr_qiec_erf(Float64(a)),
+    "erfc" => a -> 1.0 - _qvr_qiec_erf(Float64(a)),
+    "erfinv" => a -> _qvr_qiec_erfinv(Float64(a)),
+    "lgamma" => a -> _qvr_qiec_lgamma(Float64(a)),
+    "digamma" => a -> _qvr_qiec_digamma(Float64(a)),
+    "sigmoid" => a -> _qvr_qiec_sigmoid(Float64(a)),
+    "relu" => a -> max(a, 0.0),
+    "relu6" => a -> min(max(a, 0.0), 6.0),
+    "elu" => a -> a > 0.0 ? a : expm1(a),
+    "selu" => a -> 1.0507009873554805 * (a > 0.0 ? a : 1.6732632423543772 * (exp(a) - 1.0)),
+    "gelu" => a -> 0.5 * a * (1.0 + _qvr_qiec_erf(a / sqrt(2.0))),
+    "silu" => a -> a * _qvr_qiec_sigmoid(Float64(a)),
+    "mish" => a -> a * tanh(_qvr_qiec_softplus(Float64(a))),
+    "softplus" => a -> _qvr_qiec_softplus(Float64(a)),
+    "logsigmoid" => a -> -_qvr_qiec_softplus(-Float64(a)),
+    "softsign" => a -> a / (1.0 + abs(a)),
+    "as_weight" => a -> Float64(a),
+    "weight_value" => a -> Float64(a),
+    "add_weight" => (a, b) -> a + b,
+    "scale_weight" => (a, b) -> a * b,
 )
+_qvr_qiec_sigmoid(value) = value >= 0.0 ? 1.0 / (1.0 + exp(-value)) : exp(value) / (1.0 + exp(value))
+_qvr_qiec_softplus(value) = max(value, 0.0) + log1p(exp(-abs(value)))
+# The error function by its Taylor series near the origin and by the
+# continued fraction of the complementary function in the tails, which
+# together reach double precision.
+function _qvr_qiec_erf(value)
+    sign_ = value < 0.0 ? -1.0 : 1.0
+    x = abs(value)
+    if x < 2.5
+        term = x
+        total = x
+        n = 0
+        while abs(term) > 1e-17 * abs(total) && n < 200
+            n += 1
+            term *= -x * x / n
+            total += term / (2n + 1)
+        end
+        return sign_ * 2.0 / sqrt(pi) * total
+    end
+    fraction = x
+    for k in 60:-1:1
+        fraction = x + (k / 2.0) / fraction
+    end
+    return sign_ * (1.0 - exp(-x * x) / sqrt(pi) / fraction)
+end
+function _qvr_qiec_erfinv(value)
+    (value < -1.0 || value > 1.0) && error("erfinv is defined on [-1, 1]")
+    value == 1.0 && return Inf
+    value == -1.0 && return -Inf
+    value == 0.0 && return 0.0
+    sign_ = value > 0.0 ? 1.0 : -1.0
+    magnitude = abs(value)
+    if magnitude < 0.7
+        square = magnitude * magnitude
+        estimate = magnitude * (((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square + 0.886226899) /
+            ((((0.012229801 * square - 0.329097515) * square + 1.442710462) * square - 2.118377725) * square + 1.0)
+    else
+        tail = sqrt(-log((1.0 - magnitude) / 2.0))
+        estimate = (((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail - 1.970840454) / ((1.637067800 * tail + 3.543889200) * tail + 1.0)
+    end
+    for _ in 1:3
+        estimate -= (_qvr_qiec_erf(estimate) - magnitude) / (2.0 / sqrt(pi) * exp(-estimate * estimate))
+    end
+    return sign_ * estimate
+end
+# Lanczos approximation of log gamma.
+function _qvr_qiec_lgamma(value)
+    if value < 0.5
+        return log(pi / abs(sin(pi * value))) - _qvr_qiec_lgamma(1.0 - value)
+    end
+    coefficients = (676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7)
+    x = value - 1.0
+    total = 0.99999999999980993
+    for (index, coefficient) in enumerate(coefficients)
+        total += coefficient / (x + index)
+    end
+    t = x + 7.5
+    return 0.5 * log(2.0 * pi) + (x + 0.5) * log(t) - t + log(total)
+end
+function _qvr_qiec_digamma(value)
+    (value <= 0.0 && value == floor(value)) && error("digamma has a pole at nonpositive integers")
+    value < 0.0 && return _qvr_qiec_digamma(1.0 - value) - pi / tan(pi * value)
+    result = 0.0
+    while value < 6.0
+        result -= 1.0 / value
+        value += 1.0
+    end
+    inverse = 1.0 / value
+    square = inverse * inverse
+    return result + log(value) - 0.5 * inverse - square * (1.0 / 12.0 - square * (1.0 / 120.0 - square * (1.0 / 252.0 - square * (1.0 / 240.0 - square / 132.0))))
+end
+function _qvr_qiec_broadcast(implementation, arguments)
+    tensors = [argument for argument in arguments if argument isa Tuple]
+    isempty(tensors) && return implementation(arguments...)
+    length_ = length(tensors[1])
+    any(length(tensor) != length_ for tensor in tensors) && error("QIEC primitive applied to tensors of differing shapes")
+    return Tuple(_qvr_qiec_broadcast(implementation, Any[argument isa Tuple ? argument[index] : argument for argument in arguments]) for index in 1:length_)
+end
 function _qvr_qiec_primitive(name, arguments)
     haskey(_qvr_qiec_primitives, name) || error("unknown QIEC primitive " * name)
-    return _qvr_qiec_primitives[name]((_qvr_qiec_value(argument) for argument in arguments)...)
+    return _qvr_qiec_broadcast(_qvr_qiec_primitives[name], Any[_qvr_qiec_value(argument) for argument in arguments])
+end
+function _qvr_qiec_gather(value, index)
+    value = _qvr_qiec_value(value)
+    index = _qvr_qiec_value(index)
+    value isa Tuple || error("QIEC gather from a non-tensor runtime value")
+    index isa Tuple && return Tuple(_qvr_qiec_gather(value, item) for item in index)
+    return value[index + 1]
+end
+_qvr_qiec_flat(value) = value isa Tuple ? [entry for item in value for entry in _qvr_qiec_flat(item)] : Any[value]
+function _qvr_qiec_reduce(operator, value)
+    entries = _qvr_qiec_flat(_qvr_qiec_value(value))
+    operator == "sum" && return sum(entries)
+    operator == "mean" && return sum(entries) / length(entries)
+    operator == "max" && return maximum(entries)
+    operator == "min" && return minimum(entries)
+    operator == "prod" && return prod(entries)
+    peak = maximum(entries)
+    return peak + log(sum(exp(entry - peak) for entry in entries))
+end
+function _qvr_qiec_rowwise(operator, value)
+    value = _qvr_qiec_value(value)
+    (!isempty(value) && value[1] isa Tuple) && return Tuple(_qvr_qiec_rowwise(operator, item) for item in value)
+    row = [Float64(item) for item in value]
+    if operator == "softmax"
+        weights = exp.(row .- maximum(row))
+        return Tuple(weights ./ sum(weights))
+    elseif operator == "log_softmax"
+        peak = maximum(row)
+        return Tuple(row .- (peak + log(sum(exp.(row .- peak)))))
+    elseif operator == "cumsum"
+        return Tuple(cumsum(row))
+    elseif operator == "sort"
+        return Tuple(sort(row))
+    end
+    return Tuple(row ./ sum(row))
+end
+_qvr_qiec_weight_sum(value) = sum(_qvr_qiec_flat(_qvr_qiec_value(value)))
+function _qvr_qiec_segment_sum(value, index, groups)
+    totals = zeros(Float64, groups)
+    for (weight, group) in zip(_qvr_qiec_value(value), _qvr_qiec_value(index))
+        totals[group + 1] += weight
+    end
+    return Tuple(totals)
 end
 function _qvr_qiec_project(value, position)
     value = _qvr_qiec_value(value)

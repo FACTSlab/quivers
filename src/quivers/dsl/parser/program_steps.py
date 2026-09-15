@@ -6,6 +6,8 @@ from typing import Literal, cast
 
 from quivers.dsl.ast_nodes import (
     AxisSpec,
+    CallStep,
+    QiecCallComputation,
     LetStep,
     MarginalizeStep,
     MorphismParam,
@@ -24,6 +26,7 @@ from quivers.dsl.parser._helpers import _walk_draw_arg
 from quivers.dsl.parser._registry import ParseError, _Tree
 from quivers.dsl.parser.expressions import _walk_let_arith, _walk_type
 from quivers.dsl.parser.options import _walk_option_block
+from quivers.dsl.parser.qiec import _walk_computation
 
 # ---------------------------------------------------------------------------
 # program step dispatch
@@ -40,6 +43,8 @@ def _walk_program_step(t: _Tree, vid: str) -> ProgramStep:
         return _walk_marginalize_step(t, vid)
     if k == "let_step":
         return _walk_let_step(t, vid)
+    if k == "call_step":
+        return _walk_call_step(t, vid)
     if k == "score_step":
         return _walk_score_step(t, vid)
     if k == "return_step":
@@ -227,6 +232,18 @@ def _walk_let_step(t: _Tree, vid: str) -> LetStep:
     )
 
 
+def _walk_call_step(t: _Tree, vid: str) -> CallStep:
+    line, col = t.line_col(vid)
+    name_vid = t.field(vid, "name")
+    call_vid = t.field(vid, "call")
+    if name_vid is None or call_vid is None:
+        raise ParseError(f"call_step missing name/call at {vid}")
+    call = _walk_computation(t, call_vid)
+    if not isinstance(call, QiecCallComputation):
+        raise ParseError(f"call_step binds a non-call at {vid}")
+    return CallStep(name=t.text(name_vid), call=call, line=line, col=col)
+
+
 def _walk_score_step(t: _Tree, vid: str) -> ScoreStep:
     line, col = t.line_col(vid)
     name_vid = t.field(vid, "name")
@@ -348,6 +365,7 @@ def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
 
 
 __all__ = [
+    "_walk_call_step",
     "_walk_let_step",
     "_walk_marginalize_step",
     "_walk_observe_step",

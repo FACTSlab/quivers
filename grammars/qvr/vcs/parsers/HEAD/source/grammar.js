@@ -1561,6 +1561,7 @@ module.exports = grammar({
       $.observe_step,
       $.marginalize_step,
       $.let_step,
+      $.call_step,
       $.score_step,
     ),
 
@@ -1606,6 +1607,16 @@ module.exports = grammar({
       '=',
       field('value', $._let_arith),
       $._newline,
+    ),
+
+    // Call step: ``let NAME <- COMPUTATION(args)``. The bound name takes
+    // the result of a named computation; the callee's effects join the
+    // program's row.
+    call_step: $ => seq(
+      'let',
+      field('name', $.identifier),
+      '<-',
+      field('call', $.qiec_call_computation),
     ),
 
     // Score / factor step: ``score NAME = EXPR``. The value of

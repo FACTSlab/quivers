@@ -38,6 +38,13 @@ from quivers.qiec.canonical import (
 )
 from quivers.qiec.builtins import BUILTIN_EFFECTS
 from quivers.qiec.families import FAMILIES, DistributionFamily
+from quivers.qiec.programs import ProgramEntry
+from quivers.dsl.program_elaboration import (
+    ObjectInfo,
+    _object_expr_info,
+    _ProgramElaboration,
+    _ProgramState,
+)
 from quivers.qiec import (
     ComputationSignature,
     ResumptionType,
@@ -50,6 +57,12 @@ from quivers.qiec import (
     TensorValue,
     TupleValue,
     Value,
+    Gather,
+    Reduction,
+    ReductionOperator,
+    Rowwise,
+    RowwiseOperator,
+    Comprehension,
     primitive,
     substitute_row,
     Call,
@@ -99,6 +112,7 @@ from quivers.qiec import (
     IndexBinder,
     IndexConstructor,
     IndexLiteral,
+    IndexTerm,
     IndexSort,
     IndexVariable,
     Kind,
@@ -160,6 +174,17 @@ QIEC_STATEMENT_TYPES = (
     surface.QiecComputationDecl,
 )
 
+#: Declarations the program elaboration reads beside the QIEC statements:
+#: the programs themselves and the objects, morphisms, and let aliases
+#: their steps refer to. They stay in the ordinary compiler's projection
+#: as well, since it builds the runtime program from them.
+PROGRAM_CONTEXT_TYPES = (
+    surface.ProgramDecl,
+    surface.ObjectDecl,
+    surface.MorphismDecl,
+    surface.DefineDecl,
+)
+
 
 class QiecDiagnosticError(ValueError):
     """A source-located, stable-code diagnostic from QIEC elaboration."""
@@ -184,11 +209,26 @@ class QiecDiagnosticError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class QvrQiecSource:
-    """A parsed QVR projection plus the identity absent from the AST root."""
+    """A parsed QVR projection plus the identity absent from the AST root.
+
+    Parameters
+    ----------
+    syntax
+        The projected module.
+    module_name
+        The name every stable identity derives from.
+    file_path
+        The path recorded on diagnostics.
+    elaborate_programs
+        Whether ``program`` declarations become computations. A caller
+        that has found a program using a construct the elaboration does
+        not yet cover lowers the rest of the module without it.
+    """
 
     syntax: surface.Module
     module_name: str
     file_path: str = "<source>"
+    elaborate_programs: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +239,7 @@ class CheckedQvrQiec:
 
 
 def has_qiec_surface(module: surface.Module) -> bool:
-    """Return whether a parsed module contains any v0.19 QIEC declaration.
+    """Return whether a parsed module has anything to elaborate through QIEC.
 
     Parameters
     ----------
@@ -209,13 +249,25 @@ def has_qiec_surface(module: surface.Module) -> bool:
     Returns
     -------
     bool
-        True when at least one statement belongs to the QIEC surface.
-        Callers use this to decide whether the QIEC route runs at all,
-        so a module of ordinary declarations pays nothing for it.
+        True when at least one statement belongs to the QIEC surface or
+        is a program the elaboration turns into a computation. Callers
+        use this to decide whether the QIEC route runs at all, so a
+        module of other declarations pays nothing for it.
     """
 
     return any(
-        isinstance(statement, QIEC_STATEMENT_TYPES) for statement in module.statements
+        isinstance(statement, QIEC_STATEMENT_TYPES)
+        or (
+            isinstance(statement, surface.ProgramDecl)
+            and (
+                statement.type_params is None
+                or all(
+                    isinstance(parameter, surface.ScalarParam)
+                    for parameter in statement.type_params
+                )
+            )
+        )
+        for statement in module.statements
     )
 
 
@@ -239,7 +291,7 @@ def qiec_projection(module: surface.Module) -> surface.Module:
         statements=tuple(
             statement
             for statement in module.statements
-            if isinstance(statement, QIEC_STATEMENT_TYPES)
+            if isinstance(statement, (*QIEC_STATEMENT_TYPES, *PROGRAM_CONTEXT_TYPES))
         )
     )
 
@@ -301,7 +353,130 @@ _BUILTIN_PRIMITIVES: Mapping[str, Mapping[tuple[TypeExpr, ...], str]] = {
     "abs": {(INT,): "abs_int", (REAL,): "abs_real"},
     "min": {(INT, INT): "min_int", (REAL, REAL): "min_real"},
     "max": {(INT, INT): "max_int", (REAL, REAL): "max_real"},
+    "weight": {(REAL,): "as_weight"},
+    "weight_value": {(LOG_WEIGHT,): "weight_value"},
+    **{
+        name: {(REAL,): name}
+        for name in (
+            "expm1",
+            "log1p",
+            "log2",
+            "log10",
+            "rsqrt",
+            "square",
+            "sign",
+            "reciprocal",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "sinh",
+            "cosh",
+            "tanh",
+            "asinh",
+            "acosh",
+            "atanh",
+            "floor",
+            "ceil",
+            "round",
+            "trunc",
+            "erf",
+            "erfc",
+            "erfinv",
+            "lgamma",
+            "digamma",
+            "sigmoid",
+            "relu",
+            "relu6",
+            "elu",
+            "selu",
+            "gelu",
+            "silu",
+            "mish",
+            "softplus",
+            "logsigmoid",
+            "softsign",
+        )
+    },
 }
+
+#: Builtin names that reduce a whole tensor to one number.
+_REDUCTIONS: Mapping[str, ReductionOperator] = {
+    "sum": "sum",
+    "mean": "mean",
+    "max": "max",
+    "min": "min",
+    "logsumexp": "logsumexp",
+    "prod": "prod",
+}
+
+#: Builtin names that act along a tensor's last axis.
+_ROWWISE: Mapping[str, RowwiseOperator] = {
+    "softmax": "softmax",
+    "log_softmax": "log_softmax",
+    "cumsum": "cumsum",
+    "sort": "sort",
+    "normalize": "normalize",
+}
+
+
+def _substitute_let(
+    expr: surface.LetExprNode, substitution: Mapping[str, surface.LetExprNode]
+) -> surface.LetExprNode:
+    """Replace variables in a let expression.
+
+    Parameters
+    ----------
+    expr : surface.LetExprNode
+        The expression.
+    substitution : Mapping[str, surface.LetExprNode]
+        Variable names to the expressions replacing them.
+
+    Returns
+    -------
+    surface.LetExprNode
+        The expression with every free occurrence replaced; a lambda or
+        factor binder shadows the substitution inside its body.
+    """
+    if isinstance(expr, surface.LetExprVar):
+        return substitution.get(expr.name, expr)
+    if isinstance(expr, surface.LetExprBinOp):
+        return expr.with_(
+            left=_substitute_let(expr.left, substitution),
+            right=_substitute_let(expr.right, substitution),
+        )
+    if isinstance(expr, surface.LetExprUnaryOp):
+        return expr.with_(operand=_substitute_let(expr.operand, substitution))
+    if isinstance(expr, surface.LetExprCall):
+        return expr.with_(
+            args=tuple(_substitute_let(item, substitution) for item in expr.args)
+        )
+    if isinstance(expr, surface.LetExprIndex):
+        return expr.with_(
+            array=_substitute_let(expr.array, substitution),
+            indices=tuple(_substitute_let(item, substitution) for item in expr.indices),
+        )
+    if isinstance(expr, surface.LetExprList | surface.LetExprTuple):
+        return expr.with_(
+            items=tuple(_substitute_let(item, substitution) for item in expr.items)
+        )
+    if isinstance(expr, surface.LetExprLambda):
+        inner = {k: v for k, v in substitution.items() if k != expr.param}
+        return expr.with_(body=_substitute_let(expr.body, inner))
+    if isinstance(expr, surface.LetExprFactor):
+        bound = {binder.var for binder in expr.binders}
+        inner = {k: v for k, v in substitution.items() if k not in bound}
+        return expr.with_(
+            body=None if expr.body is None else _substitute_let(expr.body, inner),
+            cases=tuple(
+                case.with_(value=_substitute_let(case.value, inner))
+                for case in expr.cases
+            ),
+        )
+    return expr
+
 
 _EXPRESSION_FORMS = {
     "LetExprList": "a list literal",
@@ -394,6 +569,7 @@ def lower_qvr_to_qiec(
     file_path: str = "<source>",
     source_version: str = QVR_SOURCE_VERSION,
     target_version: str = QIEC_ABI,
+    elaborate_programs: bool = True,
 ) -> QiecModule:
     """Check and lower the QIEC projection of one parsed QVR module.
 
@@ -411,6 +587,8 @@ def lower_qvr_to_qiec(
         The source protocol the module is written against.
     target_version : str
         The kernel ABI to lower to.
+    elaborate_programs : bool
+        Whether ``program`` declarations become computations.
 
     Returns
     -------
@@ -420,14 +598,20 @@ def lower_qvr_to_qiec(
     Raises
     ------
     QiecDiagnosticError
-        If the source is rejected, with a stable code and a position.
+        If the source is rejected, with a stable code and a position. The
+        code ``qiec-program-gap`` names a program construct, such as a
+        parsing chart or a network-parameterized morphism, whose
+        elaboration is not yet defined; a caller may lower the module
+        again without its programs.
     KernelError
         If the lowered module fails its independent recheck.
     """
 
     if module_name is None:
         module_name = _module_name(file_path)
-    source = QvrQiecSource(qiec_projection(module), module_name, file_path)
+    source = QvrQiecSource(
+        qiec_projection(module), module_name, file_path, elaborate_programs
+    )
     return lower_checked(
         source,
         QvrQiecLowerer(),
@@ -919,7 +1103,7 @@ class _DidacticGadtProjection:
         return operation
 
 
-class _Elaborator:
+class _Elaborator(_ProgramElaboration):
     def __init__(self, source: QvrQiecSource) -> None:
         self.source = source
         self.statements = source.syntax.statements
@@ -930,6 +1114,12 @@ class _Elaborator:
         self.instances: dict[str, NamedEffectInstance] = {}
         self.handlers: dict[str, HandlerDef] = {}
         self.computation_signatures: dict[str, ComputationSignature] = {}
+        self.entries: list[ProgramEntry] = []
+        self._lambda_macros: dict[str, surface.LetExprLambda] = {}
+        self._program_state: _ProgramState | None = None
+        self._program_objects: dict[str, ObjectInfo] = {}
+        self._program_morphisms: dict[str, surface.MorphismDecl] = {}
+        self._program_lets: dict[str, surface.Expr] = {}
         self.registry = KernelRegistry()
         # The type a `return` in the body being lowered should produce. It
         # is a hint for positions that cannot state their type, such as a
@@ -965,10 +1155,12 @@ class _Elaborator:
         self._declare_constructors()
         self._validate_indexed_language()
         self._declare_instances()
+        self._declare_program_instances()
         self._build_registry()
         self._declare_computation_signatures()
         self._declare_handlers()
         self._register_handlers()
+        programs = self._declare_programs()
         computations = self._declare_computations()
         return QiecModule(
             self.source.module_name,
@@ -979,7 +1171,8 @@ class _Elaborator:
             tuple(self.effects.values()),
             tuple(self.instances.values()),
             tuple(self.handlers.values()),
-            computations,
+            (*programs, *computations),
+            tuple(self.entries),
         )
 
     def _validate_indexed_language(self) -> None:
@@ -2449,12 +2642,15 @@ class _Elaborator:
                 if operand.type == REAL:
                     return LiteralValue(-cast(float, operand.value), REAL)
             operand_type = self._value_type(operand, context, authored)
+            element, shape = self._broadcast_element(
+                authored, authored.op, (operand_type,)
+            )
             if authored.op == "-":
                 name = self._numeric_primitive(
-                    authored, "-", operand_type, {INT: "neg_int", REAL: "neg_real"}
+                    authored, "-", element, {INT: "neg_int", REAL: "neg_real"}
                 )
             else:
-                if operand_type != BOOL:
+                if element != BOOL:
                     self._fail(
                         authored,
                         f"operand of `not` has type {self._render(operand_type)}; "
@@ -2462,7 +2658,7 @@ class _Elaborator:
                         code="qiec-primitive",
                     )
                 name = "not"
-            return self._primitive(name, (operand,), authored, path)
+            return self._primitive(name, (operand,), authored, path, shape)
         if isinstance(authored, surface.LetExprBinOp):
             left = self._lower_value(
                 authored.left, scope, context, static_bindings, (*path, "left")
@@ -2472,15 +2668,9 @@ class _Elaborator:
             )
             left_type = self._value_type(left, context, authored.left)
             right_type = self._value_type(right, context, authored.right)
-            if left_type != right_type:
-                self._fail(
-                    authored,
-                    f"operands of `{authored.op}` have types "
-                    f"{self._render(left_type)} and {self._render(right_type)}; "
-                    "both sides must agree, so convert one with `real(...)` or "
-                    "`int(...)`",
-                    code="qiec-primitive",
-                )
+            element, shape = self._broadcast_element(
+                authored, authored.op, (left_type, right_type)
+            )
             table = _BINARY_PRIMITIVES.get(authored.op)
             if table is None:
                 self._fail(
@@ -2488,8 +2678,8 @@ class _Elaborator:
                     f"unknown operator `{authored.op}`",
                     code="qiec-primitive",
                 )
-            name = self._numeric_primitive(authored, authored.op, left_type, table)
-            return self._primitive(name, (left, right), authored, path)
+            name = self._numeric_primitive(authored, authored.op, element, table)
+            return self._primitive(name, (left, right), authored, path, shape)
         if isinstance(authored, surface.LetExprTuple):
             items = tuple(
                 self._lower_value(
@@ -2507,14 +2697,18 @@ class _Elaborator:
                 authored.array, scope, context, static_bindings, (*path, "array")
             )
             source_type = self._value_type(source, context, authored.array)
+            if tensor_shape(source_type) is not None:
+                return self._lower_gather(
+                    source, source_type, authored, scope, context, static_bindings, path
+                )
             if not (
                 isinstance(source_type, TypeApplication)
                 and source_type.constructor.name.startswith("Product")
             ):
                 self._fail(
                     authored,
-                    "indexing in a QIEC value selects a tuple component, but the "
-                    f"value has type {self._render(source_type)}",
+                    "indexing in a QIEC value selects a tuple component or a "
+                    f"tensor slice, but the value has type {self._render(source_type)}",
                     code="qiec-primitive",
                 )
             if len(authored.indices) != 1 or not (
@@ -2548,6 +2742,16 @@ class _Elaborator:
                 return self._lower_log_density(
                     authored, scope, context, static_bindings, path
                 )
+            macro = self._lambda_macros.get(authored.func)
+            if macro is not None:
+                return self._lower_value(
+                    self._expand_macro(macro, authored),
+                    scope,
+                    context,
+                    static_bindings,
+                    path,
+                    expected,
+                )
             arguments = tuple(
                 self._lower_value(
                     argument, scope, context, static_bindings, (*path, position)
@@ -2558,15 +2762,45 @@ class _Elaborator:
                 self._value_type(argument, context, source)
                 for argument, source in zip(arguments, authored.args, strict=True)
             )
-            name = self._builtin_primitive(authored, types)
-            return self._primitive(name, arguments, authored, path)
+            if authored.func in _REDUCTIONS and len(arguments) == 1:
+                shape = tensor_shape(types[0])
+                if shape is not None:
+                    return Reduction(_REDUCTIONS[authored.func], arguments[0], shape[0])
+            if authored.func in _ROWWISE:
+                if len(arguments) != 1 or tensor_shape(types[0]) is None:
+                    self._fail(
+                        authored,
+                        f"builtin {authored.func!r} takes one Tensor[Real]",
+                        code="qiec-primitive",
+                    )
+                return Rowwise(_ROWWISE[authored.func], arguments[0], types[0])
+            elements: list[TypeExpr] = []
+            shape = None
+            for item_type in types:
+                split = tensor_shape(item_type)
+                if split is None:
+                    elements.append(item_type)
+                    continue
+                elements.append(split[0])
+                if shape is not None and tuple(split[1]) != shape:
+                    self._fail(
+                        authored,
+                        f"builtin {authored.func!r} is applied to tensors of "
+                        "differing shapes",
+                        code="qiec-primitive",
+                    )
+                shape = tuple(split[1])
+            name = self._builtin_primitive(authored, tuple(elements))
+            return self._primitive(name, arguments, authored, path, shape)
         if isinstance(authored, surface.LetExprList):
             return self._lower_tensor_literal(
                 authored, scope, context, static_bindings, path, expected
             )
+        if isinstance(authored, surface.LetExprFactor):
+            return self._lower_factor(authored, scope, context, static_bindings, path)
         if isinstance(
             authored,
-            surface.LetExprLambda | surface.LetExprFactor | surface.LetExprMethodCall,
+            surface.LetExprLambda | surface.LetExprMethodCall,
         ):
             self._fail(
                 authored,
@@ -3128,6 +3362,7 @@ class _Elaborator:
         arguments: tuple[Value, ...],
         authored: object,
         path: tuple[str | int, ...],
+        shape: tuple[IndexTerm, ...] | None = None,
     ) -> PrimitiveApplication:
         """Build a primitive application from the registry's signature.
 
@@ -3141,20 +3376,328 @@ class _Elaborator:
             The source node, for provenance.
         path : tuple[str | int, ...]
             Structural path of the application.
+        shape : tuple[IndexTerm, ...] or None
+            The shape the application broadcasts over, when an argument
+            is a tensor.
 
         Returns
         -------
         PrimitiveApplication
-            The application at the registry's result type.
+            The application at the registry's result type, under the
+            broadcast shape when there is one.
         """
         signature = primitive(name)
+        result: TypeExpr = (
+            signature.result if shape is None else tensor_type(signature.result, shape)
+        )
         return PrimitiveApplication(
             signature.id,
             name,
             arguments,
-            signature.result,
+            result,
             self._origin(authored, path, "primitive"),
         )
+
+    def _broadcast_element(
+        self,
+        authored: object,
+        operator: str,
+        types: tuple[TypeExpr, ...],
+    ) -> tuple[TypeExpr, tuple[IndexTerm, ...] | None]:
+        """The element type an operator applies at, over a shared shape.
+
+        Parameters
+        ----------
+        authored : object
+            The source node to blame.
+        operator : str
+            The operator, for the diagnostic.
+        types : tuple[TypeExpr, ...]
+            The operand types, scalars or tensors.
+
+        Returns
+        -------
+        tuple[TypeExpr, tuple[IndexTerm, ...] | None]
+            The element type every operand shares, and the shape of the
+            tensor operands, ``None`` when all are scalars.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the operands' element types or tensor shapes disagree.
+        """
+        elements: list[TypeExpr] = []
+        shape: tuple[IndexTerm, ...] | None = None
+        for item in types:
+            split = tensor_shape(item)
+            if split is None:
+                elements.append(item)
+                continue
+            elements.append(split[0])
+            if shape is not None and tuple(split[1]) != shape:
+                self._fail(
+                    authored,
+                    f"operands of `{operator}` are tensors of differing shapes",
+                    code="qiec-primitive",
+                )
+            shape = tuple(split[1])
+        if any(item != elements[0] for item in elements[1:]):
+            rendered = " and ".join(self._render(item) for item in types)
+            self._fail(
+                authored,
+                f"operands of `{operator}` have types {rendered}; both sides must "
+                "agree, so convert one with `real(...)` or `int(...)`",
+                code="qiec-primitive",
+            )
+        return elements[0], shape
+
+    def _lower_gather(
+        self,
+        source: Value,
+        source_type: TypeExpr,
+        authored: surface.LetExprIndex,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+    ) -> Value:
+        """Lower ``t[i][j]`` on a tensor to nested selections.
+
+        Parameters
+        ----------
+        source : Value
+            The tensor.
+        source_type : TypeExpr
+            Its type.
+        authored : surface.LetExprIndex
+            The indexing expression.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the expression.
+
+        Returns
+        -------
+        Value
+            The selection, one gather per index.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If an index is not an ``Int`` or a tensor of them, or more
+            indices are given than the tensor has axes.
+        """
+        value = source
+        value_type = source_type
+        for position, index in enumerate(authored.indices):
+            split = tensor_shape(value_type)
+            if split is None:
+                self._fail(
+                    authored,
+                    f"index {position} selects from a value that is not a Tensor",
+                    code="qiec-primitive",
+                )
+            element, dimensions = split
+            index_value = self._lower_value(
+                index, scope, context, static_bindings, (*path, "index", position), INT
+            )
+            index_type = self._value_type(index_value, context, index)
+            rest = dimensions[1:]
+            if index_type == INT:
+                result: TypeExpr = element if not rest else tensor_type(element, rest)
+            else:
+                index_shape = tensor_shape(index_type)
+                if index_shape is None or index_shape[0] != INT:
+                    self._fail(
+                        index,
+                        f"a tensor is indexed by an Int or a Tensor[Int], not "
+                        f"{self._render(index_type)}",
+                        code="qiec-primitive",
+                    )
+                result = tensor_type(element, (*index_shape[1], *rest))
+            value = Gather(value, index_value, result)
+            value_type = result
+        return value
+
+    def _lower_factor(
+        self,
+        authored: surface.LetExprFactor,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+    ) -> Value:
+        """Lower a ``factor`` expression to nested comprehensions.
+
+        Parameters
+        ----------
+        authored : surface.LetExprFactor
+            The expression.
+        scope : Telescope
+            Static binders in scope.
+        context : CheckContext
+            Value bindings in scope.
+        static_bindings : Mapping[str, StaticArgument] or None
+            Bindings from an enclosing case refinement.
+        path : tuple[str | int, ...]
+            Structural path of the expression.
+
+        Returns
+        -------
+        Value
+            A comprehension per binder, innermost last; the case form is
+            a comprehension whose body branches on the index.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a binder's axis has no static extent, or the case labels
+            do not cover the axis exactly.
+        """
+        binders = list(authored.binders)
+        if not binders:
+            self._fail(
+                authored, "a factor names at least one binder", code="qiec-primitive"
+            )
+        if authored.cases:
+            if len(binders) != 1:
+                self._fail(
+                    authored,
+                    "a case-structured factor has one binder",
+                    code="qiec-primitive",
+                )
+            binder = binders[0]
+            extent = self._factor_extent(binder, authored)
+            labels = sorted(case.label for case in authored.cases)
+            if labels != list(range(extent)):
+                self._fail(
+                    authored,
+                    f"factor cases label {labels}, not every index below {extent}",
+                    code="qiec-primitive",
+                )
+            local = Local(binder.var, INT)
+            inner = context.extend(local)
+            ordered = sorted(authored.cases, key=lambda case: case.label)
+            entries = tuple(
+                self._lower_value(
+                    case.value,
+                    scope,
+                    inner,
+                    static_bindings,
+                    (*path, "cases", case.label),
+                )
+                for case in ordered
+            )
+            types = [
+                self._value_type(entry, inner, case.value)
+                for entry, case in zip(entries, ordered, strict=True)
+            ]
+            if any(item != types[0] for item in types[1:]):
+                self._fail(
+                    authored, "factor cases differ in type", code="qiec-primitive"
+                )
+            inner_shape = tensor_shape(types[0])
+            result = (
+                tensor_type(types[0], (IndexLiteral(extent, NAT),))
+                if inner_shape is None
+                else tensor_type(
+                    inner_shape[0], (IndexLiteral(extent, NAT), *inner_shape[1])
+                )
+            )
+            return TensorValue(entries, result)
+        body_context = context
+        locals_: list[Local] = []
+        for binder in binders:
+            local = Local(binder.var, INT)
+            locals_.append(local)
+            body_context = body_context.extend(local)
+        assert authored.body is not None
+        value = self._lower_value(
+            authored.body, scope, body_context, static_bindings, (*path, "body")
+        )
+        value_type = self._value_type(value, body_context, authored.body)
+        for binder, local in reversed(list(zip(binders, locals_, strict=True))):
+            extent = self._factor_extent(binder, authored)
+            inner_shape = tensor_shape(value_type)
+            result = (
+                tensor_type(value_type, (IndexLiteral(extent, NAT),))
+                if inner_shape is None
+                else tensor_type(
+                    inner_shape[0], (IndexLiteral(extent, NAT), *inner_shape[1])
+                )
+            )
+            value = Comprehension(local, IndexLiteral(extent, NAT), value, result)
+            value_type = result
+        return value
+
+    def _factor_extent(self, binder: surface.LetFactorBinder, authored: object) -> int:
+        """The extent of a factor binder's axis.
+
+        Parameters
+        ----------
+        binder : surface.LetFactorBinder
+            The binder.
+        authored : object
+            The source node to blame.
+
+        Returns
+        -------
+        int
+            The axis's static extent.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the axis names no object with a static extent.
+        """
+        index = binder.index
+        if isinstance(index, surface.TypeName) and index.name.isdigit():
+            return int(index.name)
+        info = _object_expr_info(index, self._program_objects)
+        if info is None or info.extent is None:
+            self._fail(
+                authored,
+                f"factor binder {binder.var!r} ranges over {getattr(index, 'name', index.kind)!r}, "
+                "which has no static extent",
+                code="qiec-primitive",
+            )
+        return info.extent
+
+    def _expand_macro(
+        self,
+        macro: surface.LetExprLambda,
+        authored: surface.LetExprCall,
+    ) -> surface.LetExprNode:
+        """Apply a lambda-bound name to its arguments by substitution.
+
+        Parameters
+        ----------
+        macro : surface.LetExprLambda
+            The lambda a `let` bound.
+        authored : surface.LetExprCall
+            The application.
+
+        Returns
+        -------
+        surface.LetExprNode
+            The lambda's body with each parameter replaced by its argument.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument count differs from the parameter count.
+        """
+        if len(authored.args) != 1:
+            self._fail(
+                authored,
+                f"{authored.func!r} takes 1 argument, got {len(authored.args)}",
+                code="qiec-primitive",
+            )
+        return _substitute_let(macro.body, {macro.param: authored.args[0]})
 
     @staticmethod
     def _render(type_: TypeExpr) -> str:

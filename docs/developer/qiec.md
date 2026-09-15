@@ -273,6 +273,54 @@ applying the target's parameterization conventions (a rate against a scale,
 a complemented probability, a shifted support, a folded half-line family) so
 that `log_prob` agrees with the registry's density on every host.
 
+A `program` is domain-specific notation for a named computation, and
+elaborates to one. Its data, observations, and fibrations become the
+computation's typed parameters; a `sample` step performs `Random.sample`
+on the module's canonical `random` instance, an `observe` step scores
+`log_prob` of its family at the observation on the canonical `score`
+instance, a `score` step adds its value as a weight, a `let` step binds a
+pure expression, and a `marginalize` block becomes a helper computation
+that allocates a `Random` instance for the latent, handles it with the
+enumeration handler, collects the scope's weights under a `Weight`
+instance, and answers the log marginal, which the enclosing scope scores.
+Plates are typed: `xs : N <- Normal(0.0, 1.0)` samples a
+`Tensor[Real]([|N|])` from a construction plated over `N`, and a grouped
+marginalization's `via` fibration re-indexes the latent's arguments to the
+observation rows and segments the weights back to the groups. Programs and
+computations call each other by ordinary application: a program body
+binds a call with `let x <- helper(args)`, and a computation calls a
+program by its name.
+
+<!-- compile: qiec -->
+```qvr
+object Obs : FinSet 4
+
+define noisy(x : Real) : Real !{random} =
+    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))
+    return y
+
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let c <- noisy(a)
+    observe y <- Normal(c, 0.5)
+    return c
+export prog
+
+define twice(y : Real) : Real !{random, score} =
+    let first <- prog(y)
+    let second <- prog(y)
+    return first + second
+```
+
+The elaborated module records each program as a
+[`ProgramEntry`][quivers.qiec.ProgramEntry]: the roles of its parameters,
+its sites, and its return names, beside the computation itself.
+[`run_program`][quivers.qiec.program_runtime.run_program] wraps the entry
+point in a scoring replay of `random` and an accumulating `score`, so the
+reference machine applied to data and a value for every site yields the
+program's value and its log joint density; the tests hold that number to
+the torch runtime's trace on the same models.
+
 Logic programming uses the same handler and resumption rules:
 
 <!-- compile: qiec -->

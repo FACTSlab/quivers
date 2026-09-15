@@ -17,6 +17,15 @@ from typing import Literal, cast
 import didactic.api as dx
 
 from quivers.qiec import QiecModule
+from quivers.qiec import declarations as d
+from quivers.qiec import effects as e
+from quivers.qiec import evidence as ev
+from quivers.qiec import identifiers as ids
+from quivers.qiec import kinds as k
+from quivers.qiec import module as m
+from quivers.qiec import programs as pr
+from quivers.qiec import terms as tm
+from quivers.qiec import types as ty
 from quivers.qiec.identifiers import StableId
 from quivers.qiec.primitives import PRIMITIVES
 
@@ -599,7 +608,7 @@ class IRQiecAffineMap(IRQiecValue):
     rows
         The block's height.
     transform
-        ``"identity"`` or ``"exp"``.
+        ``"identity"``, ``"exp"``, or ``"exp_floor"``.
     result_type
         The head's type.
     kind
@@ -611,7 +620,7 @@ class IRQiecAffineMap(IRQiecValue):
     sources: tuple[IRQiecValue, ...]
     row_offset: int
     rows: int
-    transform: Literal["identity", "exp"]
+    transform: Literal["identity", "exp", "exp_floor"]
     result_type: IRQiecStatic
     kind: Literal["affine_map"] = "affine_map"
 
@@ -632,6 +641,72 @@ class IRQiecSiteValue(IRQiecValue):
     label: str
     result_type: IRQiecStatic
     kind: Literal["site"] = "site"
+
+
+class IRQiecReduction(IRQiecValue):
+    """A number summarizing every entry of a tensor.
+
+    Parameters
+    ----------
+    operator
+        The reduction.
+    value
+        The tensor.
+    result_type
+        The element type.
+    kind
+        The discriminator; always ``"reduction"``.
+    """
+
+    operator: str
+    value: IRQiecValue
+    result_type: IRQiecStatic
+    kind: Literal["reduction"] = "reduction"
+
+
+class IRQiecRowwise(IRQiecValue):
+    """An operation along a tensor's last axis keeping its shape.
+
+    Parameters
+    ----------
+    operator
+        The operation.
+    value
+        The tensor.
+    result_type
+        The tensor's type.
+    kind
+        The discriminator; always ``"rowwise"``.
+    """
+
+    operator: str
+    value: IRQiecValue
+    result_type: IRQiecStatic
+    kind: Literal["rowwise"] = "rowwise"
+
+
+class IRQiecComprehension(IRQiecValue):
+    """A tensor built by evaluating a body at every index of an axis.
+
+    Parameters
+    ----------
+    binder
+        The index local.
+    extent
+        The axis's extent.
+    body
+        The entry at each index.
+    result_type
+        The tensor type.
+    kind
+        The discriminator; always ``"comprehension"``.
+    """
+
+    binder: IRQiecLocal
+    extent: IRQiecStatic
+    body: IRQiecValue
+    result_type: IRQiecStatic
+    kind: Literal["comprehension"] = "comprehension"
 
 
 class IRQiecTransportValue(IRQiecValue):
@@ -881,6 +956,81 @@ class IRQiecNamedComputation(dx.Model):
     origin: IRQiecSourceOrigin
 
 
+class IRQiecProgramParameter(dx.Model):
+    """One parameter of an elaborated program.
+
+    Parameters
+    ----------
+    name
+        The parameter's name.
+    role
+        How it is supplied.
+    type
+        Its type.
+    """
+
+    name: str
+    role: str
+    type: IRQiecStatic
+
+
+class IRQiecProgramSite(dx.Model):
+    """One probabilistic step of an elaborated program.
+
+    Parameters
+    ----------
+    name
+        The site's label.
+    kind
+        ``"sample"``, ``"observe"``, or ``"marginal"``.
+    family
+        The family drawn from.
+    batch
+        The plate's batch axes.
+    event
+        The plate's event axes.
+    """
+
+    name: str
+    kind: str
+    family: str
+    batch: tuple[IRQiecPlateAxis, ...] = ()
+    event: tuple[IRQiecPlateAxis, ...] = ()
+
+
+class IRQiecProgramEntry(dx.Model):
+    """The typed entry point a program declaration elaborates to.
+
+    Parameters
+    ----------
+    name
+        The program's name.
+    computation
+        The identity of the computation holding its body.
+    parameters
+        The computation's parameters with their roles.
+    return_names
+        The names the program returns.
+    return_labels
+        The labels of a labelled return, or ``None``.
+    sites
+        The program's probabilistic steps.
+    random_instance
+        The ``Random`` instance the program samples on.
+    score_instance
+        The ``Score`` instance the program scores on.
+    """
+
+    name: str
+    computation: IRQiecId
+    parameters: tuple[IRQiecProgramParameter, ...]
+    return_names: tuple[str, ...]
+    return_labels: tuple[str, ...] | None
+    sites: tuple[IRQiecProgramSite, ...]
+    random_instance: IRQiecId
+    score_instance: IRQiecId
+
+
 class IRQiecModule(dx.Model):
     """Lossless structural projection of one checked :class:`QiecModule`."""
 
@@ -893,7 +1043,65 @@ class IRQiecModule(dx.Model):
     instances: tuple[IRQiecNamedEffectInstance, ...] = ()
     handlers: tuple[IRQiecHandlerDef, ...] = ()
     computations: tuple[IRQiecNamedComputation, ...] = ()
+    entries: tuple[IRQiecProgramEntry, ...] = ()
+    gap: str = ""
     abi: str
+
+    def program_computations(self) -> frozenset[str]:
+        """The computations that hold programs and their marginal helpers.
+
+        Returns
+        -------
+        frozenset[str]
+            Identity texts of every entry point's computation and of
+            every helper it calls, transitively.
+        """
+        by_id = {computation.id.text: computation for computation in self.computations}
+        found: set[str] = set()
+        pending = [entry.computation.text for entry in self.entries]
+        while pending:
+            identity = pending.pop()
+            if identity in found or identity not in by_id:
+                continue
+            found.add(identity)
+            pending.extend(_callees(by_id[identity].body))
+        return frozenset(found)
+
+
+def _callees(node: IRQiecComputation) -> list[str]:
+    """The computations a body calls.
+
+    Parameters
+    ----------
+    node
+        The body.
+
+    Returns
+    -------
+    list[str]
+        Identity texts of every callee.
+    """
+    found: list[str] = []
+
+    def visit(item: IRQiecComputation) -> None:
+        if isinstance(item, IRQiecCall):
+            found.append(item.callee.text)
+        elif isinstance(item, IRQiecBind):
+            visit(item.first)
+            visit(item.then)
+        elif isinstance(item, IRQiecHandle):
+            visit(item.computation)
+        elif isinstance(item, IRQiecCase):
+            for branch in item.branches:
+                visit(branch.body)
+        elif isinstance(item, IRQiecIf):
+            visit(item.then)
+            visit(item.otherwise)
+        elif isinstance(item, IRQiecNewInstance):
+            visit(item.body)
+
+    visit(node)
+    return found
 
 
 def _id(value: StableId) -> IRQiecId:
@@ -920,15 +1128,6 @@ def _literal(value: object) -> IRQiecLiteral:
 
 def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
     """Recursively project a checked kernel record into structural IR."""
-    from quivers.qiec import declarations as d
-    from quivers.qiec import effects as e
-    from quivers.qiec import evidence as ev
-    from quivers.qiec import identifiers as ids
-    from quivers.qiec import kinds as k
-    from quivers.qiec import module as m
-    from quivers.qiec import terms as tm
-    from quivers.qiec import types as ty
-
     if isinstance(value, StableId):
         return _id(value)
     if isinstance(value, Enum):
@@ -1169,6 +1368,25 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
             jitter=value.jitter,
             result_type=cast(IRQiecStatic, _convert(value.result_type)),
         )
+    if isinstance(value, tm.Reduction):
+        return IRQiecReduction(
+            operator=value.operator,
+            value=cast(IRQiecValue, _convert(value.value)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.Rowwise):
+        return IRQiecRowwise(
+            operator=value.operator,
+            value=cast(IRQiecValue, _convert(value.value)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
+    if isinstance(value, tm.Comprehension):
+        return IRQiecComprehension(
+            binder=cast(IRQiecLocal, _convert(value.binder)),
+            extent=cast(IRQiecStatic, _convert(value.extent)),
+            body=cast(IRQiecValue, _convert(value.body)),
+            result_type=cast(IRQiecStatic, _convert(value.result_type)),
+        )
     if isinstance(value, tm.AffineMap):
         return IRQiecAffineMap(
             weight=cast(IRQiecValue, _convert(value.weight)),
@@ -1305,12 +1523,17 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
         m.NamedEffectInstance: IRQiecNamedEffectInstance,
         m.NamedComputation: IRQiecNamedComputation,
         m.QiecModule: IRQiecModule,
+        pr.ProgramParameter: IRQiecProgramParameter,
+        pr.ProgramSite: IRQiecProgramSite,
+        pr.ProgramEntry: IRQiecProgramEntry,
     }
     model = model_map.get(type(value))
     if model is None:
         raise TypeError(f"unsupported QIEC kernel record {type(value).__qualname__}")
     values = {
-        field.name: _convert(getattr(value, field.name)) for field in fields(value)
+        field.name: _convert(getattr(value, field.name))
+        for field in fields(value)
+        if field.name != "tag"
     }
     return model(**values)
 
@@ -1349,6 +1572,12 @@ type QiecFeature = Literal[
     "segment-sum",
     "kernel-matrix",
     "affine-map",
+    "reduction",
+    "rowwise",
+    "comprehension",
+    "special",
+    "activation",
+    "weight",
     "evidence",
     "transport",
     "attachment",
@@ -1429,6 +1658,14 @@ _GENERIC_RUNTIME = QiecTargetCapabilities(
             "distribution",
             "log-density",
             "site",
+            "special",
+            "activation",
+            "weight",
+            "gather",
+            "segment-sum",
+            "reduction",
+            "rowwise",
+            "comprehension",
             "evidence",
             "transport",
             "attachment",
@@ -1600,6 +1837,15 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             value(item.bias)
             for source in item.sources:
                 value(source)
+        elif isinstance(item, IRQiecReduction):
+            required.add("reduction")
+            value(item.value)
+        elif isinstance(item, IRQiecRowwise):
+            required.add("rowwise")
+            value(item.value)
+        elif isinstance(item, IRQiecComprehension):
+            required.add("comprehension")
+            value(item.body)
 
     def visit(item: IRQiecComputation) -> None:
         if isinstance(item, IRQiecReturn):
@@ -1781,7 +2027,26 @@ def analyze_qiec_capabilities(
     *,
     capabilities: QiecTargetCapabilities | None = None,
 ) -> tuple[QiecCapabilityDiagnostic, ...]:
-    """Report every QIEC feature ``target`` cannot preserve."""
+    """Report every QIEC feature ``target`` cannot preserve.
+
+    Parameters
+    ----------
+    module_or_ir
+        The checked module or its IR projection; ``None`` reports nothing.
+    target
+        The target name.
+    capabilities
+        The feature set to check against, else the target's registered
+        one.
+
+    Returns
+    -------
+    tuple[QiecCapabilityDiagnostic, ...]
+        One diagnostic per feature a computation or handler needs that
+        the target lacks. Program computations and their marginal
+        helpers are excluded: a renderer emits them from the program's
+        target plan rather than through the host runtime.
+    """
     if module_or_ir is None:
         return ()
     module = (
@@ -1808,7 +2073,13 @@ def analyze_qiec_capabilities(
         "omega": "unrestricted-resumption",
     }
     recursive = _recursive_computations(module)
+    # A program's computation and its marginal helpers are rendered from
+    # the target plan the renderer builds for the program, so the host
+    # runtime is never asked to carry them.
+    programs = module.program_computations()
     for computation in module.computations:
+        if computation.id.text in programs:
+            continue
         required = _required_features(computation)
         if computation.id.text in recursive:
             required.add("recursion")

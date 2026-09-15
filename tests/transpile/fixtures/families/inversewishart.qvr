@@ -2,8 +2,7 @@
 object Row : FinSet 3
 object Col : FinSet 3
 object Obs : Real 9
-morphism iw_kernel : Obs -> Obs [role=kernel] ~ InverseWishart
 program inversewishart_fixture : Obs -> Obs
-    sample sigma <- iw_kernel
+    sample sigma <- InverseWishart(4.0, [[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]
     return sigma
 export inversewishart_fixture

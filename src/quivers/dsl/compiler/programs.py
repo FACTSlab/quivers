@@ -70,6 +70,7 @@ from quivers.dsl.ast_nodes import (
     LetExprUnit,
     LetExprVar,
     LetStep,
+    CallStep,
     ScoreStep,
     MarginalizeStep,
     GroupedMarginalizeStep,
@@ -510,6 +511,14 @@ class _ProgramsMixin:
         """
         from quivers.dsl.compiler.sugar import desugar_step
 
+        if isinstance(step, CallStep):
+            raise CompileError(
+                f"`let {step.name} <- {step.call.callee}(...)` calls a named "
+                "computation, which only the QIEC route runs; execute the program "
+                "through its checked module rather than the runtime compiler",
+                step.line,
+                step.col,
+            )
         if isinstance(step, (SampleStep, ObserveStep)):
             step = desugar_step(step)
         if isinstance(step, SampleStep):

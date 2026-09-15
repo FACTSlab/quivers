@@ -1,6 +1,8 @@
 """Compiler: transform a quivers DSL AST into a trainable Program."""
 
 from __future__ import annotations
+
+from dataclasses import replace
 from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.objects import SetObject
 from quivers.program import Program
@@ -40,7 +42,9 @@ from quivers.dsl.compiler.structural import _StructuralMixin
 from quivers.dsl.compiler.deductions import _DeductionsMixin
 from quivers.dsl.compiler.resolution import _ResolutionMixin
 from quivers.dsl.compiler.expressions import _ExpressionsMixin
+from quivers.dsl.program_elaboration import GAP_CODE
 from quivers.dsl.qiec_lowering import (
+    QiecDiagnosticError,
     has_qiec_surface,
     lower_qvr_to_qiec,
     non_qiec_projection,
@@ -82,11 +86,24 @@ class Compiler(
     ) -> None:
         self._qiec_module: QiecModule | None = None
         if has_qiec_surface(module):
-            self._qiec_module = lower_qvr_to_qiec(
-                module,
-                module_name=module_name,
-                file_path=file_path,
-            )
+            try:
+                self._qiec_module = lower_qvr_to_qiec(
+                    module,
+                    module_name=module_name,
+                    file_path=file_path,
+                )
+            except QiecDiagnosticError as error:
+                if error.code != GAP_CODE:
+                    raise
+                self._qiec_module = replace(
+                    lower_qvr_to_qiec(
+                        module,
+                        module_name=module_name,
+                        file_path=file_path,
+                        elaborate_programs=False,
+                    ),
+                    gap=error.message,
+                )
             module = non_qiec_projection(module)
         self._module = module
         self._algebra: Algebra = PRODUCT_FUZZY

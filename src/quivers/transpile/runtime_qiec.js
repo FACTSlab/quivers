@@ -108,11 +108,185 @@ var _qvr_qiec_primitives = {
   not: function(a) { return !a; },
   concat: function(a, b) { return a + b; },
   int_to_real: function(a) { return a; },
-  real_to_int: function(a) { return Math.trunc(a); }
+  real_to_int: function(a) { return Math.trunc(a); },
+  expm1: function(a) { return Math.expm1(a); },
+  log1p: function(a) { return Math.log1p(a); },
+  log2: function(a) { return Math.log2(a); },
+  log10: function(a) { return Math.log10(a); },
+  rsqrt: function(a) { return 1 / Math.sqrt(a); },
+  square: function(a) { return a * a; },
+  sign: function(a) { return Math.sign(a); },
+  reciprocal: function(a) { return 1 / a; },
+  sin: function(a) { return Math.sin(a); },
+  cos: function(a) { return Math.cos(a); },
+  tan: function(a) { return Math.tan(a); },
+  asin: function(a) { return Math.asin(a); },
+  acos: function(a) { return Math.acos(a); },
+  atan: function(a) { return Math.atan(a); },
+  sinh: function(a) { return Math.sinh(a); },
+  cosh: function(a) { return Math.cosh(a); },
+  tanh: function(a) { return Math.tanh(a); },
+  asinh: function(a) { return Math.asinh(a); },
+  acosh: function(a) { return Math.acosh(a); },
+  atanh: function(a) { return Math.atanh(a); },
+  floor: function(a) { return Math.floor(a); },
+  ceil: function(a) { return Math.ceil(a); },
+  round: function(a) { return Math.round(a); },
+  trunc: function(a) { return Math.trunc(a); },
+  erf: function(a) { return _qvr_qiec_erf(a); },
+  erfc: function(a) { return 1 - _qvr_qiec_erf(a); },
+  erfinv: function(a) { return _qvr_qiec_erfinv(a); },
+  lgamma: function(a) { return _qvr_qiec_lgamma(a); },
+  digamma: function(a) { return _qvr_qiec_digamma(a); },
+  sigmoid: function(a) { return _qvr_qiec_sigmoid(a); },
+  relu: function(a) { return Math.max(a, 0); },
+  relu6: function(a) { return Math.min(Math.max(a, 0), 6); },
+  elu: function(a) { return a > 0 ? a : Math.expm1(a); },
+  selu: function(a) { return 1.0507009873554805 * (a > 0 ? a : 1.6732632423543772 * (Math.exp(a) - 1)); },
+  gelu: function(a) { return 0.5 * a * (1 + _qvr_qiec_erf(a / Math.sqrt(2))); },
+  silu: function(a) { return a * _qvr_qiec_sigmoid(a); },
+  mish: function(a) { return a * Math.tanh(_qvr_qiec_softplus(a)); },
+  softplus: function(a) { return _qvr_qiec_softplus(a); },
+  logsigmoid: function(a) { return -_qvr_qiec_softplus(-a); },
+  softsign: function(a) { return a / (1 + Math.abs(a)); },
+  as_weight: function(a) { return a; },
+  weight_value: function(a) { return a; },
+  add_weight: function(a, b) { return a + b; },
+  scale_weight: function(a, b) { return a * b; }
+};
+var _qvr_qiec_sigmoid = function(value) {
+  if (value >= 0) { return 1 / (1 + Math.exp(-value)); }
+  var exponent = Math.exp(value);
+  return exponent / (1 + exponent);
+};
+var _qvr_qiec_softplus = function(value) { return Math.max(value, 0) + Math.log1p(Math.exp(-Math.abs(value))); };
+// The error function by its Taylor series near the origin and by the
+// continued fraction of the complementary function in the tails.
+var _qvr_qiec_erf = function(value) {
+  var sign = value < 0 ? -1 : 1;
+  var x = Math.abs(value);
+  if (x < 2.5) {
+    var term = x, total = x, n = 0;
+    while (Math.abs(term) > 1e-17 * Math.abs(total) && n < 200) {
+      n += 1;
+      term *= -x * x / n;
+      total += term / (2 * n + 1);
+    }
+    return sign * 2 / Math.sqrt(Math.PI) * total;
+  }
+  var fraction = x;
+  for (var k = 60; k >= 1; k--) { fraction = x + (k / 2) / fraction; }
+  return sign * (1 - Math.exp(-x * x) / Math.sqrt(Math.PI) / fraction);
+};
+var _qvr_qiec_erfinv = function(value) {
+  if (value < -1 || value > 1) { throw new Error("erfinv is defined on [-1, 1]"); }
+  if (value === 1) { return Infinity; }
+  if (value === -1) { return -Infinity; }
+  if (value === 0) { return 0; }
+  var sign = value > 0 ? 1 : -1;
+  var magnitude = Math.abs(value);
+  var estimate;
+  if (magnitude < 0.7) {
+    var square = magnitude * magnitude;
+    estimate = magnitude * (((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square + 0.886226899) /
+      ((((0.012229801 * square - 0.329097515) * square + 1.442710462) * square - 2.118377725) * square + 1);
+  } else {
+    var tail = Math.sqrt(-Math.log((1 - magnitude) / 2));
+    estimate = (((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail - 1.970840454) / ((1.637067800 * tail + 3.543889200) * tail + 1);
+  }
+  for (var i = 0; i < 3; i++) { estimate -= (_qvr_qiec_erf(estimate) - magnitude) / (2 / Math.sqrt(Math.PI) * Math.exp(-estimate * estimate)); }
+  return sign * estimate;
+};
+// Lanczos approximation of log gamma.
+var _qvr_qiec_lgamma = function(value) {
+  if (value < 0.5) { return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * value))) - _qvr_qiec_lgamma(1 - value); }
+  var coefficients = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  var x = value - 1;
+  var total = 0.99999999999980993;
+  for (var i = 0; i < coefficients.length; i++) { total += coefficients[i] / (x + i + 1); }
+  var t = x + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(total);
+};
+var _qvr_qiec_digamma = function(value) {
+  if (value <= 0 && value === Math.floor(value)) { throw new Error("digamma has a pole at nonpositive integers"); }
+  if (value < 0) { return _qvr_qiec_digamma(1 - value) - Math.PI / Math.tan(Math.PI * value); }
+  var result = 0;
+  while (value < 6) { result -= 1 / value; value += 1; }
+  var inverse = 1 / value;
+  var square = inverse * inverse;
+  return result + Math.log(value) - 0.5 * inverse - square * (1 / 12 - square * (1 / 120 - square * (1 / 252 - square * (1 / 240 - square / 132))));
+};
+var _qvr_qiec_broadcast = function(implementation, args) {
+  var tensors = args.filter(function(argument) { return Array.isArray(argument); });
+  if (!tensors.length) { return implementation.apply(null, args); }
+  var length = tensors[0].length;
+  if (tensors.some(function(tensor) { return tensor.length !== length; })) { throw new Error("QIEC primitive applied to tensors of differing shapes"); }
+  var out = [];
+  for (var index = 0; index < length; index++) {
+    out.push(_qvr_qiec_broadcast(implementation, args.map(function(argument) { return Array.isArray(argument) ? argument[index] : argument; })));
+  }
+  return Object.freeze(out);
 };
 var _qvr_qiec_primitive = function(name, args) {
   if (!Object.prototype.hasOwnProperty.call(_qvr_qiec_primitives, name)) { throw new Error("unknown QIEC primitive " + name); }
-  return _qvr_qiec_primitives[name].apply(null, args.map(_qvr_qiec_value));
+  return _qvr_qiec_broadcast(_qvr_qiec_primitives[name], args.map(_qvr_qiec_value));
+};
+var _qvr_qiec_gather = function(value, index) {
+  value = _qvr_qiec_value(value);
+  index = _qvr_qiec_value(index);
+  if (!Array.isArray(value)) { throw new Error("QIEC gather from a non-tensor runtime value"); }
+  if (Array.isArray(index)) { return Object.freeze(index.map(function(item) { return _qvr_qiec_gather(value, item); })); }
+  return value[index];
+};
+var _qvr_qiec_flat = function(value) {
+  if (!Array.isArray(value)) { return [value]; }
+  var out = [];
+  value.forEach(function(item) { out = out.concat(_qvr_qiec_flat(item)); });
+  return out;
+};
+var _qvr_qiec_reduce = function(operator, value) {
+  var entries = _qvr_qiec_flat(_qvr_qiec_value(value));
+  var total = entries.reduce(function(a, b) { return a + b; }, 0);
+  if (operator === "sum") { return total; }
+  if (operator === "mean") { return total / entries.length; }
+  if (operator === "max") { return Math.max.apply(null, entries); }
+  if (operator === "min") { return Math.min.apply(null, entries); }
+  if (operator === "prod") { return entries.reduce(function(a, b) { return a * b; }, 1); }
+  var peak = Math.max.apply(null, entries);
+  return peak + Math.log(entries.reduce(function(a, b) { return a + Math.exp(b - peak); }, 0));
+};
+var _qvr_qiec_rowwise = function(operator, value) {
+  value = _qvr_qiec_value(value);
+  if (value.length && Array.isArray(value[0])) { return Object.freeze(value.map(function(item) { return _qvr_qiec_rowwise(operator, item); })); }
+  var row = value.map(Number);
+  var total;
+  if (operator === "softmax") {
+    var peak = Math.max.apply(null, row);
+    var weights = row.map(function(item) { return Math.exp(item - peak); });
+    total = weights.reduce(function(a, b) { return a + b; }, 0);
+    return Object.freeze(weights.map(function(weight) { return weight / total; }));
+  }
+  if (operator === "log_softmax") {
+    var top = Math.max.apply(null, row);
+    var normalizer = top + Math.log(row.reduce(function(a, b) { return a + Math.exp(b - top); }, 0));
+    return Object.freeze(row.map(function(item) { return item - normalizer; }));
+  }
+  if (operator === "cumsum") {
+    var running = 0;
+    return Object.freeze(row.map(function(item) { running += item; return running; }));
+  }
+  if (operator === "sort") { return Object.freeze(row.slice().sort(function(a, b) { return a - b; })); }
+  total = row.reduce(function(a, b) { return a + b; }, 0);
+  return Object.freeze(row.map(function(item) { return item / total; }));
+};
+var _qvr_qiec_weight_sum = function(value) { return _qvr_qiec_flat(_qvr_qiec_value(value)).reduce(function(a, b) { return a + b; }, 0); };
+var _qvr_qiec_segment_sum = function(value, index, groups) {
+  var totals = [];
+  for (var g = 0; g < groups; g++) { totals.push(0); }
+  var weights = _qvr_qiec_value(value);
+  var members = _qvr_qiec_value(index);
+  for (var i = 0; i < weights.length; i++) { totals[members[i]] += weights[i]; }
+  return Object.freeze(totals);
 };
 var _qvr_qiec_project = function(value, position) {
   value = _qvr_qiec_value(value);

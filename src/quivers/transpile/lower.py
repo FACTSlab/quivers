@@ -80,7 +80,7 @@ from quivers.dsl.ast_nodes.objects import (
     TypeName,
 )
 from quivers.transpile._api import UnsupportedConstruct
-from quivers.transpile._draw_args import (
+from quivers.dsl.draw_args import (
     encode_index,
     is_matrix,
     list_items,

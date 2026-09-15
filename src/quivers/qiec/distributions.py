@@ -199,6 +199,9 @@ class RuntimeDistribution:
         Each parameter's own tensor rank, from the family registry, so
         an argument carrying plate dimensions can be told from one that
         does not.
+    natural
+        The family's own event extents, so a scalar given for a tensor
+        parameter can be broadcast to the shape the family expects.
     """
 
     family: str
@@ -206,6 +209,7 @@ class RuntimeDistribution:
     batch: tuple[int, ...] = ()
     event: tuple[int, ...] = ()
     ranks: Mapping[str, int] = MappingProxyType({})
+    natural: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         """Freeze the arguments so a distribution value cannot drift."""
@@ -237,9 +241,42 @@ class RuntimeDistribution:
             The named parameters with their plate dimensions selected.
         """
         return {
-            name: _slice_at(value, position, self.ranks.get(name, 0))
+            name: self._broadcast(
+                name, _slice_at(value, position, self.ranks.get(name, 0))
+            )
             for name, value in self.arguments.items()
         }
+
+    def _broadcast(self, name: str, value: object) -> object:
+        """Expand a scalar given for a tensor parameter to its shape.
+
+        Parameters
+        ----------
+        name : str
+            The parameter.
+        value : object
+            Its value at one plate position.
+
+        Returns
+        -------
+        object
+            The value, or nested tuples of it over the parameter's own
+            dimensions when it is a scalar and the parameter has rank:
+            the family's event extents when their count is the rank,
+            else the last event extent repeated.
+        """
+        rank = self.ranks.get(name, 0)
+        if rank == 0 or isinstance(value, tuple) or not self.natural:
+            return value
+        dims = (
+            self.natural
+            if len(self.natural) == rank
+            else tuple(self.natural[-1] for _ in range(rank))
+        )
+        result: object = value
+        for extent in reversed(dims):
+            result = tuple(result for _ in range(extent))
+        return result
 
     def sample(self, rng: random.Random | None = None) -> object:
         """Draw one value through the installed backend.
@@ -263,7 +300,7 @@ class RuntimeDistribution:
         """
         generator = rng or _RNG
         if not self.plated:
-            return _backend.sample(self.family, self.arguments, generator)
+            return _backend.sample(self.family, self._at(()), generator)
         shape = (*self.batch, *self.event)
         return _nest(
             {
@@ -298,7 +335,7 @@ class RuntimeDistribution:
             shaped like the plate.
         """
         if not self.plated:
-            return _backend.log_prob(self.family, self.arguments, value)
+            return _backend.log_prob(self.family, self._at(()), value)
         shape = (*self.batch, *self.event)
         if tensor_rank(value) < len(shape):
             raise DistributionError(

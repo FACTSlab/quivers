@@ -44,6 +44,9 @@ from quivers.qiec.terms import (
     SegmentSum,
     KernelMatrix,
     AffineMap,
+    Reduction,
+    Rowwise,
+    Comprehension,
     Value,
     Var,
 )
@@ -725,11 +728,34 @@ def substitute_value(value: Value, substitution: StaticSubstitution) -> Value:
             value.transform,
             substitute_type(value.result_type, substitution),
         )
+    if isinstance(value, Reduction):
+        return Reduction(
+            value.operator,
+            substitute_value(value.value, substitution),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, Rowwise):
+        return Rowwise(
+            value.operator,
+            substitute_value(value.value, substitution),
+            substitute_type(value.result_type, substitution),
+        )
+    if isinstance(value, Comprehension):
+        return Comprehension(
+            Local(value.binder.name, substitute_type(value.binder.type, substitution)),
+            substitute_index(value.extent, substitution),
+            substitute_value(value.body, substitution),
+            substitute_type(value.result_type, substitution),
+        )
     if isinstance(value, LogDensity):
         return LogDensity(
             substitute_value(value.sampleable, substitution),
             substitute_value(value.value, substitution),
             value.origin,
+            tuple(
+                PlateAxis(axis.name, substitute_index(axis.size, substitution))
+                for axis in value.batch
+            ),
         )
     if isinstance(value, SiteValue):
         return SiteValue(value.label, substitute_type(value.result_type, substitution))

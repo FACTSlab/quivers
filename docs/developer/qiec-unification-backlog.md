@@ -688,6 +688,21 @@ criteria pass.
   `IRObserve`, `IRScore`, or `IRMarginalize` without first producing checked
   QIEC.
 
+**Transition state:** `src/quivers/dsl/program_elaboration.py` elaborates
+every entry-point program (a program without object or morphism template
+parameters) before `Lower` builds its plan, and `Lower.forward` and
+`transpile` refuse a program the elaboration rejects. Two program constructs
+have no elaboration yet and are reported under the diagnostic code
+`qiec-program-gap` rather than approximated: a deduction chart (`parse`,
+`chart_fold`, a chart method call), which QVR-090 brings into the calculus,
+and a morphism parameterized by a network (`param-source:mlp` and kin), which
+QVR-100 does. For such a program the transpile boundary and `Compiler` lower
+the module again without its programs and record the gap on the module
+(`QiecModule.gap`), so the program reaches the renderer through its plan
+alone until those packages land. `Lower` still builds `IRProgram.body` from
+the source after the elaboration has checked it; deriving the plan from the
+checked module is QVR-110.
+
 ### QVR-080 — Rebase the existing effect library on QIEC
 
 **Depends on:** QVR-050, QVR-060, QVR-070.

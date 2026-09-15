@@ -80,7 +80,8 @@ def test_qiec_computation_enters_typed_ir_without_blanket_refusal() -> None:
     ir = Lower().forward(parse(_QIEC_COMPUTATION))
 
     assert ir.qiec is not None
-    computation = ir.qiec.computations[0]
+    assert [item.name for item in ir.qiec.computations] == ["prog", "answer"]
+    computation = ir.qiec.computations[1]
     assert computation.name == "answer"
     assert isinstance(computation.body, IRQiecReturn)
     assert analyze_qiec_capabilities(ir.qiec, "pyro") == ()

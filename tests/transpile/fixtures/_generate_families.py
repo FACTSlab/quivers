@@ -216,9 +216,8 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Row : FinSet 3\n"
         "object Col : FinSet 3\n"
         "object Obs : Real 9\n"
-        "morphism iw_kernel : Obs -> Obs [role=kernel] ~ InverseWishart\n"
         "program inversewishart_fixture : Obs -> Obs\n"
-        "    sample sigma <- iw_kernel\n"
+        "    sample sigma <- InverseWishart(4.0, [[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]\n"
         "    return sigma\n"
         "export inversewishart_fixture\n"
     ),
@@ -226,9 +225,8 @@ _VECTOR_SOURCES: dict[str, str] = {
         "# Hand-written LowRankMVN fixture (vector family with low-rank factor).\n"
         "object Dim : FinSet 5\n"
         "object Obs : Real 5\n"
-        "morphism lr_kernel : Obs -> Obs [role=kernel, rank=2] ~ LowRankMVN\n"
         "program lowrankmvn_fixture : Obs -> Obs\n"
-        "    sample x <- lr_kernel\n"
+        "    sample x <- LowRankMVN([0.0, 0.0, 0.0, 0.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.0, 1.0]], [1.0, 1.0, 1.0, 1.0, 1.0]) [over=Dim]\n"
         "    return x\n"
         "export lowrankmvn_fixture\n"
     ),
@@ -258,9 +256,8 @@ _VECTOR_SOURCES: dict[str, str] = {
         "(Gumbel-softmax over a simplex).\n"
         "object Cls : FinSet 4\n"
         "object Obs : Real 4\n"
-        "morphism roc_kernel : Obs -> Obs [role=kernel, temperature=0.5] ~ RelaxedOneHotCategorical\n"
         "program relaxedonehotcategorical_fixture : Obs -> Obs\n"
-        "    sample z <- roc_kernel\n"
+        "    sample z <- RelaxedOneHotCategorical(probs) [over=Cls]\n"
         "    return z\n"
         "export relaxedonehotcategorical_fixture\n"
     ),
@@ -268,9 +265,8 @@ _VECTOR_SOURCES: dict[str, str] = {
         "# Hand-written Wishart fixture (matrix family).\n"
         "object Dim : FinSet 3\n"
         "object Obs : Real 9\n"
-        "morphism w_kernel : Obs -> Obs [role=kernel] ~ Wishart\n"
         "program wishart_fixture : Obs -> Obs\n"
-        "    sample sigma <- w_kernel\n"
+        "    sample sigma <- Wishart(4.0, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]) [over=[Dim, Dim]]\n"
         "    return sigma\n"
         "export wishart_fixture\n"
     ),

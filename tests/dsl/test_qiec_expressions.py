@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from quivers.dsl import parse
@@ -176,3 +178,57 @@ def test_expressions_emit_canonically_and_round_trip() -> None:
     lowered = lower_qvr_to_qiec(module, file_path="probe.qvr")
     assert run_named(lowered, "probe", (3, 2.0)).value == pytest.approx(2.0 - 3.5)
     assert lowered.computations[0].type.result == REAL
+
+
+def test_tensor_arithmetic_reductions_rowwise_and_comprehensions_run() -> None:
+    source = """\
+object K : FinSet 3
+
+define scaled(v : Tensor[Real]([3])) : Tensor[Real]([3]) !{} =
+    return tanh(v) * 2.0 + 1.0
+
+define total(v : Tensor[Real]([3])) : Real !{} =
+    return sum(v) + max(v) - logsumexp(v) + mean(v)
+
+define weights(v : Tensor[Real]([3])) : Tensor[Real]([3]) !{} =
+    return softmax(v)
+
+define squares() : Tensor[Real]([3]) !{} =
+    return factor k : K in real(k) * real(k)
+
+define pick(v : Tensor[Real]([3]), i : Int) : Real !{} =
+    return v[i] + sigmoid(0.0)
+
+define table() : Tensor[Real]([3, 2]) !{} =
+    return factor k : K, j : FinSet 2 in real(k) + real(j)
+"""
+    module = lower_qvr_to_qiec(parse(source), file_path="tensors.qvr")
+    v = (0.0, 1.0, -1.0)
+    scaled = run_named(module, "scaled", (v,)).value
+    assert scaled == pytest.approx((1.0, 1.0 + 2.0 * math.tanh(1.0), 1.0 - 2.0 * math.tanh(1.0)))
+    total = run_named(module, "total", (v,)).value
+    lse = math.log(sum(math.exp(x) for x in v))
+    assert total == pytest.approx(0.0 + 1.0 - lse + 0.0)
+    weights = run_named(module, "weights", (v,)).value
+    assert sum(weights) == pytest.approx(1.0)
+    assert weights[1] == pytest.approx(math.exp(1.0) / sum(math.exp(x) for x in v))
+    assert run_named(module, "squares").value == (0.0, 1.0, 4.0)
+    assert run_named(module, "pick", (v, 2)).value == pytest.approx(-0.5)
+    assert run_named(module, "table").value == ((0.0, 1.0), (1.0, 2.0), (2.0, 3.0))
+    assert module_to_source(parse(source)) == source
+
+
+def test_tensor_expressions_are_rejected_at_the_wrong_shapes() -> None:
+    with pytest.raises(QiecDiagnosticError, match="differing shapes"):
+        lower_qvr_to_qiec(
+            parse(
+                "define bad(a : Tensor[Real]([2]), b : Tensor[Real]([3])) : "
+                "Tensor[Real]([2]) !{} =\n    return a + b\n"
+            ),
+            file_path="bad.qvr",
+        )
+    with pytest.raises(QiecDiagnosticError, match="one Tensor"):
+        lower_qvr_to_qiec(
+            parse("define bad(a : Real) : Real !{} =\n    return softmax(a)\n"),
+            file_path="bad.qvr",
+        )
