@@ -33,8 +33,17 @@ from quivers.qiec.execution import (
 from quivers.qiec.identifiers import ComputationId, HandlerId, SourceOrigin
 from quivers.qiec.module import NamedComputation, QiecModule
 from quivers.qiec.programs import ProgramEntry
+from quivers.qiec.kinds import IndexBinder
 from quivers.qiec.terms import Call, Handle, Local, Var
-from quivers.qiec.types import TypeExpr, product_type
+from quivers.qiec.types import (
+    IndexLiteral,
+    IndexVariable,
+    ShapeIndex,
+    StaticArgument,
+    TypeApplication,
+    TypeExpr,
+    product_type,
+)
 
 #: The names of the wrapper's handlers, which no source may declare.
 REPLAY_HANDLER = "__program_replay"
@@ -140,6 +149,11 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     entry = program_entry(module, name)
     computation = _computation(module, entry.computation)
     answer: TypeExpr = computation.type.result
+    statics: tuple[StaticArgument, ...] = tuple(
+        IndexVariable(binder.name, binder.sort)
+        for binder in computation.telescope
+        if isinstance(binder, IndexBinder)
+    )
     random = next(
         instance
         for instance in module.instances
@@ -160,6 +174,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         EffectRow((score.entry,)),
         total=True,
         implementation="foreign",
+        telescope=computation.telescope,
     )
     accumulate = HandlerDef(
         HandlerId.derive(module.module, "handler", ACCUMULATE_HANDLER),
@@ -171,6 +186,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         EffectRow(),
         total=True,
         implementation="foreign",
+        telescope=computation.telescope,
     )
     result_type = answer
     parameters = tuple(
@@ -179,7 +195,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     call = Call(
         computation.id,
         computation.name,
-        (),
+        statics,
         tuple(Var(parameter) for parameter in parameters),
         result_type,
         computation.type.effects,
@@ -193,14 +209,14 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     body = Handle(
         score.entry.instance,
         accumulate.id,
-        Handle(random.entry.instance, replay.id, call, ()),
-        (),
+        Handle(random.entry.instance, replay.id, call, statics),
+        statics,
     )
     wrapper_name = f"__joint_{name}"
     wrapper = NamedComputation(
         ComputationId.derive(module.module, "computation", wrapper_name),
         wrapper_name,
-        (),
+        computation.telescope,
         parameters,
         body,
         ComputationType(EffectRow(), product_type(result_type, LOG_WEIGHT)),
@@ -217,6 +233,103 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         computations=(*module.computations, wrapper),
     )
     return extended, wrapper_name
+
+
+def _extent_of(value: object, depth: int) -> int:
+    """Read the extent of a nested host tensor at one axis.
+
+    Parameters
+    ----------
+    value : object
+        A host tensor: nested tuples or lists, or an object with a
+        ``shape``.
+    depth : int
+        The axis, outermost first.
+
+    Returns
+    -------
+    int
+        The extent.
+
+    Raises
+    ------
+    KeyError
+        If the value has no such axis.
+    """
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        try:
+            return int(shape[depth])
+        except IndexError as error:
+            raise KeyError(f"host value has no axis {depth}") from error
+    current = value
+    for _ in range(depth):
+        if not isinstance(current, (tuple, list)) or not current:
+            raise KeyError(f"host value has no axis {depth}")
+        current = current[0]
+    if not isinstance(current, (tuple, list)):
+        raise KeyError(f"host value has no axis {depth}")
+    return len(current)
+
+
+def static_arguments_for(
+    entry: ProgramEntry, data: Mapping[str, object]
+) -> tuple[StaticArgument, ...]:
+    """Read a program's static extents off the data it is applied to.
+
+    Parameters
+    ----------
+    entry : ProgramEntry
+        The program's entry point, whose telescope names the extents.
+    data : Mapping[str, object]
+        The host value of each parameter, by name.
+
+    Returns
+    -------
+    tuple[StaticArgument, ...]
+        One index literal per telescope binder, in telescope order: the
+        length of the axis of the first parameter whose tensor type is
+        shaped by the binder.
+
+    Raises
+    ------
+    KeyError
+        If a binder shapes no parameter, or the parameter is not given
+        or has too few axes.
+    """
+    arguments: list[StaticArgument] = []
+    for binder in entry.telescope:
+        found: int | None = None
+        for parameter in entry.parameters:
+            type_ = parameter.type
+            if not isinstance(type_, TypeApplication) or len(type_.arguments) != 2:
+                continue
+            shape = type_.arguments[1]
+            if not isinstance(shape, ShapeIndex):
+                continue
+            for depth, dimension in enumerate(shape.dimensions):
+                if (
+                    isinstance(dimension, IndexVariable)
+                    and dimension.name == binder.name
+                ):
+                    try:
+                        found = _extent_of(data[parameter.name], depth)
+                    except KeyError as error:
+                        raise KeyError(
+                            f"parameter {parameter.name!r} of program "
+                            f"{entry.name!r} does not fix its extent "
+                            f"{binder.name!r}: {error.args[0]}"
+                        ) from error
+                    break
+            if found is not None:
+                break
+        if found is None:
+            raise KeyError(
+                f"program {entry.name!r} has an extent {binder.name!r} that no "
+                "parameter fixes"
+            )
+        arguments.append(IndexLiteral(found, binder.sort))  # type: ignore[arg-type]
+    return tuple(arguments)
 
 
 def run_program(
@@ -252,7 +365,8 @@ def run_program(
     Raises
     ------
     KeyError
-        If the module has no such program, or a parameter is not given.
+        If the module has no such program, a parameter is not given, or
+        an open extent cannot be read off the data.
     ExecutionFailure
         If the run fails, a site is missing, or a value does not inhabit
         its type.
@@ -260,6 +374,7 @@ def run_program(
     entry = program_entry(module, name)
     extended, wrapper_name = joint_module(module, name)
     arguments = tuple(data[parameter.name] for parameter in entry.parameters)
+    statics = static_arguments_for(entry, data)
     configured: dict[str, object] = {
         REPLAY_HANDLER: {
             "kind": "replay",
@@ -282,7 +397,14 @@ def run_program(
     runtime = RuntimeConfiguration(
         (RuntimeSelection("core", {"handlers": configured}),)
     )
-    result = run_named(extended, wrapper_name, arguments, runtime=runtime, fuel=fuel)
+    result = run_named(
+        extended,
+        wrapper_name,
+        arguments,
+        static_arguments=statics,
+        runtime=runtime,
+        fuel=fuel,
+    )
     value, weight = result.value  # type: ignore[misc]
     return ProgramRun(value, float(weight), result)  # type: ignore[arg-type]
 
@@ -294,4 +416,5 @@ __all__ = [
     "joint_module",
     "program_entry",
     "run_program",
+    "static_arguments_for",
 ]

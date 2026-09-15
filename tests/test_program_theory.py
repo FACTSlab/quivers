@@ -14,7 +14,7 @@ import panproto
 import pytest
 
 from quivers.dsl.compiler import Compiler
-from quivers.dsl.parser import parse_file
+from quivers.dsl.parser import parse, parse_file
 from quivers.dsl.program_theory import QVR_PROGRAM_PROTOCOL, extract_program_schema
 
 
@@ -126,3 +126,145 @@ def test_identical_compilation_produces_equal_schemas() -> None:
     assert a.edge_count == b.edge_count
     assert len(diff["added_vertices"]) == 0
     assert len(diff["removed_vertices"]) == 0
+
+
+PROGRAM_ONLY = """\
+object Trial : FinSet 6
+object Rate : Real 1
+
+program coin : Trial -> Rate
+    sample theta <- Beta(2.0, 2.0)
+    observe y : Trial <- Bernoulli(theta)
+    return theta
+export coin
+"""
+
+MIXED = """\
+object Obs : FinSet 4
+
+define shift(x : Real, by : Real) : Real !{} =
+    return x + by
+
+define noisy(x : Real) : Real !{random} =
+    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))
+    return y
+
+instance random : Random
+
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let b <- shift(a, 2.0)
+    let c <- noisy(b)
+    observe y <- Normal(c, 0.5)
+    return c
+export prog
+
+define twice(y : Real) : Real !{random, score} =
+    let first <- prog(y)
+    let second <- prog(y)
+    return first + second
+"""
+
+
+def _names(schema: panproto.Schema, kind: str) -> dict[str, str]:
+    """Map every vertex of a kind to its ``name`` constraint."""
+    names: dict[str, str] = {}
+    for vertex in schema.vertices:
+        if vertex.kind != kind:
+            continue
+        for constraint in schema.constraints_for(vertex.id):
+            if constraint.sort == "name":
+                names[vertex.id] = constraint.value
+    return names
+
+
+def _edges(schema: panproto.Schema, kind: str) -> set[tuple[str, str]]:
+    """The source and target of every edge of a kind."""
+    return {(edge.src, edge.tgt) for edge in schema.edges if edge.kind == kind}
+
+
+def test_program_only_module_yields_the_kernel_graph() -> None:
+    """A module holding one program produces its computation, entry, sites,
+    and the canonical instances the entry addresses."""
+    compiler = Compiler(parse(PROGRAM_ONLY))
+    compiler.compile_env()
+    schema = extract_program_schema(compiler)
+    schema.validate(QVR_PROGRAM_PROTOCOL)
+
+    assert set(_names(schema, "computation_decl").values()) == {"coin"}
+    assert set(_names(schema, "program_entry").values()) == {"coin"}
+    assert set(_names(schema, "program_site").values()) == {"theta", "y"}
+    assert set(_names(schema, "instance_decl").values()) == {"random", "score"}
+    assert set(_names(schema, "effect_decl").values()) >= {"Random", "Score"}
+    assert set(_names(schema, "program_parameter").values()) == {"y"}
+
+    assert _edges(schema, "entry") == {("program", "program_entry::coin")}
+    assert _edges(schema, "body") == {("program_entry::coin", "computation_decl::coin")}
+    assert _edges(schema, "random") == {
+        ("program_entry::coin", "instance_decl::random")
+    }
+    assert _edges(schema, "score") == {("program_entry::coin", "instance_decl::score")}
+    assert _edges(schema, "performs") == {
+        ("computation_decl::coin", "instance_decl::random"),
+        ("computation_decl::coin", "instance_decl::score"),
+    }
+    assert _edges(schema, "row") == _edges(schema, "performs")
+    sites = {
+        name: {c.sort: c.value for c in schema.constraints_for(vid)}
+        for vid, name in _names(schema, "program_site").items()
+    }
+    assert sites["theta"]["site_kind"] == "sample"
+    assert sites["theta"]["family"] == "Beta"
+    assert sites["y"]["site_kind"] == "observe"
+    assert sites["y"]["family"] == "Bernoulli"
+    assert sites["y"]["batch"] == "Trial:6"
+
+
+def test_mixed_module_is_one_call_graph() -> None:
+    """Computations and programs calling each other share one graph."""
+    compiler = Compiler(parse(MIXED))
+    schema = extract_program_schema(compiler)
+    schema.validate(QVR_PROGRAM_PROTOCOL)
+
+    assert set(_names(schema, "computation_decl").values()) == {
+        "shift",
+        "noisy",
+        "prog",
+        "twice",
+    }
+    assert _edges(schema, "calls") == {
+        ("computation_decl::prog", "computation_decl::noisy"),
+        ("computation_decl::prog", "computation_decl::shift"),
+        ("computation_decl::twice", "computation_decl::prog"),
+    }
+    assert ("computation_decl::noisy", "instance_decl::random") in _edges(
+        schema, "performs"
+    )
+    twice = {c.sort: c.value for c in schema.constraints_for("computation_decl::twice")}
+    assert twice["type"] == "Real"
+    parameters = _names(schema, "computation_parameter")
+    assert parameters["computation_decl::shift/parameter::by"] == "by"
+
+
+def test_diff_sees_a_changed_site() -> None:
+    """Changing one site's family changes the extracted schema."""
+    changed = PROGRAM_ONLY.replace("Bernoulli(theta)", "Geometric(theta)")
+    first = Compiler(parse(PROGRAM_ONLY))
+    second = Compiler(parse(changed))
+    schema_a = extract_program_schema(first)
+    schema_b = extract_program_schema(second)
+    families_a = {
+        c.value
+        for c in schema_a.constraints_for("program_entry::coin/site::y")
+        if c.sort == "family"
+    }
+    families_b = {
+        c.value
+        for c in schema_b.constraints_for("program_entry::coin/site::y")
+        if c.sort == "family"
+    }
+    assert families_a == {"Bernoulli"}
+    assert families_b == {"Geometric"}
+    assert panproto.diff_schemas(schema_a, schema_b).to_dict() != (
+        panproto.diff_schemas(schema_a, schema_a).to_dict()
+    )

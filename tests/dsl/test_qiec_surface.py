@@ -1,4 +1,4 @@
-"""Focused parse and canonical-emission tests for the QIEC v0.19 surface."""
+"""Focused parse and canonical-emission tests for the QIEC surface."""
 
 from __future__ import annotations
 

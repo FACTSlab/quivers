@@ -1,4 +1,4 @@
-"""End-to-end checks for the exact QVR v0.19 to QIEC route."""
+"""End-to-end checks for the exact QVR to QIEC route."""
 
 from __future__ import annotations
 

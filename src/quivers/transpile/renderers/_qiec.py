@@ -29,6 +29,7 @@ from quivers.transpile.qiec_ir import (
     IRQiecAttachmentRef,
     IRQiecIndexLiteral,
     IRQiecBind,
+    IRQiecLocal,
     IRQiecBoolLiteral,
     IRQiecBytesLiteral,
     IRQiecCall,
@@ -544,8 +545,10 @@ def _free_runtime_capture(
         if isinstance(item, IRQiecReturn):
             value(item.value, locally_bound)
         elif isinstance(item, IRQiecBind):
-            computation(item.first, locally_bound)
-            computation(item.then, locally_bound | {item.binder.name})
+            for step in item.steps:
+                computation(step.first, locally_bound)
+                locally_bound = locally_bound | {step.binder.name}
+            computation(item.then, locally_bound)
         elif isinstance(item, IRQiecPerform):
             for argument in item.request.arguments:
                 value(argument, locally_bound)
@@ -585,8 +588,10 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
     Returns
     -------
     frozenset[str]
-        Registry names of every family a ``DistributionValue`` in any
-        computation body or handler clause names.
+        Registry names of every family a ``DistributionValue`` in a
+        host-runtime computation body or handler clause names. Program
+        computations are left out: the renderer emits them from the
+        program's plan, which spells their families itself.
     """
     module = ir.qiec
     if module is None:
@@ -635,7 +640,8 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
         if isinstance(item, IRQiecReturn):
             value(item.value)
         elif isinstance(item, IRQiecBind):
-            computation(item.first)
+            for step in item.steps:
+                computation(step.first)
             computation(item.then)
         elif isinstance(item, IRQiecPerform):
             for argument in item.request.arguments:
@@ -658,7 +664,7 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
         elif isinstance(item, IRQiecNewInstance):
             computation(item.body)
 
-    for named in module.computations:
+    for named in _runtime_computations(module):
         computation(named.body)
     for handler in module.handlers:
         if handler.implementation != "authored":
@@ -934,20 +940,25 @@ def _python_computation(
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_python_value(target, node.value)})"
     if isinstance(node, IRQiecBind):
-        binder = _local_name(node.binder.name)
-        capture_names, attachment_ids = _free_runtime_capture(
-            node.then, frozenset({node.binder.name})
-        )
-        captures = (
-            "{"
-            + ", ".join(f"{name!r}: {_local_name(name)}" for name in capture_names)
-            + "}"
-        )
-        return (
-            f"_qvr_qiec_bind({_python_computation(target, node.first, module, tail=False)}, "
-            f"lambda {binder}: {_python_computation(target, node.then, module)}, "
-            f"_qvr_qiec_capture({captures}, {attachment_ids!r}, qiec_attachments))"
-        )
+        rendered = _python_computation(target, node.then, module)
+        for position in range(len(node.steps) - 1, -1, -1):
+            step = node.steps[position]
+            binder = _local_name(step.binder.name)
+            rest = IRQiecBind(steps=node.steps[position + 1 :], then=node.then)
+            capture_names, attachment_ids = _free_runtime_capture(
+                rest, frozenset({step.binder.name})
+            )
+            captures = (
+                "{"
+                + ", ".join(f"{name!r}: {_local_name(name)}" for name in capture_names)
+                + "}"
+            )
+            rendered = (
+                f"_qvr_qiec_bind({_python_computation(target, step.first, module, tail=False)}, "
+                f"lambda {binder}: {rendered}, "
+                f"_qvr_qiec_capture({captures}, {attachment_ids!r}, qiec_attachments))"
+            )
+        return rendered
     if isinstance(node, IRQiecPerform):
         args = ", ".join(
             _python_value(target, value) for value in node.request.arguments
@@ -1191,18 +1202,24 @@ def _julia_computation(
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_julia_value(target, node.value)})"
     if isinstance(node, IRQiecBind):
-        binder = _local_name(node.binder.name)
-        capture_names, attachment_ids = _free_runtime_capture(
-            node.then, frozenset({node.binder.name})
-        )
-        captures = _julia_data(
-            {name: f"__QVR_LOCAL__{_local_name(name)}" for name in capture_names}
-        )
-        for name in capture_names:
-            captures = captures.replace(
-                _julia_string(f"__QVR_LOCAL__{_local_name(name)}"), _local_name(name)
+        rendered = _julia_computation(target, node.then, module)
+        for position in range(len(node.steps) - 1, -1, -1):
+            step = node.steps[position]
+            binder = _local_name(step.binder.name)
+            rest = IRQiecBind(steps=node.steps[position + 1 :], then=node.then)
+            capture_names, attachment_ids = _free_runtime_capture(
+                rest, frozenset({step.binder.name})
             )
-        return f"_qvr_qiec_bind({_julia_computation(target, node.first, module, tail=False)}, {binder} -> {_julia_computation(target, node.then, module)}, _qvr_qiec_capture({captures}, {_julia_data(attachment_ids)}, qiec_attachments))"
+            captures = _julia_data(
+                {name: f"__QVR_LOCAL__{_local_name(name)}" for name in capture_names}
+            )
+            for name in capture_names:
+                captures = captures.replace(
+                    _julia_string(f"__QVR_LOCAL__{_local_name(name)}"),
+                    _local_name(name),
+                )
+            rendered = f"_qvr_qiec_bind({_julia_computation(target, step.first, module, tail=False)}, {binder} -> {rendered}, _qvr_qiec_capture({captures}, {_julia_data(attachment_ids)}, qiec_attachments))"
+        return rendered
     if isinstance(node, IRQiecPerform):
         args = ", ".join(
             _julia_value(target, value) for value in node.request.arguments
@@ -1466,18 +1483,23 @@ def _javascript_computation(
     if isinstance(node, IRQiecReturn):
         return f"_qvr_qiec_pure({_javascript_value(target, node.value)})"
     if isinstance(node, IRQiecBind):
-        binder = _local_name(node.binder.name)
-        capture_names, attachment_ids = _free_runtime_capture(
-            node.then, frozenset({node.binder.name})
-        )
-        captures = (
-            "{"
-            + ", ".join(
-                f"{json.dumps(name)}: {_local_name(name)}" for name in capture_names
+        rendered = _javascript_computation(target, node.then, module)
+        for position in range(len(node.steps) - 1, -1, -1):
+            step = node.steps[position]
+            binder = _local_name(step.binder.name)
+            rest = IRQiecBind(steps=node.steps[position + 1 :], then=node.then)
+            capture_names, attachment_ids = _free_runtime_capture(
+                rest, frozenset({step.binder.name})
             )
-            + "}"
-        )
-        return f"_qvr_qiec_bind({_javascript_computation(target, node.first, module, tail=False)}, function({binder}) {{ return {_javascript_computation(target, node.then, module)}; }}, _qvr_qiec_capture({captures}, {json.dumps(attachment_ids)}, qiec_attachments))"
+            captures = (
+                "{"
+                + ", ".join(
+                    f"{json.dumps(name)}: {_local_name(name)}" for name in capture_names
+                )
+                + "}"
+            )
+            rendered = f"_qvr_qiec_bind({_javascript_computation(target, step.first, module, tail=False)}, function({binder}) {{ return {rendered}; }}, _qvr_qiec_capture({captures}, {json.dumps(attachment_ids)}, qiec_attachments))"
+        return rendered
     if isinstance(node, IRQiecPerform):
         args = ", ".join(
             _javascript_value(target, value) for value in node.request.arguments
@@ -1694,19 +1716,24 @@ def _scheme_computation(
     if isinstance(node, IRQiecReturn):
         return f"(_qvr-qiec-pure {_scheme_value(target, node.value)})"
     if isinstance(node, IRQiecBind):
-        binder = _local_name(node.binder.name)
-        capture_names, attachment_ids = _free_runtime_capture(
-            node.then, frozenset({node.binder.name})
-        )
-        captures = (
-            "(list "
-            + " ".join(
-                f"(cons {_scheme_string(name)} {_local_name(name)})"
-                for name in capture_names
+        rendered = _scheme_computation(target, node.then, module)
+        for position in range(len(node.steps) - 1, -1, -1):
+            step = node.steps[position]
+            binder = _local_name(step.binder.name)
+            rest = IRQiecBind(steps=node.steps[position + 1 :], then=node.then)
+            capture_names, attachment_ids = _free_runtime_capture(
+                rest, frozenset({step.binder.name})
             )
-            + ")"
-        )
-        return f"(_qvr-qiec-bind {_scheme_computation(target, node.first, module, tail=False)} (lambda ({binder}) {_scheme_computation(target, node.then, module)}) (_qvr-qiec-capture {captures} {_scheme_data(attachment_ids)} qiec-attachments))"
+            captures = (
+                "(list "
+                + " ".join(
+                    f"(cons {_scheme_string(name)} {_local_name(name)})"
+                    for name in capture_names
+                )
+                + ")"
+            )
+            rendered = f"(_qvr-qiec-bind {_scheme_computation(target, step.first, module, tail=False)} (lambda ({binder}) {rendered}) (_qvr-qiec-capture {captures} {_scheme_data(attachment_ids)} qiec-attachments))"
+        return rendered
     if isinstance(node, IRQiecPerform):
         args = " ".join(
             _scheme_value(target, value) for value in node.request.arguments
@@ -1895,9 +1922,13 @@ def _linearize(
     if isinstance(node, IRQiecReturn):
         return [], node.value
     if isinstance(node, IRQiecBind):
-        before, first = _linearize(node.first)
+        statements: list[tuple[str, IRQiecValue]] = []
+        for step in node.steps:
+            before, first = _linearize(step.first)
+            statements.extend(before)
+            statements.append((step.binder.name, first))
         after, result = _linearize(node.then)
-        return [*before, (node.binder.name, first), *after], result
+        return [*statements, *after], result
     raise TypeError("the QIEC capability analyzer admitted a non-pure computation")
 
 
@@ -1934,12 +1965,9 @@ def _stan_function(item: IRQiecNamedComputation) -> str:
         for parameter in item.parameters
     )
     lines = [f"{_stan_type(item.type.result)} {_function_name(item)}({params}) {{"]
+    binders = {local.name: local for local in _bound_locals(item.body)}
     for binder, bound in statements:
-        local = next(
-            candidate.binder
-            for candidate in _walk_binds(item.body)
-            if candidate.binder.name == binder
-        )
+        local = binders[binder]
         lines.append(
             f"  {_stan_type(local.type)} {_local_name(binder)} = {_static_value(bound)};"
         )
@@ -1948,10 +1976,27 @@ def _stan_function(item: IRQiecNamedComputation) -> str:
     return "\n".join(lines)
 
 
-def _walk_binds(node: IRQiecComputation) -> tuple[IRQiecBind, ...]:
+def _bound_locals(node: IRQiecComputation) -> tuple[IRQiecLocal, ...]:
+    """Every local a pure computation's bind steps introduce.
+
+    Parameters
+    ----------
+    node : IRQiecComputation
+        A computation made of returns and binds.
+
+    Returns
+    -------
+    tuple[IRQiecLocal, ...]
+        The binders in evaluation order.
+    """
     if not isinstance(node, IRQiecBind):
         return ()
-    return (node, *_walk_binds(node.first), *_walk_binds(node.then))
+    found: list[IRQiecLocal] = []
+    for step in node.steps:
+        found.append(step.binder)
+        found.extend(_bound_locals(step.first))
+    found.extend(_bound_locals(node.then))
+    return tuple(found)
 
 
 __all__ = [

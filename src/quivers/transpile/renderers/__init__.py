@@ -7,7 +7,7 @@ plus four private dispatch points (`declare`, `sample`, `marginalize`,
 explicit-latent rewrite helper for marginalize, and the structural
 invariants (`assert_no_dangling_refs`, `assert_no_dropped_param_map`,
 `assert_no_lists`) live on
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase].
+[`RendererBase`][quivers.transpile.renderers.RendererBase].
 """
 
 from __future__ import annotations

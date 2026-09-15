@@ -62,7 +62,11 @@ plugins:
         python:
           paths:
             - src
+          inventories:
+            - https://docs.pytorch.org/docs/stable/objects.inv
           options:
+            extensions:
+              - tools/griffe_didactic.py
             show_source: true
             show_root_heading: true
             show_root_full_path: false
@@ -275,6 +279,14 @@ nav:
       - AST → Source Emit: api/dsl/emit.md
       - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
+      - Composite lets: api/dsl/composite_lets.md
+      - Step resolution: api/dsl/step_resolution.md
+      - Draw arguments: api/dsl/draw_args.md
+      - Pure builtins: api/dsl/pure_builtins.md
+      - QIEC lowering: api/dsl/qiec_lowering.md
+      - Program elaboration: api/dsl/program_elaboration.md
+      - QIEC diagnostics: api/dsl/qiec_diagnostics.md
+      - QIEC tooling: api/dsl/qiec_tooling.md
     - Structural:
       - Overview: api/structural/signature.md
       - Encoders: api/structural/encoder.md
@@ -307,6 +319,38 @@ nav:
       - Families & Links: api/formulas/family.md
       - Fit Entry Point: api/formulas/fit.md
     - Program: api/program.md
+    - Transpile:
+      - Overview: api/transpile/index.md
+      - Lowering: api/transpile/lower.md
+      - Structural IR: api/transpile/ir.md
+      - Kernel IR: api/transpile/qiec_ir.md
+      - Family metadata: api/transpile/family_meta.md
+      - Family spelling: api/transpile/family_spelling.md
+      - Renderer registry: api/transpile/renderer_registry.md
+      - Renderers: api/transpile/renderers.md
+    - Indexed Effect Core:
+      - Overview: api/qiec/index.md
+      - Identifiers: api/qiec/identifiers.md
+      - Kinds: api/qiec/kinds.md
+      - Types: api/qiec/types.md
+      - Declarations: api/qiec/declarations.md
+      - Effects: api/qiec/effects.md
+      - Terms: api/qiec/terms.md
+      - Evidence: api/qiec/evidence.md
+      - Substitution: api/qiec/substitution.md
+      - Coverage: api/qiec/coverage.md
+      - Checking: api/qiec/checking.md
+      - Canonical types: api/qiec/canonical.md
+      - Families: api/qiec/families.md
+      - Primitives: api/qiec/primitives.md
+      - Distributions: api/qiec/distributions.md
+      - Builtins: api/qiec/builtins.md
+      - Module: api/qiec/module.md
+      - Serialization: api/qiec/serialization.md
+      - Evaluator: api/qiec/evaluator.md
+      - Execution: api/qiec/execution.md
+      - Programs: api/qiec/programs.md
+      - Program runtime: api/qiec/program_runtime.md
   - Developer Guide:
     - Overview: developer/contributing.md
     - Indexed effects and GADTs: developer/qiec.md

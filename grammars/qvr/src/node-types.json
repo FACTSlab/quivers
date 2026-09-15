@@ -9263,6 +9263,10 @@
             "named": true
           },
           {
+            "type": "qiec_index_literal",
+            "named": true
+          },
+          {
             "type": "qiec_product_type",
             "named": true
           },

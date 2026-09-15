@@ -341,6 +341,7 @@ program calls : A -> B
     sample m <- f
     let total <- helper[Real](m, 2.0)
     let plain <- nullary()
+    let sized <- padded[3](total)
     return total
 
 ---
@@ -370,5 +371,14 @@ program calls : A -> B
       (identifier)
       (qiec_call_computation
         (identifier)))
+    (call_step
+      (identifier)
+      (qiec_call_computation
+        (identifier)
+        (qiec_static_argument
+          (qiec_index_literal
+            (integer)))
+        (let_var
+          (identifier))))
     (return_step
       (identifier))))

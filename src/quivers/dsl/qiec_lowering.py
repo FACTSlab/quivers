@@ -1,4 +1,4 @@
-"""Exact QVR v0.19 to QIEC v1alpha1 lowering.
+"""Exact QVR to QIEC lowering.
 
 Quivers owns this adapter. Didactic orders and negotiates its stages and checks
 the first-order indexed-family projection. Name resolution, stable identity,
@@ -39,6 +39,7 @@ from quivers.qiec.canonical import (
 from quivers.qiec.builtins import BUILTIN_EFFECTS
 from quivers.qiec.families import FAMILIES, DistributionFamily
 from quivers.qiec.programs import ProgramEntry
+from quivers.qiec.types import render_static
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.pure_builtins import (
     _BINARY_PRIMITIVES,
@@ -1171,7 +1172,7 @@ class _Elaborator(_ProgramElaboration):
                     if actual != current:
                         self._fail(
                             constructor,
-                            "QIEC v1alpha1 index constructors must be self-recursive; "
+                            "QIEC index constructors must be self-recursive; "
                             f"expected {current.name!r}, got {actual!r}",
                             code="qiec-index",
                         )
@@ -1992,7 +1993,7 @@ class _Elaborator(_ProgramElaboration):
             if len(indices) != len(family.indices):
                 self._fail(
                     authored,
-                    "v0.19 family indices must use index binders",
+                    "family indices must use index binders",
                     code="qiec-index",
                 )
             return TypeApplication(family.type_constructor, (*parameters, *indices))
@@ -2109,7 +2110,7 @@ class _Elaborator(_ProgramElaboration):
 
     def _lower_static_argument(
         self,
-        authored: surface.QiecTypeExpr,
+        authored: surface.QiecStaticArgument,
         binder: TelescopeBinder,
         scope: Telescope,
         static_bindings: Mapping[str, StaticArgument] | None = None,
@@ -2118,8 +2119,8 @@ class _Elaborator(_ProgramElaboration):
 
         Parameters
         ----------
-        authored : object
-            The authored argument.
+        authored : surface.QiecStaticArgument
+            The authored argument: type syntax, or an index literal.
         binder : TelescopeBinder
             The binder it instantiates, which fixes the namespace expected.
         scope : Telescope
@@ -2137,6 +2138,15 @@ class _Elaborator(_ProgramElaboration):
         QiecDiagnosticError
             If the argument is of the wrong namespace for the binder, or is itself malformed.
         """
+        if isinstance(authored, surface.QiecIndexLiteral):
+            if not isinstance(binder, IndexBinder):
+                self._fail(
+                    authored,
+                    f"index literal {authored.value} fills the {binder.name!r} "
+                    "binder, which takes a type or an effect",
+                    code="qiec-kind",
+                )
+            return self._lower_index(authored, binder.sort, scope, static_bindings)
         if isinstance(binder, TypeBinder):
             return self._lower_type(authored, scope, static_bindings)
         if isinstance(binder, IndexBinder):
@@ -3630,35 +3640,9 @@ class _Elaborator(_ProgramElaboration):
         Returns
         -------
         str
-            The constructor name for an application, else the repr.
+            The surface spelling, as :func:`render_static` gives it.
         """
-        if isinstance(type_, TypeApplication):
-            if not type_.arguments:
-                return type_.constructor.name
-            types = [
-                _Elaborator._render(cast(TypeExpr, item))
-                for item in type_.arguments
-                if isinstance(item, TypeApplication | TypeVariable)
-            ]
-            shapes = [
-                "["
-                + ", ".join(
-                    str(dimension.value)
-                    if isinstance(dimension, IndexLiteral)
-                    else repr(dimension)
-                    for dimension in item.dimensions
-                )
-                + "]"
-                for item in type_.arguments
-                if isinstance(item, ShapeIndex)
-            ]
-            rendered = f"{type_.constructor.name}[{', '.join(types)}]"
-            if shapes:
-                rendered += f"({', '.join(shapes)})"
-            return rendered
-        if isinstance(type_, TypeVariable):
-            return type_.name
-        return repr(type_)
+        return render_static(type_)
 
     def _lower_computation(
         self,

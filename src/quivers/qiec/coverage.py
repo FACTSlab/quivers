@@ -349,8 +349,6 @@ def constructor_skolems(
     tuple[StaticArgument, ...]
         One rigid variable per binder, in telescope order.
     """
-    from quivers.qiec.kinds import EffectBinder, IndexBinder, TypeBinder
-
     arguments: list[StaticArgument] = []
     for position, binder in enumerate(constructor.telescope):
         identity = StaticVariableId.derive(

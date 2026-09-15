@@ -78,6 +78,7 @@ from quivers.qiec.canonical import (
     tensor_type,
 )
 from quivers.qiec.checking import (
+    _plated_sample_type,
     CheckContext,
     ComputationSignature,
     KernelError,
@@ -100,7 +101,7 @@ from quivers.qiec.identifiers import (
     HandlerId,
     SiteProvenance,
 )
-from quivers.qiec.kinds import NAT, TypeBinder
+from quivers.qiec.kinds import NAT, IndexBinder, TypeBinder
 from quivers.qiec.module import NamedComputation, NamedEffectInstance
 from quivers.qiec.programs import (
     ParameterRole,
@@ -108,7 +109,13 @@ from quivers.qiec.programs import (
     ProgramParameter,
     ProgramSite,
 )
-from quivers.qiec.substitution import instantiate_operation, instantiate_telescope
+from quivers.qiec.substitution import (
+    StaticSubstitution,
+    instantiate_operation,
+    instantiate_telescope,
+    substitute_row,
+    substitute_type,
+)
 from quivers.qiec.terms import (
     AffineMap,
     Bind,
@@ -140,6 +147,10 @@ from quivers.qiec.types import (
     REAL,
     UNIT,
     IndexLiteral,
+    IndexTerm,
+    IndexVariable,
+    ShapeIndex,
+    StaticArgument,
     TypeApplication,
     TypeExpr,
     TypeVariable,
@@ -903,13 +914,14 @@ class _ProgramElaboration:
             row_entries.append(score.entry)
         row = EffectRow(tuple(row_entries))
         parameters = tuple(scope.locals[name] for name, _ in state.parameters)
+        telescope = tuple(state.extents.values())
         identity = ComputationId.derive(
             self.source.module_name, "computation", declaration.name
         )
         signature = ComputationSignature(
             identity,
             declaration.name,
-            (),
+            telescope,
             tuple(parameter.type for parameter in parameters),
             result_type,
             row,
@@ -922,7 +934,7 @@ class _ProgramElaboration:
         computation = NamedComputation(
             identity,
             declaration.name,
-            (),
+            telescope,
             parameters,
             body,
             ComputationType(row, result_type),
@@ -952,6 +964,7 @@ class _ProgramElaboration:
                 tuple(state.sites),
                 random.entry.instance,
                 score.entry.instance,
+                telescope,
             )
         )
         self._program_state = None
@@ -1574,19 +1587,35 @@ class _ProgramElaboration:
             If the callee is unknown or the arguments do not fit, or the
             callee's row names an instance other than the program's.
         """
-        for argument in step.call.arguments:
+        path = ("programs", state.declaration.name, "calls", step.name)
+        signature = self.computation_signatures.get(step.call.callee)
+        extents: dict[str, IndexTerm] = {}
+        for position, argument in enumerate(step.call.arguments):
             for name in _free_let_names(argument):
-                if scope.lookup(name) is None and name not in self._lambda_macros:
-                    self._declare_parameter(
-                        name, self._input_type(name, state), "data", scope, state, step
+                if scope.lookup(name) is not None or name in self._lambda_macros:
+                    continue
+                type_ = self._input_type(name, state)
+                if (
+                    signature is not None
+                    and isinstance(argument, LetExprVar)
+                    and position < len(signature.parameters)
+                ):
+                    # A bare name filling a parameter shaped by the callee's
+                    # open extents takes that shape, over extents of the
+                    # caller's own; two parameters sharing a callee extent
+                    # share the caller's, named after the first name.
+                    type_ = self._passed_input_type(
+                        name, signature.parameters[position], state, extents
                     )
-        call = self._lower_call(
-            step.call,
-            (),
-            scope.context(),
-            ("programs", state.declaration.name, "calls", step.name),
-            None,
-        )
+                self._declare_parameter(name, type_, "data", scope, state, step)
+        if (
+            signature is not None
+            and signature.telescope
+            and not step.call.static_arguments
+        ):
+            call = self._call_with_inferred_extents(step, signature, scope, path)
+        else:
+            call = self._lower_call(step.call, (), scope.context(), path, None)
         for entry in call.effects.entries:
             if entry.instance == state.random.entry.instance:
                 state.uses_random = True
@@ -1600,6 +1629,137 @@ class _ProgramElaboration:
                     code="qiec-program",
                 )
         self._bind_step(scope, step.name, call.result_type, call, step)
+
+    def _passed_input_type(
+        self: _Elaborator,
+        name: str,
+        parameter: TypeExpr,
+        state: _ProgramState,
+        extents: dict[str, IndexTerm],
+    ) -> TypeExpr:
+        """The type of a free name passed straight to a computation.
+
+        Parameters
+        ----------
+        name : str
+            The name.
+        parameter : TypeExpr
+            The callee's parameter type.
+        state : _ProgramState
+            The program's accumulating state, which gains one extent
+            binder per index variable the parameter type mentions that
+            no earlier argument of the call fixed.
+        extents : dict[str, IndexTerm]
+            The callee's index variables the call has already tied to
+            extents of this program, extended in place.
+
+        Returns
+        -------
+        TypeExpr
+            The parameter type with each of the callee's index variables
+            replaced by an extent of this program, named after the first
+            name that fixed it; the type unchanged when it mentions none.
+        """
+        variables = sorted(_index_variables_in((parameter,)))
+        if not variables:
+            return parameter
+        fresh = [variable for variable in variables if variable not in extents]
+        for position, variable in enumerate(fresh):
+            extent_name = (
+                f"{name}_extent" if len(fresh) == 1 else f"{name}_extent{position}"
+            )
+            binder = state.extents.get(extent_name)
+            if binder is None:
+                binder = IndexBinder(extent_name, NAT)
+                state.extents[extent_name] = binder
+            extents[variable] = IndexVariable(extent_name, NAT)
+        return substitute_type(
+            parameter,
+            StaticSubstitution(
+                indices=tuple((variable, extents[variable]) for variable in variables)
+            ),
+        )
+
+    def _call_with_inferred_extents(
+        self: _Elaborator,
+        step: CallStep,
+        signature: ComputationSignature,
+        scope: _Scope,
+        path: tuple[str | int, ...],
+    ) -> Call:
+        """Call a computation whose index binders the arguments determine.
+
+        A program with open input extents is a computation with index
+        binders; a call step writes no static arguments, so each binder
+        is read off the type of the argument filling a parameter the
+        binder shapes.
+
+        Parameters
+        ----------
+        step : CallStep
+            The step.
+        signature : ComputationSignature
+            The callee's signature, with a non-empty telescope.
+        scope : _Scope
+            The scope.
+        path : tuple[str | int, ...]
+            The structural path of the call.
+
+        Returns
+        -------
+        Call
+            The call with its static arguments instantiated.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the argument count differs from the parameter count, a
+            binder is not an index binder or shapes no parameter, or the
+            arguments do not instantiate the telescope.
+        """
+        context = scope.context()
+        if len(step.call.arguments) != len(signature.parameters):
+            self._fail(
+                step,
+                f"call to {step.call.callee!r} passes {len(step.call.arguments)} "
+                f"argument(s); the declaration takes {len(signature.parameters)}",
+                code="qiec-program",
+            )
+        arguments = tuple(
+            self._lower_value(value, (), context, None, (*path, position))
+            for position, value in enumerate(step.call.arguments)
+        )
+        bindings: dict[str, IndexTerm] = {}
+        for parameter, argument in zip(signature.parameters, arguments, strict=True):
+            _bind_extents(
+                parameter, self._value_type(argument, context, step), bindings
+            )
+        statics: list[StaticArgument] = []
+        for binder in signature.telescope:
+            bound = (
+                bindings.get(binder.name) if isinstance(binder, IndexBinder) else None
+            )
+            if bound is None:
+                self._fail(
+                    step,
+                    f"call to {step.call.callee!r} cannot fix its static "
+                    f"{binder.name!r} from the arguments",
+                    code="qiec-program",
+                )
+            statics.append(bound)
+        try:
+            substitution = instantiate_telescope(signature.telescope, tuple(statics))
+        except (TypeError, ValueError) as error:
+            self._fail_kernel(step, error, fallback="qiec-program")
+        return Call(
+            signature.id,
+            step.call.callee,
+            tuple(statics),
+            arguments,
+            substitute_type(signature.result, substitution),
+            substitute_row(signature.effects, substitution),
+            _origin_at(self, path, "call", step),
+        )
 
     def _elaborate_score(
         self: _Elaborator, step: ScoreStep, scope: _Scope, state: _ProgramState
@@ -2184,11 +2344,22 @@ class _ProgramElaboration:
                 f"marginalization helper {name!r} is declared twice",
                 code="qiec-program",
             )
+        # The helper takes the program's open extents its parameters are
+        # shaped by, so a captured input keeps its type.
+        mentioned = _index_variables_in(
+            tuple(parameter.type for parameter in parameters)
+        )
+        telescope = tuple(
+            binder for name_, binder in state.extents.items() if name_ in mentioned
+        )
+        statics: tuple[StaticArgument, ...] = tuple(
+            IndexVariable(binder.name, binder.sort) for binder in telescope
+        )
         identity = ComputationId.derive(self.source.module_name, "computation", name)
         signature = ComputationSignature(
             identity,
             name,
-            (),
+            telescope,
             tuple(parameter.type for parameter in parameters),
             LOG_WEIGHT,
             EffectRow(),
@@ -2219,7 +2390,7 @@ class _ProgramElaboration:
             NamedComputation(
                 identity,
                 name,
-                (),
+                telescope,
                 parameters,
                 body,
                 ComputationType(EffectRow(), LOG_WEIGHT),
@@ -2229,7 +2400,7 @@ class _ProgramElaboration:
         return Call(
             identity,
             name,
-            (),
+            statics,
             tuple(Var(parameter) for parameter in parameters),
             LOG_WEIGHT,
             EffectRow(),
@@ -2364,8 +2535,6 @@ class _ProgramElaboration:
         QiecDiagnosticError
             If the kernel rejects the construction.
         """
-        from quivers.qiec.checking import _plated_sample_type
-
         record = FAMILIES[value.name]
         context = scope.context()
         argument_types = {
@@ -2789,11 +2958,30 @@ class _ProgramElaboration:
         if morphism is not None and constraint == "sampleable":
             return self._morphism_distribution(morphism, name, scope, state, node)
         if rank > 0 and plate.empty:
-            self._fail(
-                node,
-                f"input {name!r} fills a rank-{rank} parameter without a plate to "
-                "fix its shape; write the step's `over` axes",
-                code="qiec-program",
+            # Nothing in the step fixes the input's extents, so each one
+            # is a static index parameter of the program: the input is
+            # typed over fresh index variables the program's telescope
+            # binds, and a run reads their values off the data it is
+            # given.
+            dimensions: list[IndexVariable] = []
+            for position in range(rank):
+                extent_name = (
+                    f"{name}_extent" if rank == 1 else f"{name}_extent{position}"
+                )
+                binder = state.extents.get(extent_name)
+                if binder is None:
+                    binder = IndexBinder(extent_name, NAT)
+                    state.extents[extent_name] = binder
+                dimensions.append(IndexVariable(extent_name, NAT))
+            return Var(
+                self._declare_parameter(
+                    name,
+                    tensor_type(element, tuple(dimensions)),
+                    "data",
+                    scope,
+                    state,
+                    node,
+                )
             )
         return Var(self._declare_parameter(name, element, "data", scope, state, node))
 
@@ -3712,11 +3900,68 @@ class _ProgramState:
     alphabets: dict[str, PlateAxis] = field(default_factory=dict)
     pending_alphabet: PlateAxis | None = None
     current_site: str = ""
+    extents: dict[str, IndexBinder] = field(default_factory=dict)
     input_shapes: dict[str, tuple[TypeApplication, PlateAxis | None]] = field(
         default_factory=dict
     )
     random: NamedEffectInstance | None = None  # type: ignore[assignment]
     score: NamedEffectInstance | None = None  # type: ignore[assignment]
+
+
+def _index_variables_in(terms: Sequence[StaticArgument]) -> frozenset[str]:
+    """The names of every index variable a set of static terms mentions.
+
+    Parameters
+    ----------
+    terms : Sequence[StaticArgument]
+        The terms to walk.
+
+    Returns
+    -------
+    frozenset[str]
+        The variable names.
+    """
+    found: set[str] = set()
+    pending: list[StaticArgument] = list(terms)
+    while pending:
+        term = pending.pop()
+        if isinstance(term, TypeApplication):
+            pending.extend(term.arguments)
+        elif isinstance(term, ShapeIndex):
+            pending.extend(term.dimensions)
+        elif isinstance(term, IndexVariable):
+            found.add(term.name)
+    return frozenset(found)
+
+
+def _bind_extents(
+    parameter: TypeExpr, argument: TypeExpr, bindings: dict[str, IndexTerm]
+) -> None:
+    """Bind the index variables of a parameter type to an argument type's terms.
+
+    Parameters
+    ----------
+    parameter : TypeExpr
+        The declared parameter type, which may mention index variables.
+    argument : TypeExpr
+        The argument's type, whose corresponding terms are bound.
+    bindings : dict[str, IndexTerm]
+        The bindings found so far, extended in place; a variable already
+        bound keeps its first binding.
+    """
+    if not isinstance(parameter, TypeApplication) or not isinstance(
+        argument, TypeApplication
+    ):
+        return
+    for expected, actual in zip(parameter.arguments, argument.arguments):
+        if isinstance(expected, ShapeIndex) and isinstance(actual, ShapeIndex):
+            for dimension, extent in zip(expected.dimensions, actual.dimensions):
+                if isinstance(dimension, IndexVariable):
+                    bindings.setdefault(dimension.name, extent)
+        elif isinstance(expected, TypeApplication | TypeVariable) and isinstance(
+            actual, TypeApplication | TypeVariable
+        ):
+            _bind_extents(expected, actual, bindings)
 
 
 def _is_entry_point(declaration: ProgramDecl) -> bool:

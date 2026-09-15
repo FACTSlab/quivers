@@ -131,6 +131,7 @@ from quivers.qiec.types import (
     TypeExpr,
     TypeVariable,
     index_sort,
+    render_static,
     static_kind,
 )
 
@@ -1379,7 +1380,7 @@ def check_type(
     """
     check_static(type_, scope, registry=registry)
     if static_kind(type_) != TYPE:
-        raise KernelError(f"expected a type, got {type_!r}")
+        raise KernelError(f"expected a type, got {render_static(type_)}")
 
 
 def _check_binder_argument(
@@ -1559,32 +1560,29 @@ def _computation_static_scopes(computation: Computation) -> tuple[StaticScopeId,
     KernelError
         If the term is of an unknown computation class.
     """
-    if isinstance(computation, Return | Perform | Call | Resume):
-        return ()
-    if isinstance(computation, NewInstance):
-        return _computation_static_scopes(computation.body)
-    if isinstance(computation, Bind):
-        return (
-            *_computation_static_scopes(computation.first),
-            *_computation_static_scopes(computation.then),
-        )
-    if isinstance(computation, Handle):
-        return _computation_static_scopes(computation.computation)
-    if isinstance(computation, If):
-        return (
-            *_computation_static_scopes(computation.then),
-            *_computation_static_scopes(computation.otherwise),
-        )
-    if isinstance(computation, Case):
-        return tuple(
-            scope
-            for branch in computation.branches
-            for scope in (
-                branch.scope,
-                *_computation_static_scopes(branch.body),
-            )
-        )
-    raise KernelError(f"unknown computation term {computation!r}")
+    scopes: list[StaticScopeId] = []
+    pending: list[Computation] = [computation]
+    while pending:
+        term = pending.pop()
+        if isinstance(term, Return | Perform | Call | Resume):
+            continue
+        if isinstance(term, NewInstance):
+            pending.append(term.body)
+        elif isinstance(term, Bind):
+            pending.append(term.then)
+            pending.append(term.first)
+        elif isinstance(term, Handle):
+            pending.append(term.computation)
+        elif isinstance(term, If):
+            pending.append(term.otherwise)
+            pending.append(term.then)
+        elif isinstance(term, Case):
+            for branch in reversed(term.branches):
+                pending.append(branch.body)
+                scopes.append(branch.scope)
+        else:
+            raise KernelError(f"unknown computation term {term!r}")
+    return tuple(scopes)
 
 
 def _static_variable_identities(
@@ -1910,7 +1908,7 @@ def _infer_tensor(
         actual = infer_value(item, registry, context)
         if actual != slice_type:
             raise KernelError(
-                f"tensor entry {position} has type {actual!r}, not the slice type "
+                f"tensor entry {position} has type {render_static(actual)}, not the slice type "
                 f"{slice_type!r}",
                 "qiec-primitive",
             )
@@ -1963,7 +1961,7 @@ def _infer_gather(
         expected = tensor_type(element, (*index_shape[1], *rest))
     if value.result_type != expected:
         raise KernelError(
-            f"gather has type {expected!r}, not the claimed {value.result_type!r}",
+            f"gather has type {render_static(expected)}, not the claimed {render_static(value.result_type)}",
             "qiec-primitive",
         )
     registry.validate_type(expected)
@@ -2014,7 +2012,7 @@ def _infer_segment_sum(
     expected = tensor_type(LOG_WEIGHT, (value.groups,))
     if value.result_type != expected:
         raise KernelError(
-            f"segment sum has type {expected!r}, not the claimed {value.result_type!r}",
+            f"segment sum has type {render_static(expected)}, not the claimed {render_static(value.result_type)}",
             "qiec-distribution",
         )
     registry.validate_type(expected)
@@ -2104,7 +2102,7 @@ def _infer_affine_map(
     )
     if value.result_type != expected:
         raise KernelError(
-            f"affine map has type {expected!r}, not the claimed {value.result_type!r}",
+            f"affine map has type {render_static(expected)}, not the claimed {render_static(value.result_type)}",
             "qiec-primitive",
         )
     return expected
@@ -2171,7 +2169,7 @@ def _infer_distribution(
         expectation = _parameter_expectation(parameter, actual, value.plate)
         if expectation is not None:
             raise KernelError(
-                f"parameter {name!r} of {value.name!r} has type {actual!r}; it "
+                f"parameter {name!r} of {value.name!r} has type {render_static(actual)}; it "
                 f"takes {expectation}",
                 "qiec-distribution",
             )
@@ -2388,8 +2386,8 @@ def infer_value(
         expected = tensor_type(REAL, (shape[1][0], shape[1][0]))
         if value.result_type != expected:
             raise KernelError(
-                f"kernel matrix has type {expected!r}, not the claimed "
-                f"{value.result_type!r}",
+                f"kernel matrix has type {render_static(expected)}, not the claimed "
+                f"{render_static(value.result_type)}",
                 "qiec-distribution",
             )
         return expected
@@ -2412,8 +2410,8 @@ def infer_value(
             )
         if value.result_type != element:
             raise KernelError(
-                f"reduction has type {element!r}, not the claimed "
-                f"{value.result_type!r}",
+                f"reduction has type {render_static(element)}, not the claimed "
+                f"{render_static(value.result_type)}",
                 "qiec-primitive",
             )
         return element
@@ -2447,8 +2445,8 @@ def infer_value(
         )
         if value.result_type != expected:
             raise KernelError(
-                f"comprehension has type {expected!r}, not the claimed "
-                f"{value.result_type!r}",
+                f"comprehension has type {render_static(expected)}, not the claimed "
+                f"{render_static(value.result_type)}",
                 "qiec-primitive",
             )
         _check_static_variable_scope(expected, context, subject="comprehension type")
@@ -2458,7 +2456,7 @@ def infer_value(
         expected = product_type(*components)
         if value.result_type != expected:
             raise KernelError(
-                f"tuple has type {expected!r}, not the claimed {value.result_type!r}",
+                f"tuple has type {render_static(expected)}, not the claimed {render_static(value.result_type)}",
                 "qiec-primitive",
             )
         registry.validate_type(expected)
@@ -2486,8 +2484,8 @@ def infer_value(
         component = source.arguments[value.position]
         if value.result_type != component:
             raise KernelError(
-                f"projection {value.position} has type {component!r}, not the "
-                f"claimed {value.result_type!r}",
+                f"projection {value.position} has type {render_static(component)}, not the "
+                f"claimed {render_static(value.result_type)}",
                 "qiec-primitive",
             )
         return component  # type: ignore[return-value]
@@ -2532,7 +2530,7 @@ def infer_value(
             expected = substitute_type(field.type, substitution)
             if actual != expected:
                 raise KernelError(
-                    f"field {field.name!r} has type {actual!r}, expected {expected!r}"
+                    f"field {field.name!r} has type {render_static(actual)}, expected {render_static(expected)}"
                 )
         parameter_arguments = value.static_arguments[:parameter_count]
         result_indices = tuple(
@@ -2619,7 +2617,7 @@ def check_request(
         actual = infer_value(argument, registry, context)
         if actual != expected:
             raise KernelError(
-                f"operation argument has type {actual!r}, expected {expected!r}"
+                f"operation argument has type {render_static(actual)}, expected {render_static(expected)}"
             )
     if request.result_type != result_type:
         raise KernelError(
@@ -2667,6 +2665,36 @@ def infer_computation(
     static_scopes = _computation_static_scopes(computation)
     if len(set(static_scopes)) != len(static_scopes):
         raise KernelError("case branch static scopes must be globally fresh")
+    return _infer_computation(computation, registry, context)
+
+
+def _infer_computation(
+    computation: Computation,
+    registry: KernelRegistry,
+    context: CheckContext,
+) -> ComputationType:
+    """Infer a computation whose static scopes are known to be fresh.
+
+    Parameters
+    ----------
+    computation : Computation
+        The term to check.
+    registry : KernelRegistry
+        Declarations the term is resolved against.
+    context : CheckContext
+        Bindings and evidence in scope.
+
+    Returns
+    -------
+    ComputationType
+        The result type paired with the effects still outstanding.
+
+    Raises
+    ------
+    KernelError
+        As :func:`infer_computation`, except for the scope freshness it
+        checks once at the root rather than at every subterm.
+    """
     if isinstance(computation, Return):
         return _checked_computation_type(
             EMPTY_ROW,
@@ -2683,23 +2711,30 @@ def infer_computation(
             context,
         )
     if isinstance(computation, Bind):
-        first = infer_computation(computation.first, registry, context)
-        _check_static_variable_scope(
-            computation.binder.type,
-            context,
-            subject="bind type",
-        )
-        if first.result != computation.binder.type:
-            raise KernelError(
-                f"bind expects {computation.binder.type!r}, got {first.result!r}"
+        # A chain of binds is walked in a loop rather than by recursion on
+        # the continuation, so a long straight-line body does not recurse
+        # once per step; each first computation is still checked in the
+        # context its binder extends.
+        effects = EMPTY_ROW
+        current: Computation = computation
+        chain_context = context
+        while isinstance(current, Bind):
+            first = _infer_computation(current.first, registry, chain_context)
+            _check_static_variable_scope(
+                current.binder.type,
+                chain_context,
+                subject="bind type",
             )
-        then = infer_computation(
-            computation.then,
-            registry,
-            context.extend(computation.binder),
-        )
+            if first.result != current.binder.type:
+                raise KernelError(
+                    f"bind expects {render_static(current.binder.type)}, got {render_static(first.result)}"
+                )
+            effects = effects.union(first.effects)
+            chain_context = chain_context.extend(current.binder)
+            current = current.then
+        then = _infer_computation(current, registry, chain_context)
         return _checked_computation_type(
-            first.effects.union(then.effects),
+            effects.union(then.effects),
             then.result,
             registry,
             context,
@@ -2708,13 +2743,14 @@ def infer_computation(
         condition = infer_value(computation.condition, registry, context)
         if condition != BOOL:
             raise KernelError(
-                f"if condition has type {condition!r}, not Bool", "qiec-primitive"
+                f"if condition has type {render_static(condition)}, not Bool",
+                "qiec-primitive",
             )
-        then = infer_computation(computation.then, registry, context)
-        otherwise = infer_computation(computation.otherwise, registry, context)
+        then = _infer_computation(computation.then, registry, context)
+        otherwise = _infer_computation(computation.otherwise, registry, context)
         if then.result != otherwise.result:
             raise KernelError(
-                f"if branches return {then.result!r} and {otherwise.result!r}; "
+                f"if branches return {render_static(then.result)} and {render_static(otherwise.result)}; "
                 "both must agree",
                 "qiec-primitive",
             )
@@ -2843,11 +2879,11 @@ def infer_computation(
                 expected = substitute_type(field.type, substitution)
                 if local.type != expected:
                     raise KernelError(
-                        f"branch field {local.name!r} has type {local.type!r}, "
-                        f"expected {expected!r}"
+                        f"branch field {local.name!r} has type {render_static(local.type)}, "
+                        f"expected {render_static(expected)}"
                     )
                 branch_context = branch_context.extend(local)
-            body = infer_computation(branch.body, registry, branch_context)
+            body = _infer_computation(branch.body, registry, branch_context)
             for entry in body.effects.entries:
                 _check_static_variable_scope(
                     entry.effect,
@@ -2868,7 +2904,7 @@ def infer_computation(
             )
             if body.result != expected_result:
                 raise KernelError(
-                    f"branch {constructor.name!r} returns {body.result!r}, "
+                    f"branch {constructor.name!r} returns {render_static(body.result)}, "
                     f"expected {expected_result!r}"
                 )
             branch_rows.append((refinement.reachability, body.effects))
@@ -2895,10 +2931,10 @@ def infer_computation(
         input_type = substitute_type(handler.input_type, substitution)
         output_type = substitute_type(handler.output_type, substitution)
         introduced = substitute_row(handler.introduced, substitution)
-        inner = infer_computation(computation.computation, registry, context)
+        inner = _infer_computation(computation.computation, registry, context)
         if inner.result != input_type:
             raise KernelError(
-                f"handler {handler.name!r} expects {input_type!r}, got {inner.result!r}"
+                f"handler {handler.name!r} expects {render_static(input_type)}, got {render_static(inner.result)}"
             )
         interface = inner.effects.lookup(computation.instance)
         if interface != handled_effect:
@@ -3037,7 +3073,7 @@ def _infer_call(
         if actual != expected:
             raise KernelError(
                 f"call to {signature.name!r} argument {position}: expected "
-                f"{expected!r}, got {actual!r}",
+                f"{render_static(expected)}, got {render_static(actual)}",
                 "qiec-call",
             )
     result = substitute_type(signature.result, substitution)
@@ -3096,7 +3132,7 @@ def _infer_new_instance(
         raise KernelError(
             f"unknown effect interface for local instance {allocation.instance}"
         )
-    inner = infer_computation(allocation.body, registry, context)
+    inner = _infer_computation(allocation.body, registry, context)
     if inner.effects.contains(allocation.instance):
         raise KernelError(
             f"local instance {allocation.instance} escapes its scope: the body "

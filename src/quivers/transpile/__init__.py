@@ -1,7 +1,7 @@
 """Transpile a compiled QVR module to other probabilistic-programming
 languages.
 
-The pipeline is a [`didactic.api.Mapping`][didactic.api.Mapping]
+The pipeline is a `didactic.api.Mapping`
 composition of three arrows:
 
     Module --Lower--> IRProgram --Renderer[T]--> panproto.Schema --emit_pretty--> bytes
@@ -12,13 +12,13 @@ an [`IRProgram`][quivers.transpile.ir.IRProgram] whose nodes carry
 the structural intent (sample, observe, marginalize, ...) plus the
 support / plate / argument shape derived from
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] +
-[`torch.distributions.Distribution.arg_constraints`][torch.distributions.Distribution.arg_constraints].
+[`torch.distributions.Distribution.arg_constraints`][torch.distributions.distribution.Distribution.arg_constraints].
 
 Each target `T` has its own
 [`Renderer[T]`][quivers.transpile.renderers._base.RendererBase]
 subclass in `quivers.transpile.renderers.<target>`; the renderer
 consumes the IR and emits a target-specific
-[`panproto.Schema`][panproto.Schema]. The renderer's idiom (Stan's
+`panproto.Schema`. The renderer's idiom (Stan's
 `block` structure, NumPyro's `plate` contexts, BUGS's row-loop
 relations) is the only place target-specific vocabulary lives.
 
@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 
 from quivers.transpile._api import (
     CHURCH_LIKE,
+    CATEGORICAL_METADATA_IGNORABLE,
     QIEC_SURFACE,
     PYTHON_DEEP,
     STAN_LIKE,
@@ -39,7 +40,6 @@ from quivers.transpile._api import (
     UnsupportedConstruct,
     unsupported_for,
 )
-from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile._pipeline import (
     EmitPretty,
@@ -108,10 +108,9 @@ def transpile(module: Module, *, target: str) -> bytes:
             [f"target:unknown:{target}:{','.join(sorted(_RENDERERS))}"],
         )
     renderer_cls, grammar, support_tier = _RENDERERS[target]
-    check_qiec_transpile_boundary(module, target=target)
     unsupported_for(f"qvr-{target}", module, allow=support_tier)
     expanded = expand_composite_lets(module, target=target)
-    ir = Lower().forward(expanded)
+    ir = Lower().forward(expanded, target=target)
     schema = renderer_cls().render(ir)
     return bytes(parser_registry().emit_pretty(grammar, schema))
 
@@ -124,6 +123,7 @@ def available_targets() -> list[str]:
 __all__ = [
     "CHURCH_LIKE",
     "PYTHON_DEEP",
+    "CATEGORICAL_METADATA_IGNORABLE",
     "QIEC_SURFACE",
     "STAN_LIKE",
     "Backend",

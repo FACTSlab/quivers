@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from quivers.qiec.identifiers import ComputationId, EffectInstanceId
+from quivers.qiec.kinds import Telescope
 from quivers.qiec.terms import PlateAxis
 from quivers.qiec.types import TypeExpr
 
@@ -116,6 +117,10 @@ class ProgramEntry:
         The lexical ``Random`` instance the program's samples address.
     score_instance
         The lexical ``Score`` instance the program's scores address.
+    telescope
+        The static binders the computation takes: one index binder per
+        extent of an input the program's steps leave open, which a run
+        reads off the data it is given.
     tag
         The serialization discriminator; always ``"program_entry"``.
     """
@@ -128,6 +133,7 @@ class ProgramEntry:
     sites: tuple[ProgramSite, ...]
     random_instance: EffectInstanceId
     score_instance: EffectInstanceId
+    telescope: Telescope = ()
     tag: Literal["program_entry"] = "program_entry"
 
 

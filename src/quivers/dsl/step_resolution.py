@@ -214,7 +214,7 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
 
     A name in a let expression is a *value*: the emitted target binds
     it to whatever the host supplies under that name. The set is what
-    [`_reject_param_source_consumed`][quivers.dsl.step_resolution._reject_param_source_consumed]
+    ``_reject_param_source_consumed``
     tests against the module's parameter-source morphisms.
 
     Binders subtract their own names: a lambda parameter and a factor
@@ -622,7 +622,7 @@ def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
     Building the table is also where a module is checked for
     parameter-source morphisms it consumes, in a site, value or
     composite position; see
-    [`_reject_param_source_consumed`][quivers.dsl.step_resolution._reject_param_source_consumed].
+    ``_reject_param_source_consumed``.
     The table is the resolver's authority on what each name denotes,
     so it is the one place that sees every declaration at once, which
     is what deciding a module-wide boundary needs.

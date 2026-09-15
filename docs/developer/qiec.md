@@ -321,6 +321,15 @@ reference machine applied to data and a value for every site yields the
 program's value and its log joint density; the tests hold that number to
 the torch runtime's trace on the same models.
 
+An input whose shape nothing in the program fixes, such as the
+concentration vector of `sample probs <- Dirichlet(alpha)` written without
+a plate, is typed over an index variable the program's computation binds:
+the computation gains one `Nat` binder per open extent, recorded on the
+entry's `telescope`, and its parameter reads `Tensor[Real]([alpha_extent])`.
+A run reads each extent off the data, a call step from another program
+takes the extent as its own, and an authored computation names it with an
+index literal, `prog[3](alpha)`.
+
 Logic programming uses the same handler and resumption rules:
 
 <!-- compile: qiec -->

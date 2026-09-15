@@ -1552,6 +1552,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
     ),
 }
+"""The transpile-time family registry, keyed by QVR family name."""
 
 
 # Families whose declared index axis names their own support, so the

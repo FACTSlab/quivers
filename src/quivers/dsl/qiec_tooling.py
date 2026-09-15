@@ -197,7 +197,7 @@ class ToolingAnalysis:
 
 
 def is_qiec_statement(statement: Statement) -> bool:
-    """Return whether ``statement`` belongs to the v0.19 QIEC surface.
+    """Return whether ``statement`` belongs to the QIEC surface.
 
     Parameters
     ----------
@@ -524,7 +524,7 @@ def qiec_local_bindings(module: Module) -> tuple[QiecBinding, ...]:
     `let` bindings, a handler clause's parameters, a scoped instance, and
     the names a case branch binds. Each carries the line range it is
     visible over, so a caller filters with
-    [`QiecBinding.covers`][tests-free reference].
+    [`QiecBinding.covers`][quivers.dsl.qiec_tooling.QiecBinding.covers].
 
     Parameters
     ----------

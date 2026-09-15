@@ -458,7 +458,8 @@ def _visible_computation_locals(
             *(
                 binder
                 for binder in branch.static_arguments
-                if _binder_has_entered_scope(binder, source_line, source_col)
+                if isinstance(binder, QiecTypeName)
+                and _binder_has_entered_scope(binder, source_line, source_col)
             ),
             *(
                 field
