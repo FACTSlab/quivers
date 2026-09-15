@@ -55,10 +55,10 @@ from quivers.transpile.ir import (
     IRScore,
 )
 from quivers.transpile.lower import (
-    Lower,
     _names_in_raw_arg,
     free_vars_in_let,
 )
+from quivers.transpile.plan import Lower
 
 
 _GALLERY_DIR = pathlib.Path(__file__).resolve().parents[2] / ("docs/examples/source")

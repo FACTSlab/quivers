@@ -59,6 +59,9 @@ class ProgramParameter:
         How the parameter is supplied.
     type
         Its type.
+    axes
+        The name of each dimension of a tensor-typed parameter, the
+        object or extent it ranges over; empty for a scalar.
     tag
         The serialization discriminator; always ``"program_parameter"``.
     """
@@ -66,6 +69,7 @@ class ProgramParameter:
     name: str
     role: ParameterRole
     type: TypeExpr
+    axes: tuple[str, ...] = ()
     tag: Literal["program_parameter"] = "program_parameter"
 
 

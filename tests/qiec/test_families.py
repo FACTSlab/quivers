@@ -9,6 +9,7 @@ record changing first.
 
 from __future__ import annotations
 
+import inspect
 from typing import cast
 
 import torch.distributions.constraints as c
@@ -23,9 +24,13 @@ _MANUAL_PARAMETERS = {
     "Wishart": ("df", "covariance_matrix"),
 }
 
-#: Families built from other distributions; their torch classes declare
-#: only the tensor parameters, so the registry names the rest by hand.
+#: Families whose torch classes constrain only some of their parameters:
+#: the compositional ones declare only the tensor parameters, and the
+#: relaxed ones take their temperature unconstrained, so the registry
+#: names the rest by hand.
 _COMPOSITIONAL_EXTRAS = {
+    "RelaxedBernoulli": ("temperature",),
+    "RelaxedOneHotCategorical": ("temperature",),
     "Mixture": ("weights", "component"),
     "Independent": ("base", "reinterpreted_batch_ndims"),
     "Transformed": ("base", "transforms"),
@@ -96,8 +101,34 @@ def test_registry_identities_are_distinct_and_stable() -> None:
     assert family("Normal").id == DistributionId.derive("builtin", "Normal")
 
 
+def _constructor_order(cls: type, constrained: tuple[str, ...]) -> tuple[str, ...]:
+    """The constrained parameters in the class's positional order.
+
+    Parameters
+    ----------
+    cls : type
+        The torch distribution class.
+    constrained : tuple[str, ...]
+        The names ``arg_constraints`` lists.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The constructor's parameters that carry a constraint, in the
+        order a positional call binds them, followed by any constrained
+        parameter the constructor does not name.
+    """
+    try:
+        positional = tuple(inspect.signature(cls.__init__).parameters)[1:]
+    except TypeError, ValueError:
+        positional = ()
+    leading = tuple(item for item in positional if item in constrained)
+    return (*leading, *(item for item in constrained if item not in leading))
+
+
 def test_parameters_constraints_and_ranks_match_the_torch_classes() -> None:
-    """Each family's parameters are the torch class's, in the same order."""
+    """Each family's parameters are the torch class's, bound positionally
+    as its constructor binds them."""
     for name, meta in FAMILY_META.items():
         record = family(name)
         constraints = meta.distribution_class.arg_constraints
@@ -107,7 +138,8 @@ def test_parameters_constraints_and_ranks_match_the_torch_classes() -> None:
         constraints = cast(dict[str, object], constraints)
         extras = _COMPOSITIONAL_EXTRAS.get(name, ())
         declared = tuple(item for item in record.parameter_names if item not in extras)
-        assert declared == tuple(constraints), name
+        expected = _constructor_order(meta.distribution_class, tuple(constraints))
+        assert declared == expected, name
         assert set(extras) <= set(record.parameter_names), name
         for parameter in record.parameters:
             if parameter.name in extras:

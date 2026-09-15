@@ -94,7 +94,7 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic
+from quivers.transpile.renderers._qiec import render_computations_dynamic
 
 
 _TARGET = "qvr-church"
@@ -267,7 +267,7 @@ class ChurchRenderer(RendererBase):
 
         top_define = _list(ctx, (_sym(ctx, "define"), signature, *body_forms))
         _e(ctx, prog_id, top_define)
-        graft_qiec_dynamic(sb, ir, target=self.target, root=prog_id)
+        render_computations_dynamic(sb, ir, target=self.target, root=prog_id)
         return sb.build()
 
     # ----- IR-node dispatch -----

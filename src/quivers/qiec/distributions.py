@@ -879,12 +879,15 @@ def _poisson_density(a: Mapping[str, object], value: object) -> float:
     Returns
     -------
     float
-        The log density, ``-inf`` outside the support.
+        The log density, ``-inf`` outside the support; at a zero rate
+        the mass sits at zero alone.
     """
     count = int(_finite_value(value, "Poisson"))
     rate = _real(a, "rate", "Poisson")
     if count < 0:
         return -math.inf
+    if rate == 0.0:
+        return 0.0 if count == 0 else -math.inf
     return count * math.log(rate) - rate - math.lgamma(count + 1)
 
 

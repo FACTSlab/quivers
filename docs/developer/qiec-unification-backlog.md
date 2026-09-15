@@ -925,6 +925,24 @@ package.
   of the unoptimized QIEC graph yields the same result/score on deterministic
   fixtures.
 
+**Transition state:** `src/quivers/transpile/plan.py` holds `Lower` and the
+derivation: `Lower.forward` elaborates and checks the module
+(`checked_module`) and derives the program's plan from its computation, so
+`IRProgram(name, inputs, body, module, cards)` is one lowered root whose
+`module` is the checked `IRQiecModule` and whose `body` is the plan
+recognized from the computation's requests, bindings, and helper calls;
+`src/quivers/transpile/lower.py` keeps the support tables (object shapes and
+bounds, family sentinels, argument constraints, wire forms). The renderers
+render the module's other computations with `render_computations_dynamic`
+and `render_computations_static`, analyzing capabilities first;
+`_qiec_boundary.py` is gone. The plan is the one target-plan pass: it
+recognizes the canonical requests and emits the PPL nodes the renderers
+consume, and it refuses, under a structured kind, every request or call the
+target vocabulary has no statement for. Open: the plan is not yet an
+optimization pass that can be switched off, since it has no rewrites beyond
+recognition, and the capability analysis of calls, recursion, and authored
+handlers is the analyzer's as before.
+
 ### QVR-120 — Update all eleven transpilers
 
 **Depends on:** QVR-050, QVR-060, QVR-110.

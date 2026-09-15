@@ -141,7 +141,7 @@ def _constructors(source: str) -> dict[str, str]:
         Constructor name to its ``qiec:constructor:...`` identity, as the
         generated code spells it.
     """
-    ir = Lower().forward(parse(source)).qiec
+    ir = Lower().forward(parse(source)).module
     assert ir is not None
     return {item.name: item.id.text for item in ir.constructors}
 
@@ -164,7 +164,7 @@ def _request_key(source: str, instance: str, operation: str) -> str:
         ``instance|operation`` in stable identities, the flat key the host
         runtimes look up.
     """
-    ir = Lower().forward(parse(source)).qiec
+    ir = Lower().forward(parse(source)).module
     assert ir is not None
     named = next(item for item in ir.instances if item.name == instance)
     entry = cast(IRQiecRowEntry, named.entry)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 
 import quivers.transpile as _transpile
+from quivers.transpile import UnsupportedConstruct
 from quivers.dsl.compiler.programs import _LET_EXPR_BUILTINS
 from quivers.dsl.ast_nodes.declarations import (
     ExportDecl,
@@ -110,13 +111,34 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
     )
 
 
+#: Where the ``m`` binding starts: the name, an optional subscript, and
+#: an assignment operator, not preceded by another identifier character.
+_M_BINDING = re.compile(r"(?<![A-Za-z0-9_.])m(\[[^\]]*\])?\s*(?:=|<-)\s*")
+
+#: Where the ``m`` binding's statement ends when a target puts several
+#: statements on one line: a semicolon, a following loop, or a
+#: following binding or draw.
+_STATEMENT_END = re.compile(
+    r";|\s+for\s*\(|\s+[A-Za-z_]\w*(?:\[[^\]]*\])?\s*(?:~|<-|=)"
+)
+
+
 def _m_line(target: str, module: Module) -> str:
-    """The rendered ``m = ...`` binding line for ``target``."""
+    """The rendered ``m = ...`` binding statement for ``target``.
+
+    A target may declare the binding with a type (``real m = ...``) or
+    put several statements on one line; the statement is cut out of
+    the line it sits on.
+    """
     src = _transpile.transpile(module, target=target).decode()
     for line in src.splitlines():
-        stripped = line.strip().replace(" ", "")
-        if stripped.startswith(("m=", "m[", "varm=", "m<-")):
-            return line.strip()
+        found = _M_BINDING.search(line)
+        if found is None:
+            continue
+        rest = line[found.end() :]
+        end = _STATEMENT_END.search(rest)
+        value = rest[: end.start()] if end is not None else rest
+        return f"{line[found.start() : found.end()]}{value}".strip()
     msg = f"no `m` binding line in {target} output:\n{src}"
     raise AssertionError(msg)
 
@@ -223,12 +245,14 @@ def test_unmapped_builtin_raises(target: str) -> None:
 
 
 @pytest.mark.parametrize("target", _PYTHON_TARGETS)
-def test_non_builtin_call_passes_through(target: str) -> None:
-    """A callee that is not a math builtin (a domain / user function) is
-    emitted verbatim, not mapped and not raised on."""
+def test_non_builtin_call_is_refused(target: str) -> None:
+    """A callee that is not a builtin, a lambda, or a computation of the
+    module is refused rather than emitted as an unresolved name."""
     value = LetExprCall(func="my_helper", args=(LetExprVar(name="u"),))
-    line = _m_line(target, _module(value))
-    assert "my_helper(u)" in line.replace(" ", ""), line
+    with pytest.raises(UnsupportedConstruct) as caught:
+        _transpile.transpile(_module(value), target=target)
+    assert "let:call:unknown:my_helper" in caught.value.kinds
+    assert "unresolved name" in str(caught.value)
 
 
 def test_math_builtin_names_match_compiler() -> None:

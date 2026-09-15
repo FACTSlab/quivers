@@ -68,6 +68,7 @@ from quivers.qiec import (
     Value,
     Gather,
     Reduction,
+    ReductionOperator,
     Rowwise,
     Comprehension,
     primitive,
@@ -458,6 +459,71 @@ class QvrQiecLowerer:
         decoded = loads(dumps(target))
         if decoded != target:
             raise KernelError("QIEC module changed during canonical serialization")
+
+
+def _last_axis_reduction(
+    operator: ReductionOperator,
+    value: Value,
+    shape: tuple[TypeExpr, tuple[IndexTerm, ...]],
+    path: tuple[str | int, ...],
+) -> Value:
+    """Reduce a tensor along its last axis.
+
+    A reduction builtin summarizes each row of its argument, as the
+    torch runtime reduces along ``dim=-1``: a vector reduces to one
+    number, and a tensor of higher rank to a tensor of the leading
+    axes, each entry the reduction of one row.
+
+    Parameters
+    ----------
+    operator : ReductionOperator
+        The reduction.
+    value : Value
+        The tensor reduced.
+    shape : tuple[TypeExpr, tuple[IndexTerm, ...]]
+        The tensor's element type and dimensions.
+    path : tuple[str | int, ...]
+        The structural path, which names the comprehension binders.
+
+    Returns
+    -------
+    Value
+        The reduction, under one comprehension per leading axis.
+    """
+    element, dimensions = shape
+    if len(dimensions) <= 1:
+        return Reduction(operator, value, element)
+    stem = "_".join(str(item) for item in path if isinstance(item, str))
+    binder = Local(f"__{stem}_row{len(dimensions)}", INT)
+    row = Gather(value, Var(binder), tensor_type(element, dimensions[1:]))
+    inner = _last_axis_reduction(operator, row, (element, dimensions[1:]), path)
+    inner_shape = tensor_shape(_reduced_type(element, dimensions[1:]))
+    result = (
+        tensor_type(element, (dimensions[0],))
+        if inner_shape is None
+        else tensor_type(inner_shape[0], (dimensions[0], *inner_shape[1]))
+    )
+    return Comprehension(binder, dimensions[0], inner, result)
+
+
+def _reduced_type(element: TypeExpr, dimensions: tuple[IndexTerm, ...]) -> TypeExpr:
+    """The type a last-axis reduction of a tensor has.
+
+    Parameters
+    ----------
+    element : TypeExpr
+        The tensor's element type.
+    dimensions : tuple[IndexTerm, ...]
+        The tensor's dimensions.
+
+    Returns
+    -------
+    TypeExpr
+        The element for a vector, else the tensor of the leading axes.
+    """
+    if len(dimensions) <= 1:
+        return element
+    return tensor_type(element, dimensions[:-1])
 
 
 def lower_qvr_to_qiec(
@@ -2705,7 +2771,9 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             if authored.func in _REDUCTIONS and len(arguments) == 1:
                 shape = tensor_shape(types[0])
                 if shape is not None:
-                    return Reduction(_REDUCTIONS[authored.func], arguments[0], shape[0])
+                    return _last_axis_reduction(
+                        _REDUCTIONS[authored.func], arguments[0], shape, path
+                    )
             if authored.func in _ROWWISE:
                 if len(arguments) != 1 or tensor_shape(types[0]) is None:
                     self._fail(

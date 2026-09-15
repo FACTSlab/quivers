@@ -84,7 +84,10 @@ from quivers.transpile.renderers._base import (
     host_integer_input_names,
     mixture_normal_components,
 )
-from quivers.transpile.renderers._qiec import graft_qiec_dynamic, qiec_helper_roots
+from quivers.transpile.renderers._qiec import (
+    render_computations_dynamic,
+    qiec_helper_roots,
+)
 
 
 _TARGET = "pyro"
@@ -217,7 +220,7 @@ class PyroRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
 
-        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- per-node dispatch driving pctx body emission -----

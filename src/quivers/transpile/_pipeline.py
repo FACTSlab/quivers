@@ -10,8 +10,9 @@ Every backend reduces to the same flow:
    (sample / observe / let / score with their family applications and
    axis specs); transpilation needs the bodies, so the source is the
    Module AST rather than the extracted schema.
-2. [`Lower`][quivers.transpile.lower.Lower] constructs the shared structural
-   IR, and a registered renderer constructs a fresh `panproto.Schema` in the
+2. [`Lower`][quivers.transpile.plan.Lower] elaborates the module and derives
+   the program's plan from the checked computation, the one lowered root,
+   and a registered renderer constructs a fresh `panproto.Schema` in the
    target tree-sitter grammar's auto-derived theory, using
    `panproto.SchemaBuilder`. Vertex kinds
    match the grammar's `node-types.json`; identifier text is set via

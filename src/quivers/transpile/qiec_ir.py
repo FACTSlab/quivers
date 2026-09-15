@@ -1028,11 +1028,14 @@ class IRQiecProgramParameter(dx.Model):
         How it is supplied.
     type
         Its type.
+    axes
+        The name of each dimension of a tensor-typed parameter.
     """
 
     name: str
     role: str
     type: IRQiecStatic
+    axes: tuple[str, ...] = ()
 
 
 class IRQiecProgramSite(dx.Model):

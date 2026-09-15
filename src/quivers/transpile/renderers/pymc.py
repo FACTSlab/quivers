@@ -86,7 +86,7 @@ from quivers.transpile.renderers._base import (
     assert_no_dangling_refs,
 )
 from quivers.transpile.renderers._qiec import (
-    graft_qiec_dynamic,
+    render_computations_dynamic,
     qiec_helper_families_used,
 )
 
@@ -200,7 +200,7 @@ class PyMCRenderer(RendererBase):
         )
         py.e("mod", fn, "child_of")
 
-        graft_qiec_dynamic(sb, ir, target=self.target, root="mod")
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- coord dict construction -----

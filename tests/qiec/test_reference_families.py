@@ -48,12 +48,14 @@ def _oracle_log_prob(family: str, arguments: dict[str, object], point: object) -
         return float(distribution.log_prob(_tensor(point)))
     if family == "RelaxedBernoulli":
         distribution = td.RelaxedBernoulli(
-            _tensor(RELAXATION_TEMPERATURE), probs=_tensor(arguments["probs"])
+            _tensor(arguments.get("temperature", RELAXATION_TEMPERATURE)),
+            probs=_tensor(arguments["probs"]),
         )
         return float(distribution.log_prob(_tensor(point)))
     if family == "RelaxedOneHotCategorical":
         distribution = td.RelaxedOneHotCategorical(
-            _tensor(RELAXATION_TEMPERATURE), probs=_tensor(arguments["probs"])
+            _tensor(arguments.get("temperature", RELAXATION_TEMPERATURE)),
+            probs=_tensor(arguments["probs"]),
         )
         return float(distribution.log_prob(_tensor(point)))
     if family == "LogisticNormal":
@@ -247,9 +249,9 @@ CASES: dict[str, tuple[dict[str, object], tuple[object, ...]]] = {
         },
         ((0.3, 0.8, -0.2), (-1.0, 2.0, 0.5)),
     ),
-    "RelaxedBernoulli": ({"probs": 0.3}, (0.2, 0.9)),
+    "RelaxedBernoulli": ({"temperature": 0.7, "probs": 0.3}, (0.2, 0.9)),
     "RelaxedOneHotCategorical": (
-        {"probs": (0.2, 0.3, 0.5)},
+        {"temperature": 1.3, "probs": (0.2, 0.3, 0.5)},
         ((0.2, 0.3, 0.5), (0.6, 0.1, 0.3)),
     ),
     "Wishart": (

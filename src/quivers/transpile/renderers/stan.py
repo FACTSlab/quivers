@@ -136,8 +136,8 @@ from quivers.transpile.renderers._base import (
     mixture_normal_components,
 )
 from quivers.transpile.renderers._qiec import (
-    graft_qiec_static,
-    has_qiec_computations,
+    render_computations_static,
+    has_runtime_computations,
 )
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
@@ -371,7 +371,7 @@ class StanRenderer(RendererBase):
         self._class_index_widths_state.update(self._compute_class_index_widths(ir))
         # Program root.
         ctx.sb.vertex("prog", "program")
-        if has_qiec_computations(ir):
+        if has_runtime_computations(ir):
             self._ensure_block(ctx, "function_body")
         # Stan ships `normal`, `beta`, `gamma`, ... as built-in
         # densities but lacks `kumaraswamy`. When the IR samples or
@@ -406,8 +406,8 @@ class StanRenderer(RendererBase):
         # Walk the body.
         for node in ir.body:
             self._dispatch_node(ctx, node)
-        if has_qiec_computations(ir):
-            graft_qiec_static(
+        if has_runtime_computations(ir):
+            render_computations_static(
                 ctx.sb,
                 ir,
                 target=self.target,
@@ -1658,10 +1658,9 @@ class StanRenderer(RendererBase):
           [`indexed_expression`][quivers.transpile.renderers._stan_helpers]
           emit takes them verbatim.
 
-        This is what
-        [`_propagate_let_plates`][quivers.transpile.lower._propagate_let_plates]
-        relies on: it promotes a let-bound `mu` from scalar to
-        `array[Obs] real`, and this hook makes the surrounding
+        This is what the plan's typed plates rely on: a let-bound
+        `mu` over `Obs` is declared `array[Obs] real`, and this hook
+        makes the surrounding
         `observe y : Obs <- Normal(mu, ...)` index `mu` per-element
         rather than reading the whole array into the scalar Normal
         slot (which Stan rejects with a dimension mismatch at runtime
