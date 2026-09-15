@@ -13,11 +13,11 @@ Every backend reduces to the same flow:
 2. [`Lower`][quivers.transpile.lower.Lower] constructs the shared structural
    IR, and a registered renderer constructs a fresh `panproto.Schema` in the
    target tree-sitter grammar's auto-derived theory, using
-   [`panproto.SchemaBuilder`][panproto.SchemaBuilder]. Vertex kinds
+   `panproto.SchemaBuilder`. Vertex kinds
    match the grammar's `node-types.json`; identifier text is set via
    ``literal-value`` constraints; field-labelled edges use the field
    name as the edge kind.
-3. [`panproto.AstParserRegistry.emit_pretty`][panproto.AstParserRegistry.emit_pretty]
+3. `panproto.AstParserRegistry.emit_pretty`
    walks the target grammar's `grammar.json` productions to render the
    schema back to source bytes. No string templating in quivers.
 
@@ -37,7 +37,7 @@ _REGISTRY: _NativeAstParserRegistry | None = None
 
 
 def parser_registry() -> _NativeAstParserRegistry:
-    """Cached process-wide [`AstParserRegistry`][panproto.AstParserRegistry].
+    """Cached process-wide `AstParserRegistry`.
 
     Construction walks every installed ``panproto.grammars`` entry-point
     pack; doing it once amortises that work across every transpile call.
@@ -49,16 +49,16 @@ def parser_registry() -> _NativeAstParserRegistry:
 
 
 def target_protocol(grammar: str) -> panproto.Protocol:
-    """Synthesise a [`panproto.Protocol`][panproto.Protocol] handle for
+    """Synthesise a `panproto.Protocol` handle for
     a tree-sitter grammar.
 
     Tree-sitter grammars are not registered as builtin protocols
     (``panproto.get_builtin_protocol(grammar)`` raises ``KeyError`` for
     every grammar in `AstParserRegistry().protocol_names()`). The
     panproto API does, however, accept a string theory name in
-    [`Protocol.from_theories`][panproto.Protocol.from_theories]; the
+    `Protocol.from_theories`; the
     resulting Protocol is suitable for fresh
-    [`schema()`][panproto.Protocol.schema] builders that emit through
+    `schema()` builders that emit through
     the grammar's auto-derived theory.
     """
     # `schema_theory` is documented to accept either a `Theory` instance
@@ -72,8 +72,8 @@ def target_protocol(grammar: str) -> panproto.Protocol:
 
 
 class EmitPretty(dx.Mapping[panproto.Schema, bytes]):
-    """[`Mapping[panproto.Schema, bytes]`][didactic.api.Mapping] over
-    [`emit_pretty`][panproto.AstParserRegistry.emit_pretty]."""
+    """`Mapping[panproto.Schema, bytes]` over
+    `emit_pretty`."""
 
     def __init__(self, grammar: str) -> None:
         self._grammar = grammar

@@ -53,6 +53,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecSequenceComputation,
     QiecShapeIndex,
     QiecShapeSort,
+    QiecStaticArgument,
     QiecTypeApplication,
     QiecTypeBinder,
     QiecTypeExpr,
@@ -293,12 +294,37 @@ def _walk_index_telescope_field(
 
 def _walk_static_arguments(
     t: _Tree, parent: str, field: str
-) -> tuple[QiecTypeExpr, ...]:
-    result: list[QiecTypeExpr] = []
+) -> tuple[QiecStaticArgument, ...]:
+    """Walk the static arguments under a field of a node.
+
+    Parameters
+    ----------
+    t : _Tree
+        The parse tree.
+    parent : str
+        The node holding the arguments.
+    field : str
+        The field they sit under.
+
+    Returns
+    -------
+    tuple[QiecStaticArgument, ...]
+        The arguments in order: type syntax, or an index literal.
+
+    Raises
+    ------
+    ParseError
+        If a child under the field is not a static argument wrapper.
+    """
+    result: list[QiecStaticArgument] = []
     for wrapper in t.fields(parent, field):
         if t.kind(wrapper) != "qiec_static_argument":
             raise ParseError(f"unexpected static argument wrapper at {wrapper}")
-        result.append(_walk_type(t, _required_field(t, wrapper, "value")))
+        value = _required_field(t, wrapper, "value")
+        if t.kind(value) == "qiec_index_literal":
+            result.append(cast(QiecIndexLiteral, _walk_index(t, value)))
+        else:
+            result.append(_walk_type(t, value))
     return tuple(result)
 
 

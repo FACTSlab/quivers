@@ -483,7 +483,14 @@ module.exports = grammar({
       ),
     )),
 
-    qiec_static_argument: $ => field('value', $._qiec_type_expr),
+    /* A static argument is a type, an effect, or an index. Types and
+     * effects share the type syntax and are told apart by the binder they
+     * fill; a bare integer is an index literal, so a computation with a
+     * ``Nat`` binder can be applied to a literal extent. */
+    qiec_static_argument: $ => field('value', choice(
+      $._qiec_type_expr,
+      $.qiec_index_literal,
+    )),
     qiec_type_name: $ => field('name', $.identifier),
     qiec_type_paren: $ => seq('(', field('type', $._qiec_type_expr), ')'),
 

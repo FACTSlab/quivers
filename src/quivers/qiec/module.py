@@ -41,7 +41,17 @@ from quivers.qiec.kinds import (
     UserIndexSort,
     validate_telescope,
 )
-from quivers.qiec.terms import CaseMotive, Computation, Handle, Local, NewInstance
+from quivers.qiec.terms import (
+    Bind,
+    Call,
+    Case,
+    CaseMotive,
+    Computation,
+    Handle,
+    If,
+    Local,
+    NewInstance,
+)
 from quivers.qiec.types import EffectRef, EffectVariable, IndexVariable, TypeVariable
 
 
@@ -266,6 +276,86 @@ class QiecModule:
                 raise ValueError("source origin belongs to another QIEC module")
             if item.origin.source_protocol != self.source_protocol:
                 raise ValueError("source origin uses another source protocol")
+
+
+def _children(node: object) -> tuple[object, ...]:
+    """The parts of a node a structural walk descends into.
+
+    Parameters
+    ----------
+    node : object
+        A kernel node, a tuple of nodes, or a leaf.
+
+    Returns
+    -------
+    tuple[object, ...]
+        A tuple's items, a record's field values, or nothing for a leaf.
+    """
+    if isinstance(node, tuple):
+        return node
+    if is_dataclass(node) and not isinstance(node, type):
+        return tuple(getattr(node, field.name) for field in fields(node))
+    return ()
+
+
+def called_computations(body: Computation) -> frozenset[ComputationId]:
+    """The computations a body calls, directly.
+
+    Parameters
+    ----------
+    body : Computation
+        The body to walk.
+
+    Returns
+    -------
+    frozenset[ComputationId]
+        The callee of every ``Call`` in the body, at any depth.
+    """
+    found: set[ComputationId] = set()
+    pending: list[Computation] = [body]
+    while pending:
+        term = pending.pop()
+        if isinstance(term, Call):
+            found.add(term.callee)
+        elif isinstance(term, Bind):
+            pending.append(term.then)
+            pending.append(term.first)
+        elif isinstance(term, Handle):
+            pending.append(term.computation)
+        elif isinstance(term, Case):
+            pending.extend(branch.body for branch in term.branches)
+        elif isinstance(term, If):
+            pending.append(term.otherwise)
+            pending.append(term.then)
+        elif isinstance(term, NewInstance):
+            pending.append(term.body)
+    return frozenset(found)
+
+
+def program_computations(module: QiecModule) -> frozenset[ComputationId]:
+    """The computations that hold programs and their helpers.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+
+    Returns
+    -------
+    frozenset[ComputationId]
+        The identity of every entry point's computation and of every
+        computation it calls, transitively.
+    """
+    by_id = {computation.id: computation for computation in module.computations}
+    found: set[ComputationId] = set()
+    pending = [entry.computation for entry in module.entries]
+    while pending:
+        identity = pending.pop()
+        if identity in found or identity not in by_id:
+            continue
+        found.add(identity)
+        pending.extend(called_computations(by_id[identity].body))
+    return frozenset(found)
 
 
 def _require_unique(values: object, *, subject: str) -> None:
@@ -515,38 +605,20 @@ def _validate_effect_instances(
                 f"{subject} assigns the wrong interface to a lexical effect instance"
             )
 
-    def visit(
-        node: object,
-        scope: dict[EffectInstanceId, EffectRef] | None = None,
-    ) -> None:
-        """Walk a node, carrying the locally allocated instances in scope.
-
-        Parameters
-        ----------
-        node : object
-            The node to walk.
-        scope : dict[EffectInstanceId, EffectRef] or None
-            Instances allocated by an enclosing `NewInstance`. None at
-            the top, where only module-level instances are visible.
-
-        Raises
-        ------
-        KernelError
-            If an instance reference is out of scope, or a request
-            carries foreign provenance.
-        """
-        scope = {} if scope is None else scope
+    pending: list[tuple[object, dict[EffectInstanceId, EffectRef]]] = [(value, {})]
+    while pending:
+        node, scope = pending.pop()
         if isinstance(node, NewInstance):
-            visit(node.effect, scope)
-            visit(node.body, {**scope, node.instance: node.effect})
-            return
+            pending.append((node.body, {**scope, node.instance: node.effect}))
+            pending.append((node.effect, scope))
+            continue
         if isinstance(node, EffectRow):
             for entry in node.entries:
                 require(entry.instance, scope, entry.effect)
             if node.tail is not None:
                 for instance in node.tail.lacks:
                     require(instance, scope)
-            return
+            continue
         if isinstance(node, EffectRequest):
             require(node.instance, scope, node.effect)
             if not isinstance(node.origin, SiteProvenance):
@@ -564,15 +636,8 @@ def _validate_effect_instances(
                 )
         elif isinstance(node, Handle):
             require(node.instance, scope)
-        if isinstance(node, tuple):
-            for item in node:
-                visit(item, scope)
-            return
-        if is_dataclass(node) and not isinstance(node, type):
-            for field in fields(node):
-                visit(getattr(node, field.name), scope)
-
-    visit(value)
+        for child in reversed(_children(node)):
+            pending.append((child, scope))
 
 
 def _validate_closed_effect_instance(instance: NamedEffectInstance) -> None:
@@ -594,34 +659,16 @@ def _validate_closed_effect_instance(instance: NamedEffectInstance) -> None:
         named one or a rigid branch skolem that escaped.
     """
 
-    def visit(node: object) -> None:
-        """Reject a static variable anywhere beneath a node.
-
-        Parameters
-        ----------
-        node : object
-            The node to walk.
-
-        Raises
-        ------
-        KernelError
-            If a static variable is found.
-        """
+    pending: list[object] = [instance.entry.effect.arguments]
+    while pending:
+        node = pending.pop()
         if isinstance(node, (TypeVariable, IndexVariable, EffectVariable)):
             identity = "identity-bearing" if node.identity is not None else "free named"
             raise KernelError(
                 f"module-level effect instance {instance.name!r} contains an "
                 f"{identity} static variable {node.name!r}"
             )
-        if isinstance(node, tuple):
-            for item in node:
-                visit(item)
-            return
-        if is_dataclass(node) and not isinstance(node, type):
-            for field in fields(node):
-                visit(getattr(node, field.name))
-
-    visit(instance.entry.effect.arguments)
+        pending.extend(reversed(_children(node)))
 
 
 def _validate_index_sorts(module: QiecModule) -> None:
@@ -645,19 +692,16 @@ def _validate_index_sorts(module: QiecModule) -> None:
 
     declared = {sort.name: sort for sort in module.index_sorts}
 
-    def visit(node: object) -> None:
-        """Check any user index sort beneath a node.
-
-        Parameters
-        ----------
-        node : object
-            The node to walk.
-
-        Raises
-        ------
-        KernelError
-            If an embedded sort is undeclared or disagrees.
-        """
+    pending: list[object] = [
+        module.families,
+        module.constructors,
+        module.effects,
+        module.instances,
+        module.handlers,
+        module.computations,
+    ]
+    while pending:
+        node = pending.pop()
         if isinstance(node, UserIndexSort):
             expected = declared.get(node.name)
             if expected is None:
@@ -666,24 +710,8 @@ def _validate_index_sorts(module: QiecModule) -> None:
                 raise KernelError(
                     f"embedded index sort {node.name!r} disagrees with its declaration"
                 )
-            return
-        if isinstance(node, tuple):
-            for item in node:
-                visit(item)
-            return
-        if is_dataclass(node) and not isinstance(node, type):
-            for field in fields(node):
-                visit(getattr(node, field.name))
-
-    for item in (
-        *module.families,
-        *module.constructors,
-        *module.effects,
-        *module.instances,
-        *module.handlers,
-        *module.computations,
-    ):
-        visit(item)
+            continue
+        pending.extend(reversed(_children(node)))
 
 
 def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
@@ -737,81 +765,50 @@ def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
             },
         )
 
-    def visit(
-        node: object,
-        type_binders: dict[str, TypeBinder],
-        index_binders: dict[str, IndexBinder],
-        effect_binders: dict[str, EffectBinder],
-    ) -> None:
-        """Check every free named variable beneath a node.
-
-        Parameters
-        ----------
-        node : object
-            The node to walk.
-        type_binders : dict[str, TypeBinder]
-            Type binders in scope, by name.
-        index_binders : dict[str, IndexBinder]
-            Index binders in scope, by name.
-        effect_binders : dict[str, EffectBinder]
-            Effect binders in scope, by name.
-
-        Raises
-        ------
-        KernelError
-            If a free named variable is unbound, or is used at a kind or
-            sort other than the one its binder declares.
-        """
+    type Binders = tuple[
+        dict[str, TypeBinder], dict[str, IndexBinder], dict[str, EffectBinder]
+    ]
+    pending: list[tuple[object, Binders]] = [(value, bindings(telescope))]
+    while pending:
+        node, (type_binders, index_binders, effect_binders) = pending.pop()
         if isinstance(node, TypeVariable) and node.identity is None:
             binder = type_binders.get(node.name)
             if binder is None or binder.kind != node.kind:
                 raise KernelError(f"unbound or mistyped type variable {node.name!r}")
-            return
+            continue
         if isinstance(node, IndexVariable) and node.identity is None:
-            binder = index_binders.get(node.name)
-            if binder is None or binder.sort != node.sort:
+            index_binder = index_binders.get(node.name)
+            if index_binder is None or index_binder.sort != node.sort:
                 raise KernelError(f"unbound or mistyped index variable {node.name!r}")
-            return
+            continue
         if isinstance(node, EffectVariable) and node.identity is None:
             if node.name not in effect_binders:
                 raise KernelError(f"unbound effect variable {node.name!r}")
-            return
+            continue
         if isinstance(node, CaseMotive):
             nested_types = dict(type_binders)
             nested_indices = dict(index_binders)
             nested_effects = dict(effect_binders)
-            for binder in node.indices:
-                if isinstance(binder, TypeBinder):
-                    nested_types[binder.name] = binder
-                elif isinstance(binder, IndexBinder):
-                    nested_indices[binder.name] = binder
+            for motive_binder in node.indices:
+                if isinstance(motive_binder, TypeBinder):
+                    nested_types[motive_binder.name] = motive_binder
+                elif isinstance(motive_binder, IndexBinder):
+                    nested_indices[motive_binder.name] = motive_binder
                 else:
-                    nested_effects[binder.name] = binder
-            visit(
-                node.result_type,
-                nested_types,
-                nested_indices,
-                nested_effects,
+                    nested_effects[motive_binder.name] = motive_binder
+            pending.append(
+                (node.result_type, (nested_types, nested_indices, nested_effects))
             )
-            return
-        if isinstance(node, tuple):
-            for item in node:
-                visit(item, type_binders, index_binders, effect_binders)
-            return
-        if is_dataclass(node) and not isinstance(node, type):
-            for field in fields(node):
-                visit(
-                    getattr(node, field.name),
-                    type_binders,
-                    index_binders,
-                    effect_binders,
-                )
-
-    visit(value, *bindings(telescope))
+            continue
+        scope = (type_binders, index_binders, effect_binders)
+        for child in reversed(_children(node)):
+            pending.append((child, scope))
 
 
 __all__ = [
+    "called_computations",
     "computation_type_conforms",
+    "program_computations",
     "NamedComputation",
     "NamedEffectInstance",
     "QiecModule",

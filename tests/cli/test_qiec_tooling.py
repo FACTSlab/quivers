@@ -1,4 +1,4 @@
-"""User-facing tooling over the QVR v0.19 QIEC surface."""
+"""User-facing tooling over the QVR QIEC surface."""
 
 from __future__ import annotations
 

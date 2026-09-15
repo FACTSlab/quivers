@@ -2175,8 +2175,17 @@
       "type": "FIELD",
       "name": "value",
       "content": {
-        "type": "SYMBOL",
-        "name": "_qiec_type_expr"
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "_qiec_type_expr"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "qiec_index_literal"
+          }
+        ]
       }
     },
     "qiec_type_name": {

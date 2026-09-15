@@ -21,6 +21,7 @@ from quivers.qiec import (
     site_type,
     tensor_type,
 )
+from quivers.qiec.builtins import RANDOM, SCORE
 from quivers.qiec.kinds import NatSort
 from quivers.qiec.types import IndexLiteral
 
@@ -60,8 +61,6 @@ def test_prelude_interfaces_resolve_without_declaration() -> None:
     module = lower_qvr_to_qiec(parse(_MODEL), file_path="model.qvr")
     names = {effect.ref.name for effect in module.effects}
     assert names == {"Random", "Score"}
-    from quivers.qiec.builtins import RANDOM, SCORE
-
     identities = {effect.ref.id for effect in module.effects}
     assert identities == {RANDOM.id, SCORE.id}
 

@@ -87,6 +87,8 @@ from quivers.dsl.draw_args import (
     matrix_rows,
 )
 from quivers.transpile._expand_composites import expand_composite_lets
+from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
+from quivers.transpile.qiec_ir import lower_qiec_ir
 from quivers.transpile._resolve import (
     ResolvedDist,
     build_let_table,
@@ -156,7 +158,7 @@ def pick_program(module: Module) -> ProgramDecl:
     composition (`scan(cell) >> decoder`), and the transpile
     boundary is the probabilistic program. A `define` a step
     references is unfolded by
-    [`expand_composite_lets`][quivers.transpile._expand_composites.expand_composite_lets]
+    [`expand_composite_lets`][quivers.dsl.composite_lets.expand_composite_lets]
     at the call site instead, so the recurrence a `scan` denotes
     reaches the IR through the program that samples it.
     """
@@ -652,11 +654,32 @@ class Lower(dx.Mapping[Module, IRProgram]):
     per-call by `(family_name, IR-arg-tuple-key)`.
     """
 
-    def forward(self, module: Module) -> IRProgram:
-        from quivers.transpile._qiec_boundary import check_qiec_transpile_boundary
-        from quivers.transpile.qiec_ir import lower_qiec_ir
+    def forward(self, module: Module, *, target: str = "ir") -> IRProgram:
+        """Lower a parsed module to the transpile IR.
 
-        qiec_module = check_qiec_transpile_boundary(module, target="ir")
+        Parameters
+        ----------
+        module : Module
+            The parsed module, with composite lets already expanded for
+            the target.
+        target : str
+            The transpile target the lowering serves, named in the
+            diagnostics the QIEC boundary raises.
+
+        Returns
+        -------
+        IRProgram
+            The lowered program with its checked kernel mirror.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the module has no program and no QIEC surface, or uses a
+            construct the lowering cannot represent.
+        QiecDiagnosticError
+            If a QIEC declaration is rejected.
+        """
+        qiec_module = check_qiec_transpile_boundary(module, target=target)
         if qiec_module is not None:
             qiec_ir = lower_qiec_ir(qiec_module)
         else:

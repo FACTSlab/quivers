@@ -15,7 +15,7 @@ on the line immediately preceding the opening fence:
   guide walks the reader through one model in incrementally-elaborated
   fragments.
 * ``<!-- compile: qiec -->``       — parse and lower the block through the
-  exact QVR v0.19 to QIEC route beside the categorical Program compiler.
+  exact QVR to QIEC route beside the categorical Program compiler.
 * (no marker)                      — ``standalone``: the block must
   compile on its own.
 

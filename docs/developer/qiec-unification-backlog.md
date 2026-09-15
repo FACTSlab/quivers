@@ -701,7 +701,14 @@ the module again without its programs and record the gap on the module
 (`QiecModule.gap`), so the program reaches the renderer through its plan
 alone until those packages land. `Lower` still builds `IRProgram.body` from
 the source after the elaboration has checked it; deriving the plan from the
-checked module is QVR-110.
+checked module is QVR-110. `Compiler.qiec_module` is the compiler's one
+checked-module product, and `Program.qiec` carries the same object on the
+compiled container; `QVR_PROGRAM_PROTOCOL` records that module's effects,
+instances, handlers, computations, and entry points as vertices of the
+program schema. Program templates (programs with object or morphism
+parameters) still compile through the classic route only; elaborating them as
+polymorphic computations waits on the template instantiation story of
+QVR-110.
 
 ### QVR-080 — Rebase the existing effect library on QIEC
 

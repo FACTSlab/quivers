@@ -81,11 +81,10 @@ from quivers.qiec.substitution import (
     substitute_row,
     substitute_type,
 )
-from quivers.qiec.types import StaticArgument, TypeExpr
-from quivers.qiec.types import IndexLiteral
+from quivers.qiec.checking import CheckContext, KernelRegistry, infer_computation
+from quivers.qiec.types import IndexLiteral, StaticArgument, TypeExpr
 
 if TYPE_CHECKING:
-    from quivers.qiec.checking import KernelRegistry
     from quivers.qiec.module import NamedComputation, QiecModule
 
 
@@ -1834,8 +1833,6 @@ class Evaluator:
         EvaluationError
             If execution fails, as in `evaluate`.
         """
-        from quivers.qiec.checking import CheckContext, infer_computation
-
         runtime_environment = dict(environment or {})
         context = CheckContext()
         for local in runtime_environment:

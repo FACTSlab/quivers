@@ -16,6 +16,8 @@ import torch
 import torch.distributions as td
 
 from quivers.dsl import Compiler, parse
+from quivers.dsl.compiler import CompileError
+from quivers.dsl.emit import module_to_source
 from quivers.dsl.qiec_lowering import QiecDiagnosticError, lower_qvr_to_qiec
 from quivers.inference.trace import trace
 from quivers.qiec import (
@@ -34,7 +36,7 @@ from quivers.qiec import (
     tensor_type,
 )
 from quivers.qiec.program_runtime import program_entry, run_program
-from quivers.qiec.types import IndexLiteral
+from quivers.qiec.types import IndexLiteral, render_static
 from quivers.qiec.kinds import NAT
 
 BETA_BERNOULLI = """\
@@ -350,7 +352,6 @@ def test_scores_add_as_weights() -> None:
             "        observe y <- Normal(z, 1.0)\n    return z\n",
             "reduction",
         ),
-        ("    sample x <- Dirichlet(alpha)\n    return x\n", "without a plate"),
     ],
 )
 def test_forms_outside_the_elaboration_are_reported_at_the_step(
@@ -364,6 +365,36 @@ def test_forms_outside_the_elaboration_are_reported_at_the_step(
     assert captured.value.code == "qiec-program"
     assert fragment in captured.value.message
     assert captured.value.line == 3
+
+
+def test_an_input_without_a_plate_gets_a_static_extent() -> None:
+    """A vector input nothing shapes becomes an index parameter of the
+    program, which a run reads off the data and the log joint agrees
+    with torch on."""
+    module = _module(
+        "object Obs : FinSet 3\nprogram prog : Obs -> Obs\n"
+        "    sample x <- Dirichlet(alpha)\n    return x\nexport prog\n"
+    )
+    computation = next(item for item in module.computations if item.name == "prog")
+    assert [binder.name for binder in computation.telescope] == ["alpha_extent"]
+    entry = program_entry(module, "prog")
+    assert entry.telescope == computation.telescope
+    (alpha,) = computation.parameters
+    assert render_static(alpha.type) == "Tensor[Real]([alpha_extent])"
+    assert render_static(computation.type.result) == "Tensor[Real]([alpha_extent])"
+    run = run_program(
+        module,
+        "prog",
+        data={"alpha": (1.0, 2.0, 3.0)},
+        sites={"x": (0.2, 0.3, 0.5)},
+    )
+    expected = td.Dirichlet(torch.tensor([1.0, 2.0, 3.0])).log_prob(
+        torch.tensor([0.2, 0.3, 0.5])
+    )
+    assert run.value == (0.2, 0.3, 0.5)
+    assert run.log_joint == pytest.approx(expected.item(), rel=1e-6)
+    with pytest.raises(KeyError, match="alpha"):
+        run_program(module, "prog", data={"alpha": 1.0}, sites={"x": (1.0,)})
 
 
 CALLS = """\
@@ -423,12 +454,60 @@ def test_programs_and_computations_call_each_other() -> None:
 
 
 def test_a_call_step_round_trips_through_the_emitter_and_is_qiec_only() -> None:
-    from quivers.dsl.compiler import CompileError
-    from quivers.dsl.emit import module_to_source
-
     module = parse(CALLS)
     source = module_to_source(module)
     assert "    let b <- shift(a, 2.0)\n" in source
     assert module_to_source(parse(source)) == source
     with pytest.raises(CompileError, match="only the QIEC route runs"):
         Compiler(module).compile()
+
+
+def test_open_extents_reach_marginal_helpers_and_callers() -> None:
+    """A captured input with an open extent keeps its shape inside the
+    marginalization helper, a program passing the input on takes the
+    extent as its own, and an authored computation names the extent
+    with an index literal."""
+    module = _module(
+        "object Obs : FinSet 3\n"
+        "program prog : Obs -> Obs\n"
+        "    sample probs <- Dirichlet(alpha)\n"
+        "    marginalize z <- Categorical(probs)\n"
+        "        observe y <- Normal(mu[z], 1.0)\n"
+        "    return probs\n"
+        "export prog\n"
+        "program outer : Obs -> Obs\n"
+        "    let inner <- prog(alpha, mu, y)\n"
+        "    return inner\n"
+        "export outer\n"
+        "define fixed(alpha : Tensor[Real]([3]), mu : Tensor[Real]([3]), y : Real)"
+        " : Tensor[Real]([3]) !{random, score} =\n"
+        "    let inner <- prog[3](alpha, mu, y)\n"
+        "    return inner\n"
+    )
+    helper = next(item for item in module.computations if "marginal" in item.name)
+    assert [binder.name for binder in helper.telescope] == ["alpha_extent"]
+    outer = next(item for item in module.computations if item.name == "outer")
+    assert [binder.name for binder in outer.telescope] == ["alpha_extent"]
+    assert isinstance(outer.body, Bind)
+    assert isinstance(outer.body.first, Call)
+    assert [render_static(a) for a in outer.body.first.static_arguments] == [
+        "alpha_extent"
+    ]
+    fixed = next(item for item in module.computations if item.name == "fixed")
+    assert fixed.telescope == ()
+    assert isinstance(fixed.body, Bind)
+    assert isinstance(fixed.body.first, Call)
+    assert [render_static(a) for a in fixed.body.first.static_arguments] == ["3"]
+    data = {"alpha": (1.0, 2.0, 3.0), "y": 1.4, "mu": (0.0, 1.0, 2.0)}
+    sites = {"probs": (0.2, 0.3, 0.5)}
+    expected = td.Dirichlet(torch.tensor([1.0, 2.0, 3.0])).log_prob(
+        torch.tensor([0.2, 0.3, 0.5])
+    ).item() + math.log(
+        sum(
+            weight * math.exp(td.Normal(float(k), 1.0).log_prob(torch.tensor(1.4)))
+            for k, weight in enumerate((0.2, 0.3, 0.5))
+        )
+    )
+    for name in ("prog", "outer"):
+        run = run_program(module, name, data=data, sites=sites)
+        assert run.log_joint == pytest.approx(expected, rel=1e-6)

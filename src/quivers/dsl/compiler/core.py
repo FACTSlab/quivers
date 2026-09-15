@@ -225,7 +225,7 @@ class Compiler(
 
     @property
     def qiec_module(self) -> QiecModule | None:
-        """The checked QIEC projection, if the source contained v0.19 forms."""
+        """The checked QIEC module, or ``None`` when the source has no QIEC surface."""
 
         return self._qiec_module
 

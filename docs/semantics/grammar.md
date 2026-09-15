@@ -498,6 +498,8 @@ call_step           := 'let' IDENT '<-' qiec_call
 # computation declared with ``define``; the callee's effect row joins
 # the program's. A call step runs only through the checked QIEC
 # module, since the runtime compiler has no computation to invoke.
+# A call step that names a program with open input extents writes no
+# static arguments: the extents are read off the arguments' types.
 
 marginalize_step    := 'marginalize' IDENT [ ':' type_expr ] '<-' IDENT
                        [ '(' draw_arg_list ')' ]
@@ -567,7 +569,7 @@ A `composition_decl` selects the module's underlying composition rule. With no b
 
 A `contraction_decl` declares an n-ary operadic morphism whose action contracts its input morphisms under the named composition rule using the wiring spec. Call sites `IDENT(arg_1, …, arg_n)` route through `morphism_call`; the compiler resolves `IDENT` against the contraction registry, the parametric-program template table, and the morphism scope in that order. See [Expressions § 2.13](expressions.md#213-operadic-contraction-call) for the call-site denotation.
 
-## 11. QIEC v0.19 fragment
+## 11. QIEC fragment
 
 The Quivers Indexed Effect Core (QIEC) adds a disjoint declaration and
 computation fragment to the module grammar. Square-bracket telescopes bind
@@ -621,7 +623,14 @@ perform           := 'perform' IDENT '.' IDENT [static_arguments]
                      '(' [value (',' value)*] ')'
 call              := IDENT [static_arguments] '(' [value (',' value)*] ')'
 resume            := 'resume' '(' [value] ')'
+static_arguments  := '[' static_argument (',' static_argument)* ']'
+static_argument   := type | INT
 ```
+
+A static argument is type syntax, read as a type or an effect according to
+the binder it fills, or an integer literal, which fills a `Nat` index
+binder: `pad[3](xs)` applies a computation declared
+`define pad[n : Nat](xs : Tensor[Real]([n])) ...` at extent three.
 
 ### Disambiguation
 

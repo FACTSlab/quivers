@@ -735,9 +735,40 @@ class IRQiecReturn(IRQiecComputation):
     kind: Literal["return"] = "return"
 
 
-class IRQiecBind(IRQiecComputation):
+class IRQiecBindStep(dx.Model):
+    """One step of a bind sequence: a computation and the local it binds.
+
+    Parameters
+    ----------
+    binder
+        The local the step's result is bound to.
+    first
+        The computation run at the step.
+    """
+
     binder: IRQiecLocal
     first: IRQiecComputation
+
+
+class IRQiecBind(IRQiecComputation):
+    """A straight-line sequence of binds ending in a computation.
+
+    A kernel ``Bind`` chain nests one bind inside the next; the mirror
+    keeps the chain flat so a long straight-line body is a tuple of
+    steps rather than a term as deep as it is long.
+
+    Parameters
+    ----------
+    steps
+        The binds, in evaluation order; each may read the binders before
+        it.
+    then
+        The computation after the last step, which may read every binder.
+    kind
+        The discriminator; always ``"bind"``.
+    """
+
+    steps: tuple[IRQiecBindStep, ...]
     then: IRQiecComputation
     kind: Literal["bind"] = "bind"
 
@@ -1019,6 +1050,8 @@ class IRQiecProgramEntry(dx.Model):
         The ``Random`` instance the program samples on.
     score_instance
         The ``Score`` instance the program scores on.
+    telescope
+        The static index binders of the open input extents.
     """
 
     name: str
@@ -1029,6 +1062,7 @@ class IRQiecProgramEntry(dx.Model):
     sites: tuple[IRQiecProgramSite, ...]
     random_instance: IRQiecId
     score_instance: IRQiecId
+    telescope: tuple[IRQiecBinder, ...] = ()
 
 
 class IRQiecModule(dx.Model):
@@ -1044,6 +1078,7 @@ class IRQiecModule(dx.Model):
     handlers: tuple[IRQiecHandlerDef, ...] = ()
     computations: tuple[IRQiecNamedComputation, ...] = ()
     entries: tuple[IRQiecProgramEntry, ...] = ()
+    programs: tuple[IRQiecId, ...] = ()
     gap: str = ""
     abi: str
 
@@ -1054,18 +1089,10 @@ class IRQiecModule(dx.Model):
         -------
         frozenset[str]
             Identity texts of every entry point's computation and of
-            every helper it calls, transitively.
+            every helper it calls, transitively, as the kernel module
+            recorded them at lowering.
         """
-        by_id = {computation.id.text: computation for computation in self.computations}
-        found: set[str] = set()
-        pending = [entry.computation.text for entry in self.entries]
-        while pending:
-            identity = pending.pop()
-            if identity in found or identity not in by_id:
-                continue
-            found.add(identity)
-            pending.extend(_callees(by_id[identity].body))
-        return frozenset(found)
+        return frozenset(identity.text for identity in self.programs)
 
 
 def _callees(node: IRQiecComputation) -> list[str]:
@@ -1087,7 +1114,8 @@ def _callees(node: IRQiecComputation) -> list[str]:
         if isinstance(item, IRQiecCall):
             found.append(item.callee.text)
         elif isinstance(item, IRQiecBind):
-            visit(item.first)
+            for step in item.steps:
+                visit(step.first)
             visit(item.then)
         elif isinstance(item, IRQiecHandle):
             visit(item.computation)
@@ -1441,10 +1469,19 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
     if isinstance(value, tm.Return):
         return IRQiecReturn(value=cast(IRQiecValue, _convert(value.value)))
     if isinstance(value, tm.Bind):
+        steps: list[IRQiecBindStep] = []
+        current: tm.Computation = value
+        while isinstance(current, tm.Bind):
+            steps.append(
+                IRQiecBindStep(
+                    binder=cast(IRQiecLocal, _convert(current.binder)),
+                    first=cast(IRQiecComputation, _convert(current.first)),
+                )
+            )
+            current = current.then
         return IRQiecBind(
-            binder=cast(IRQiecLocal, _convert(value.binder)),
-            first=cast(IRQiecComputation, _convert(value.first)),
-            then=cast(IRQiecComputation, _convert(value.then)),
+            steps=tuple(steps),
+            then=cast(IRQiecComputation, _convert(current)),
         )
     if isinstance(value, tm.Perform):
         return IRQiecPerform(request=cast(IRQiecEffectRequest, _convert(value.request)))
@@ -1539,8 +1576,31 @@ def _convert(value: object) -> object:  # noqa: C901, PLR0911, PLR0912
 
 
 def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
-    """Project an already checked kernel module into structural IR."""
-    return cast(IRQiecModule, _convert(module))
+    """Project an already checked kernel module into structural IR.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The checked module.
+
+    Returns
+    -------
+    IRQiecModule
+        The mirror, with the program computations recorded so a renderer
+        need not walk every body to find them.
+    """
+    values = {
+        field.name: _convert(getattr(module, field.name))
+        for field in fields(module)
+        if field.name != "tag"
+    }
+    values["programs"] = tuple(
+        _id(identity)
+        for identity in sorted(
+            m.program_computations(module), key=lambda identity: identity.digest
+        )
+    )
+    return IRQiecModule(**values)
 
 
 type QiecFeature = Literal[
@@ -1852,9 +1912,10 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             value(item.value)
         elif isinstance(item, IRQiecBind):
             required.add("bind")
-            if not _is_scalar_type(item.binder.type):
-                required.add("non-scalar-parameter")
-            visit(item.first)
+            for step in item.steps:
+                if not _is_scalar_type(step.binder.type):
+                    required.add("non-scalar-parameter")
+                visit(step.first)
             visit(item.then)
         elif isinstance(item, IRQiecPerform):
             required.add("perform")
@@ -1925,7 +1986,8 @@ def _callees(node: IRQiecComputation) -> set[str]:
     if isinstance(node, IRQiecCall):
         out.add(node.callee.text)
     elif isinstance(node, IRQiecBind):
-        out.update(_callees(node.first))
+        for step in node.steps:
+            out.update(_callees(step.first))
         out.update(_callees(node.then))
     elif isinstance(node, IRQiecHandle):
         out.update(_callees(node.computation))
@@ -2119,7 +2181,8 @@ def _handled_ids(node: IRQiecComputation) -> set[str]:
         out.add(node.handler.text)
         out.update(_handled_ids(node.computation))
     elif isinstance(node, IRQiecBind):
-        out.update(_handled_ids(node.first))
+        for step in node.steps:
+            out.update(_handled_ids(step.first))
         out.update(_handled_ids(node.then))
     elif isinstance(node, IRQiecCase):
         for branch in node.branches:

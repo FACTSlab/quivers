@@ -51,15 +51,7 @@ from quivers.qiec.terms import (
     Var,
 )
 from quivers.qiec.kinds import (
-    ContextSort,
-    EffectBinder,
-    IndexBinder,
-    NatSort,
-    ShapeSort,
     Telescope,
-    TYPE,
-    TypeBinder,
-    UserIndexSort,
 )
 from quivers.qiec.types import (
     EffectRef,
@@ -67,7 +59,6 @@ from quivers.qiec.types import (
     EqualityType,
     FunctionType,
     IndexConstructor,
-    IndexLiteral,
     IndexTerm,
     IndexVariable,
     ShapeIndex,
@@ -75,97 +66,9 @@ from quivers.qiec.types import (
     TypeApplication,
     TypeExpr,
     TypeVariable,
-    index_sort,
-    static_kind,
+    check_static_arguments,
+    validate_static_argument,
 )
-
-
-def _sort_matches(expected: object, actual: object) -> bool:
-    """Whether an index of one sort satisfies a binder of another.
-
-    Parameters
-    ----------
-    expected : object
-        The sort the binder declares.
-    actual : object
-        The sort the supplied index carries.
-
-    Returns
-    -------
-    bool
-        True when the index is acceptable. Sorts match exactly, except
-        that a shape sort of unspecified rank accepts any rank, which is
-        what makes a rank-polymorphic binder usable.
-    """
-    if isinstance(expected, ShapeSort) and isinstance(actual, ShapeSort):
-        return expected.rank is None or expected.rank == actual.rank
-    return expected == actual
-
-
-def validate_static_argument(term: StaticArgument) -> None:
-    """Recursively validate one intrinsically kinded static argument.
-
-    Parameters
-    ----------
-    term : StaticArgument
-        The static term to validate, together with everything nested in
-        it.
-
-    Raises
-    ------
-    TypeError
-        If a term is of a class that cannot appear in a static position.
-    ValueError
-        If an application is ill-kinded, or an index constructor is
-        applied at the wrong arity.
-    """
-    if isinstance(term, TypeVariable | EffectVariable | IndexVariable | IndexLiteral):
-        return
-    if isinstance(term, TypeApplication):
-        instantiate_telescope(term.constructor.telescope, term.arguments)
-        return
-    if isinstance(term, FunctionType):
-        validate_static_argument(term.parameter)
-        validate_static_argument(term.result)
-        if static_kind(term.parameter) != TYPE:
-            raise TypeError("function parameter must have Type kind")
-        if static_kind(term.result) != TYPE:
-            raise TypeError("function result must have Type kind")
-        return
-    if isinstance(term, EqualityType):
-        validate_static_argument(term.left)
-        validate_static_argument(term.right)
-        index_kinds = (NatSort, ShapeSort, ContextSort, UserIndexSort)
-        index_nodes = (IndexVariable, IndexLiteral, IndexConstructor, ShapeIndex)
-        if isinstance(term.kind, index_kinds):
-            if not isinstance(term.left, index_nodes) or not isinstance(
-                term.right, index_nodes
-            ):
-                raise TypeError("index equality endpoints must be index terms")
-            if not _sort_matches(term.kind, index_sort(term.left)) or not _sort_matches(
-                term.kind, index_sort(term.right)
-            ):
-                raise TypeError("index equality endpoint has the wrong sort")
-        elif (
-            static_kind(term.left) != term.kind or static_kind(term.right) != term.kind
-        ):
-            raise TypeError("equality endpoint has the wrong kind")
-        return
-    if isinstance(term, EffectRef):
-        for argument in term.arguments:
-            validate_static_argument(argument)
-        return
-    if isinstance(term, IndexConstructor):
-        for argument in term.arguments:
-            validate_static_argument(argument)
-        index_sort(term)
-        return
-    if isinstance(term, ShapeIndex):
-        index_sort(term)
-        for dimension in term.dimensions:
-            validate_static_argument(dimension)
-        return
-    raise TypeError(f"unknown static argument {term!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,45 +180,8 @@ def instantiate_telescope(
         If the counts differ, or an argument is of the wrong kind or
         index sort.
     """
-    if len(telescope) != len(arguments):
-        raise TypeError(
-            f"expected {len(telescope)} static arguments, got {len(arguments)}"
-        )
-
-    types: list[tuple[str, TypeExpr]] = []
-    indices: list[tuple[str, IndexTerm]] = []
-    effects: list[tuple[str, EffectRef | EffectVariable]] = []
-    for binder, argument in zip(telescope, arguments, strict=True):
-        validate_static_argument(argument)
-        if isinstance(binder, TypeBinder):
-            if not isinstance(
-                argument,
-                (TypeVariable, TypeApplication, FunctionType, EqualityType),
-            ):
-                raise TypeError(f"{binder.name!r} expects a type argument")
-            if static_kind(argument) != binder.kind:
-                raise TypeError(f"type argument for {binder.name!r} has wrong kind")
-            types.append((binder.name, argument))
-        elif isinstance(binder, IndexBinder):
-            if not isinstance(
-                argument,
-                (IndexVariable, IndexConstructor, ShapeIndex),
-            ) and not hasattr(argument, "sort"):
-                raise TypeError(f"{binder.name!r} expects an index argument")
-            actual_sort = index_sort(argument)  # type: ignore[arg-type]
-            if not _sort_matches(binder.sort, actual_sort):
-                raise TypeError(
-                    f"index argument for {binder.name!r} has sort {actual_sort!r}, "
-                    f"expected {binder.sort!r}"
-                )
-            indices.append((binder.name, argument))  # type: ignore[arg-type]
-        elif isinstance(binder, EffectBinder):
-            if not isinstance(argument, (EffectRef, EffectVariable)):
-                raise TypeError(f"{binder.name!r} expects an effect argument")
-            effects.append((binder.name, argument))
-        else:  # pragma: no cover - closed binder union
-            raise TypeError(f"unknown telescope binder {binder!r}")
-    return StaticSubstitution(tuple(types), tuple(indices), tuple(effects))
+    types, indices, effects = check_static_arguments(telescope, arguments)
+    return StaticSubstitution(types, indices, effects)
 
 
 def substitute_index(term: IndexTerm, substitution: StaticSubstitution) -> IndexTerm:

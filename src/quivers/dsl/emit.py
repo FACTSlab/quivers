@@ -196,6 +196,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecShapeSort,
     QiecTypeApplication,
     QiecTypeBinder,
+    QiecStaticArgument,
     QiecTypeExpr,
     QiecTypeKind,
     QiecTypeName,
@@ -1075,7 +1076,8 @@ def _emit_qiec_type(type_expr: QiecTypeExpr) -> str:
         head = type_expr.constructor
         if type_expr.static_arguments:
             arguments = ", ".join(
-                _emit_qiec_type(argument) for argument in type_expr.static_arguments
+                _emit_qiec_static_argument(argument)
+                for argument in type_expr.static_arguments
             )
             head += f"[{arguments}]"
         if type_expr.indices:
@@ -1101,16 +1103,36 @@ def _emit_qiec_type(type_expr: QiecTypeExpr) -> str:
 def _emit_qiec_effect_ref(effect: QiecEffectRef) -> str:
     if not effect.arguments:
         return effect.name
-    arguments = ", ".join(_emit_qiec_type(argument) for argument in effect.arguments)
+    arguments = ", ".join(
+        _emit_qiec_static_argument(argument) for argument in effect.arguments
+    )
     return f"{effect.name}[{arguments}]"
 
 
-def _emit_qiec_static_arguments(arguments: tuple[QiecTypeExpr, ...]) -> str:
+def _emit_qiec_static_argument(argument: QiecStaticArgument) -> str:
+    """Emit one static argument.
+
+    Parameters
+    ----------
+    argument : QiecStaticArgument
+        A type, an effect written as type syntax, or an index literal.
+
+    Returns
+    -------
+    str
+        The argument's source form.
+    """
+    if isinstance(argument, QiecIndexLiteral):
+        return _emit_qiec_index(argument)
+    return _emit_qiec_type(argument)
+
+
+def _emit_qiec_static_arguments(arguments: tuple[QiecStaticArgument, ...]) -> str:
     """Emit a bracketed static argument list, or nothing when empty.
 
     Parameters
     ----------
-    arguments : tuple[QiecTypeExpr, ...]
+    arguments : tuple[QiecStaticArgument, ...]
         The static arguments.
 
     Returns
@@ -1121,7 +1143,11 @@ def _emit_qiec_static_arguments(arguments: tuple[QiecTypeExpr, ...]) -> str:
     """
     if not arguments:
         return ""
-    return "[" + ", ".join(_emit_qiec_type(argument) for argument in arguments) + "]"
+    return (
+        "["
+        + ", ".join(_emit_qiec_static_argument(argument) for argument in arguments)
+        + "]"
+    )
 
 
 def _emit_qiec_row(row: QiecEffectRow) -> str:
@@ -1308,7 +1334,8 @@ def _emit_qiec_value(value: QiecValue) -> str:
             static = (
                 "["
                 + ", ".join(
-                    _emit_qiec_type(argument) for argument in value.static_arguments
+                    _emit_qiec_static_argument(argument)
+                    for argument in value.static_arguments
                 )
                 + "]"
             )
@@ -1326,7 +1353,8 @@ def _emit_qiec_request(request: QiecEffectRequest) -> str:
         static = (
             "["
             + ", ".join(
-                _emit_qiec_type(argument) for argument in request.static_arguments
+                _emit_qiec_static_argument(argument)
+                for argument in request.static_arguments
             )
             + "]"
         )
@@ -1338,7 +1366,7 @@ def _emit_qiec_handler_application(handler: QiecHandlerApplication) -> str:
     if not handler.static_arguments:
         return handler.name
     arguments = ", ".join(
-        _emit_qiec_type(argument) for argument in handler.static_arguments
+        _emit_qiec_static_argument(argument) for argument in handler.static_arguments
     )
     return f"{handler.name}[{arguments}]"
 
@@ -1447,7 +1475,8 @@ def _emit_qiec_case_branch(branch: QiecCaseBranch, indent: int) -> list[str]:
         static = (
             "["
             + ", ".join(
-                _emit_qiec_type(argument) for argument in branch.static_arguments
+                _emit_qiec_static_argument(argument)
+                for argument in branch.static_arguments
             )
             + "]"
         )

@@ -22,6 +22,7 @@ from quivers.transpile.lower import Lower
 from quivers.transpile.qiec_ir import (
     IRQiecAttachmentRef,
     IRQiecBind,
+    IRQiecBindStep,
     IRQiecComputationType,
     IRQiecEqualityType,
     IRQiecEvidenceValue,
@@ -348,8 +349,12 @@ def test_static_targets_lower_pure_bind_ir(target: str) -> None:
     parameter = computation.parameters[0]
     binder = IRQiecLocal(name="bound", type=parameter.type)
     body = IRQiecBind(
-        binder=binder,
-        first=IRQiecReturn(value=IRQiecVar(local=parameter)),
+        steps=(
+            IRQiecBindStep(
+                binder=binder,
+                first=IRQiecReturn(value=IRQiecVar(local=parameter)),
+            ),
+        ),
         then=IRQiecReturn(value=IRQiecVar(local=binder)),
     )
     bound_computation = type(computation)(
@@ -468,7 +473,7 @@ def test_generated_python_qiec_functions_execute(target: str) -> None:
 def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:
     effect_ir = Lower().forward(parse(EFFECTFUL)).qiec
     assert effect_ir is not None
-    request = effect_ir.computations[0].body.first.request  # type: ignore[union-attr]
+    request = effect_ir.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(EFFECTFUL), target="pyro"), namespace)
 
@@ -531,7 +536,7 @@ def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:
 def test_generated_python_request_preserves_operation_static_arguments() -> None:
     qiec = Lower().forward(parse(GENERIC_REQUEST)).qiec
     assert qiec is not None
-    request = qiec.computations[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     seen: dict[str, object] = {}
     namespace: dict[str, object] = {}
     exec(transpile(parse(GENERIC_REQUEST), target="pyro"), namespace)
@@ -774,7 +779,7 @@ def test_existential_case_specializes_branch_effect_request() -> None:
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
     assert qiec is not None
-    request = qiec.computations[1].body.branches[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(EXISTENTIAL_REQUEST), target="pyro"), namespace)
     observed: list[object] = []
@@ -970,7 +975,7 @@ def test_generated_python_multishot_resumptions_extend_addresses() -> None:
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
-    trace_request = body.computation.then.first.request  # type: ignore[union-attr]
+    trace_request = body.computation.steps[1].first.request  # type: ignore[union-attr]
     addresses: list[object] = []
     namespace: dict[str, object] = {}
     exec(transpile(parse(MULTISHOT), target="pyro"), namespace)
@@ -1012,7 +1017,7 @@ def test_unrestricted_resumption_requires_and_forks_captured_values() -> None:
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
-    trace_request = body.computation.then.first.request  # type: ignore[union-attr]
+    trace_request = body.computation.steps[1].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(MULTISHOT_CAPTURE), target="pyro"), namespace)
 
@@ -1068,7 +1073,7 @@ def test_unrestricted_handler_forks_finalize_each_branch_exactly_once() -> None:
     handler = qiec.handlers[0]
     choose_operation = handler.clauses[0].operation.text
     body = qiec.computations[0].body
-    trace_request = body.computation.then.first.request  # type: ignore[union-attr]
+    trace_request = body.computation.steps[1].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(MULTISHOT), target="pyro"), namespace)
     events: list[str] = []
@@ -1120,7 +1125,7 @@ def test_nested_state_handler_is_isolated_across_unrestricted_shots() -> None:
     state, choose = qiec.handlers
     choose_operation = choose.clauses[0].operation.text
     body = qiec.computations[0].body.computation.computation  # type: ignore[union-attr]
-    trace_request = body.then.then.first.request  # type: ignore[union-attr]
+    trace_request = body.steps[2].first.request  # type: ignore[union-attr]
     namespace: dict[str, object] = {}
     exec(transpile(parse(NESTED_STATE_OMEGA), target="pyro"), namespace)
     trace: list[int] = []
@@ -1210,7 +1215,7 @@ def test_generated_webppl_qiec_function_executes_in_javascript(
 def test_generated_webppl_effect_dispatch_uses_stable_ids(tmp_path) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).qiec
     assert qiec is not None
-    request = qiec.computations[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     key = request.instance.text + "|" + request.operation.text
     script = tmp_path / "qiec-effect.js"
     script.write_bytes(
@@ -1341,7 +1346,7 @@ def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
-    request = qiec.computations[1].body.branches[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     key = request.instance.text + "|" + request.operation.text
     script = tmp_path / "qiec-existential.js"
     script.write_bytes(
@@ -1366,7 +1371,7 @@ def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> No
     assert qiec is not None
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
-    trace = qiec.computations[0].body.computation.then.first.request  # type: ignore[union-attr]
+    trace = qiec.computations[0].body.computation.steps[1].first.request  # type: ignore[union-attr]
     key = trace.instance.text + "|" + trace.operation.text
     script = tmp_path / "qiec-omega.js"
     script.write_bytes(
@@ -1392,9 +1397,9 @@ def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
     assert qiec is not None
     state, choose = qiec.handlers
-    trace_request = qiec.computations[
-        0
-    ].body.computation.computation.then.then.first.request  # type: ignore[union-attr]
+    trace_request = (
+        qiec.computations[0].body.computation.computation.steps[2].first.request
+    )  # type: ignore[union-attr]
     key = trace_request.instance.text + "|" + trace_request.operation.text
     script = tmp_path / "qiec-nested-state.js"
     script.write_bytes(
@@ -1446,7 +1451,7 @@ def test_generated_church_qiec_function_executes_in_chez(tmp_path) -> None:
 def test_generated_church_effect_dispatch_uses_structural_request(tmp_path) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).qiec
     assert qiec is not None
-    request = qiec.computations[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     script = tmp_path / "qiec-effect.scm"
     operation_key = (
         f"(cons {json.dumps(request.instance.text)} "
@@ -1556,7 +1561,7 @@ def test_generated_church_existential_case_specializes_request(tmp_path) -> None
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
-    request = qiec.computations[1].body.branches[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     operation_key = (
         f"(cons {json.dumps(request.instance.text)} "
         f"{json.dumps(request.operation.text)})"
@@ -1621,9 +1626,9 @@ def test_generated_church_nested_mutable_state_is_branch_local(tmp_path) -> None
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
     assert qiec is not None
     state, choose = qiec.handlers
-    trace_request = qiec.computations[
-        0
-    ].body.computation.computation.then.then.first.request  # type: ignore[union-attr]
+    trace_request = (
+        qiec.computations[0].body.computation.computation.steps[2].first.request
+    )  # type: ignore[union-attr]
     operation_key = (
         f"(cons {json.dumps(trace_request.instance.text)} "
         f"{json.dumps(trace_request.operation.text)})"
@@ -1704,7 +1709,7 @@ def test_generated_julia_effect_dispatch_uses_stable_ids(
 ) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).qiec
     assert qiec is not None
-    request = qiec.computations[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     script = tmp_path / f"qiec-effect-{target}.jl"
     script.write_text(
         f"macro {macro}(expression)\n    esc(expression)\nend\n"
@@ -1813,7 +1818,7 @@ def test_generated_julia_existential_case_specializes_request(
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).qiec
     assert parameter_ir is not None and qiec is not None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
-    request = qiec.computations[1].body.branches[0].body.first.request  # type: ignore[union-attr]
+    request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     script = tmp_path / f"qiec-existential-{target}.jl"
     script.write_text(
         f"macro {macro}(expression)\n    esc(expression)\nend\n"
@@ -1922,9 +1927,9 @@ def test_generated_julia_nested_mutable_state_is_branch_local(
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).qiec
     assert qiec is not None
     state, choose = qiec.handlers
-    trace_request = qiec.computations[
-        0
-    ].body.computation.computation.then.then.first.request  # type: ignore[union-attr]
+    trace_request = (
+        qiec.computations[0].body.computation.computation.steps[2].first.request
+    )  # type: ignore[union-attr]
     script = tmp_path / f"qiec-nested-state-{target}.jl"
     script.write_text(
         f"macro {macro}(expression)\n    esc(expression)\nend\n"

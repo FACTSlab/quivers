@@ -254,6 +254,7 @@ from quivers.qiec.types import (
     TypeVariable,
     index_sort,
     product_type,
+    render_static,
     static_kind,
 )
 
@@ -476,6 +477,7 @@ __all__ = [
     "register_runtime_provider",
     "run_named",
     "runtime_configuration_from_data",
+    "render_static",
     "static_kind",
     "substitute_effect",
     "substitute_index",

@@ -14,7 +14,12 @@ from quivers.qiec.identifiers import (
     SiteProvenance,
 )
 from quivers.qiec.kinds import Telescope, validate_telescope
-from quivers.qiec.types import EffectRef, StaticArgument, TypeExpr
+from quivers.qiec.types import (
+    EffectRef,
+    StaticArgument,
+    TypeExpr,
+    check_static_arguments,
+)
 
 if TYPE_CHECKING:
     from quivers.qiec.terms import Value
@@ -745,9 +750,7 @@ class EffectDef:
             If the argument count does not match the telescope, or an
             argument is ill-kinded.
         """
-        from quivers.qiec.substitution import instantiate_telescope
-
-        instantiate_telescope(self.telescope, arguments)
+        check_static_arguments(self.telescope, arguments)
         return EffectRef(
             self.ref.id,
             self.ref.name,

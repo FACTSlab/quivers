@@ -481,6 +481,14 @@ def _validate_runtime_shape(
         shape as well as the tags, so a payload whose field carries the
         right tag but the wrong contents is refused rather than becoming
         a record that fails later somewhere less informative.
+
+    Notes
+    -----
+    A kernel record is checked once, when :func:`_decode` builds it: its
+    fields were validated against their own annotations then, so a field
+    holding a record checks only the record's class here and does not
+    descend again. Descending would check every node once per ancestor,
+    which is quadratic in the depth of a computation.
     """
 
     if annotation is Any:
@@ -553,14 +561,6 @@ def _validate_runtime_shape(
                 f"invalid field {path}: expected {_shape_name(annotation)}, "
                 f"got {type(value).__name__}"
             )
-        if is_dataclass(annotation):
-            annotations = _resolved_field_types(annotation)
-            for field in fields(annotation):
-                _validate_runtime_shape(
-                    getattr(value, field.name),
-                    annotations[field.name],
-                    path=f"{path}.{field.name}",
-                )
         return
 
     raise SerializationError(

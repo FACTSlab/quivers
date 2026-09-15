@@ -1,4 +1,4 @@
-"""Generated-asset gates for the QVR v0.19 QIEC grammar."""
+"""Generated-asset gates for the QVR QIEC grammar."""
 
 from __future__ import annotations
 
