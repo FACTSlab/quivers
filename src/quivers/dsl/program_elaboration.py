@@ -163,6 +163,7 @@ from quivers.qiec.types import (
     render_static,
 )
 from quivers.dsl.composite_lets import expand_composite_lets
+from quivers.dsl.deduction_elaboration import PARAMS_INSTANCE
 from quivers.dsl.pure_builtins import PURE_BUILTINS
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.step_resolution import (
@@ -969,6 +970,8 @@ class _ProgramElaboration:
             row_entries.append(random.entry)
         if state.uses_score:
             row_entries.append(score.entry)
+        if state.uses_params:
+            row_entries.append(self.instances[PARAMS_INSTANCE].entry)
         row = EffectRow(tuple(row_entries))
         parameters = tuple(scope.locals[name] for name, _ in state.parameters)
         telescope = tuple(state.extents.values())
@@ -1619,9 +1622,117 @@ class _ProgramElaboration:
                 )
             self._lambda_macros[step.name] = step.value
             return
+        deduction = self._parse_call(step.value)
+        if deduction is not None:
+            call = self._deduction_call(deduction, scope, state, step)
+            self._bind_step(scope, step.name, call.result_type, call, step)
+            return
         value = self._let_value(step.value, scope, state, step)
         type_ = self._value_type(value, scope.context(), step.value)
         self._bind_step(scope, step.name, type_, Return(value), step)
+
+    def _parse_call(self: _Elaborator, expr: LetExprNode) -> tuple[str, str] | None:
+        """Read ``parse(D, x)``, a deduction applied to a program input.
+
+        Parameters
+        ----------
+        expr : LetExprNode
+            The expression.
+
+        Returns
+        -------
+        tuple[str, str] | None
+            The deduction's name and the input's name when the
+            expression is such a call, else ``None``.
+        """
+        if not isinstance(expr, LetExprCall) or expr.func != "parse":
+            return None
+        if len(expr.args) != 2 or not all(
+            isinstance(argument, LetExprVar) for argument in expr.args
+        ):
+            return None
+        target, source = expr.args
+        assert isinstance(target, LetExprVar) and isinstance(source, LetExprVar)
+        if target.name not in getattr(self, "_deductions", {}):
+            return None
+        return target.name, source.name
+
+    def _deduction_call(
+        self: _Elaborator,
+        parse: tuple[str, str],
+        scope: _Scope,
+        state: _ProgramState,
+        node: object,
+    ) -> Call:
+        """Call a deduction's entry on a sentence the program takes as input.
+
+        The sentence is a program input of tokens whose length is one of
+        the program's open extents; the call returns the inside weight
+        of the deduction's goal in its semiring, and the program's row
+        gains the module's ``params`` instance, through which the
+        deduction reads its learned weights.
+
+        Parameters
+        ----------
+        parse : tuple[str, str]
+            The deduction's name and the input's name.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Call
+            The call.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the deduction takes its axioms rather than a sentence, or
+            the input is bound by a step.
+        """
+        name, source = parse
+        signature = self.computation_signatures[f"{name}__run"]
+        if len(signature.parameters) != 1:
+            self._fail(
+                node,
+                f"deduction {name!r} takes its axioms and their weights, not a "
+                "sentence; a program supplies items to it through a computation",
+                code="qiec-program",
+            )
+        if scope.lookup(source) is not None:
+            self._fail(
+                node,
+                f"parse reads {source!r}, which a step binds; the sentence a "
+                "deduction parses is a program input",
+                code="qiec-program",
+            )
+        binder = state.extents.get(f"{source}_extent")
+        if binder is None:
+            binder = IndexBinder(f"{source}_extent", NAT)
+            state.extents[binder.name] = binder
+        extent = IndexVariable(binder.name, binder.sort)
+        tokens = self._declare_parameter(
+            source, tensor_type(STRING, (extent,)), "data", scope, state, node
+        )
+        state.uses_params = True
+        return Call(
+            signature.id,
+            signature.name,
+            (extent,),
+            (Var(tokens),),
+            signature.result,
+            signature.effects,
+            _origin_at(
+                self,
+                ("programs", state.declaration.name, "parses", name),
+                "call",
+                node,
+            ),
+        )
 
     def _elaborate_call(
         self: _Elaborator, step: CallStep, scope: _Scope, state: _ProgramState
@@ -1672,11 +1783,14 @@ class _ProgramElaboration:
             call = self._call_with_inferred_extents(step, signature, scope, path)
         else:
             call = self._lower_call(step.call, (), scope.context(), path, None)
+        params = self.instances.get(PARAMS_INSTANCE)
         for entry in call.effects.entries:
             if entry.instance == state.random.entry.instance:
                 state.uses_random = True
             elif entry.instance == state.score.entry.instance:
                 state.uses_score = True
+            elif params is not None and entry.instance == params.entry.instance:
+                state.uses_params = True
             else:
                 self._fail(
                     step,
@@ -1867,6 +1981,57 @@ class _ProgramElaboration:
         assert weight_scope.weight_instance is not None
         self._add_weight(weight_scope.weight_instance, weight, scope, state, step)
 
+    def _goal_weight(
+        self: _Elaborator, expr: LetExprNode, scope: _Scope, node: object
+    ) -> Value | None:
+        """Read ``chart.goal_weight()`` on a deduction's answer as a real.
+
+        Parameters
+        ----------
+        expr : LetExprNode
+            The expression.
+        scope : _Scope
+            The scope.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value | None
+            The answer as a ``Real`` when the expression is that method
+            call on a bound deduction answer: a log weight's value, or a
+            count's; else ``None``.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the answer is a Boolean, which has no real value.
+        """
+        if (
+            not isinstance(expr, LetExprMethodCall)
+            or expr.method != "goal_weight"
+            or expr.args
+            or not isinstance(expr.receiver, LetExprVar)
+        ):
+            return None
+        local = scope.lookup(expr.receiver.name)
+        if local is None or local.type not in (LOG_WEIGHT, INT, BOOL):
+            return None
+        if local.type == LOG_WEIGHT:
+            return self._primitive(
+                "weight_value", (Var(local),), node, ("goal_weight", local.name)
+            )
+        if local.type == INT:
+            return self._primitive(
+                "int_to_real", (Var(local),), node, ("goal_weight", local.name)
+            )
+        self._fail(
+            node,
+            f"{expr.receiver.name!r} is the answer of a Boolean deduction, which "
+            "has no real value to score",
+            code="qiec-program",
+        )
+
     def _let_value(
         self: _Elaborator,
         expr: LetExprNode,
@@ -1892,6 +2057,9 @@ class _ProgramElaboration:
         Value
             The lowered value.
         """
+        goal = self._goal_weight(expr, scope, node)
+        if goal is not None:
+            return goal
         chart = _chart_construct(expr)
         if chart is not None:
             self._fail(
@@ -4655,6 +4823,9 @@ class _ProgramState:
         Whether any step performs on the canonical ``random`` instance.
     uses_score
         Whether any step performs on the canonical ``score`` instance.
+    uses_params
+        Whether any step calls a deduction, which reads its learned
+        weights through the module's ``params`` instance.
     alphabets
         The class alphabet of each class-valued step, by step name.
     pending_alphabet
@@ -4676,6 +4847,7 @@ class _ProgramState:
     helpers: list[NamedComputation] = field(default_factory=list)
     uses_random: bool = False
     uses_score: bool = False
+    uses_params: bool = False
     alphabets: dict[str, PlateAxis] = field(default_factory=dict)
     pending_alphabet: PlateAxis | None = None
     current_site: str = ""

@@ -39,6 +39,7 @@ from quivers.qiec.families import family
 from quivers.qiec.evaluator import (
     ClauseContext,
     Forward,
+    TailResume,
     InvalidHandlerError,
     Resumption,
     RuntimeClause,
@@ -2403,6 +2404,149 @@ def choose_handler(
     )
 
 
+#: The semiring additions a search handler may combine its shots by.
+SEARCH_REDUCTIONS: tuple[str, ...] = ("logsumexp", "max", "or", "sum")
+
+
+def _search_combine(reduction: str, weights: list[object]) -> object:
+    """Combine the collected weights of a search's shots.
+
+    Parameters
+    ----------
+    reduction : str
+        One of ``SEARCH_REDUCTIONS``.
+    weights : list[object]
+        One weight per shot: floats for the log reductions, Booleans
+        for ``or``, integers for ``sum``.
+
+    Returns
+    -------
+    object
+        The semiring sum; the semiring's zero for no shots.
+    """
+    if reduction == "logsumexp":
+        return _log_sum_exp([cast(float, weight) for weight in weights])
+    if reduction == "max":
+        return max((cast(float, weight) for weight in weights), default=float("-inf"))
+    if reduction == "or":
+        return any(cast(bool, weight) for weight in weights)
+    return sum(cast(int, weight) for weight in weights)
+
+
+def search_handler(
+    definition: HandlerDef,
+    operation: OperationId,
+    *,
+    reduction: str,
+    alternative_validator: RuntimeValidator,
+) -> RuntimeHandler:
+    """Enumerate a tensor of alternatives, summing the shots' weights.
+
+    The handled computation answers with a unit paired with the weight
+    a collecting handler inside it accumulated, which the return clause
+    reduces to the weight. The clause resumes once per entry of the
+    tensor it is asked to choose from and answers the semiring sum of
+    what the resumptions answer, so an empty choice contributes the
+    semiring's zero; a resumption's answer is itself a semiring sum when
+    the continuation chooses again, and the sum is associative, so the
+    nesting does not matter.
+
+    Parameters
+    ----------
+    definition
+        The module's declaration of the handler, whose one clause
+        handles the choosing operation with an unrestricted resumption.
+    operation
+        The choosing operation.
+    reduction
+        The semiring addition, one of ``SEARCH_REDUCTIONS``.
+    alternative_validator
+        Checks the value each resumption carries.
+
+    Returns
+    -------
+    RuntimeHandler
+        The attachment.
+
+    Raises
+    ------
+    ValueError
+        If the reduction is unknown.
+    """
+    if reduction not in SEARCH_REDUCTIONS:
+        raise ValueError(
+            f"a search combines its shots by one of {', '.join(SEARCH_REDUCTIONS)}, "
+            f"not {reduction!r}"
+        )
+
+    def choose(
+        request: RuntimeRequest,
+        resume: Resumption,
+        _context: ClauseContext,
+    ) -> object:
+        """Answer a choice by resuming once per alternative.
+
+        Parameters
+        ----------
+        request
+            The request being answered and its arguments.
+        resume
+            The continuation, resumed once per alternative.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+            The semiring sum of the shots' weights.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the request does not carry one tensor of alternatives.
+        """
+        (alternatives,) = _expect_arguments(request, 1, definition.name)
+        if not isinstance(alternatives, tuple):
+            raise InvalidHandlerError("a search chooses among the entries of a tensor")
+        return _search_combine(
+            reduction, [resume(alternative) for alternative in alternatives]
+        )
+
+    def finish(value: object, _context: ClauseContext) -> object:
+        """Reduce the handled computation's answer to its weight.
+
+        Parameters
+        ----------
+        value
+            The value paired with its accumulated weight.
+        _context
+            Runtime services, unused by this clause.
+
+        Returns
+        -------
+        object
+            The weight.
+
+        Raises
+        ------
+        InvalidHandlerError
+            If the answer is not a value paired with its weight.
+        """
+        if not isinstance(value, tuple) or len(value) != 2:
+            raise InvalidHandlerError(
+                "a search expects the handled computation to answer with a value "
+                "and its accumulated weight"
+            )
+        return value[1]
+
+    return RuntimeHandler(
+        definition,
+        {operation: RuntimeClause(choose, alternative_validator)},
+        return_clause=finish,
+        duplicable_context=True,
+    )
+
+
 @dataclass(slots=True)
 class WeightAccumulator:
     """Mutable result owned by one installed Weight handler.
@@ -2430,6 +2574,7 @@ def weight_handler(
     answer_type: TypeExpr = ANSWER,
     answer_validator: RuntimeValidator = lambda _value: True,
     total_validator: RuntimeValidator | None = None,
+    forkable: bool = False,
     key: str = "weight",
 ) -> tuple[RuntimeHandler, WeightAccumulator]:
     """Accumulate values in a caller-supplied semiring multiplication.
@@ -2453,6 +2598,10 @@ def weight_handler(
         Checks the handled computation's answer.
     total_validator
         Checks the accumulated total; ``weight_validator`` when omitted.
+    forkable
+        Whether an unrestricted resumption may capture an installation:
+        each shot then continues from its own copy of the total so far,
+        which is what a search inside the scope needs.
     key
         Distinguishes this handler from others of the same name,
         entering its derived identity.
@@ -2484,8 +2633,14 @@ def weight_handler(
         ),
     )
 
-    def make_context() -> RuntimeHandler:
+    def make_context(seed: WeightAccumulator | None = None) -> RuntimeHandler:
         """Build a fresh per-installation handler.
+
+        Parameters
+        ----------
+        seed : WeightAccumulator | None
+            The state a fork continues from; ``None`` starts at the
+            identity.
 
         Returns
         -------
@@ -2493,7 +2648,11 @@ def weight_handler(
             A handler with its own state, so two installations of this
             declaration do not share it.
         """
-        local = WeightAccumulator(identity)
+        local = (
+            WeightAccumulator(identity)
+            if seed is None
+            else WeightAccumulator(seed.total, list(seed.contributions))
+        )
 
         def add(
             request: RuntimeRequest,
@@ -2514,7 +2673,9 @@ def weight_handler(
             Returns
             -------
             object
-                What the resumed computation produced.
+                A tail resumption with the unit answer, so the scope
+                continues on the machine's stack and a search inside it
+                may resume any number of times.
 
             Raises
             ------
@@ -2523,11 +2684,12 @@ def weight_handler(
             RuntimeTypeMismatch
                 If the contribution does not inhabit the weight type.
             """
+            del resume
             (weight,) = _expect_arguments(request, 1, definition.name)
             _require(weight, weight_validator, weight_type, "semiring weight")
             local.contributions.append(weight)
             local.total = combine(local.total, weight)
-            return resume(None)
+            return TailResume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
@@ -2552,6 +2714,21 @@ def weight_handler(
             accumulator.total = local.total
             accumulator.contributions[:] = local.contributions
 
+        def fork(_handler: RuntimeHandler) -> RuntimeHandler:
+            """Copy this installation for another shot.
+
+            Parameters
+            ----------
+            _handler : RuntimeHandler
+                The installation forked, which is this one.
+
+            Returns
+            -------
+            RuntimeHandler
+                An installation continuing from the same total.
+            """
+            return make_context(local)
+
         return RuntimeHandler(
             definition,
             {WEIGHT_ADD: RuntimeClause(add, _unit)},
@@ -2563,6 +2740,8 @@ def weight_handler(
                 else answer_validator
             ),
             mutable_context=True,
+            duplicable_context=forkable,
+            fork_context=fork if forkable else None,
             on_exit=publish,
         )
 
@@ -3121,6 +3300,8 @@ __all__ = [
     "A",
     "add_weights",
     "enumerate_handler",
+    "search_handler",
+    "SEARCH_REDUCTIONS",
     "ABORT",
     "ABORT_ABORT",
     "ABORT_EFFECT",

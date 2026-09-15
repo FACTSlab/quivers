@@ -10,6 +10,7 @@ from quivers.dsl import parse
 from quivers.dsl.emit import module_to_source
 from quivers.dsl.qiec_lowering import QiecDiagnosticError, lower_qvr_to_qiec
 from quivers.qiec import (
+    dumps,
     INT,
     REAL,
     STRING,
@@ -105,6 +106,23 @@ def test_tuples_and_projections_lower_and_run() -> None:
     assert run_named(module, "probe").value == "x"
 
 
+def test_an_integer_beside_a_real_is_converted() -> None:
+    module = lower_qvr_to_qiec(
+        parse(
+            "define probe(n : Int, xs : Tensor[Int]([3])) : Real !{} =\n"
+            "    let mixed = n * 2.5 + 1\n"
+            "    let scaled = xs * 0.5\n"
+            "    return mixed + sum(scaled)\n"
+        ),
+        file_path="probe.qvr",
+    )
+    rendered = dumps(module)
+    assert rendered.count('"int_to_real"') == 3
+    assert run_named(module, "probe", (3, (1, 2, 3))).value == pytest.approx(
+        3 * 2.5 + 1 + 3.0
+    )
+
+
 def test_builtins_resolve_by_argument_types() -> None:
     module = lower_qvr_to_qiec(
         parse(
@@ -123,7 +141,7 @@ def test_builtins_resolve_by_argument_types() -> None:
 @pytest.mark.parametrize(
     ("body", "signature", "fragment"),
     [
-        ("    return 1 + 2.0\n", "() : Real !{}", "both sides must agree"),
+        ("    return 1 + true\n", "() : Int !{}", "both sides must agree"),
         ("    return 1.0 % 2.0\n", "() : Real !{}", "`%` is not defined at Real"),
         ("    return not 1\n", "() : Bool !{}", "`not` takes Bool"),
         ("    return sqrt(4)\n", "() : Real !{}", "not defined at (Int)"),

@@ -647,6 +647,28 @@ class Forward:
 
 
 @dataclass(frozen=True, slots=True)
+class TailResume:
+    """Resume a clause's continuation in place, on the machine's own stack.
+
+    A foreign clause that answers with this resumes once, exactly as an
+    authored ``resume(value)`` in tail position does: the captured frames
+    return to the machine's stack and the handler's return clause applies
+    when the computation completes. Unlike calling the resumption from
+    the clause, which drives the continuation in a nested host call that
+    stays pending until it returns, this leaves no host frame behind, so a
+    multi-shot resumption captured later inside the same handler may run
+    the continuation any number of times.
+
+    Parameters
+    ----------
+    value
+        What the resumed operation supplies.
+    """
+
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
 class _BindFrame:
     """A continuation frame awaiting the first half of a bind.
 
@@ -2874,6 +2896,22 @@ class Evaluator:
             except BaseException:
                 resumption._close_handled_capture()
                 raise
+            if isinstance(answer, TailResume):
+                if resumption.calls:
+                    resumption._close_handled_capture()
+                    raise ResumptionUsageError(
+                        "a clause cannot both invoke its resumption and resume in "
+                        "tail position"
+                    )
+                shot_frames, shot_path = resumption._begin_shot(answer.value)
+                del stack[index:]
+                stack.append(_PathFrame(request.resumption_path))
+                stack.extend(shot_frames)
+                return _Continue(
+                    _Returned(answer.value),
+                    dict(resumption._captured_environment),
+                    shot_path,
+                )
             if isinstance(answer, Forward):
                 if resumption.calls:
                     resumption._close_handled_capture()
@@ -3351,6 +3389,7 @@ __all__ = [
     "EvaluationTraceHook",
     "Evaluator",
     "Forward",
+    "TailResume",
     "HandlerManifest",
     "InvalidHandlerError",
     "MissingAttachmentError",

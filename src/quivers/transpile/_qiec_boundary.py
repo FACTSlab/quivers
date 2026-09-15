@@ -13,6 +13,7 @@ from quivers.dsl.qiec_lowering import (
     lower_qvr_to_qiec,
 )
 from quivers.qiec import QiecModule, validate_module
+from quivers.qiec.module import program_computations
 from quivers.transpile._api import UnsupportedConstruct
 
 if TYPE_CHECKING:
@@ -70,7 +71,42 @@ def check_qiec_transpile_boundary(module: Module, *, target: str) -> QiecModule 
             raise
         raise UnsupportedConstruct(f"qvr-{target}", [error.message]) from error
     validate_module(qiec_module)
+    _refuse_deduction_calls(qiec_module, target)
     return qiec_module
+
+
+def _refuse_deduction_calls(qiec_module: QiecModule, target: str) -> None:
+    """Refuse a program that calls a deduction.
+
+    A deduction enumerates its derivations through a search handler that
+    no target runtime carries, so a program calling one is refused at
+    the boundary, before any target-specific lowering, under the
+    capability tag the renderers use.
+
+    Parameters
+    ----------
+    qiec_module : QiecModule
+        The checked module.
+    target : str
+        The transpile target, for the diagnostic.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If a program's computation reaches a deduction's computation.
+    """
+    by_id = {computation.id: computation for computation in qiec_module.computations}
+    kinds = [
+        f"qiec:capability:search:{by_id[identity].name}"
+        for identity in sorted(
+            program_computations(qiec_module), key=lambda item: item.digest
+        )
+        if identity in by_id
+        and by_id[identity].origin.structural_path[:1] == ("deductions",)
+        and by_id[identity].name.endswith("__run")
+    ]
+    if kinds:
+        raise UnsupportedConstruct(f"qvr-{target}", kinds)
 
 
 __all__ = ["check_qiec_transpile_boundary"]

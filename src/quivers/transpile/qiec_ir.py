@@ -26,7 +26,7 @@ from quivers.qiec import module as m
 from quivers.qiec import programs as pr
 from quivers.qiec import terms as tm
 from quivers.qiec import types as ty
-from quivers.qiec.identifiers import StableId
+from quivers.qiec.identifiers import SourceOrigin, StableId
 from quivers.qiec.primitives import PRIMITIVES
 
 
@@ -1628,18 +1628,45 @@ def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
         The mirror, with the program computations recorded so a renderer
         need not walk every body to find them.
     """
+    reachable = m.program_computations(module)
     values = {
         field.name: _convert(getattr(module, field.name))
         for field in fields(module)
-        if field.name != "tag"
+        if field.name not in ("tag", "computations")
     }
-    values["programs"] = tuple(
-        _id(identity)
-        for identity in sorted(
-            m.program_computations(module), key=lambda identity: identity.digest
+    # A deduction's computations serve the reference machine; a target
+    # carries them only when a program the module transpiles calls one,
+    # and then refuses the search they perform.
+    values["computations"] = _convert(
+        tuple(
+            computation
+            for computation in module.computations
+            if not _is_deduction_origin(computation.origin)
+            or computation.id in reachable
         )
     )
+    values["programs"] = tuple(
+        _id(identity)
+        for identity in sorted(reachable, key=lambda identity: identity.digest)
+    )
     return IRQiecModule(**values)
+
+
+def _is_deduction_origin(origin: SourceOrigin | IRQiecSourceOrigin) -> bool:
+    """Whether an origin lies under a deduction's elaboration.
+
+    Parameters
+    ----------
+    origin : SourceOrigin | IRQiecSourceOrigin
+        The origin.
+
+    Returns
+    -------
+    bool
+        ``True`` when the structural path starts at ``deductions``.
+    """
+    path = origin.structural_path
+    return bool(path) and path[0] == "deductions"
 
 
 type QiecFeature = Literal[
@@ -1672,6 +1699,7 @@ type QiecFeature = Literal[
     "kernel-matrix",
     "affine-map",
     "table-map",
+    "search",
     "reduction",
     "rowwise",
     "comprehension",
@@ -2184,6 +2212,19 @@ def analyze_qiec_capabilities(
     # runtime is never asked to carry them.
     programs = module.program_computations()
     for computation in module.computations:
+        if _is_deduction_origin(computation.origin):
+            # A deduction enumerates derivations through a search
+            # handler no host runtime carries.
+            diagnostics.append(
+                QiecCapabilityDiagnostic(
+                    target=target,
+                    feature="search",
+                    computation=computation.name,
+                    origin=computation.origin,
+                    detail="has no search runtime to enumerate its derivations",
+                )
+            )
+            continue
         if computation.id.text in programs:
             continue
         required = _required_features(computation)

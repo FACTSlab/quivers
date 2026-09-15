@@ -108,15 +108,26 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     ("stan", "statements", "qiec_effectful_computation"): "qiec:",
     ("bugs", "statements", "qiec_effectful_computation"): "qiec:",
     ("jags", "statements", "qiec_effectful_computation"): "qiec:",
-    # Stan / BUGS / JAGS have no method-dispatch syntax for the
-    # chart-parser `parser.parse(sentence)` method call. The
-    # deduction graft that would supply the called function is
-    # blocked by `CATEGORICAL_METADATA_IGNORABLE` (Stan) or by
-    # dialect restrictions on user-defined model-body functions
-    # (BUGS, JAGS).
-    ("stan", "let_expressions", "let_expr_method_call"): "let-expr:",
-    ("bugs", "let_expressions", "let_expr_method_call"): "let-expr:",
-    ("jags", "let_expressions", "let_expr_method_call"): "let-expr:",
+    # A program calling a deduction, `parse(D, sentence)` followed by
+    # `chart.goal_weight()`, is refused at the QIEC boundary on every
+    # target: the deduction enumerates its derivations through a search
+    # handler no target runtime carries.
+    **{
+        (backend, "let_expressions", "let_expr_method_call"): "qiec:"
+        for backend in (
+            "bugs",
+            "church",
+            "edward2",
+            "gen",
+            "jags",
+            "numpyro",
+            "pymc",
+            "pyro",
+            "stan",
+            "turing",
+            "webppl",
+        )
+    },
     # Stan / BUGS / JAGS have no anonymous-function syntax in the
     # model-body expression position, so a `param -> body` lambda is
     # an orthogonal unsupported concern for these dialects.

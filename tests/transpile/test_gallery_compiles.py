@@ -130,8 +130,8 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 # 2. Lower-pass family resolution. parametric_pooling samples the
 #    `school_effects` sub-program (program-as-distribution), which
 #    resolves to no target family on any backend.
-# 3. Method-call let-expressions, which Stan cannot render (it has no
-#    method-dispatch syntax), gapping the montague_nli Stan cell.
+# 3. A program calling a deduction (montague_nli), which the QIEC
+#    boundary refuses on every target for want of a search runtime.
 #
 # The `sum` builtin is deliberately absent from this registry. It
 # lowers to each target's own sum-axis reduction (`jnp.sum(...,
@@ -186,8 +186,25 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "parametric_pooling"): "family:school_effects",
     ("turing", "parametric_pooling"): "family:school_effects",
     ("webppl", "parametric_pooling"): "family:school_effects",
-    # 3. Method-call let-expressions have no Stan rendering.
-    ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
+    # 3. A program calling a deduction is refused at the QIEC boundary
+    #    on every target: the deduction enumerates its derivations
+    #    through a search handler no target runtime carries.
+    **{
+        (backend, "montague_nli"): "qiec:capability:search"
+        for backend in (
+            "bugs",
+            "church",
+            "edward2",
+            "gen",
+            "jags",
+            "numpyro",
+            "pymc",
+            "pyro",
+            "stan",
+            "turing",
+            "webppl",
+        )
+    },
     # 3b. A recurrent cell adds two rank-1 operands. Neither BUGS nor
     #     JAGS lifts an infix operator over an axis, and the
     #     elementwise result exists only as a named array built one

@@ -165,7 +165,9 @@ complete case.
 Computations call one another by ordinary application, recursion included,
 and branch on Booleans with `if`. Pure expressions share the `program` let
 grammar: operators resolve to primitives of a closed registry by operand
-type, tuples build finite products, and `t[i]` projects a component.
+type, an integer operand beside a real one is converted first (the kernel
+term carries the `int_to_real`), tuples build finite products, and `t[i]`
+projects a component.
 
 <!-- compile: qiec -->
 ```qvr
@@ -391,6 +393,70 @@ The `Choose` clause has an unrestricted resumption because a runtime attachment
 may explore several alternatives. Handling `choice` leaves the parameterized
 `weight` instance in the row. This factorization lets a search attachment and a
 weight attachment compose without introducing another source calculus.
+
+A `deduction` declaration is domain-specific notation for exactly this
+factorization, and elaborates to it. Its items become a closed family
+`<name>__Item` with one nullary constructor per atom and one constructor
+per applied symbol the rules and lexicon mention, a slot typed `Int` where
+the system uses it as a position and `<name>__Item` otherwise; a lexicon's
+logical forms number their bound variables canonically, so alpha-equivalent
+forms are one item. The module gains a `Search` effect, `choose[a : Type, n
+: Nat] : Tensor[a]([n]) -> a`, a `<name>__choice` instance of it, a
+`<name>__weight` instance of `Weight[K]` for the carrier `K` of the declared
+semiring (`LogWeight` for `LogProb` and `Viterbi`, `Bool` for `Boolean`,
+`Int` for `Counting`), and a `params` instance of `Param` through which
+learned weights are read under the names the agenda engine keys its
+parameters by: `<name>.lex.<index>` for a lexicon entry and
+`<name>.rule.<rule>:<bindings>` for a rule, the bindings rendered in name
+order by the `<name>__show` computation. The recursive `<name>__derive`
+computation chooses an axiom or a group of rules with premises of one
+shape, derives each premise by recursion, matches it against the rule's
+pattern by `case` analysis (a shared pattern variable is checked by the
+family's `<name>__eq`), instantiates the conclusion, and adds the rule's
+weight; a failed match performs an empty choice. A system whose rules all
+relate `span` items derives by span, choosing split positions for the
+premises and deriving each over its own span; any other system takes its
+axioms and their weights as input. The entry `<name>__run` handles the
+weight instance with a collecting handler and the search instance with a
+handler that resumes once per alternative and combines the shots by the
+semiring's addition, so its answer is the semiring sum over derivations of
+the goal of the product of the weights along each: the inside weight the
+agenda engine tabulates, to the depth the `depth` option bounds. A program
+calls the deduction with `let chart = parse(D, sentence)`, which types
+`sentence` as a tensor of tokens over one of the program's open extents,
+and reads `chart.goal_weight()` as a real to score.
+
+<!-- compile: qiec -->
+```qvr
+object Term : FinSet 16
+object LogWeight : Real 1
+
+deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms S, NP, N, Fwd, Bwd, span, the, dog, runs
+    rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
+    rule bwd_app : span(I, K, Y), span(K, J, Bwd(X, Y)) |- span(I, J, X) #[learnable]
+    lexicon
+        "the"  : Fwd(NP, N) = the  #[learnable]
+        "dog"  : N          = dog  #[learnable]
+        "runs" : Bwd(S, NP) = runs #[learnable]
+
+program fit : Term -> LogWeight
+    let chart = parse(AB, sentence)
+    score log_Z = chart.goal_weight()
+    return log_Z
+
+export fit
+```
+
+Two runtime facilities make the search compose with the weights. A foreign
+clause may answer with `TailResume(value)`, which resumes its continuation
+on the machine's own stack, as an authored `resume` in tail position does,
+rather than in a nested host call that stays pending; the collecting
+`Weight` handler answers this way, so a multi-shot resumption captured
+later inside its scope may run the continuation any number of times. And
+a collecting handler configured `forkable` gives each shot its own copy of
+the total so far, which is the context cloning an unrestricted resumption
+needs.
 
 ## Integration contract
 

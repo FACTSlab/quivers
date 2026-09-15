@@ -47,6 +47,7 @@ from quivers.dsl.pure_builtins import (
     _REDUCTIONS,
     _ROWWISE,
 )
+from quivers.dsl.deduction_elaboration import _DeductionElaboration
 from quivers.dsl.program_elaboration import (
     ObjectInfo,
     _object_expr_info,
@@ -181,11 +182,12 @@ QIEC_STATEMENT_TYPES = (
 )
 
 #: Declarations the program elaboration reads beside the QIEC statements:
-#: the programs themselves and the objects, morphisms, and let aliases
-#: their steps refer to. They stay in the ordinary compiler's projection
-#: as well, since it builds the runtime program from them.
+#: the programs and deductions themselves and the objects, morphisms, and
+#: let aliases their steps refer to. They stay in the ordinary compiler's
+#: projection as well, since it builds the runtime program from them.
 PROGRAM_CONTEXT_TYPES = (
     surface.ProgramDecl,
+    surface.DeductionDecl,
     surface.ObjectDecl,
     surface.MorphismDecl,
     surface.DefineDecl,
@@ -241,13 +243,14 @@ def has_qiec_surface(module: surface.Module) -> bool:
     -------
     bool
         True when at least one statement belongs to the QIEC surface or
-        is a program the elaboration turns into a computation. Callers
+        is a program or deduction the elaboration turns into
+        computations. Callers
         use this to decide whether the QIEC route runs at all, so a
         module of other declarations pays nothing for it.
     """
 
     return any(
-        isinstance(statement, QIEC_STATEMENT_TYPES)
+        isinstance(statement, (*QIEC_STATEMENT_TYPES, surface.DeductionDecl))
         or (
             isinstance(statement, surface.ProgramDecl)
             and (
@@ -1009,14 +1012,14 @@ class _DidacticGadtProjection:
         return operation
 
 
-class _Elaborator(_ProgramElaboration):
+class _Elaborator(_ProgramElaboration, _DeductionElaboration):
     """Lower one parsed source to a checked kernel module.
 
     The elaborator keeps the declarations it has processed in dictionaries
     keyed by source name and lowers bodies against them, so every pass of
     :meth:`elaborate` sees the results of the passes before it. The program
-    passes it inherits from :class:`_ProgramElaboration` share the same
-    state.
+    and deduction passes it inherits from :class:`_ProgramElaboration` and
+    :class:`_DeductionElaboration` share the same state.
 
     Parameters
     ----------
@@ -1077,9 +1080,11 @@ class _Elaborator(_ProgramElaboration):
         self._declare_instances()
         self._declare_program_instances()
         self._build_registry()
+        self._declare_deduction_declarations()
         self._declare_computation_signatures()
         self._declare_handlers()
         self._register_handlers()
+        deductions = self._declare_deductions()
         programs = self._declare_programs()
         computations = self._declare_computations()
         return QiecModule(
@@ -1091,7 +1096,7 @@ class _Elaborator(_ProgramElaboration):
             tuple(self.effects.values()),
             tuple(self.instances.values()),
             tuple(self.handlers.values()),
-            (*programs, *computations),
+            (*deductions, *programs, *computations),
             tuple(self.entries),
         )
 
@@ -2597,6 +2602,12 @@ class _Elaborator(_ProgramElaboration):
             )
             left_type = self._value_type(left, context, authored.left)
             right_type = self._value_type(right, context, authored.right)
+            left, left_type = self._promoted(
+                left, left_type, right_type, authored, (*path, "left")
+            )
+            right, right_type = self._promoted(
+                right, right_type, left_type, authored, (*path, "right")
+            )
             element, shape = self._broadcast_element(
                 authored, authored.op, (left_type, right_type)
             )
@@ -3327,6 +3338,50 @@ class _Elaborator(_ProgramElaboration):
             self._origin(authored, path, "primitive"),
         )
 
+    def _promoted(
+        self,
+        value: Value,
+        type_: TypeExpr,
+        other: TypeExpr,
+        authored: object,
+        path: tuple[str | int, ...],
+    ) -> tuple[Value, TypeExpr]:
+        """Convert an integer operand to a real beside a real operand.
+
+        An operator over an ``Int`` and a ``Real`` applies at ``Real``,
+        the integer converted first; the conversion is explicit in the
+        kernel term as ``int_to_real``, applied over the operand's shape
+        when it is a tensor.
+
+        Parameters
+        ----------
+        value : Value
+            The operand.
+        type_ : TypeExpr
+            Its type.
+        other : TypeExpr
+            The other operand's type.
+        authored : object
+            The source node.
+        path : tuple[str | int, ...]
+            The operand's path.
+
+        Returns
+        -------
+        tuple[Value, TypeExpr]
+            The operand and its type, converted when it is integral and
+            the other operand is real.
+        """
+        own = tensor_shape(type_)
+        other_split = tensor_shape(other)
+        own_element = own[0] if own is not None else type_
+        other_element = other_split[0] if other_split is not None else other
+        if own_element != INT or other_element != REAL:
+            return value, type_
+        shape = tuple(own[1]) if own is not None else None
+        converted = self._primitive("int_to_real", (value,), authored, path, shape)
+        return converted, (REAL if shape is None else tensor_type(REAL, shape))
+
     def _broadcast_element(
         self,
         authored: object,
@@ -3375,7 +3430,7 @@ class _Elaborator(_ProgramElaboration):
             self._fail(
                 authored,
                 f"operands of `{operator}` have types {rendered}; both sides must "
-                "agree, so convert one with `real(...)` or `int(...)`",
+                "agree",
                 code="qiec-primitive",
             )
         return elements[0], shape
@@ -4396,6 +4451,72 @@ class _Elaborator(_ProgramElaboration):
             suffix += 1
             name = f"{stem}_{suffix}"
         return name
+
+    def _checked_computation(
+        self,
+        signature: ComputationSignature,
+        parameters: tuple[Local, ...],
+        body: Computation,
+        node: object,
+        path: tuple[str | int, ...],
+    ) -> NamedComputation:
+        """Check a synthesized body against its registered signature.
+
+        Parameters
+        ----------
+        signature : ComputationSignature
+            The signature, already registered.
+        parameters : tuple[Local, ...]
+            The parameter locals, in the signature's order.
+        body : Computation
+            The body.
+        node : object
+            The source node diagnostics are reported at.
+        path : tuple[str | int, ...]
+            The computation's structural path.
+
+        Returns
+        -------
+        NamedComputation
+            The computation.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the body fails to check, or its result or row differs
+            from the signature's.
+        """
+        context = CheckContext(parameters)
+        try:
+            actual = infer_computation(body, self.registry, context)
+        except (KernelError, TypeError, ValueError) as error:
+            self._fail_kernel(node, error, fallback="qiec-program")
+        if actual.result != signature.result:
+            self._fail(
+                node,
+                f"computation {signature.name!r} produces "
+                f"{render_static(actual.result)}, not "
+                f"{render_static(signature.result)}",
+                code="qiec-program",
+            )
+        declared = {entry.instance for entry in signature.effects.entries}
+        performed = {entry.instance for entry in actual.effects.entries}
+        if not performed <= declared:
+            self._fail(
+                node,
+                f"computation {signature.name!r} performs on instances its "
+                "signature does not declare",
+                code="qiec-program",
+            )
+        return NamedComputation(
+            signature.id,
+            signature.name,
+            signature.telescope,
+            parameters,
+            body,
+            ComputationType(signature.effects, signature.result),
+            self._origin(node, path, "computation"),
+        )
 
     def _origin(
         self,

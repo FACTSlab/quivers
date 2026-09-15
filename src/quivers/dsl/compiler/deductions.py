@@ -9,6 +9,8 @@ import torch.nn as nn
 from quivers.core.algebras import BOOLEAN
 from quivers.dsl.ast_nodes import (
     DeductionDecl,
+    LetExprNode,
+    LetExprVar,
     LetStep,
     LexiconCategoryFixed,
     LexiconCategoryRestricted,
@@ -205,6 +207,102 @@ def _install_depth_guard(rule, depth_n: int) -> None:
     object.__setattr__(rule, "side_condition", _depth_ok)
 
 
+def load_lexicon_tsv(
+    path: str, decl: DeductionDecl
+) -> list[tuple[str, TypeName, LetExprNode]]:
+    """Read a lexicon file into words, categories, and logical forms.
+
+    Each row has three tab-separated columns: the word, the category,
+    an atom name, and the logical form, a let expression; blank lines
+    and lines starting with ``#`` are skipped. The logical form is read
+    by the live grammar, as the let step of a synthetic program, so the
+    file's syntax is the module's.
+
+    Parameters
+    ----------
+    path : str
+        The file, absolute or relative to the working directory.
+    decl : DeductionDecl
+        The declaring deduction, for diagnostics.
+
+    Returns
+    -------
+    list[tuple[str, TypeName, LetExprNode]]
+        One row per entry: the word, the category as a type name, and
+        the logical form's expression.
+
+    Raises
+    ------
+    CompileError
+        If the file is missing, a row has fewer than three columns, or
+        a logical form does not parse.
+    """
+    file = Path(path)
+    if not file.exists():
+        raise CompileError(
+            f"deduction {decl.name!r}: lexicon file {path!r} not found",
+            decl.line,
+            decl.col,
+        )
+    rows: list[tuple[str, TypeName, LetExprNode]] = []
+    with file.open("r", encoding="utf-8") as handle:
+        for lineno, raw_line in enumerate(handle, start=1):
+            line = raw_line.rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 3:
+                raise CompileError(
+                    f"deduction {decl.name!r}: lexicon file "
+                    f"{path!r}:{lineno}: expected 3 tab-separated "
+                    f"columns (word, category, lf), got {len(parts)}",
+                    decl.line,
+                    decl.col,
+                )
+            word, cat_text, lf_text = parts[0], parts[1], parts[2]
+            category = TypeName(name=cat_text)
+            if "(" not in lf_text:
+                rows.append((word, category, LetExprVar(name=lf_text)))
+                continue
+            syn_src = (
+                "object _DummyObj : 1\n"
+                "morphism _f : _DummyObj -> _DummyObj "
+                "[role=latent]\n"
+                "program _dummy_prog : _DummyObj -> _DummyObj\n"
+                "    sample _x : _DummyObj <- _f\n"
+                f"    let _lex_lf = {lf_text}\n"
+                "    return _x\n"
+            )
+            syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
+            prog = next(
+                (
+                    s
+                    for s in syn_mod.statements
+                    if isinstance(s, ProgramDecl) and s.name == "_dummy_prog"
+                ),
+                None,
+            )
+            if prog is None:
+                raise CompileError(
+                    f"deduction {decl.name!r}: lexicon file "
+                    f"{path!r}:{lineno}: LF template {lf_text!r} "
+                    f"did not parse to the synthetic program",
+                    decl.line,
+                    decl.col,
+                )
+            let_step = prog.draws[1]
+            if not isinstance(let_step, LetStep):
+                raise CompileError(
+                    f"deduction {decl.name!r}: lexicon file "
+                    f"{path!r}:{lineno}: LF template {lf_text!r} "
+                    f"did not parse to a let binding",
+                    decl.line,
+                    decl.col,
+                )
+            rows.append((word, category, let_step.value))
+    return rows
+
+
 def _bindings_key(bindings: dict) -> str:
     """Stable string key over a binding map.
 
@@ -313,19 +411,25 @@ def _make_rule_weight_fn(
             base = premise_weights[0]
             for w in premise_weights[1:]:
                 base = semiring.times(base, w)
-        # 2. Own contribution.
-        own_w = _rule_log_weight(
-            bindings,
-            param_dict,
-            is_learnable,
-            rule_name,
-        )
+        # 2. Own contribution. A learned weight is a log weight, so only
+        # the log semirings read one; the others multiply by their one.
+        if semiring is SEMIRING_LOG_PROB or semiring is SEMIRING_VITERBI:
+            own_w = _rule_log_weight(
+                bindings,
+                param_dict,
+                is_learnable,
+                rule_name,
+            )
+        else:
+            own_w = torch.tensor(float(semiring.one), dtype=torch.get_default_dtype())
         total = semiring.times(base, own_w)
         # 3. Parent chain (additive composition in the LogProb / Viterbi
         # log semirings; semiring-product for general K).
         cur = rule_name
         seen = {cur}
-        while cur in rule_parent:
+        while cur in rule_parent and (
+            semiring is SEMIRING_LOG_PROB or semiring is SEMIRING_VITERBI
+        ):
             parent = rule_parent[cur]
             if parent in seen:
                 raise CompileError(
@@ -861,6 +965,7 @@ class _DeductionsMixin:
                 _entries=entries_local,
                 _params=params_local,
                 _lf_table=_lf_table,
+                _one=semiring.one,
             ):
                 # `input_value` may be a list/tuple of token strings,
                 # OR a list of `(token, position)` pairs. We accept
@@ -877,7 +982,9 @@ class _DeductionsMixin:
                         if weight_param is not None:
                             weight_tensor = weight_param
                         else:
-                            weight_tensor = torch.tensor(0.0)
+                            # An entry with no learned weight contributes
+                            # the semiring's multiplicative identity.
+                            weight_tensor = torch.tensor(float(_one))
                         # Span items: 4-tuple ``("span", i, j,
                         # cat)`` when no rule references an LF
                         # slot; 5-tuple ``("span", i, j, cat, lf)``
@@ -1089,95 +1196,37 @@ class _DeductionsMixin:
 
         Resolved relative to the working directory; paths starting
         with ``/`` are absolute.
-        """
-        # Re-parse the category and LF text by feeding them to the
-        # tree-sitter parser inside a synthetic dummy program.
-        # This keeps the lexicon-file syntax aligned with the
-        # main grammar.
 
-        # For simplicity, we expect categories and LFs in a
-        # restricted form: bare identifiers for categories
-        # (atom names) and bare identifiers for LFs (let_var refs).
-        # Richer TSV formats may be supported by adding a custom
-        # parser; this is the minimum viable schema.
-        p = Path(path)
-        if not p.exists():
-            raise CompileError(
-                f"deduction {decl.name!r}: lexicon file {path!r} not found",
-                decl.line,
-                decl.col,
-            )
+        Parameters
+        ----------
+        path : str
+            The file.
+        learnable : bool
+            Whether every entry reads a learned weight.
+        decl : DeductionDecl
+            The declaring deduction, for diagnostics.
+
+        Returns
+        -------
+        list[LexiconEntry]
+            One ``(word, category pattern, logical form, learnable)``
+            row per entry, the logical form evaluated to its value.
+
+        Raises
+        ------
+        CompileError
+            If the file is missing or malformed, or a logical form
+            does not evaluate.
+        """
         out: list[LexiconEntry] = []
-        with p.open("r", encoding="utf-8") as fh:
-            for lineno, raw_line in enumerate(fh, start=1):
-                line = raw_line.rstrip("\n")
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t")
-                if len(parts) < 3:
-                    raise CompileError(
-                        f"deduction {decl.name!r}: lexicon file "
-                        f"{path!r}:{lineno}: expected 3 tab-separated "
-                        f"columns (word, category, lf), got {len(parts)}",
-                        decl.line,
-                        decl.col,
-                    )
-                word, cat_text, lf_text = parts[0], parts[1], parts[2]
-                # Build a TypeName for the category atom. (Richer
-                # category-shape parsing happens on the live
-                # grammar; here we accept atom identifiers as a
-                # safe, broadly-useful starting point.)
-                cat_pattern = ("atom", cat_text)
-                # LF: treat as a constructor-application or atom.
-                # If the text contains '(' it's a let-call shape;
-                # otherwise it's a bare identifier. Building the
-                # corresponding pattern directly:
-                if "(" in lf_text:
-                    # Parse the LF text as a let-arith expression by
-                    # wrapping it in a synthetic program whose body
-                    # contains a single let step bound to the LF.
-                    syn_src = (
-                        "object _DummyObj : 1\n"
-                        "morphism _f : _DummyObj -> _DummyObj "
-                        "[role=latent]\n"
-                        "program _dummy_prog : _DummyObj -> _DummyObj\n"
-                        "    sample _x : _DummyObj <- _f\n"
-                        f"    let _lex_lf = {lf_text}\n"
-                        "    return _x\n"
-                    )
-                    syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
-                    # The synthetic module carries exactly one program;
-                    # its second step's value is the parsed LF.
-                    prog = next(
-                        (
-                            s
-                            for s in syn_mod.statements
-                            if isinstance(s, ProgramDecl) and s.name == "_dummy_prog"
-                        ),
-                        None,
-                    )
-                    if prog is None:
-                        raise CompileError(
-                            f"deduction {decl.name!r}: lexicon file "
-                            f"{path!r}:{lineno}: LF template {lf_text!r} "
-                            f"did not parse to the synthetic program",
-                            decl.line,
-                            decl.col,
-                        )
-                    let_step = prog.draws[1]
-                    if not isinstance(let_step, LetStep):
-                        raise CompileError(
-                            f"deduction {decl.name!r}: lexicon file "
-                            f"{path!r}:{lineno}: LF template {lf_text!r} "
-                            f"did not parse to a let binding",
-                            decl.line,
-                            decl.col,
-                        )
-                    lex_globals = self._lex_globals_for_structural()
-                    lf_value = _ProgramsMixin._compile_let_expr(
-                        let_step.value, globals_=lex_globals
-                    )({})
-                else:
-                    lf_value = lf_text
-                out.append((word, cat_pattern, lf_value, learnable))
+        for word, category, form in load_lexicon_tsv(path, decl):
+            cat_pattern = ("atom", category.name)
+            if isinstance(form, LetExprVar):
+                lf_value = form.name
+            else:
+                lex_globals = self._lex_globals_for_structural()
+                lf_value = _ProgramsMixin._compile_let_expr(form, globals_=lex_globals)(
+                    {}
+                )
+            out.append((word, cat_pattern, lf_value, learnable))
         return out
