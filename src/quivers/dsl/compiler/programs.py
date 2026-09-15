@@ -764,6 +764,7 @@ class _ProgramsMixin:
                     )
                 # Extract the categorical prior's `probs` argument.
                 probs_var: str | None = None
+                probs_indices: tuple[str, ...] = ()
                 if has_over:
                     if not step.args:
                         raise CompileError(
@@ -776,18 +777,23 @@ class _ProgramsMixin:
                     first = step.args[0]
                     # `first` is a `DrawArg` tagged variant on the
                     # widened AST. A `DrawArgName` carries the
-                    # identifier text; other variants (literal,
-                    # nested distribution call, list literal) are
-                    # not admissible as the probs argument.
+                    # identifier text and a `DrawArgIndex` a probs
+                    # tensor gathered by enclosing latents; other
+                    # variants (literal, nested distribution call,
+                    # list literal) are not admissible as the probs
+                    # argument.
                     if isinstance(first, DrawArgName):
                         probs_var = first.text
+                    elif isinstance(first, DrawArgIndex):
+                        probs_var = first.name
+                        probs_indices = tuple(first.indices)
                     elif isinstance(first, str):
                         probs_var = first
                     else:
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
-                            "first argument must be a named probs tensor "
-                            f"(got literal {first!r})",
+                            "first argument must be a named probs tensor, "
+                            f"indexed or not (got literal {first!r})",
                             step.line,
                             step.col,
                         )
@@ -944,6 +950,7 @@ class _ProgramsMixin:
                             var_name=inner_marg.var_name,
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
+                            probs_indices=inner_marg.probs_indices,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
                             body_ll_var=latent_name,
@@ -973,6 +980,7 @@ class _ProgramsMixin:
                         var_name=step.vars[0],
                         class_size=class_size,
                         probs_var=probs_var,
+                        probs_indices=probs_indices,
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
@@ -1490,6 +1498,7 @@ class _ProgramsMixin:
                 var_name=rename.get(step.var_name, step.var_name),
                 class_size=step.class_size,
                 probs_var=renamed_probs,
+                probs_indices=tuple(rename.get(v, v) for v in step.probs_indices),
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
                 body_ll_var=renamed_body_ll,
@@ -2487,6 +2496,16 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
+                    for index_name in step.probs_indices:
+                        if index_name not in bound_vars:
+                            raise CompileError(
+                                f"grouped marginalize: categorical prior "
+                                f"{step.probs_var!r} is indexed by "
+                                f"{index_name!r}, which is not bound in "
+                                "program scope",
+                                step.line,
+                                step.col,
+                            )
                     if not step.body_observes:
                         raise CompileError(
                             "grouped marginalize: the body must contain "
@@ -2523,15 +2542,9 @@ class _ProgramsMixin:
                                     step.line,
                                     step.col,
                                 )
-                            for axis_name in fib_axes:
-                                if axis_name not in bound_vars:
-                                    raise CompileError(
-                                        f"grouped marginalize: per-observe "
-                                        f"`via` axis {axis_name!r} is not "
-                                        "bound in program scope",
-                                        step.line,
-                                        step.col,
-                                    )
+                            # Each axis, like a single ``via``, may name a
+                            # bound latent or host data supplied at
+                            # runtime through the observations dict.
                         else:
                             if fib_axes is not None:
                                 raise CompileError(
@@ -2552,6 +2565,7 @@ class _ProgramsMixin:
                     )
                     num_classes = step.class_size
                     probs_var = step.probs_var
+                    probs_indices = step.probs_indices
                     reduction = step.reduction or "logsumexp"
                     observe_specs = tuple(
                         (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
@@ -2564,6 +2578,7 @@ class _ProgramsMixin:
                             tuple[str, str | None, tuple[str, ...] | None], ...
                         ] = observe_specs,
                         _probs: str = probs_var,
+                        _probs_indices: tuple[str, ...] = probs_indices,
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
@@ -2612,6 +2627,8 @@ class _ProgramsMixin:
                                     )
                                 )
                         probs = env[_probs]
+                        for index_name in _probs_indices:
+                            probs = probs[env[index_name].to(torch.long)]
                         log_prior = torch.log(probs.clamp_min(1e-38))
                         # A per-group prior (the categorical's ``probs``
                         # is indexed by the grouping plate, shape

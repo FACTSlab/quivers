@@ -54,6 +54,7 @@ from quivers.transpile.qiec_ir import (
     IRQiecResume,
     IRQiecReturn,
     IRQiecAffineMap,
+    IRQiecTableMap,
     IRQiecComprehension,
     IRQiecDistributionValue,
     IRQiecReduction,
@@ -536,6 +537,9 @@ def _free_runtime_capture(
             value(item.bias, locally_bound)
             for source in item.sources:
                 value(source, locally_bound)
+        elif isinstance(item, IRQiecTableMap):
+            value(item.table, locally_bound)
+            value(item.index, locally_bound)
         elif isinstance(item, IRQiecReduction | IRQiecRowwise):
             value(item.value, locally_bound)
         elif isinstance(item, IRQiecComprehension):
@@ -618,6 +622,9 @@ def qiec_families_used(ir: IRProgram) -> frozenset[str]:
             value(item.bias)
             for source in item.sources:
                 value(source)
+        elif isinstance(item, IRQiecTableMap):
+            value(item.table)
+            value(item.index)
         elif isinstance(item, IRQiecReduction | IRQiecRowwise):
             value(item.value)
         elif isinstance(item, IRQiecComprehension):

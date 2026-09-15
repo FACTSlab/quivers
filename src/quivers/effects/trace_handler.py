@@ -1,18 +1,31 @@
 """Trace handler: records every site the program visits.
 
-`TraceHandler` sits on the handler stack, snapshots every message
-during the postprocess pass, and exposes the resulting `Trace` via
-the `trace` attribute after the program finishes running. The thin
-`quivers.inference.trace.trace` wrapper stacks this handler on and
-returns its accumulated `Trace`.
+`TraceHandler` installs an observing handler of the program's ``random``
+instance and of its let and score steps at its position on the stack, so
+it records each site's value as the handlers outside it answered it and
+sees no site a handler inside it hid. A site's density is read after the
+run from the contributions that reached the run's accumulator under the
+site's provenance, after every score transformer on the stack. The thin
+`quivers.inference.trace.trace` wrapper stacks this handler on and returns
+its accumulated `Trace`.
 """
 
 from __future__ import annotations
 
 import torch
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
+from quivers.effects.program_module import HostStep
+from quivers.effects.sites import TorchSampleable
 from quivers.effects.trace_types import SampleSite, Trace
+from quivers.qiec.builtins import (
+    COMPUTE_APPLY,
+    RANDOM,
+    RANDOM_SAMPLE,
+    TraceEvent,
+    TraceRecorder,
+    trace_handler,
+)
 
 
 def _narrowest_shape(log_probs: list[torch.Tensor]) -> tuple[int, ...]:
@@ -90,47 +103,185 @@ def _reduce_to(log_prob: torch.Tensor, target: tuple[int, ...]) -> torch.Tensor:
 class TraceHandler(EffectHandler):
     """Record every site visited during a program's execution.
 
-    Produces a `Trace` whose ``sites`` dict is keyed by variable
-    name, whose ``output`` is the program's return value, and whose
-    ``log_joint`` is the sum of every non-let site's ``log_prob``.
-
-    A `TraceHandler` is single-use: run the program under one
-    instance, read `trace`, then discard.
-
-    Attributes
-    ----------
-    trace : Trace
-        Accumulator. `output` and `log_joint` are filled in by the
-        caller after the program returns (see
-        `quivers.inference.trace.trace`).
+    Produces a `Trace` whose ``sites`` dict is keyed by variable name,
+    whose ``output`` is the program's return value, and whose
+    ``log_joint`` is the sum of every site's ``log_prob``. A
+    `TraceHandler` is single-use: run the program under one instance,
+    read `trace`, then discard. The handler takes no configuration.
     """
 
     def __init__(self) -> None:
         self.trace: Trace = Trace()
+        self._recorder = TraceRecorder()
+        self._steps: dict[object, HostStep] = {}
 
-    def _pyro_post_sample(self, msg: Message) -> None:
-        self._record(msg)
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install observers of the sites and of the let and score steps.
 
-    def _pyro_post_observe(self, msg: Message) -> None:
-        self._record(msg)
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
 
-    def _pyro_post_let(self, msg: Message) -> None:
-        self._record(msg)
+        Returns
+        -------
+        tuple[Installation, ...]
+            One forwarding observer of the ``random`` instance and one of
+            each let and score step's ``Compute`` instance.
+        """
+        kernel = run.kernel
+        installations = [
+            Installation(
+                kernel.random,
+                trace_handler(
+                    RANDOM,
+                    (RANDOM_SAMPLE,),
+                    self._recorder,
+                    validators={RANDOM_SAMPLE: run.validator},
+                    answer_type=run.result_type,
+                    key=f"trace-random-{id(self):x}",
+                ),
+            )
+        ]
+        for step in kernel.steps:
+            if step.kind not in ("let", "score"):
+                continue
+            instance = next(
+                item
+                for item in kernel.module.instances
+                if item.entry.instance == step.instance
+            )
+            self._steps[step.instance] = step
+            installations.append(
+                Installation(
+                    instance,
+                    trace_handler(
+                        step.effect,
+                        (COMPUTE_APPLY,),
+                        self._recorder,
+                        validators={COMPUTE_APPLY: run.validator},
+                        answer_type=run.result_type,
+                        key=f"trace-step-{instance.name}-{id(self):x}",
+                    ),
+                )
+            )
+        return tuple(installations)
 
-    def _pyro_post_score(self, msg: Message) -> None:
-        self._record(msg)
+    def finish(self, run: RunContext, output: object) -> None:
+        """Build the trace from the recorded events and the run's contributions.
 
-    def _record(self, msg: Message) -> None:
-        assert msg.value is not None
-        assert msg.log_prob is not None
-        self.trace.sites[msg.name] = SampleSite(
-            name=msg.name,
-            morphism=msg.morphism,
-            value=msg.value,
-            log_prob=msg.log_prob,
-            is_observed=msg.is_observed,
-            is_deterministic=msg.is_deterministic,
+        Parameters
+        ----------
+        run : RunContext
+            The run, with every contribution the accumulator received.
+        output : object
+            The program's output, which the trace does not read; the
+            wrapper that stacks this handler sets ``trace.output`` from
+            the value it returns.
+        """
+        del output
+        for event in self._recorder.events:
+            if event.operation == RANDOM_SAMPLE:
+                self._record_site(run, event)
+            else:
+                self._record_step(run, event)
+
+    def _record_site(self, run: RunContext, event: TraceEvent) -> None:
+        """Record one sample site from its trace event.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run.
+        event : TraceEvent
+            The recorded request and answer.
+        """
+        label, sampleable = event.arguments
+        assert isinstance(label, str)
+        assert isinstance(sampleable, TorchSampleable)
+        value = event.result
+        assert isinstance(value, torch.Tensor)
+        contributions = [
+            item for item in run.contributions if item.key == event.address
+        ]
+        observed = any(item.role == "condition-score" for item in contributions)
+        intervened = event.address in run.interventions
+        if contributions:
+            log_prob = contributions[0].weight
+            for item in contributions[1:]:
+                log_prob = log_prob + item.weight
+        else:
+            log_prob = torch.zeros(
+                value.shape[:1] if value.dim() > 0 else (1,), device=value.device
+            )
+        self.trace.sites[label] = SampleSite(
+            name=label,
+            morphism=sampleable.declared,
+            value=value,
+            log_prob=log_prob,
+            is_observed=observed,
+            is_deterministic=intervened,
+            sampleable=sampleable,
+            address=event.address,
+            metadata=dict(run.annotations.get(label, {})),
         )
+
+    def _record_step(self, run: RunContext, event: TraceEvent) -> None:
+        """Record one let or score step from its trace event.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run.
+        event : TraceEvent
+            The recorded request and answer.
+        """
+        step = self._steps[event.instance]
+        assert step.spec is not None
+        name = getattr(step.spec, "var")
+        value = event.result
+        assert isinstance(value, torch.Tensor)
+        if step.kind == "score":
+            log_prob = self._step_contribution(run, step.spec, value)
+        else:
+            log_prob = torch.zeros((), device=value.device)
+        self.trace.sites[name] = SampleSite(
+            name=name,
+            morphism=None,
+            value=value,
+            log_prob=log_prob,
+            is_deterministic=True,
+            address=event.address,
+        )
+
+    def _step_contribution(
+        self, run: RunContext, spec: object, value: torch.Tensor
+    ) -> torch.Tensor:
+        """The contribution a score step's ``Score.add`` made, as accumulated.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run.
+        spec : object
+            The program's step record.
+        value : torch.Tensor
+            The step's value, which shapes the zero returned when the
+            contribution never reached the accumulator.
+
+        Returns
+        -------
+        torch.Tensor
+            The contribution after every transformer on the stack.
+        """
+        index = run.kernel.program._step_specs.index(spec)
+        total: torch.Tensor | None = None
+        for item in run.contributions:
+            if tuple(item.path[:3]) == ("steps", index, "score"):
+                total = item.weight if total is None else total + item.weight
+        if total is None:
+            return torch.zeros_like(value)
+        return total
 
     def total_log_joint(self, batch_size: int, device: torch.device) -> torch.Tensor:
         """Sum every site's ``log_prob`` into the joint density.
@@ -156,7 +307,7 @@ class TraceHandler(EffectHandler):
         torch.Tensor
             The joint log-density.
         """
-        del batch_size  # the joint's shape follows from the sites
+        del batch_size
         contributions = [site.log_prob for site in self.trace.sites.values()]
         target = _narrowest_shape(
             [lp for lp in contributions if not bool(torch.all(lp == 0))]
@@ -165,3 +316,6 @@ class TraceHandler(EffectHandler):
         for log_prob in contributions:
             total = total + _reduce_to(log_prob, target)
         return total
+
+
+__all__ = ["TraceHandler"]

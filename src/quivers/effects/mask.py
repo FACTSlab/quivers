@@ -1,51 +1,87 @@
-"""Mask handler: element-wise gate on log-density contributions.
+"""Mask handler: gate every density contribution elementwise.
 
-`MaskHandler` multiplies the per-batch log-density at every site by
-a boolean or 0/1 mask tensor. The typical use is row-level opt-out
-in a hierarchical model with heterogeneous missingness (see
-[Pyro's `mask`](https://docs.pyro.ai/en/stable/poutine.html#pyro.poutine.handlers.mask)).
+`MaskHandler` is a transformer of the program's ``score`` instance: the
+mask is broadcast against every contribution on its way to the run's
+accumulator. A boolean mask switches entries; a float mask scales them.
 """
 
 from __future__ import annotations
 
 import torch
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
+from quivers.qiec.builtins import reweight_handler
 
 
 class MaskHandler(EffectHandler):
-    """Multiply every site's ``log_prob`` by a fixed mask tensor.
-
-    The mask is broadcast against the site's log-density. A boolean
-    mask switches entries; a float mask scales them. Sites of every kind (sample, observe,
-    score) are affected; let bindings already carry zero log-prob
-    and are unchanged.
+    """Gate every density contribution elementwise.
 
     Parameters
     ----------
     mask_tensor : torch.Tensor
-        Broadcast-compatible mask.
+        The mask, broadcast against each contribution.
     """
 
     def __init__(self, mask_tensor: torch.Tensor) -> None:
-        self.mask_tensor = mask_tensor
+        self.mask = mask_tensor
 
-    def _apply(self, msg: Message) -> None:
-        if msg.log_prob is None:
-            return
-        mask = self.mask_tensor.to(dtype=msg.log_prob.dtype, device=msg.log_prob.device)
-        msg.log_prob = msg.log_prob * mask
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install a masking transformer of the ``score`` instance.
 
-    def _pyro_post_sample(self, msg: Message) -> None:
-        self._apply(msg)
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
 
-    def _pyro_post_observe(self, msg: Message) -> None:
-        self._apply(msg)
+        Returns
+        -------
+        tuple[Installation, ...]
+            The transformer.
+        """
+        mask = self.mask
 
-    def _pyro_post_score(self, msg: Message) -> None:
-        self._apply(msg)
+        def masked(weight: object) -> object:
+            """Mask one contribution.
+
+            Parameters
+            ----------
+            weight : object
+                The contribution.
+
+            Returns
+            -------
+            object
+                The contribution times the mask.
+            """
+            return torch.as_tensor(weight) * mask.to(torch.as_tensor(weight).dtype)
+
+        return (
+            Installation(
+                run.kernel.score,
+                reweight_handler(
+                    masked,
+                    score_instance=run.kernel.score.entry.instance,
+                    answer_type=run.result_type,
+                    key=f"mask-{id(self):x}",
+                ),
+            ),
+        )
 
 
 def mask(mask_tensor: torch.Tensor) -> MaskHandler:
-    """Return a `MaskHandler` gated on the given mask tensor."""
+    """Return a `MaskHandler` with the given mask.
+
+    Parameters
+    ----------
+    mask_tensor : torch.Tensor
+        The mask.
+
+    Returns
+    -------
+    MaskHandler
+        The handler.
+    """
     return MaskHandler(mask_tensor)
+
+
+__all__ = ["MaskHandler", "mask"]

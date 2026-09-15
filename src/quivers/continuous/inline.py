@@ -104,6 +104,21 @@ class FixedDistribution(ContinuousMorphism):
     def support(self) -> _constraints.Constraint:
         return self._support
 
+    def _get_dist(self, x: torch.Tensor) -> D.Distribution:
+        """Build the fixed distribution for an input's batch.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input, used only for its batch size and device.
+
+        Returns
+        -------
+        torch.distributions.Distribution
+            The distribution, with a batch shape of the input's rows.
+        """
+        return self._make_dist_fn(x.shape[0], x.device)
+
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
@@ -309,6 +324,22 @@ class MixedInlineDistribution(ContinuousMorphism):
                 params.append(x[..., var_offset : var_offset + dim])
             var_offset += dim
         return params
+
+    def _get_dist(self, x: torch.Tensor) -> D.Distribution:
+        """Build the distribution at an input.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The stacked inline arguments.
+
+        Returns
+        -------
+        torch.distributions.Distribution
+            The distribution the builder makes of the resolved
+            parameters.
+        """
+        return self._dist_builder(self._resolve_params(x))
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()

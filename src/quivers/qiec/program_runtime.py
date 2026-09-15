@@ -122,6 +122,36 @@ def _computation(module: QiecModule, identity: ComputationId) -> NamedComputatio
     raise KeyError(f"module {module.module!r} has no computation {identity!r}")
 
 
+def _marginal_handler(name: str) -> tuple[bool, str] | None:
+    """Read a marginalization handler's kind off its name.
+
+    The elaborator names its enumeration handlers ``enumerate_marginal``
+    and ``enumerate_grouped_marginal``, with ``_sum`` or ``_mean``
+    appended for a reduction other than ``logsumexp``.
+
+    Parameters
+    ----------
+    name : str
+        The handler's name.
+
+    Returns
+    -------
+    tuple[bool, str] | None
+        Whether the handler answers per group position, and its
+        reduction; ``None`` for a handler of another kind.
+    """
+    for reduction in ("sum", "mean"):
+        suffix = f"_{reduction}"
+        if name.endswith(suffix):
+            base = _marginal_handler(name[: -len(suffix)])
+            return None if base is None else (base[0], reduction)
+    if name.endswith("enumerate_grouped_marginal"):
+        return (True, "logsumexp")
+    if name.endswith("enumerate_marginal"):
+        return (False, "logsumexp")
+    return None
+
+
 def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     """Extend a module with a computation scoring one program's log joint.
 
@@ -386,10 +416,14 @@ def run_program(
     for handler in module.handlers:
         if handler.implementation != "foreign":
             continue
-        if handler.effect.name == "Random" and handler.name.endswith(
-            "enumerate_marginal"
-        ):
-            configured[handler.name] = {"kind": "enumerate"}
+        marginal = _marginal_handler(handler.name)
+        if handler.effect.name == "Random" and marginal is not None:
+            grouped, reduction = marginal
+            configured[handler.name] = {
+                "kind": "enumerate",
+                "grouped": grouped,
+                "reduction": reduction,
+            }
         elif handler.effect.name == "Weight" and handler.name.endswith(
             "collect_marginal"
         ):

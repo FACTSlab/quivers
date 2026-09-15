@@ -21,7 +21,9 @@ back to the groups.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -73,6 +75,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
 from quivers.qiec.canonical import (
     LOG_WEIGHT,
     sampleable_type,
+    sampled_element,
     site_type,
     tensor_shape,
     tensor_type,
@@ -135,6 +138,7 @@ from quivers.qiec.terms import (
     Return,
     SegmentSum,
     SiteValue,
+    TableMap,
     TensorValue,
     TupleValue,
     Value,
@@ -145,6 +149,7 @@ from quivers.qiec.types import (
     BOOL,
     INT,
     REAL,
+    STRING,
     UNIT,
     IndexLiteral,
     IndexTerm,
@@ -155,6 +160,7 @@ from quivers.qiec.types import (
     TypeExpr,
     TypeVariable,
     product_type,
+    render_static,
 )
 from quivers.dsl.composite_lets import expand_composite_lets
 from quivers.dsl.pure_builtins import PURE_BUILTINS
@@ -173,11 +179,51 @@ if TYPE_CHECKING:
 
 #: The name of the handler enumerating a marginalized latent.
 ENUMERATE_HANDLER = "enumerate_marginal"
+#: The name of the handler enumerating a latent nested in a grouped
+#: marginalization, which answers one weight per group position.
+ENUMERATE_GROUPED_HANDLER = "enumerate_grouped_marginal"
+#: The reductions a marginalization aggregates its latent's values by.
+MARGINAL_REDUCTIONS: tuple[str, ...] = ("logsumexp", "sum", "mean")
+#: The enumeration handler by whether it answers per group position and
+#: by reduction: the plain names reduce by ``logsumexp``, the others carry
+#: the reduction as a suffix.
+MARGINAL_HANDLERS: dict[tuple[bool, str], str] = {
+    (grouped, reduction): (ENUMERATE_GROUPED_HANDLER if grouped else ENUMERATE_HANDLER)
+    + ("" if reduction == "logsumexp" else f"_{reduction}")
+    for grouped in (False, True)
+    for reduction in MARGINAL_REDUCTIONS
+}
 #: The name of the handler collecting a marginalization scope's weights.
 COLLECT_HANDLER = "collect_marginal"
 #: The canonical instance names a program's requests address.
 RANDOM_INSTANCE = "random"
 SCORE_INSTANCE = "score"
+
+#: Operator-algebra spellings that name a registry family under another
+#: name: a truncation is a restriction, a pushforward a transformed
+#: distribution.
+OPERATOR_ALIASES: Mapping[str, str] = MappingProxyType(
+    {"Truncate": "Restrict", "Pushforward": "Transformed"}
+)
+
+#: Families whose construction is a measure a step normalizes at its
+#: boundary rather than a probability measure as built.
+MEASURE_FAMILIES: frozenset[str] = frozenset(
+    {"Restrict", "Mixture", "Transformed", "Independent"}
+)
+
+#: The bijectors of the operator algebra, by their source names, as the
+#: transform chains the ``Transformed`` family takes.
+BIJECTOR_TRANSFORMS: Mapping[str, str] = MappingProxyType(
+    {
+        "Identity": "",
+        "Exp": "exp",
+        "Log": "log",
+        "Sigmoid": "sigmoid",
+        "Logit": "logit",
+        "Softplus": "softplus",
+    }
+)
 
 #: The diagnostic code of a program construct whose elaboration is not yet
 #: defined: a parsing chart, a chart method, or a morphism parameterized by
@@ -238,11 +284,16 @@ class _Scope:
     group
         The grouping axis of a grouped marginalization scope, else
         ``None``.
+    factors
+        The axes a product grouping axis flattens, in order; the group
+        itself for a single axis.
     weight_instance
         The local ``Weight`` instance a marginalization scope adds its
         weights to, else ``None`` for the program body.
     weight_type
         The type that instance accumulates.
+    weights_added
+        Whether a step of the scope has added to its ``Weight`` instance.
     outer
         The enclosing scope, else ``None``.
     """
@@ -251,8 +302,10 @@ class _Scope:
     steps: list[tuple[Local, Computation]] = field(default_factory=list)
     referenced: set[str] = field(default_factory=set)
     group: PlateAxis | None = None
+    factors: tuple[PlateAxis, ...] = ()
     weight_instance: NamedEffectInstance | None = None
     weight_type: TypeExpr | None = None
+    weights_added: bool = False
     outer: _Scope | None = None
 
     def lookup(self, name: str) -> Local | None:
@@ -799,17 +852,21 @@ class _ProgramElaboration:
         self.instances[name] = instance
         return instance
 
-    def _program_handlers(self: _Elaborator) -> tuple[HandlerDef, HandlerDef]:
+    def _program_handlers(self: _Elaborator) -> dict[str, HandlerDef]:
         """The enumeration and collection handlers marginalization uses.
 
         Returns
         -------
-        tuple[HandlerDef, HandlerDef]
-            The ``enumerate_marginal[w]`` handler over ``Random``, whose
-            input is a unit answer paired with the collected weight of
-            type ``w`` and whose output is the marginal ``LogWeight``,
-            and the ``collect_marginal[w]`` handler over ``Weight[w]``,
-            which pairs the scope's unit answer with its total.
+        dict[str, HandlerDef]
+            By name: the ``enumerate_marginal[w]`` handlers over
+            ``Random``, one per reduction, whose input is a unit answer
+            paired with the collected weight of type ``w`` and whose
+            output is the marginal ``LogWeight``; the
+            ``enumerate_grouped_marginal[w]`` handlers, alike but
+            answering the collected weight's type ``w`` itself, one
+            marginal per group position; and the ``collect_marginal[w]``
+            handler over ``Weight[w]``, which pairs the scope's unit
+            answer with its total.
 
         Raises
         ------
@@ -817,7 +874,8 @@ class _ProgramElaboration:
             If the module declares a handler under one of the reserved
             names.
         """
-        for name in (ENUMERATE_HANDLER, COLLECT_HANDLER):
+        names = (*MARGINAL_HANDLERS.values(), COLLECT_HANDLER)
+        for name in names:
             declared = self.handlers.get(name)
             if declared is not None and declared.implementation != "foreign":
                 self._fail(
@@ -825,10 +883,8 @@ class _ProgramElaboration:
                     f"handler {name!r} is reserved for marginalization",
                     code="qiec-program",
                 )
-        enumerate = self.handlers.get(ENUMERATE_HANDLER)
-        collect = self.handlers.get(COLLECT_HANDLER)
-        if enumerate is not None and collect is not None:
-            return enumerate, collect
+        if all(name in self.handlers for name in names):
+            return {name: self.handlers[name] for name in names}
         weight_binder = TypeBinder("w")
         weight = TypeVariable("w")
         random = self._effect("Random")
@@ -836,19 +892,21 @@ class _ProgramElaboration:
         assert random is not None and weight_effect is not None
         sample = next(item for item in random.operations if item.name == "sample")
         add = next(item for item in weight_effect.operations if item.name == "add")
-        enumerate = HandlerDef(
-            HandlerId.derive(self.source.module_name, "handler", ENUMERATE_HANDLER),
-            ENUMERATE_HANDLER,
-            random.ref,
-            (HandlerClauseDef(sample.id, ResumptionGrade.UNRESTRICTED),),
-            product_type(UNIT, weight),
-            LOG_WEIGHT,
-            EffectRow(),
-            total=True,
-            telescope=(weight_binder,),
-            implementation="foreign",
-        )
-        collect = HandlerDef(
+        declared_handlers: dict[str, HandlerDef] = {}
+        for (grouped, _reduction), name in MARGINAL_HANDLERS.items():
+            declared_handlers[name] = HandlerDef(
+                HandlerId.derive(self.source.module_name, "handler", name),
+                name,
+                random.ref,
+                (HandlerClauseDef(sample.id, ResumptionGrade.UNRESTRICTED),),
+                product_type(UNIT, weight),
+                weight if grouped else LOG_WEIGHT,
+                EffectRow(),
+                total=True,
+                telescope=(weight_binder,),
+                implementation="foreign",
+            )
+        declared_handlers[COLLECT_HANDLER] = HandlerDef(
             HandlerId.derive(self.source.module_name, "handler", COLLECT_HANDLER),
             COLLECT_HANDLER,
             weight_effect.apply((weight,)),
@@ -860,11 +918,10 @@ class _ProgramElaboration:
             telescope=(weight_binder,),
             implementation="foreign",
         )
-        self.handlers[ENUMERATE_HANDLER] = enumerate
-        self.handlers[COLLECT_HANDLER] = collect
-        self.registry.register_handler(enumerate)
-        self.registry.register_handler(collect)
-        return enumerate, collect
+        for name, definition in declared_handlers.items():
+            self.handlers[name] = definition
+            self.registry.register_handler(definition)
+        return declared_handlers
 
     # ------------------------------------------------------------------
     # one program
@@ -1358,17 +1415,18 @@ class _ProgramElaboration:
             )
         name = step.vars[0]
         group = _enclosing_group(scope)
-        if step.via is not None and group is None:
+        via = _fibration_names(step)
+        if via is not None and group is None:
             self._fail(
                 step,
-                f"observation {name!r} names the fibration {step.via!r} outside a "
-                "grouped marginalization",
+                f"observation {name!r} names the fibration {'*'.join(via)!r} "
+                "outside a grouped marginalization",
                 code="qiec-program",
             )
         state.current_site = name
         state.pending_alphabet = None
         distribution = self._step_distribution(
-            step, scope, state, name, via=step.via, group=group
+            step, scope, state, name, via=via, group=group
         )
         observed_type = self._sampled_type(distribution)
         observed = self._declare_parameter(
@@ -1408,25 +1466,20 @@ class _ProgramElaboration:
         else:
             batch = distribution.plate.batch
             density = LogDensity(distribution, Var(observed), origin, batch)
-            if step.via is not None:
+            if via is not None:
                 if len(batch) != 1:
                     self._fail(
                         step,
-                        f"observation {name!r} is fibred by {step.via!r} but is "
-                        "not plated over one row axis",
+                        f"observation {name!r} is fibred by {'*'.join(via)!r} "
+                        "but is not plated over one row axis",
                         code="qiec-program",
                     )
-                fibration = self._declare_parameter(
-                    step.via,
-                    tensor_type(INT, (batch[0].size,)),
-                    "fibration",
-                    scope,
-                    state,
-                    step,
+                fibration = self._fibration(
+                    via, batch[0].size, weight_scope, scope, state, step
                 )
                 weight = SegmentSum(
                     density,
-                    Var(fibration),
+                    fibration,
                     weight_scope.group.size,
                     tensor_type(LOG_WEIGHT, (weight_scope.group.size,)),
                 )
@@ -1539,6 +1592,9 @@ class _ProgramElaboration:
             ),
         )
         self._bind_step(scope, None, UNIT, Perform(request), node)
+        owner = _weight_scope(scope)
+        assert owner is not None
+        owner.weights_added = True
 
     def _elaborate_let(
         self: _Elaborator, step: LetStep, scope: _Scope, state: _ProgramState
@@ -1982,7 +2038,11 @@ class _ProgramElaboration:
                             family_registry=frozenset(FAMILIES),
                             target="qvr-qiec",
                         )
-                    except StepResolutionError:
+                    except StepResolutionError, TypeError:
+                        # A step the resolver has no wire form for, such
+                        # as an operator form over nested distributions,
+                        # shapes nothing here; the elaboration reads it
+                        # structurally.
                         bound.update(names)
                         continue
                     record = FAMILIES.get(resolved.family)
@@ -2083,34 +2143,70 @@ class _ProgramElaboration:
         Raises
         ------
         QiecDiagnosticError
-            If the reduction is not ``logsumexp``, or the latent's family
-            has no finite support.
+            If the reduction is not one of ``logsumexp``, ``sum``, and
+            ``mean``, a reduction is written on a latent with no finite
+            support, or the block lies inside a grouped marginalization
+            without sharing its group's extent.
         """
-        if step.reduction not in (None, "logsumexp"):
+        reduction = step.reduction or "logsumexp"
+        if reduction not in MARGINAL_REDUCTIONS:
             self._fail(
                 step,
-                f"marginalize reduction {step.reduction!r} has no elaboration; "
-                "the reduction is logsumexp",
+                f"marginalize reduction {reduction!r} has no elaboration; the "
+                f"reductions are {', '.join(MARGINAL_REDUCTIONS)}",
                 code="qiec-program",
             )
-        enumerate_handler, collect_handler = self._program_handlers()
+        handlers = self._program_handlers()
+        collect_handler = handlers[COLLECT_HANDLER]
         group: PlateAxis | None = None
+        factors: tuple[PlateAxis, ...] = ()
         if step.over is not None:
             group = self._axis(step.over, step)
+            factors = (group,)
         elif step.over_objs:
-            if len(step.over_objs) != 1:
+            factors = tuple(self._axis(name, step) for name in step.over_objs)
+            group = factors[0] if len(factors) == 1 else _product_axis(factors)
+        inner = _Scope(outer=scope, group=group, factors=factors)
+        remaining = self._hoist_draws(step, scope, state)
+        latent_name = step.var
+        weight_scope = _weight_scope(scope)
+        outer_group = weight_scope.group if weight_scope is not None else None
+        projection: Value | None = None
+        if outer_group is not None:
+            if group is None:
                 self._fail(
                     step,
-                    "a grouped marginalization names one grouping axis",
+                    f"marginalization of {latent_name!r} lies inside a "
+                    f"marginalization grouped over {outer_group.name!r} and must "
+                    "be grouped itself to add to that group's weights",
                     code="qiec-program",
                 )
-            group = self._axis(step.over_objs[0], step)
-        inner = _Scope(outer=scope, group=group)
-        latent_name = step.var
+            if group.size != outer_group.size:
+                projection = _group_projection(factors, outer_group)
+                if projection is None:
+                    self._fail(
+                        step,
+                        f"marginalization of {latent_name!r} is grouped over "
+                        f"{group.name!r} inside a marginalization grouped over "
+                        f"{outer_group.name!r}; the inner group must be of the "
+                        "outer's extent, identified with it position by "
+                        "position, or a product with the outer axis as a factor, "
+                        "projected onto it",
+                        code="qiec-program",
+                    )
         state.current_site = latent_name
         state.pending_alphabet = None
         distribution = self._step_distribution(
-            step, inner, state, latent_name, group=group
+            step,
+            inner,
+            state,
+            latent_name,
+            group=group,
+            refinement=(
+                None
+                if projection is None or outer_group is None
+                else (outer_group, projection)
+            ),
         )
         if state.pending_alphabet is not None:
             state.alphabets[latent_name] = state.pending_alphabet
@@ -2122,6 +2218,13 @@ class _ProgramElaboration:
             # Nothing finite to sum over: the latent is drawn once per
             # position and the scope runs in the enclosing scope, which
             # is what the runtime does with such a block.
+            if step.reduction is not None:
+                self._fail(
+                    step,
+                    f"marginalize reduction {step.reduction!r} aggregates a "
+                    f"finite support, which {distribution.name!r} has none of",
+                    code="qiec-program",
+                )
             self._elaborate_continuous_marginalize(
                 step, distribution, scope, state, latent_name
             )
@@ -2130,6 +2233,10 @@ class _ProgramElaboration:
         weight_type: TypeExpr = (
             LOG_WEIGHT if group is None else tensor_type(LOG_WEIGHT, (group.size,))
         )
+        # Nested in a grouped marginalization, the block answers one
+        # marginal per group position for the enclosing group's weights.
+        result_type: TypeExpr = LOG_WEIGHT if outer_group is None else weight_type
+        chooser = handlers[MARGINAL_HANDLERS[(outer_group is not None, reduction)]]
         path = ("programs", state.declaration.name, "marginals", latent_name)
         choice = self._local_instance(
             f"{latent_name}_choice", "Random", (), (*path, "choice")
@@ -2153,7 +2260,14 @@ class _ProgramElaboration:
         )
         latent = Local(latent_name, sampled)
         inner.locals[latent_name] = latent
-        self._elaborate_steps(step.scope, inner, state)
+        self._elaborate_steps(remaining, inner, state)
+        if not inner.weights_added:
+            # A scope adding nothing still performs on its instance, so
+            # the collecting handler has the effect it handles: the
+            # identity weight at the scope's type.
+            self._add_weight(
+                weight, self._zero_weight(weight_type, state, step), inner, state, step
+            )
         collected = Handle(
             weight.entry.instance,
             collect_handler.id,
@@ -2164,7 +2278,7 @@ class _ProgramElaboration:
         del self.instances[choice.name]
         enumerated = Handle(
             choice.entry.instance,
-            enumerate_handler.id,
+            chooser.id,
             Bind(
                 latent,
                 Perform(request),
@@ -2183,23 +2297,114 @@ class _ProgramElaboration:
             enumerated,
             _origin_at(self, (*path, "choice"), "local-instance", step),
         )
-        helper = self._marginal_helper(step, inner, body, scope, state)
-        weight_local = self._bind_step(scope, None, LOG_WEIGHT, helper, step)
-        weight_scope = _weight_scope(scope)
+        helper = self._marginal_helper(step, inner, body, scope, state, result_type)
+        weight_local = self._bind_step(scope, None, result_type, helper, step)
         if weight_scope is None:
             self._add_score(state.score, Var(weight_local), scope, state, step)
-        elif weight_scope.group is not None:
-            self._fail(
-                step,
-                f"marginalization of {latent_name!r} lies inside a grouped "
-                "marginalization; its scalar marginal has no group to belong to",
-                code="qiec-program",
+            return
+        assert weight_scope.weight_instance is not None
+        assert outer_group is not None
+        weight: Value = Var(weight_local)
+        if projection is not None:
+            # The inner group refines the outer: its per-position
+            # marginals sum into the outer positions they project to.
+            weight = SegmentSum(
+                weight,
+                projection,
+                outer_group.size,
+                tensor_type(LOG_WEIGHT, (outer_group.size,)),
             )
-        else:
-            assert weight_scope.weight_instance is not None
-            self._add_weight(
-                weight_scope.weight_instance, Var(weight_local), scope, state, step
+        self._add_weight(weight_scope.weight_instance, weight, scope, state, step)
+
+    def _hoist_draws(
+        self: _Elaborator,
+        step: MarginalizeStep,
+        scope: _Scope,
+        state: _ProgramState,
+    ) -> tuple[ProgramStep, ...]:
+        """Draw a block's independent latents once, before the block.
+
+        A ``sample`` inside a marginalization block reads nothing the
+        block binds, so it is one draw the block's every shot shares,
+        not a draw per value of the latent; the enclosing scope draws it
+        before the block, as the runtime does.
+
+        Parameters
+        ----------
+        step : MarginalizeStep
+            The block.
+        scope : _Scope
+            The enclosing scope, which the draws join.
+        state : _ProgramState
+            The program's accumulating state.
+
+        Returns
+        -------
+        tuple[ProgramStep, ...]
+            The block's steps without the hoisted draws.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a draw inside the block reads a name the block binds,
+            which would be a draw per value of the latent.
+        """
+        bound: set[str] = {step.var}
+        remaining: list[ProgramStep] = []
+        for item in step.scope:
+            if isinstance(item, SampleStep):
+                names = _draw_dependencies(item)
+                if names & bound:
+                    self._fail(
+                        item,
+                        f"draw of {', '.join(item.vars)!r} inside the marginalization "
+                        f"of {step.var!r} reads {', '.join(sorted(names & bound))!r}, "
+                        "which the block binds; a draw per value of the latent "
+                        "has no elaboration",
+                        code="qiec-program",
+                    )
+                self._elaborate_sample(item, scope, state)
+                continue
+            remaining.append(item)
+            bound.update(_step_binders(item))
+        return tuple(remaining)
+
+    def _zero_weight(
+        self: _Elaborator, weight_type: TypeExpr, state: _ProgramState, node: object
+    ) -> Value:
+        """The identity weight at a scope's type.
+
+        Parameters
+        ----------
+        weight_type : TypeExpr
+            ``LogWeight`` or a tensor of it with literal dimensions.
+        state : _ProgramState
+            The program's accumulating state.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value
+            Zero as a weight, or a tensor of zeros of that shape.
+        """
+        shape = tensor_shape(weight_type)
+        if shape is None:
+            return self._primitive(
+                "as_weight",
+                (LiteralValue(0.0, REAL),),
+                node,
+                ("programs", state.declaration.name, "weights", "identity"),
             )
+        dimensions = shape[1]
+        assert isinstance(dimensions[0], IndexLiteral)
+        inner = (
+            tensor_type(shape[0], dimensions[1:]) if len(dimensions) > 1 else shape[0]
+        )
+        entries = tuple(
+            self._zero_weight(inner, state, node) for _ in range(dimensions[0].value)
+        )
+        return TensorValue(entries, weight_type)
 
     def _elaborate_continuous_marginalize(
         self: _Elaborator,
@@ -2300,6 +2505,7 @@ class _ProgramElaboration:
         body: Computation,
         scope: _Scope,
         state: _ProgramState,
+        result_type: TypeExpr,
     ) -> Computation:
         """Declare the helper computation holding a marginalization block.
 
@@ -2319,6 +2525,9 @@ class _ProgramElaboration:
             The enclosing scope.
         state : _ProgramState
             The program's accumulating state.
+        result_type : TypeExpr
+            What the block answers with: the marginal ``LogWeight``, or
+            one per group position when nested in a grouped block.
 
         Returns
         -------
@@ -2361,7 +2570,7 @@ class _ProgramElaboration:
             name,
             telescope,
             tuple(parameter.type for parameter in parameters),
-            LOG_WEIGHT,
+            result_type,
             EffectRow(),
         )
         try:
@@ -2374,10 +2583,11 @@ class _ProgramElaboration:
             actual = infer_computation(body, self.registry, context)
         except (KernelError, TypeError, ValueError) as error:
             self._fail_kernel(step, error, fallback="qiec-program")
-        if actual.result != LOG_WEIGHT or actual.effects.entries:
+        if actual.result != result_type or actual.effects.entries:
             self._fail(
                 step,
-                f"marginalization of {step.var!r} does not close to a LogWeight",
+                f"marginalization of {step.var!r} does not close to "
+                f"{render_static(result_type)}",
                 code="qiec-program",
             )
         origin = _origin_at(
@@ -2393,7 +2603,7 @@ class _ProgramElaboration:
                 telescope,
                 parameters,
                 body,
-                ComputationType(EffectRow(), LOG_WEIGHT),
+                ComputationType(EffectRow(), result_type),
                 origin,
             )
         )
@@ -2402,7 +2612,7 @@ class _ProgramElaboration:
             name,
             statics,
             tuple(Var(parameter) for parameter in parameters),
-            LOG_WEIGHT,
+            result_type,
             EffectRow(),
             _origin_at(
                 self,
@@ -2422,8 +2632,9 @@ class _ProgramElaboration:
         state: _ProgramState,
         site: str,
         *,
-        via: str | None = None,
+        via: tuple[str, ...] | None = None,
         group: PlateAxis | None = None,
+        refinement: tuple[PlateAxis, Value] | None = None,
     ) -> DistributionValue:
         """The distribution a step draws from, plated as the step says.
 
@@ -2441,6 +2652,11 @@ class _ProgramElaboration:
             The fibration re-indexing grouped arguments, for an observe.
         group : PlateAxis | None
             The grouping axis of the enclosing or this marginalization.
+        refinement : tuple[PlateAxis, Value] | None
+            For a marginalization grouped over a product refining the
+            enclosing group: that group and the index projecting this
+            group's positions onto it, which re-indexes arguments shaped
+            by the enclosing group.
 
         Returns
         -------
@@ -2453,22 +2669,28 @@ class _ProgramElaboration:
             If the morphism cannot be resolved to a family, or the
             arguments and plate do not type.
         """
-        try:
-            resolved = resolve_step_dist(
-                step.morphism,
-                step.args,
-                morphisms=self._program_morphisms,
-                lets=self._program_lets,
-                family_registry=frozenset(FAMILIES),
-                target="qvr-qiec",
-            )
-        except StepResolutionError as error:
-            self._fail(
-                step,
-                "; ".join(error.kinds),
-                code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
-            )
-        record = FAMILIES.get(resolved.family)
+        if step.morphism in FAMILIES or step.morphism in OPERATOR_ALIASES:
+            # A family applied by name resolves to itself; its arguments
+            # are read structurally, nested distributions included.
+            resolved = ResolvedDist(step.morphism, (), step.morphism)
+        else:
+            try:
+                resolved = resolve_step_dist(
+                    step.morphism,
+                    step.args,
+                    morphisms=self._program_morphisms,
+                    lets=self._program_lets,
+                    family_registry=frozenset(FAMILIES) | frozenset(OPERATOR_ALIASES),
+                    target="qvr-qiec",
+                )
+            except StepResolutionError as error:
+                self._fail(
+                    step,
+                    "; ".join(error.kinds),
+                    code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
+                )
+        family_name = OPERATOR_ALIASES.get(resolved.family, resolved.family)
+        record = FAMILIES.get(family_name)
         if record is None:
             self._fail(
                 step,
@@ -2477,6 +2699,36 @@ class _ProgramElaboration:
             )
         morphism = self._program_morphisms.get(step.morphism)
         plate = self._step_plate(step, record, morphism, group)
+        if record.name in MEASURE_FAMILIES:
+            # An operator form denotes a measure the step normalizes at its
+            # boundary: the construction itself is unplated, and the
+            # normalization carries the step's plate.
+            inner = self._nested_distribution(
+                DrawArgDist(family=resolved.family, args=tuple(step.args)),
+                scope,
+                state,
+                step,
+            )
+            normalize = FAMILIES["Normalize"]
+            path = ("programs", state.declaration.name, "sites", site, "distribution")
+            provisional = DistributionValue(
+                normalize.id,
+                normalize.name,
+                (("base", inner),),
+                sampleable_type(REAL),
+                _origin_at(self, path, "distribution", step),
+                plate,
+            )
+            value = DistributionValue(
+                normalize.id,
+                normalize.name,
+                (("base", inner),),
+                self._plated_type(provisional, scope, step),
+                provisional.origin,
+                plate,
+            )
+            self._value_type(value, scope.context(), step)
+            return value
         if morphism is not None and _structured(record, morphism, step):
             arguments = self._structured_arguments(
                 record, morphism, plate, scope, state, step
@@ -2489,6 +2741,14 @@ class _ProgramElaboration:
             arguments = self._family_arguments(
                 record, resolved, step, plate, scope, state, via, group, morphism
             )
+            plate = self._annotated_plate(
+                record, step, morphism, plate, arguments, scope
+            )
+        if refinement is not None:
+            arguments = [
+                (name, self._refined(value, refinement, plate, scope, step))
+                for name, value in arguments
+            ]
         arguments = self._widen_alphabet(record, morphism, arguments, scope, step)
         path = ("programs", state.declaration.name, "sites", site, "distribution")
         value = DistributionValue(
@@ -2574,8 +2834,9 @@ class _ProgramElaboration:
         Event axes come from the step's ``over``, else the morphism's
         ``[over=...]``, else a multivariate family's codomain factors;
         batch axes from ``iid_over``, else the ``: Axis`` annotation and
-        a ``Real N`` codomain's width for a scalar family. A grouped
-        marginalization's latent is batched over its group.
+        a ``Real N`` codomain's width for a scalar family. An annotation
+        beside an ``over`` is the plate its event is repeated over. A
+        grouped marginalization's latent is batched over its group.
 
         Parameters
         ----------
@@ -2607,17 +2868,28 @@ class _ProgramElaboration:
                     batch.append(axis)
             return PlateShape(tuple(batch), tuple(event))
         axes = step.axes
-        if axes is not None:
-            return PlateShape(
-                tuple(self._axis(name, step) for name in axes.iid_over),
-                tuple(self._axis(name, step) for name in axes.over),
-            )
-        over = _option_axes(step.options, "over")
-        iid_over = _option_axes(step.options, "iid_over")
+        over = (
+            tuple(axes.over) if axes is not None else _option_axes(step.options, "over")
+        )
+        iid_over = (
+            tuple(axes.iid_over)
+            if axes is not None
+            else _option_axes(step.options, "iid_over")
+        )
         if over or iid_over:
+            batch_axes = tuple(self._axis(name, step) for name in iid_over)
+            if (
+                not iid_over
+                and step.index is not None
+                and not (isinstance(step.index, TypeName) and step.index.name in over)
+            ):
+                # The annotation is the plate the event axes' draws are
+                # repeated over: ``sample p : Row <- Dirichlet(1.0)
+                # [over=Col]`` draws one simplex point per row. An
+                # annotation naming an event axis restates it.
+                batch_axes = (self._object_axis(step.index, step),)
             return PlateShape(
-                tuple(self._axis(name, step) for name in iid_over),
-                tuple(self._axis(name, step) for name in over),
+                batch_axes, tuple(self._axis(name, step) for name in over)
             )
         if morphism is not None:
             morphism_over = _option_axes(morphism.options, "over")
@@ -2666,6 +2938,71 @@ class _ProgramElaboration:
         if width is not None:
             batch.append(width)
         return PlateShape(tuple(batch), ())
+
+    def _annotated_plate(
+        self: _Elaborator,
+        record: DistributionFamily,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        morphism: MorphismDecl | None,
+        plate: PlateShape,
+        arguments: list[tuple[str, Value]],
+        scope: _Scope,
+    ) -> PlateShape:
+        """Read a ``: Axis`` annotation on a vector family against its arguments.
+
+        The annotation names the variate's own axis when nothing else
+        fixes it: ``sample pi : K <- Dirichlet(1.0)`` draws one point of
+        the ``K``-simplex. When the arguments fix a different event
+        shape, as ``sample pc : Item <- Dirichlet(1.0, 2.0, 3.0)`` does
+        with three entries, the annotation is the plate the draws are
+        repeated over instead.
+
+        Parameters
+        ----------
+        record : DistributionFamily
+            The family.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        morphism : MorphismDecl | None
+            The declared morphism the step draws through, if any.
+        plate : PlateShape
+            The plate as the annotation alone reads.
+        arguments : list[tuple[str, Value]]
+            The lowered arguments.
+        scope : _Scope
+            The scope.
+
+        Returns
+        -------
+        PlateShape
+            The plate, the annotated axis moved to the batch when the
+            arguments fix the event shape otherwise.
+        """
+        if (
+            step.index is None
+            or isinstance(step, MarginalizeStep)
+            or step.axes is not None
+            or record.event_rank == 0
+            or record.event_source is None
+            or _option_axes(step.options, "over")
+            or _option_axes(step.options, "iid_over")
+            or (morphism is not None and _option_axes(morphism.options, "over"))
+        ):
+            return plate
+        source = next(
+            (value for name, value in arguments if name == record.event_source), None
+        )
+        if source is None:
+            return plate
+        shape = tensor_shape(self._value_type(source, scope.context(), step))
+        if shape is None or len(shape[1]) < record.event_rank:
+            return plate
+        natural = tuple(shape[1][len(shape[1]) - record.event_rank :])
+        if not all(isinstance(size, IndexLiteral) for size in natural):
+            return plate
+        if natural == tuple(axis.size for axis in plate.event):
+            return plate
+        return PlateShape((self._object_axis(step.index, step),), ())
 
     def _axis(self: _Elaborator, name: str, node: object) -> PlateAxis:
         """A plate axis named by an object with a known extent.
@@ -2769,7 +3106,7 @@ class _ProgramElaboration:
         plate: PlateShape,
         scope: _Scope,
         state: _ProgramState,
-        via: str | None,
+        via: tuple[str, ...] | None,
         group: PlateAxis | None,
         morphism: MorphismDecl | None,
     ) -> list[tuple[str, Value]]:
@@ -2819,6 +3156,7 @@ class _ProgramElaboration:
         wire = tuple(resolved.args or ())
         raw: list[DrawArg | str | float] = list(structural)
         raw.extend(wire[len(structural) :])
+        raw = self._bundle_vector_argument(record, raw, step, plate, state)
         if len(raw) > len(record.parameters):
             self._fail(
                 step,
@@ -2833,6 +3171,93 @@ class _ProgramElaboration:
                 value = self._fibred(value, via, group, plate, scope, state, step)
             arguments.append((parameter.name, value))
         return arguments
+
+    def _bundle_vector_argument(
+        self: _Elaborator,
+        record: DistributionFamily,
+        raw: list[DrawArg | str | float],
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        plate: PlateShape,
+        state: _ProgramState,
+    ) -> list[DrawArg | str | float]:
+        """Gather scalar literals filling a family's one vector parameter.
+
+        A family whose only parameter is a vector, such as ``Dirichlet``,
+        is written with its entries spread as positional literals:
+        ``Dirichlet(1.0, 2.0, 3.0)`` is the three-simplex with that
+        concentration. A single literal, ``Dirichlet(1.0)``, is the
+        symmetric concentration on the simplex the step's plate or the
+        program's declared codomain fixes the dimension of.
+
+        Parameters
+        ----------
+        record : DistributionFamily
+            The family.
+        raw : list[DrawArg | str | float]
+            The arguments as written.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        plate : PlateShape
+            The distribution's plate, whose event axis fixes the vector's
+            length when the step annotates one.
+        state : _ProgramState
+            The program's accumulating state, whose declaration's
+            codomain fixes the length otherwise.
+
+        Returns
+        -------
+        list[DrawArg | str | float]
+            The arguments, the literals gathered into one list argument
+            when the family takes a vector; unchanged otherwise.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If a single literal's vector has no dimension to take: the
+            step annotates no axis and the program's codomain has no
+            static extent.
+        """
+        if len(record.parameters) != 1 or record.parameters[0].rank != 1:
+            return raw
+        if record.parameters[0].constraint in ("sampleable", "transform"):
+            return raw
+        literals = [
+            item
+            for item in raw
+            if isinstance(item, float | int | DrawArgScalar)
+            or (isinstance(item, str) and _is_number_text(item))
+        ]
+        if not raw or len(literals) != len(raw):
+            return raw
+        items = tuple(
+            item
+            if isinstance(item, DrawArgScalar)
+            else DrawArgScalar(value=float(item), line=step.line, col=step.col)
+            for item in literals
+        )
+        if len(items) >= 2:
+            return [DrawArgList(items=items, line=step.line, col=step.col)]
+        if plate.event:
+            length = plate.event[-1].size
+            if not isinstance(length, IndexLiteral):
+                self._fail(
+                    step,
+                    f"family {record.name!r} takes a vector whose length the "
+                    "annotated axis leaves open; write its entries",
+                    code="qiec-program",
+                )
+            dimension = length.value
+        else:
+            info = self._object_info(state.declaration.codomain, step)
+            if info.extent is None:
+                self._fail(
+                    step,
+                    f"family {record.name!r} takes a vector whose length the "
+                    "program's codomain leaves open; write its entries",
+                    code="qiec-program",
+                )
+            dimension = info.extent
+        return [DrawArgList(items=items * dimension, line=step.line, col=step.col)]
 
     def _draw_argument(
         self: _Elaborator,
@@ -2875,6 +3300,8 @@ class _ProgramElaboration:
         integral = element == INT
         rank = parameter.rank
         constraint = parameter.constraint
+        if constraint == "transform":
+            return self._transform_chain(argument, node)
         if isinstance(argument, float | int):
             return _literal(float(argument), integral)
         if isinstance(argument, DrawArgScalar):
@@ -2887,6 +3314,8 @@ class _ProgramElaboration:
             return self._indexed_argument(
                 argument.name, argument.indices, element, scope, state, node
             )
+        if isinstance(argument, DrawArgList) and constraint == "sampleable":
+            return self._distribution_list(argument, scope, state, node)
         if isinstance(argument, DrawArgList):
             return self._list_argument(argument, element, scope, state, node)
         if isinstance(argument, DrawArgDist):
@@ -3133,12 +3562,115 @@ class _ProgramElaboration:
             result = tensor_type(inner[0], (_extent(len(items)), *inner[1]))
         return TensorValue(tuple(items), result)
 
+    def _transform_chain(self: _Elaborator, argument: object, node: object) -> Value:
+        """Lower a transform name in a ``Transformed`` construction.
+
+        Parameters
+        ----------
+        argument : object
+            The argument: a name of a bijector of the operator algebra,
+            such as ``Exp``, or a string literal naming a chain.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value
+            The chain as a string literal, in the reference backend's
+            vocabulary.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the name is not a transform the kernel knows.
+        """
+        name = argument.text if isinstance(argument, DrawArgName) else str(argument)
+        chain = BIJECTOR_TRANSFORMS.get(name)
+        if chain is None:
+            known = ", ".join(sorted(BIJECTOR_TRANSFORMS))
+            self._fail(
+                node,
+                f"{name!r} is not a transform a pushforward can apply; the "
+                f"transforms are {known}",
+                code="qiec-program",
+            )
+        return LiteralValue(chain, STRING)
+
+    def _distribution_list(
+        self: _Elaborator,
+        argument: DrawArgList,
+        scope: _Scope,
+        state: _ProgramState,
+        node: object,
+    ) -> Value:
+        """Lower a list of distributions to a tensor of sampleables.
+
+        Parameters
+        ----------
+        argument : DrawArgList
+            The list, whose entries are family applications.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value
+            A tensor of sampleables of one element type, with one axis.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the list is empty, an entry is not a distribution, or the
+            entries sample different types.
+        """
+        if not argument.items:
+            self._fail(
+                node, "a mixture needs at least one component", code="qiec-program"
+            )
+        items: list[Value] = []
+        for item in argument.items:
+            if not isinstance(item, DrawArgDist):
+                self._fail(
+                    node,
+                    "every component of a mixture must be a distribution",
+                    code="qiec-program",
+                )
+            items.append(self._nested_distribution(item, scope, state, node))
+        context = scope.context()
+        types = [self._value_type(item, context, node) for item in items]
+        if any(item != types[0] for item in types):
+            # An atom written as a real literal beside an integer-valued
+            # component is an atom of the integers: a count model with a
+            # spike at zero writes ``PointMass(0.0)``.
+            elements = {sampled_element(item) for item in types}
+            if elements == {INT, REAL}:
+                items = [
+                    self._nested_distribution(item, scope, state, node, element=INT)
+                    if isinstance(item, DrawArgDist)
+                    and item.family == "PointMass"
+                    and sampled_element(self._value_type(lowered, context, node))
+                    == REAL
+                    else lowered
+                    for item, lowered in zip(argument.items, items, strict=True)
+                ]
+                types = [self._value_type(item, context, node) for item in items]
+        if any(item != types[0] for item in types):
+            self._fail(
+                node, "mixture components sample differing types", code="qiec-program"
+            )
+        return TensorValue(tuple(items), tensor_type(types[0], (_extent(len(items)),)))
+
     def _nested_distribution(
         self: _Elaborator,
         argument: DrawArgDist,
         scope: _Scope,
         state: _ProgramState,
         node: object,
+        element: TypeApplication | None = None,
     ) -> DistributionValue:
         """Lower a nested family application in argument position.
 
@@ -3152,6 +3684,10 @@ class _ProgramElaboration:
             The program's accumulating state.
         node : object
             The source node.
+        element : TypeApplication | None
+            The element type an atom's value is read at, for a
+            ``PointMass`` whose siblings fix it; ``None`` reads the
+            family's own.
 
         Returns
         -------
@@ -3163,17 +3699,33 @@ class _ProgramElaboration:
         QiecDiagnosticError
             If the family is unknown.
         """
-        record = FAMILIES.get(argument.family)
+        record = FAMILIES.get(OPERATOR_ALIASES.get(argument.family, argument.family))
         if record is None:
             self._fail(
                 node,
                 f"family:{argument.family}: not in the semantic family registry",
                 code="qiec-program",
             )
+        if len(argument.args) > len(record.parameters):
+            self._fail(
+                node,
+                f"family {argument.family!r} takes at most "
+                f"{len(record.parameters)} argument(s), got {len(argument.args)}",
+                code="qiec-program",
+            )
         arguments = [
             (
                 parameter.name,
-                self._draw_argument(item, parameter, PlateShape(), scope, state, node),
+                self._draw_argument(
+                    item,
+                    _ScalarParameter(element)
+                    if element is not None and record.name == "PointMass"
+                    else parameter,
+                    PlateShape(),
+                    scope,
+                    state,
+                    node,
+                ),
             )
             for parameter, item in zip(record.parameters, argument.args, strict=False)
         ]
@@ -3280,7 +3832,7 @@ class _ProgramElaboration:
     def _fibred(
         self: _Elaborator,
         value: Value,
-        via: str,
+        via: tuple[str, ...],
         group: PlateAxis,
         plate: PlateShape,
         scope: _Scope,
@@ -3293,8 +3845,8 @@ class _ProgramElaboration:
         ----------
         value : Value
             The argument.
-        via : str
-            The fibration's name.
+        via : tuple[str, ...]
+            The fibration's names, one per factor of the group.
         group : PlateAxis
             The grouping axis.
         plate : PlateShape
@@ -3323,16 +3875,140 @@ class _ProgramElaboration:
         if len(plate.batch) != 1:
             self._fail(
                 node,
-                f"fibration {via!r} needs an observation plated over one row axis",
+                f"fibration {'*'.join(via)!r} needs an observation plated over "
+                "one row axis",
                 code="qiec-program",
             )
         rows = plate.batch[0].size
-        fibration = self._declare_parameter(
-            via, tensor_type(INT, (rows,)), "fibration", scope, state, node
-        )
-        return Gather(
-            value, Var(fibration), tensor_type(shape[0], (rows, *shape[1][1:]))
-        )
+        grouped = _weight_scope(scope)
+        assert grouped is not None
+        fibration = self._fibration(via, rows, grouped, scope, state, node)
+        return Gather(value, fibration, tensor_type(shape[0], (rows, *shape[1][1:])))
+
+    def _refined(
+        self: _Elaborator,
+        value: Value,
+        refinement: tuple[PlateAxis, Value],
+        plate: PlateShape,
+        scope: _Scope,
+        node: object,
+    ) -> Value:
+        """Re-index an argument shaped by the outer group to a refining group.
+
+        Parameters
+        ----------
+        value : Value
+            The argument.
+        refinement : tuple[PlateAxis, Value]
+            The outer group and the index projecting the refining group's
+            positions onto it.
+        plate : PlateShape
+            The latent's plate, whose batch axis is the refining group.
+        scope : _Scope
+            The scope.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value
+            The argument gathered by the projection when its leading
+            dimension is the outer group, else unchanged.
+        """
+        outer, projection = refinement
+        shape = tensor_shape(self._value_type(value, scope.context(), node))
+        if shape is None or not shape[1] or shape[1][0] != outer.size:
+            return value
+        assert len(plate.batch) == 1
+        rows = plate.batch[0].size
+        return Gather(value, projection, tensor_type(shape[0], (rows, *shape[1][1:])))
+
+    def _fibration(
+        self: _Elaborator,
+        via: tuple[str, ...],
+        rows: IndexTerm,
+        grouped: _Scope,
+        scope: _Scope,
+        state: _ProgramState,
+        node: object,
+    ) -> Value:
+        """The index of each observation row's group.
+
+        A single fibration is the program input of that name; a product
+        fibration into a product group is the row-major flattening of
+        its factors' indices, the last factor varying fastest.
+
+        Parameters
+        ----------
+        via : tuple[str, ...]
+            The fibration's names, one per factor of the group.
+        rows : IndexTerm
+            The observation's row extent.
+        grouped : _Scope
+            The grouped marginalization scope, whose factors the names
+            fill.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+        node : object
+            The source node.
+
+        Returns
+        -------
+        Value
+            A ``Tensor[Int]`` over the rows.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the fibration names fewer or more factors than the group
+            has, or a name is bound by a step at another type.
+        """
+        factors = grouped.factors
+        assert grouped.group is not None
+        if len(via) != len(factors):
+            self._fail(
+                node,
+                f"fibration {'*'.join(via)!r} names {len(via)} factor(s) but the "
+                f"group {grouped.group.name!r} has {len(factors)}",
+                code="qiec-program",
+            )
+        index_type = tensor_type(INT, (rows,))
+        flat: Value | None = None
+        for name, factor in zip(via, factors, strict=True):
+            bound = scope.lookup(name)
+            if bound is not None and bound.type != index_type:
+                self._fail(
+                    node,
+                    f"fibration {name!r} is bound by a step at "
+                    f"{self._render(bound.type)}, not a Tensor[Int] over the rows",
+                    code="qiec-program",
+                )
+            if bound is not None:
+                entry: Value = Var(bound)
+            else:
+                parameter = self._declare_parameter(
+                    name, index_type, "fibration", scope, state, node
+                )
+                entry = Var(parameter)
+            if flat is None:
+                flat = entry
+                continue
+            assert isinstance(factor.size, IndexLiteral)
+            path = ("programs", state.declaration.name, "fibrations", name)
+            scaled = self._primitive(
+                "mul_int",
+                (flat, LiteralValue(factor.size.value, INT)),
+                node,
+                (*path, "scale"),
+                shape=(rows,),
+            )
+            flat = self._primitive(
+                "add_int", (scaled, entry), node, (*path, "offset"), shape=(rows,)
+            )
+        assert flat is not None
+        return flat
 
     def _widen_alphabet(
         self: _Elaborator,
@@ -3472,7 +4148,9 @@ class _ProgramElaboration:
         The morphism's weight and bias are program inputs; each head of
         the family reads its row block of the map applied to the
         conditioning row, which is the step's arguments or, absent any,
-        the program's domain inputs.
+        the program's domain inputs. A morphism over a finite domain
+        reads a table instead, one row per element of the domain, at the
+        element the program is applied to.
 
         Parameters
         ----------
@@ -3516,6 +4194,11 @@ class _ProgramElaboration:
             )
         width = info.real_width
         heads = _CONDITIONAL_HEADS[record.name]
+        finite = self._finite_domain(morphism)
+        if finite is not None and not step.args:
+            return self._table_arguments(
+                morphism, step, heads, width, finite, scope, state
+            )
         sources: list[Value] = []
         widths: list[int] = []
         if step.args:
@@ -3614,6 +4297,102 @@ class _ProgramElaboration:
                         Var(weight),
                         Var(bias),
                         tuple(sources),
+                        index * width,
+                        width,
+                        transform,
+                        result,
+                    ),
+                )
+            )
+        return arguments
+
+    def _finite_domain(
+        self: _Elaborator, morphism: MorphismDecl
+    ) -> tuple[str, int] | None:
+        """The one finite object a morphism's domain is, if it is one.
+
+        Parameters
+        ----------
+        morphism : MorphismDecl
+            The morphism.
+
+        Returns
+        -------
+        tuple[str, int] | None
+            The object's name and extent when the domain is a single
+            finite object, else ``None``.
+        """
+        factors = _factors(morphism.domain)
+        if len(factors) != 1 or not isinstance(factors[0], TypeName):
+            return None
+        info = self._program_objects.get(factors[0].name)
+        if info is None or not info.finite or info.extent is None:
+            return None
+        return factors[0].name, info.extent
+
+    def _table_arguments(
+        self: _Elaborator,
+        morphism: MorphismDecl,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        heads: tuple[tuple[str, Literal["identity", "exp_floor"]], ...],
+        width: int,
+        finite: tuple[str, int],
+        scope: _Scope,
+        state: _ProgramState,
+    ) -> list[tuple[str, Value]]:
+        """The arguments of a draw through a kernel over a finite domain.
+
+        The morphism's table is a program input with one row per
+        element of the domain and one column per head coordinate; the
+        program's domain input names the row.
+
+        Parameters
+        ----------
+        morphism : MorphismDecl
+            The morphism.
+        step : SampleStep | ObserveStep | MarginalizeStep
+            The step.
+        heads : tuple[tuple[str, Literal["identity", "exp_floor"]], ...]
+            The family's heads and their transforms.
+        width : int
+            The codomain's real width.
+        finite : tuple[str, int]
+            The domain object's name and extent.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+
+        Returns
+        -------
+        list[tuple[str, Value]]
+            One table head per family parameter.
+        """
+        del morphism
+        name, extent = finite
+        element = self._declare_parameter(
+            name.lower(), INT, "domain", scope, state, step
+        )
+        rows = width * len(heads)
+        table = self._declare_parameter(
+            f"{step.morphism}_param_table",
+            tensor_type(REAL, (_extent(extent), _extent(rows))),
+            "table",
+            scope,
+            state,
+            step,
+        )
+        arguments: list[tuple[str, Value]] = []
+        for index, (head, transform) in enumerate(heads):
+            result: TypeExpr = (
+                REAL if width == 1 else tensor_type(REAL, (_extent(width),))
+            )
+            arguments.append(
+                (
+                    head,
+                    TableMap(
+                        Var(table),
+                        Var(element),
                         index * width,
                         width,
                         transform,
@@ -4024,6 +4803,148 @@ def _axis_name(expr: ObjectExpr) -> str:
     return expr.kind
 
 
+def _fibration_names(step: ObserveStep) -> tuple[str, ...] | None:
+    """The names of an observation's fibration into its group.
+
+    Parameters
+    ----------
+    step : ObserveStep
+        The step.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        The single ``via`` name, the product's names, or ``None`` when
+        the observation is not fibred.
+    """
+    if step.via_axes:
+        return tuple(step.via_axes)
+    if step.via is not None:
+        return (step.via,)
+    return None
+
+
+def _product_axis(factors: tuple[PlateAxis, ...]) -> PlateAxis:
+    """The flat axis a product grouping plate is indexed by.
+
+    Parameters
+    ----------
+    factors : tuple[PlateAxis, ...]
+        The product's axes, each of literal extent.
+
+    Returns
+    -------
+    PlateAxis
+        The axis named by the factors, of the product of their extents.
+    """
+    extent = 1
+    for factor in factors:
+        assert isinstance(factor.size, IndexLiteral)
+        extent *= factor.size.value
+    return PlateAxis("x".join(factor.name for factor in factors), _extent(extent))
+
+
+def _draw_dependencies(step: SampleStep) -> set[str]:
+    """The names a draw step's arguments read.
+
+    Parameters
+    ----------
+    step : SampleStep
+        The step.
+
+    Returns
+    -------
+    set[str]
+        Every bare name, indexed base, and index the arguments mention.
+    """
+    names: set[str] = set()
+
+    def visit(argument: DrawArg | str | float) -> None:
+        """Collect the names one argument reads.
+
+        Parameters
+        ----------
+        argument : DrawArg | str | float
+            The argument.
+        """
+        if isinstance(argument, DrawArgName):
+            names.add(argument.text)
+        elif isinstance(argument, DrawArgIndex):
+            names.add(argument.name)
+            names.update(argument.indices)
+        elif isinstance(argument, DrawArgDist | DrawArgList):
+            for item in (
+                argument.args if isinstance(argument, DrawArgDist) else argument.items
+            ):
+                visit(item)
+        elif isinstance(argument, str) and not _is_number_text(argument):
+            base, _, rest = argument.partition("[")
+            names.add(base)
+            if rest:
+                names.update(item.rstrip("]") for item in rest.split("["))
+
+    for argument in step.args or ():
+        visit(argument)
+    return names
+
+
+def _step_binders(step: ProgramStep) -> tuple[str, ...]:
+    """The names a step binds in its scope.
+
+    Parameters
+    ----------
+    step : ProgramStep
+        The step.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The bound names; empty for a step binding nothing.
+    """
+    if isinstance(step, SampleStep | ObserveStep):
+        return tuple(step.vars)
+    if isinstance(step, LetStep | ScoreStep | CallStep):
+        return (step.name,)
+    if isinstance(step, MarginalizeStep):
+        return (step.var,)
+    return ()
+
+
+def _group_projection(factors: tuple[PlateAxis, ...], outer: PlateAxis) -> Value | None:
+    """The index projecting a product group's positions onto one factor.
+
+    Parameters
+    ----------
+    factors : tuple[PlateAxis, ...]
+        The product group's axes, row-major, each of literal extent.
+    outer : PlateAxis
+        The enclosing group's axis.
+
+    Returns
+    -------
+    Value | None
+        A literal ``Tensor[Int]`` over the product's positions naming
+        each position's coordinate along the factor that is the outer
+        axis; ``None`` when no factor is.
+    """
+    position = next(
+        (index for index, factor in enumerate(factors) if factor.name == outer.name),
+        None,
+    )
+    if position is None:
+        return None
+    sizes: list[int] = []
+    for factor in factors:
+        assert isinstance(factor.size, IndexLiteral)
+        sizes.append(factor.size.value)
+    stride = math.prod(sizes[position + 1 :])
+    total = math.prod(sizes)
+    entries = tuple(
+        LiteralValue((flat // stride) % sizes[position], INT) for flat in range(total)
+    )
+    return TensorValue(entries, tensor_type(INT, (_extent(total),)))
+
+
 def _enclosing_group(scope: _Scope) -> PlateAxis | None:
     """The grouping axis of the nearest grouped marginalization.
 
@@ -4225,7 +5146,10 @@ def _origin_at(
 __all__ = [
     "COLLECT_HANDLER",
     "GAP_CODE",
+    "ENUMERATE_GROUPED_HANDLER",
     "ENUMERATE_HANDLER",
+    "MARGINAL_HANDLERS",
+    "MARGINAL_REDUCTIONS",
     "ObjectInfo",
     "RANDOM_INSTANCE",
     "SCORE_INSTANCE",

@@ -28,6 +28,7 @@ type ParameterRole = Literal[
     "fibration",
     "weight",
     "bias",
+    "table",
     "kernel-input",
 ]
 """How a program parameter is supplied.
@@ -37,7 +38,9 @@ real factor of its domain; ``scalar`` ones are its declared parameters;
 ``data`` ones are free names its steps read; ``observation`` ones are the
 values ``observe`` steps score; ``fibration`` ones map observation rows to
 groups; ``weight`` and ``bias`` are the numbers of a declared morphism's
-affine parameter map; ``kernel-input`` holds a kernel's input locations.
+affine parameter map and ``table`` those of a morphism over a finite
+domain, one row per element; ``kernel-input`` holds a kernel's input
+locations.
 """
 
 type SiteKind = Literal["sample", "observe", "marginal"]

@@ -50,6 +50,7 @@ from quivers.analysis.scope import (
 )
 from quivers.dsl.constraints import Violation, check_constraints
 from quivers.dsl.emit import module_to_source
+from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.qiec_tooling import (
     analyze_module,
     qiec_binding_candidates,
@@ -1746,7 +1747,7 @@ class ReplSession:
         # Re-run statement compilation so the env is fresh.
         try:
             scratch.compile()
-        except CompileError as e:
+        except (CompileError, QiecDiagnosticError) as e:
             return _err(f"compile error: {e}")
         # Walk the expression once and emit shape info as we go.
         lines: list[str] = []

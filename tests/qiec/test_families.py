@@ -30,6 +30,9 @@ _COMPOSITIONAL_EXTRAS = {
     "Independent": ("base", "reinterpreted_batch_ndims"),
     "Transformed": ("base", "transforms"),
     "Truncated": ("base",),
+    "Restrict": ("base", "low", "high"),
+    "Normalize": ("base",),
+    "PointMass": ("value",),
 }
 
 

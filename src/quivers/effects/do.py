@@ -1,52 +1,89 @@
-"""Pearl's do-operator as an effect handler.
+"""Intervention handler: fix named sites without scoring them.
 
-`DoHandler` replaces named sample sites with fixed values *without*
-contributing their log-density to the joint. This is the
-interventional semantics of
-[Pearl (1995)](https://doi.org/10.1093/biomet/82.4.669) and
-[Pearl (2009)](https://doi.org/10.1017/CBO9780511803161): removing
-the incoming edges into the intervened variable and forcing its
-value. Contrast with `condition`, which observes the site and still
-scores it.
+`DoHandler` implements Pearl's ``do`` operator on the effect stack. A
+site whose name appears in its data is answered with the given value and
+contributes nothing to the joint: under intervention its distribution
+is replaced by a point mass. Downstream sites see the intervened value,
+and a trace records the site as deterministic.
 """
 
 from __future__ import annotations
 
 import torch
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
+from quivers.qiec.builtins import intervene_handler
+from quivers.qiec.evaluator import RuntimeRequest
 
 
 class DoHandler(EffectHandler):
-    """Perform Pearl's do-intervention on named sample sites.
-
-    A site whose name appears in ``data`` is rewritten to a
-    deterministic site with value ``data[name]`` and ``log_prob``
-    equal to zero. Downstream sites see the intervened value; the
-    intervened site itself no longer contributes to the joint,
-    because under intervention its distribution is replaced by a
-    point mass.
+    """Intervene on named sites.
 
     Parameters
     ----------
     data : dict[str, torch.Tensor]
-        Site-name -> intervened value bindings.
+        Site name to the value the site is fixed to.
     """
 
     def __init__(self, data: dict[str, torch.Tensor]) -> None:
-        self.data = data
+        self.data = dict(data)
 
-    def _pyro_sample(self, msg: Message) -> None:
-        if msg.name in self.data:
-            val = self.data[msg.name]
-            msg.value = val
-            msg.log_prob = torch.zeros(
-                val.shape[:1] if val.dim() > 0 else (1,),
-                device=val.device,
-            )
-            msg.is_deterministic = True
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install an intervening handler of the ``random`` instance.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared; each intervened site's address is
+            recorded on it, so a trace marks the site deterministic.
+
+        Returns
+        -------
+        tuple[Installation, ...]
+            The intervening handler.
+        """
+
+        def mark(request: RuntimeRequest, value: object) -> None:
+            """Record an intervened site on the run.
+
+            Parameters
+            ----------
+            request : RuntimeRequest
+                The site's request.
+            value : object
+                The value fixed, unused.
+            """
+            del value
+            run.interventions.add(run.key_of(request))
+
+        return (
+            Installation(
+                run.kernel.random,
+                intervene_handler(
+                    self.data,
+                    result_validator=run.validator,
+                    on_intervene=mark,
+                    answer_type=run.result_type,
+                    key=f"do-{id(self):x}",
+                ),
+            ),
+        )
 
 
 def do(data: dict[str, torch.Tensor]) -> DoHandler:
-    """Return a `DoHandler` that intervenes on the given sites."""
+    """Return a `DoHandler` intervening on the given site values.
+
+    Parameters
+    ----------
+    data : dict[str, torch.Tensor]
+        Site name to value.
+
+    Returns
+    -------
+    DoHandler
+        The handler.
+    """
     return DoHandler(data)
+
+
+__all__ = ["DoHandler", "do"]

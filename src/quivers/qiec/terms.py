@@ -576,6 +576,43 @@ class AffineMap:
 
 
 @dataclass(frozen=True, slots=True)
+class TableMap:
+    """One head of a table-indexed parameter map, a row block of ``T[i]``.
+
+    A kernel over a finite domain reads its parameters from a table
+    with one row per element of the domain: for ``i`` below ``rows``
+    the head's coordinate ``i`` is ``table[index, row_offset + i]``,
+    with ``exp`` exponentiating every coordinate afterwards and
+    ``exp_floor`` exponentiating and clamping each at the scale floor.
+
+    Parameters
+    ----------
+    table
+        A ``Tensor[Real]([entries, total_rows])``.
+    index
+        An ``Int`` naming the row, the element of the domain.
+    row_offset
+        The first column of the head's block.
+    rows
+        The block's width.
+    transform
+        ``"identity"``, ``"exp"``, or ``"exp_floor"``.
+    result_type
+        ``Tensor[Real]([rows])``, or ``Real`` for a one-column head.
+    tag
+        The serialization discriminator; always ``"table_map"``.
+    """
+
+    table: Value
+    index: Value
+    row_offset: int
+    rows: int
+    transform: Literal["identity", "exp", "exp_floor"]
+    result_type: TypeExpr
+    tag: Literal["table_map"] = "table_map"
+
+
+@dataclass(frozen=True, slots=True)
 class SiteValue:
     """A named sample site.
 
@@ -645,6 +682,7 @@ type Value = (
     | SegmentSum
     | KernelMatrix
     | AffineMap
+    | TableMap
     | Reduction
     | Rowwise
     | Comprehension
@@ -956,6 +994,7 @@ __all__ = [
     "SegmentSum",
     "KernelMatrix",
     "AffineMap",
+    "TableMap",
     "SCALE_FLOOR",
     "Reduction",
     "ReductionOperator",

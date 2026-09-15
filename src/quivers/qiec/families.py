@@ -8,6 +8,19 @@ The compiler, the reference runtime, and every renderer read this table;
 host-specific metadata such as the ``torch.distributions`` class is kept
 beside it in the layers that need it and checked against it in tests, so a
 family cannot mean one thing to the checker and another to a backend.
+
+Four families form the measure algebra a program's operator forms lower
+to. ``Restrict(base, low, high)`` is the restriction of a base to an
+interval, a sub-probability measure whose density is the base's inside the
+interval and whose mass is the base's mass there; ``Mixture(weights,
+component)`` is the weighted sum of measures, with raw weights, whose mass
+is the weighted sum of the components' masses and whose ``component`` is
+either one sampleable plated over the mixture axis or a tensor of
+sampleables, one per component; ``Normalize(base)`` rescales a measure to
+a probability measure; ``PointMass(value)`` is the Dirac measure. A
+``sample`` or ``observe`` step normalizes the measure it draws from, so
+``Restrict`` at a step is the truncated family and a mixture of restricted
+components weighs each by its mass.
 """
 
 from __future__ import annotations
@@ -24,7 +37,9 @@ type ParameterConstraint = str
 ``"unit_interval"``, ``"simplex"``, ``"positive_definite"``, or
 ``"dependent"`` when the admissible values depend on other parameters. A
 compositional family's parameters use ``"sampleable"`` for a distribution
-it is built from and ``"transform"`` for a named bijector chain."""
+it is built from and ``"transform"`` for a named bijector chain; an atom's
+``"numeric"`` value is an integer or a real, and fixes which the atom
+samples."""
 
 type SupportKind = str
 """A symbolic description of where samples live, in the same vocabulary as
@@ -1214,6 +1229,93 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
             "pyro": "TruncatedDistribution",
             "turing": "truncated",
         },
+    ),
+    DistributionFamily(
+        "ZeroInflatedPoisson",
+        (
+            FamilyParameter("zero_prob", "unit_interval", 0),
+            FamilyParameter("rate", "positive", 0),
+        ),
+        support="nonnegative_integer",
+        element=INT,
+        event_rank=0,
+        event_source=None,
+        discrete=True,
+        reparameterizable=False,
+        compositional=False,
+        targets={},
+    ),
+    DistributionFamily(
+        "HurdlePoisson",
+        (
+            FamilyParameter("zero_prob", "unit_interval", 0),
+            FamilyParameter("rate", "positive", 0),
+        ),
+        support="nonnegative_integer",
+        element=INT,
+        event_rank=0,
+        event_source=None,
+        discrete=True,
+        reparameterizable=False,
+        compositional=False,
+        targets={},
+    ),
+    DistributionFamily(
+        "ZeroOneInflatedBeta",
+        (
+            FamilyParameter("mu", "unit_interval", 0),
+            FamilyParameter("phi", "positive", 0),
+            FamilyParameter("zoi", "unit_interval", 0),
+            FamilyParameter("coi", "unit_interval", 0),
+        ),
+        support="unit_interval",
+        element=REAL,
+        event_rank=0,
+        event_source=None,
+        discrete=False,
+        reparameterizable=False,
+        compositional=False,
+        targets={},
+    ),
+    DistributionFamily(
+        "Restrict",
+        (
+            FamilyParameter("base", "sampleable", 0),
+            FamilyParameter("low", "real", 0),
+            FamilyParameter("high", "real", 0),
+        ),
+        support="dependent",
+        element=REAL,
+        event_rank=0,
+        event_source=None,
+        discrete=False,
+        reparameterizable=False,
+        compositional=True,
+        targets={},
+    ),
+    DistributionFamily(
+        "Normalize",
+        (FamilyParameter("base", "sampleable", 0),),
+        support="dependent",
+        element=REAL,
+        event_rank=0,
+        event_source=None,
+        discrete=False,
+        reparameterizable=False,
+        compositional=True,
+        targets={},
+    ),
+    DistributionFamily(
+        "PointMass",
+        (FamilyParameter("value", "numeric", 0),),
+        support="dependent",
+        element=REAL,
+        event_rank=0,
+        event_source=None,
+        discrete=False,
+        reparameterizable=False,
+        compositional=False,
+        targets={},
     ),
     DistributionFamily(
         "LKJCorrelationFactor",

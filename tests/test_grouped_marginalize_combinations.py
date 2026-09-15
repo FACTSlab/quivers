@@ -44,11 +44,8 @@ class TestSurfaceCombinations:
         program nested_prod : Resp -> Resp
             sample probs_outer : K_outer <- HalfNormal(1.0)
             sample probs_inner : K_inner <- HalfNormal(1.0)
-            sample outer_idx : Resp <- HalfNormal(1.0)
-            sample item_idx : Resp <- HalfNormal(1.0)
-            sample subj_idx : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_outer) [over=Item]
-                marginalize inner : K_inner <- Dirichlet(probs_inner) [over=[Item, Subj]]
+            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item]
+                marginalize inner : K_inner <- Categorical(probs_inner) [over=[Item, Subj]]
                     observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
             return probs_outer
         export nested_prod
@@ -73,10 +70,8 @@ class TestSurfaceCombinations:
         program mixed_reds : Resp -> Resp
             sample probs_outer : K_outer <- HalfNormal(1.0)
             sample probs_inner : K_inner <- HalfNormal(1.0)
-            sample outer_idx : Resp <- HalfNormal(1.0)
-            sample inner_idx : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_outer) [over=Item, reduction=logsumexp]
-                marginalize inner : K_inner <- Dirichlet(probs_inner) [over=Subj, reduction=sum]
+            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item, reduction=logsumexp]
+                marginalize inner : K_inner <- Categorical(probs_inner) [over=Subj, reduction=sum]
                     observe r : Resp <- HalfNormal(1.0) [via=inner_idx]
             return probs_outer
         export mixed_reds
@@ -106,12 +101,9 @@ class TestSurfaceCombinations:
             sample probs_a : K_a <- HalfNormal(1.0)
             sample probs_b : K_b <- HalfNormal(1.0)
             sample probs_c : K_c <- HalfNormal(1.0)
-            sample idx_a : Resp <- HalfNormal(1.0)
-            sample idx_b : Resp <- HalfNormal(1.0)
-            sample idx_c : Resp <- HalfNormal(1.0)
-            marginalize a : K_a <- Dirichlet(probs_a) [over=G_a]
-                marginalize b : K_b <- Dirichlet(probs_b) [over=G_b]
-                    marginalize c : K_c <- Dirichlet(probs_c) [over=G_c]
+            marginalize a : K_a <- Categorical(probs_a) [over=G_a]
+                marginalize b : K_b <- Categorical(probs_b) [over=G_b]
+                    marginalize c : K_c <- Categorical(probs_c) [over=G_c]
                         observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_a]
             return mu_shift
         export three_with_cont
@@ -148,12 +140,9 @@ class TestRuntimeCombinations:
             sample probs_a : K_a <- HalfNormal(1.0)
             sample probs_b : K_b <- HalfNormal(1.0)
             sample probs_c : K_c <- HalfNormal(1.0)
-            sample idx_a : Resp <- HalfNormal(1.0)
-            sample idx_b : Resp <- HalfNormal(1.0)
-            sample idx_c : Resp <- HalfNormal(1.0)
-            marginalize a : K_a <- Dirichlet(probs_a) [over=G_a]
-                marginalize b : K_b <- Dirichlet(probs_b) [over=G_b]
-                    marginalize c : K_c <- Dirichlet(probs_c) [over=G_c]
+            marginalize a : K_a <- Categorical(probs_a) [over=G_a]
+                marginalize b : K_b <- Categorical(probs_b) [over=G_b]
+                    marginalize c : K_c <- Categorical(probs_c) [over=G_c]
                         observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_a]
             return mu_shift
         export three_with_cont
@@ -187,11 +176,8 @@ class TestRuntimeCombinations:
         program nested_prod : Resp -> Resp
             sample probs_outer : K_outer <- HalfNormal(1.0)
             sample probs_inner : K_inner <- HalfNormal(1.0)
-            sample outer_idx : Resp <- HalfNormal(1.0)
-            sample item_idx : Resp <- HalfNormal(1.0)
-            sample subj_idx : Resp <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Dirichlet(probs_outer) [over=Item]
-                marginalize inner : K_inner <- Dirichlet(probs_inner) [over=[Item, Subj]]
+            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item]
+                marginalize inner : K_inner <- Categorical(probs_inner) [over=[Item, Subj]]
                     observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
             return probs_outer
         export nested_prod

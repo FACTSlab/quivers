@@ -1,78 +1,58 @@
-"""Algebraic effect handlers for probabilistic programs.
+"""Effect handlers for probabilistic programs, as lexical kernel handlers.
 
-An `EffectHandler` sits on a thread-local handler stack. When a
-`MonadicProgram` executes under one or more handlers, every
-observable action (a `sample`, an `observe`, a `let`, a `score`) is
-wrapped in a `Message` that walks the stack outer-to-inner, giving
-each handler the chance to intercept, rewrite, or annotate the
-action. The design is a direct port of the Pyro `poutine` /
-NumPyro `handlers` `Messenger` shape ([Pyro poutine
-docs](https://docs.pyro.ai/en/stable/poutine.html); [NumPyro
-handlers docs](https://num.pyro.ai/en/stable/handlers.html))
-grounded in the operational-semantics account of
-[Plotkin and Pretnar (2009)](https://doi.org/10.1007/978-3-642-00590-9_7)
-and the eff-language calculus of
-[Bauer and Pretnar (2015)](https://doi.org/10.1016/j.jlamp.2014.02.001).
-The application of algebraic effects to probabilistic programming
-is developed by
-[Scibior et al. (2018)](https://doi.org/10.1145/3236778)
-and
-[Nguyen et al. (2023)](https://doi.org/10.1145/3609026.3609729).
+A `MonadicProgram` runs on the reference machine as the kernel
+computation :mod:`quivers.effects.program_module` encodes it to, whose
+sites are ``Random.sample`` requests on the program's ``random`` instance
+and whose densities are ``Score.add`` requests on its ``score`` instance.
+An `EffectHandler` is a description of a handler of one of those
+instances: entering it as a context manager pushes it on a thread-local
+stack, and `quivers.effects.interpreter.run_program` installs every
+handler on the stack as a lexical handler around the program, in the
+order the stack gives, so the composition rules are the kernel's own.
+The design descends from the Pyro ``poutine`` and NumPyro ``handlers``
+shape ([Pyro poutine docs](https://docs.pyro.ai/en/stable/poutine.html))
+and from the operational account of handlers in
+[Plotkin and Pretnar (2009)](https://doi.org/10.1007/978-3-642-00590-9_7);
+its application to probabilistic programming follows
+[Scibior et al. (2018)](https://doi.org/10.1145/3236778).
 
-Distinction from
-[`quivers.monadic.algebraic.Handler`][quivers.monadic.algebraic.Handler]:
-`EffectHandler` is a mutable-message dispatcher intended for
-runtime interception of a `MonadicProgram` executing in the
-concrete torch semantics. `monadic.algebraic.Handler` is a
-free-monad-over-signature interpreter that folds a bounded-depth
-signature tree into a target monad by post-order recursion on the
-flat-FinSet carrier. The two abstractions cover different
-territories: use `EffectHandler` for Pyro-style handler stacks
-over sample / observe / let / score sites, `monadic.algebraic.Handler`
-for structural interpretations of a user-defined effect signature
-into a target monad.
-
-A `Message` carries the site name, the site kind (``sample``,
-``observe``, ``let``, ``score``), a reference to the underlying
-distribution morphism (when applicable), the current value, the
-current log-density, and a ``stop`` flag that lets a handler
-short-circuit further intervention. Handlers respond by mutating
-the message: `clamp` clamps ``value``; `do` clamps ``value`` and
-zeroes ``log_prob``; `mask` element-wise gates ``log_prob``;
-`scale` multiplies ``log_prob``; and so on.
-
-The stack is pushed outer-first. When the program interpreter emits
-a message it calls `apply_stack(msg)`, which invokes each handler
-outer-to-inner via `_process_message`, then runs the site
-computation (unless a handler already supplied ``value``), then
-invokes each handler inner-to-outer via `_postprocess_message`.
-This is the standard `Messenger` protocol; the two-pass discipline
-lets `trace` observe the final state after every rewrite.
+Two rules govern how a stack composes. A handler of the ``random``
+instance sees a site's request before any handler outside it, and sees
+the outer answer flow back through its resumption, so an inner trace
+records what an outer clamp or intervention decided. The density a site
+contributes is a ``Score.add`` the answering handler emits outward, so
+every handler of the ``score`` instance on the stack transforms every
+site's density on its way to the run's accumulator, and a trace reads a
+site's density from what reached the accumulator under that site's
+provenance.
 """
 
 from __future__ import annotations
 
-from abc import ABC
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, replace
 import threading
 from typing import Self
 
 import torch
 
-from quivers.continuous.morphisms import ContinuousMorphism
-
+from quivers.effects.program_module import ProgramKernel
+from quivers.qiec.evaluator import RuntimeHandler, RuntimeRequest, RuntimeValidator
+from quivers.qiec.module import NamedEffectInstance
+from quivers.qiec.types import TypeExpr
 
 _LOCAL = threading.local()
 
 
-def _handler_stack() -> "list[EffectHandler]":
+def _handler_stack() -> list[EffectHandler]:
     """Return the current thread's active handler stack.
 
-    A fresh list is materialised on first access per thread; every
-    handler's `__enter__` appends to this list and every
-    `__exit__` pops it. The stack is ordered outer-first, matching
-    Pyro's `PYRO_STACK` convention.
+    Returns
+    -------
+    list[EffectHandler]
+        The stack, ordered outer-first; a fresh list on first access per
+        thread. Every handler's `__enter__` appends to it and every
+        `__exit__` pops it.
     """
     stack = getattr(_LOCAL, "stack", None)
     if stack is None:
@@ -81,78 +61,181 @@ def _handler_stack() -> "list[EffectHandler]":
     return stack
 
 
-@dataclass
-class Message:
-    """Effect message flowing through the handler stack.
+type SiteKey = tuple[str, tuple[tuple[str, str | int], ...], tuple[int, ...]]
+"""The dynamic address of one occurrence of a site: its static identity,
+its dynamic address frames, and its resumption path."""
 
-    Every observable action a program executes emits a `Message`
-    that each active handler sees in turn. Handlers mutate the
-    message in place: setting ``value`` clamps the site,
-    multiplying ``log_prob`` reweights it, setting ``stop = True``
-    prevents inner handlers from firing.
+
+@dataclass(slots=True)
+class Contribution:
+    """One score contribution that reached the run's accumulator.
 
     Parameters
     ----------
-    kind : str
-        One of ``"sample"``, ``"observe"``, ``"let"``, ``"score"``.
-    name : str
-        Site name (the bound variable).
-    morphism : ContinuousMorphism or None
-        The site's distribution morphism. ``None`` for ``let`` and
-        ``score`` sites.
-    input : torch.Tensor or None
-        Conditioning input tensor for the morphism. ``None`` for
-        `let` and `score` sites.
-    value : torch.Tensor or None
-        Current value at the site. ``None`` until a handler or the
-        default interpretation supplies it.
-    log_prob : torch.Tensor or None
-        Current log-density contribution. ``None`` until computed.
-    is_observed : bool
-        ``True`` when the site was clamped by ``condition`` or by
-        the DSL's ``observe`` keyword.
-    is_deterministic : bool
-        ``True`` for `let` bindings and for sample sites that a
-        handler has demoted to deterministic (e.g. after a `do`
-        intervention).
-    stop : bool
-        When ``True``, inner handlers and the default site
-        interpretation are skipped.
-    metadata : dict[str, object]
-        Free-form per-site annotations handlers may set.
+    key
+        The address of the site the contribution was derived from.
+    role
+        What the contribution was for, from the emitting handler's
+        provenance: a scored draw, a conditioned observation, a replay.
+    weight
+        The contribution as it arrived, after every transformer.
+    path
+        The structural path of the request's origin; a score step of the
+        program has the path of its step, a derived contribution the
+        path it was generated at.
     """
 
-    kind: str
-    name: str
-    morphism: ContinuousMorphism | None = None
-    input: torch.Tensor | None = None
-    value: torch.Tensor | None = None
-    log_prob: torch.Tensor | None = None
-    is_observed: bool = False
-    is_deterministic: bool = False
-    stop: bool = False
-    metadata: dict[str, torch.Tensor | str | bool | int | float] = field(
-        default_factory=dict
-    )
+    key: SiteKey
+    role: str
+    weight: torch.Tensor
+    path: tuple[str | int, ...] = ()
+
+
+@dataclass(slots=True)
+class RunContext:
+    """What one run shares with the handlers installed on it.
+
+    Parameters
+    ----------
+    kernel
+        The program's kernel encoding.
+    validator
+        The host value validator every handler's clauses check with.
+    contributions
+        The score contributions that reached the accumulator, in order.
+    interventions
+        The sites an intervention fixed, by address.
+    annotations
+        Per-site annotations handlers attach, keyed by site label.
+    parameters
+        The learned parameters of the program's morphisms by qualified
+        name, as the parameter store answers them.
+    observations
+        The run's observations at declared sites, by site label.
+    """
+
+    kernel: ProgramKernel
+    validator: RuntimeValidator
+    contributions: list[Contribution] = field(default_factory=list)
+    interventions: set[SiteKey] = field(default_factory=set)
+    annotations: dict[str, dict[str, object]] = field(default_factory=dict)
+    parameters: dict[str, torch.Tensor] = field(default_factory=dict)
+    observations: dict[str, torch.Tensor] = field(default_factory=dict)
+
+    @property
+    def result_type(self) -> TypeExpr:
+        """The type of the program's result.
+
+        Returns
+        -------
+        TypeExpr
+            The entry computation's result type, which every transparent
+            handler answers with.
+        """
+        return self.kernel.result_type
+
+    def key_of(self, request: RuntimeRequest) -> SiteKey:
+        """The address of the site a request belongs to.
+
+        Parameters
+        ----------
+        request : RuntimeRequest
+            A sample request, or a score request derived from one.
+
+        Returns
+        -------
+        SiteKey
+            The request's own address for a sample request; for a derived
+            request, the address of the site it was derived from.
+        """
+        static, dynamic, path = request.address
+        parents = request.core.origin.parents
+        if parents:
+            # A derived request's declared dynamic path is the address of
+            # the site it was derived from.
+            static = str(parents[0])
+            dynamic = tuple(
+                (frame.scope, frame.key) for frame in request.core.origin.dynamic_path
+            )
+        return (static, dynamic, path)
+
+
+@dataclass(frozen=True, slots=True)
+class Installation:
+    """One lexical handler a stack entry installs on a run.
+
+    Parameters
+    ----------
+    instance
+        The instance the handler handles: the program's ``random``,
+        ``score``, or ``param`` instance.
+    runtime
+        The executable handler, whose definition joins the run's module.
+    """
+
+    instance: NamedEffectInstance
+    runtime: RuntimeHandler
+
+    def named(self, name: str) -> Installation:
+        """The installation with its handler declared under a name.
+
+        A module's handler names are unique, while the prelude factories
+        name every handler of a kind alike; a run renames each
+        installation it makes.
+
+        Parameters
+        ----------
+        name : str
+            The declaration's name.
+
+        Returns
+        -------
+        Installation
+            The installation with the renamed declaration, the rename
+            carried into any per-installation factory the handler has.
+        """
+        definition = replace(self.runtime.definition, name=name)
+        runtime = replace(self.runtime, definition=definition)
+        factory = self.runtime.context_factory
+        if factory is not None:
+
+            def context_factory() -> RuntimeHandler:
+                """Build a fresh installation under the renamed declaration.
+
+                Returns
+                -------
+                RuntimeHandler
+                    The handler the original factory builds, renamed.
+                """
+                return replace(factory(), definition=definition)
+
+            runtime.context_factory = context_factory
+        return Installation(self.instance, runtime)
 
 
 class EffectHandler(ABC):
-    """Abstract base for effect handlers.
+    """A handler of a program's canonical instances, stacked by ``with``.
 
-    Subclass and override any of the per-kind hooks
-    (`_pyro_sample`, `_pyro_observe`, `_pyro_let`,
-    `_pyro_score`) or the catch-all `_process_message` and
-    `_postprocess_message`. The handler activates by being used as
-    a context manager:
+    Subclasses implement :meth:`install`, which builds the lexical
+    handlers the entry contributes to one run, and may implement
+    :meth:`finish`, which runs after the program returns with the run's
+    context. The handler activates by being used as a context manager:
 
-        with condition({"z": z_val}):
+        with clamp({"z": z_val}):
             samples = predictive.rsample(x)
 
-    Nested `with` blocks stack handlers outer-first; this handler
-    is closest to the effect on the inner side.
+    Nested ``with`` blocks stack handlers outer-first; the innermost
+    handler of an instance is installed closest to the program.
     """
 
     def __enter__(self) -> Self:
+        """Push the handler on the thread's stack.
+
+        Returns
+        -------
+        Self
+            The handler, so ``with handler as h`` binds it.
+        """
         _handler_stack().append(self)
         return self
 
@@ -162,6 +245,24 @@ class EffectHandler(ABC):
         exc: BaseException | None,
         tb: object,
     ) -> None:
+        """Pop the handler off the thread's stack.
+
+        Parameters
+        ----------
+        exc_type : type[BaseException] | None
+            The exception type leaving the block, if any.
+        exc : BaseException | None
+            The exception, if any.
+        tb : object
+            Its traceback, if any.
+
+        Raises
+        ------
+        RuntimeError
+            If the handler is not the top of the stack, which means the
+            blocks were exited out of order.
+        """
+        del exc_type, exc, tb
         stack = _handler_stack()
         if not stack or stack[-1] is not self:
             raise RuntimeError(
@@ -170,80 +271,38 @@ class EffectHandler(ABC):
             )
         stack.pop()
 
-    def _process_message(self, msg: Message) -> None:
-        """Dispatch to a per-kind hook before the site runs.
+    @abstractmethod
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Build the lexical handlers this entry installs on a run.
 
-        The default routes to `_pyro_sample`, `_pyro_observe`,
-        `_pyro_let`, or `_pyro_score` by ``msg.kind``. Subclasses
-        override the specific hooks; override this method directly
-        only when a handler must see every kind.
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
+
+        Returns
+        -------
+        tuple[Installation, ...]
+            The handlers, each naming the instance it handles.
         """
-        method = getattr(self, f"_pyro_{msg.kind}", None)
-        if method is not None:
-            method(msg)
 
-    def _postprocess_message(self, msg: Message) -> None:
-        """Dispatch to a per-kind post-hook after the site runs.
+    def finish(self, run: RunContext, output: object) -> None:
+        """Observe the completed run.
 
-        Handlers that record state (e.g. `TraceHandler`) use this
-        pass to snapshot the final message. Handlers that only
-        rewrite the site typically leave this a no-op.
+        Parameters
+        ----------
+        run : RunContext
+            The run, with every contribution the accumulator received.
+        output : object
+            The program's output.
         """
-        method = getattr(self, f"_pyro_post_{msg.kind}", None)
-        if method is not None:
-            method(msg)
+        del run, output
 
 
-def apply_stack(
-    msg: Message,
-    default: Callable[[Message], None] | None = None,
-) -> Message:
-    """Run a message through the active handler stack.
-
-    Three phases, in order:
-
-    1. **Pre-pass** (outer-to-inner). Each handler's
-       `_process_message` is called until one sets
-       ``msg.stop = True`` or the stack is exhausted. Innermost
-       handler has the final say on the pre-pass rewrite.
-    2. **Default computation.** If ``default`` was supplied, it
-       runs after the pre-pass and installs the site's fallback
-       ``value`` / ``log_prob``. The default is responsible for
-       respecting whatever the pre-pass wrote (typically a
-       sample-and-score against the site's underlying morphism
-       when the pre-pass left ``value`` unset).
-    3. **Post-pass** (outer-to-inner, same order as the pre-pass).
-       Each handler that saw the pre-pass sees the now-populated
-       message in `_postprocess_message`. The convention is that
-       handlers pushed later see the final rewritten state last,
-       so a `TraceHandler` pushed inside a `with condition(...)`
-       block snapshots the conditioned value, and a
-       `TraceHandler` pushed inside a `with mask(...)` block
-       snapshots the mask-multiplied log-density.
-
-    Splitting default computation out of `apply_stack` (rather than
-    inlining it) matches the Pyro `Messenger` protocol: handlers
-    get first-and-last look, defaults fire only when the site was
-    not fully rewritten, and post-hooks always see the resolved
-    site.
-    """
-    stack = _handler_stack()
-    seen: list[EffectHandler] = []
-    # Pre-pass: innermost-first (top of stack). Matches Pyro's
-    # `_PYRO_STACK` iteration order. A `block` handler placed near
-    # the top of the stack sets ``msg.stop`` and prevents outer
-    # handlers from ever seeing the message.
-    for handler in reversed(stack):
-        handler._process_message(msg)
-        seen.append(handler)
-        if msg.stop:
-            break
-    if default is not None:
-        default(msg)
-    # Post-pass: the handlers we actually saw, in the same stack
-    # order they occupy (outer-to-inner among the visited frames).
-    # A `TraceHandler` pushed innermost thus fires post last and
-    # snapshots the rewrites of every outer handler.
-    for handler in reversed(seen):
-        handler._postprocess_message(msg)
-    return msg
+__all__ = [
+    "Contribution",
+    "EffectHandler",
+    "Installation",
+    "RunContext",
+    "SiteKey",
+]

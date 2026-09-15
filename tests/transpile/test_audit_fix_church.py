@@ -50,6 +50,7 @@ from tests.transpile.probes.qvr import QvrProbe
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _FAMILIES = _REPO_ROOT / "tests" / "transpile" / "fixtures" / "families"
+_AUDIT = _REPO_ROOT / "tests" / "transpile" / "fixtures" / "audit"
 _GALLERY = _REPO_ROOT / "docs" / "examples" / "source"
 _RUNTIME = _REPO_ROOT / "src" / "quivers" / "transpile" / "runtime_church.scm"
 
@@ -138,7 +139,7 @@ def test_halfcauchy_maps_to_cauchy_not_gaussian() -> None:
 def test_horseshoe_tau_lambda_inherit_half_cauchy() -> None:
     """The horseshoe's global and local scales are HalfCauchy draws, so
     they fold a cauchy; only the raw coefficient stays a gaussian."""
-    model = _nospace(_model(_church_file(_FAMILIES / "horseshoe.qvr")))
+    model = _nospace(_model(_church_file(_AUDIT / "horseshoe_decomposed.qvr")))
     assert "(definetau(sample(half(cauchy01))))" in model
     assert "(sample(half(cauchy01)))" in model
     assert "(sample(gaussian01))" in model
@@ -394,7 +395,7 @@ def test_emitted_church_reparses_to_a_fixed_point() -> None:
     fixtures = (
         _FAMILIES / "halfnormal.qvr",
         _FAMILIES / "halfcauchy.qvr",
-        _FAMILIES / "horseshoe.qvr",
+        _AUDIT / "horseshoe_decomposed.qvr",
         _FAMILIES / "matrixnormal.qvr",
         _FAMILIES / "gp.qvr",
         _GALLERY / "bayesian_regression.qvr",
@@ -503,7 +504,7 @@ def test_executed_horseshoe_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
     points = [Point(params=g, data={}) for g in grids]
     church_lps, qvr_lps = _church_qvr_diffs(
-        _FAMILIES / "horseshoe.qvr", points, tmp_path
+        _AUDIT / "horseshoe_decomposed.qvr", points, tmp_path
     )
     _equivalence.assert_log_density_match(
         qvr_lps, church_lps, atol=1e-4, context="church@horseshoe"

@@ -175,7 +175,7 @@ $$
      {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot U \cdot T)}\ \textsc{Swap}_{T \mid U}
 $$
 
-In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$ — every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
+In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$; every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
 
 The denotation of every derivation built from these four rules is
 the corresponding composite natural transformation in
@@ -281,7 +281,7 @@ extension over the bare grammar fragment.
 
 ## 8. QIEC rows and lexical handlers
 
-QIEC v0.19 supplies a second, explicitly typed account of effects. An applied
+QIEC supplies a second, explicitly typed account of effects. An applied
 interface $E[\bar a]$ describes an operation family, while a lexical instance
 $i:E[\bar a]$ supplies the identity that appears in a row. This distinction
 means that two state cells with the same value type need not collapse into one
@@ -313,6 +313,28 @@ issue precise capability diagnostics for the rest. Establishing a
 backend-level adequacy proof between each generated runtime and the reference
 evaluator remains a live possibility. The
 [QIEC developer note](../developer/qiec.md) gives the executable boundary.
+
+The effect handlers of [`quivers.effects`](../api/effects/index.md) are
+lexical handlers of this calculus. A `MonadicProgram` runs on the reference
+machine as the kernel computation
+[`program_kernel`](../api/effects/program_module.md) encodes it to: each host
+step is an instance of the prelude's `Compute` interface performed on the
+environment of every value bound so far, each draw is the canonical
+`Random.sample` request on the program's `random` instance, and each site's
+density is a `Score.add` the answering handler emits on the program's `score`
+instance. A handler on the `with` stack installs a lexical handler of one of
+those instances; the run nests them in a fixed order, the score accumulator
+outermost, then every score transformer, then the scoring draw and the run's
+observations, then every handler of `random` in stack order, then the
+parameter store and the `param` handlers layered over it, then the host
+steps. Two consequences follow. An inner handler of `random` sees a site's
+request before any outer one and sees the outer answer flow back through its
+resumption, so a trace inside a clamp records the clamped value. A site's
+density is emitted outward by whichever handler answered it, so every score
+transformer reaches every site, and a trace reads each site's density from
+what reached the accumulator under the site's provenance, which the kernel
+carries on every derived request as the site's static identity and dynamic
+address.
 
 ## References
 
