@@ -7,6 +7,7 @@ discrete family can index its probabilities with it.
 """
 
 # ruff: noqa: F821
+# pyright: reportUndefinedVariable=false
 # The bridge is grafted after the shared runtime into a generated module,
 # which binds the host library names and the runtime's helpers before the
 # bridge is read.
