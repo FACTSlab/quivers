@@ -205,7 +205,9 @@ define table() : Tensor[Real]([3, 2]) !{} =
     module = lower_qvr_to_qiec(parse(source), file_path="tensors.qvr")
     v = (0.0, 1.0, -1.0)
     scaled = run_named(module, "scaled", (v,)).value
-    assert scaled == pytest.approx((1.0, 1.0 + 2.0 * math.tanh(1.0), 1.0 - 2.0 * math.tanh(1.0)))
+    assert scaled == pytest.approx(
+        (1.0, 1.0 + 2.0 * math.tanh(1.0), 1.0 - 2.0 * math.tanh(1.0))
+    )
     total = run_named(module, "total", (v,)).value
     lse = math.log(sum(math.exp(x) for x in v))
     assert total == pytest.approx(0.0 + 1.0 - lse + 0.0)

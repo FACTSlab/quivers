@@ -146,6 +146,8 @@ from quivers.qiec.types import (
     product_type,
 )
 from quivers.dsl.composite_lets import expand_composite_lets
+from quivers.dsl.pure_builtins import PURE_BUILTINS
+from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.step_resolution import (
     ResolvedDist,
     StepResolutionError,
@@ -411,6 +413,90 @@ def _free_let_names(
     return found
 
 
+def _is_gap(kinds: Sequence[str], elaborator: _Elaborator | None = None) -> bool:
+    """Whether a resolution failure names a construct outside the calculus.
+
+    Parameters
+    ----------
+    kinds : Sequence[str]
+        The failure's structured kinds.
+    elaborator : _Elaborator | None
+        The elaborator, whose source says which names are program
+        templates.
+
+    Returns
+    -------
+    bool
+        ``True`` for a network-parameterized morphism, a ``scan``
+        recurrence, or a reference to a program template, whose
+        elaborations are not yet defined.
+    """
+    for kind in kinds:
+        if kind.startswith(("param-source:", "scan:")):
+            return True
+        if kind.startswith("family:") and elaborator is not None:
+            name = kind.split(":", 1)[1].split(":", 1)[0]
+            if any(
+                isinstance(statement, ProgramDecl)
+                and statement.name == name
+                and statement.type_params is not None
+                for statement in elaborator.source.syntax.statements
+            ):
+                return True
+    return False
+
+
+def _unknown_call(expr: LetExprNode, macros: Mapping[str, object]) -> str | None:
+    """Name the first call to something the pure layer does not define.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+    macros : Mapping[str, object]
+        The lambda-bound names in scope.
+
+    Returns
+    -------
+    str | None
+        The called name, or ``None`` when every call is a builtin, a
+        reduction, a last-axis operation, a family, or a macro.
+    """
+    if isinstance(expr, LetExprCall):
+        if (
+            expr.func not in PURE_BUILTINS
+            and expr.func not in FAMILIES
+            and expr.func not in macros
+            and expr.func not in _CHART_BUILTINS
+            and expr.func not in ("site", "log_prob")
+        ):
+            return expr.func
+        for argument in expr.args:
+            found = _unknown_call(argument, macros)
+            if found is not None:
+                return found
+        return None
+    if isinstance(expr, LetExprBinOp):
+        return _unknown_call(expr.left, macros) or _unknown_call(expr.right, macros)
+    if isinstance(expr, LetExprUnaryOp):
+        return _unknown_call(expr.operand, macros)
+    if isinstance(expr, LetExprIndex):
+        found = _unknown_call(expr.array, macros)
+        if found is not None:
+            return found
+        for index in expr.indices:
+            found = _unknown_call(index, macros)
+            if found is not None:
+                return found
+        return None
+    if isinstance(expr, LetExprList | LetExprTuple):
+        for item in expr.items:
+            found = _unknown_call(item, macros)
+            if found is not None:
+                return found
+    return None
+
+
 def _chart_construct(expr: LetExprNode) -> str | None:
     """Name a chart construct inside a let expression, if any.
 
@@ -447,6 +533,77 @@ def _chart_construct(expr: LetExprNode) -> str | None:
             if found is not None:
                 return found
     return None
+
+
+def _index_names(expr: LetExprNode) -> list[str]:
+    """The variables an expression uses as tensor indices.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+
+    Returns
+    -------
+    list[str]
+        Names appearing directly as an index, in order.
+    """
+    found: list[str] = []
+
+    def visit(node: LetExprNode) -> None:
+        """Record index variables under one node.
+
+        Parameters
+        ----------
+        node : LetExprNode
+            The node.
+        """
+        if isinstance(node, LetExprIndex):
+            visit(node.array)
+            for index in node.indices:
+                if isinstance(index, LetExprVar):
+                    if index.name not in found:
+                        found.append(index.name)
+                else:
+                    visit(index)
+        elif isinstance(node, LetExprBinOp):
+            visit(node.left)
+            visit(node.right)
+        elif isinstance(node, LetExprUnaryOp):
+            visit(node.operand)
+        elif isinstance(node, LetExprCall):
+            for argument in node.args:
+                visit(argument)
+        elif isinstance(node, LetExprList | LetExprTuple):
+            for item in node.items:
+                visit(item)
+
+    visit(expr)
+    return found
+
+
+def _argument_names(argument: DrawArg) -> list[str]:
+    """The names a draw argument reads.
+
+    Parameters
+    ----------
+    argument : DrawArg
+        The argument.
+
+    Returns
+    -------
+    list[str]
+        Bare names, indexed bases and their indices, and list entries.
+    """
+    if isinstance(argument, DrawArgName):
+        return [argument.text]
+    if isinstance(argument, DrawArgIndex):
+        return [argument.name, *argument.indices]
+    if isinstance(argument, DrawArgList):
+        return [name for item in argument.items for name in _argument_names(item)]
+    if isinstance(argument, DrawArgDist):
+        return [name for item in argument.args for name in _argument_names(item)]
+    return []
 
 
 def _is_number_text(text: str) -> bool:
@@ -550,17 +707,17 @@ class _ProgramElaboration:
             self._fail(
                 declarations[0],
                 "; ".join(error.kinds),
-                code=(
-                    GAP_CODE
-                    if any(kind.startswith("param-source:") for kind in error.kinds)
-                    else "qiec-program"
-                ),
+                code=GAP_CODE if _is_gap(error.kinds) else "qiec-program",
             )
         self._program_lets = build_let_table(expanded)
         computations: list[NamedComputation] = []
         for declaration in expanded.statements:
             if isinstance(declaration, ProgramDecl) and _is_entry_point(declaration):
-                computations.extend(self._elaborate_program(declaration))
+                try:
+                    computations.extend(self._elaborate_program(declaration))
+                except QiecDiagnosticError as error:
+                    error.program = declaration.name
+                    raise
         return tuple(computations)
 
     # ------------------------------------------------------------------
@@ -735,6 +892,7 @@ class _ProgramElaboration:
         state.score = score
         scope = _Scope()
         self._program_parameters(declaration, scope, state)
+        state.input_shapes = self._infer_input_shapes(declaration)
         self._elaborate_steps(declaration.draws, scope, state)
         result, result_type = self._program_return(declaration, scope, state)
         body = self._fold_steps(scope, Return(result))
@@ -1419,7 +1577,9 @@ class _ProgramElaboration:
         for argument in step.call.arguments:
             for name in _free_let_names(argument):
                 if scope.lookup(name) is None and name not in self._lambda_macros:
-                    self._declare_parameter(name, REAL, "data", scope, state, step)
+                    self._declare_parameter(
+                        name, self._input_type(name, state), "data", scope, state, step
+                    )
         call = self._lower_call(
             step.call,
             (),
@@ -1524,9 +1684,20 @@ class _ProgramElaboration:
                 "logic-programming construct outside the program calculus",
                 code=GAP_CODE,
             )
+        unknown = _unknown_call(expr, self._lambda_macros)
+        if unknown is not None:
+            self._fail(
+                node,
+                f"the call `{unknown}(...)` names no builtin, lambda, or "
+                "computation; a host function reached by name has no "
+                "elaboration",
+                code=GAP_CODE,
+            )
         for name in _free_let_names(expr):
             if scope.lookup(name) is None and name not in self._lambda_macros:
-                self._declare_parameter(name, REAL, "data", scope, state, node)
+                self._declare_parameter(
+                    name, self._input_type(name, state), "data", scope, state, node
+                )
         return self._lower_value(
             expr,
             (),
@@ -1534,6 +1705,152 @@ class _ProgramElaboration:
             None,
             ("programs", state.declaration.name, "lets"),
         )
+
+    def _input_type(self: _Elaborator, name: str, state: _ProgramState) -> TypeExpr:
+        """The type a free name read by a let expression is declared at.
+
+        Parameters
+        ----------
+        name : str
+            The name.
+        state : _ProgramState
+            The program's accumulating state, whose inferred shapes say
+            which plate the name's values range over.
+
+        Returns
+        -------
+        TypeExpr
+            ``Int`` or ``Real`` when the name reaches no plated step, else
+            the tensor of that element over the plate's first batch axis.
+        """
+        element, axis = state.input_shapes.get(name, (REAL, None))
+        if axis is None:
+            return element
+        return tensor_type(element, (axis.size,))
+
+    def _infer_input_shapes(
+        self: _Elaborator, declaration: ProgramDecl
+    ) -> dict[str, tuple[TypeApplication, PlateAxis | None]]:
+        """Infer the shapes of the free names let expressions read.
+
+        A free name is a scalar unless a step plated over a batch axis
+        reads a let expression that depends on it, in which case its
+        values range over that axis; a name that indexes a tensor is
+        integral. The inference walks the steps in order, so the first
+        plated consumer of a name fixes its axis.
+
+        Parameters
+        ----------
+        declaration : ProgramDecl
+            The program.
+
+        Returns
+        -------
+        dict[str, tuple[TypeApplication, PlateAxis | None]]
+            Each free name's element type and batch axis, if any.
+        """
+        bound: set[str] = set()
+        if declaration.params is not None:
+            bound.update(declaration.params)
+        if declaration.type_params is not None:
+            bound.update(
+                parameter.name
+                for parameter in declaration.type_params
+                if isinstance(parameter, ScalarParam)
+            )
+        depends: dict[str, set[str]] = {}
+        elements: dict[str, TypeApplication] = {}
+        axes: dict[str, PlateAxis] = {}
+
+        def free_of(expr: LetExprNode) -> set[str]:
+            """Every free name an expression depends on, through lets.
+
+            Parameters
+            ----------
+            expr : LetExprNode
+                The expression.
+
+            Returns
+            -------
+            set[str]
+                Free names, transitively through let bindings.
+            """
+            found: set[str] = set()
+            for name in _free_let_names(expr):
+                if name in depends:
+                    found |= depends[name]
+                elif name not in bound and name not in self._lambda_macros:
+                    found.add(name)
+            return found
+
+        def visit(steps: Sequence[ProgramStep], group: PlateAxis | None) -> None:
+            """Walk steps, recording dependencies and plated consumers.
+
+            Parameters
+            ----------
+            steps : Sequence[ProgramStep]
+                The steps.
+            group : PlateAxis | None
+                The grouping axis of the enclosing marginalization.
+            """
+            for step in steps:
+                if isinstance(step, LetStep | ScoreStep):
+                    if isinstance(step.value, LetExprLambda):
+                        continue
+                    for index_name in _index_names(step.value):
+                        if index_name not in bound and index_name not in depends:
+                            elements[index_name] = INT
+                    depends[step.name] = free_of(step.value)
+                    bound.add(step.name)
+                elif isinstance(step, CallStep):
+                    depends[step.name] = set().union(
+                        *(free_of(argument) for argument in step.call.arguments)
+                    )
+                    bound.add(step.name)
+                elif isinstance(step, SampleStep | ObserveStep | MarginalizeStep):
+                    names = (
+                        [step.var]
+                        if isinstance(step, MarginalizeStep)
+                        else list(step.vars)
+                    )
+                    try:
+                        resolved = resolve_step_dist(
+                            step.morphism,
+                            step.args,
+                            morphisms=self._program_morphisms,
+                            lets=self._program_lets,
+                            family_registry=frozenset(FAMILIES),
+                            target="qvr-qiec",
+                        )
+                    except StepResolutionError:
+                        bound.update(names)
+                        continue
+                    record = FAMILIES.get(resolved.family)
+                    if record is None:
+                        bound.update(names)
+                        continue
+                    morphism = self._program_morphisms.get(step.morphism)
+                    plate = self._step_plate(step, record, morphism, group)
+                    batch = plate.batch[0] if plate.batch else None
+                    if batch is not None:
+                        for argument in step.args or ():
+                            for name in _argument_names(argument):
+                                for free in depends.get(name, set()):
+                                    axes.setdefault(free, batch)
+                    bound.update(names)
+                    if isinstance(step, MarginalizeStep):
+                        inner_group = group
+                        if step.over is not None:
+                            inner_group = self._axis(step.over, step)
+                        elif step.over_objs:
+                            inner_group = self._axis(step.over_objs[0], step)
+                        visit(step.scope, inner_group)
+
+        visit(declaration.draws, None)
+        return {
+            name: (elements.get(name, REAL), axes.get(name))
+            for name in set(elements) | set(axes)
+        }
 
     def _program_return(
         self: _Elaborator, declaration: ProgramDecl, scope: _Scope, state: _ProgramState
@@ -1642,12 +1959,13 @@ class _ProgramElaboration:
             record.finite_support is None
             and distribution.name not in _CLASS_INDEX_FAMILIES
         ):
-            self._fail(
-                step,
-                f"marginalize over {distribution.name!r}, which has no finite support "
-                "to enumerate",
-                code="qiec-program",
+            # Nothing finite to sum over: the latent is drawn once per
+            # position and the scope runs in the enclosing scope, which
+            # is what the runtime does with such a block.
+            self._elaborate_continuous_marginalize(
+                step, distribution, scope, state, latent_name
             )
+            return
         sampled = self._sampled_type(distribution)
         weight_type: TypeExpr = (
             LOG_WEIGHT if group is None else tensor_type(LOG_WEIGHT, (group.size,))
@@ -1722,6 +2040,50 @@ class _ProgramElaboration:
             self._add_weight(
                 weight_scope.weight_instance, Var(weight_local), scope, state, step
             )
+
+    def _elaborate_continuous_marginalize(
+        self: _Elaborator,
+        step: MarginalizeStep,
+        distribution: DistributionValue,
+        scope: _Scope,
+        state: _ProgramState,
+        latent_name: str,
+    ) -> None:
+        """Elaborate a marginalization over a family with no finite support.
+
+        The latent is sampled on the canonical ``random`` instance, plated
+        as the block says, and the scope's steps run in the enclosing
+        scope with the latent bound.
+
+        Parameters
+        ----------
+        step : MarginalizeStep
+            The block.
+        distribution : DistributionValue
+            The latent's construction.
+        scope : _Scope
+            The enclosing scope.
+        state : _ProgramState
+            The program's accumulating state.
+        latent_name : str
+            The latent's name.
+        """
+        sampled = self._sampled_type(distribution)
+        state.uses_random = True
+        request = self._sample_request(
+            state.random, latent_name, sampled, distribution, step, state
+        )
+        state.sites.append(
+            ProgramSite(
+                latent_name,
+                "sample",
+                distribution.name,
+                distribution.plate.batch,
+                distribution.plate.event,
+            )
+        )
+        self._bind_step(scope, latent_name, sampled, Perform(request), step)
+        self._elaborate_steps(step.scope, scope, state)
 
     def _local_instance(
         self: _Elaborator,
@@ -1930,7 +2292,11 @@ class _ProgramElaboration:
                 target="qvr-qiec",
             )
         except StepResolutionError as error:
-            self._fail(step, "; ".join(error.kinds), code="qiec-program")
+            self._fail(
+                step,
+                "; ".join(error.kinds),
+                code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
+            )
         record = FAMILIES.get(resolved.family)
         if record is None:
             self._fail(
@@ -2124,7 +2490,9 @@ class _ProgramElaboration:
         if step.index is not None:
             axis = self._object_axis(step.index, step)
             if record.event_rank > 0:
-                return PlateShape((), (axis,))
+                # A matrix family draws one square variate whose side is
+                # the annotated axis; a vector family one vector over it.
+                return PlateShape((), tuple(axis for _ in range(record.event_rank)))
             batch.append(axis)
         if width is not None:
             batch.append(width)
@@ -3326,6 +3694,9 @@ class _ProgramState:
         The alphabet the step being elaborated draws from, if any.
     current_site
         The name of the step being elaborated.
+    input_shapes
+        The element type and batch axis inferred for each free name a
+        let expression reads.
     random
         The canonical ``Random`` instance.
     score
@@ -3341,6 +3712,9 @@ class _ProgramState:
     alphabets: dict[str, PlateAxis] = field(default_factory=dict)
     pending_alphabet: PlateAxis | None = None
     current_site: str = ""
+    input_shapes: dict[str, tuple[TypeApplication, PlateAxis | None]] = field(
+        default_factory=dict
+    )
     random: NamedEffectInstance | None = None  # type: ignore[assignment]
     score: NamedEffectInstance | None = None  # type: ignore[assignment]
 

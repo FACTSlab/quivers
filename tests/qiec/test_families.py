@@ -33,6 +33,12 @@ _COMPOSITIONAL_EXTRAS = {
 }
 
 
+#: Parameters whose registry rank exceeds the torch shim's: a Gaussian
+#: mixture's location and scale are one entry per component, which the
+#: shim declares scalar because each component is.
+_RANK_OVERRIDES: dict[str, dict[str, int]] = {"MixtureNormal": {"loc": 1, "scale": 1}}
+
+
 def _symbolic(constraint: object) -> tuple[str, int]:
     """Read a torch constraint as the registry's symbolic vocabulary.
 
@@ -104,6 +110,7 @@ def test_parameters_constraints_and_ranks_match_the_torch_classes() -> None:
             if parameter.name in extras:
                 continue
             symbolic, rank = _symbolic(constraints[parameter.name])
+            rank = _RANK_OVERRIDES.get(name, {}).get(parameter.name, rank)
             assert (parameter.constraint, parameter.rank) == (symbolic, rank), (
                 name,
                 parameter.name,

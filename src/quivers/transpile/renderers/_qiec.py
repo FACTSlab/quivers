@@ -1069,9 +1069,13 @@ def _python_value(target: str, node: IRQiecValue) -> str:
             f"{_python_value(target, node.index)}, {_extent_literal(node.groups)})"
         )
     if isinstance(node, IRQiecReduction):
-        return f"_qvr_qiec_reduce({node.operator!r}, {_python_value(target, node.value)})"
+        return (
+            f"_qvr_qiec_reduce({node.operator!r}, {_python_value(target, node.value)})"
+        )
     if isinstance(node, IRQiecRowwise):
-        return f"_qvr_qiec_rowwise({node.operator!r}, {_python_value(target, node.value)})"
+        return (
+            f"_qvr_qiec_rowwise({node.operator!r}, {_python_value(target, node.value)})"
+        )
     if isinstance(node, IRQiecComprehension):
         binder = _local_name(node.binder.name)
         return (

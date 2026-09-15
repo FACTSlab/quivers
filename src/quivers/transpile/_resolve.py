@@ -12,12 +12,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from quivers.dsl.ast_nodes import DrawArg, Expr, MorphismDecl
+from quivers.dsl.ast_nodes import DrawArg, Expr, Module, MorphismDecl
 from quivers.dsl.step_resolution import (
     ResolvedDist,
     StepResolutionError,
     build_let_table,
-    build_morphism_table,
+)
+from quivers.dsl.step_resolution import (
+    build_morphism_table as _build_morphism_table,
 )
 from quivers.dsl.step_resolution import (
     param_source_kind as _param_source_kind,
@@ -73,6 +75,30 @@ def resolve_step_dist(
             family_registry=family_registry,
             target=target,
         )
+    except StepResolutionError as error:
+        raise UnsupportedConstruct(error.target, error.kinds) from error
+
+
+def build_morphism_table(module: Module) -> dict[str, MorphismDecl]:
+    """Index a module's morphisms, reporting a consumed network as unsupported.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+
+    Returns
+    -------
+    dict[str, MorphismDecl]
+        Morphism name to declaration.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If a step consumes a morphism parameterized by a network.
+    """
+    try:
+        return _build_morphism_table(module)
     except StepResolutionError as error:
         raise UnsupportedConstruct(error.target, error.kinds) from error
 

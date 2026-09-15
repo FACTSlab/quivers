@@ -346,8 +346,9 @@ def test_scores_add_as_weights() -> None:
             "outside a grouped",
         ),
         (
-            "    marginalize z <- Normal(0.0, 1.0) [reduction=logsumexp]\n        observe y <- Normal(z, 1.0)\n    return z\n",
-            "no finite support",
+            "    marginalize z <- Normal(0.0, 1.0) [reduction=mean]\n"
+            "        observe y <- Normal(z, 1.0)\n    return z\n",
+            "reduction",
         ),
         ("    sample x <- Dirichlet(alpha)\n    return x\n", "without a plate"),
     ],

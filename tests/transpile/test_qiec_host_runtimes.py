@@ -576,7 +576,9 @@ def test_julia_tensor_expressions(tmp_path: pathlib.Path) -> None:
         capture_output=True,
         text=True,
     )
-    assert float(completed.stdout.strip()) == pytest.approx(_stats_expected(_TENSOR_POINT))
+    assert float(completed.stdout.strip()) == pytest.approx(
+        _stats_expected(_TENSOR_POINT)
+    )
 
 
 @pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
@@ -593,4 +595,6 @@ def test_scheme_tensor_expressions(tmp_path: pathlib.Path) -> None:
         capture_output=True,
         text=True,
     )
-    assert float(completed.stdout.strip()) == pytest.approx(_stats_expected(_TENSOR_POINT))
+    assert float(completed.stdout.strip()) == pytest.approx(
+        _stats_expected(_TENSOR_POINT)
+    )
