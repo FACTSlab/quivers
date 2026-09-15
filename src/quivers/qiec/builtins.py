@@ -835,24 +835,6 @@ def _reshape(entries: list[float], shape: tuple[int, ...]) -> object:
     )
 
 
-def _weight_shape(value: object) -> tuple[int, ...]:
-    """The shape of a host tensor of weights.
-
-    Parameters
-    ----------
-    value : object
-        A float or nested tuples of floats.
-
-    Returns
-    -------
-    tuple[int, ...]
-        The nesting's extents, outermost first; empty for a float.
-    """
-    if isinstance(value, tuple):
-        return (len(value), *(_weight_shape(value[0]) if value else ()))
-    return ()
-
-
 def _aggregate(values: list[float], reduction: str) -> float:
     """Aggregate the weighted shots of an enumeration at one position.
 
@@ -1588,11 +1570,16 @@ def replay_handler(
 
     A sample request at a site in ``values`` resumes with the recorded
     value; a request at any other site is forwarded to an outer handler.
+    A site reached more than once, as a recurrence reaches the sites of
+    its step at every position, replays the value keyed ``"<site>@<n>"``
+    at its ``n``-th occurrence, counted from zero, when one is recorded,
+    and the value keyed by the site alone otherwise.
 
     Parameters
     ----------
     values
-        The recorded value for each replayed site, keyed by site.
+        The recorded value for each replayed site, keyed by site, or by
+        site and occurrence as ``"<site>@<n>"``.
     result_validator
         Checks a replayed value inhabits the request's result type.
     policy
@@ -1653,6 +1640,7 @@ def replay_handler(
             declaration do not share it.
         """
         seen: set[object] = set()
+        occurrences: dict[object, int] = {}
 
         def sample(
             request: RuntimeRequest,
@@ -1685,16 +1673,23 @@ def replay_handler(
                 If the recorded value does not inhabit the site's type.
             """
             site, sampleable = _site_and_sampleable(request, definition.name)
-            if site not in values:
+            occurrence = occurrences.get(site, 0)
+            occurrences[site] = occurrence + 1
+            key_at = f"{site}@{occurrence}"
+            if key_at in values:
+                site_key: object = key_at
+            elif site in values:
+                site_key = site
+            else:
                 return Forward()
-            value = values[site]
+            value = values[site_key]
             _require(
                 value,
                 result_validator,
                 request.core.result_type,
                 f"replay {site!r}",
             )
-            seen.add(site)
+            seen.add(site_key)
             if policy is ReplayPolicy.CLAMP_AND_SCORE:
                 assert score_instance is not None
                 _emit_score(

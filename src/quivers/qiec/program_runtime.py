@@ -470,8 +470,10 @@ def run_program(
         A host value for each of the program's parameters, by name:
         its data, observations, fibrations, and map numbers.
     sites : Mapping[str, object]
-        A host value for each sampled site, by label. Every site the
-        program reaches must be given, and every given site reached.
+        A host value for each sampled site, by label, or by label and
+        occurrence as ``"<label>@<n>"`` for a site a recurrence reaches
+        at every position. Every site the program reaches must be
+        given, and every given site reached.
     parameters : Mapping[str, object] | None
         The learned weights a deduction the program calls reads, by
         name; an absent weight reads as zero.
