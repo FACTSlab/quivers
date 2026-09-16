@@ -545,18 +545,52 @@ runtime ABI. This route retains stable operation and instance identifiers,
 dynamic addresses, lexical handler scope, indexed constructors, equality
 transport, and the four resumption grades.
 
-Stan, BUGS, and JAGS instead accept a checked first-order subset. A computation
-must have a closed, empty effect row and an empty static telescope, return a
-scalar, and be composed only of scalar `Return` and `Bind` forms over literal
-or variable values. An empty static telescope does not prohibit ordinary value
-parameters: Stan may bind named `Bool`, `Int`, and `Real` parameters. BUGS and
-JAGS currently require a parameterless entry point because their emitted graph
-has no callable parameter ABI. During rendering,
-`render_computations_dynamic` or `render_computations_static` runs the
-analyzer immediately before the module's computations are placed in the
-target schema. It reports each missing feature as
-`qiec:capability:<feature>:<computation>` at that boundary. Thus the static
-targets reject only the construct they cannot preserve.
+A program that calls a module computation, `let c <- noisy(b)`, reaches these
+eight targets as a call in the model body. A pure callee whose body is a chain
+of bindings is inlined by the plan before any renderer runs, so it costs the
+target nothing; every other call is rendered against the callee's generated
+entry point with the program's canonical `Random` and `Score` instances bound
+to a **native operation table** the model body builds once, so a draw inside
+the helper is a site of the model under the label the helper gives it and a
+scored weight is a term of the joint. Each host supplies the table from its
+own primitives: Pyro's `pyro.sample` and `pyro.factor`, NumPyro's
+`numpyro.sample` and `numpyro.factor`, PyMC's `register_rv` and
+`pymc.Potential`, Edward2's traced random variables and a one-point factor
+distribution, Turing's `tilde_assume!!` and `@addlogprob!` reached through
+closures placed in the model body, Gen's `@trace` and a factor distribution
+traced under the `:qvr_factor` namespace, WebPPL's `sample` and `factor`,
+and Church's `sample` and `factor`. A label the helper draws under more than
+once in one run is counted, `noise`, `noise@1`, and so on, as the reference
+machine replays it. The Python bridges also supply the host's own spellings of
+the scalar primitives, so a helper's arithmetic on a drawn value stays on the
+host's array and keeps its gradient.
+
+The WebPPL target's runtime is written in WebPPL's own functional subset: a
+name is bound once, loops are recursion, `try` is absent, and the only mutable
+state is the global store, which holds the call and instance serials, the
+ambient handler stack, and one cell per handler installation. WebPPL
+trampolines every call, so a deep recursion consumes no host stack. A host
+attachment written for WebPPL follows the same discipline: a mutable binding
+holds its value in a global-store cell named by its `cell` field rather than
+in a `value` field, and every function the runtime calls out of an object
+field is reached through `apply`, since WebPPL compiles a member call as a
+native one.
+
+Stan, BUGS, and JAGS have no run-time call, so the plan they render is judged
+by what it needs: the computations the program's calls reach, transitively,
+or every computation when the module declares no program. Stan defines a
+needed pure computation as a user-defined function when it is closed and
+monomorphic, returns a scalar, and is composed of scalar bindings,
+primitives with a Stan spelling, conditionals, calls, and recursion; the
+model body then calls it as a transformed parameter. BUGS and JAGS refuse a
+call outright as `call:graph:<callee>`, since a graph language has no
+statement that runs a computation. Every computation a static target can
+represent is defined in its output, called or not, so a module's entry points
+stay where the target has a form for them; one the program never calls and
+the target cannot represent is left out, since it is no part of the program
+the output denotes. A needed computation the target cannot represent is
+reported feature by feature as `qiec:capability:<feature>:<computation>`
+before anything is placed in the target schema.
 
 ### Target runtime ABI
 

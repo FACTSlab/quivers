@@ -17,7 +17,7 @@
     regenerates the page and fails when the result differs from
     what is committed.
 
-`transpile(module, target=...)` has 11 registered backends. Given a program it either returns target source bytes or raises `UnsupportedConstruct` naming the constructs it cannot represent. This page records which of the two happens, for the 46 programs of the [examples gallery](examples/index.md) and for 48 construct fixtures, each isolating a single QVR surface construct.
+`transpile(module, target=...)` has 11 registered backends. Given a program it either returns target source bytes or raises `UnsupportedConstruct` naming the constructs it cannot represent. This page records which of the two happens, for the 46 programs of the [examples gallery](examples/index.md) and for 49 construct fixtures, each isolating a single QVR surface construct.
 
 Support is thus stated as a refusal boundary rather than as a feature list. A construct no backend accepts is a limit of the export surface itself, and reaching any target means writing the model differently; a construct one backend alone refuses is a limit of that target, and another target may take the program unchanged. Sections 2 and 3 separate the two, since the remedies differ.
 
@@ -31,17 +31,17 @@ What this page does not cover is whether a rendered program's density agrees wit
 
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
-| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 40 / 48    |
-| [church](semantics/transpile-correctness/church.md)   | 22 / 46          | 42 / 48    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 30 / 46          | 42 / 48    |
-| [gen](semantics/transpile-correctness/gen.md)         | 28 / 46          | 41 / 48    |
-| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 40 / 48    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 31 / 46          | 44 / 48    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 30 / 46          | 42 / 48    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 31 / 46          | 44 / 48    |
-| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 41 / 48    |
-| [turing](semantics/transpile-correctness/turing.md)   | 30 / 46          | 42 / 48    |
-| [webppl](semantics/transpile-correctness/webppl.md)   | 31 / 46          | 42 / 48    |
+| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 40 / 49    |
+| [church](semantics/transpile-correctness/church.md)   | 22 / 46          | 43 / 49    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 30 / 46          | 43 / 49    |
+| [gen](semantics/transpile-correctness/gen.md)         | 30 / 46          | 43 / 49    |
+| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 40 / 49    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 31 / 46          | 45 / 49    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 30 / 46          | 43 / 49    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 31 / 46          | 45 / 49    |
+| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 41 / 49    |
+| [turing](semantics/transpile-correctness/turing.md)   | 30 / 46          | 43 / 49    |
+| [webppl](semantics/transpile-correctness/webppl.md)   | 31 / 46          | 43 / 49    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
 
@@ -72,7 +72,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`horseshoe_regression`](examples/horseshoe-regression.md)               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`irt_2pl`](examples/irt-2pl.md)                                         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md) | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`lda`](examples/lda.md)                                                 | yes  | yes    | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`lda`](examples/lda.md)                                                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`linear_gaussian_ssm`](examples/linear-gaussian-ssm.md)                 | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`lkj_cholesky_correlation`](examples/lkj-cholesky-correlation.md)       | no   | no     | yes     | yes | no   | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`logistic_noise_regression`](examples/logistic-noise-regression.md)     | yes  | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -98,7 +98,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`type_logical`](examples/type-logical.md)                               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`vae`](examples/vae.md)                                                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`vanilla_rnn_lm`](examples/vanilla-rnn-lm.md)                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
-| [`zip_regression`](examples/zip-regression.md)                           | no   | no     | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`zip_regression`](examples/zip-regression.md)                           | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 
 ### 1.2 Constructs
 
@@ -132,8 +132,9 @@ One minimal program per surface construct, so a `no` here isolates the construct
 
 | Program                  | bugs | church | edward2 | gen | jags | numpyro | pymc | pyro | stan | turing | webppl |
 |--------------------------|------|--------|---------|-----|------|---------|------|------|------|--------|--------|
+| `steps/call_step`        | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
 | `steps/let_step`         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `steps/marginalize_step` | yes  | yes    | yes     | no  | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `steps/marginalize_step` | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/observe_step`     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/return_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/sample_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -410,6 +411,24 @@ These are target gaps rather than language gaps: another backend renders the sam
 
 Every program below renders on at least one other backend and is refused here.
 
+**`call:graph:noisy`**
+
+Refused for: `steps/call_step`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+call:graph:noisy
+```
+
+`bugs` on `steps/call_step` reports:
+
+```text
+the program calls the computation `noisy` at run time, and BUGS is a graph language: a model is a set of stochastic and deterministic relations between named nodes, with no statement that runs a computation, draws under a site name it computes, or scores a weight it accumulates. A pure computation whose body is a chain of bindings is inlined before the plan reaches this target, so `noisy` is either effectful or recursive. Write its draws and scores as steps of the program, or transpile to a target with a host runtime.
+```
+
 **`decoder_decl`, `encoder_decl`**
 
 Refused for: `statements/decoder_decl`.
@@ -471,7 +490,7 @@ bugs cannot score a draw from `BetaBinomial`: the BUGS distribution catalogue ha
 
 Refused for: [`zip_regression`](examples/zip-regression.md).
 
-Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
 
 Reported kinds:
 
@@ -661,7 +680,7 @@ church has no `BetaBinomial` distribution. Pick a family this target supports, o
 
 Refused for: [`zip_regression`](examples/zip-regression.md).
 
-Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
 
 Reported kinds:
 
@@ -905,25 +924,7 @@ encoder_decl
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
-**`marginalize:no-log-weight:cls`**
-
-Refused for: `steps/marginalize_step`.
-
-Renders on: `bugs`, `church`, `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-marginalize:no-log-weight:cls
-```
-
-`gen` on `steps/marginalize_step` reports:
-
-```text
-`marginalize cls` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
-```
-
-**`marginalize:no-log-weight:state`**
+**`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
 
@@ -932,36 +933,36 @@ Renders on: `numpyro`, `pyro`, `stan`, `webppl`.
 Reported kinds:
 
 ```text
-marginalize:no-log-weight:state
+marginalize:ungrouped-over-plate:state
 ```
 
 `gen` on `hmm` reports:
 
 ```text
-`marginalize state` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
-```
-
-**`marginalize:no-log-weight:z`**
-
-Refused for: [`lda`](examples/lda.md), [`zip_regression`](examples/zip-regression.md).
-
-Renders on: `edward2`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-marginalize:no-log-weight:z
-```
-
-`gen` on `lda` reports:
-
-```text
-`marginalize z` denotes the integral of the block's measure over the latent, and Gen.jl has no way to add a free log-density term to a trace: every address it scores must be one it drew. Emitting the draw instead would denote a measure on the product of the latent's support with the block's, which is a larger space than the program's and differs from it by an amount that moves with the data. Draw the latent explicitly with `sample` if that is the model you want, or score the block on a target that carries a log-weight primitive.
+`marginalize state` carries no index and no `over =` clause, so it declares one latent and every row of the plated `observe` inside it is conditioned on that single draw. Its density thus accumulates the body's rows and reduces over the latent once, and Gen.jl scores the rows the other way round, giving each its own draw. That is a different measure, not a different base measure, so it is refused rather than emitted. Give the latent the plate its rows share (`marginalize state : A`) or a grouping `over =` clause, either of which this target does emit correctly.
 ```
 
 ### jags
 
 Every program below renders on at least one other backend and is refused here.
+
+**`call:graph:noisy`**
+
+Refused for: `steps/call_step`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+call:graph:noisy
+```
+
+`jags` on `steps/call_step` reports:
+
+```text
+the program calls the computation `noisy` at run time, and JAGS is a graph language: a model is a set of stochastic and deterministic relations between named nodes, with no statement that runs a computation, draws under a site name it computes, or scores a weight it accumulates. A pure computation whose body is a chain of bindings is inlined before the plan reaches this target, so `noisy` is either effectful or recursive. Write its draws and scores as steps of the program, or transpile to a target with a host runtime.
+```
 
 **`decoder_decl`, `encoder_decl`**
 
@@ -1187,6 +1188,35 @@ encoder_decl
 
 ```text
 the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Stan has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
+```
+
+**`qiec:capability:distribution:noisy`, `qiec:capability:effectful-row:noisy`, `qiec:capability:non-scalar-parameter:noisy`, `qiec:capability:perform:noisy`, `qiec:capability:site:noisy`, `qiec:capability:weight:noisy`**
+
+Refused for: `steps/call_step`.
+
+Renders on: `church`, `edward2`, `gen`, `numpyro`, `pymc`, `pyro`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+qiec:capability:distribution:noisy
+qiec:capability:effectful-row:noisy
+qiec:capability:non-scalar-parameter:noisy
+qiec:capability:perform:noisy
+qiec:capability:site:noisy
+qiec:capability:weight:noisy
+```
+
+`stan` on `steps/call_step` reports:
+
+```text
+stan cannot transpile this program:
+  - QIEC computation `noisy` requires the `distribution` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `noisy` requires the `effectful-row` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `noisy` requires the `non-scalar-parameter` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `noisy` requires the `perform` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `noisy` requires the `site` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `noisy` requires the `weight` QIEC capability, but Stan has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
 ```
 
 **`qiec:capability:effectful-row:read`, `qiec:capability:perform:read`**

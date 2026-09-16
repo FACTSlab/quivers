@@ -713,6 +713,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     # until the renderer emits it.
     ("jags", "lda"): _derived(half_sites=0, dropped_sites=0),
     ("turing", "lda"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "lda"): _derived(half_sites=0, dropped_sites=0),
     ("webppl", "lda"): _derived(half_sites=0, dropped_sites=0),
     ("bugs", "lda"): _derived(half_sites=0, dropped_sites=0),
     ("edward2", "lda"): _derived(half_sites=0, dropped_sites=0),
@@ -896,6 +897,7 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ("pymc", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
     ("pyro", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
     ("turing", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
     ("webppl", "zip_regression"): _derived(half_sites=0, dropped_sites=0),
 }
 

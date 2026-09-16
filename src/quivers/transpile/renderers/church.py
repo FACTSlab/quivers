@@ -82,6 +82,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     LetExprAffineMap,
     Plate,
@@ -94,7 +95,16 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
 )
-from quivers.transpile.renderers._qiec import render_computations_dynamic
+from quivers.transpile.renderers._qiec import (
+    graft_scheme_forms,
+    render_computations_dynamic,
+    scheme_call_source,
+    scheme_operations_source,
+)
+
+
+#: The model-body name of the native operation table.
+_OPERATIONS = "_qvr-qiec-operations"
 
 
 _TARGET = "qvr-church"
@@ -227,6 +237,9 @@ class ChurchRenderer(RendererBase):
         self._group_plate_axes: tuple[str, ...] = ()
         # The active observe's `via` fibration name (None otherwise).
         self._current_via: str | None = None
+        self._module = ir.module
+        # Whether the model body has bound its native operation table.
+        self._operations_bound = False
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={}, cards=self._cards)
@@ -318,17 +331,65 @@ class ChurchRenderer(RendererBase):
         if isinstance(node, IRDeterministic):
             return (self._render_deterministic_form(ctx, node),)
         if isinstance(node, IRScore):
-            # Church's score primitive: `(factor <expr>)`.
+            # Church's score primitive: `(define <name> <expr>)` then
+            # `(factor <name>)`, so a later step reads the weight.
             expr_id = render_let_expr_scheme(
                 _LetExprCtx(ctx.sb, ctx, self._cards), node.expr
             )
-            return (_list(ctx, (_sym(ctx, "factor"), expr_id)),)
+            return (
+                _list(ctx, (_sym(ctx, "define"), _sym(ctx, node.name), expr_id)),
+                _list(ctx, (_sym(ctx, "factor"), _sym(ctx, node.name))),
+            )
+        if isinstance(node, IRCall):
+            return self._render_call_forms(ctx, node)
         if isinstance(node, IRMarginalize):
             return self._render_marginalize_forms(ctx, node)
         if isinstance(node, IRReturn):
             # Handled by `_return_form`; nothing to emit inline.
             return ()
         raise UnsupportedConstruct(_TARGET, [f"node:{type(node).__name__}"])
+
+    def _render_call_forms(
+        self, ctx: _RenderCtx, node: IRCall
+    ) -> tuple[SchemaFragment, ...]:
+        """The body forms calling a module computation.
+
+        The first call binds the native operation table, under which
+        the callee's draws and scores go through the runtime's own
+        `sample` and `factor`; an argument that is not a bare name is
+        bound first, so the call reads names alone.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRCall
+            The call.
+
+        Returns
+        -------
+        tuple[SchemaFragment, ...]
+            The `define` forms, in order.
+        """
+        forms: list[SchemaFragment] = []
+        names: list[str] = []
+        for position, argument in enumerate(node.arguments):
+            if isinstance(argument, LetExprVar):
+                names.append(argument.name)
+                continue
+            bound = f"{node.name}_arg{position}"
+            expr_id = render_let_expr_scheme(
+                _LetExprCtx(ctx.sb, ctx, self._cards), argument
+            )
+            forms.append(_list(ctx, (_sym(ctx, "define"), _sym(ctx, bound), expr_id)))
+            names.append(bound)
+        source = ""
+        if not self._operations_bound:
+            self._operations_bound = True
+            source += scheme_operations_source(node, self._module, _OPERATIONS)
+        source += scheme_call_source(node, self._module, tuple(names), _OPERATIONS)
+        forms.extend(graft_scheme_forms(ctx.sb, source, f"qiec_call_{node.name}"))
+        return tuple(forms)
 
     def _collect_binding_plates(self, body: tuple[IRNode, ...]) -> None:
         """Record the binding plate of every named node in `body`.

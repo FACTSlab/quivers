@@ -6,11 +6,13 @@ import pytest
 
 from quivers.dsl.parser import parse
 from quivers.transpile import UnsupportedConstruct, transpile
+from quivers.dsl.ast_nodes.let_expressions import LetExprBinOp, LetExprVar
 from quivers.transpile.ir import (
     CSIntegerInterval,
     DimStatic,
     IRArgBroadcast,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -187,3 +189,51 @@ export prog
     with pytest.raises(UnsupportedConstruct) as caught:
         Lower().forward(parse(source))
     assert caught.value.kinds[0].startswith("family:effects")
+
+
+CALLS = """\
+object Obs : FinSet 4
+
+define shift(x : Real, k : Real) : Real !{} =
+    return x + k
+
+define noisy(x : Real) : Real !{random} =
+    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))
+    return y
+
+instance random : Random
+
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let b <- shift(a, 2.0)
+    let c <- noisy(b)
+    observe y : Obs <- Normal(c, 0.5)
+    return c
+export prog
+"""
+
+
+def test_a_pure_call_is_inlined_and_an_effectful_call_is_a_call() -> None:
+    ir = Lower().forward(parse(CALLS))
+    assert _kinds(ir.body) == [
+        "IRSample",
+        "IRDeterministic",
+        "IRCall",
+        "IRObserve",
+        "IRReturn",
+    ]
+    _, shifted, call, observe, _ = ir.body
+    assert isinstance(shifted, IRDeterministic)
+    assert shifted.name == "b"
+    assert isinstance(shifted.expr, LetExprBinOp)
+    assert shifted.expr.op == "+"
+    assert isinstance(call, IRCall)
+    assert call.name == "c"
+    assert call.callee == "noisy"
+    assert call.static_arguments == ()
+    assert call.arguments == (LetExprVar(name="b"),)
+    assert call.random_instance.startswith("qiec:effect-instance:")
+    assert call.score_instance.startswith("qiec:effect-instance:")
+    assert call.plate.batch_dims == ()
+    assert isinstance(observe, IRObserve)
+    assert observe.args[0] == IRArgRef(name="c", indices=())

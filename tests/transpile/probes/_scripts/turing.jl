@@ -73,7 +73,9 @@ function main()
 
     # Eval the @model declaration in Main; the macro produces a
     # callable `model` symbol.
-    Base.eval(Main, Meta.parse(source))
+    # The source is a whole file: the model, and the QIEC runtime and
+    # the helpers it calls when the program calls any.
+    Base.include_string(Main, source)
 
     log_densities = Float64[]
     exports = []

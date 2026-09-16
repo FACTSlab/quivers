@@ -62,6 +62,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     LetExprBinOp,
     LetExprCall,
@@ -84,9 +85,11 @@ from quivers.transpile.renderers._base import (
     host_integer_input_names,
     mixture_normal_components,
 )
+from quivers.transpile.qiec_ir import IRQiecModule
 from quivers.transpile.renderers._qiec import (
-    render_computations_dynamic,
+    emit_call_python,
     qiec_helper_roots,
+    render_computations_dynamic,
 )
 
 
@@ -179,6 +182,7 @@ class PyroRenderer(RendererBase):
 
         pctx.body = body
         pctx.observed = frozenset(observed_names)
+        pctx.module = ir.module
         if not ir.body:
             noop = pctx.v(pctx.fresh("pass"), "pass_statement")
             pctx.e(body, noop, "child_of")
@@ -273,6 +277,9 @@ class PyroRenderer(RendererBase):
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node, pctx=pctx)
             return
+        if isinstance(node, IRCall):
+            self._emit_call_pyro(pctx, node)
+            return
         if isinstance(node, IRReturn):
             self._emit_return_pyro(pctx, node.names)
             return
@@ -280,6 +287,19 @@ class PyroRenderer(RendererBase):
             f"qvr-{self.target}",
             [f"node:{type(node).__name__}"],
         )
+
+    def _emit_call_pyro(self, pctx: _PyroCtx, node: IRCall) -> None:
+        """``<name> = qiec_<callee>(<args>, qiec_operations=<table>)``.
+
+        Parameters
+        ----------
+        pctx : _PyroCtx
+            The emission context.
+        node : IRCall
+            The call.
+        """
+        assert pctx.module is not None
+        emit_call_python(pctx, pctx.body, node, pctx.module, pctx.operations_bound)
 
     # ----- declare: no-op outside `"function_body"` -----
 
@@ -1274,6 +1294,8 @@ class _PyroCtx(PyCtx):
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
         self.morphisms: dict = {}
+        self.module: IRQiecModule | None = None
+        self.operations_bound: set[str] = set()
         # Plate-axis name -> the local variable holding a single reused
         # `pyro.plate(...)` object. Pyro registers each `pyro.plate`
         # context as a site named after the axis, so two inline plates

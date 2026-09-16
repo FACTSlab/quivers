@@ -8,6 +8,7 @@ zeros trick. Family names and argument conversions come from
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Literal
 
 import panproto
@@ -42,6 +43,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -67,6 +69,8 @@ from quivers.transpile.renderers._bugs_helpers import (
     inline_letexpr,
     irarg_letexpr,
     kumaraswamy_log_pdf,
+    list_cells,
+    list_sizes,
     marginal_scope_density,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
@@ -795,6 +799,10 @@ class JAGSRenderer(RendererBase):
             if isinstance(node.expr, LetExprFactor):
                 self._emit_factor_deterministic(ctx, node)
                 return
+            if isinstance(node.expr, LetExprList) and node.plate.batch_dims:
+                self._check_factor_plate(node, list_sizes(node.expr))
+                self._emit_cells(ctx, node, list_cells(node.expr, ()))
+                return
             self._emit_deterministic(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -806,6 +814,11 @@ class JAGSRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
             return
+        if isinstance(node, IRCall):
+            # A graph language relates variables; it has no statement
+            # that runs a computation, and the plan has already inlined
+            # every pure call it could.
+            raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"call:graph:{node.callee}"])
         raise UnsupportedConstruct(
             f"qvr-{_BACKEND}",
             [f"node:{type(node).__name__}"],
@@ -2029,9 +2042,32 @@ class JAGSRenderer(RendererBase):
                 [f"let-expr:factor:expected-factor:{node.name}"],
             )
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        sizes = factor_axis_sizes(let_ctx, expr)
-        self._check_factor_plate(node, sizes)
-        for indices, body in factor_cells(let_ctx, expr):
+        self._check_factor_plate(node, factor_axis_sizes(let_ctx, expr))
+        self._emit_cells(ctx, node, factor_cells(let_ctx, expr))
+
+    def _emit_cells(
+        self,
+        ctx: _JAGSCtx,
+        node: IRDeterministic,
+        cells: Iterable[tuple[tuple[int, ...], LetExprNode]],
+    ) -> None:
+        """Emit one relation per enumerated cell of a tensor binding.
+
+        A plated list literal is written out the way a factor is:
+        `<name>[i_1, ..., i_n] <- <item>`, the nesting of the literal
+        supplying the coordinates.
+
+        Parameters
+        ----------
+        ctx : _JAGSCtx
+            The render context.
+        node : IRDeterministic
+            The binding the cells belong to.
+        cells : Iterable[tuple[tuple[int, ...], LetExprNode]]
+            The cells' zero-based coordinates and scalar expressions.
+        """
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        for indices, body in cells:
             dr = _fresh(ctx, "dr", "deterministic_relation")
             ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
             ctx.sb.constraint(dr, "ptrace-0", "Cindexed_variable")

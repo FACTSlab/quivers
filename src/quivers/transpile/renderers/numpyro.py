@@ -61,6 +61,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     LetExprFactor,
     LetExprList,
@@ -77,9 +78,11 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
+from quivers.transpile.qiec_ir import IRQiecModule
 from quivers.transpile.renderers._qiec import (
-    render_computations_dynamic,
+    emit_call_python,
     qiec_helper_roots,
+    render_computations_dynamic,
 )
 
 
@@ -196,6 +199,7 @@ class NumPyroRenderer(RendererBase):
             observed_names=self._collect_observed(ir),
             scalar_refs=scalar_refs,
             bound_refs=bound_refs,
+            module=ir.module,
         )
 
         py.v("mod", "module")
@@ -714,6 +718,9 @@ class NumPyroRenderer(RendererBase):
             return
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(ctx.py, body_vid, node, ctx.module, ctx.operations_bound)
             return
         if isinstance(node, IRReturn):
             self._return_statement(ctx, body_vid, node.names)
@@ -1772,6 +1779,7 @@ class _NumPyroCtx(_RenderCtx):
         observed_names: set[str],
         scalar_refs: frozenset[str],
         bound_refs: frozenset[str],
+        module: IRQiecModule,
     ) -> None:
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.py = py
@@ -1786,6 +1794,8 @@ class _NumPyroCtx(_RenderCtx):
         self.bound_refs = bound_refs
         self.current_body: str | None = None
         self.emitted_plate_names: set[str] = set()
+        self.module: IRQiecModule = module
+        self.operations_bound: set[str] = set()
 
 
 def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:

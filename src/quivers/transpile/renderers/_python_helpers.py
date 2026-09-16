@@ -123,6 +123,11 @@ class PyCtx:
         # framework runtime is already in scope.
         self.required_imports: set[tuple[tuple[str, ...], str]] = set()
 
+    @property
+    def builder(self) -> panproto.SchemaBuilder:
+        """The schema builder the context writes vertices into."""
+        return self._sb
+
     def fresh(self, prefix: str) -> str:
         self._n += 1
         return f"{prefix}_{self._n}"

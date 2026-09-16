@@ -37,3 +37,38 @@ function _qvr_qiec_log_density(distribution, value)
     end
     return Gen.logpdf(distribution.distribution, point, distribution.arguments...)
 end
+function _qvr_qiec_site_names()
+    # Site labels a helper's draws and scores carry, counted so the n-th
+    # occurrence of a label in one run of the model is "<label>@<n>", as
+    # the reference machine replays them.
+    occurrences = Dict{String,Int}()
+    return label -> begin
+        count = get(occurrences, label, 0)
+        occurrences[label] = count + 1
+        count == 0 ? label : label * "@" * string(count)
+    end
+end
+function _qvr_qiec_native_operations(random_instance, sample_operation, score_instance, add_operation, draw, add)
+    # The program's canonical instances handled by the model's own
+    # closures: `draw` traces a distribution at a site address through
+    # Gen's trace, and `add` traces a scored weight as a factor. A
+    # shifted family is drawn on the host's support and read back on
+    # QIEC's.
+    name = _qvr_qiec_site_names()
+    sample = request -> begin
+        label, distribution = request["arguments"]
+        if distribution isa _QvrQiecShifted
+            return draw(name(label), distribution.distribution) - distribution.offset
+        end
+        return draw(name(label), distribution)
+    end
+    score = request -> begin
+        (weight,) = request["arguments"]
+        add(name("score"), _qvr_qiec_array(weight))
+        return nothing
+    end
+    return Dict{Any,Any}(
+        (random_instance, sample_operation) => sample,
+        (score_instance, add_operation) => score,
+    )
+end

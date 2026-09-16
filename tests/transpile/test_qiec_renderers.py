@@ -35,6 +35,7 @@ from quivers.transpile.qiec_ir import (
     IRQiecVar,
 )
 from quivers.transpile.renderers._qiec import _ir_data, _julia_data, _scheme_data
+from tests.transpile._webppl import WEBPPL_EXECUTABLE, run_webppl
 
 
 DYNAMIC_TARGETS = (
@@ -1122,113 +1123,142 @@ def test_nested_state_handler_is_isolated_across_unrestricted_shots() -> None:
     assert not any(event.startswith("drop:") for event in events)
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_generated_webppl_qiec_function_executes_in_javascript(
-    tmp_path,
-) -> None:
-    script = tmp_path / "qiec.js"
+_WEBPPL_UNAVAILABLE = pytest.mark.skipif(
+    WEBPPL_EXECUTABLE is None, reason="WebPPL is unavailable"
+)
+
+
+def _webppl_table(entries: dict[str, str]) -> str:
+    """A WebPPL object literal over stable identities.
+
+    WebPPL renames some identifiers used as literal keys, so a table
+    keyed by `qiec:...` identities is built from quoted keys.
+
+    Parameters
+    ----------
+    entries : dict[str, str]
+        Each key's WebPPL value expression.
+
+    Returns
+    -------
+    str
+        ``_.zipObject([keys], [values])``.
+    """
+    keys = ", ".join(json.dumps(key) for key in entries)
+    values = ", ".join(entries.values())
+    return f"_.zipObject([{keys}], [{values}])"
+
+
+@_WEBPPL_UNAVAILABLE
+def test_generated_webppl_qiec_function_executes_in_webppl(tmp_path) -> None:
+    script = tmp_path / "qiec.wppl"
     script.write_bytes(
-        transpile(parse(PURE), target="webppl") + b"\nconsole.log(qiec_answer());\n"
+        transpile(parse(PURE), target="webppl") + b"\ndisplay(qiec_answer());\n"
     )
 
-    completed = subprocess.run(
-        ["node", str(script)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    completed = run_webppl(script)
     assert completed.stdout.strip() == "42"
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_effect_dispatch_uses_stable_ids(tmp_path) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
     key = request.instance.text + "|" + request.operation.text
-    script = tmp_path / "qiec-effect.js"
+    script = tmp_path / "qiec-effect.wppl"
     script.write_bytes(
         transpile(parse(EFFECTFUL), target="webppl")
         + (
-            "\nvar operations = {};\n"
-            f"operations[{json.dumps(key)}] = function(request) {{ return 41; }};\n"
-            "console.log(qiec_read(null, {}, {}, operations));\n"
+            f"\nvar operations = {_webppl_table({key: 'function(request) { return 41; }'})};\n"
+            "display(qiec_read(null, {}, {}, operations));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert completed.stdout.strip() == "41"
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_attachment_is_typed_and_validated(tmp_path) -> None:
     ir, attachment, expected_type = _attachment_program_ir()
-    script = tmp_path / "qiec-attachment.js"
+    script = tmp_path / "qiec-attachment.wppl"
+    binding = (
+        "{ qiec: 'binding', value: 53, type: "
+        f"{json.dumps(expected_type)}, validator: function(value) "
+        "{ globalStore.validated = globalStore.validated.concat([value]); return true; } }"
+    )
     script.write_bytes(
         _render_ir(ir, "webppl")
         + (
-            "\nvar validated = []; var attachments = {};\n"
-            f"attachments[{json.dumps(attachment.text)}] = {{ qiec: 'binding', value: 53, type: {json.dumps(expected_type)}, validator: function(value) {{ validated.push(value); return true; }} }};\n"
-            "console.log(JSON.stringify([qiec_answer(null, attachments, {}, {}), validated]));\n"
+            "\nglobalStore.validated = [];\n"
+            f"var attachments = {_webppl_table({attachment.text: binding})};\n"
+            "display(JSON.stringify([qiec_answer(null, attachments, {}, {}), globalStore.validated]));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == [53, [53]]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_evidence_and_transport_execute(tmp_path) -> None:
-    script = tmp_path / "qiec-evidence.js"
+    script = tmp_path / "qiec-evidence.wppl"
     script.write_bytes(
         _render_ir(_evidence_transport_program_ir(), "webppl")
-        + b"\nconsole.log(JSON.stringify([qiec_evidence().qiec, qiec_evidence().evidence.kind, qiec_transport()]));\n"
+        + b"\ndisplay(JSON.stringify([qiec_evidence().qiec, qiec_evidence().evidence.kind, qiec_transport()]));\n"
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == ["evidence", "reflexivity", 42]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_generated_webppl_linear_grade_and_handler_specialization(tmp_path) -> None:
+@_WEBPPL_UNAVAILABLE
+def test_generated_webppl_linear_grade_is_enforced(tmp_path) -> None:
+    """A linear clause resuming twice ends the program with the grade error."""
     linear_qiec = Lower().forward(parse(HANDLED)).module
-    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
-    assert linear_qiec is not None and parameterized_qiec is not None
     linear_handler = linear_qiec.handlers[0]
-    parameterized_handler = parameterized_qiec.handlers[0]
-    script = tmp_path / "qiec-handler-contracts.js"
+    script = tmp_path / "qiec-linear.wppl"
+    clause = "function(request, resume, context) { resume(1); return resume(2); }"
     script.write_bytes(
-        transpile(parse(HANDLED + "\n" + PARAMETERIZED_HANDLER), target="webppl")
+        transpile(parse(HANDLED), target="webppl")
         + (
-            "\nvar linearOperations = {}; var linearHandlers = {};\n"
-            f"linearOperations[{json.dumps(linear_handler.clauses[0].operation.text)}] = function(request, resume, context) {{ resume(1); return resume(2); }};\n"
-            f"linearHandlers[{json.dumps(linear_handler.id.text)}] = {{ operations: linearOperations }};\n"
-            "var grade = null; try { qiec_read(null, {}, linearHandlers, {}); } catch (failure) { grade = failure.message; }\n"
-            "var seen = null; var specializedOperations = {}; var specializedHandlers = {};\n"
-            f"specializedOperations[{json.dumps(parameterized_handler.clauses[0].operation.text)}] = function(request, resume, context) {{ seen = context.definition; return resume(61); }};\n"
-            f"specializedHandlers[{json.dumps(parameterized_handler.id.text)}] = {{ operations: specializedOperations }};\n"
-            "var result = qiec_read_specialized(null, {}, specializedHandlers, {});\n"
-            "console.log(JSON.stringify([grade, result, seen.telescope, seen.effect.arguments[0].constructor.name]));\n"
+            f"\nvar linearOperations = {_webppl_table({linear_handler.clauses[0].operation.text: clause})};\n"
+            f"var linearHandlers = {_webppl_table({linear_handler.id.text: '{ operations: linearOperations }'})};\n"
+            "display(qiec_read(null, {}, linearHandlers, {}));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
+    completed = run_webppl(script, check=False)
+    assert completed.returncode != 0
+    # WebPPL reports an uncaught error on its standard output.
+    assert "QIEC resumption exceeds grade 1" in completed.stdout + completed.stderr
+
+
+@_WEBPPL_UNAVAILABLE
+def test_generated_webppl_handler_specialization(tmp_path) -> None:
+    parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
+    parameterized_handler = parameterized_qiec.handlers[0]
+    script = tmp_path / "qiec-handler-contracts.wppl"
+    clause = (
+        "function(request, resume, context) "
+        "{ globalStore.seen = context.definition; return resume(61); }"
     )
-    assert json.loads(completed.stdout) == [
-        "QIEC resumption exceeds grade 1",
-        61,
-        [],
-        "Int",
-    ]
+    script.write_bytes(
+        transpile(parse(PARAMETERIZED_HANDLER), target="webppl")
+        + (
+            f"\nvar specializedOperations = {_webppl_table({parameterized_handler.clauses[0].operation.text: clause})};\n"
+            f"var specializedHandlers = {_webppl_table({parameterized_handler.id.text: '{ operations: specializedOperations }'})};\n"
+            "var result = qiec_read_specialized(null, {}, specializedHandlers, {});\n"
+            "display(JSON.stringify([result, globalStore.seen.telescope, "
+            'globalStore.seen.effect["arguments"][0].constructor.name]));\n'
+        ).encode()
+    )
+
+    completed = run_webppl(script)
+    assert json.loads(completed.stdout) == [61, [], "Int"]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) -> None:
     qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
@@ -1236,38 +1266,54 @@ def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) 
         handler.name: [clause.operation.text for clause in handler.clauses]
         for handler in qiec.handlers
     }
-    script = tmp_path / "qiec-handlers.js"
+    script = tmp_path / "qiec-handlers.wppl"
+    inner_operations = _webppl_table(
+        {
+            operations["inner"][
+                0
+            ]: "function(request, resume, context) { return resume(11); }"
+        }
+    )
+    outer_operations = _webppl_table(
+        {
+            operations["outer"][
+                0
+            ]: "function(request, resume, context) { return resume(13); }",
+            operations["outer"][1]: (
+                "{ invoke: function(request, resume, context) { return resume(19); }, "
+                "result_validator: function(value) { return typeof value === 'number'; } }"
+            ),
+        }
+    )
     script.write_bytes(
         transpile(parse(PARTIAL_FORWARDING), target="webppl")
         + (
-            "\nvar events = [];\n"
-            "var handlers = {};\n"
-            "var innerOperations = {};\n"
-            f"innerOperations[{json.dumps(operations['inner'][0])}] = function(request, resume, context) {{ return resume(11); }};\n"
-            "var outerOperations = {};\n"
-            f"outerOperations[{json.dumps(operations['outer'][0])}] = function(request, resume, context) {{ return resume(13); }};\n"
-            f"outerOperations[{json.dumps(operations['outer'][1])}] = {{ invoke: function(request, resume, context) {{ return resume(19); }}, result_validator: function(value) {{ return typeof value === 'number'; }} }};\n"
-            "var installed = function(label, operations) { return { operations: operations, mutable_context: true, output_validator: function(value) { return typeof value === 'number'; }, on_enter: function() { events.push('enter:' + label); }, on_exit: function() { events.push('exit:' + label); }, on_drop: function() { events.push('drop:' + label); } }; };\n"
-            "var innerPrototype = installed('prototype-inner', innerOperations);\n"
-            "innerPrototype.context_factory = function() { return installed('inner', innerOperations); };\n"
-            "var outerPrototype = installed('prototype-outer', outerOperations);\n"
-            "outerPrototype.context_factory = function() { return installed('outer', outerOperations); };\n"
-            f"handlers[{json.dumps(inner.id.text)}] = innerPrototype;\n"
-            f"handlers[{json.dumps(outer.id.text)}] = outerPrototype;\n"
-            "console.log(JSON.stringify([qiec_forwarded_result(null, {}, handlers, {}), events]));\n"
+            "\nglobalStore.events = [];\n"
+            "var record = function(event) { globalStore.events = globalStore.events.concat([event]); return null; };\n"
+            f"var innerOperations = {inner_operations};\n"
+            f"var outerOperations = {outer_operations};\n"
+            "var installed = function(label, operations) { return { operations: operations, mutable_context: true, "
+            "output_validator: function(value) { return typeof value === 'number'; }, "
+            "on_enter: function() { return record('enter:' + label); }, "
+            "on_exit: function() { return record('exit:' + label); }, "
+            "on_drop: function() { return record('drop:' + label); } }; };\n"
+            "var innerPrototype = Object.assign({}, installed('prototype-inner', innerOperations), "
+            "{ context_factory: function() { return installed('inner', innerOperations); } });\n"
+            "var outerPrototype = Object.assign({}, installed('prototype-outer', outerOperations), "
+            "{ context_factory: function() { return installed('outer', outerOperations); } });\n"
+            f"var handlers = {_webppl_table({inner.id.text: 'innerPrototype', outer.id.text: 'outerPrototype'})};\n"
+            "display(JSON.stringify([qiec_forwarded_result(null, {}, handlers, {}), globalStore.events]));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == [
         19,
         ["enter:outer", "enter:inner", "exit:inner", "exit:outer"],
     ]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None:
     parameter_ir = Lower().forward(parse(PARAMETER)).module
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
@@ -1275,50 +1321,54 @@ def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None
     int_type = _ir_data(parameter_ir.computations[0].parameters[0].type)
     request = qiec.computations[1].body.branches[0].body.steps[0].first.request  # type: ignore[union-attr]
     key = request.instance.text + "|" + request.operation.text
-    script = tmp_path / "qiec-existential.js"
+    script = tmp_path / "qiec-existential.wppl"
+    entry = "function(request) { globalStore.seen = request.static_arguments; return 'tagged'; }"
     script.write_bytes(
         transpile(parse(EXISTENTIAL_REQUEST), target="webppl")
         + (
-            "\nvar seen = null; var operations = {};\n"
-            f"operations[{json.dumps(key)}] = function(request) {{ seen = request.static_arguments; return 'tagged'; }};\n"
+            f"\nvar operations = {_webppl_table({key: entry})};\n"
             f"var box = qiec_pack(7, [{json.dumps(int_type)}], {{}}, {{}}, {{}});\n"
-            "console.log(JSON.stringify([qiec_tag_box(box, null, {}, {}, operations), seen]));\n"
+            "display(JSON.stringify([qiec_tag_box(box, null, {}, {}, operations), globalStore.seen]));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == ["tagged", [int_type]]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> None:
     qiec = Lower().forward(parse(MULTISHOT)).module
     handler = qiec.handlers[0]
     operation = handler.clauses[0].operation.text
     trace = qiec.computations[0].body.computation.steps[1].first.request  # type: ignore[union-attr]
     key = trace.instance.text + "|" + trace.operation.text
-    script = tmp_path / "qiec-omega.js"
+    script = tmp_path / "qiec-omega.wppl"
+    clause = (
+        "function(request, resume, context) { var first = resume(1); var second = resume(2); "
+        "return _qvr_qiec_bind(first, function(left) { return _qvr_qiec_bind(second, "
+        "function(right) { return _qvr_qiec_pure(left + right); }); }); }"
+    )
+    entry = (
+        "function(request) { globalStore.addresses = globalStore.addresses.concat([request.address]); "
+        "return null; }"
+    )
     script.write_bytes(
         transpile(parse(MULTISHOT), target="webppl")
         + (
-            "\nvar addresses = []; var handlers = {}; var clauses = {}; var operations = {};\n"
-            f"clauses[{json.dumps(operation)}] = function(request, resume, context) {{ var first = resume(1); var second = resume(2); return _qvr_qiec_bind(first, function(left) {{ return _qvr_qiec_bind(second, function(right) {{ return _qvr_qiec_pure(left + right); }}); }}); }};\n"
-            f"handlers[{json.dumps(handler.id.text)}] = {{ operations: clauses, duplicable_context: true }};\n"
-            f"operations[{json.dumps(key)}] = function(request) {{ addresses.push(request.address); }};\n"
+            "\nglobalStore.addresses = [];\n"
+            f"var handlers = {_webppl_table({handler.id.text: '{ operations: ' + _webppl_table({operation: clause}) + ', duplicable_context: true }'})};\n"
+            f"var operations = {_webppl_table({key: entry})};\n"
             "var result = qiec_explored(null, {}, handlers, operations);\n"
-            "console.log(JSON.stringify([result, addresses.map(function(address) { return address[2][address[2].length - 1]; })]));\n"
+            "display(JSON.stringify([result, map(function(address) { return address[2][address[2].length - 1]; }, globalStore.addresses)]));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == [3, [0, 1]]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
+@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None:
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
@@ -1326,28 +1376,46 @@ def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None
         qiec.computations[0].body.computation.computation.steps[2].first.request
     )  # type: ignore[union-attr]
     key = trace_request.instance.text + "|" + trace_request.operation.text
-    script = tmp_path / "qiec-nested-state.js"
+    script = tmp_path / "qiec-nested-state.wppl"
+    state_operations = _webppl_table(
+        {
+            state.clauses[0].operation.text: (
+                "function(request, resume, context) { return resume(_qvr_qiec_cell_get(cell)); }"
+            ),
+            state.clauses[1].operation.text: (
+                "function(request, resume, context) "
+                '{ _qvr_qiec_cell_set(cell, request["arguments"][0]); return resume(null); }'
+            ),
+        }
+    )
+    choose_clause = (
+        "function(request, resume, context) { var first = resume(1); var second = resume(2); "
+        "return _qvr_qiec_bind(first, function(left) { return _qvr_qiec_bind(second, "
+        "function(right) { return _qvr_qiec_pure(left + right); }); }); }"
+    )
     script.write_bytes(
         transpile(parse(NESTED_STATE_OMEGA), target="webppl")
         + (
-            "\nvar trace = []; var events = []; var handlers = {}; var hostOperations = {};\n"
-            "var stateHandler = function(value, label) { var cell = { value: value }; var operations = {}; var handler = { cell: cell, operations: operations, duplicable_context: true, mutable_context: true, on_enter: function() { events.push('enter:' + label); }, on_exit: function() { events.push('exit:' + label); }, on_drop: function() { events.push('drop:' + label); } };\n"
-            f"operations[{json.dumps(state.clauses[0].operation.text)}] = function(request, resume, context) {{ return resume(cell.value); }};\n"
-            f"operations[{json.dumps(state.clauses[1].operation.text)}] = function(request, resume, context) {{ cell.value = request.arguments[0]; return resume(null); }};\n"
-            "handler.fork_context = function(seed) { return stateHandler(seed.cell.value, 'shot'); }; return handler; };\n"
-            "var statePrototype = stateHandler(0, 'prototype'); statePrototype.context_factory = function() { return stateHandler(0, 'root'); };\n"
-            f"handlers[{json.dumps(state.id.text)}] = statePrototype;\n"
-            "var chooseOperations = {};\n"
-            f"chooseOperations[{json.dumps(choose.clauses[0].operation.text)}] = function(request, resume, context) {{ var first = resume(1); var second = resume(2); return _qvr_qiec_bind(first, function(left) {{ return _qvr_qiec_bind(second, function(right) {{ return _qvr_qiec_pure(left + right); }}); }}); }};\n"
-            f"handlers[{json.dumps(choose.id.text)}] = {{ operations: chooseOperations, duplicable_context: true }};\n"
-            f"hostOperations[{json.dumps(key)}] = function(request) {{ trace.push(request.arguments[0]); }};\n"
-            "console.log(JSON.stringify([qiec_explored(null, {}, handlers, hostOperations), trace, events.filter(function(event) { return event.indexOf(':shot') >= 0; })]));\n"
+            "\nglobalStore.trace = []; globalStore.events = [];\n"
+            "var record = function(event) { globalStore.events = globalStore.events.concat([event]); return null; };\n"
+            "var stateHandler = function(value, label) { var cell = _qvr_qiec_cell(value); "
+            f"var operations = {state_operations}; "
+            "return { cell: cell, operations: operations, duplicable_context: true, mutable_context: true, "
+            "on_enter: function() { return record('enter:' + label); }, "
+            "on_exit: function() { return record('exit:' + label); }, "
+            "on_drop: function() { return record('drop:' + label); }, "
+            "fork_context: function(seed) { return stateHandler(_qvr_qiec_cell_get(seed.cell), 'shot'); } }; };\n"
+            "var statePrototype = Object.assign({}, stateHandler(0, 'prototype'), "
+            "{ context_factory: function() { return stateHandler(0, 'root'); } });\n"
+            f"var chooseHandler = {{ operations: {_webppl_table({choose.clauses[0].operation.text: choose_clause})}, duplicable_context: true }};\n"
+            f"var handlers = {_webppl_table({state.id.text: 'statePrototype', choose.id.text: 'chooseHandler'})};\n"
+            f"var hostOperations = {_webppl_table({key: 'function(request) { globalStore.trace = globalStore.trace.concat([request["arguments"][0]]); return null; }'})};\n"
+            "display(JSON.stringify([qiec_explored(null, {}, handlers, hostOperations), globalStore.trace, "
+            "filter(function(event) { return event.indexOf(':shot') >= 0; }, globalStore.events)]));\n"
         ).encode()
     )
 
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == [
         3,
         [0, 0],

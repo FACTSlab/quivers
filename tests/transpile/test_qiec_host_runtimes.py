@@ -2,8 +2,9 @@
 
 The four host runtimes share one free-computation ABI. These tests run the
 same source through each of them and hold them to the reference machine's
-observable behavior: recursion runs on a trampoline rather than the host
-stack, tail calls retire their caller's frame, requests reached through
+observable behavior: recursion runs on a trampoline (or, in WebPPL, on
+the compiler's own trampolined continuations) rather than the host stack,
+tail calls retire their caller's frame, requests reached through
 recursion or through two allocations of one instance address distinctly,
 and an authored handler needs no attachment.
 """
@@ -23,6 +24,7 @@ import pytest
 from quivers.dsl import parse
 from quivers.transpile import Lower, transpile
 from quivers.transpile.qiec_ir import IRQiecRowEntry
+from tests.transpile._webppl import WEBPPL_EXECUTABLE, run_webppl
 
 SCHEME_EXECUTABLE = next(
     (
@@ -275,37 +277,38 @@ def test_python_requests_are_addressed_by_call_and_instance_frames() -> None:
     assert [address[1] for address in nested] == [(("instance", 1), ("instance", 2))]
 
 
-_JS_LIST = """
+_WEBPPL_LIST = """
 var cons = %s;
 var lst = function(n) {
-  var v = { qiec: "constructor", constructor: cons.Nil, static_arguments: [], fields: [], result_type: null };
-  for (var i = 0; i < n; i++) { v = { qiec: "constructor", constructor: cons.Cons, static_arguments: [], fields: [i, v], result_type: null }; }
-  return v;
+  var nil = { qiec: "constructor", constructor: cons.Nil, static_arguments: [], fields: [], result_type: null };
+  var build = function(i, v) {
+    return i === n ? v : build(i + 1, { qiec: "constructor", constructor: cons.Cons, static_arguments: [], fields: [i, v], result_type: null });
+  };
+  return build(0, nil);
 };
 var INT = %s;
 """
 
+_WEBPPL_UNAVAILABLE = pytest.mark.skipif(
+    WEBPPL_EXECUTABLE is None, reason="WebPPL is unavailable"
+)
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_javascript_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
-    script = tmp_path / "deep.js"
+
+@_WEBPPL_UNAVAILABLE
+def test_webppl_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "deep.wppl"
     script.write_bytes(
         transpile(parse(RECURSION + "\n" + STATE), target="webppl")
         + (
-            _JS_LIST
+            _WEBPPL_LIST
             % (json.dumps(_constructors(RECURSION)), json.dumps(INT))
-            + f"console.log(JSON.stringify([qiec_last(lst({DEEP}), -1, [INT], {{}}, {{}}, {{}}), "
+            + f"display(JSON.stringify([qiec_last(lst({DEEP}), -1, [INT], {{}}, {{}}, {{}}), "
             f"qiec_first(lst({DEEP}), -1, [INT], {{}}, {{}}, {{}}), "
             "qiec_even_length(lst(7), [INT], {}, {}, {}), "
             "qiec_even_length(lst(8), [INT], {}, {}, {}), qiec_counted(5)]));\n"
         ).encode()
     )
-    completed = subprocess.run(
-        ["node", "--stack-size=200", str(script)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == [0, DEEP - 1, False, True, 0]
 
 
@@ -428,22 +431,17 @@ def test_python_expressions_and_branches() -> None:
         assert namespace["qiec_mixed"](x, y) == pytest.approx(_mixed_expected(x, y))  # type: ignore[operator]
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_javascript_expressions_and_branches(tmp_path: pathlib.Path) -> None:
-    script = tmp_path / "expr.js"
+@_WEBPPL_UNAVAILABLE
+def test_webppl_expressions_and_branches(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "expr.wppl"
     script.write_bytes(
         transpile(parse(ARITHMETIC), target="webppl")
         + (
-            f"console.log(JSON.stringify([qiec_triangle(10), qiec_triangle({DEEP}), "
+            f"display(JSON.stringify([qiec_triangle(10), qiec_triangle({DEEP}), "
             "qiec_mixed(-7, 2.5), qiec_mixed(9, 1.0), qiec_mixed(4, 0.1)]));\n"
         ).encode()
     )
-    completed = subprocess.run(
-        ["node", "--stack-size=200", str(script)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    completed = run_webppl(script)
     values = json.loads(completed.stdout)
     assert values[:2] == [55, DEEP * (DEEP + 1) // 2]
     assert values[2:] == pytest.approx(
@@ -546,19 +544,17 @@ def test_python_tensor_expressions() -> None:
     )
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is unavailable")
-def test_javascript_tensor_expressions(tmp_path: pathlib.Path) -> None:
-    script = tmp_path / "tensors.js"
+@_WEBPPL_UNAVAILABLE
+def test_webppl_tensor_expressions(tmp_path: pathlib.Path) -> None:
+    script = tmp_path / "tensors.wppl"
     script.write_bytes(
         transpile(parse(TENSORS), target="webppl")
         + (
-            f"console.log(JSON.stringify(qiec_stats(Object.freeze({list(_TENSOR_POINT)}), "
+            f"display(JSON.stringify(qiec_stats(Object.freeze({list(_TENSOR_POINT)}), "
             "[], {}, {}, {})));\n"
         ).encode()
     )
-    completed = subprocess.run(
-        ["node", str(script)], check=True, capture_output=True, text=True
-    )
+    completed = run_webppl(script)
     assert json.loads(completed.stdout) == pytest.approx(_stats_expected(_TENSOR_POINT))
 
 

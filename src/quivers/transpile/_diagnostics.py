@@ -674,12 +674,22 @@ def _render_qiec_kind(backend: str, tail: str) -> str:
     if reason == "call":
         callee, _, program = name.partition(":")
         return (
-            f"program `{program}` calls the computation `{callee}`, and the "
-            f"plan {_language(backend)} is rendered from has a statement for "
-            f"a draw, an observation, a binding, a score, and a "
-            f"marginalization, not for a call. Inline the computation's "
-            f"steps into the program, or keep the call out of the "
-            f"transpiled model."
+            f"program `{program}` calls `{callee}`, which is not a "
+            f"computation of the checked module, so the plan "
+            f"{_language(backend)} is rendered from has nothing to call. "
+            f"Declare the computation with `define` in the module, or call "
+            f"one that is declared."
+        )
+    if reason == "stan":
+        form, _, rest = name.partition(":")
+        primitive, _, computation = rest.partition(":")
+        return (
+            f"QIEC computation `{computation}` applies the `{primitive}` "
+            f"primitive, which has no spelling in a Stan user-defined "
+            f"function: Stan's function library has no counterpart, or "
+            f"(as for a conversion to an integer) admits only data. Write "
+            f"the computation with the primitives Stan has, or keep it out "
+            f"of the transpiled model."
         )
     if reason == "effect":
         effect, _, program = name.partition(":")
@@ -732,6 +742,25 @@ def _render_qiec_kind(backend: str, tail: str) -> str:
             f"with the module that provoked it."
         )
     return f"{_cannot(backend, 'transpile this checked QIEC construct')}: {tail}"
+
+
+def _render_call_kind(backend: str, tail: str) -> str:
+    """`call:graph:<callee>` -- a graph language has no statement that
+    runs a computation."""
+    reason, _, callee = tail.partition(":")
+    if reason == "graph":
+        return (
+            f"the program calls the computation `{callee}` at run time, and "
+            f"{_language(backend)} is a graph language: a model is a set of "
+            f"stochastic and deterministic relations between named nodes, "
+            f"with no statement that runs a computation, draws under a "
+            f"site name it computes, or scores a weight it accumulates. A "
+            f"pure computation whose body is a chain of bindings is inlined "
+            f"before the plan reaches this target, so `{callee}` is either "
+            f"effectful or recursive. Write its draws and scores as steps of "
+            f"the program, or transpile to a target with a host runtime."
+        )
+    return f"{_cannot(backend, 'transpile this call')}: {tail}"
 
 
 def _render_declare_kind(backend: str, tail: str) -> str:
@@ -1098,21 +1127,6 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"a defect in the transpiler rather than in the program; "
             f"please report it with the module that provoked it."
         )
-    if tail.startswith("no-log-weight:"):
-        latent = tail.partition(":")[2]
-        return (
-            f"`marginalize {latent}` denotes the integral of the "
-            f"block's measure over the latent, and "
-            f"{_language(backend)} has no way to add a free "
-            f"log-density term to a trace: every address it scores "
-            f"must be one it drew. Emitting the draw instead would "
-            f"denote a measure on the product of the latent's support "
-            f"with the block's, which is a larger space than the "
-            f"program's and differs from it by an amount that moves "
-            f"with the data. Draw the latent explicitly with `sample` "
-            f"if that is the model you want, or score the block on a "
-            f"target that carries a log-weight primitive."
-        )
     if tail.startswith("ungrouped-over-plate:"):
         latent = tail.partition(":")[2]
         return (
@@ -1343,6 +1357,12 @@ def _render_program_kind(backend: str, tail: str, explained: bool) -> str:
             f"its input from `{site}`, which the program never binds "
             f"and never takes as an input. Bind it, or take it as a "
             f"program input."
+        )
+    if reason == "elaboration":
+        return (
+            f"the elaboration of the program into the checked module refused "
+            f"it under `{rest}`, so {_language(backend)} has no computation "
+            f"to derive its plan from"
         )
     if explained:
         return _cannot(backend, f"emit program `{rest or reason}`")
@@ -1775,6 +1795,8 @@ def _render_head(
         return _render_node_kind(backend, tail, explained)
     if head == "qiec":
         return _render_qiec_kind(backend, tail)
+    if head == "call":
+        return _render_call_kind(backend, tail)
     if head == "declare":
         return _render_declare_kind(backend, tail)
     if head == "arg":

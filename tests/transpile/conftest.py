@@ -84,6 +84,7 @@ PROBE_MODULES = frozenset(
         "test_gallery_numeric_equivalence",
         "test_marginalize_numeric",
         "test_numeric_equivalence",
+        "test_qiec_call_equivalence",
         "test_qiec_distributions",
         "test_via_fibration_numeric",
     }

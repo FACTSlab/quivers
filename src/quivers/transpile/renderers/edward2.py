@@ -26,6 +26,9 @@ appears here.
 
 from __future__ import annotations
 
+import dataclasses
+import pathlib
+
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
@@ -78,6 +81,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -106,13 +110,36 @@ from quivers.transpile.renderers._base import (
     mixture_normal_components,
 )
 from quivers.transpile.renderers._qiec import (
-    render_computations_dynamic,
+    emit_call_python,
+    graft_python_statements,
     qiec_families_used,
+    render_computations_dynamic,
 )
+from quivers.transpile.qiec_ir import IRQiecModule
 
 
 _TARGET = "edward2"
 _BACKEND_KEY = f"qvr-{_TARGET}"
+
+#: The factor helper grafted into a module whose plan scores or calls:
+#: a one-point distribution whose log density is the scored weight.
+_FACTOR_HELPER = pathlib.Path(__file__).parent.parent / "runtime_factor_edward2.py"
+
+
+@dataclasses.dataclass
+class _Edward2Ctx(_RenderCtx):
+    """The render context with the module the plan's calls read.
+
+    Parameters
+    ----------
+    module : IRQiecModule
+        The checked module the plan was derived from.
+    operations_bound : set[str]
+        The bodies whose native operation table is already bound.
+    """
+
+    module: IRQiecModule = dataclasses.field(kw_only=True)
+    operations_bound: set[str] = dataclasses.field(default_factory=set, kw_only=True)
 
 
 #: Edward2-side argument injection for QVR families whose underlying
@@ -218,7 +245,7 @@ class Edward2Renderer(RendererBase):
             factor_towers=factor_tower_names(ir),
             name_plates=name_plate_map(ir),
         )
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        ctx = _Edward2Ctx(sb=sb, morphisms={}, defines={}, module=ir.module)
 
         sb.vertex("mod", "module")
         # A marginalize block reduces to a `MixtureSameFamily` whose
@@ -226,13 +253,20 @@ class Edward2Renderer(RendererBase):
         # than Edward2 random variables (an Edward2 constructor would
         # register a second, unobserved site on the trace). TFP is a
         # hard dependency of Edward2, so the emitted module imports it
-        # directly when a marginalize is present.
+        # directly when a marginalize is present. A score or a call
+        # needs the factor helper, a TFP distribution.
+        factors = _ir_has_factor(ir.body)
         if (
             _ir_has_marginalize(ir.body)
             or ir_uses_family(ir.body, "MixtureNormal")
             or qiec_families_used(ir)
+            or factors
         ):
             self._emit_tfp_import(py)
+        if factors:
+            graft_python_statements(
+                sb, _FACTOR_HELPER.read_text(), "mod", "qiec_factor"
+            )
         body_vid = py.v(py.fresh("body"), "block")
         if not ir.body:
             noop = py.v(py.fresh("pass"), "pass_statement")
@@ -290,7 +324,7 @@ class Edward2Renderer(RendererBase):
     def _emit_node(
         self,
         py: PyCtx,
-        ctx: _RenderCtx,
+        ctx: _Edward2Ctx,
         body_vid: str,
         node: IRNode,
         input_specs: dict[str, ConstraintSpec],
@@ -363,6 +397,9 @@ class Edward2Renderer(RendererBase):
             return
         if isinstance(node, IRScore):
             self._emit_score_node(py, body_vid, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(py, body_vid, node, ctx.module, ctx.operations_bound)
             return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize(py, body_vid, node, input_specs, bindings)
@@ -509,18 +546,27 @@ class Edward2Renderer(RendererBase):
         )
 
     def _emit_score_node(self, py: PyCtx, body_vid: str, node: IRScore) -> None:
-        """Bind ``<name> = <expr>``.
+        """``<name> = <expr>; _qvr_qiec_factor("<name>", <name>)``.
 
-        Edward2 has no top-level factor primitive; the canonical idiom
-        is to compute the log-density factor at trace time. For the
-        static fragment we bind the expression and leave the factor
-        accumulation to the consumer's tape / interceptor.
+        Edward2 reads a joint off its tape as the sum of each traced
+        variable's log density, so the weight is traced as a factor
+        variable, a one-point distribution whose log density is the
+        weight.
         """
         asn = py.v(py.fresh("asn"), "assignment")
         lhs = identifier(py, node.name)
         py.e(asn, lhs, "left")
         py.e(asn, render_let_expr_python(py, node.expr), "right")
         py.e(body_vid, asn, "child_of")
+        factor_call = call(
+            py,
+            identifier(py, "_qvr_qiec_factor"),
+            positional=(
+                string_literal(py, node.name),
+                identifier(py, node.name),
+            ),
+        )
+        py.e(body_vid, factor_call, "child_of")
 
     def _emit_return_statement(
         self, py: PyCtx, body_vid: str, names: tuple[str, ...]
@@ -1876,6 +1922,22 @@ def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
     """True iff `body` carries an
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] anywhere."""
     return any(isinstance(node, IRMarginalize) for node in body)
+
+
+def _ir_has_factor(body: tuple[IRNode, ...]) -> bool:
+    """True iff `body` scores or calls, either of which traces a factor.
+
+    Parameters
+    ----------
+    body : tuple[IRNode, ...]
+        The plan body.
+
+    Returns
+    -------
+    bool
+        Whether the module needs the factor helper.
+    """
+    return any(isinstance(node, (IRScore, IRCall)) for node in body)
 
 
 def _tf_stack(py: PyCtx, items: tuple[str, ...], axis: int) -> str:

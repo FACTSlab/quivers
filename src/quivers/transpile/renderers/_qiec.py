@@ -24,7 +24,13 @@ from quivers.transpile.family_spelling import (
     helper_roots,
     spell_distribution,
 )
-from quivers.transpile.ir import IRProgram
+from quivers.dsl.ast_nodes.let_expressions import LetExprNode, LetExprVar
+from quivers.transpile.ir import IRCall, IRMarginalize, IRNode, IRProgram
+from quivers.transpile.renderers._python_helpers import (
+    PyCtx,
+    assignment,
+    render_let_expr_python,
+)
 from quivers.transpile.qiec_ir import (
     IRQiecAttachmentRef,
     IRQiecIndexLiteral,
@@ -201,6 +207,183 @@ def render_computations_dynamic(
     )
 
 
+def needed_computations(ir: IRProgram) -> tuple[IRQiecNamedComputation, ...]:
+    """The computations a static target has to carry for a lowered root.
+
+    A static target renders the program's plan, so it needs the
+    computations the plan calls, and what those call in turn; a
+    computation the program never reaches is not part of its output.
+    A module with no program has nothing but its computations, so all
+    of them are needed.
+
+    Parameters
+    ----------
+    ir : IRProgram
+        The lowered root.
+
+    Returns
+    -------
+    tuple[IRQiecNamedComputation, ...]
+        The needed computations, in module order.
+    """
+    module = ir.module
+    runtime = _runtime_computations(module)
+    if not module.programs:
+        return runtime
+    by_name = {item.name: item for item in runtime}
+    by_id = {item.id.text: item for item in runtime}
+    pending = [by_name[name] for name in _called_names(ir.body) if name in by_name]
+    needed: dict[str, IRQiecNamedComputation] = {}
+    while pending:
+        item = pending.pop()
+        if item.id.text in needed:
+            continue
+        needed[item.id.text] = item
+        pending.extend(
+            by_id[callee] for callee in _callee_ids(item.body) if callee in by_id
+        )
+    return tuple(item for item in runtime if item.id.text in needed)
+
+
+def _called_names(body: tuple[IRNode, ...]) -> list[str]:
+    """The callees of every call in a plan body, marginalize scopes included.
+
+    Parameters
+    ----------
+    body : tuple[IRNode, ...]
+        The plan body.
+
+    Returns
+    -------
+    list[str]
+        Callee names in plan order.
+    """
+    names: list[str] = []
+    for node in body:
+        if isinstance(node, IRCall):
+            names.append(node.callee)
+        elif isinstance(node, IRMarginalize):
+            names.extend(_called_names(node.scope))
+    return names
+
+
+def _callee_ids(node: IRQiecComputation) -> list[str]:
+    """The identities of every computation a body calls.
+
+    Parameters
+    ----------
+    node : IRQiecComputation
+        The body.
+
+    Returns
+    -------
+    list[str]
+        Callee identity texts.
+    """
+    found: list[str] = []
+    if isinstance(node, IRQiecCall):
+        found.append(node.callee.text)
+    elif isinstance(node, IRQiecBind):
+        for step in node.steps:
+            found.extend(_callee_ids(step.first))
+        found.extend(_callee_ids(node.then))
+    elif isinstance(node, IRQiecHandle):
+        found.extend(_callee_ids(node.computation))
+    elif isinstance(node, IRQiecCase):
+        for branch in node.branches:
+            found.extend(_callee_ids(branch.body))
+    elif isinstance(node, IRQiecIf):
+        found.extend(_callee_ids(node.then))
+        found.extend(_callee_ids(node.otherwise))
+    elif isinstance(node, IRQiecNewInstance):
+        found.extend(_callee_ids(node.body))
+    return found
+
+
+def carried_computations(
+    ir: IRProgram, target: str
+) -> tuple[IRQiecNamedComputation, ...]:
+    """The computations a static target's output defines.
+
+    Every computation the target can represent is defined, called or
+    not, so a module's entry points stay in the output where the
+    target has a form for them; one the program never calls and the
+    target cannot represent is left out, since it is no part of the
+    program the output denotes. A needed computation the target
+    cannot represent is refused by
+    [`refuse_static_gaps`][quivers.transpile.renderers._qiec.refuse_static_gaps]
+    before this is read.
+
+    Parameters
+    ----------
+    ir : IRProgram
+        The lowered root.
+    target : str
+        The renderer's target label.
+
+    Returns
+    -------
+    tuple[IRQiecNamedComputation, ...]
+        The definable computations, in module order.
+    """
+    public_target = qiec_target_name(target)
+    gaps = frozenset(
+        diagnostic.computation
+        for diagnostic in analyze_qiec_capabilities(ir.module, public_target)
+        if diagnostic.computation is not None
+    )
+    return tuple(
+        item for item in _runtime_computations(ir.module) if item.name not in gaps
+    )
+
+
+def refuse_static_gaps(ir: IRProgram, target: str) -> None:
+    """Refuse a lowered root whose needed computations a static target lacks.
+
+    Parameters
+    ----------
+    ir : IRProgram
+        The lowered root.
+    target : str
+        The renderer's target label.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the target lacks a capability a needed computation uses.
+    """
+    public_target = qiec_target_name(target)
+    needed = frozenset(item.id.text for item in needed_computations(ir))
+    diagnostics = tuple(
+        diagnostic
+        for diagnostic in analyze_qiec_capabilities(ir.module, public_target)
+        if diagnostic.computation is None
+        or _computation_id(ir.module, diagnostic.computation) in needed
+    )
+    if diagnostics:
+        raise UnsupportedConstruct(
+            f"qvr-{public_target}", [diagnostic.kind for diagnostic in diagnostics]
+        )
+
+
+def _computation_id(module: IRQiecModule, name: str) -> str:
+    """The identity of a module computation.
+
+    Parameters
+    ----------
+    module : IRQiecModule
+        The module.
+    name : str
+        The computation's name.
+
+    Returns
+    -------
+    str
+        Its identity text.
+    """
+    return next(item.id.text for item in module.computations if item.name == name)
+
+
 def render_computations_static(
     sb: panproto.SchemaBuilder,
     ir: IRProgram,
@@ -208,7 +391,7 @@ def render_computations_static(
     target: str,
     destination: str,
 ) -> None:
-    """Render the module's pure computations into a static target's block.
+    """Render the computations a static target needs into its block.
 
     Parameters
     ----------
@@ -224,21 +407,17 @@ def render_computations_static(
     Raises
     ------
     UnsupportedConstruct
-        If the target lacks a capability a computation needs.
+        If the target lacks a capability a needed computation uses.
     """
-    module = ir.module
     public_target = qiec_target_name(target)
-    diagnostics = analyze_qiec_capabilities(module, public_target)
-    if diagnostics:
-        raise UnsupportedConstruct(
-            f"qvr-{public_target}", [diagnostic.kind for diagnostic in diagnostics]
-        )
-    if not _runtime_computations(module):
+    refuse_static_gaps(ir, target)
+    carried = carried_computations(ir, target)
+    if not carried:
         if public_target not in {"bugs", "jags"}:
             return
         source, source_root_kind = "model {\nqiec_declarations <- 0\n}\n", "model_block"
     else:
-        source, source_root_kind = _static_definitions(module, public_target)
+        source, source_root_kind = _static_definitions(carried, public_target)
     grammar = "bugs" if public_target == "bugs" else public_target
     _graft_parsed_children(
         sb,
@@ -250,16 +429,545 @@ def render_computations_static(
     )
 
 
+def canonical_operations(module: IRQiecModule) -> tuple[str, str]:
+    """The identities of ``Random.sample`` and ``Score.add`` in a module.
+
+    Parameters
+    ----------
+    module : IRQiecModule
+        The module.
+
+    Returns
+    -------
+    tuple[str, str]
+        The sample operation's and the add operation's identity texts.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the module declares neither effect.
+    """
+    found: dict[str, str] = {}
+    for effect in module.effects:
+        for operation in effect.operations:
+            if (effect.ref.name, operation.name) in (
+                ("Random", "sample"),
+                ("Score", "add"),
+            ):
+                found[effect.ref.name] = operation.id.text
+    if "Random" not in found or "Score" not in found:
+        raise UnsupportedConstruct("qvr-lower", ["qiec:call:canonical-effects"])
+    return found["Random"], found["Score"]
+
+
+def python_call_source(
+    node: IRCall,
+    module: IRQiecModule,
+    argument_names: tuple[str, ...],
+    operations: str,
+) -> str:
+    """The Python statement calling a computation from the model.
+
+    Parameters
+    ----------
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    argument_names : tuple[str, ...]
+        The names the arguments are bound to in the model body.
+    operations : str
+        The name bound to the native operation table.
+
+    Returns
+    -------
+    str
+        ``<name> = qiec_<callee>(<arguments>, qiec_static_arguments=...,
+        qiec_operations=<operations>)``.
+    """
+    callee = next(item for item in module.computations if item.name == node.callee)
+    arguments = "".join(f"{name}, " for name in argument_names)
+    statics = _ir_data(node.static_arguments)
+    return (
+        f"{node.name} = {_function_name(callee)}({arguments}"
+        f"qiec_static_arguments={statics!r}, qiec_operations={operations})\n"
+    )
+
+
+def python_operations_source(
+    node: IRCall, module: IRQiecModule, operations: str
+) -> str:
+    """The Python statement binding the native operation table.
+
+    Parameters
+    ----------
+    node : IRCall
+        A call of the model, which names the program's instances.
+    module : IRQiecModule
+        The module.
+    operations : str
+        The name to bind the table to.
+
+    Returns
+    -------
+    str
+        ``<operations> = _qvr_qiec_native_operations(...)``.
+    """
+    sample, add = canonical_operations(module)
+    return (
+        f"{operations} = _qvr_qiec_native_operations({node.random_instance!r}, "
+        f"{sample!r}, {node.score_instance!r}, {add!r})\n"
+    )
+
+
+def emit_call_python(
+    py: PyCtx,
+    body: str,
+    node: IRCall,
+    module: IRQiecModule,
+    bound: set[str],
+) -> None:
+    """Place a call of a computation in a Python model body.
+
+    The first call binds the native operation table, under which the
+    callee's draws are the host's sample sites and its scores the
+    host's factor terms; an argument that is not a bare name is bound
+    first, so the call reads names alone.
+
+    Parameters
+    ----------
+    py : PyCtx
+        The emission context.
+    body : str
+        The block vertex the statements are placed in.
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    bound : set[str]
+        The bodies whose operation table is already bound, extended
+        with ``body`` once its table is placed.
+    """
+    names: list[str] = []
+    for position, argument in enumerate(node.arguments):
+        if isinstance(argument, LetExprVar):
+            names.append(argument.name)
+            continue
+        bound_name = f"{node.name}_arg{position}"
+        py.e(
+            body,
+            assignment(
+                py, lhs_name=bound_name, rhs=render_let_expr_python(py, argument)
+            ),
+            "child_of",
+        )
+        names.append(bound_name)
+    operations = "_qvr_qiec_operations"
+    source = ""
+    if body not in bound:
+        bound.add(body)
+        source += python_operations_source(node, module, operations)
+    source += python_call_source(node, module, tuple(names), operations)
+    graft_python_statements(py.builder, source, body, f"qiec_call_{node.name}")
+
+
+#: The Julia closures a target's model body hands the native operation
+#: table: a draw of a distribution under a site name, and a scored
+#: weight. Both are placed inside the model so they close over the
+#: host's per-evaluation state.
+_JULIA_NATIVE_CLOSURES: dict[str, tuple[str, str]] = {
+    "turing": (
+        "(label, distribution) -> begin\n"
+        "    vn = Turing.DynamicPPL.VarName{Symbol(label)}()\n"
+        "    prefixed = Turing.DynamicPPL.prefix(__model__.context, vn)\n"
+        "    if Turing.DynamicPPL.contextual_isassumption(__model__.context, prefixed)\n"
+        "        value, __varinfo__ = Turing.DynamicPPL.tilde_assume!!("
+        "__model__.context, distribution, vn, "
+        "Turing.DynamicPPL.VarNamedTuples.NoTemplate(), __varinfo__)\n"
+        "    else\n"
+        "        supplied = Turing.DynamicPPL.getconditioned_nested(__model__.context, prefixed)\n"
+        "        value, __varinfo__ = Turing.DynamicPPL.tilde_observe!!("
+        "__model__.context, distribution, supplied, vn, "
+        "Turing.DynamicPPL.VarNamedTuples.NoTemplate(), __varinfo__)\n"
+        "    end\n"
+        "    value\n"
+        "end",
+        "(label, weight) -> begin\n    Turing.@addlogprob! weight\n    nothing\nend",
+    ),
+    "gen": (
+        "(label, distribution) -> @trace("
+        "distribution.distribution(distribution.arguments...), Symbol(label))",
+        "(label, weight) -> begin\n"
+        "    @trace(_qvr_qiec_factor(weight), :qvr_factor => Symbol(label))\n"
+        "    nothing\n"
+        "end",
+    ),
+}
+
+
+def julia_call_source(
+    node: IRCall,
+    module: IRQiecModule,
+    argument_names: tuple[str, ...],
+    operations: str,
+) -> str:
+    """The Julia statement calling a computation from a model body.
+
+    Parameters
+    ----------
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    argument_names : tuple[str, ...]
+        The names the arguments are bound to in the model body.
+    operations : str
+        The name bound to the native operation table.
+
+    Returns
+    -------
+    str
+        ``<name> = qiec_<callee>(<arguments>; qiec_static_arguments=...,
+        qiec_operations=<operations>)``.
+    """
+    callee = next(item for item in module.computations if item.name == node.callee)
+    arguments = ", ".join(argument_names)
+    statics = _julia_data(_ir_data(node.static_arguments))
+    return (
+        f"{node.name} = {_function_name(callee)}({arguments}; "
+        f"qiec_static_arguments={statics}, qiec_operations={operations})\n"
+    )
+
+
+def julia_operations_source(
+    node: IRCall, module: IRQiecModule, operations: str, target: str
+) -> str:
+    """The Julia statement binding the native operation table.
+
+    Parameters
+    ----------
+    node : IRCall
+        A call of the model, which names the program's instances.
+    module : IRQiecModule
+        The module.
+    operations : str
+        The name to bind the table to.
+    target : str
+        The Julia target, which supplies the draw and score closures.
+
+    Returns
+    -------
+    str
+        ``<operations> = _qvr_qiec_native_operations(...)``.
+    """
+    sample, add = canonical_operations(module)
+    draw, score = _JULIA_NATIVE_CLOSURES[target]
+    return (
+        f"{operations} = _qvr_qiec_native_operations("
+        f"{_julia_string(node.random_instance)}, {_julia_string(sample)}, "
+        f"{_julia_string(node.score_instance)}, {_julia_string(add)}, "
+        f"{draw}, {score})\n"
+    )
+
+
+def emit_call_julia(
+    sb: panproto.SchemaBuilder,
+    node: IRCall,
+    module: IRQiecModule,
+    bound: set[str],
+    *,
+    target: str,
+    body: str,
+    bind_argument: Callable[[str, LetExprNode], None],
+    place: Callable[[str], None],
+) -> None:
+    """Place a call of a computation in a Julia model body.
+
+    The first call in a body binds the native operation table, whose
+    closures draw through the host's own tracing; an argument that is
+    not a bare name is bound first, so the call reads names alone.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    bound : set[str]
+        The bodies whose operation table is already bound, extended
+        with ``body`` once its table is placed.
+    target : str
+        The Julia target.
+    body : str
+        The body the statements belong to, as the key of ``bound``.
+    bind_argument : Callable[[str, LetExprNode], None]
+        Places ``<name> = <expression>`` in the body, for an argument
+        that is not a bare name.
+    place : Callable[[str], None]
+        Places one statement vertex in the body, in order.
+    """
+    names: list[str] = []
+    for position, argument in enumerate(node.arguments):
+        if isinstance(argument, LetExprVar):
+            names.append(argument.name)
+            continue
+        bound_name = f"{node.name}_arg{position}"
+        bind_argument(bound_name, argument)
+        names.append(bound_name)
+    operations = "_qvr_qiec_operations"
+    source = ""
+    if body not in bound:
+        bound.add(body)
+        source += julia_operations_source(node, module, operations, target)
+    source += julia_call_source(node, module, tuple(names), operations)
+    for statement in _graft_parsed_children(
+        sb,
+        grammar="julia",
+        source=source,
+        source_root_kind="source_file",
+        destination=None,
+        prefix=f"qiec_call_{node.name}",
+    ):
+        place(statement)
+
+
+def scheme_call_source(
+    node: IRCall,
+    module: IRQiecModule,
+    argument_names: tuple[str, ...],
+    operations: str,
+) -> str:
+    """The Scheme form calling a computation from a model body.
+
+    Parameters
+    ----------
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    argument_names : tuple[str, ...]
+        The names the arguments are bound to in the model body.
+    operations : str
+        The name bound to the native operation table.
+
+    Returns
+    -------
+    str
+        ``(define <name> (qiec_<callee> <arguments> <statics> '() '()
+        <operations>))``.
+    """
+    callee = next(item for item in module.computations if item.name == node.callee)
+    arguments = "".join(f"{name} " for name in argument_names)
+    statics = _scheme_data(_ir_data(node.static_arguments))
+    return (
+        f"(define {node.name} ({_function_name(callee)} {arguments}"
+        f"{statics} '() '() {operations}))\n"
+    )
+
+
+def scheme_operations_source(
+    node: IRCall, module: IRQiecModule, operations: str
+) -> str:
+    """The Scheme form binding the native operation table.
+
+    Parameters
+    ----------
+    node : IRCall
+        A call of the model, which names the program's instances.
+    module : IRQiecModule
+        The module.
+    operations : str
+        The name to bind the table to.
+
+    Returns
+    -------
+    str
+        ``(define <operations> (_qvr-qiec-native-operations ...))``.
+    """
+    sample, add = canonical_operations(module)
+    return (
+        f"(define {operations} (_qvr-qiec-native-operations "
+        f"{_scheme_string(node.random_instance)} {_scheme_string(sample)} "
+        f"{_scheme_string(node.score_instance)} {_scheme_string(add)}))\n"
+    )
+
+
+def graft_scheme_forms(
+    sb: panproto.SchemaBuilder, source: str, prefix: str
+) -> list[str]:
+    """Parse Scheme forms into a schema for the caller to place.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    source : str
+        The forms.
+    prefix : str
+        A prefix keeping the parsed vertices' identities apart.
+
+    Returns
+    -------
+    list[str]
+        The top-level form vertices, in source order.
+    """
+    return _graft_parsed_children(
+        sb,
+        grammar="scheme",
+        source=source,
+        source_root_kind="program",
+        destination=None,
+        prefix=prefix,
+    )
+
+
+def javascript_call_source(
+    node: IRCall,
+    module: IRQiecModule,
+    argument_names: tuple[str, ...],
+    operations: str,
+) -> str:
+    """The WebPPL statement calling a computation from a model body.
+
+    Parameters
+    ----------
+    node : IRCall
+        The call.
+    module : IRQiecModule
+        The module the callee belongs to.
+    argument_names : tuple[str, ...]
+        The names the arguments are bound to in the model body.
+    operations : str
+        The name bound to the native operation table.
+
+    Returns
+    -------
+    str
+        ``var <name> = qiec_<callee>(<arguments>, <statics>, {}, {},
+        <operations>);``.
+    """
+    callee = next(item for item in module.computations if item.name == node.callee)
+    arguments = "".join(f"{name}, " for name in argument_names)
+    statics = json.dumps(_ir_data(node.static_arguments), ensure_ascii=False)
+    return (
+        f"var {node.name} = {_function_name(callee)}({arguments}"
+        f"{statics}, {{}}, {{}}, {operations});\n"
+    )
+
+
+def javascript_operations_source(
+    node: IRCall, module: IRQiecModule, operations: str
+) -> str:
+    """The WebPPL statement binding the native operation table.
+
+    Parameters
+    ----------
+    node : IRCall
+        A call of the model, which names the program's instances.
+    module : IRQiecModule
+        The module.
+    operations : str
+        The name to bind the table to.
+
+    Returns
+    -------
+    str
+        ``var <operations> = _qvr_qiec_native_operations(...);``.
+    """
+    sample, add = canonical_operations(module)
+    return (
+        f"var {operations} = _qvr_qiec_native_operations("
+        f"{json.dumps(node.random_instance)}, {json.dumps(sample)}, "
+        f"{json.dumps(node.score_instance)}, {json.dumps(add)});\n"
+    )
+
+
+def graft_javascript_statements(
+    sb: panproto.SchemaBuilder, source: str, destination: str, prefix: str
+) -> None:
+    """Parse JavaScript statements and place them in a block.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    source : str
+        The statements.
+    destination : str
+        The block vertex the statements are placed in.
+    prefix : str
+        A prefix keeping the parsed vertices' identities apart.
+    """
+    _graft_parsed_children(
+        sb,
+        grammar="javascript",
+        source=source,
+        source_root_kind="program",
+        destination=destination,
+        prefix=prefix,
+    )
+
+
+def graft_python_statements(
+    sb: panproto.SchemaBuilder, source: str, destination: str, prefix: str
+) -> None:
+    """Parse Python statements and place them in a body.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    source : str
+        The statements.
+    destination : str
+        The block vertex the statements are placed in.
+    prefix : str
+        A prefix keeping the parsed vertices' identities apart.
+    """
+    _graft_parsed_children(
+        sb,
+        grammar="python",
+        source=source,
+        source_root_kind="module",
+        destination=destination,
+        prefix=prefix,
+    )
+
+
 def _graft_parsed_children(
     sb: panproto.SchemaBuilder,
     *,
     grammar: str,
     source: str,
     source_root_kind: str,
-    destination: str,
+    destination: str | None,
     prefix: str,
-) -> None:
-    """Parse source and graft one root's children into an existing schema."""
+) -> list[str]:
+    """Parse source and graft one root's children into an existing schema.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema being built.
+    grammar : str
+        The grammar the source is parsed with.
+    source : str
+        The source text.
+    source_root_kind : str
+        The kind of the parsed root whose children are grafted.
+    destination : str | None
+        The vertex the children hang from, or None to leave them for
+        the caller to place.
+    prefix : str
+        A prefix keeping the grafted vertices' identities apart.
+
+    Returns
+    -------
+    list[str]
+        The grafted top-level vertices, in source order.
+    """
     schema = parser_registry().parse_with_protocol(
         grammar, source.encode(), f"<{prefix}>"
     )
@@ -290,8 +998,10 @@ def _graft_parsed_children(
     for edge in schema.edges:
         if edge.src in id_map and edge.tgt in id_map:
             sb.edge(id_map[edge.src], id_map[edge.tgt], edge.kind)
-    for child in top_level:
-        sb.edge(destination, id_map[child], "child_of")
+    if destination is not None:
+        for child in top_level:
+            sb.edge(destination, id_map[child], "child_of")
+    return [id_map[child] for child in top_level]
 
 
 def _reachable(schema: panproto.Schema, roots: tuple[str, ...]) -> tuple[str, ...]:
@@ -477,6 +1187,10 @@ def _dynamic_definitions(module: IRQiecModule, grammar: str, target: str) -> str
         for handler in module.handlers
         if handler.implementation == "authored"
     ]
+    # A WebPPL program binds a name once, so its handler table is one
+    # declaration listing every authored handler's definition.
+    if grammar == "javascript":
+        authored.append(_javascript_authored_table(module))
     return "\n".join(
         (
             *authored,
@@ -1426,9 +2140,9 @@ def _javascript_definition(
     params.extend(
         (
             "qiec_static_arguments",
-            "qiec_attachments",
-            "qiec_handlers",
-            "qiec_operations",
+            "qiec_attachments_given",
+            "qiec_handlers_given",
+            "qiec_operations_given",
         )
     )
     body_params = [
@@ -1444,12 +2158,50 @@ def _javascript_definition(
         "};\n"
         f"var {_function_name(item)} = function({', '.join(params)}) {{\n"
         f"  var qiec_static = _qvr_qiec_static_environment({json.dumps(_ir_data(item.telescope), ensure_ascii=False)}, qiec_static_arguments);\n"
-        "  qiec_attachments = qiec_attachments || {};\n"
-        "  qiec_handlers = qiec_handlers || {};\n"
-        "  qiec_operations = qiec_operations || {};\n"
+        "  var qiec_attachments = qiec_attachments_given || {};\n"
+        "  var qiec_handlers = qiec_handlers_given || {};\n"
+        "  var qiec_operations = qiec_operations_given || {};\n"
         f"  return _qvr_qiec_run(function() {{ return {_body_name(item)}({', '.join(body_params)}); }}, qiec_operations);\n"
         "};\n"
     )
+
+
+def _javascript_authored_table(module: IRQiecModule) -> str:
+    """The table of authored handlers a WebPPL program installs.
+
+    Parameters
+    ----------
+    module : IRQiecModule
+        The checked module.
+
+    Returns
+    -------
+    str
+        ``var _qvr_qiec_authored = {...};`` naming each authored handler's
+        definition under its stable identity.
+    """
+    entries = ", ".join(
+        f"{json.dumps(handler.id.text)}: {_authored_handler_name(handler)}"
+        for handler in module.handlers
+        if handler.implementation == "authored"
+    )
+    return f"var _qvr_qiec_authored = {{ {entries} }};\n"
+
+
+def _authored_handler_name(handler: IRQiecHandlerDef) -> str:
+    """The WebPPL name holding one authored handler's definition.
+
+    Parameters
+    ----------
+    handler : IRQiecHandlerDef
+        The handler.
+
+    Returns
+    -------
+    str
+        A name derived from the handler's own.
+    """
+    return f"_qvr_qiec_authored_{_local_name(handler.name)}"
 
 
 def _javascript_authored_handler(
@@ -1481,8 +2233,10 @@ def _javascript_authored_handler(
             continue
         name = _clause_name(handler, _operation_name(module, clause.operation.text))
         params = [_local_name(local.name) for local in clause.parameters]
+        # WebPPL renames the identifier `arguments`, so the request's
+        # field is read under its string key.
         unpack = "".join(
-            f"  var {param} = qiec_request.arguments[{index}];\n"
+            f'  var {param} = qiec_request["arguments"][{index}];\n'
             for index, param in enumerate(params)
         )
         lines.append(
@@ -1511,7 +2265,7 @@ def _javascript_authored_handler(
         )
         return_entry = name
     lines.append(
-        f"_qvr_qiec_authored[{json.dumps(handler.id.text)}] = {{ operations: "
+        f"var {_authored_handler_name(handler)} = {{ operations: "
         f'{{ {", ".join(operations)} }}, "return": {return_entry}, '
         "duplicable_context: true };\n"
     )
@@ -1646,8 +2400,8 @@ def _javascript_value(target: str, node: IRQiecValue) -> str:
     if isinstance(node, IRQiecComprehension):
         binder = _local_name(node.binder.name)
         return (
-            f"Object.freeze(Array.from({{length: {_extent_literal(node.extent)}}}, "
-            f"function(_, {binder}) {{ return {_javascript_value(target, node.body)}; }}))"
+            f"Object.freeze(mapN(function({binder}) {{ return "
+            f"{_javascript_value(target, node.body)}; }}, {_extent_literal(node.extent)}))"
         )
     raise TypeError(f"unknown QIEC value {node!r}")
 
@@ -1936,9 +2690,27 @@ def _scheme_data(value: object) -> str:
     return repr(value)
 
 
-def _static_definitions(module: IRQiecModule, target: str) -> tuple[str, str]:
-    computations = _runtime_computations(module)
+def _static_definitions(
+    computations: tuple[IRQiecNamedComputation, ...], target: str
+) -> tuple[str, str]:
+    """The static target's definitions of the computations it needs.
+
+    Parameters
+    ----------
+    computations : tuple[IRQiecNamedComputation, ...]
+        The needed computations, in module order.
+    target : str
+        The public target name.
+
+    Returns
+    -------
+    tuple[str, str]
+        The source and the kind of its root.
+    """
     if target == "stan":
+        # Every user-defined function name is in scope throughout the
+        # block, so a recursive or mutually recursive computation
+        # resolves without a forward declaration.
         definitions = "\n".join(_stan_function(item) for item in computations)
         return f"functions {{\n{definitions}\n}}\n", "functions"
     assignments = []
@@ -1960,6 +2732,24 @@ def _static_definitions(module: IRQiecModule, target: str) -> tuple[str, str]:
 def _linearize(
     node: IRQiecComputation,
 ) -> tuple[list[tuple[str, IRQiecValue]], IRQiecValue]:
+    """Flatten a pure bind chain into its steps and its result.
+
+    Parameters
+    ----------
+    node : IRQiecComputation
+        A computation of returns and binds.
+
+    Returns
+    -------
+    tuple[list[tuple[str, IRQiecValue]], IRQiecValue]
+        Each binder with the value bound to it, in order, and the
+        returned value.
+
+    Raises
+    ------
+    TypeError
+        If the computation has any other form.
+    """
     if isinstance(node, IRQiecReturn):
         return [], node.value
     if isinstance(node, IRQiecBind):
@@ -1974,6 +2764,25 @@ def _linearize(
 
 
 def _static_value(node: IRQiecValue, environment: dict[str, str] | None = None) -> str:
+    """A scalar variable or literal as a static target's expression.
+
+    Parameters
+    ----------
+    node : IRQiecValue
+        The value.
+    environment : dict[str, str] | None
+        The names the graph targets bound each local under.
+
+    Returns
+    -------
+    str
+        The expression.
+
+    Raises
+    ------
+    TypeError
+        If the value is neither a variable nor a numeric scalar.
+    """
     if isinstance(node, IRQiecVar):
         return (environment or {}).get(node.local.name, _local_name(node.local.name))
     if not isinstance(node, IRQiecLiteralValue):
@@ -1987,6 +2796,23 @@ def _static_value(node: IRQiecValue, environment: dict[str, str] | None = None) 
 
 
 def _stan_type(type_: object) -> str:
+    """The Stan type of a monomorphic scalar QIEC type.
+
+    Parameters
+    ----------
+    type_ : object
+        The type.
+
+    Returns
+    -------
+    str
+        ``int`` for `Int` and `Bool`, ``real`` for `Real`.
+
+    Raises
+    ------
+    TypeError
+        If the type is not one of those.
+    """
     if not isinstance(type_, IRQiecTypeApplication):
         raise TypeError("the QIEC capability analyzer admitted a non-monomorphic type")
     name = type_.constructor.name
@@ -1999,22 +2825,255 @@ def _stan_type(type_: object) -> str:
     )
 
 
-def _stan_function(item: IRQiecNamedComputation) -> str:
-    statements, value = _linearize(item.body)
+#: Stan spellings of the primitives a Stan function may apply, as
+#: templates over the rendered arguments. Booleans are Stan integers,
+#: so the logical operators are Stan's, and an activation is written
+#: out in the functions Stan has.
+_STAN_PRIMITIVES: dict[str, str] = {
+    "add_int": "({0} + {1})",
+    "sub_int": "({0} - {1})",
+    "mul_int": "({0} * {1})",
+    "div_int": "({0} %/% {1})",
+    "mod_int": "({0} - {1} * ({0} %/% {1}))",
+    "neg_int": "(-{0})",
+    "abs_int": "abs({0})",
+    "min_int": "min({0}, {1})",
+    "max_int": "max({0}, {1})",
+    "add_real": "({0} + {1})",
+    "sub_real": "({0} - {1})",
+    "mul_real": "({0} * {1})",
+    "div_real": "({0} / {1})",
+    "neg_real": "(-{0})",
+    "abs_real": "abs({0})",
+    "min_real": "fmin({0}, {1})",
+    "max_real": "fmax({0}, {1})",
+    "pow_real": "pow({0}, {1})",
+    "exp": "exp({0})",
+    "log": "log({0})",
+    "sqrt": "sqrt({0})",
+    "eq_int": "({0} == {1})",
+    "ne_int": "({0} != {1})",
+    "lt_int": "({0} < {1})",
+    "le_int": "({0} <= {1})",
+    "gt_int": "({0} > {1})",
+    "ge_int": "({0} >= {1})",
+    "eq_real": "({0} == {1})",
+    "ne_real": "({0} != {1})",
+    "lt_real": "({0} < {1})",
+    "le_real": "({0} <= {1})",
+    "gt_real": "({0} > {1})",
+    "ge_real": "({0} >= {1})",
+    "eq_bool": "({0} == {1})",
+    "ne_bool": "({0} != {1})",
+    "and": "({0} && {1})",
+    "or": "({0} || {1})",
+    "not": "(!{0})",
+    "int_to_real": "(1.0 * {0})",
+    "expm1": "expm1({0})",
+    "log1p": "log1p({0})",
+    "log2": "log2({0})",
+    "log10": "log10({0})",
+    "rsqrt": "inv_sqrt({0})",
+    "square": "square({0})",
+    "sign": "(({0} > 0) - ({0} < 0))",
+    "reciprocal": "inv({0})",
+    "sin": "sin({0})",
+    "cos": "cos({0})",
+    "tan": "tan({0})",
+    "asin": "asin({0})",
+    "acos": "acos({0})",
+    "atan": "atan({0})",
+    "sinh": "sinh({0})",
+    "cosh": "cosh({0})",
+    "tanh": "tanh({0})",
+    "asinh": "asinh({0})",
+    "acosh": "acosh({0})",
+    "atanh": "atanh({0})",
+    "floor": "floor({0})",
+    "ceil": "ceil({0})",
+    "round": "round({0})",
+    "trunc": "trunc({0})",
+    "erf": "erf({0})",
+    "erfc": "erfc({0})",
+    "erfinv": "inv_erfc(1 - {0})",
+    "lgamma": "lgamma({0})",
+    "digamma": "digamma({0})",
+    "sigmoid": "inv_logit({0})",
+    "relu": "fmax({0}, 0)",
+    "relu6": "fmin(fmax({0}, 0), 6)",
+    "elu": "({0} > 0 ? {0} : expm1({0}))",
+    "selu": "(1.0507009873554805 * ({0} > 0 ? {0} : 1.6732632423543772 * expm1({0})))",
+    "gelu": "(0.5 * {0} * (1 + erf({0} / sqrt(2))))",
+    "silu": "({0} * inv_logit({0}))",
+    "mish": "({0} * tanh(log1p_exp({0})))",
+    "softplus": "log1p_exp({0})",
+    "logsigmoid": "log_inv_logit({0})",
+    "softsign": "({0} / (1 + abs({0})))",
+}
+
+
+def _stan_value(node: IRQiecValue, computation: str) -> str:
+    """A pure scalar value as a Stan expression.
+
+    Parameters
+    ----------
+    node : IRQiecValue
+        The value.
+    computation : str
+        The computation it belongs to, for the refusal's kind.
+
+    Returns
+    -------
+    str
+        The Stan expression.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If a primitive has no Stan spelling.
+    """
+    if isinstance(node, IRQiecPrimitiveApplication):
+        template = _STAN_PRIMITIVES.get(node.name)
+        if template is None:
+            raise UnsupportedConstruct(
+                "qvr-stan", [f"qiec:stan:primitive:{node.name}:{computation}"]
+            )
+        return template.format(
+            *(_stan_value(argument, computation) for argument in node.arguments)
+        )
+    return _static_value(node)
+
+
+def _stan_signature(item: IRQiecNamedComputation) -> str:
+    """A computation's Stan function signature.
+
+    Parameters
+    ----------
+    item : IRQiecNamedComputation
+        The computation.
+
+    Returns
+    -------
+    str
+        ``<type> qiec_<name>(<typed parameters>)``.
+    """
     params = ", ".join(
         f"{_stan_type(parameter.type)} {_local_name(parameter.name)}"
         for parameter in item.parameters
     )
-    lines = [f"{_stan_type(item.type.result)} {_function_name(item)}({params}) {{"]
+    return f"{_stan_type(item.type.result)} {_function_name(item)}({params})"
+
+
+def _stan_function(item: IRQiecNamedComputation) -> str:
+    """A pure computation as a Stan function definition.
+
+    Parameters
+    ----------
+    item : IRQiecNamedComputation
+        The computation.
+
+    Returns
+    -------
+    str
+        The definition, its binds as typed locals, its conditionals
+        as `if` statements, and its calls as calls.
+    """
     binders = {local.name: local for local in _bound_locals(item.body)}
-    for binder, bound in statements:
-        local = binders[binder]
-        lines.append(
-            f"  {_stan_type(local.type)} {_local_name(binder)} = {_static_value(bound)};"
-        )
-    lines.append(f"  return {_static_value(value)};")
+    lines = [f"{_stan_signature(item)} {{"]
+    lines.extend(_stan_statements(item.body, binders, item.name, None, "  "))
     lines.append("}")
     return "\n".join(lines)
+
+
+def _stan_statements(
+    node: IRQiecComputation,
+    binders: dict[str, IRQiecLocal],
+    computation: str,
+    target: str | None,
+    indent: str,
+) -> list[str]:
+    """The Stan statements running a pure computation.
+
+    Parameters
+    ----------
+    node : IRQiecComputation
+        The computation.
+    binders : dict[str, IRQiecLocal]
+        Every local the enclosing function's binds introduce.
+    computation : str
+        The enclosing computation's name, for refusals.
+    target : str | None
+        The local the computation's result is assigned to, or None to
+        return it.
+    indent : str
+        The indentation of the statements.
+
+    Returns
+    -------
+    list[str]
+        The statements.
+    """
+    if isinstance(node, IRQiecReturn):
+        value = _stan_value(node.value, computation)
+        if target is None:
+            return [f"{indent}return {value};"]
+        return [f"{indent}{target} = {value};"]
+    if isinstance(node, IRQiecCall):
+        callee = _stan_call(node, computation)
+        if target is None:
+            return [f"{indent}return {callee};"]
+        return [f"{indent}{target} = {callee};"]
+    if isinstance(node, IRQiecIf):
+        condition = _stan_value(node.condition, computation)
+        return [
+            f"{indent}if ({condition}) {{",
+            *_stan_statements(node.then, binders, computation, target, indent + "  "),
+            f"{indent}}} else {{",
+            *_stan_statements(
+                node.otherwise, binders, computation, target, indent + "  "
+            ),
+            f"{indent}}}",
+        ]
+    if isinstance(node, IRQiecBind):
+        lines: list[str] = []
+        for step in node.steps:
+            local = binders[step.binder.name]
+            name = _local_name(step.binder.name)
+            declared = f"{indent}{_stan_type(local.type)} {name}"
+            if isinstance(step.first, IRQiecReturn):
+                value = _stan_value(step.first.value, computation)
+                lines.append(f"{declared} = {value};")
+            elif isinstance(step.first, IRQiecCall):
+                lines.append(f"{declared} = {_stan_call(step.first, computation)};")
+            else:
+                lines.append(f"{declared};")
+                lines.extend(
+                    _stan_statements(step.first, binders, computation, name, indent)
+                )
+        lines.extend(_stan_statements(node.then, binders, computation, target, indent))
+        return lines
+    raise TypeError("the QIEC capability analyzer admitted a non-pure computation")
+
+
+def _stan_call(node: IRQiecCall, computation: str) -> str:
+    """A call of a module computation as a Stan call expression.
+
+    Parameters
+    ----------
+    node : IRQiecCall
+        The call.
+    computation : str
+        The calling computation's name, for refusals.
+
+    Returns
+    -------
+    str
+        ``qiec_<callee>(<arguments>)``.
+    """
+    arguments = ", ".join(
+        _stan_value(argument, computation) for argument in node.arguments
+    )
+    return f"qiec_{_safe_name(node.name)}({arguments})"
 
 
 def _bound_locals(node: IRQiecComputation) -> tuple[IRQiecLocal, ...]:
@@ -2023,13 +3082,16 @@ def _bound_locals(node: IRQiecComputation) -> tuple[IRQiecLocal, ...]:
     Parameters
     ----------
     node : IRQiecComputation
-        A computation made of returns and binds.
+        A computation made of returns, binds, conditionals, and calls.
 
     Returns
     -------
     tuple[IRQiecLocal, ...]
-        The binders in evaluation order.
+        The binders in evaluation order, both branches of a
+        conditional included.
     """
+    if isinstance(node, IRQiecIf):
+        return (*_bound_locals(node.then), *_bound_locals(node.otherwise))
     if not isinstance(node, IRQiecBind):
         return ()
     found: list[IRQiecLocal] = []
@@ -2041,6 +3103,11 @@ def _bound_locals(node: IRQiecComputation) -> tuple[IRQiecLocal, ...]:
 
 
 __all__ = [
+    "canonical_operations",
+    "emit_call_python",
+    "graft_python_statements",
+    "python_call_source",
+    "python_operations_source",
     "render_computations_dynamic",
     "render_computations_static",
     "has_runtime_computations",

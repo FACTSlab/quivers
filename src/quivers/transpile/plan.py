@@ -29,6 +29,7 @@ hole in it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from typing import Literal
@@ -61,7 +62,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
 )
 from quivers.transpile._resolve import build_let_table, build_morphism_table
 from quivers.qiec import QiecModule, validate_module
-from quivers.qiec.module import program_computations
+from quivers.qiec.module import reachable_computations
 from quivers.qiec.effects import EffectRequest
 from quivers.qiec.module import NamedComputation
 from quivers.qiec.programs import ProgramEntry, ProgramParameter
@@ -108,6 +109,7 @@ from quivers.qiec.types import (
     IndexLiteral,
     IndexTerm,
     IndexVariable,
+    StaticArgument,
     TypeExpr,
     render_static,
 )
@@ -132,6 +134,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -165,7 +168,7 @@ from quivers.transpile.lower import (
     object_shapes,
     pick_program,
 )
-from quivers.transpile.qiec_ir import lower_qiec_ir
+from quivers.transpile.qiec_ir import IRQiecStatic, _convert, lower_qiec_ir
 
 #: The registry's name for a structured family's constructor argument
 #: where the two differ.
@@ -385,10 +388,7 @@ class _ProgramWalk:
                     pending_marginal[binder.name] = self._marginalize(first)
                     emitted.extend(self._flush_heads())
                 else:
-                    raise UnsupportedConstruct(
-                        f"qvr-{self.planner.target}",
-                        [f"qiec:call:{first.name}:{self.program.name}"],
-                    )
+                    emitted.extend(self._call(binder, first))
             else:
                 raise UnsupportedConstruct(
                     f"qvr-{self.planner.target}",
@@ -655,6 +655,74 @@ class _ProgramWalk:
                 return parameter.type
         return self.local_types.get(name)
 
+    def _call(self, binder: Local, call: Call) -> Iterator[IRNode]:
+        """The node of a call of one of the module's computations.
+
+        A pure computation whose body is a chain of pure bindings is
+        inlined: its result reads back as one let expression over the
+        arguments, which every target's arithmetic carries. Any other
+        computation is called as a host function, under the target's
+        own draw and score primitives for the program's instances.
+
+        Parameters
+        ----------
+        binder : Local
+            The local the call's result binds.
+        call : Call
+            The call.
+
+        Yields
+        ------
+        IRNode
+            A deterministic binding for an inlined pure computation,
+            else a call node.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the callee performs on an instance other than the
+            program's ``random`` and ``score``, or is not a computation
+            of the module.
+        """
+        callee = self.planner.computations.get(call.name)
+        if callee is None:
+            raise UnsupportedConstruct(
+                f"qvr-{self.planner.target}",
+                [f"qiec:call:{call.name}:{self.program.name}"],
+            )
+        arguments = tuple(self._expr(argument) for argument in call.arguments)
+        inlined = _inline_pure(callee, arguments)
+        arguments_value = TupleValue(call.arguments, binder.type)
+        axes = self._inferred_axes(binder.type, arguments_value)
+        self.axes[binder.name] = axes
+        plate = self._inferred_plate(binder.type, axes, arguments_value)
+        self.bound_plates[binder.name] = plate
+        if inlined is not None:
+            self.ctx.bound_kinds[binder.name] = "deterministic"
+            yield IRDeterministic(
+                name=binder.name, expr=inlined, constraint=CSReal(), plate=plate
+            )
+            return
+        allowed = {self.entry.random_instance, self.entry.score_instance}
+        for row_entry in call.effects.entries:
+            if row_entry.instance not in allowed:
+                raise UnsupportedConstruct(
+                    f"qvr-{self.planner.target}",
+                    [f"qiec:effect:{row_entry.effect.name}:{self.program.name}"],
+                )
+        self.ctx.bound_kinds[binder.name] = "call"
+        yield IRCall(
+            name=binder.name,
+            callee=call.name,
+            static_arguments=tuple(
+                _lower_static(argument) for argument in call.static_arguments
+            ),
+            arguments=arguments,
+            random_instance=str(self.entry.random_instance),
+            score_instance=str(self.entry.score_instance),
+            plate=plate,
+        )
+
     def _marginalize(self, call: Call) -> IRMarginalize:
         """The scope a marginalization helper's call denotes.
 
@@ -778,6 +846,8 @@ class _ProgramWalk:
             elif isinstance(first, Call) and first.name in self.planner.marginal_names:
                 pending[node.binder.name] = self._marginalize(first)
                 emitted.extend(self._flush_heads())
+            elif isinstance(first, Call):
+                emitted.extend(self._call(node.binder, first))
             else:
                 raise UnsupportedConstruct(
                     f"qvr-{self.planner.target}",
@@ -1299,77 +1369,9 @@ class _ProgramWalk:
         -------
         LetExprNode
             The expression the renderers translate.
-
-        Raises
-        ------
-        UnsupportedConstruct
-            If the value has no expression form.
         """
-        if isinstance(value, Var):
-            return LetExprVar(name=value.local.name)
-        if isinstance(value, LiteralValue):
-            if isinstance(value.value, bool):
-                return LetExprLiteral(value=float(value.value), integral=True)
-            if isinstance(value.value, int | float):
-                return LetExprLiteral(
-                    value=float(value.value), integral=isinstance(value.value, int)
-                )
-            if isinstance(value.value, str):
-                return LetExprString(value=value.value)
-        if isinstance(value, PrimitiveApplication):
-            if value.name in _TRANSPARENT:
-                return self._expr(value.arguments[0])
-            operator = PRIMITIVE_OPERATORS.get(value.name)
-            if operator is not None and len(value.arguments) == 2:
-                left, right = value.arguments
-                return LetExprBinOp(
-                    op=operator, left=self._expr(left), right=self._expr(right)
-                )
-            unary = _UNARY_OPERATORS.get(value.name)
-            if unary is not None and len(value.arguments) == 1:
-                return LetExprUnaryOp(op=unary, operand=self._expr(value.arguments[0]))
-            builtin = PRIMITIVE_BUILTINS.get(value.name)
-            if builtin is not None:
-                return LetExprCall(
-                    func=builtin,
-                    args=tuple(self._expr(argument) for argument in value.arguments),
-                )
-        if isinstance(value, Gather):
-            array = self._expr(value.value)
-            index = self._expr(value.index)
-            if isinstance(array, LetExprIndex):
-                # Nested gathers read back as one multi-index subscript.
-                return LetExprIndex(array=array.array, indices=(*array.indices, index))
-            return LetExprIndex(array=array, indices=(index,))
-        if isinstance(value, TensorValue):
-            return LetExprList(items=tuple(self._expr(item) for item in value.items))
-        if isinstance(value, Reduction):
-            return LetExprCall(func=value.operator, args=(self._expr(value.value),))
-        rowwise = _row_reduction(value)
-        if rowwise is not None:
-            operator, reduced = rowwise
-            return LetExprCall(func=operator, args=(self._expr(reduced),))
-        if isinstance(value, Rowwise):
-            return LetExprCall(func=value.operator, args=(self._expr(value.value),))
-        if isinstance(value, Comprehension):
-            axis = _axis_name_of(value.extent, self.ctx.cards)
-            binder = LetFactorBinder(var=value.binder.name, index=TypeName(name=axis))
-            body = self._expr(value.body)
-            if isinstance(body, LetExprFactor) and body.body is not None:
-                # Nested comprehensions read back as one factor over
-                # every binder.
-                return LetExprFactor(binders=(binder, *body.binders), body=body.body)
-            return LetExprFactor(binders=(binder,), body=body)
-        if isinstance(value, WeightSum):
-            return LetExprCall(func="sum", args=(self._expr(value.value),))
-        if isinstance(value, LogDensity):
-            raise UnsupportedConstruct(
-                f"qvr-{self.planner.target}",
-                [f"qiec:expression:log_density:{self.program.name}"],
-            )
-        raise UnsupportedConstruct(
-            f"qvr-{self.planner.target}",
-            [f"qiec:expression:{type(value).__name__}:{self.program.name}"],
+        return _expression(
+            value, self.ctx.cards, self.planner.target, self.program.name
         )
 
     # ------------------------------------------------------------------
@@ -1700,25 +1702,6 @@ def _typed_dims(type_: TypeExpr, axes: tuple[str, ...]) -> tuple[Dim, ...]:
     )
 
 
-def _value_plate(type_: TypeExpr, axes: tuple[str, ...] = ()) -> Plate:
-    """The plate a value's type states.
-
-    Parameters
-    ----------
-    type_ : TypeExpr
-        The type.
-    axes : tuple[str, ...]
-        The dimensions' names, when known.
-
-    Returns
-    -------
-    Plate
-        The tensor's dimensions as batch dimensions; no dimensions for
-        a scalar.
-    """
-    return Plate(event_dims=(), batch_dims=_typed_dims(type_, axes))
-
-
 def _element_type(type_: TypeExpr) -> TypeExpr:
     """The element of a tensor type, or the type itself.
 
@@ -1849,6 +1832,244 @@ def _spread_literal(value: Comprehension) -> tuple[float, tuple[int, ...]] | Non
     return None
 
 
+def _expression(
+    value: Value, cards: dict[str, int], target: str, program: str
+) -> LetExprNode:
+    """A pure value as a let expression.
+
+    Parameters
+    ----------
+    value : Value
+        The value.
+    cards : dict[str, int]
+        The object cardinalities, which name a comprehension's axis.
+    target : str
+        The transpile target, for diagnostics.
+    program : str
+        The program the value belongs to, for diagnostics.
+
+    Returns
+    -------
+    LetExprNode
+        The expression the renderers translate.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the value has no expression form.
+    """
+    if isinstance(value, Var):
+        return LetExprVar(name=value.local.name)
+    if isinstance(value, LiteralValue):
+        if isinstance(value.value, bool):
+            return LetExprLiteral(value=float(value.value), integral=True)
+        if isinstance(value.value, int | float):
+            return LetExprLiteral(
+                value=float(value.value), integral=isinstance(value.value, int)
+            )
+        if isinstance(value.value, str):
+            return LetExprString(value=value.value)
+    if isinstance(value, PrimitiveApplication):
+        if value.name in _TRANSPARENT:
+            return _expression(value.arguments[0], cards, target, program)
+        operator = PRIMITIVE_OPERATORS.get(value.name)
+        if operator is not None and len(value.arguments) == 2:
+            left, right = value.arguments
+            return LetExprBinOp(
+                op=operator,
+                left=_expression(left, cards, target, program),
+                right=_expression(right, cards, target, program),
+            )
+        unary = _UNARY_OPERATORS.get(value.name)
+        if unary is not None and len(value.arguments) == 1:
+            return LetExprUnaryOp(
+                op=unary,
+                operand=_expression(value.arguments[0], cards, target, program),
+            )
+        builtin = PRIMITIVE_BUILTINS.get(value.name)
+        if builtin is not None:
+            return LetExprCall(
+                func=builtin,
+                args=tuple(
+                    _expression(argument, cards, target, program)
+                    for argument in value.arguments
+                ),
+            )
+    if isinstance(value, Gather):
+        array = _expression(value.value, cards, target, program)
+        index = _expression(value.index, cards, target, program)
+        if isinstance(array, LetExprIndex):
+            # Nested gathers read back as one multi-index subscript.
+            return LetExprIndex(array=array.array, indices=(*array.indices, index))
+        return LetExprIndex(array=array, indices=(index,))
+    if isinstance(value, TensorValue):
+        return LetExprList(
+            items=tuple(
+                _expression(item, cards, target, program) for item in value.items
+            )
+        )
+    if isinstance(value, Reduction):
+        return LetExprCall(
+            func=value.operator,
+            args=(_expression(value.value, cards, target, program),),
+        )
+    rowwise = _row_reduction(value)
+    if rowwise is not None:
+        operator, reduced = rowwise
+        return LetExprCall(
+            func=operator, args=(_expression(reduced, cards, target, program),)
+        )
+    if isinstance(value, Rowwise):
+        return LetExprCall(
+            func=value.operator,
+            args=(_expression(value.value, cards, target, program),),
+        )
+    if isinstance(value, Comprehension):
+        axis = _axis_name_of(value.extent, cards)
+        binder = LetFactorBinder(var=value.binder.name, index=TypeName(name=axis))
+        body = _expression(value.body, cards, target, program)
+        if isinstance(body, LetExprFactor) and body.body is not None:
+            # Nested comprehensions read back as one factor over
+            # every binder.
+            return LetExprFactor(binders=(binder, *body.binders), body=body.body)
+        return LetExprFactor(binders=(binder,), body=body)
+    if isinstance(value, WeightSum):
+        return LetExprCall(
+            func="sum", args=(_expression(value.value, cards, target, program),)
+        )
+    if isinstance(value, LogDensity):
+        raise UnsupportedConstruct(
+            f"qvr-{target}",
+            [f"qiec:expression:log_density:{program}"],
+        )
+    raise UnsupportedConstruct(
+        f"qvr-{target}",
+        [f"qiec:expression:{type(value).__name__}:{program}"],
+    )
+
+
+def _inline_pure(
+    callee: NamedComputation,
+    arguments: tuple[LetExprNode, ...],
+) -> LetExprNode | None:
+    """A pure computation's result at the arguments, as one expression.
+
+    Parameters
+    ----------
+    callee : NamedComputation
+        The computation called.
+    arguments : tuple[LetExprNode, ...]
+        The arguments as let expressions, one per parameter.
+
+    Returns
+    -------
+    LetExprNode | None
+        The body's returned value with every binding and parameter
+        substituted, or ``None`` when the computation performs an
+        effect, takes static arguments, calls anything, or binds a
+        value the expression language has no form for.
+    """
+    if callee.type.effects.entries or callee.telescope:
+        return None
+    if len(arguments) != len(callee.parameters):
+        return None
+    bindings: dict[str, LetExprNode] = {
+        parameter.name: argument
+        for parameter, argument in zip(callee.parameters, arguments, strict=True)
+    }
+    node: Computation = callee.body
+    while isinstance(node, Bind):
+        if not isinstance(node.first, Return):
+            return None
+        try:
+            bindings[node.binder.name] = _substitute(
+                _expression(node.first.value, {}, "", callee.name), bindings
+            )
+        except UnsupportedConstruct:
+            return None
+        node = node.then
+    if not isinstance(node, Return):
+        return None
+    try:
+        return _substitute(_expression(node.value, {}, "", callee.name), bindings)
+    except UnsupportedConstruct:
+        return None
+
+
+def _substitute(expr: LetExprNode, bindings: dict[str, LetExprNode]) -> LetExprNode:
+    """Replace named references in a let expression.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+    bindings : dict[str, LetExprNode]
+        The expression each name stands for.
+
+    Returns
+    -------
+    LetExprNode
+        The expression with every bound name replaced.
+    """
+    if isinstance(expr, LetExprVar):
+        return bindings.get(expr.name, expr)
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=_substitute(expr.left, bindings),
+            right=_substitute(expr.right, bindings),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(op=expr.op, operand=_substitute(expr.operand, bindings))
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=tuple(_substitute(argument, bindings) for argument in expr.args),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=_substitute(expr.array, bindings),
+            indices=tuple(_substitute(index, bindings) for index in expr.indices),
+        )
+    if isinstance(expr, LetExprList):
+        return LetExprList(
+            items=tuple(_substitute(item, bindings) for item in expr.items)
+        )
+    if isinstance(expr, LetExprFactor):
+        shadowed = {
+            name: value
+            for name, value in bindings.items()
+            if name not in {binder.var for binder in expr.binders}
+        }
+        return LetExprFactor(
+            binders=expr.binders,
+            body=None if expr.body is None else _substitute(expr.body, shadowed),
+            cases=tuple(
+                LetFactorCase(label=case.label, value=_substitute(case.value, shadowed))
+                for case in expr.cases
+            ),
+        )
+    return expr
+
+
+def _lower_static(argument: StaticArgument) -> IRQiecStatic:
+    """A static argument as structural IR.
+
+    Parameters
+    ----------
+    argument : StaticArgument
+        The argument.
+
+    Returns
+    -------
+    IRQiecStatic
+        Its IR form.
+    """
+    lowered = _convert(argument)
+    assert isinstance(lowered, IRQiecStatic)
+    return lowered
+
+
 def _referenced(value: Value) -> Iterator[str]:
     """The bindings a value reads, in order of appearance.
 
@@ -1944,10 +2165,39 @@ def checked_module(module: Module, *, target: str) -> QiecModule | None:
             return replace(qiec_module, gap=error.message)
         if error.code != "qiec-program" and error.program is None:
             raise
-        raise UnsupportedConstruct(f"qvr-{target}", [error.message]) from error
+        raise UnsupportedConstruct(
+            f"qvr-{target}", [_elaboration_kind(error.code, error.message)]
+        ) from error
     validate_module(qiec_module)
     _refuse_deduction_calls(qiec_module, target)
     return qiec_module
+
+
+#: A diagnostic that leads with a structured kind, `family:X: ...` or
+#: `let:call:unknown:x; ...`, spells its own kind.
+_STRUCTURED_LEAD = re.compile(r"^[a-z][a-z-]*:[^\s]")
+
+
+def _elaboration_kind(code: str, message: str) -> str:
+    """The refusal kind an elaboration diagnostic reports as.
+
+    Parameters
+    ----------
+    code : str
+        The diagnostic's code.
+    message : str
+        Its message.
+
+    Returns
+    -------
+    str
+        The message itself when it leads with a structured kind, else
+        ``program:elaboration:<code>: <message>``, whose explanation
+        is the message.
+    """
+    if _STRUCTURED_LEAD.match(message):
+        return message
+    return f"program:elaboration:{code}: {message}"
 
 
 def _refuse_deduction_calls(qiec_module: QiecModule, target: str) -> None:
@@ -1974,7 +2224,7 @@ def _refuse_deduction_calls(qiec_module: QiecModule, target: str) -> None:
     kinds = [
         f"qiec:capability:search:{by_id[identity].name}"
         for identity in sorted(
-            program_computations(qiec_module), key=lambda item: item.digest
+            reachable_computations(qiec_module), key=lambda item: item.digest
         )
         if identity in by_id
         and by_id[identity].origin.structural_path[:1] == ("deductions",)

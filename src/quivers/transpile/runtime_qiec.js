@@ -1,67 +1,193 @@
+// Target-side QIEC runtime embedded in generated WebPPL programs.
+//
+// Generated functions carry the checked structural ABI with every request and
+// handler delimiter. Process-local callbacks supply code only; they cannot
+// override checked coverage, grades, or types.
+//
+// The runtime is written in WebPPL's functional subset: a name is bound once,
+// loops are recursion, and the only mutable state is the global store, which
+// holds the call and instance serials, the ambient handler stack, and one
+// cell per handler installation. WebPPL trampolines every call, so the
+// recursion over a computation's binds and resumptions consumes no host
+// stack however deep it goes.
+var _qvr_qiec_next = function(counter) {
+  var value = (globalStore[counter] || 0) + 1;
+  globalStore[counter] = value;
+  return value;
+};
+// A mutable cell in the global store, so handler state survives the
+// single-assignment discipline and follows WebPPL's own backtracking.
+var _qvr_qiec_cell = function(value) {
+  var id = "_qvr_qiec_cell_" + _qvr_qiec_next("_qvr_qiec_cell_serial");
+  globalStore[id] = value;
+  return id;
+};
+var _qvr_qiec_cell_get = function(id) { return globalStore[id]; };
+var _qvr_qiec_cell_set = function(id, value) {
+  globalStore[id] = value;
+  return value;
+};
 var _qvr_qiec_pure = function(value) { return { tag: "pure", value: value }; };
-// A deferred computation. Calls are forced by the trampolines in _qvr_qiec_run and
-// the handler walk rather than when they are built, so a recursive QIEC computation
-// does not consume host stack per call. `frames` are the dynamic address frames the
-// result runs under, and `tail` records that the call retires the frame of the
-// computation that made it.
-var _qvr_qiec_call = function(thunk, frames, tail) { return { tag: "call", thunk: thunk, frames: frames || [], tail: tail === true }; };
+// A deferred computation. Calls are forced by the drivers in _qvr_qiec_run and
+// the handler walk rather than when they are built, so the frames a recursive
+// QIEC computation runs under are joined as it unfolds. `frames` are the
+// dynamic address frames the result runs under, and `tail` records that the
+// call retires the frame of the computation that made it.
+var _qvr_qiec_call = function(thunk, frames, tail) {
+  return { tag: "call", thunk: thunk, frames: frames || [], tail: tail === true };
+};
 var _qvr_qiec_join_frames = function(outer, inner, tail) {
-  if (tail && outer.length && outer[outer.length - 1][0] === "call") { return outer.slice(0, -1).concat(inner); }
+  if (tail && outer.length > 0 && outer[outer.length - 1][0] === "call") {
+    return outer.slice(0, -1).concat(inner);
+  }
   return outer.concat(inner);
 };
 var _qvr_qiec_scoped = function(comp, frames) {
-  if (!frames.length || comp.tag === "pure") { return comp; }
-  if (comp.tag === "call") { return { tag: "call", thunk: comp.thunk, frames: _qvr_qiec_join_frames(frames, comp.frames, comp.tail), tail: false }; }
+  if (frames.length === 0 || comp.tag === "pure") { return comp; }
+  if (comp.tag === "call") {
+    return {
+      tag: "call",
+      thunk: comp.thunk,
+      frames: _qvr_qiec_join_frames(frames, comp.frames, comp.tail),
+      tail: false
+    };
+  }
   if (comp.tag === "bind") {
-    return { tag: "bind", inner: _qvr_qiec_scoped(comp.inner, frames), continuation: function(value) { return _qvr_qiec_scoped(comp.continuation(value), frames); }, captures: comp.captures };
+    return {
+      tag: "bind",
+      inner: _qvr_qiec_scoped(comp.inner, frames),
+      continuation: function(value) { return _qvr_qiec_scoped(apply(comp.continuation, [value]), frames); },
+      captures: comp.captures
+    };
   }
-  var request = Object.assign({}, comp.request);
-  request.address = [request.address[0], frames.concat(request.address[1]), request.address[2]];
-  return { tag: "effect", request: request, continuation: function(value) { return _qvr_qiec_scoped(comp.continuation(value), frames); } };
+  var address = comp.request.address;
+  var request = Object.assign({}, comp.request, {
+    address: [address[0], frames.concat(address[1]), address[2]]
+  });
+  return {
+    tag: "effect",
+    request: request,
+    continuation: function(value) { return _qvr_qiec_scoped(apply(comp.continuation, [value]), frames); }
+  };
 };
-// The trampoline. Deferred calls are forced and deferred binds are unfolded onto an
-// explicit continuation stack, so however deep a recursion is, the host stack stays
-// flat. A request surfacing beneath pending binds carries them in its continuation,
-// and their captures, so a multi-shot resumption still sees everything it copies.
+// The driver. Deferred calls are forced and deferred binds are unfolded onto
+// an explicit continuation stack. A request surfacing beneath pending binds
+// carries them in its continuation, and their captures, so a multi-shot
+// resumption still sees everything it copies.
 var _qvr_qiec_force = function(comp, pending) {
-  var stack = (pending || []).slice();
-  var current = comp;
-  while (true) {
-    if (current.tag === "call") { current = _qvr_qiec_scoped(current.thunk(), current.frames); }
-    else if (current.tag === "bind") { stack.push([current.continuation, current.captures]); current = current.inner; }
-    else if (current.tag === "pure") {
-      if (!stack.length) { return current; }
-      current = stack.pop()[0](current.value);
-    } else {
-      if (!stack.length) { return current; }
-      var request = Object.assign({}, current.request);
-      var captures = request.captures || [];
-      stack.forEach(function(entry) { captures = captures.concat(entry[1]); });
-      request.captures = captures;
-      var rest = stack.slice();
-      var resumeEffect = current.continuation;
-      return { tag: "effect", request: request, continuation: function(value) { return _qvr_qiec_force(resumeEffect(value), rest); } };
-    }
+  var stack = pending || [];
+  if (comp.tag === "call") {
+    return _qvr_qiec_force(_qvr_qiec_scoped(apply(comp.thunk, []), comp.frames), stack);
   }
+  if (comp.tag === "bind") {
+    return _qvr_qiec_force(comp.inner, stack.concat([[comp.continuation, comp.captures]]));
+  }
+  if (comp.tag === "pure") {
+    if (stack.length === 0) { return comp; }
+    var top = stack[stack.length - 1];
+    return _qvr_qiec_force(apply(top[0], [comp.value]), stack.slice(0, -1));
+  }
+  if (stack.length === 0) { return comp; }
+  var captures = reduce(
+    function(entry, accumulated) { return accumulated.concat(entry[1]); },
+    comp.request.captures || [],
+    stack
+  );
+  var request = Object.assign({}, comp.request, { captures: captures });
+  var resumeEffect = comp.continuation;
+  return {
+    tag: "effect",
+    request: request,
+    continuation: function(value) { return _qvr_qiec_force(apply(resumeEffect, [value]), stack); }
+  };
 };
-var _qvr_qiec_serials = { call: 0, instance: 0 };
 var _qvr_qiec_enter_call = function(name, thunk, tail) {
-  _qvr_qiec_serials.call += 1;
-  return _qvr_qiec_call(thunk, [["call", name + "#" + _qvr_qiec_serials.call]], tail);
+  var serial = _qvr_qiec_next("_qvr_qiec_call_serial");
+  return _qvr_qiec_call(thunk, [["call", name + "#" + serial]], tail);
 };
 var _qvr_qiec_instance = function(thunk) {
-  _qvr_qiec_serials.instance += 1;
-  return _qvr_qiec_call(thunk, [["instance", _qvr_qiec_serials.instance]], false);
+  var serial = _qvr_qiec_next("_qvr_qiec_instance_serial");
+  return _qvr_qiec_call(thunk, [["instance", serial]], false);
 };
-var _qvr_qiec_resume = function(resume, value) { return _qvr_qiec_as_computation(resume(value)); };
-var _qvr_qiec_if = function(condition, then, otherwise) {
-  condition = _qvr_qiec_value(condition);
-  if (typeof condition !== "boolean") { throw new Error("QIEC if condition is not a Boolean"); }
-  return condition ? then() : otherwise();
+var _qvr_qiec_resume = function(resume, value) { return _qvr_qiec_as_computation(apply(resume, [value])); };
+var _qvr_qiec_if = function(condition0, then, otherwise) {
+  var condition = _qvr_qiec_value(condition0);
+  if (typeof condition !== "boolean") { error("QIEC if condition is not a Boolean"); }
+  return condition ? apply(then, []) : apply(otherwise, []);
 };
 var _qvr_qiec_div_int = function(a, b) {
-  if (b === 0) { throw new Error("QIEC integer division by zero"); }
+  if (b === 0) { error("QIEC integer division by zero"); }
   return Math.trunc(a / b);
+};
+var _qvr_qiec_sigmoid = function(value) {
+  if (value >= 0) { return 1 / (1 + Math.exp(-value)); }
+  var exponent = Math.exp(value);
+  return exponent / (1 + exponent);
+};
+var _qvr_qiec_softplus = function(value) {
+  return Math.max(value, 0) + Math.log1p(Math.exp(-Math.abs(value)));
+};
+// The error function by its Taylor series near the origin and by the
+// continued fraction of the complementary function in the tails.
+var _qvr_qiec_erf_series = function(x, term, total, n) {
+  if (Math.abs(term) <= 1e-17 * Math.abs(total) || n >= 200) { return total; }
+  var next = term * (-x * x / (n + 1));
+  return _qvr_qiec_erf_series(x, next, total + next / (2 * (n + 1) + 1), n + 1);
+};
+var _qvr_qiec_erf_fraction = function(x, k, fraction) {
+  if (k < 1) { return fraction; }
+  return _qvr_qiec_erf_fraction(x, k - 1, x + (k / 2) / fraction);
+};
+var _qvr_qiec_erf = function(value) {
+  var sign = value < 0 ? -1 : 1;
+  var x = Math.abs(value);
+  if (x < 2.5) {
+    return sign * 2 / Math.sqrt(Math.PI) * _qvr_qiec_erf_series(x, x, x, 0);
+  }
+  return sign * (1 - Math.exp(-x * x) / Math.sqrt(Math.PI) / _qvr_qiec_erf_fraction(x, 60, x));
+};
+var _qvr_qiec_erfinv_refine = function(estimate, magnitude, steps) {
+  if (steps === 0) { return estimate; }
+  var refined = estimate - (_qvr_qiec_erf(estimate) - magnitude) / (2 / Math.sqrt(Math.PI) * Math.exp(-estimate * estimate));
+  return _qvr_qiec_erfinv_refine(refined, magnitude, steps - 1);
+};
+var _qvr_qiec_erfinv = function(value) {
+  if (value < -1 || value > 1) { error("erfinv is defined on [-1, 1]"); }
+  if (value === 1) { return Infinity; }
+  if (value === -1) { return -Infinity; }
+  if (value === 0) { return 0; }
+  var sign = value > 0 ? 1 : -1;
+  var magnitude = Math.abs(value);
+  var square = magnitude * magnitude;
+  var tail = Math.sqrt(-Math.log((1 - magnitude) / 2));
+  var estimate = magnitude < 0.7
+    ? magnitude * (((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square + 0.886226899) /
+      ((((0.012229801 * square - 0.329097515) * square + 1.442710462) * square - 2.118377725) * square + 1)
+    : (((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail - 1.970840454) / ((1.637067800 * tail + 3.543889200) * tail + 1);
+  return sign * _qvr_qiec_erfinv_refine(estimate, magnitude, 3);
+};
+// Lanczos approximation of log gamma.
+var _qvr_qiec_lgamma = function(value) {
+  if (value < 0.5) {
+    return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * value))) - _qvr_qiec_lgamma(1 - value);
+  }
+  var coefficients = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  var x = value - 1;
+  var total = 0.99999999999980993 + sum(mapIndexed(function(i, coefficient) { return coefficient / (x + i + 1); }, coefficients));
+  var t = x + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(total);
+};
+var _qvr_qiec_digamma_shift = function(value, result) {
+  if (value >= 6) { return [value, result]; }
+  return _qvr_qiec_digamma_shift(value + 1, result - 1 / value);
+};
+var _qvr_qiec_digamma = function(value) {
+  if (value <= 0 && value === Math.floor(value)) { error("digamma has a pole at nonpositive integers"); }
+  if (value < 0) { return _qvr_qiec_digamma(1 - value) - Math.PI / Math.tan(Math.PI * value); }
+  var shifted = _qvr_qiec_digamma_shift(value, 0);
+  var inverse = 1 / shifted[0];
+  var square = inverse * inverse;
+  return shifted[1] + Math.log(shifted[0]) - 0.5 * inverse - square * (1 / 12 - square * (1 / 120 - square * (1 / 252 - square * (1 / 240 - square / 132))));
 };
 // The closed primitive table. Names and semantics mirror the kernel registry;
 // integer division and remainder truncate toward zero on every host.
@@ -108,7 +234,7 @@ var _qvr_qiec_primitives = {
   not: function(a) { return !a; },
   concat: function(a, b) { return a + b; },
   int_to_real: function(a) { return a; },
-  int_to_string: function(a) { return String(a); },
+  int_to_string: function(a) { return a.toString(); },
   real_to_int: function(a) { return Math.trunc(a); },
   expm1: function(a) { return Math.expm1(a); },
   log1p: function(a) { return Math.log1p(a); },
@@ -155,249 +281,220 @@ var _qvr_qiec_primitives = {
   add_weight: function(a, b) { return a + b; },
   scale_weight: function(a, b) { return a * b; }
 };
-var _qvr_qiec_sigmoid = function(value) {
-  if (value >= 0) { return 1 / (1 + Math.exp(-value)); }
-  var exponent = Math.exp(value);
-  return exponent / (1 + exponent);
-};
-var _qvr_qiec_softplus = function(value) { return Math.max(value, 0) + Math.log1p(Math.exp(-Math.abs(value))); };
-// The error function by its Taylor series near the origin and by the
-// continued fraction of the complementary function in the tails.
-var _qvr_qiec_erf = function(value) {
-  var sign = value < 0 ? -1 : 1;
-  var x = Math.abs(value);
-  if (x < 2.5) {
-    var term = x, total = x, n = 0;
-    while (Math.abs(term) > 1e-17 * Math.abs(total) && n < 200) {
-      n += 1;
-      term *= -x * x / n;
-      total += term / (2 * n + 1);
-    }
-    return sign * 2 / Math.sqrt(Math.PI) * total;
-  }
-  var fraction = x;
-  for (var k = 60; k >= 1; k--) { fraction = x + (k / 2) / fraction; }
-  return sign * (1 - Math.exp(-x * x) / Math.sqrt(Math.PI) / fraction);
-};
-var _qvr_qiec_erfinv = function(value) {
-  if (value < -1 || value > 1) { throw new Error("erfinv is defined on [-1, 1]"); }
-  if (value === 1) { return Infinity; }
-  if (value === -1) { return -Infinity; }
-  if (value === 0) { return 0; }
-  var sign = value > 0 ? 1 : -1;
-  var magnitude = Math.abs(value);
-  var estimate;
-  if (magnitude < 0.7) {
-    var square = magnitude * magnitude;
-    estimate = magnitude * (((-0.140543331 * square + 0.914624893) * square - 1.645349621) * square + 0.886226899) /
-      ((((0.012229801 * square - 0.329097515) * square + 1.442710462) * square - 2.118377725) * square + 1);
-  } else {
-    var tail = Math.sqrt(-Math.log((1 - magnitude) / 2));
-    estimate = (((1.641345311 * tail + 3.429567803) * tail - 1.62490649) * tail - 1.970840454) / ((1.637067800 * tail + 3.543889200) * tail + 1);
-  }
-  for (var i = 0; i < 3; i++) { estimate -= (_qvr_qiec_erf(estimate) - magnitude) / (2 / Math.sqrt(Math.PI) * Math.exp(-estimate * estimate)); }
-  return sign * estimate;
-};
-// Lanczos approximation of log gamma.
-var _qvr_qiec_lgamma = function(value) {
-  if (value < 0.5) { return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * value))) - _qvr_qiec_lgamma(1 - value); }
-  var coefficients = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
-  var x = value - 1;
-  var total = 0.99999999999980993;
-  for (var i = 0; i < coefficients.length; i++) { total += coefficients[i] / (x + i + 1); }
-  var t = x + 7.5;
-  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(total);
-};
-var _qvr_qiec_digamma = function(value) {
-  if (value <= 0 && value === Math.floor(value)) { throw new Error("digamma has a pole at nonpositive integers"); }
-  if (value < 0) { return _qvr_qiec_digamma(1 - value) - Math.PI / Math.tan(Math.PI * value); }
-  var result = 0;
-  while (value < 6) { result -= 1 / value; value += 1; }
-  var inverse = 1 / value;
-  var square = inverse * inverse;
-  return result + Math.log(value) - 0.5 * inverse - square * (1 / 12 - square * (1 / 120 - square * (1 / 252 - square * (1 / 240 - square / 132))));
-};
 var _qvr_qiec_broadcast = function(implementation, args) {
-  var tensors = args.filter(function(argument) { return Array.isArray(argument); });
-  if (!tensors.length) { return implementation.apply(null, args); }
+  var tensors = filter(function(argument) { return Array.isArray(argument); }, args);
+  if (tensors.length === 0) { return apply(implementation, args); }
   var length = tensors[0].length;
-  if (tensors.some(function(tensor) { return tensor.length !== length; })) { throw new Error("QIEC primitive applied to tensors of differing shapes"); }
-  var out = [];
-  for (var index = 0; index < length; index++) {
-    out.push(_qvr_qiec_broadcast(implementation, args.map(function(argument) { return Array.isArray(argument) ? argument[index] : argument; })));
+  if (any(function(tensor) { return tensor.length !== length; }, tensors)) {
+    error("QIEC primitive applied to tensors of differing shapes");
   }
-  return Object.freeze(out);
+  return Object.freeze(mapN(function(index) {
+    return _qvr_qiec_broadcast(implementation, map(function(argument) { return Array.isArray(argument) ? argument[index] : argument; }, args));
+  }, length));
 };
 var _qvr_qiec_primitive = function(name, args) {
-  if (!Object.prototype.hasOwnProperty.call(_qvr_qiec_primitives, name)) { throw new Error("unknown QIEC primitive " + name); }
-  return _qvr_qiec_broadcast(_qvr_qiec_primitives[name], args.map(_qvr_qiec_value));
+  if (!_.has(_qvr_qiec_primitives, name)) { error("unknown QIEC primitive " + name); }
+  return _qvr_qiec_broadcast(_qvr_qiec_primitives[name], map(_qvr_qiec_value, args));
 };
-var _qvr_qiec_gather = function(value, index) {
-  value = _qvr_qiec_value(value);
-  index = _qvr_qiec_value(index);
-  if (!Array.isArray(value)) { throw new Error("QIEC gather from a non-tensor runtime value"); }
-  if (Array.isArray(index)) { return Object.freeze(index.map(function(item) { return _qvr_qiec_gather(value, item); })); }
+var _qvr_qiec_gather = function(value0, index0) {
+  var value = _qvr_qiec_value(value0);
+  var index = _qvr_qiec_value(index0);
+  if (!Array.isArray(value)) { error("QIEC gather from a non-tensor runtime value"); }
+  if (Array.isArray(index)) {
+    return Object.freeze(map(function(item) { return _qvr_qiec_gather(value, item); }, index));
+  }
   return value[index];
 };
 var _qvr_qiec_flat = function(value) {
   if (!Array.isArray(value)) { return [value]; }
-  var out = [];
-  value.forEach(function(item) { out = out.concat(_qvr_qiec_flat(item)); });
-  return out;
+  return reduce(function(item, accumulated) { return accumulated.concat(_qvr_qiec_flat(item)); }, [], value);
+};
+var _qvr_qiec_total = function(entries) {
+  return reduce(function(a, b) { return a + b; }, 0, entries);
 };
 var _qvr_qiec_reduce = function(operator, value) {
   var entries = _qvr_qiec_flat(_qvr_qiec_value(value));
-  var total = entries.reduce(function(a, b) { return a + b; }, 0);
+  var total = _qvr_qiec_total(entries);
   if (operator === "sum") { return total; }
   if (operator === "mean") { return total / entries.length; }
   if (operator === "max") { return Math.max.apply(null, entries); }
   if (operator === "min") { return Math.min.apply(null, entries); }
-  if (operator === "prod") { return entries.reduce(function(a, b) { return a * b; }, 1); }
+  if (operator === "prod") { return reduce(function(a, b) { return a * b; }, 1, entries); }
   var peak = Math.max.apply(null, entries);
-  return peak + Math.log(entries.reduce(function(a, b) { return a + Math.exp(b - peak); }, 0));
+  return peak + Math.log(_qvr_qiec_total(map(function(b) { return Math.exp(b - peak); }, entries)));
 };
-var _qvr_qiec_rowwise = function(operator, value) {
-  value = _qvr_qiec_value(value);
-  if (value.length && Array.isArray(value[0])) { return Object.freeze(value.map(function(item) { return _qvr_qiec_rowwise(operator, item); })); }
-  var row = value.map(Number);
-  var total;
+var _qvr_qiec_cumsum = function(row, position, running) {
+  if (position === row.length) { return []; }
+  var next = running + row[position];
+  return [next].concat(_qvr_qiec_cumsum(row, position + 1, next));
+};
+var _qvr_qiec_rowwise = function(operator, value0) {
+  var value = _qvr_qiec_value(value0);
+  if (value.length > 0 && Array.isArray(value[0])) {
+    return Object.freeze(map(function(item) { return _qvr_qiec_rowwise(operator, item); }, value));
+  }
+  var row = map(function(item) { return +item; }, value);
   if (operator === "softmax") {
     var peak = Math.max.apply(null, row);
-    var weights = row.map(function(item) { return Math.exp(item - peak); });
-    total = weights.reduce(function(a, b) { return a + b; }, 0);
-    return Object.freeze(weights.map(function(weight) { return weight / total; }));
+    var weights = map(function(item) { return Math.exp(item - peak); }, row);
+    var total = _qvr_qiec_total(weights);
+    return Object.freeze(map(function(weight) { return weight / total; }, weights));
   }
   if (operator === "log_softmax") {
     var top = Math.max.apply(null, row);
-    var normalizer = top + Math.log(row.reduce(function(a, b) { return a + Math.exp(b - top); }, 0));
-    return Object.freeze(row.map(function(item) { return item - normalizer; }));
+    var normalizer = top + Math.log(_qvr_qiec_total(map(function(b) { return Math.exp(b - top); }, row)));
+    return Object.freeze(map(function(item) { return item - normalizer; }, row));
   }
-  if (operator === "cumsum") {
-    var running = 0;
-    return Object.freeze(row.map(function(item) { running += item; return running; }));
-  }
-  if (operator === "sort") { return Object.freeze(row.slice().sort(function(a, b) { return a - b; })); }
-  total = row.reduce(function(a, b) { return a + b; }, 0);
-  return Object.freeze(row.map(function(item) { return item / total; }));
+  if (operator === "cumsum") { return Object.freeze(_qvr_qiec_cumsum(row, 0, 0)); }
+  if (operator === "sort") { return Object.freeze(sort(row)); }
+  var rowTotal = _qvr_qiec_total(row);
+  return Object.freeze(map(function(item) { return item / rowTotal; }, row));
 };
-var _qvr_qiec_weight_sum = function(value) { return _qvr_qiec_flat(_qvr_qiec_value(value)).reduce(function(a, b) { return a + b; }, 0); };
+var _qvr_qiec_weight_sum = function(value) {
+  return _qvr_qiec_total(_qvr_qiec_flat(_qvr_qiec_value(value)));
+};
 var _qvr_qiec_segment_sum = function(value, index, groups) {
-  var totals = [];
-  for (var g = 0; g < groups; g++) { totals.push(0); }
   var weights = _qvr_qiec_value(value);
   var members = _qvr_qiec_value(index);
-  for (var i = 0; i < weights.length; i++) { totals[members[i]] += weights[i]; }
-  return Object.freeze(totals);
+  return Object.freeze(mapN(function(group) {
+    return _qvr_qiec_total(mapIndexed(function(position, weight) { return members[position] === group ? weight : 0; }, weights));
+  }, groups));
 };
-var _qvr_qiec_project = function(value, position) {
-  value = _qvr_qiec_value(value);
-  if (!Array.isArray(value) || position >= value.length) { throw new Error("QIEC projection from a non-product runtime value"); }
+var _qvr_qiec_project = function(value0, position) {
+  var value = _qvr_qiec_value(value0);
+  if (!Array.isArray(value) || position >= value.length) { error("QIEC projection from a non-product runtime value"); }
   return value[position];
 };
-var _qvr_qiec_authored = {};
 var _qvr_qiec_static_kind = function(argument) {
   var kind = argument && argument.kind;
   if (["type-variable", "type-application", "function-type", "equality-type"].indexOf(kind) >= 0) { return "type"; }
   if (["effect-variable", "effect-ref"].indexOf(kind) >= 0) { return "effect"; }
   return "index";
 };
-var _qvr_qiec_static_environment = function(telescope, args) {
-  args = args || [];
-  var ordered;
-  if (Array.isArray(args)) { ordered = args; }
-  else {
-    var expected = telescope.map(function(binder) { return binder.name; }).sort();
-    if (JSON.stringify(Object.keys(args).sort()) !== JSON.stringify(expected)) { throw new Error("QIEC static arguments do not match the checked telescope"); }
-    ordered = telescope.map(function(binder) { return args[binder.name]; });
+var _qvr_qiec_ordered_statics = function(names, args) {
+  if (Array.isArray(args)) { return args; }
+  if (JSON.stringify(Object.keys(args).sort()) !== JSON.stringify(names.slice().sort())) {
+    error("QIEC static arguments do not match the checked telescope");
   }
-  if (ordered.length !== telescope.length) { throw new Error("QIEC static argument arity does not match the checked telescope"); }
-  var environment = Object.create(null);
-  telescope.forEach(function(binder, index) {
-    if (_qvr_qiec_static_kind(ordered[index]) !== binder.kind) { throw new Error("QIEC static argument kind does not match the checked telescope"); }
-    environment[binder.name] = ordered[index];
-  });
-  return environment;
+  return map(function(name) { return args[name]; }, names);
+};
+var _qvr_qiec_static_environment = function(telescope, args) {
+  var names = map(function(binder) { return binder.name; }, telescope);
+  var ordered = _qvr_qiec_ordered_statics(names, args || []);
+  if (ordered.length !== telescope.length) { error("QIEC static argument arity does not match the checked telescope"); }
+  if (any(function(index) { return _qvr_qiec_static_kind(ordered[index]) !== telescope[index].kind; }, _.range(telescope.length))) {
+    error("QIEC static argument kind does not match the checked telescope");
+  }
+  return _.zipObject(names, ordered);
+};
+// Only plain data is specialized: a distribution or other host object
+// passes through with its prototype intact.
+var _qvr_qiec_plain = function(value) {
+  var prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 };
 var _qvr_qiec_specialize = function(value, environment) {
-  if (Array.isArray(value)) { return value.map(function(item) { return _qvr_qiec_specialize(item, environment); }); }
-  if (!value || typeof value !== "object") { return value; }
+  if (Array.isArray(value)) { return map(function(item) { return _qvr_qiec_specialize(item, environment); }, value); }
+  if (!value || typeof value !== "object" || !_qvr_qiec_plain(value)) { return value; }
   if (["type-variable", "index-variable", "effect-variable"].indexOf(value.kind) >= 0) {
     var staticKey = value.identity || value.name;
-    if (Object.prototype.hasOwnProperty.call(environment, staticKey)) { return environment[staticKey]; }
+    if (_.has(environment, staticKey)) { return environment[staticKey]; }
   }
-  var result = {};
-  Object.keys(value).forEach(function(key) { result[key] = _qvr_qiec_specialize(value[key], environment); });
+  var keys = Object.keys(value);
+  return _.zipObject(keys, map(function(key) { return _qvr_qiec_specialize(value[key], environment); }, keys));
+};
+var _qvr_qiec_unique = function(items) { return _.uniq(items); };
+var _qvr_qiec_ambient = function() { return globalStore._qvr_qiec_ambient || []; };
+var _qvr_qiec_with_ambient = function(controller, thunk) {
+  var previous = _qvr_qiec_ambient();
+  globalStore._qvr_qiec_ambient = previous.concat([controller]);
+  var result = apply(thunk, []);
+  globalStore._qvr_qiec_ambient = previous;
   return result;
 };
-var _qvr_qiec_ambient_handlers = [];
-var _qvr_qiec_unique = function(items) {
-  return items.filter(function(item, index) { return items.indexOf(item) === index; });
+var _qvr_qiec_effect = function(request0, staticEnvironment) {
+  var request = _qvr_qiec_specialize(request0, staticEnvironment);
+  var handlerCaptures = _qvr_qiec_unique((request.handler_captures || []).concat(_qvr_qiec_ambient()));
+  var completed = Object.assign({ captures: [] }, request, {
+    handler_captures: handlerCaptures,
+    handler_states: map(_qvr_qiec_controller_capture, handlerCaptures)
+  });
+  return { tag: "effect", request: completed, continuation: _qvr_qiec_pure };
 };
-var _qvr_qiec_with_ambient = function(controller, thunk) {
-  _qvr_qiec_ambient_handlers.push(controller);
-  try { return thunk(); }
-  finally { _qvr_qiec_ambient_handlers.pop(); }
+var _qvr_qiec_bind = function(comp, continuation, captures0) {
+  var captures = captures0 || [];
+  if (comp.tag === "pure") { return apply(continuation, [comp.value]); }
+  if (comp.tag === "call" || comp.tag === "bind") {
+    return { tag: "bind", inner: comp, continuation: continuation, captures: captures };
+  }
+  var request = Object.assign({}, comp.request, { captures: (comp.request.captures || []).concat(captures) });
+  return {
+    tag: "effect",
+    request: request,
+    continuation: function(value) { return _qvr_qiec_bind(apply(comp.continuation, [value]), continuation, captures); }
+  };
 };
-var _qvr_qiec_effect = function(request, staticEnvironment) {
-  request = _qvr_qiec_specialize(request, staticEnvironment);
-  request = Object.assign({ captures: [] }, request);
-  request.handler_captures = _qvr_qiec_unique((request.handler_captures || []).concat(_qvr_qiec_ambient_handlers));
-  request.handler_states = request.handler_captures.map(function(controller) { return controller.capture(); });
-  return { tag: "effect", request: request, continuation: _qvr_qiec_pure };
-};
-var _qvr_qiec_bind = function(comp, continuation, captures) {
-  captures = captures || [];
-  if (comp.tag === "pure") { return continuation(comp.value); }
-  if (comp.tag === "call" || comp.tag === "bind") { return { tag: "bind", inner: comp, continuation: continuation, captures: captures }; }
-  var request = Object.assign({}, comp.request);
-  request.captures = (request.captures || []).concat(captures);
-  return { tag: "effect", request: request, continuation: function(value) {
-    return _qvr_qiec_bind(comp.continuation(value), continuation, captures);
-  } };
-};
+// A binding descriptor holds its value directly, or in a global-store cell
+// when the host may replace it between shots of a resumption.
 var _qvr_qiec_is_binding = function(value) {
-  return value && value.qiec === "binding" && Object.prototype.hasOwnProperty.call(value, "value");
+  return !!value && value.qiec === "binding" && (_.has(value, "value") || _.has(value, "cell"));
 };
-var _qvr_qiec_value = function(value) { return _qvr_qiec_is_binding(value) ? value.value : value; };
+var _qvr_qiec_value = function(value) {
+  if (!_qvr_qiec_is_binding(value)) { return value; }
+  return _.has(value, "cell") ? globalStore[value.cell] : value.value;
+};
 var _qvr_qiec_constructor = function(constructor, staticArguments, fields, resultType, staticEnvironment) {
-  return Object.freeze({ qiec: "constructor", constructor: constructor, static_arguments: _qvr_qiec_specialize(staticArguments, staticEnvironment), fields: Object.freeze(fields), result_type: _qvr_qiec_specialize(resultType, staticEnvironment) });
+  return Object.freeze({
+    qiec: "constructor",
+    constructor: constructor,
+    static_arguments: _qvr_qiec_specialize(staticArguments, staticEnvironment),
+    fields: Object.freeze(fields),
+    result_type: _qvr_qiec_specialize(resultType, staticEnvironment)
+  });
 };
-var _qvr_qiec_evidence = function(evidence, staticEnvironment) { return Object.freeze({ qiec: "evidence", evidence: _qvr_qiec_specialize(evidence, staticEnvironment) }); };
-var _qvr_qiec_transport = function(evidence, value, targetType, staticEnvironment) { _qvr_qiec_specialize(evidence, staticEnvironment); _qvr_qiec_specialize(targetType, staticEnvironment); return value; };
-var _qvr_qiec_attachment = function(attachments, attachment, expectedType, staticEnvironment) {
-  if (!Object.prototype.hasOwnProperty.call(attachments, attachment)) { throw new Error("missing QIEC attachment " + attachment); }
+var _qvr_qiec_evidence = function(evidence, staticEnvironment) {
+  return Object.freeze({ qiec: "evidence", evidence: _qvr_qiec_specialize(evidence, staticEnvironment) });
+};
+var _qvr_qiec_transport = function(evidence, value, targetType, staticEnvironment) {
+  _qvr_qiec_specialize(evidence, staticEnvironment);
+  _qvr_qiec_specialize(targetType, staticEnvironment);
+  return value;
+};
+var _qvr_qiec_attachment = function(attachments, attachment, expectedType0, staticEnvironment) {
+  if (!_.has(attachments, attachment)) { error("missing QIEC attachment " + attachment); }
   var binding = attachments[attachment];
-  if (!_qvr_qiec_is_binding(binding) || !Object.prototype.hasOwnProperty.call(binding, "type")) { throw new Error("QIEC attachment must be a typed binding descriptor"); }
-  expectedType = _qvr_qiec_specialize(expectedType, staticEnvironment);
-  if (JSON.stringify(binding.type) !== JSON.stringify(expectedType)) { throw new Error("QIEC attachment type disagrees with checked IR"); }
+  if (!_qvr_qiec_is_binding(binding) || !_.has(binding, "type")) { error("QIEC attachment must be a typed binding descriptor"); }
+  var expectedType = _qvr_qiec_specialize(expectedType0, staticEnvironment);
+  if (JSON.stringify(binding.type) !== JSON.stringify(expectedType)) { error("QIEC attachment type disagrees with checked IR"); }
   return _qvr_qiec_value(_qvr_qiec_validate(binding.validator, binding, "attachment " + attachment));
 };
-var _qvr_qiec_case = function(value, branches, metadata, staticEnvironment) {
-  metadata = _qvr_qiec_specialize(metadata, staticEnvironment);
-  if (!value || value.qiec !== "constructor") { throw new Error("QIEC case scrutinee is not a constructor value"); }
-  if (!Object.prototype.hasOwnProperty.call(metadata.branches, value.constructor)) { throw new Error("constructor is not admitted by the checked QIEC case"); }
-  if (!Object.prototype.hasOwnProperty.call(branches, value.constructor)) { throw new Error("no QIEC case branch for " + value.constructor); }
+var _qvr_qiec_case = function(value, branches, metadata0, staticEnvironment) {
+  var metadata = _qvr_qiec_specialize(metadata0, staticEnvironment);
+  if (!value || value.qiec !== "constructor") { error("QIEC case scrutinee is not a constructor value"); }
+  if (!_.has(metadata.branches, value.constructor)) { error("constructor is not admitted by the checked QIEC case"); }
+  if (!_.has(branches, value.constructor)) { error("no QIEC case branch for " + value.constructor); }
   var branch = metadata.branches[value.constructor];
   var canonical = branch.static_arguments || [];
   var actual = value.static_arguments || [];
-  if (actual.length < canonical.length) { throw new Error("QIEC constructor static arguments do not match case branch"); }
-  var branchEnvironment = Object.assign({}, staticEnvironment);
-  canonical.forEach(function(variable, index) {
+  if (actual.length < canonical.length) { error("QIEC constructor static arguments do not match case branch"); }
+  var keys = map(function(variable) {
     var staticKey = variable.identity || variable.name;
-    if (!staticKey) { throw new Error("QIEC case branch has an unbindable static variable"); }
-    branchEnvironment[staticKey] = actual[actual.length - canonical.length + index];
-  });
-  return branches[value.constructor].apply(null, [branchEnvironment].concat(value.fields));
+    if (!staticKey) { error("QIEC case branch has an unbindable static variable"); }
+    return staticKey;
+  }, canonical);
+  var bound = actual.slice(actual.length - canonical.length);
+  var branchEnvironment = Object.assign({}, staticEnvironment, _.zipObject(keys, bound));
+  return apply(branches[value.constructor], [branchEnvironment].concat(value.fields));
 };
 var _qvr_qiec_member = function(container, key, fallback) {
-  return container && Object.prototype.hasOwnProperty.call(container, key) ? container[key] : fallback;
+  return container && _.has(container, key) ? container[key] : fallback;
 };
 var _qvr_qiec_as_computation = function(value) {
   return value && (value.tag === "pure" || value.tag === "effect" || value.tag === "call" || value.tag === "bind") ? value : _qvr_qiec_pure(value);
 };
 var _qvr_qiec_validate = function(validator, value, label) {
   if (!validator) { return value; }
-  if (validator(_qvr_qiec_value(value)) === false) { throw new Error("QIEC runtime value failed " + label); }
+  if (apply(validator, [_qvr_qiec_value(value)]) === false) { error("QIEC runtime value failed " + label); }
   return value;
 };
 var _qvr_qiec_validate_computation = function(comp, validator, label) {
@@ -406,195 +503,257 @@ var _qvr_qiec_validate_computation = function(comp, validator, label) {
   });
 };
 var _qvr_qiec_capture = function(locals, attachmentIds, attachments) {
-  var captured = Object.keys(locals).map(function(name) { return { kind: "local", label: name, binding: locals[name] }; });
-  attachmentIds.forEach(function(attachment) {
-    if (!Object.prototype.hasOwnProperty.call(attachments, attachment)) { throw new Error("missing QIEC attachment " + attachment); }
-    captured.push({ kind: "attachment", label: attachment, binding: attachments[attachment] });
-  });
-  return captured;
+  var captured = map(function(name) { return { kind: "local", label: name, binding: locals[name] }; }, Object.keys(locals));
+  var attached = map(function(attachment) {
+    if (!_.has(attachments, attachment)) { error("missing QIEC attachment " + attachment); }
+    return { kind: "attachment", label: attachment, binding: attachments[attachment] };
+  }, attachmentIds);
+  return captured.concat(attached);
 };
 var _qvr_qiec_duplicable = function(value) {
   if (_qvr_qiec_is_binding(value)) { return value.duplicable === true; }
   if (value === null || ["boolean", "number", "string", "undefined"].indexOf(typeof value) >= 0) { return true; }
-  if (Array.isArray(value)) { return Object.isFrozen(value) && value.every(_qvr_qiec_duplicable); }
-  if (value && value.qiec === "constructor") { return value.fields.every(_qvr_qiec_duplicable); }
-  return value && value.qiec === "evidence";
+  if (Array.isArray(value)) { return Object.isFrozen(value) && all(_qvr_qiec_duplicable, value); }
+  if (value && value.qiec === "constructor") { return all(_qvr_qiec_duplicable, value.fields); }
+  return !!value && value.qiec === "evidence";
+};
+// Handler installations. Each controller is a global-store key whose cells
+// hold the installed handler, its lifecycle, and the seed a fork copies.
+var _qvr_qiec_controller_new = function(handler, manifest, lifecycle) {
+  var id = "_qvr_qiec_controller_" + _qvr_qiec_next("_qvr_qiec_controller_serial");
+  globalStore[id + ":handler"] = handler;
+  globalStore[id + ":lifecycle"] = lifecycle;
+  globalStore[id + ":seed"] = handler;
+  globalStore[id + ":manifest"] = manifest;
+  return id;
+};
+var _qvr_qiec_controller_handler = function(id) { return globalStore[id + ":handler"]; };
+var _qvr_qiec_controller_lifecycle = function(id) { return globalStore[id + ":lifecycle"]; };
+var _qvr_qiec_controller_snapshot = function(id) {
+  globalStore[id + ":seed"] = globalStore[id + ":handler"];
+  return null;
+};
+var _qvr_qiec_controller_capture = function(id) {
+  return [globalStore[id + ":handler"], globalStore[id + ":lifecycle"]];
+};
+var _qvr_qiec_controller_restore = function(id, state) {
+  globalStore[id + ":handler"] = state[0];
+  globalStore[id + ":lifecycle"] = state[1];
+  return null;
+};
+var _qvr_qiec_controller_install_fork = function(id) {
+  var seed = globalStore[id + ":seed"];
+  if (typeof seed.fork_context !== "function") { return null; }
+  var clone = apply(seed.fork_context, [seed]);
+  _qvr_qiec_validate_handler(clone, globalStore[id + ":manifest"]);
+  globalStore[id + ":handler"] = clone;
+  globalStore[id + ":lifecycle"] = _qvr_qiec_lifecycle_enter(clone);
+  return null;
 };
 var _qvr_qiec_validate_capture = function(request, currentHandler) {
-  (request.captures || []).forEach(function(capture) {
+  var captures = map(function(capture) {
     var binding = capture.binding;
-    if (!_qvr_qiec_duplicable(binding)) { throw new Error("QIEC unrestricted resumption captures nonduplicable " + capture.kind + " " + capture.label); }
-    if (_qvr_qiec_is_binding(binding)) {
-      capture.seed = binding.value;
-      if (binding.mutable && typeof binding.fork !== "function") { throw new Error("QIEC mutable duplicable binding requires fork " + capture.label); }
+    if (!_qvr_qiec_duplicable(binding)) {
+      error("QIEC unrestricted resumption captures nonduplicable " + capture.kind + " " + capture.label);
     }
-  });
-  _qvr_qiec_unique((request.handler_captures || []).concat([currentHandler])).forEach(function(controller) {
-    controller.snapshot();
-    var handler = controller.get();
-    if (!handler.duplicable_context) { throw new Error("QIEC unrestricted resumption captures nonduplicable handler context"); }
-    if (handler.mutable_context && typeof handler.fork_context !== "function") { throw new Error("QIEC mutable duplicable handler context requires fork_context"); }
-  });
+    if (!_qvr_qiec_is_binding(binding)) { return capture; }
+    if (binding.mutable && typeof binding.fork !== "function") {
+      error("QIEC mutable duplicable binding requires fork " + capture.label);
+    }
+    return Object.assign({}, capture, { seed: _qvr_qiec_value(binding) });
+  }, request.captures || []);
+  map(function(controller) {
+    _qvr_qiec_controller_snapshot(controller);
+    var handler = _qvr_qiec_controller_handler(controller);
+    if (!handler.duplicable_context) { error("QIEC unrestricted resumption captures nonduplicable handler context"); }
+    if (handler.mutable_context && typeof handler.fork_context !== "function") {
+      error("QIEC mutable duplicable handler context requires fork_context");
+    }
+    return null;
+  }, _qvr_qiec_unique((request.handler_captures || []).concat([currentHandler])));
+  return Object.assign({}, request, { captures: captures });
 };
 var _qvr_qiec_fork_capture = function(request, currentHandler, shot) {
-  (request.captures || []).forEach(function(capture) {
+  map(function(capture) {
     var binding = capture.binding;
-    if (_qvr_qiec_is_binding(binding) && typeof binding.fork === "function") { binding.value = binding.fork(capture.seed); }
-  });
-  _qvr_qiec_unique((request.handler_captures || []).concat([currentHandler])).forEach(function(controller) {
-    controller.installFork();
-  });
+    if (_qvr_qiec_is_binding(binding) && typeof binding.fork === "function") {
+      if (!_.has(binding, "cell")) { error("QIEC mutable duplicable binding needs a cell " + capture.label); }
+      globalStore[binding.cell] = apply(binding.fork, [capture.seed]);
+    }
+    return null;
+  }, request.captures || []);
+  map(_qvr_qiec_controller_install_fork, _qvr_qiec_unique((request.handler_captures || []).concat([currentHandler])));
+  return null;
 };
-var _qvr_qiec_readdress = function(comp, shot) {
-  comp = _qvr_qiec_force(comp);
+var _qvr_qiec_readdress = function(comp0, shot) {
+  var comp = _qvr_qiec_force(comp0);
   if (comp.tag === "pure") { return comp; }
-  var request = Object.assign({}, comp.request);
-  request.address = [request.address[0], request.address[1], request.address[2].concat([shot])];
-  return { tag: "effect", request: request, continuation: function(value) { return _qvr_qiec_readdress(comp.continuation(value), shot); } };
+  var address = comp.request.address;
+  var request = Object.assign({}, comp.request, { address: [address[0], address[1], address[2].concat([shot])] });
+  return {
+    tag: "effect",
+    request: request,
+    continuation: function(value) { return _qvr_qiec_readdress(apply(comp.continuation, [value]), shot); }
+  };
 };
 var _qvr_qiec_validate_handler = function(handler, manifest) {
-  if (handler.definition && JSON.stringify(handler.definition) !== JSON.stringify(manifest)) { throw new Error("QIEC runtime handler definition disagrees with checked IR"); }
-  var structural = manifest.clauses.map(function(clause) { return clause.operation; }).sort();
-  var executable = Object.keys(handler.operations || {}).sort();
-  if (JSON.stringify(structural) !== JSON.stringify(executable)) { throw new Error("QIEC runtime handler clauses disagree with checked IR"); }
-  if (typeof handler.fork_context === "function" && !handler.duplicable_context) { throw new Error("QIEC handler fork_context requires duplicable_context"); }
-  if (handler.mutable_context && handler.duplicable_context && typeof handler.fork_context !== "function") { throw new Error("QIEC mutable duplicable handler requires fork_context"); }
+  if (handler.definition && JSON.stringify(handler.definition) !== JSON.stringify(manifest)) {
+    error("QIEC runtime handler definition disagrees with checked IR");
+  }
+  var structural = sort(map(function(clause) { return clause.operation; }, manifest.clauses));
+  var executable = sort(Object.keys(handler.operations || {}));
+  if (JSON.stringify(structural) !== JSON.stringify(executable)) { error("QIEC runtime handler clauses disagree with checked IR"); }
+  if (typeof handler.fork_context === "function" && !handler.duplicable_context) { error("QIEC handler fork_context requires duplicable_context"); }
+  if (handler.mutable_context && handler.duplicable_context && typeof handler.fork_context !== "function") {
+    error("QIEC mutable duplicable handler requires fork_context");
+  }
+  return null;
 };
-var _qvr_qiec_lifecycle = function(handler) { return { handler: handler, finalized: false }; };
+// A lifecycle is a cell holding the handler and whether it has finalized.
 var _qvr_qiec_lifecycle_exit = function(lifecycle) {
-  if (lifecycle.finalized) { return; }
-  lifecycle.finalized = true;
-  if (typeof lifecycle.handler.on_exit === "function") { lifecycle.handler.on_exit(); }
+  var state = _qvr_qiec_cell_get(lifecycle);
+  if (state.finalized) { return null; }
+  _qvr_qiec_cell_set(lifecycle, { handler: state.handler, finalized: true });
+  if (typeof state.handler.on_exit === "function") { apply(state.handler.on_exit, []); }
+  return null;
 };
 var _qvr_qiec_lifecycle_drop = function(lifecycle) {
-  if (lifecycle.finalized) { return; }
-  lifecycle.finalized = true;
-  if (typeof lifecycle.handler.on_drop === "function") { lifecycle.handler.on_drop(); }
+  var state = _qvr_qiec_cell_get(lifecycle);
+  if (state.finalized) { return null; }
+  _qvr_qiec_cell_set(lifecycle, { handler: state.handler, finalized: true });
+  if (typeof state.handler.on_drop === "function") { apply(state.handler.on_drop, []); }
+  return null;
 };
 var _qvr_qiec_lifecycle_enter = function(handler) {
-  var lifecycle = _qvr_qiec_lifecycle(handler);
-  try { if (typeof handler.on_enter === "function") { handler.on_enter(); } }
-  catch (error) { _qvr_qiec_lifecycle_drop(lifecycle); throw error; }
+  var lifecycle = _qvr_qiec_cell({ handler: handler, finalized: false });
+  if (typeof handler.on_enter === "function") { apply(handler.on_enter, []); }
   return lifecycle;
 };
 var _qvr_qiec_drop_request = function(request) {
-  (request.lifecycles || []).forEach(_qvr_qiec_lifecycle_drop);
+  map(_qvr_qiec_lifecycle_drop, request.lifecycles || []);
+  return null;
 };
 var _qvr_qiec_finalize = function(comp, lifecycle) {
   var current = _qvr_qiec_force(_qvr_qiec_as_computation(comp));
-  if (current.tag === "pure") { _qvr_qiec_lifecycle_exit(lifecycle); return current; }
-  var request = Object.assign({}, current.request);
-  request.lifecycles = (request.lifecycles || []).concat([lifecycle]);
-  return { tag: "effect", request: request, continuation: function(value) { return _qvr_qiec_finalize(current.continuation(value), lifecycle); } };
-};
-var _qvr_qiec_invoke = function(entry, args) { return (entry.invoke || entry).apply(null, args); };
-var _qvr_qiec_handle = function(comp, instance, manifest, staticArguments, computationStaticEnvironment, handlers, attachments, operations) {
-  staticArguments = _qvr_qiec_specialize(staticArguments, computationStaticEnvironment);
-  var handlerStaticEnvironment = _qvr_qiec_static_environment(manifest.telescope, staticArguments);
-  manifest = _qvr_qiec_specialize(manifest, handlerStaticEnvironment);
-  manifest.telescope = [];
-  var handlerId = manifest.id;
-  var prototype;
-  if (Object.prototype.hasOwnProperty.call(handlers, handlerId)) { prototype = handlers[handlerId]; }
-  else if (Object.prototype.hasOwnProperty.call(_qvr_qiec_authored, handlerId)) { prototype = _qvr_qiec_authored[handlerId]; }
-  else { throw new Error("missing QIEC handler attachment " + handlerId); }
-  var handler = prototype;
-  if (typeof prototype.context_factory === "function") { handler = prototype.context_factory(); }
-  if (handler === prototype && prototype.mutable_context) { throw new Error("QIEC mutable handler requires context_factory"); }
-  var handlerRef = { value: handler };
-  _qvr_qiec_validate_handler(handlerRef.value, manifest);
-  var lifecycleRef = { value: _qvr_qiec_lifecycle_enter(handler) };
-  var rootLifecycle = lifecycleRef.value;
-  var seedRef = { value: handlerRef.value };
-  var controller = {
-    get: function() { return handlerRef.value; },
-    seed: function() { return seedRef.value; },
-    snapshot: function() { seedRef.value = handlerRef.value; },
-    capture: function() { return [handlerRef.value, lifecycleRef.value]; },
-    restore: function(state) { handlerRef.value = state[0]; lifecycleRef.value = state[1]; },
-    installFork: function() {
-      var seed = seedRef.value;
-      if (typeof seed.fork_context !== "function") { return; }
-      var clone = seed.fork_context(seed);
-      try { _qvr_qiec_validate_handler(clone, manifest); }
-      catch (error) { if (typeof clone.on_drop === "function") { clone.on_drop(); } throw error; }
-      handlerRef.value = clone;
-      lifecycleRef.value = _qvr_qiec_lifecycle_enter(clone);
-    }
+  if (current.tag === "pure") {
+    _qvr_qiec_lifecycle_exit(lifecycle);
+    return current;
+  }
+  var request = Object.assign({}, current.request, { lifecycles: (current.request.lifecycles || []).concat([lifecycle]) });
+  return {
+    tag: "effect",
+    request: request,
+    continuation: function(value) { return _qvr_qiec_finalize(apply(current.continuation, [value]), lifecycle); }
   };
-  var grades = {};
-  manifest.clauses.forEach(function(clause) { grades[clause.operation] = clause.grade; });
-  var context = { handler: handlerId, definition: manifest, static_arguments: staticArguments, "static": handlerStaticEnvironment, attachments: attachments || {}, handlers: handlers, operations: operations || {}, resumption_uses: 0 };
-  var walk = function(current) {
-    var handler = handlerRef.value;
-    current = _qvr_qiec_force(current);
+};
+var _qvr_qiec_invoke = function(entry, args) { return apply(entry.invoke || entry, args); };
+var _qvr_qiec_handle = function(comp, instance, rawManifest, staticArguments0, computationStaticEnvironment, handlers, attachments0, operations0) {
+  var staticArguments = _qvr_qiec_specialize(staticArguments0, computationStaticEnvironment);
+  var handlerStaticEnvironment = _qvr_qiec_static_environment(rawManifest.telescope, staticArguments);
+  var manifest = Object.assign({}, _qvr_qiec_specialize(rawManifest, handlerStaticEnvironment), { telescope: [] });
+  var handlerId = manifest.id;
+  if (!_.has(handlers, handlerId) && !_.has(_qvr_qiec_authored, handlerId)) { error("missing QIEC handler attachment " + handlerId); }
+  var prototype = _.has(handlers, handlerId) ? handlers[handlerId] : _qvr_qiec_authored[handlerId];
+  var handler = typeof prototype.context_factory === "function" ? apply(prototype.context_factory, []) : prototype;
+  if (handler === prototype && prototype.mutable_context) { error("QIEC mutable handler requires context_factory"); }
+  _qvr_qiec_validate_handler(handler, manifest);
+  var controller = _qvr_qiec_controller_new(handler, manifest, _qvr_qiec_lifecycle_enter(handler));
+  var grades = _.zipObject(
+    map(function(clause) { return clause.operation; }, manifest.clauses),
+    map(function(clause) { return clause.grade; }, manifest.clauses)
+  );
+  var context = {
+    handler: handlerId,
+    definition: manifest,
+    static_arguments: staticArguments,
+    "static": handlerStaticEnvironment,
+    attachments: attachments0 || {},
+    handlers: handlers,
+    operations: operations0 || {}
+  };
+  var walk = function(current0) {
+    var current = _qvr_qiec_force(current0);
     if (current.tag === "pure") {
-      var value = _qvr_qiec_validate(handler.input_validator, current.value, "handler input type");
-      var result = handler.return ? _qvr_qiec_invoke(handler.return, [value, context]) : value;
-      return _qvr_qiec_finalize(_qvr_qiec_validate_computation(result, handler.output_validator, "handler output type"), lifecycleRef.value);
+      var returning = _qvr_qiec_controller_handler(controller);
+      var value = _qvr_qiec_validate(returning.input_validator, current.value, "handler input type");
+      var returned = returning["return"] ? _qvr_qiec_invoke(returning["return"], [value, context]) : value;
+      return _qvr_qiec_finalize(_qvr_qiec_validate_computation(returned, returning.output_validator, "handler output type"), _qvr_qiec_controller_lifecycle(controller));
     }
     var request = current.request;
-    (request.handler_captures || []).forEach(function(capturedController, index) {
-      if (capturedController === controller) { controller.restore(request.handler_states[index]); handler = handlerRef.value; }
-    });
+    mapIndexed(function(index, captured) {
+      if (captured === controller) { _qvr_qiec_controller_restore(controller, request.handler_states[index]); }
+      return null;
+    }, request.handler_captures || []);
+    var handler = _qvr_qiec_controller_handler(controller);
     var forward = function() {
-      var forwardedHandler = handlerRef.value;
-      var forwardedLifecycle = lifecycleRef.value;
-      var forwarded = Object.assign({}, request);
-      forwarded.handler_captures = _qvr_qiec_unique((request.handler_captures || []).concat([controller]));
-      forwarded.handler_states = forwarded.handler_captures.map(function(captured) { return captured.capture(); });
-      forwarded.lifecycles = (request.lifecycles || []).concat([lifecycleRef.value]);
-      return { tag: "effect", request: forwarded, continuation: function(value) {
-        handlerRef.value = forwardedHandler;
-        lifecycleRef.value = forwardedLifecycle;
-        return _qvr_qiec_with_ambient(controller, function() { return walk(current.continuation(value)); });
-      } };
+      var forwardedState = _qvr_qiec_controller_capture(controller);
+      var handlerCaptures = _qvr_qiec_unique((request.handler_captures || []).concat([controller]));
+      var forwarded = Object.assign({}, request, {
+        handler_captures: handlerCaptures,
+        handler_states: map(_qvr_qiec_controller_capture, handlerCaptures),
+        lifecycles: (request.lifecycles || []).concat([forwardedState[1]])
+      });
+      return {
+        tag: "effect",
+        request: forwarded,
+        continuation: function(value) {
+          _qvr_qiec_controller_restore(controller, forwardedState);
+          return _qvr_qiec_with_ambient(controller, function() { return walk(apply(current.continuation, [value])); });
+        }
+      };
     };
     if (request.instance !== instance) { return forward(); }
-    var clause = (handler.operations || {})[request.operation];
-    if (JSON.stringify(request.effect) !== JSON.stringify(manifest.effect)) { throw new Error("QIEC request and installed handler effect disagree"); }
+    var clause = _qvr_qiec_member(handler.operations || {}, request.operation, null);
+    if (JSON.stringify(request.effect) !== JSON.stringify(manifest.effect)) { error("QIEC request and installed handler effect disagree"); }
     if (!clause) {
       if (!manifest.total || manifest.forwards_unknown) { return forward(); }
-      throw new Error("missing QIEC handler clause " + request.operation);
+      error("missing QIEC handler clause " + request.operation);
     }
-    var uses = 0;
     var grade = grades[request.operation];
-    if (grade === "omega") { _qvr_qiec_validate_capture(request, controller); }
-    var resume = function(value) {
-      var shot = uses;
-      uses += 1;
-      context.resumption_uses = uses;
-      if (grade === "0") { throw new Error("QIEC zero-grade clause resumed"); }
-      if ((grade === "aff" || grade === "1") && uses > 1) { throw new Error("QIEC resumption exceeds grade " + grade); }
-      if (grade === "omega") { _qvr_qiec_fork_capture(request, controller, shot); }
-      value = _qvr_qiec_validate(clause.result_validator, value, "handler operation result type");
-      var resumed = _qvr_qiec_with_ambient(controller, function() { return walk(_qvr_qiec_readdress(current.continuation(value), shot)); });
+    var seeded = grade === "omega" ? _qvr_qiec_validate_capture(request, controller) : request;
+    var uses = _qvr_qiec_cell(0);
+    var resume = function(value0) {
+      var shot = _qvr_qiec_cell_get(uses);
+      _qvr_qiec_cell_set(uses, shot + 1);
+      if (grade === "0") { error("QIEC zero-grade clause resumed"); }
+      if ((grade === "aff" || grade === "1") && shot > 0) { error("QIEC resumption exceeds grade " + grade); }
+      if (grade === "omega") { _qvr_qiec_fork_capture(seeded, controller, shot); }
+      var value = _qvr_qiec_validate(clause.result_validator, value0, "handler operation result type");
+      var resumed = _qvr_qiec_with_ambient(controller, function() { return walk(_qvr_qiec_readdress(apply(current.continuation, [value]), shot)); });
       return resumed.tag === "pure" ? resumed.value : resumed;
     };
-    var clauseLifecycle = lifecycleRef.value;
-    var result;
-    try { result = _qvr_qiec_invoke(clause, [request, resume, context]); }
-    catch (error) { _qvr_qiec_drop_request(request); _qvr_qiec_lifecycle_drop(clauseLifecycle); throw error; }
-    if (grade === "1" && uses !== 1) { _qvr_qiec_drop_request(request); _qvr_qiec_lifecycle_drop(clauseLifecycle); throw new Error("QIEC linear clause must resume exactly once"); }
-    if (uses === 0) { _qvr_qiec_drop_request(request); }
+    var clauseLifecycle = _qvr_qiec_controller_lifecycle(controller);
+    var result = _qvr_qiec_invoke(clause, [seeded, resume, context]);
+    var used = _qvr_qiec_cell_get(uses);
+    if (grade === "1" && used !== 1) {
+      _qvr_qiec_drop_request(seeded);
+      _qvr_qiec_lifecycle_drop(clauseLifecycle);
+      error("QIEC linear clause must resume exactly once");
+    }
+    if (used === 0) { _qvr_qiec_drop_request(seeded); }
     return _qvr_qiec_finalize(_qvr_qiec_validate_computation(result, handler.output_validator, "handler output type"), clauseLifecycle);
   };
-  try { comp = _qvr_qiec_with_ambient(controller, function() { return _qvr_qiec_force(comp()); }); return walk(comp); }
-  catch (error) { _qvr_qiec_lifecycle_drop(lifecycleRef.value); _qvr_qiec_lifecycle_drop(rootLifecycle); throw error; }
+  var started = _qvr_qiec_with_ambient(controller, function() { return _qvr_qiec_force(apply(comp, [])); });
+  return walk(started);
+};
+var _qvr_qiec_operation_entry = function(operations, request) {
+  var flat = _qvr_qiec_member(operations, request.instance + "|" + request.operation, null);
+  if (flat) { return flat; }
+  var byInstance = _qvr_qiec_member(operations, request.instance, null);
+  var nested = byInstance ? _qvr_qiec_member(byInstance, request.operation, null) : null;
+  if (!nested) { error("unhandled QIEC operation " + request.operation + " on " + request.instance); }
+  return nested;
+};
+var _qvr_qiec_drive = function(current, operations) {
+  if (current.tag !== "effect") { return _qvr_qiec_value(current.value); }
+  var request = current.request;
+  var entry = _qvr_qiec_operation_entry(operations, request);
+  var result = _qvr_qiec_invoke(entry, [request]);
+  var validated = _qvr_qiec_validate(entry.result_validator, result, "operation result type");
+  return _qvr_qiec_drive(_qvr_qiec_force(apply(current.continuation, [validated])), operations);
 };
 var _qvr_qiec_run = function(build, operations) {
-  _qvr_qiec_serials.call = 0;
-  _qvr_qiec_serials.instance = 0;
-  var current = _qvr_qiec_force(build());
-  while (current.tag === "effect") {
-    var request = current.request;
-    var entry = operations[request.instance + "|" + request.operation];
-    if (!entry && operations[request.instance]) { entry = operations[request.instance][request.operation]; }
-    if (!entry) { throw new Error("unhandled QIEC operation " + request.operation + " on " + request.instance); }
-    try {
-      var result = _qvr_qiec_invoke(entry, [request]);
-      current = _qvr_qiec_force(current.continuation(_qvr_qiec_validate(entry.result_validator, result, "operation result type")));
-    } catch (error) { _qvr_qiec_drop_request(request); throw error; }
-  }
-  return _qvr_qiec_value(current.value);
+  globalStore._qvr_qiec_call_serial = 0;
+  globalStore._qvr_qiec_instance_serial = 0;
+  return _qvr_qiec_drive(_qvr_qiec_force(apply(build, [])), operations);
 };

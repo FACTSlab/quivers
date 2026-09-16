@@ -152,14 +152,7 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # transpiler raises on every backend. The same holds for every model
 # below: each hides part of its structure in a `param_source` network
 # rather than writing it as a program whose steps are declared sites.
-# `gen` refuses every `marginalize`. Its `@gen` DSL has no way to add
-# a free log-density term to a trace, so it can only emit the latent
-# as a draw, and that denotes a measure on the product of the latent's
-# support with the block's rather than the integral the block means.
-for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
-    _EXPECTED_TRANSPILE_RAISES[("gen", _gen_marginalize_model)] = "marginalize:"
-
-# The four targets that reduce an ungrouped `marginalize` row by row
+# The targets that reduce an ungrouped `marginalize` row by row
 # refuse it rather than emit it. An ungrouped block shares one latent
 # across the body's rows, so its density accumulates the rows and
 # reduces once; scoring each row on its own gives every row a draw the
@@ -167,12 +160,14 @@ for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
 # is a different measure rather than a different base measure. The
 # reference was itself reducing per row until it was corrected against
 # `docs/semantics/programs.md` §2.6, which is why these four were
-# built to agree with it. `stan`, `numpyro`, `pyro` and `webppl` emit
+# built to agree with it, and `gen` marginalizes through the same
+# emission as `turing`. `stan`, `numpyro`, `pyro` and `webppl` emit
 # the accumulated order and score the corrected reference.
 for _ungrouped_backend in (
     "bugs",
     "church",
     "edward2",
+    "gen",
     "jags",
     "pymc",
     "turing",

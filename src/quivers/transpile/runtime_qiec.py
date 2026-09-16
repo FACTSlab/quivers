@@ -117,9 +117,29 @@ def _qvr_qiec_resume(resume, value):
 
 def _qvr_qiec_if(condition, then, otherwise):
     condition = _qvr_qiec_value(condition)
+    if _qvr_qiec_is_host(condition):
+        # A host's Boolean array decides the branch as the host reads
+        # it; a host that traces rather than evaluates raises here, as
+        # it does for any data-dependent branch.
+        condition = bool(condition)
     if not isinstance(condition, bool):
         raise TypeError("QIEC if condition is not a Boolean")
     return then() if condition else otherwise()
+
+
+def _qvr_qiec_is_host(value):
+    # A value of the host library rather than of Python: a tensor or a
+    # symbolic variable, which the host's own functions operate on.
+    return value is not None and not isinstance(
+        value, (bool, int, float, str, tuple, list, dict, bytes)
+    )
+
+
+# Host spellings of the primitives, which the target's bridge fills so a
+# primitive applied to the host's array stays on the host's array and
+# keeps its gradient; a primitive applied to plain Python values uses the
+# Python table.
+_qvr_qiec_host_math = {}
 
 
 def _qvr_qiec_div_int(a, b):
@@ -224,8 +244,8 @@ _qvr_qiec_primitives = {
     "softplus": lambda a: _qvr_qiec_softplus(a),
     "logsigmoid": lambda a: -_qvr_qiec_softplus(-a),
     "softsign": lambda a: a / (1.0 + abs(a)),
-    "as_weight": float,
-    "weight_value": float,
+    "as_weight": lambda a: a,
+    "weight_value": lambda a: a,
     "add_weight": lambda a, b: a + b,
     "scale_weight": lambda a, b: a * b,
 }
@@ -339,9 +359,11 @@ def _qvr_qiec_primitive(name, arguments):
     implementation = _qvr_qiec_primitives.get(name)
     if implementation is None:
         raise KeyError("unknown QIEC primitive " + name)
-    return _qvr_qiec_broadcast(
-        implementation, tuple(_qvr_qiec_value(argument) for argument in arguments)
-    )
+    values = tuple(_qvr_qiec_value(argument) for argument in arguments)
+    host = _qvr_qiec_host_math.get(name)
+    if host is not None and any(_qvr_qiec_is_host(value) for value in values):
+        return _qvr_qiec_broadcast(host, values)
+    return _qvr_qiec_broadcast(implementation, values)
 
 
 def _qvr_qiec_gather(value, index):

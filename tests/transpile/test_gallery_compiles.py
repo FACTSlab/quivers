@@ -248,13 +248,15 @@ for _scan_example in (
 
 # 6. An ungrouped `marginalize` over a plated `observe` shares one
 #    latent across the body's rows, so its density accumulates the
-#    rows and reduces once. These four targets reduce each row on its
+#    rows and reduces once. These targets reduce each row on its
 #    own, which gives every row a draw the source never declares, so
-#    they refuse rather than emit a different measure.
+#    they refuse rather than emit a different measure; `gen`
+#    marginalizes through the same emission as `turing`.
 for _ungrouped_backend in (
     "bugs",
     "church",
     "edward2",
+    "gen",
     "jags",
     "pymc",
     "turing",
@@ -263,16 +265,6 @@ for _ungrouped_backend in (
         _EXPECTED_UNSUPPORTED[(_ungrouped_backend, "hmm")] = (
             "marginalize:ungrouped-over-plate"
         )
-
-
-# 7. `gen` refuses every `marginalize`: its `@gen` DSL has no way to
-#    add a free log-density term to a trace, so it can only emit the
-#    latent as a draw, which denotes a measure on a larger space than
-#    the block means.
-for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
-    for _syntax_backend in _SYNTAX_CHECKS:
-        if _syntax_backend == "gen":
-            _EXPECTED_UNSUPPORTED[("gen", _gen_marginalize_model)] = "marginalize:"
 
 
 @pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)

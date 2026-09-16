@@ -215,6 +215,39 @@ var _qvr_probe_score = function (dist, value) {
   return scoreFn(value);
 };"""
 
+# The QIEC bridge's draw and score under the runtime's own `sample`
+# and `factor`, as the transpiler emits them. A helper the model
+# calls draws through these two, so the probe replaces them with
+# clamped versions that read the site's value from `clampedParams`
+# by its label and accumulate the score term the way the model's own
+# lifted sites do.
+_QIEC_DRAW_DEFINITION = (
+    "var _qvr_qiec_draw = function(label, distribution) "
+    "{ return sample(distribution); };"
+)
+_QIEC_ADD_DEFINITION = (
+    "var _qvr_qiec_add = function(label, weight) { factor(weight); return null; };"
+)
+_QIEC_CLAMPED_DEFINITIONS = """\
+var _qvr_probe_coerce = function (distribution, value) {
+  var family = distribution.meta ? distribution.meta.name : null;
+  if (family === "Bernoulli") { return value === 1; }
+  if (family === "Dirichlet") { return Vector(value); }
+  return value;
+};
+var _qvr_qiec_draw = function(label, distribution) {
+  if (!_.has(clampedParams, label)) {
+    error("webppl probe: helper site " + label + " has no clamp");
+  }
+  var value = clampedParams[label];
+  globalStore.lp = globalStore.lp + _qvr_qiec_score(distribution, _qvr_probe_coerce(distribution, value));
+  return value;
+};
+var _qvr_qiec_add = function(label, weight) {
+  globalStore.lp = globalStore.lp + weight;
+  return null;
+};"""
+
 # Fresh names the lifted plate callbacks bind. Prefixed so they cannot
 # collide with a renderer-emitted binding.
 _PLATE_INDEX_VAR = "_qvr_plate_i"
@@ -540,6 +573,58 @@ _MODEL_FN_RE = re.compile(r"\bvar\s+model\s*=\s*function\s*\(([^)]*)\)")
 _LIVE_PRIMITIVE_RE = re.compile(r"\b(sample|observe|factor)\s*\(")
 
 
+def _model_span(source: str) -> str:
+    """The model function's declaration, from `var model` to its close.
+
+    Parameters
+    ----------
+    source : str
+        The rendered program.
+
+    Returns
+    -------
+    str
+        The balanced text of the declaration.
+    """
+    match = _MODEL_FN_RE.search(source)
+    if match is None:
+        raise ValueError("no `var model = function (...)` declaration found")
+    open_brace = source.index("{", match.start())
+    depth = 0
+    for index in range(open_brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[match.start() : index + 1]
+    raise ValueError("unbalanced `var model = function (...)` declaration")
+
+
+def _rewrite_qiec_bridge(source: str) -> str:
+    """Replace the QIEC bridge's draw and score with clamped versions.
+
+    Parameters
+    ----------
+    source : str
+        The rendered program.
+
+    Returns
+    -------
+    str
+        The program with a helper's draws reading `clampedParams` by
+        site label and its scores accumulating into `globalStore.lp`;
+        unchanged when the program carries no QIEC bridge.
+    """
+    if _QIEC_DRAW_DEFINITION not in source:
+        return source
+    if _QIEC_ADD_DEFINITION not in source:
+        raise ValueError("webppl probe: the QIEC bridge's `_qvr_qiec_add` is missing")
+    return source.replace(_QIEC_DRAW_DEFINITION, _QIEC_CLAMPED_DEFINITIONS).replace(
+        _QIEC_ADD_DEFINITION + "\n", ""
+    )
+
+
 def _assert_fully_lifted(rewritten: str) -> None:
     """Fail when a `sample` / `observe` / `factor` primitive survives
     the rewrite.
@@ -548,14 +633,14 @@ def _assert_fully_lifted(rewritten: str) -> None:
     on every run, so the site contributes no prior term and the
     returned log-density is a random number. A surviving `factor(`
     aborts the run outright, since WebPPL rejects the primitive
-    outside inference. Checking only from the model declaration onward
-    keeps the runtime prelude's `sample:` method definitions and its
-    prose comments out of scope.
+    outside inference. Checking the model declaration alone keeps the
+    runtime prelude's `sample:` method definitions, its prose
+    comments, and the QIEC runtime grafted after the model out of
+    scope; a helper's draws reach the primitives only through the
+    bridge's `_qvr_qiec_draw` and `_qvr_qiec_add`, which the driver
+    replaces.
     """
-    match = _MODEL_FN_RE.search(rewritten)
-    if match is None:
-        raise ValueError("no `var model = function (...)` declaration found")
-    body = rewritten[match.start() :]
+    body = _model_span(rewritten)
     live = _LIVE_PRIMITIVE_RE.search(body)
     if live is None:
         return
@@ -615,7 +700,10 @@ def _build_driver(
     * a `console.log` of the resulting `globalStore.lp`.
     """
     grafted = _grafted_dist_names(rendered)
-    rewritten = _rewrite_plated_samples(rendered, grafted)
+    # The bridge is replaced first, so its own `sample` and `factor`
+    # are never mistaken for the model's.
+    rewritten = _rewrite_qiec_bridge(rendered)
+    rewritten = _rewrite_plated_samples(rewritten, grafted)
     rewritten = _rewrite_sample(rewritten, grafted)
     rewritten = _rewrite_observe(rewritten, grafted)
     rewritten = _rewrite_factor(rewritten)

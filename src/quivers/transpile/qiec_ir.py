@@ -1631,7 +1631,7 @@ def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
         The mirror, with the program computations recorded so a renderer
         need not walk every body to find them.
     """
-    reachable = m.program_computations(module)
+    reachable = m.reachable_computations(module)
     values = {
         field.name: _convert(getattr(module, field.name))
         for field in fields(module)
@@ -1650,7 +1650,9 @@ def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
     )
     values["programs"] = tuple(
         _id(identity)
-        for identity in sorted(reachable, key=lambda identity: identity.digest)
+        for identity in sorted(
+            m.program_computations(module), key=lambda identity: identity.digest
+        )
     )
     return IRQiecModule(**values)
 
@@ -1817,7 +1819,24 @@ _GENERIC_RUNTIME = QiecTargetCapabilities(
     )
 )
 _STAN_STATIC = QiecTargetCapabilities(
-    features=frozenset({"declarations", "return", "bind", "named-parameter"})
+    features=frozenset(
+        {
+            "declarations",
+            "return",
+            "bind",
+            "named-parameter",
+            "arithmetic",
+            "comparison",
+            "boolean",
+            "conversion",
+            "math",
+            "special",
+            "activation",
+            "if",
+            "call",
+            "recursion",
+        }
+    )
 )
 _GRAPH_STATIC = QiecTargetCapabilities(
     features=frozenset({"declarations", "return", "bind"})
@@ -1828,9 +1847,11 @@ def capabilities_for_target(target: str) -> QiecTargetCapabilities:
     """Return the registered QIEC capability set for ``target``.
 
     The eight host-language backends lower the full stable core through the
-    QIEC runtime ABI. Stan, BUGS, and JAGS admit the useful first-order subset:
-    closed, monomorphic, effect-free scalar ``return``/``bind`` computations.
-    Unknown targets safely retain declaration metadata only.
+    QIEC runtime ABI. Stan admits closed, monomorphic, effect-free scalar
+    computations as user-defined functions: binds, scalar primitives,
+    conditionals, calls, and recursion. BUGS and JAGS admit only
+    ``return``/``bind`` computations, which they inline. Unknown targets
+    safely retain declaration metadata only.
     """
     normalized = target.removeprefix("qvr-").lower()
     if normalized in {

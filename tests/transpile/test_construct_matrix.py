@@ -106,6 +106,12 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     # Static graphical targets preserve only the closed, monomorphic,
     # effect-free scalar QIEC fragment.
     ("stan", "statements", "qiec_effectful_computation"): "qiec:",
+    # A program calling an effectful helper: a graph language has no
+    # statement that runs a computation, and Stan cannot define a
+    # helper that performs.
+    ("bugs", "steps", "call_step"): "call:graph:",
+    ("jags", "steps", "call_step"): "call:graph:",
+    ("stan", "steps", "call_step"): "qiec:capability:",
     ("bugs", "statements", "qiec_effectful_computation"): "qiec:",
     ("jags", "statements", "qiec_effectful_computation"): "qiec:",
     # A program calling a deduction, `parse(D, sentence)` followed by
@@ -133,12 +139,6 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     # check before the construct gate.
     ("bugs", "axes", "matrix_kronecker"): "family:",
     ("jags", "axes", "matrix_kronecker"): "family:",
-    # Gen refuses every `marginalize`: its `@gen` DSL has no way to
-    # add a free log-density term to a trace, so the only thing it
-    # could emit is the latent as a draw, which denotes a measure on
-    # the product of the latent's support with the block's rather
-    # than the integral the block means.
-    ("gen", "steps", "marginalize_step"): "marginalize:",
 }
 
 

@@ -44,7 +44,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
-from quivers.transpile.qiec_ir import IRQiecModule
+from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic
 
 
 # ---------------------------------------------------------------------------
@@ -844,6 +844,25 @@ class IRMarginalize(IRNode):
     kind: Literal["marginalize"] = "marginalize"
 
 
+class IRCall(IRNode):
+    """A call of one of the module's computations, bound to a name.
+
+    The callee is rendered from the module as a host function; the
+    call runs it under the target's own draw and score primitives for
+    the program's `random` and `score` instances, whose stable
+    identities the node carries so the renderer can attach them.
+    """
+
+    name: str
+    callee: str
+    static_arguments: tuple[IRQiecStatic, ...]
+    arguments: tuple[IRExpr, ...]
+    random_instance: str
+    score_instance: str
+    plate: Plate
+    kind: Literal["call"] = "call"
+
+
 class IRReturn(IRNode):
     """The program's terminal return clause."""
 
@@ -915,6 +934,7 @@ __all__ = [
     "IRNode",
     "IRObserve",
     "IRProgram",
+    "IRCall",
     "IRReturn",
     "IRSample",
     "IRScore",

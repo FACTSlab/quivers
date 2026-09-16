@@ -10,6 +10,7 @@ from ``FAMILY_META``.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 from typing import Callable, Literal
 
 import panproto
@@ -23,7 +24,9 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
+    LetExprList,
     LetExprLiteral,
+    LetExprNode,
     LetExprUnaryOp,
     LetExprVar,
 )
@@ -44,6 +47,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -76,6 +80,8 @@ from quivers.transpile.renderers._bugs_helpers import (
     factor_cells,
     half_support_truncation,
     index_letexpr_refs,
+    list_cells,
+    list_sizes,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
     reorder_binomial_dbin,
@@ -453,6 +459,10 @@ class BUGSRenderer(RendererBase):
             if isinstance(node.expr, LetExprFactor):
                 self._emit_factor_deterministic_node(ctx, node)
                 return
+            if isinstance(node.expr, LetExprList) and node.plate.batch_dims:
+                self._check_factor_plate(node, list_sizes(node.expr))
+                self._emit_cells(ctx, node, list_cells(node.expr, ()))
+                return
             self._emit_deterministic_node(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -464,6 +474,13 @@ class BUGSRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
             return
+        if isinstance(node, IRCall):
+            # A graph language relates variables; it has no statement
+            # that runs a computation, and the plan has already inlined
+            # every pure call it could.
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}", [f"call:graph:{node.callee}"]
+            )
         raise UnsupportedConstruct(
             f"qvr-{self.target}",
             [f"node:{type(node).__name__}"],
@@ -1394,7 +1411,36 @@ class BUGSRenderer(RendererBase):
             self.target,
         )
         self._check_factor_plate(node, factor_axis_sizes(let_ctx, expr))
-        for indices, body in factor_cells(let_ctx, expr):
+        self._emit_cells(ctx, node, factor_cells(let_ctx, expr))
+
+    def _emit_cells(
+        self,
+        ctx: _BugsCtx,
+        node: IRDeterministic,
+        cells: Iterable[tuple[tuple[int, ...], LetExprNode]],
+    ) -> None:
+        """Emit one relation per enumerated cell of a tensor binding.
+
+        A plated list literal is written out the way a factor is:
+        `<name>[i_1, ..., i_n] <- <item>`, the nesting of the literal
+        supplying the coordinates.
+
+        Parameters
+        ----------
+        ctx : _BugsCtx
+            The render context.
+        node : IRDeterministic
+            The binding the cells belong to.
+        cells : Iterable[tuple[tuple[int, ...], LetExprNode]]
+            The cells' zero-based coordinates and scalar expressions.
+        """
+        let_ctx = _BugsLetCtx(
+            ctx.sb,
+            lambda p: self._fresh(ctx, p),
+            self._cards,
+            self.target,
+        )
+        for indices, body in cells:
             dr_id = self._fresh(ctx, "dr")
             ctx.sb.vertex(dr_id, "deterministic_relation")
             ctx.sb.edge(ctx.block_id, dr_id, "deterministic_relation")

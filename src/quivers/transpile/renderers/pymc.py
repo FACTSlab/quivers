@@ -71,6 +71,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     Plate,
 )
@@ -86,8 +87,9 @@ from quivers.transpile.renderers._base import (
     assert_no_dangling_refs,
 )
 from quivers.transpile.renderers._qiec import (
-    render_computations_dynamic,
+    emit_call_python,
     qiec_helper_families_used,
+    render_computations_dynamic,
 )
 
 
@@ -287,6 +289,11 @@ class PyMCRenderer(RendererBase):
             return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(
+                ctx.py, ctx.with_body, node, ctx.ir.module, ctx.operations_bound
+            )
             return
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
@@ -1233,6 +1240,7 @@ class _PyMCCtx:
         self.py = py
         self.ir = ir
         self.with_body: str = ""
+        self.operations_bound: set[str] = set()
 
 
 def _dim_name(dim: Dim) -> str:

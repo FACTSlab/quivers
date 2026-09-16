@@ -70,6 +70,7 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
 )
 from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprCall,
     LetExprFactor,
     LetExprIndex,
     LetExprList,
@@ -87,6 +88,7 @@ from quivers.transpile.family_meta import (
     FamilyMeta,
 )
 from quivers.transpile.ir import (
+    CSReal,
     ConstraintSpec,
     LetExprAffineMap,
     Dim,
@@ -100,6 +102,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -137,6 +140,7 @@ from quivers.transpile.renderers._base import (
 )
 from quivers.transpile.renderers._qiec import (
     render_computations_static,
+    carried_computations,
     has_runtime_computations,
 )
 from quivers.transpile.renderers._stan_helpers import (
@@ -371,7 +375,7 @@ class StanRenderer(RendererBase):
         self._class_index_widths_state.update(self._compute_class_index_widths(ir))
         # Program root.
         ctx.sb.vertex("prog", "program")
-        if has_runtime_computations(ir):
+        if carried_computations(ir, self.target):
             self._ensure_block(ctx, "function_body")
         # Stan ships `normal`, `beta`, `gamma`, ... as built-in
         # densities but lacks `kumaraswamy`. When the IR samples or
@@ -411,7 +415,7 @@ class StanRenderer(RendererBase):
                 ctx.sb,
                 ir,
                 target=self.target,
-                destination=self._blocks["function_body"],
+                destination=self._blocks.get("function_body", "prog"),
             )
         return ctx.sb.build()
 
@@ -660,7 +664,7 @@ class StanRenderer(RendererBase):
             needed.add("model")
         elif isinstance(node, IRDataInput):
             needed.add("data")
-        elif isinstance(node, IRDeterministic):
+        elif isinstance(node, (IRDeterministic, IRCall)):
             needed.add("transformed_parameters")
         elif isinstance(node, IRScore):
             needed.add("model")
@@ -3233,6 +3237,23 @@ class StanRenderer(RendererBase):
             return
         if isinstance(node, IRDeterministic):
             self._emit_deterministic(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            # The callee is a user-defined function in the `functions`
+            # block, so the call binds like a deterministic; whether
+            # Stan can define the callee is settled when the block is
+            # rendered, which refuses an effectful one.
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=node.name,
+                    expr=LetExprCall(
+                        func=f"qiec_{node.callee}", args=tuple(node.arguments)
+                    ),
+                    constraint=CSReal(),
+                    plate=node.plate,
+                ),
+            )
             return
         if isinstance(node, IRScore):
             self._emit_score(ctx, node)

@@ -333,7 +333,33 @@ def called_computations(body: Computation) -> frozenset[ComputationId]:
 
 
 def program_computations(module: QiecModule) -> frozenset[ComputationId]:
-    """The computations that hold programs and their helpers.
+    """The computations that hold programs and their own helpers.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+
+    Returns
+    -------
+    frozenset[ComputationId]
+        The identity of every entry point's computation and of every
+        computation the elaboration made for a program, such as a
+        marginalization helper or a scan's recurrence: what a target
+        renders from the program's plan rather than as a computation
+        of its own.
+    """
+    entries = {entry.computation for entry in module.entries}
+    return frozenset(
+        computation.id
+        for computation in module.computations
+        if computation.id in entries
+        or computation.origin.structural_path[:1] == ("programs",)
+    )
+
+
+def reachable_computations(module: QiecModule) -> frozenset[ComputationId]:
+    """The computations a program reaches.
 
     Parameters
     ----------
@@ -809,6 +835,7 @@ __all__ = [
     "called_computations",
     "computation_type_conforms",
     "program_computations",
+    "reachable_computations",
     "NamedComputation",
     "NamedEffectInstance",
     "QiecModule",

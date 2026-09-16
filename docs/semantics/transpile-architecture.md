@@ -299,6 +299,22 @@ class IRMarginalize(IRNode):
     scope: tuple[IRNode, ...]
     kind: Literal["marginalize"] = "marginalize"
 
+class IRCall(IRNode):
+    """A call of a module computation the plan did not inline. The
+    dynamic targets render it against the callee's generated entry
+    point, with the program's `Random` and `Score` instances bound to
+    the host's own sample and factor primitives; Stan calls the
+    callee as a user-defined function when it can define one, and
+    BUGS and JAGS refuse it."""
+    name: str
+    callee: str
+    static_arguments: tuple[IRQiecStatic, ...]
+    arguments: tuple[IRExpr, ...]
+    random_instance: str
+    score_instance: str
+    plate: Plate
+    kind: Literal["call"] = "call"
+
 class IRReturn(IRNode):
     names: tuple[str, ...]
     kind: Literal["return"] = "return"
@@ -532,8 +548,21 @@ The eleven backends fall into three idiomatic families:
   `FAMILY_META.arg_aliases["bugs"]` plus a renderer-internal
   arithmetic-transform table keyed on the alias target name.
 
+A `score` step, and a called helper's scored weight, is a term of
+the joint on every trace-based and graphical target: Stan's
+`target +=`, NumPyro's and Pyro's `factor`, PyMC's `Potential`,
+Turing's `@addlogprob!`, WebPPL's and Church's `factor`, and on
+Edward2 and Gen, which have no factor primitive of their own, a
+traced choice of a one-point distribution whose log density is the
+weight. Gen traces such choices under the `:qvr_factor` address
+namespace, and its marginalize emission is the Turing renderer's,
+writing into the Gen body with the reduced weight traced the same
+way; BUGS and JAGS write a score through the zeros trick.
+
 Each backend's renderer is roughly one file of 700 to 1400 lines.
-None imports from any other.
+The Gen renderer reuses the Turing renderer's marginalize emission,
+since both emit Julia over Distributions.jl; no other imports from
+another.
 
 ## 6. LDA end-to-end
 

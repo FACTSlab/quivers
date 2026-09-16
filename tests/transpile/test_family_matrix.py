@@ -94,12 +94,6 @@ _ZEROS_TRICK_MARKERS: tuple[bytes, ...] = (b"dpois", b"zeros")
 #: the refusal must carry: a closed gap surfaces as a raise that no
 #: longer happens, and a regression as a raise of a different kind.
 _ORTHOGONAL_REFUSALS: dict[tuple[str, str], str] = {
-    # `categorical.qvr` carries a `marginalize` block beside its
-    # observed site, and Gen refuses every one of those: its `@gen`
-    # DSL has no way to add a free log-density term to a trace, so the
-    # only thing it could emit is the latent as a draw. The family
-    # itself is one Gen has.
-    ("gen", "categorical"): "marginalize:",
     # `wishart.qvr` writes its scale matrix as a literal, which JAGS's
     # data block has no syntax for; the family itself is one JAGS has.
     ("jags", "wishart"): "arg:matrix-literal",

@@ -49,6 +49,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRExpr,
@@ -1011,7 +1012,7 @@ def _walk_for_refs(
         if isinstance(node, (IRSample, IRObserve, IRMarginalize)):
             for arg in node.args:
                 _check_arg_refs(arg, declared, program_name)
-        if isinstance(node, (IRSample, IRObserve, IRDeterministic)):
+        if isinstance(node, (IRSample, IRObserve, IRDeterministic, IRCall)):
             declared.add(node.name)
         elif isinstance(node, IRMarginalize):
             declared.add(node.latent)

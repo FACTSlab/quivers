@@ -115,6 +115,14 @@ jobs:
       - uses: julia-actions/setup-julia@v2
         with:
           version: "1.11"
+      # The WebPPL target's runtime is written in WebPPL's own subset,
+      # and `tests/transpile/test_qiec_host_runtimes.py` and the
+      # renderer tests run each generated program through the
+      # compiler that defines that subset.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g webppl
       # `test_audit_fix_pymc` imports pymc to check the emission
       # against the library's own API rather than against a
       # transcript of it, so the library has to be here: without

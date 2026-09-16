@@ -40,13 +40,11 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
-    LetExprLambda,
     LetExprList,
-    LetExprLiteral,
-    LetExprMethodCall,
-    LetExprString,
+    LetExprNode,
     LetExprUnaryOp,
     LetExprVar,
+    LetFactorCase,
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
@@ -75,6 +73,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -107,7 +106,14 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
+from quivers.transpile.renderers.turing import (
+    TuringRenderer,
+    _seed_batch_shaped,
+    _seed_sample_plates,
+    _TuringCtx,
+)
 from quivers.transpile.renderers._qiec import (
+    emit_call_julia,
     render_computations_dynamic,
     qiec_helper_families_used,
 )
@@ -134,8 +140,13 @@ class _GenCtx:
     sb: panproto.SchemaBuilder
     n: int = 0
     params: list[str] = dataclasses.field(default_factory=list)
-    body_stmts: list[str] = dataclasses.field(default_factory=list)
+    # The model function's body block; a statement is placed in it as
+    # soon as it is built, so emitters that write into a block
+    # directly (the shared marginalize emitter) interleave in order.
+    body: str = ""
     return_names: tuple[str, ...] = ()
+    # The bodies whose native operation table a call has bound.
+    operations_bound: set[str] = dataclasses.field(default_factory=set)
     # Each previously-declared sample / observe / data-input mapped to
     # the tuple of batch Dims it lives on, in declaration order. Used
     # to thread loop indices through `IRArgRef` instances.
@@ -152,16 +163,6 @@ class _GenCtx:
     # decide whether to emit the bare `m_<Axis>` form or the
     # disambiguated `m_<Axis>_<step>` form.
     used_axes: set[str] = dataclasses.field(default_factory=set)
-    # Pre-walked per-deterministic batch-axis inference: deterministic
-    # let-bindings whose downstream consumers reference them inside a
-    # batch loop without explicit index args carry the union of those
-    # consumer-side batch axes here. The inference makes Julia's
-    # broadcast semantics first-class for Gen's per-element trace
-    # loops, which cannot otherwise pass a vector-valued `mu` into
-    # a scalar `normal(mu, sigma)` family call.
-    inferred_det_axes: dict[str, tuple[Dim, ...]] = dataclasses.field(
-        default_factory=dict
-    )
     # The array-shape environment the shared Julia let-expression
     # helper consults: per-name event rank and full array rank, plus
     # the bindings materialised as a nested tower of vector literals.
@@ -183,6 +184,16 @@ class _GenCtx:
 
     def e(self, src: str, tgt: str) -> None:
         self.sb.edge(src, tgt, "child_of")
+
+    def place(self, statement: str) -> None:
+        """Append one statement to the model body.
+
+        Parameters
+        ----------
+        statement : str
+            The statement vertex.
+        """
+        self.e(self.body, statement)
 
 
 class _JlCtxAdapter:
@@ -1018,7 +1029,6 @@ class GenRenderer(RendererBase):
         gx = _GenCtx(sb=sb, cards={}, morphisms={})
 
         _harvest_cards(ir, gx)
-        gx.inferred_det_axes = _infer_deterministic_axes(ir)
         gx.shapes = JuliaShapes(
             name_event_rank=name_event_rank_map(ir),
             name_array_rank=name_array_rank_map(ir),
@@ -1037,16 +1047,19 @@ class GenRenderer(RendererBase):
         # required dispatch signatures but the per-render scratch
         # lives on `_GenCtx`.
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        blk = gx.v("block", "body")
+        gx.body = blk
         self._gx = gx
+        self._module = ir.module
+        self._ir = ir
         try:
             for node in ir.body:
                 self._emit_node(ctx, node)
         finally:
             del self._gx
+            del self._module
+            del self._ir
 
-        blk = gx.v("block", "body")
-        for s in gx.body_stmts:
-            gx.e(blk, s)
         if gx.return_names:
             ret = gx.v("return_statement", "ret")
             if len(gx.return_names) == 1:
@@ -1077,9 +1090,11 @@ class GenRenderer(RendererBase):
         # carries its own `using Gen` / `using Distributions`
         # statements; subsequent `@gen` macrocalls see the imported
         # names through normal Julia name lookup.
-        if any(
-            _ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES
-        ) or qiec_helper_families_used(ir, self.target):
+        if (
+            any(_ir_uses_family(ir.body, f) for f in _GEN_RUNTIME_HELPER_FAMILIES)
+            or qiec_helper_families_used(ir, self.target)
+            or _ir_has_factor(ir.body)
+        ):
             _graft_runtime_gen_helper(gx, src)
         gx.e(src, mc)
         render_computations_dynamic(sb, ir, target=self.target, root=src)
@@ -1117,6 +1132,9 @@ class GenRenderer(RendererBase):
             return
         if isinstance(node, IRScore):
             self._emit_score(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            self._emit_call(node)
             return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize(ctx, node)
@@ -1216,7 +1234,7 @@ class GenRenderer(RendererBase):
             _ident(gx, "zeros"),
             (_integer(gx, n),),
         )
-        gx.body_stmts.append(_assignment(gx, _ident(gx, mean_name), mean_rhs))
+        gx.place(_assignment(gx, _ident(gx, mean_name), mean_rhs))
         # __gp_cov_<name> = _qvr_rbf_kernel(x, ls, jitter)
         cov_rhs = _call(
             gx,
@@ -1227,7 +1245,7 @@ class GenRenderer(RendererBase):
                 _float_lit(gx, jitter),
             ),
         )
-        gx.body_stmts.append(_assignment(gx, _ident(gx, cov_name), cov_rhs))
+        gx.place(_assignment(gx, _ident(gx, cov_name), cov_rhs))
         # <name> = @trace(mvnormal(__gp_mean_<name>, __gp_cov_<name>), :<name>)
         mvn_call = _call(
             gx,
@@ -1240,7 +1258,7 @@ class GenRenderer(RendererBase):
             name=node.name,
             loop_indices=(),
         )
-        gx.body_stmts.append(_assignment(gx, _ident(gx, node.name), trace))
+        gx.place(_assignment(gx, _ident(gx, node.name), trace))
 
     def _emit_scalar_sample(self, node: IRSample, *, observed: bool) -> None:
         gx = self._gx
@@ -1253,10 +1271,10 @@ class GenRenderer(RendererBase):
         )
         trace = _trace_call(gx, dist_vid=dist_vid, name=node.name, loop_indices=())
         if observed:
-            gx.body_stmts.append(trace)
+            gx.place(trace)
         else:
             stmt = _assignment(gx, _ident(gx, node.name), trace)
-            gx.body_stmts.append(stmt)
+            gx.place(stmt)
             gx.decl_axes[node.name] = ()
 
     def _emit_storage_alloc(self, node: IRSample, loop_dims: tuple[Dim, ...]) -> None:
@@ -1275,7 +1293,7 @@ class GenRenderer(RendererBase):
             size_vids=size_vids,
         )
         stmt = _assignment(gx, _ident(gx, node.name), alloc)
-        gx.body_stmts.append(stmt)
+        gx.place(stmt)
 
     def _emit_loop_nest(
         self,
@@ -1344,7 +1362,7 @@ class GenRenderer(RendererBase):
                 body_stmts=current_stmts,
             )
             current_stmts = (fs,)
-        gx.body_stmts.append(current_stmts[0])
+        gx.place(current_stmts[0])
         for dim in loop_dims:
             gx.used_axes.add(str(dim.name))
 
@@ -1475,12 +1493,10 @@ class GenRenderer(RendererBase):
             if node.plate.batch_dims
             else 0
         )
-        # The batch axes of a let-binding come from two sources: the
-        # node's own `plate.batch_dims` (a binding indexed along a
-        # gather / covariate axis) and the axes inferred from a
-        # downstream sample / observe that references it inside a batch
-        # loop without explicit indices. References to `node.name`
-        # inside a loop pick up the loop index for every such axis.
+        # The batch axes of a let-binding are its plate's, which the
+        # plan reads off the binding's checked type. References to
+        # `node.name` inside a loop pick up the loop index for every
+        # such axis; a binding with none is one value every row reads.
         if missing > 0:
             rhs = _call(
                 gx,
@@ -1493,8 +1509,7 @@ class GenRenderer(RendererBase):
                     ),
                 ),
             )
-        inferred = gx.inferred_det_axes.get(node.name, ())
-        axes = _union_dims(inferred, node.plate.batch_dims)
+        axes = node.plate.batch_dims
         gx.decl_axes[node.name] = axes
         if axes and not reduces_axis and missing <= 0:
             # The let body evaluates to a Vector / matrix shaped along
@@ -1504,38 +1519,133 @@ class GenRenderer(RendererBase):
             # operator inside the body to its dotted form.
             rhs = _macro_call_space(gx, ".", (rhs,))
         stmt = _assignment(gx, _ident(gx, node.name), rhs)
-        gx.body_stmts.append(stmt)
+        gx.place(stmt)
 
     # ------------------------------------------------------------------
     # Marginalize: lower to IRSample + scope inline
     # ------------------------------------------------------------------
 
     def _emit_marginalize(self, ctx: _RenderCtx, node: IRMarginalize) -> None:
-        """Reject `IRMarginalize` because Gen's `@gen` DSL has no supported carrier for
-        the reduced log density.
+        """Integrate a finite latent out and trace the reduced density.
+
+        The atoms are scored through Distributions.jl, which the
+        module's runtime graft brings into scope, in the form the
+        Turing renderer emits for the same Julia; the reduced log
+        weight is then traced as a factor choice under the
+        `:qvr_factor` namespace, so Gen's trace scores it the way it
+        scores a draw.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRMarginalize
+            The block.
         """
-        raise UnsupportedConstruct(
-            "qvr-gen",
-            [f"marginalize:no-log-weight:{node.latent}"],
-        )
-        explicit = self.explicit_latent_scope(node)
-        for inner in explicit:
-            self._emit_node(ctx, inner)
+        del ctx
+        gx = self._gx
+        emitter = _GenMarginalizer()
+        context = emitter.context(gx, self._ir)
+        emitter.marginalize(context, self._matrix_views(gx, context, node))
+
+    def _matrix_views(
+        self, gx: _GenCtx, context: _TuringCtx, node: IRMarginalize
+    ) -> IRMarginalize:
+        """Read the block's per-row draws as matrices.
+
+        Gen draws an event-shaped site over a plate one row at a time,
+        as a vector of vectors, while the marginalize emission reads
+        such a site as a matrix with one row per draw. Each such site
+        the block reads is stacked into a matrix bound under a fresh
+        name, and the block is rewritten to read that name.
+
+        Parameters
+        ----------
+        gx : _GenCtx
+            The Gen render context.
+        context : _TuringCtx
+            The marginalize context, whose plate tables learn the
+            stacked names.
+        node : IRMarginalize
+            The block.
+
+        Returns
+        -------
+        IRMarginalize
+            The block over the stacked names.
+        """
+        renames: dict[str, str] = {}
+        for name in sorted(_marginal_ref_names(node)):
+            plate = context.sample_plates.get(name)
+            if plate is None or not (plate.batch_dims and plate.event_dims):
+                continue
+            if name not in gx.decl_axes:
+                continue
+            stacked = f"__marg_{name}_rows"
+            renames[name] = stacked
+            # `stack` lays the rows out as columns; the transpose reads
+            # them back as rows.
+            columns = _call(gx, _ident(gx, "stack"), (_ident(gx, name),))
+            rhs = _call(gx, _ident(gx, "permutedims"), (columns,))
+            gx.place(_assignment(gx, _ident(gx, stacked), rhs))
+            context.sample_plates[stacked] = plate
+            if name in context.batch_shaped_names:
+                context.batch_shaped_names.add(stacked)
+        if not renames:
+            return node
+        return _rename_marginal_refs(node, renames)
 
     # ------------------------------------------------------------------
     # Score: bind value, then `@addlogprob!`
     # ------------------------------------------------------------------
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+        """``<name> = <expr>; @trace(_qvr_qiec_factor(<name>), :<name>)``.
+
+        Gen scores the choices a trace holds, so the weight is traced
+        as a factor choice: a one-point distribution whose log density
+        is the weight.
+        """
         gx = self._gx
         del ctx
         rhs = render_let_expr_julia(
             _JlCtxAdapter(gx, "gen"), node.expr, shapes=gx.shapes
         )
         bind = _assignment(gx, _ident(gx, node.name), rhs)
-        gx.body_stmts.append(bind)
-        mc = _macro_call_space(gx, "addlogprob!", (_ident(gx, node.name),))
-        gx.body_stmts.append(mc)
+        gx.place(bind)
+        factor = _call(gx, _ident(gx, "_qvr_qiec_factor"), (_ident(gx, node.name),))
+        address = _gen_binary_expr(
+            gx, _quote_sym(gx, _FACTOR_NAMESPACE), "=>", _quote_sym(gx, node.name)
+        )
+        trace = _macro_call_parens(gx, "trace", (factor, address))
+        gx.place(trace)
+
+    def _emit_call(self, node: IRCall) -> None:
+        """Place a call of a module computation in the model body.
+
+        Parameters
+        ----------
+        node : IRCall
+            The call.
+        """
+        gx = self._gx
+
+        def bind_argument(name: str, expression: LetExprNode) -> None:
+            rhs = render_let_expr_julia(
+                _JlCtxAdapter(gx, "gen"), expression, shapes=gx.shapes
+            )
+            gx.place(_assignment(gx, _ident(gx, name), rhs))
+
+        emit_call_julia(
+            gx.sb,
+            node,
+            self._module,
+            gx.operations_bound,
+            target="gen",
+            body="model",
+            bind_argument=bind_argument,
+            place=gx.place,
+        )
 
     # ------------------------------------------------------------------
     # Protocol-required dispatch points. The Gen renderer overrides
@@ -1627,162 +1737,6 @@ def _harvest_plate(plate: Plate, gx: _GenCtx) -> None:
     for dim in (*plate.event_dims, *plate.batch_dims):
         if isinstance(dim, DimStatic):
             gx.cards[dim.name] = dim.size
-
-
-def _infer_deterministic_axes(
-    ir: IRProgram,
-) -> dict[str, tuple[Dim, ...]]:
-    """Infer per-deterministic batch axes from downstream consumers.
-
-    Walks the IR body in declaration order. For each
-    [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] node, the
-    inferred axes are the union of `plate.batch_dims` over every
-    subsequent [`IRSample`][quivers.transpile.ir.IRSample] /
-    [`IRObserve`][quivers.transpile.ir.IRObserve] that references the
-    deterministic by name in its arg tree without explicit index args
-    (a bare [`IRArgRef`][quivers.transpile.ir.IRArgRef]). References
-    through other deterministics propagate transitively because the
-    walk is in IR order and the inferred map is updated incrementally.
-    """
-    inferred: dict[str, tuple[Dim, ...]] = {}
-    det_names: list[str] = []
-    for node in ir.body:
-        if isinstance(node, IRDeterministic):
-            det_names.append(node.name)
-            inferred.setdefault(node.name, ())
-            continue
-        if not isinstance(node, (IRSample, IRObserve)):
-            continue
-        if not node.plate.batch_dims:
-            continue
-        refs = _bare_ref_names(node.args)
-        for name in refs:
-            if name not in inferred:
-                continue
-            inferred[name] = _union_dims(inferred[name], node.plate.batch_dims)
-    # Transitive propagation through deterministic->deterministic refs.
-    # Two directions run to a joint fixpoint:
-    #
-    #   forward  a det inherits the batch axes of any det it references,
-    #            so a consumer materialised along an axis stays so when
-    #            it is itself consumed downstream;
-    #   backward a det referenced by a batched det inherits that det's
-    #            axes, because its scalar-looking result is consumed
-    #            elementwise and Julia's `+ * - /` reject a scalar mixed
-    #            with the vector siblings the batched consumer builds;
-    #            marking the producer promotes its body to `@.` too.
-    for _ in range(len(det_names)):
-        changed = False
-        for node in ir.body:
-            if not isinstance(node, IRDeterministic):
-                continue
-            for ref_name in _bare_ref_names_in_expr(node.expr):
-                if ref_name not in inferred:
-                    continue
-                forward = _union_dims(inferred[node.name], inferred[ref_name])
-                if forward != inferred[node.name]:
-                    inferred[node.name] = forward
-                    changed = True
-                backward = _union_dims(inferred[ref_name], inferred[node.name])
-                if backward != inferred[ref_name]:
-                    inferred[ref_name] = backward
-                    changed = True
-        if not changed:
-            break
-    return inferred
-
-
-def _bare_ref_names(args: tuple[IRArg, ...]) -> list[str]:
-    """Collect IRArgRef names appearing without explicit indices."""
-    out: list[str] = []
-    for arg in args:
-        _collect_bare_refs(arg, out)
-    return out
-
-
-def _collect_bare_refs(arg: IRArg, out: list[str]) -> None:
-    if isinstance(arg, IRArgRef):
-        if not arg.indices:
-            out.append(arg.name)
-        return
-    if isinstance(arg, IRArgBroadcast):
-        _collect_bare_refs(arg.value, out)
-        return
-    if isinstance(arg, IRArgList):
-        for e in arg.elements:
-            _collect_bare_refs(e, out)
-        return
-    if isinstance(arg, IRArgMatrix):
-        for row in arg.rows:
-            for e in row.elements:
-                _collect_bare_refs(e, out)
-
-
-def _bare_ref_names_in_expr(expr: object) -> list[str]:
-    """Collect free-variable names referenced by a let expression tree.
-
-    The let-expression tree's leaf form
-    [`LetExprVar`][quivers.dsl.ast_nodes.let_expressions.LetExprVar]
-    carries a `name`; the walk recurses through every other variant's
-    children via attribute introspection on the tagged-union fields.
-    """
-    out: list[str] = []
-    _walk_let_expr(expr, out)
-    return out
-
-
-def _walk_let_expr(node: object, out: list[str]) -> None:
-    if isinstance(node, LetExprVar):
-        out.append(node.name)
-        return
-    if isinstance(node, (LetExprLiteral, LetExprString)):
-        return
-    if isinstance(node, LetExprUnaryOp):
-        _walk_let_expr(node.operand, out)
-        return
-    if isinstance(node, LetExprBinOp):
-        _walk_let_expr(node.left, out)
-        _walk_let_expr(node.right, out)
-        return
-    if isinstance(node, LetExprCall):
-        for a in node.args:
-            _walk_let_expr(a, out)
-        return
-    if isinstance(node, LetExprMethodCall):
-        _walk_let_expr(node.receiver, out)
-        for a in node.args:
-            _walk_let_expr(a, out)
-        return
-    if isinstance(node, LetExprIndex):
-        _walk_let_expr(node.array, out)
-        for ix in node.indices:
-            _walk_let_expr(ix, out)
-        return
-    if isinstance(node, LetExprList):
-        for e in node.items:
-            _walk_let_expr(e, out)
-        return
-    if isinstance(node, LetExprLambda):
-        _walk_let_expr(node.body, out)
-        return
-    if isinstance(node, LetExprFactor):
-        if node.body is not None:
-            _walk_let_expr(node.body, out)
-        for case in node.cases:
-            _walk_let_expr(case.value, out)
-        return
-
-
-def _union_dims(a: tuple[Dim, ...], b: tuple[Dim, ...]) -> tuple[Dim, ...]:
-    """Union two dim tuples by name, preserving the order in `a`
-    followed by any new dims from `b`."""
-    seen = {str(d.name) for d in a}
-    out = list(a)
-    for d in b:
-        if str(d.name) not in seen:
-            out.append(d)
-            seen.add(str(d.name))
-    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
@@ -1891,6 +1845,27 @@ def _subtree_vertex_ids(schema: panproto.Schema, roots: tuple[str, ...]) -> set[
 _RUNTIME_GEN_SUBTREE = _subtree_vertex_ids(_RUNTIME_GEN_SCHEMA, _RUNTIME_GEN_TOP_LEVEL)
 
 
+#: The address namespace factor choices are traced under, so a reader
+#: of the trace tells a scored weight from a draw by its address.
+_FACTOR_NAMESPACE = "qvr_factor"
+
+
+def _ir_has_factor(body: tuple[IRNode, ...]) -> bool:
+    """True iff `body` scores or calls, either of which traces a factor.
+
+    Parameters
+    ----------
+    body : tuple[IRNode, ...]
+        The plan body.
+
+    Returns
+    -------
+    bool
+        Whether the module needs the factor distribution.
+    """
+    return any(isinstance(node, (IRScore, IRCall, IRMarginalize)) for node in body)
+
+
 def _ir_uses_family(body: tuple[IRNode, ...], family: str) -> bool:
     """True iff any [`IRSample`][quivers.transpile.ir.IRSample] or
     [`IRObserve`][quivers.transpile.ir.IRObserve] in `body` (including
@@ -1935,3 +1910,289 @@ def _graft_runtime_gen_helper(gx: _GenCtx, source_vid: str) -> None:
 
 
 __all__ = ["GenRenderer"]
+
+
+def _marginal_ref_names(node: IRMarginalize) -> set[str]:
+    """Every name a marginalize block's arguments and scope read.
+
+    Parameters
+    ----------
+    node : IRMarginalize
+        The block.
+
+    Returns
+    -------
+    set[str]
+        The referenced names.
+    """
+    names: set[str] = set()
+    for arg in node.args:
+        _collect_arg_names(arg, names)
+    for inner in node.scope:
+        if isinstance(inner, (IRSample, IRObserve)):
+            for arg in inner.args:
+                _collect_arg_names(arg, names)
+        elif isinstance(inner, (IRDeterministic, IRScore)):
+            _collect_let_expr_names(inner.expr, names)
+    return names
+
+
+def _collect_arg_names(arg: IRArg, names: set[str]) -> None:
+    """Add the names an argument tree references.
+
+    Parameters
+    ----------
+    arg : IRArg
+        The argument.
+    names : set[str]
+        The names found so far.
+    """
+    if isinstance(arg, IRArgRef):
+        names.add(arg.name)
+        for index in arg.indices:
+            _collect_arg_names(index, names)
+    elif isinstance(arg, IRArgBroadcast):
+        _collect_arg_names(arg.value, names)
+    elif isinstance(arg, IRArgList):
+        for element in arg.elements:
+            _collect_arg_names(element, names)
+    elif isinstance(arg, IRArgMatrix):
+        for row in arg.rows:
+            _collect_arg_names(row, names)
+
+
+def _collect_let_expr_names(expr: LetExprNode, names: set[str]) -> None:
+    """Add the names a let expression references.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+    names : set[str]
+        The names found so far.
+    """
+    if isinstance(expr, LetExprVar):
+        names.add(expr.name)
+    elif isinstance(expr, LetExprBinOp):
+        _collect_let_expr_names(expr.left, names)
+        _collect_let_expr_names(expr.right, names)
+    elif isinstance(expr, LetExprUnaryOp):
+        _collect_let_expr_names(expr.operand, names)
+    elif isinstance(expr, LetExprCall):
+        for argument in expr.args:
+            _collect_let_expr_names(argument, names)
+    elif isinstance(expr, LetExprIndex):
+        _collect_let_expr_names(expr.array, names)
+        for index in expr.indices:
+            _collect_let_expr_names(index, names)
+    elif isinstance(expr, LetExprList):
+        for item in expr.items:
+            _collect_let_expr_names(item, names)
+    elif isinstance(expr, LetExprFactor):
+        if expr.body is not None:
+            _collect_let_expr_names(expr.body, names)
+        for case in expr.cases:
+            _collect_let_expr_names(case.value, names)
+
+
+def _rename_marginal_refs(
+    node: IRMarginalize, renames: dict[str, str]
+) -> IRMarginalize:
+    """Rewrite a marginalize block to read renamed bindings.
+
+    Parameters
+    ----------
+    node : IRMarginalize
+        The block.
+    renames : dict[str, str]
+        Each name's replacement.
+
+    Returns
+    -------
+    IRMarginalize
+        The block with every reference renamed.
+    """
+    scope: list[IRNode] = []
+    for inner in node.scope:
+        if isinstance(inner, (IRSample, IRObserve)):
+            scope.append(
+                inner.with_(args=tuple(_rename_arg(arg, renames) for arg in inner.args))
+            )
+        elif isinstance(inner, (IRDeterministic, IRScore)):
+            scope.append(inner.with_(expr=_rename_let_expr(inner.expr, renames)))
+        else:
+            scope.append(inner)
+    return node.with_(
+        args=tuple(_rename_arg(arg, renames) for arg in node.args),
+        scope=tuple(scope),
+    )
+
+
+def _rename_arg(arg: IRArg, renames: dict[str, str]) -> IRArg:
+    """Rename the references in an argument tree.
+
+    Parameters
+    ----------
+    arg : IRArg
+        The argument.
+    renames : dict[str, str]
+        Each name's replacement.
+
+    Returns
+    -------
+    IRArg
+        The renamed argument.
+    """
+    if isinstance(arg, IRArgRef):
+        return arg.with_(
+            name=renames.get(arg.name, arg.name),
+            indices=tuple(_rename_arg(index, renames) for index in arg.indices),
+        )
+    if isinstance(arg, IRArgBroadcast):
+        return arg.with_(value=_rename_arg(arg.value, renames))
+    if isinstance(arg, IRArgList):
+        return arg.with_(
+            elements=tuple(_rename_arg(element, renames) for element in arg.elements)
+        )
+    if isinstance(arg, IRArgMatrix):
+        return arg.with_(
+            rows=tuple(
+                IRArgList(
+                    elements=tuple(
+                        _rename_arg(element, renames) for element in row.elements
+                    )
+                )
+                for row in arg.rows
+            )
+        )
+    return arg
+
+
+def _rename_let_expr(expr: LetExprNode, renames: dict[str, str]) -> LetExprNode:
+    """Rename the references in a let expression.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression.
+    renames : dict[str, str]
+        Each name's replacement.
+
+    Returns
+    -------
+    LetExprNode
+        The renamed expression.
+    """
+    if isinstance(expr, LetExprVar):
+        return LetExprVar(name=renames.get(expr.name, expr.name))
+    if isinstance(expr, LetExprBinOp):
+        return LetExprBinOp(
+            op=expr.op,
+            left=_rename_let_expr(expr.left, renames),
+            right=_rename_let_expr(expr.right, renames),
+        )
+    if isinstance(expr, LetExprUnaryOp):
+        return LetExprUnaryOp(
+            op=expr.op, operand=_rename_let_expr(expr.operand, renames)
+        )
+    if isinstance(expr, LetExprCall):
+        return LetExprCall(
+            func=expr.func,
+            args=tuple(_rename_let_expr(argument, renames) for argument in expr.args),
+        )
+    if isinstance(expr, LetExprIndex):
+        return LetExprIndex(
+            array=_rename_let_expr(expr.array, renames),
+            indices=tuple(_rename_let_expr(index, renames) for index in expr.indices),
+        )
+    if isinstance(expr, LetExprList):
+        return LetExprList(
+            items=tuple(_rename_let_expr(item, renames) for item in expr.items)
+        )
+    if isinstance(expr, LetExprFactor):
+        shadowed = {
+            name: value
+            for name, value in renames.items()
+            if name not in {binder.var for binder in expr.binders}
+        }
+        return LetExprFactor(
+            binders=expr.binders,
+            body=None if expr.body is None else _rename_let_expr(expr.body, shadowed),
+            cases=tuple(
+                LetFactorCase(
+                    label=case.label, value=_rename_let_expr(case.value, shadowed)
+                )
+                for case in expr.cases
+            ),
+        )
+    return expr
+
+
+class _GenMarginalizer(TuringRenderer):
+    """The Turing renderer's marginalize emission, writing into a Gen body.
+
+    Both renderers emit Julia, and a Gen model has Distributions.jl in
+    scope through its runtime graft, so the atoms' densities, weights,
+    and reduction are the same statements; only the step that adds the
+    reduced weight to the joint differs, and here it is a traced factor
+    choice.
+    """
+
+    target: str = "gen"
+    #: Gen exports a `logpdf` of its own, so the atoms are scored
+    #: through Distributions.jl's by its qualified name.
+    log_density_function: str = "Distributions.logpdf"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._gx: _GenCtx | None = None
+
+    def context(self, gx: _GenCtx, ir: IRProgram) -> _TuringCtx:
+        """The Turing-style context over a Gen model body.
+
+        Parameters
+        ----------
+        gx : _GenCtx
+            The Gen render context, whose body the statements go into.
+        ir : IRProgram
+            The lowered root, read for its plates and shapes.
+
+        Returns
+        -------
+        _TuringCtx
+            A context sharing the Gen schema and body.
+        """
+        self._gx = gx
+        context = _TuringCtx(
+            sb=gx.sb,
+            morphisms={},
+            lets={},
+            counter=[gx.n + _MARGINALIZE_ID_OFFSET],
+            cards=dict(ir.cards),
+            body=gx.body,
+            input_plates={item.name: item.plate for item in ir.inputs},
+            sample_plates={},
+            batch_shaped_names=set(),
+            shapes=gx.shapes,
+            module=ir.module,
+        )
+        _seed_sample_plates(context, ir.body)
+        _seed_batch_shaped(context, ir.body)
+        return context
+
+    def _add_log_weight(self, ctx: _TuringCtx, weight: str, name: str) -> None:
+        del ctx
+        gx = self._gx
+        if gx is None:
+            raise RuntimeError("the Gen marginalizer has no body to write into")
+        factor = _call(gx, _ident(gx, "_qvr_qiec_factor"), (weight,))
+        address = _gen_binary_expr(
+            gx, _quote_sym(gx, _FACTOR_NAMESPACE), "=>", _quote_sym(gx, name)
+        )
+        gx.place(_macro_call_parens(gx, "trace", (factor, address)))
+
+
+#: Turing-style vertex ids are `v<n>`; the offset keeps the ids a
+#: marginalize emission allocates apart from any a second emission in
+#: the same model allocates, each starting past the Gen counter.
+_MARGINALIZE_ID_OFFSET = 1_000_000
