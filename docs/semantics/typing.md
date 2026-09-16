@@ -883,7 +883,7 @@ exactly one, and potentially many resumptions, respectively.
 
 The exact Didactic route from `qvr-source/v0.19` to
 `qiec-core/v1alpha1` first compiles the indexed-family signature through
-Didactic 0.15's public `GADT` API, then performs the QIEC-specific checks and
+Didactic's public `GADT` API, then performs the QIEC-specific checks and
 returns stable diagnostic codes.
 This result is a checked `QiecModule`, not a proof that the probabilistic
 IR can encode the computation. See the

@@ -21,8 +21,7 @@ from didactic.gadt import (
     Operation as DidacticOperation,
     SortExpr as DidacticSortExpr,
     Term as DidacticTerm,
-    param as didactic_param,
-    var as didactic_var,
+    Var as DidacticVar,
 )
 from panproto import GatError
 
@@ -660,9 +659,7 @@ class _DidacticGadtProjection:
         self.effect_codes = self.language.sort(_didactic_name("sort", "Effect"))
         self.values = self.language.family(
             _didactic_name("family", "El"),
-            parameters=(
-                didactic_param(_didactic_name("parameter", "code"), self.type_codes()),
-            ),
+            **{_didactic_name("parameter", "code"): self.type_codes()},
         )
         self._sorts: dict[IndexSort, DidacticFamily] = {}
         self._families: dict[FamilyId, DidacticFamily] = {}
@@ -708,17 +705,16 @@ class _DidacticGadtProjection:
         GADTDeclarationError
             If a binder uses a kind the projection cannot express.
         """
-        parameters = tuple(
-            didactic_param(
-                _didactic_name("family_parameter", f"{position}:{binder.name}"),
-                self._binder_sort(binder),
-            )
+        parameters = {
+            _didactic_name(
+                "family_parameter", f"{position}:{binder.name}"
+            ): self._binder_sort(binder)
             for position, binder in enumerate((*family.parameters, *family.indices))
-        )
+        }
         self._families[family.id] = self.language.family(
             _didactic_name("indexed_family", family.id),
-            parameters=parameters,
             closed=family.closed,
+            **parameters,
         )
 
     def _declare_constructor(self, constructor: ConstructorDecl) -> None:
@@ -737,21 +733,18 @@ class _DidacticGadtProjection:
         family = self._families[constructor.family]
         qiec_family = self._qiec_families[constructor.family]
         scope: dict[str, DidacticTerm] = {}
-        inputs = []
+        inputs: dict[str, DidacticSortExpr] = {}
         for position, binder in enumerate(qiec_family.parameters):
             name = _didactic_name("constructor_parameter", f"{position}:{binder.name}")
-            inputs.append(didactic_param(name, self._binder_sort(binder)))
-            scope[binder.name] = didactic_var(name)
+            inputs[name] = self._binder_sort(binder)
+            scope[binder.name] = DidacticVar(name)
         for position, binder in enumerate(constructor.telescope):
             name = _didactic_name("constructor_static", f"{position}:{binder.name}")
-            inputs.append(didactic_param(name, self._binder_sort(binder)))
-            scope[binder.name] = didactic_var(name)
+            inputs[name] = self._binder_sort(binder)
+            scope[binder.name] = DidacticVar(name)
         for position, field in enumerate(constructor.fields):
-            inputs.append(
-                didactic_param(
-                    _didactic_name("constructor_field", position),
-                    self._value_sort(field.type, scope),
-                )
+            inputs[_didactic_name("constructor_field", position)] = self._value_sort(
+                field.type, scope
             )
         result_arguments = (
             *(scope[binder.name] for binder in qiec_family.parameters),
@@ -759,8 +752,8 @@ class _DidacticGadtProjection:
         )
         self.language.constructor(
             _didactic_name("constructor", constructor.id),
-            inputs=inputs,
-            result=family(*result_arguments),
+            returns=family(*result_arguments),
+            **inputs,
         )
 
     def _binder_sort(self, binder: TelescopeBinder) -> DidacticSortExpr:
@@ -822,13 +815,11 @@ class _DidacticGadtProjection:
                     _didactic_name(
                         "index_constructor", f"{sort.name}:{constructor_name}"
                     ),
-                    inputs=tuple(
-                        didactic_param(
-                            _didactic_name("index_argument", position), family()
-                        )
+                    returns=family(),
+                    **{
+                        _didactic_name("index_argument", position): family()
                         for position in range(arity)
-                    ),
-                    result=family(),
+                    },
                 )
                 self._index_constructors[(sort, constructor_name)] = operation
         return family
@@ -1068,11 +1059,11 @@ class _DidacticGadtProjection:
             return operation
         operation = self.language.operation(
             _didactic_name(category, identity),
-            inputs=tuple(
-                didactic_param(_didactic_name("code_argument", position), sort)
+            returns=output,
+            **{
+                _didactic_name("code_argument", position): sort
                 for position, sort in enumerate(inputs)
-            ),
-            result=output,
+            },
         )
         self._code_operations[key] = operation
         return operation

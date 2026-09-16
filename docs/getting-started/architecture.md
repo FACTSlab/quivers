@@ -180,7 +180,7 @@ Continuous and hybrid discrete-continuous morphisms and monadic programs.
 Domain-specific language for quiver expressions in `.qvr` files. Parsing is
 delegated to Panproto after Quivers installs its packaged current `qvr`
 tree-sitter grammar; Quivers does not run a hand-written lexer. The v0.19 AST
-adds distinct QIEC nodes, and `qiec_lowering.py` constructs Didactic 0.15's
+adds distinct QIEC nodes, and `qiec_lowering.py` constructs Didactic's
 public GADT representation before completing the exact route from
 `qvr-source/v0.19` to `qiec-core/v1alpha1`. The reference `.qvr`
 programs that drive the test suite and the tree-sitter grammar fixtures live at

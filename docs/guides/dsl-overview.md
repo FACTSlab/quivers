@@ -125,7 +125,7 @@ program = compiler.compile()
 QVR v0.19 adds a second typed route for indexed families and algebraic effects.
 The parser represents `index`, `family`, `effect`, `instance`, `handler`, and
 typed computation `define` declarations in a distinct AST. Quivers constructs
-a first-order projection through Didactic 0.15's public `GADT` API, which checks
+a first-order projection through Didactic's public `GADT` API, which checks
 indexed-family declarations and constructor refinements through Panproto.
 Didactic then negotiates the exact route `qvr-source/v0.19` to
 `qiec-core/v1alpha1`; the QIEC checker retains the parameter/index distinction
