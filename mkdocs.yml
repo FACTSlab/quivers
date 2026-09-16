@@ -268,6 +268,7 @@ nav:
       - Parameter Sources: api/continuous/param_source.md
       - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
+      - Program steps: api/continuous/program_steps.md
       - Scan: api/continuous/scan.md
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
@@ -325,6 +326,7 @@ nav:
       - Handler base: api/effects/base.md
       - Program encoding: api/effects/program_module.md
       - Interpreter: api/effects/interpreter.md
+      - Checked programs: api/effects/checked_program.md
       - Sampleables: api/effects/sites.md
       - Traces: api/effects/trace.md
       - Trace types: api/effects/trace_types.md
@@ -367,6 +369,7 @@ nav:
       - Execution: api/qiec/execution.md
       - Programs: api/qiec/programs.md
       - Program runtime: api/qiec/program_runtime.md
+      - Entry points: api/qiec/entries.md
   - Developer Guide:
     - Overview: developer/contributing.md
     - Indexed effects and GADTs: developer/qiec.md

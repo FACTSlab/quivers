@@ -86,6 +86,11 @@ lsp = [
     "pygls>=2.0",
     "lsprotocol>=2024.0.0",
 ]
+targets = [
+    "pyro-ppl>=1.9",
+    "pymc>=5.20",
+    "scipy>=1.14",
+]
 
 [project.urls]
 Homepage = "https://github.com/FACTSlab/quivers"

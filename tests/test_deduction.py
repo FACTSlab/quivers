@@ -17,6 +17,7 @@ import textwrap
 
 import torch
 
+from quivers.continuous.program_steps import _ScoreSpec
 from quivers.dsl.parser import parse
 from quivers.dsl.compiler import Compiler
 from quivers.stochastic.deduction import (
@@ -155,8 +156,6 @@ def test_nuts_program_is_well_shaped():
         f"NUTS model has {n_log_w_steps} priors; deduction has {n_params}"
     )
     # The final step is the score.
-    from quivers.continuous.programs import _ScoreSpec
-
     assert isinstance(model._step_specs[-1], _ScoreSpec)
     assert x.shape == (1, 1)
     assert obs == {}

@@ -4,6 +4,10 @@ block.
 The tests check:
 
 * Gradient flow through every level of a nested marginalize stack.
+* Nested blocks score as the semantics state: each inner block
+  contributes one aggregate per position of its plate, identified
+  with the outer plate position by position or summed along the
+  projection from a product plate onto the outer plate.
 * Body vectorisation: a body with multiple ``let`` steps that
   reference the latent compiles to the right per-(N, K) tensor.
 * The captured observe handles a per-row variable parameter
@@ -16,6 +20,7 @@ The tests check:
 from __future__ import annotations
 import textwrap
 
+import pytest
 import torch
 
 from quivers.continuous.plate import (
@@ -80,6 +85,158 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
         "Gradient of nested marginalize log_joint with respect to "
         "the continuous latent must be non-zero"
     )
+
+
+def test_three_level_nested_score_matches_manual_recursion() -> None:
+    """A three-level nested stack over plates of equal extent scores
+    as the recursion of per-position aggregates: the innermost
+    block reduces the scatter-summed rows against its prior, and
+    each enclosing block reduces the inner aggregate at its own
+    position against its own prior."""
+    from quivers.dsl import loads
+
+    src = """
+    composition log_prob [level=algebra]
+
+    object G1 : FinSet 2
+    object G2 : FinSet 2
+    object G3 : FinSet 2
+    object Resp : FinSet 6
+    object K1 : FinSet 2
+    object K2 : FinSet 2
+    object K3 : FinSet 3
+
+    program nested : Resp -> Resp
+        sample mu_shift <- Normal(0.0, 1.0)
+        sample probs_1 : K1 <- HalfNormal(1.0)
+        sample probs_2 : K2 <- HalfNormal(1.0)
+        sample probs_3 : K3 <- HalfNormal(1.0)
+        marginalize a : K1 <- Categorical(probs_1) [over=G1]
+            marginalize b : K2 <- Categorical(probs_2) [over=G2]
+                marginalize c : K3 <- Categorical(probs_3) [over=G3]
+                    observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_1]
+        return mu_shift
+    export nested
+    """
+    torch.manual_seed(0)
+    model = loads(textwrap.dedent(src)).morphism
+    mu = torch.tensor([0.5])
+    r = torch.randn(6)
+    idx = torch.tensor([0, 1, 0, 1, 0, 1])
+    p1 = torch.tensor([0.3, 0.7])
+    p2 = torch.tensor([0.4, 0.6])
+    p3 = torch.tensor([0.2, 0.3, 0.5])
+    obs = {
+        "mu_shift": mu,
+        "probs_1": p1,
+        "probs_2": p2,
+        "probs_3": p3,
+        "idx_1": idx,
+        "r": r,
+    }
+    log_p = model.log_joint(torch.zeros(1, 1), obs)
+    normal = torch.distributions.Normal
+    half_normal = torch.distributions.HalfNormal
+    rows = normal(mu, 1.0).log_prob(r)
+    per_group = torch.zeros(2).index_add(0, idx, rows)
+    inner = torch.logsumexp(torch.log(p3) + per_group[:, None], dim=-1)
+    middle = torch.logsumexp(torch.log(p2) + inner[:, None], dim=-1)
+    outer = torch.logsumexp(torch.log(p1) + middle[:, None], dim=-1)
+    prior = normal(0.0, 1.0).log_prob(mu).sum()
+    for probs in (p1, p2, p3):
+        prior = prior + half_normal(1.0).log_prob(probs).sum()
+    expected = outer.sum() + prior
+    assert torch.allclose(log_p, expected.reshape(1), atol=1e-6)
+    # The prior weights matter: a different inner prior moves the score.
+    obs["probs_3"] = torch.tensor([0.6, 0.3, 0.1])
+    assert not torch.allclose(model.log_joint(torch.zeros(1, 1), obs), log_p)
+
+
+def test_nested_product_plate_sums_along_the_projection() -> None:
+    """An inner block grouped over ``G1 * G2`` nested in a block
+    grouped over ``G1`` contributes, at each ``G1`` position, the sum
+    of its aggregates over the ``G2`` factor."""
+    from quivers.dsl import loads
+
+    src = """
+    composition log_prob [level=algebra]
+
+    object G1 : FinSet 2
+    object G2 : FinSet 3
+    object Resp : FinSet 8
+    object K1 : FinSet 2
+    object K2 : FinSet 3
+
+    program demo : Resp -> Resp
+        sample mu_shift <- Normal(0.0, 1.0)
+        sample probs_outer : K1 <- HalfNormal(1.0)
+        sample probs_inner : K2 <- HalfNormal(1.0)
+        marginalize outer : K1 <- Categorical(probs_outer) [over=G1]
+            marginalize inner : K2 <- Categorical(probs_inner) [over=[G1, G2]]
+                observe r : Resp <- Normal(mu_shift, 1.0) [via=[outer_idx, inner_idx]]
+        return mu_shift
+    export demo
+    """
+    torch.manual_seed(1)
+    model = loads(textwrap.dedent(src)).morphism
+    mu = torch.tensor([-0.25])
+    r = torch.randn(8)
+    outer_idx = torch.tensor([0, 0, 0, 1, 1, 1, 1, 0])
+    inner_idx = torch.tensor([0, 1, 2, 0, 1, 2, 2, 2])
+    p_outer = torch.tensor([0.3, 0.7])
+    p_inner = torch.tensor([0.2, 0.3, 0.5])
+    obs = {
+        "mu_shift": mu,
+        "probs_outer": p_outer,
+        "probs_inner": p_inner,
+        "outer_idx": outer_idx,
+        "inner_idx": inner_idx,
+        "r": r,
+    }
+    log_p = model.log_joint(torch.zeros(1, 1), obs)
+    normal = torch.distributions.Normal
+    half_normal = torch.distributions.HalfNormal
+    rows = normal(mu, 1.0).log_prob(r)
+    flat = outer_idx * 3 + inner_idx
+    per_cell = torch.zeros(6).index_add(0, flat, rows).reshape(2, 3)
+    inner = torch.logsumexp(torch.log(p_inner) + per_cell[..., None], dim=-1)
+    projected = inner.sum(dim=1)
+    outer = torch.logsumexp(torch.log(p_outer) + projected[:, None], dim=-1)
+    prior = (
+        normal(0.0, 1.0).log_prob(mu).sum()
+        + half_normal(1.0).log_prob(p_outer).sum()
+        + half_normal(1.0).log_prob(p_inner).sum()
+    )
+    expected = outer.sum() + prior
+    assert torch.allclose(log_p, expected.reshape(1), atol=1e-6)
+
+
+def test_nested_plate_of_another_extent_is_refused() -> None:
+    """An inner plate that is neither the outer plate's extent nor a
+    product with the outer plate as a factor is a compile error."""
+    from quivers.dsl import loads
+    from quivers.dsl.compiler import CompileError
+
+    src = """
+    composition log_prob [level=algebra]
+
+    object G1 : FinSet 2
+    object G2 : FinSet 3
+    object Resp : FinSet 6
+    object K1 : FinSet 2
+    object K2 : FinSet 2
+
+    program demo : Resp -> Resp
+        sample probs_outer : K1 <- HalfNormal(1.0)
+        sample probs_inner : K2 <- HalfNormal(1.0)
+        marginalize outer : K1 <- Categorical(probs_outer) [over=G1]
+            marginalize inner : K2 <- Categorical(probs_inner) [over=G2]
+                observe r : Resp <- HalfNormal(1.0) [via=idx]
+        return probs_outer
+    export demo
+    """
+    with pytest.raises(CompileError, match="extent"):
+        loads(textwrap.dedent(src))
 
 
 # ---------------------------------------------------------------------------

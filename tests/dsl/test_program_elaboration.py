@@ -19,9 +19,9 @@ from quivers.continuous.morphisms import SampledComposition
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.scan import ScanMorphism
 from quivers.dsl import Compiler, parse
-from quivers.dsl.compiler import CompileError
 from quivers.dsl.emit import module_to_source
 from quivers.dsl.qiec_lowering import QiecDiagnosticError, lower_qvr_to_qiec
+from quivers.effects.checked_program import CheckedProgram
 from quivers.inference.trace import trace
 from quivers.qiec import (
     INT,
@@ -457,13 +457,39 @@ def test_programs_and_computations_call_each_other() -> None:
     assert run.log_joint == pytest.approx(expected)
 
 
-def test_a_call_step_round_trips_through_the_emitter_and_is_qiec_only() -> None:
+def test_a_call_step_round_trips_through_the_emitter_and_runs_checked() -> None:
+    """A program calling a computation compiles to its checked
+    computation: the runtime compiler builds no step table for it, and
+    its Python surface runs the module's entry point, scoring the same
+    joint the reference run scores."""
     module = parse(CALLS)
     source = module_to_source(module)
     assert "    let b <- shift(a, 2.0)\n" in source
     assert module_to_source(parse(source)) == source
-    with pytest.raises(CompileError, match="only the QIEC route runs"):
-        Compiler(module).compile()
+    program = Compiler(module).compile()
+    assert isinstance(program.morphism, CheckedProgram)
+    checked = _module(CALLS)
+    reference = run_program(
+        checked, "prog", data={"y": 2.4}, sites={"a": 0.3, "noise": 2.35}
+    )
+    # Double precision, so the numbers the machine scores are the ones
+    # the reference run scored.
+    joint = program.morphism.log_joint(
+        torch.zeros(1, 1),
+        {
+            "y": torch.tensor(2.4, dtype=torch.float64),
+            "a": torch.tensor(0.3, dtype=torch.float64),
+            "noise": torch.tensor(2.35, dtype=torch.float64),
+        },
+    )
+    assert joint.shape == (1,)
+    assert float(joint[0]) == pytest.approx(reference.log_joint)
+    torch.manual_seed(0)
+    drawn = program.morphism.rsample(
+        torch.zeros(1, 1), observations={"y": torch.tensor(2.4)}
+    )
+    assert drawn.shape == (1, 1)
+    assert torch.isfinite(drawn).all()
 
 
 def test_open_extents_reach_marginal_helpers_and_callers() -> None:

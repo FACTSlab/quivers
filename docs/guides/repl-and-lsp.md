@@ -82,7 +82,7 @@ qvr repl --help                              # confirm the TUI is reachable
 | `qvr repl` | Textual TUI (or prompt_toolkit fallback if stdin is not a TTY) |
 | `qvr repl --plain` | Force the single-line prompt_toolkit frontend |
 | `qvr repl FILE.qvr` | Load FILE on startup, then drop to the prompt |
-| `qvr run FILE.qvr NAME [JSON ...]` | Execute one named, checked QIEC computation |
+| `qvr run FILE.qvr [NAME [JSON ...]]` | Execute one entry point, a `define` computation or a `program`; list them with no name |
 | `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config); add `--target TARGET` for live backend-capability diagnostics |
 | `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec named `quivers` |
 | `qvr check FILE...` | Batch parse + compile; add `--target TARGET` to check QIEC target capabilities; non-zero exit code on any error |
@@ -357,14 +357,24 @@ Provider names are resolved only when explicitly selected. The source handler
 declaration continues to determine its types, coverage, forwarding policy, and
 resumption grades; the runtime configuration supplies process-local behavior.
 
-#### `:run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]`
+#### `:run [NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON] [--static NAME=TERM] [--fuel STEPS] [--seed N]]`
 
-Execute a named computation from the checked QIEC module. Positional values
-must be JSON literals and appear in declaration order. A polymorphic
-computation requires one `--static NAME=TERM` assignment for every static
-binder; static terms are written as in source: closed types such as `Int` or
-`Vec[Int](S(Z))`, index terms such as `3`, `S(Z)`, or the shape `[2, 3]`, and
-effect applications such as `State[Int]`, all declared in the module.
+Execute an entry point of the checked module: a `define` computation or a
+`program`. `:run` alone lists the entry points with their signatures.
+Positional values must be JSON literals and appear in declaration order. A
+polymorphic computation requires one `--static NAME=TERM` assignment for every
+static binder; static terms are written as in source: closed types such as
+`Int` or `Vec[Int](S(Z))`, index terms such as `3`, `S(Z)`, or the shape
+`[2, 3]`, and effect applications such as `State[Int]`, all declared in the
+module.
+
+A program runs forward on the reference machine: `--data NAME=JSON` supplies a
+parameter by name as an alternative to the positional form, `--site NAME=JSON`
+conditions one of its sample sites and leaves every other site drawn, and
+`--seed N` seeds the reference generator the draws use. The response carries
+the program's value and the log joint of the drawn and given sites together
+with its observations and scores. A program's handlers are fixed by the run,
+so the session's runtime configuration applies to computations only.
 
 Named computations may recurse without bound, so `--fuel STEPS` caps the
 number of evaluation steps. A run that exhausts its budget fails with the
@@ -373,6 +383,7 @@ number of evaluation steps. A run that exhausts its budget fails with the
 ```
 > :run identity 7 --static A=Int
 {
+  "kind": "computation",
   "value": 7,
   "type": "Int",
   "runtime": "core",

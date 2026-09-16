@@ -39,6 +39,7 @@ from quivers.qiec.builtins import (
     SEARCH_REDUCTIONS,
     add_weights,
     draw_handler,
+    draw_scoring_handler,
     enumerate_handler,
     param_handler,
     ReplayPolicy,
@@ -602,7 +603,8 @@ class CoreRuntimeProvider:
             If ``options.handlers`` is not an object, names a handler the module
             does not declare, holds a non-object configuration, or requests a
             kind other than ``passthrough``, ``scripted``, ``state``, or one
-            of the prelude kinds ``draw``, ``enumerate`` (with the options
+            of the prelude kinds ``draw``, ``draw-scoring`` (with the option
+            ``score_instance``), ``enumerate`` (with the options
             ``grouped`` and ``reduction``), ``replay``, ``collect`` (with
             the options ``combine`` and ``forkable``), ``score``, ``search`` (with the
             option ``reduction``), and ``param`` (with the option
@@ -637,6 +639,22 @@ class CoreRuntimeProvider:
                 runtime = self._state(definition, raw_options, operation_names)
             elif kind == "draw":
                 runtime = self._prelude(definition, draw_handler, "Random")
+            elif kind == "draw-scoring":
+                score_instance = _replay_score_instance(raw_options)
+                if score_instance is None:
+                    raise ValueError(
+                        f"core handler {definition.name!r} of kind 'draw-scoring' "
+                        "needs a `score_instance`"
+                    )
+                runtime = self._prelude(
+                    definition,
+                    lambda result_validator, answer_type: draw_scoring_handler(
+                        score_instance=score_instance,
+                        result_validator=result_validator,
+                        answer_type=answer_type,
+                    ),
+                    "Random",
+                )
             elif kind == "enumerate":
                 runtime = self._prelude(
                     definition,

@@ -116,24 +116,77 @@ from the constructed type's event extents. The `Transformed` chain names its
 transforms as a comma-separated string over `exp`, `log`, `sigmoid`, `logit`,
 `softplus`, `tanh`, and `neg`, applied left to right.
 
-### Named execution boundary
+### Entry-point execution boundary
 
-`qvr run FILE COMPUTATION [JSON ...]` selects one checked
-`NamedComputation`, specializes its static telescope, validates its value
-arguments, and evaluates it with a fresh attachment table. `--static
-NAME=TERM` supplies a closed type, index, or effect application for each static
-binder. `--runtime FILE.json` selects the built-in `core` runtime or installed
+A checked module's executable entry points are its `define` computations and
+its programs, listed by [`entry_points`][quivers.qiec.entries.entry_points]
+and invoked by [`invoke_entry`][quivers.qiec.entries.invoke_entry]. `qvr run
+FILE ENTRY [JSON ...]`, the REPL's `:run`, and
+[`Program.run`][quivers.program.Program.run] all call it, so an entry
+validates its arguments, selects its providers, traces, and fails with the
+same `qiec-run-*` codes however it is reached.
+
+A computation is selected as a `NamedComputation`, its static telescope
+specialized (`--static NAME=TERM` supplies a closed type, index, or effect
+application for each binder), its value arguments validated, and its body
+evaluated with a fresh attachment table under the configured providers
+(`--runtime FILE.json` selects the built-in `core` runtime or installed
 `quivers.qiec_runtime` providers without placing executable objects in the
-configuration file. `--fuel STEPS` bounds the number of evaluation steps, since
-a recursive computation may otherwise never return; exhaustion is the
-`qiec-run-fuel` diagnostic. `--trace` writes stable events in plain mode, while
-`--json` includes the result, specialized result type, runtime label, and trace
-in one document.
+configuration file).
+
+A program is run by [`sample_program`][quivers.qiec.program_runtime.sample_program]:
+the module is extended with a wrapper computation that handles the program's
+`random` instance with a conditioning replay of the given sites (`--site
+NAME=JSON`) inside a scoring draw of every other site, and its `score`
+instance with an accumulator, and returns the program's value paired with the
+accumulated log weight. The wrapper is checked like any other computation
+before it runs. The program's parameters are its data, observations,
+fibrations, and scalars, given positionally or by name (`--data NAME=JSON`);
+its open extents are read off the data. Each invocation owns its state:
+observations and conditioned sites are arguments of the run, the module's
+parameter store answers `Param` requests from the values the run is given,
+draws use the reference generator (`--seed N` reseeds it), the score
+accumulator and the trace belong to the wrapper's attachment table, and no
+handler stack outlives the call. [`run_program`][quivers.qiec.program_runtime.run_program]
+is the replaying form, which requires every site and scores the log joint.
+
+`--fuel STEPS` bounds the number of evaluation steps, since a recursive
+computation may otherwise never return; exhaustion is the `qiec-run-fuel`
+diagnostic. `--trace` writes stable events in plain mode, while `--json`
+includes the result, specialized result type, runtime label, trace, the
+entry's kind, and a program's log joint in one document.
 
 The REPL exposes the same boundary through `:runtime`, `:run`, and `:detach`.
 The Textual status bar shows the active runtime and the most recent result.
 Argument, specialization, provider, validator, evaluation, and result failures
 retain their `qiec-run-*` diagnostic codes across the CLI, REPL, and TUI.
+
+### Programs on the reference machine
+
+A compiled `MonadicProgram` is a facade over the same machine. Its
+[`rsample`][quivers.continuous.programs.MonadicProgram.rsample] and
+[`log_joint`][quivers.continuous.programs.MonadicProgram.log_joint] run the
+program's kernel encoding under the active effect handlers through the
+installed [`ProgramEvaluator`][quivers.continuous.programs.ProgramEvaluator],
+so a `clamp`, `do`, `trace`, or reweighting in scope applies to every draw
+and every score, and the joint `log_joint` reports is the one `trace`
+accumulates. Each host step is encoded over the values it reads (a draw's
+arguments, the names a closure declares through
+[`reading`][quivers.continuous.program_steps.reading], or every value bound
+so far when it declares none), and every handler the run installs resumes in
+tail position, so a program's encoding and its evaluation grow linearly with
+its length. A run owns its handlers: a program a host step runs in turn (a
+score closing over another program's joint, a sub-program drawn as a step) is
+a separate invocation, whose sites the enclosing run's handlers neither
+observe nor condition.
+
+A program that calls a named computation has no step table the runtime
+compiler can build, so it compiles to a
+[`CheckedProgram`][quivers.effects.checked_program.CheckedProgram]: a
+morphism whose `rsample` and `log_joint` are `sample_program` and
+`run_program` on the module's own entry point. The machine scores numbers,
+so such a program keeps no gradient path to the tensors it is given; fitting
+it is the transpile targets' work.
 
 ## QVR surface
 

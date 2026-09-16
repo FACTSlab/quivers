@@ -80,23 +80,46 @@ Start the interactive REPL. Without a file, opens an empty
 session; with a file, loads and elaborates it before dropping to
 the prompt. See [REPL and Language Server](../guides/repl-and-lsp.md).
 
-## `qvr run FILE COMPUTATION [ARGUMENTS...]`
+## `qvr run FILE [ENTRY [ARGUMENTS...]]`
 
-Execute one named computation from a checked QIEC module. Each positional
-argument is a JSON literal and corresponds to one value parameter in
-declaration order. The command validates the arguments and result against the
-specialized QIEC types, gives the invocation a fresh runtime attachment table,
-and exits 0 only when evaluation succeeds.
+Execute one entry point of a checked module: a `define` computation or a
+`program`. With no entry name, or with `--list`, the command prints every
+entry point with its signature: a computation's value parameters, statics,
+performed effects, and result type; a program's data parameters, result type,
+and the sample sites a run may condition on.
+
+Each positional argument is a JSON literal and corresponds to one value
+parameter in declaration order. A computation runs under the configured
+runtime providers, validating the arguments and result against the
+specialized QIEC types with a fresh attachment table. A program runs forward
+on the reference machine: its `random` instance is handled by a conditioning
+replay of the sites given with `--site` inside a scoring draw of every other
+site, and its `score` instance by an accumulator, so the run reports the
+program's value together with the log joint of the drawn and given sites, its
+observations, and its scores. A program's parameters may also be given by name
+with `--data`; its extents are read off the data, so `--static` applies to
+computations only, and its handlers are fixed by the run, so `--runtime`
+applies to computations only.
 
 Flags:
 
+- `--list`: print the file's entry points and exit.
 - `--static NAME=TERM`: specialize one static telescope binder with a closed
   type, index, or effect term. Repeat the flag once for every binder.
+- `--data NAME=JSON`: supply one program parameter by name (its data, an
+  observation, a fibration, or a scalar). Repeatable.
+- `--site NAME=JSON`: condition one sample site of a program on a value;
+  every other site is drawn. Repeatable. A site the run never reaches is an
+  error.
+- `--seed N`: seed the reference generator a program run draws with, so two
+  runs seeded alike draw alike.
 - `--runtime FILE.json`: select runtime providers and their options through a
   non-executable JSON configuration.
+- `--fuel STEPS`: bound the number of evaluation steps.
 - `--trace`: write stable execution events to stderr in human-readable mode.
-- `--json`: emit the result, runtime label, and complete trace as JSON. A
-  failure instead emits a JSON diagnostic and exits 1.
+- `--json`: emit the result, runtime label, and complete trace as JSON, with
+  the entry's kind and a program's log joint. A failure instead emits a JSON
+  diagnostic and exits 1.
 
 For instance, this command specializes `A` to `Int` and supplies the value
 argument `7`:
@@ -104,6 +127,19 @@ argument `7`:
 ```bash
 qvr run identity.qvr identity 7 --static A=Int --json
 ```
+
+and this one runs a program on four observations with its site `a` fixed:
+
+```bash
+qvr run calls.qvr prog '[0.1, 0.2, 0.3, 0.4]' --site a=0.5 --seed 0
+```
+
+The same invocation is available from Python through
+[`Program.run`][quivers.program.Program.run] on a loaded module, from
+[`Compiler.entry`][quivers.dsl.compiler.Compiler.entry] and
+[`invoke_entry`][quivers.qiec.entries.invoke_entry] on its checked module,
+and from the REPL's `:run`, with the same validation, providers, trace, and
+diagnostic codes.
 
 The default runtime configuration selects the built-in `core` provider. A
 configuration can select that provider with handler behavior or name an
@@ -125,15 +161,17 @@ installed `quivers.qiec_runtime` entry point:
 ```
 
 The core provider accepts `passthrough`, `scripted`, and `state` handler
-configurations. These options supply process-local clause behavior; the source
-handler still fixes the checked effect, coverage, forwarding policy, clause
-set, and resumption grades. Runtime plugins are discoverable by name but are
-loaded only when the configuration explicitly selects them.
+configurations, and the prelude kinds `draw`, `draw-scoring`, `enumerate`,
+`replay`, `collect`, `score`, `search`, and `param`. These options supply
+process-local clause behavior; the source handler still fixes the checked
+effect, coverage, forwarding policy, clause set, and resumption grades.
+Runtime plugins are discoverable by name but are loaded only when the
+configuration explicitly selects them.
 
 Execution failures use stable codes including `qiec-run-computation`,
-`qiec-run-arity`, `qiec-run-static`, `qiec-run-provider`,
-`qiec-run-validator`, `qiec-run-argument`, `qiec-run-evaluation`, and
-`qiec-run-result`.
+`qiec-run-config`, `qiec-run-arity`, `qiec-run-static`, `qiec-run-provider`,
+`qiec-run-validator`, `qiec-run-argument`, `qiec-run-evaluation`,
+`qiec-run-fuel`, and `qiec-run-result`.
 
 ## `qvr lsp`
 

@@ -62,13 +62,17 @@ from quivers.dsl.qiec_tooling import (
 from quivers.qiec import (
     ExecutionFailure,
     ExecutionResult,
+    HostValue,
     RuntimeConfiguration,
     RuntimeSelection,
     QiecModule,
+    entry_points,
+    invoke_entry,
     load_runtime_configuration,
-    parse_static_arguments,
-    run_named,
+    parse_bindings,
+    render_entry,
 )
+from quivers.qiec.entries import json_value
 
 
 Severity = Literal["error", "warning", "info", "ok"]
@@ -516,7 +520,26 @@ class ReplSession:
         return _resp(f"runtime detached: {previous}")
 
     def run_computation(self, invocation: str) -> ReplResponse:
-        """Execute ``NAME [JSON ...] [--static NAME=TERM]``."""
+        """Execute ``NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON]
+        [--static NAME=TERM] [--fuel STEPS] [--seed N]``.
+
+        The entry is a ``define`` computation or a ``program``, invoked
+        through the same [`invoke_entry`][quivers.qiec.entries.invoke_entry]
+        as ``qvr run``, so its validation, providers, trace, and error
+        codes are those of the command line. ``:run`` alone lists the
+        module's entry points.
+
+        Parameters
+        ----------
+        invocation : str
+            The entry name and its arguments, as typed after ``:run``.
+
+        Returns
+        -------
+        ReplResponse
+            The value, its type, the runtime label, the trace length,
+            and a program's log joint; or the diagnostic of a failure.
+        """
 
         if self._qiec_module is None:
             return _err("no checked QIEC module loaded", code="qiec-run-module")
@@ -525,68 +548,72 @@ class ReplSession:
         except ValueError as error:
             return _err(f"invalid :run invocation: {error}", code="qiec-run-config")
         if not parts:
-            return _err(
-                "usage: :run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]",
-                code="qiec-run-config",
-            )
+            lines = [render_entry(point) for point in entry_points(self._qiec_module)]
+            return _resp("\n".join(lines) if lines else "(no entry points)")
         name = parts.pop(0)
         statics: list[str] = []
-        values: list[object] = []
+        data: list[str] = []
+        sites: list[str] = []
+        values: list[HostValue] = []
         fuel: int | None = None
+        seed: int | None = None
         index = 0
         try:
             while index < len(parts):
-                if parts[index] == "--static":
-                    index += 1
-                    if index >= len(parts):
-                        raise ValueError("--static requires NAME=TERM")
-                    statics.append(parts[index])
-                elif parts[index].startswith("--static="):
-                    statics.append(parts[index].removeprefix("--static="))
-                elif parts[index] == "--fuel":
-                    index += 1
-                    if index >= len(parts):
-                        raise ValueError("--fuel requires a number of steps")
-                    fuel = _fuel(parts[index])
-                elif parts[index].startswith("--fuel="):
-                    fuel = _fuel(parts[index].removeprefix("--fuel="))
+                option, separator, inline = parts[index].partition("=")
+                if option in ("--static", "--data", "--site", "--fuel", "--seed"):
+                    if separator:
+                        text = inline
+                    else:
+                        index += 1
+                        if index >= len(parts):
+                            raise ValueError(f"{option} requires a value")
+                        text = parts[index]
+                    if option == "--static":
+                        statics.append(text)
+                    elif option == "--data":
+                        data.append(text)
+                    elif option == "--site":
+                        sites.append(text)
+                    elif option == "--fuel":
+                        fuel = _fuel(text)
+                    else:
+                        seed = int(text)
                 else:
-                    values.append(_tuplify_json(json.loads(parts[index])))
+                    values.append(json_value(json.loads(parts[index])))
                 index += 1
-            static_arguments = parse_static_arguments(
-                self._qiec_module, name, tuple(statics)
-            )
-            result = run_named(
+            run = invoke_entry(
                 self._qiec_module,
                 name,
                 tuple(values),
-                static_arguments=static_arguments,
+                data=parse_bindings(data),
+                sites=parse_bindings(sites),
+                static_arguments=tuple(statics),
                 runtime=self._runtime,
                 fuel=fuel,
+                seed=seed,
             )
         except json.JSONDecodeError as error:
             return _err(
                 f"value arguments must be JSON: {error.msg}",
                 code="qiec-run-config",
             )
-        except ValueError as error:
+        except (ValueError, KeyError) as error:
             return _err(str(error), code="qiec-run-config")
         except ExecutionFailure as error:
             return _execution_error(error)
-        self._last_run = result
-        payload = result.to_data()
-        return _resp(
-            json.dumps(
-                {
-                    "value": payload["value"],
-                    "type": payload["result_type"],
-                    "runtime": payload["runtime"],
-                    "trace_events": len(result.trace),
-                },
-                indent=2,
-            ),
-            body_kind="json",
-        )
+        self._last_run = run.result
+        payload = run.to_data()
+        summary: dict[str, object] = {
+            "kind": payload["kind"],
+            "value": payload["value"],
+            "type": payload["result_type"],
+            "runtime": payload["runtime"],
+            "trace_events": len(run.result.trace),
+        }
+        if run.log_joint is not None:
+            summary["log_joint"] = run.log_joint
+        return _resp(json.dumps(summary, indent=2), body_kind="json")
 
     def _value_line_for_name(self, bare: str) -> str | None:
         """Return the value-level signature for ``bare``, or None.
@@ -2260,8 +2287,9 @@ HELP_CATEGORIES: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
                 "show or attach explicit runtime providers",
             ),
             (
-                ":run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]",
-                "execute a named QIEC computation",
+                ":run [NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON] "
+                "[--static NAME=TERM] [--fuel STEPS] [--seed N]]",
+                "run an entry point (a define or a program), or list them",
             ),
             (":detach", "detach every QIEC runtime provider"),
         ),
@@ -2404,8 +2432,11 @@ _HELP: dict[str, str] = {
     "quit": "Leave the REPL.",
     "runtime": "Show the active runtime, attach a registered provider by name, "
     "or load a non-executable JSON provider configuration.",
-    "run": "Execute NAME with JSON value arguments. Polymorphic definitions "
-    "require one --static NAME=TERM assignment per static binder.",
+    "run": "Execute an entry point: a define with JSON value arguments, or a "
+    "program with its data (positional or --data NAME=JSON) and any "
+    "conditioned sites (--site NAME=JSON), every other site drawn. "
+    "Polymorphic definitions require one --static NAME=TERM assignment per "
+    "static binder; :run alone lists the entry points.",
     "detach": "Remove every runtime provider. Attach one again with :runtime.",
 }
 
@@ -2477,14 +2508,6 @@ def _fuel(text: str) -> int:
     if steps <= 0:
         raise ValueError("--fuel must be a positive number of steps")
     return steps
-
-
-def _tuplify_json(value: object) -> object:
-    if isinstance(value, list):
-        return tuple(_tuplify_json(item) for item in value)
-    if isinstance(value, dict):
-        return {key: _tuplify_json(item) for key, item in value.items()}
-    return value
 
 
 def _env_counts(env: dict[str, Any]) -> str:

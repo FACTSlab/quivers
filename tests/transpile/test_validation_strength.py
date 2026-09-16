@@ -31,7 +31,7 @@ from typing import Literal
 import didactic.api as dx
 import pytest
 
-from quivers.continuous.programs import _LetSpec, _ScoreSpec
+from quivers.continuous.program_steps import _LetSpec, _ScoreSpec
 from tests.transpile import (
     _equivalence,
     _gallery_data,

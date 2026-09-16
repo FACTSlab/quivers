@@ -733,7 +733,7 @@ def draw_handler(
             if draw is not None
             else _default_draw(sampleable)
         )
-        return resume(value)
+        return TailResume(value)
 
     return RuntimeHandler(
         definition,
@@ -1233,7 +1233,7 @@ def score_handler(
             local.total = combine(local.total, weight)
             if observer is not None:
                 observer(request, weight)
-            return resume(None)
+            return TailResume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
@@ -1559,7 +1559,7 @@ def condition_handler(
                 weight_validator,
                 role="condition-score",
             )
-            return resume(value)
+            return TailResume(value)
 
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
@@ -1761,7 +1761,7 @@ def replay_handler(
                     weight_validator,
                     role="replay-score",
                 )
-            return resume(value)
+            return TailResume(value)
 
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
@@ -2153,7 +2153,7 @@ def state_handler(
                 If the request carries any argument.
             """
             _expect_arguments(request, 0, definition.name)
-            return resume(local.value)
+            return TailResume(local.value)
 
         def put(
             request: RuntimeRequest,
@@ -2186,7 +2186,7 @@ def state_handler(
             (new_value,) = _expect_arguments(request, 1, definition.name)
             _require(new_value, state_validator, state_type, "state update")
             local.value = new_value
-            return resume(None)
+            return TailResume(None)
 
         def finish(value: object, _context: ClauseContext) -> object:
             """Answer the handled computation's return.
@@ -2896,7 +2896,7 @@ def draw_scoring_handler(
             weight_validator,
             role="draw-score",
         )
-        return resume(value)
+        return TailResume(value)
 
     return RuntimeHandler(
         definition,
@@ -2986,7 +2986,7 @@ def intervene_handler(
         )
         if on_intervene is not None:
             on_intervene(request, value)
-        return resume(value)
+        return TailResume(value)
 
     return RuntimeHandler(
         definition, {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)}
@@ -3079,7 +3079,7 @@ def reweight_handler(
             weight_validator,
             role=request.core.origin.origin.role,
         )
-        return resume(None)
+        return TailResume(None)
 
     return RuntimeHandler(definition, {SCORE_ADD: RuntimeClause(add, _unit)})
 
@@ -3182,7 +3182,7 @@ def block_handler(
             weight_validator,
             role="block-score",
         )
-        return resume(value)
+        return TailResume(value)
 
     return RuntimeHandler(
         definition, {RANDOM_SAMPLE: RuntimeClause(sample, result_validator)}
@@ -3262,7 +3262,7 @@ def compute_handler(
             If the request does not carry exactly one argument.
         """
         (argument,) = _expect_arguments(request, 1, definition.name)
-        return resume(function(argument, context))
+        return TailResume(function(argument, context))
 
     return RuntimeHandler(
         definition, {COMPUTE_APPLY: RuntimeClause(apply, result_validator)}
@@ -3347,7 +3347,7 @@ def param_handler(
         _require(
             value, result_validator, request.core.result_type, f"parameter {name!r}"
         )
-        return resume(value)
+        return TailResume(value)
 
     return RuntimeHandler(definition, {PARAM_GET: RuntimeClause(get, result_validator)})
 

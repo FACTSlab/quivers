@@ -1915,6 +1915,41 @@ class Evaluator:
             registry,
             context,
         )
+        return self.evaluate_validated(computation, registry, runtime_environment)
+
+    def evaluate_validated(
+        self,
+        computation: Computation,
+        registry: KernelRegistry,
+        environment: Mapping[Local, object] | None = None,
+    ) -> object:
+        """Run a computation a module validation has already checked.
+
+        `validate_module` checks every body of a module against its
+        registry; a caller holding that registry runs such a body
+        without checking it again. The handler manifest is still held
+        against the attachments.
+
+        Parameters
+        ----------
+        computation : Computation
+            The computation to run, a body of the validated module.
+        registry : KernelRegistry
+            The registry the module validated against.
+        environment : Mapping[Local, object] or None
+            Values for its free locals.
+
+        Returns
+        -------
+        object
+            What the computation produced.
+
+        Raises
+        ------
+        EvaluationError
+            If execution fails, as in `evaluate`.
+        """
+        runtime_environment = dict(environment or {})
         manifest = HandlerManifest.from_registry(registry)
         self._validate_handler_manifest(manifest)
         self._begin_run()

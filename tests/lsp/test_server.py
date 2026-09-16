@@ -14,18 +14,12 @@ server's command/feature registry.
 
 from __future__ import annotations
 
-import pytest
 
+from lsprotocol import types as lsp
 
-pytest.importorskip("pygls")
-pytest.importorskip("lsprotocol")
-
-
-from lsprotocol import types as lsp  # noqa: E402
-
-from quivers.lsp import build_server  # noqa: E402
-from quivers.lsp.document import DocumentState  # noqa: E402
-from quivers.lsp.server import (  # noqa: E402
+from quivers.lsp import build_server
+from quivers.lsp.document import DocumentState
+from quivers.lsp.server import (
     _env_kinds_for,
     _format_document,
     _lsp_eof_position,

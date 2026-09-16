@@ -24,17 +24,20 @@ outer one gives.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import weakref
 from collections.abc import Callable, Mapping
 
 import torch
 
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import (
-    MonadicProgram,
-    _LetSpec,
-    _ScoreSpec,
-    _StepSpec,
-)
+from quivers.core.morphisms import extract_morphism
+from quivers.continuous.program_steps import _LetSpec, _ScoreSpec, _StepSpec
+from quivers.continuous.programs import install_evaluator
+
+if TYPE_CHECKING:
+    from quivers.continuous.programs import MonadicProgram
 from quivers.effects.base import (
     Contribution,
     EffectHandler,
@@ -44,9 +47,11 @@ from quivers.effects.base import (
 )
 from quivers.effects.program_module import (
     HostStep,
+    ProgramKernel,
     program_kernel,
 )
 from quivers.effects.sites import TorchSampleable
+from quivers.effects.trace_handler import TraceHandler
 from quivers.qiec.builtins import (
     PARAM_GET,
     ExtraValuePolicy,
@@ -57,7 +62,7 @@ from quivers.qiec.builtins import (
     param_handler,
     score_handler,
 )
-from quivers.qiec.effects import EffectRequest, EffectRow
+from quivers.qiec.effects import EffectRequest, EffectRow, HandlerDef
 from quivers.qiec.evaluator import (
     ClauseContext,
     Evaluator,
@@ -80,7 +85,7 @@ from quivers.qiec.terms import (
 from quivers.qiec.types import REAL, STRING, IndexLiteral
 from quivers.qiec.identifiers import ComputationId
 from quivers.qiec.effects import ComputationType
-from quivers.qiec.module import validate_module
+from quivers.qiec.module import KernelRegistry, validate_module
 from quivers.effects.program_module import SOURCE_PROTOCOL
 
 #: The name of the wrapper computation a run evaluates.
@@ -247,7 +252,7 @@ class _ParameterizedMorphism(ContinuousMorphism):
 
 def _split_observations(
     program: MonadicProgram, observations: Mapping[str, torch.Tensor]
-) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """Split observations into site values and host data.
 
     Parameters
@@ -259,10 +264,11 @@ def _split_observations(
 
     Returns
     -------
-    tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]
-        The values at declared sites, keyed by site label, and the
-        remaining entries, which are host data the program's steps read
-        by name.
+    tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, torch.Tensor]]
+        The values at declared sites, keyed by site label; the values
+        standing in for let bindings, by name, which their steps read
+        rather than compute; and the remaining entries, which are host
+        data the program's steps read by name.
 
     Raises
     ------
@@ -270,16 +276,21 @@ def _split_observations(
         If an observation names one variable of a destructuring draw.
     """
     declared: dict[str, str] = {}
+    computed: set[str] = set()
     for spec in program._step_specs:
         if isinstance(spec, _LetSpec | _ScoreSpec):
-            declared[spec.var] = spec.var
+            computed.add(spec.var)
         else:
             label = ",".join(spec.vars)
             for name in spec.vars:
                 declared[name] = label
     sites: dict[str, torch.Tensor] = {}
+    supplied: dict[str, torch.Tensor] = {}
     data: dict[str, torch.Tensor] = {}
     for name, value in observations.items():
+        if name in computed:
+            supplied[name] = value
+            continue
         label = declared.get(name)
         if label is None:
             data[name] = value
@@ -290,7 +301,7 @@ def _split_observations(
                 f"observation {name!r} names one variable of the destructuring "
                 f"draw {label!r}; observe the draw as a whole"
             )
-    return sites, data
+    return sites, supplied, data
 
 
 def _environment(step: HostStep, argument: object) -> dict[str, torch.Tensor]:
@@ -381,6 +392,8 @@ class _HostSteps:
             return self._split_input
         if step.kind == "draw":
             return lambda argument, context: self._draw(step, argument, context)
+        if step.kind == "apply":
+            return lambda argument, _context: self._apply(step, argument)
         if step.kind == "bind":
             return lambda argument, _context: self._bind(step, argument)
         if step.kind == "let":
@@ -499,6 +512,33 @@ class _HostSteps:
             values[name] = value
         return values
 
+    def _apply(self, step: HostStep, argument: object) -> object:
+        """Contract a categorical morphism's tensor against its input.
+
+        Parameters
+        ----------
+        step : HostStep
+            The step.
+        argument : object
+            The environment tuple.
+
+        Returns
+        -------
+        object
+            The morphism's action on the batched input.
+        """
+        spec = step.spec
+        assert isinstance(spec, _StepSpec)
+        env = _environment(step, argument)
+        module = self.program._modules[spec.morphism_name]
+        assert module is not None
+        categorical = extract_morphism(module)
+        assert categorical is not None
+        inp = self.program._resolve_input(spec, self.x, env)
+        return self.program._apply_categorical_morphism(
+            categorical, inp, self.x.shape[0]
+        )
+
     def _bind(self, step: HostStep, argument: object) -> object:
         """Split a destructuring draw into its variables.
 
@@ -540,6 +580,9 @@ class _HostSteps:
         """
         spec = step.spec
         assert isinstance(spec, _LetSpec)
+        supplied = self.run.supplied.get(spec.var)
+        if supplied is not None:
+            return supplied
         env = _environment(step, argument)
         if isinstance(spec.value, str):
             return env[spec.value]
@@ -593,6 +636,74 @@ def _handle_chain(installations: list[Installation], inner: Computation) -> Comp
     return body
 
 
+#: The kernel encodings and validated run modules of each program, keyed
+#: by the program. An encoding depends on the program's steps and the
+#: data names a run supplies; a run module also depends on the handlers
+#: the run installs, whose definitions the module's identity carries. A
+#: run rebuilds neither, so a program traced many times pays for its
+#: encoding and its module's validation once.
+_KERNELS: weakref.WeakKeyDictionary[
+    MonadicProgram, dict[tuple[str, ...], ProgramKernel]
+] = weakref.WeakKeyDictionary()
+_REGISTRIES: weakref.WeakKeyDictionary[
+    MonadicProgram, dict[tuple[tuple[str, ...], tuple[HandlerDef, ...]], KernelRegistry]
+] = weakref.WeakKeyDictionary()
+
+
+def _cached_kernel(program: MonadicProgram, data: tuple[str, ...]) -> ProgramKernel:
+    """The kernel encoding of a program at the given data names.
+
+    Parameters
+    ----------
+    program : MonadicProgram
+        The program.
+    data : tuple[str, ...]
+        The names of the host data a run supplies, sorted.
+
+    Returns
+    -------
+    ProgramKernel
+        The encoding, built once per program and data-name set.
+    """
+    kernels = _KERNELS.setdefault(program, {})
+    kernel = kernels.get(data)
+    if kernel is None:
+        kernel = program_kernel(program, data)
+        kernels[data] = kernel
+    return kernel
+
+
+def _checked_registry(
+    program: MonadicProgram, kernel: ProgramKernel, module: QiecModule
+) -> KernelRegistry:
+    """The registry of a validated run module.
+
+    Parameters
+    ----------
+    program : MonadicProgram
+        The program the run module was built for.
+    kernel : ProgramKernel
+        The encoding the run module extends.
+    module : QiecModule
+        The run module: the kernel's declarations, the run's handlers,
+        and the run's wrapper.
+
+    Returns
+    -------
+    KernelRegistry
+        The registry `validate_module` resolved, once per encoding and
+        handler set: the module's declarations and wrapper are fixed by
+        those, so two such runs build the same module.
+    """
+    registries = _REGISTRIES.setdefault(program, {})
+    key = (kernel.data, tuple(module.handlers))
+    registry = registries.get(key)
+    if registry is None:
+        registry = validate_module(module)
+        registries[key] = registry
+    return registry
+
+
 def run_program(
     program: MonadicProgram,
     x: torch.Tensor,
@@ -621,9 +732,9 @@ def run_program(
     ValueError
         If an observation names one variable of a destructuring draw.
     """
-    sites, data = _split_observations(program, observations or {})
-    kernel = program_kernel(program, tuple(sorted(data)))
-    run = RunContext(kernel, host_value, observations=dict(sites))
+    sites, supplied, data = _split_observations(program, observations or {})
+    kernel = _cached_kernel(program, tuple(sorted(data)))
+    run = RunContext(kernel, host_value, observations=dict(sites), supplied=supplied)
     stack = list(_handler_stack())
     steps = _HostSteps(run, x)
     result_type = kernel.result_type
@@ -771,6 +882,16 @@ def run_program(
         entry.type.effects,
         SourceOrigin(kernel.module.module, ("run", "call"), "call", SOURCE_PROTOCOL),
     )
+    # A handler is installed only over an effect the entry performs:
+    # a program with no draw performs neither Random nor Param, and
+    # one with no draw and no score step performs no Score either.
+    has_draws = any(step.kind == "draw" for step in kernel.steps)
+    performs_score = entry.type.effects.lookup(kernel.score.entry.instance) is not None
+    if not has_draws:
+        random_installations = []
+        param_installations = []
+        if not performs_score:
+            score_installations = []
     installations = [
         installation.named(f"{installation.runtime.definition.name}#{position}")
         for position, installation in enumerate(
@@ -803,16 +924,27 @@ def run_program(
         ),
         computations=(entry, wrapper),
     )
-    registry = validate_module(module)
+    registry = _checked_registry(program, kernel, module)
     attachments = RuntimeAttachments()
     for installation in installations:
         attachments.bind_handler(installation.runtime)
     evaluator = Evaluator(
         attachments, module=module, type_validator=lambda _type: host_value
     )
-    output = evaluator.evaluate_checked(
-        body, registry, dict(zip(parameters, arguments, strict=True))
-    )
+    # The run owns its handlers: a program a host step runs in turn (a
+    # score closing over another program's joint, a sub-program drawn as
+    # a step) is a separate invocation, whose sites this run's handlers
+    # neither observe nor condition. The stack is cleared for the
+    # evaluation and restored after it.
+    active = _handler_stack()
+    entered = active[:]
+    active.clear()
+    try:
+        output = evaluator.evaluate_validated(
+            body, registry, dict(zip(parameters, arguments, strict=True))
+        )
+    finally:
+        active.extend(entered)
     for handler in finishers:
         handler.finish(run, output)
     if program._return_is_single:
@@ -823,4 +955,184 @@ def run_program(
     return {key: value for key, value in zip(keys, output, strict=True)}
 
 
-__all__ = ["RUN", "host_value", "run_program"]
+def sample_program(
+    program: MonadicProgram,
+    x: torch.Tensor,
+    sample_shape: torch.Size = torch.Size(),
+    observations: Mapping[str, torch.Tensor] | None = None,
+) -> torch.Tensor | dict[str, torch.Tensor]:
+    """Run a program forward under the handler stack, with sample dimensions.
+
+    Parameters
+    ----------
+    program : MonadicProgram
+        The program.
+    x : torch.Tensor
+        Program input. Shape ``(batch, ...)``.
+    sample_shape : torch.Size
+        Leading sample dimensions. Each element of the shape is one
+        independent run of the program; the returned values stack the
+        runs ahead of their batch axis.
+    observations : Mapping[str, torch.Tensor] or None
+        Values to condition observed sites on, keyed by site name, and
+        host data the steps read by name.
+
+    Returns
+    -------
+    torch.Tensor or dict[str, torch.Tensor]
+        The program's return value, with ``sample_shape`` in front.
+    """
+    if not sample_shape:
+        return run_program(program, x, observations)
+    count = 1
+    for extent in sample_shape:
+        count *= int(extent)
+    runs = [run_program(program, x, observations) for _ in range(count)]
+    first = runs[0]
+    if isinstance(first, torch.Tensor):
+        stacked = torch.stack([run for run in runs if isinstance(run, torch.Tensor)])
+        return stacked.reshape(*sample_shape, *first.shape)
+    assert isinstance(first, dict)
+    return {
+        key: torch.stack([cast_dict(run)[key] for run in runs]).reshape(
+            *sample_shape, *first[key].shape
+        )
+        for key in first
+    }
+
+
+def cast_dict(value: torch.Tensor | dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Read a program's dictionary return.
+
+    Parameters
+    ----------
+    value : torch.Tensor | dict[str, torch.Tensor]
+        A program's return value.
+
+    Returns
+    -------
+    dict[str, torch.Tensor]
+        The value, which is a dictionary.
+
+    Raises
+    ------
+    TypeError
+        If the value is a single tensor.
+    """
+    if isinstance(value, dict):
+        return value
+    raise TypeError("the program returns a single tensor, not named values")
+
+
+def log_joint(
+    program: MonadicProgram,
+    x: torch.Tensor,
+    intermediates: Mapping[str, torch.Tensor],
+) -> torch.Tensor:
+    """The joint log density of a program at values for all of its draws.
+
+    The program runs on the reference machine under the handler stack
+    with every draw conditioned on its given value, and the joint is
+    the sum of the site densities the run accumulated, one term per
+    site, over the input's batch axis.
+
+    Parameters
+    ----------
+    program : MonadicProgram
+        The program.
+    x : torch.Tensor
+        Program input. Shape ``(batch, ...)``.
+    intermediates : Mapping[str, torch.Tensor]
+        A value for every draw the program makes, keyed by variable
+        name or by return label, together with any host data its steps
+        read by name.
+
+    Returns
+    -------
+    torch.Tensor
+        The joint log density, shaped ``(batch,)``.
+
+    Raises
+    ------
+    KeyError
+        If a draw the program makes is given no value.
+    """
+    values = dict(intermediates)
+    if program._return_labels:
+        for label, name in zip(
+            program._return_labels, program._return_vars, strict=True
+        ):
+            if label in values and name not in values:
+                values[name] = values[label]
+    with TraceHandler() as handler:
+        run_program(program, x, values)
+    total = torch.zeros(x.shape[0], device=x.device)
+    for name, site in handler.trace.sites.items():
+        if (
+            site.sampleable is not None
+            and not site.is_observed
+            and not site.is_deterministic
+        ):
+            raise KeyError(name)
+        total = total + site.log_prob
+    return total
+
+
+class _ReferenceEvaluator:
+    """The reference machine as the evaluator programs run through."""
+
+    def sample_program(
+        self,
+        program: MonadicProgram,
+        x: torch.Tensor,
+        sample_shape: torch.Size,
+        observations: Mapping[str, torch.Tensor] | None,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
+        """Run the program forward; see `sample_program`.
+
+        Parameters
+        ----------
+        program : MonadicProgram
+            The program.
+        x : torch.Tensor
+            Program input.
+        sample_shape : torch.Size
+            Leading sample dimensions.
+        observations : Mapping[str, torch.Tensor] or None
+            Values to clamp observed variables to, and host data.
+
+        Returns
+        -------
+        torch.Tensor or dict[str, torch.Tensor]
+            The program's return value.
+        """
+        return sample_program(program, x, sample_shape, observations)
+
+    def log_joint(
+        self,
+        program: MonadicProgram,
+        x: torch.Tensor,
+        intermediates: Mapping[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Score the program; see `log_joint`.
+
+        Parameters
+        ----------
+        program : MonadicProgram
+            The program.
+        x : torch.Tensor
+            Program input.
+        intermediates : Mapping[str, torch.Tensor]
+            A value for every draw, and host data.
+
+        Returns
+        -------
+        torch.Tensor
+            The joint log density.
+        """
+        return log_joint(program, x, intermediates)
+
+
+install_evaluator(_ReferenceEvaluator())
+
+__all__ = ["RUN", "host_value", "log_joint", "run_program", "sample_program"]

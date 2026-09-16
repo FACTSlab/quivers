@@ -285,12 +285,16 @@ class GroupedObserveEntry(dx.Model):
 
     Pairs an env slot (where the captured observe writes its
     ``(N_m, K)`` log-likelihood) with the fibration that carries
-    those rows into the shared grouping plate.
+    those rows into the shared grouping plate. An entry with no
+    fibration is a nested grouped block: the slot holds the inner
+    block's per-position aggregates over ``inner_groups``, which the
+    enclosing block projects onto its own grouping plate.
     """
 
     ll_slot: str
     fibration_var: str | None = None
     fibration_axes: tuple[str, ...] | None = None
+    inner_groups: tuple[str, ...] | None = None
     line: int = 0
     col: int = 0
 

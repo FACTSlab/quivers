@@ -38,6 +38,7 @@ import torch
 
 from quivers.effects.program_module import ProgramKernel
 from quivers.qiec.evaluator import RuntimeHandler, RuntimeRequest, RuntimeValidator
+from quivers.qiec.identifiers import HandlerId
 from quivers.qiec.module import NamedEffectInstance
 from quivers.qiec.types import TypeExpr
 
@@ -112,6 +113,9 @@ class RunContext:
         name, as the parameter store answers them.
     observations
         The run's observations at declared sites, by site label.
+    supplied
+        Values standing in for let bindings, by name, which their steps
+        read rather than compute.
     """
 
     kernel: ProgramKernel
@@ -121,6 +125,7 @@ class RunContext:
     annotations: dict[str, dict[str, object]] = field(default_factory=dict)
     parameters: dict[str, torch.Tensor] = field(default_factory=dict)
     observations: dict[str, torch.Tensor] = field(default_factory=dict)
+    supplied: dict[str, torch.Tensor] = field(default_factory=dict)
 
     @property
     def result_type(self) -> TypeExpr:
@@ -179,14 +184,17 @@ class Installation:
     def named(self, name: str) -> Installation:
         """The installation with its handler declared under a name.
 
-        A module's handler names are unique, while the prelude factories
-        name every handler of a kind alike; a run renames each
-        installation it makes.
+        A module's handler names and identities are unique, while the
+        prelude factories name every handler of a kind alike and derive
+        its identity from the stack entry that made it; a run renames
+        each installation it makes and derives its identity from the
+        name, so two runs installing the same kinds of handler in the
+        same order build the same module.
 
         Parameters
         ----------
         name : str
-            The declaration's name.
+            The declaration's name, unique within the run.
 
         Returns
         -------
@@ -194,7 +202,11 @@ class Installation:
             The installation with the renamed declaration, the rename
             carried into any per-installation factory the handler has.
         """
-        definition = replace(self.runtime.definition, name=name)
+        definition = replace(
+            self.runtime.definition,
+            id=HandlerId.derive("run", name),
+            name=name,
+        )
         runtime = replace(self.runtime, definition=definition)
         factory = self.runtime.context_factory
         if factory is not None:

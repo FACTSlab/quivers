@@ -70,14 +70,27 @@ def main() -> int:
 
     run = sub.add_parser(
         "run",
-        help="Execute one named QIEC computation.",
+        help="Execute one entry point: a `define` computation or a `program`.",
     )
     run.add_argument("file", help="Path to the .qvr source file.")
-    run.add_argument("computation", help="Named `define` computation to execute.")
+    run.add_argument(
+        "computation",
+        nargs="?",
+        default=None,
+        help=(
+            "Entry point to execute: a `define` computation or a `program`. "
+            "Omit it, or pass --list, to list the file's entry points."
+        ),
+    )
     run.add_argument(
         "arguments",
         nargs="*",
         help="Value arguments as JSON literals, in declaration order.",
+    )
+    run.add_argument(
+        "--list",
+        action="store_true",
+        help="List the file's entry points with their signatures and exit.",
     )
     run.add_argument(
         "--static",
@@ -85,6 +98,33 @@ def main() -> int:
         default=[],
         metavar="NAME=TERM",
         help="Closed static specialization; repeat once per telescope binder.",
+    )
+    run.add_argument(
+        "--data",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help=(
+            "A program parameter by name (its data, an observation, a "
+            "fibration, or a scalar); repeatable."
+        ),
+    )
+    run.add_argument(
+        "--site",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help=(
+            "Condition a program's sample site on a value; every other site "
+            "is drawn. Repeatable."
+        ),
+    )
+    run.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Seed the reference generator a program run draws with.",
     )
     run.add_argument(
         "--runtime",

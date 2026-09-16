@@ -50,6 +50,8 @@ from quivers.dsl.qiec_lowering import (
     non_qiec_projection,
 )
 from quivers.qiec import QiecModule
+from quivers.qiec.entries import EntryPoint, entry_point, entry_points
+from quivers.qiec.execution import ExecutionDiagnostic, ExecutionFailure
 
 
 class Compiler(
@@ -230,6 +232,50 @@ class Compiler(
         if self._qiec_source is not None and self._qiec_module is None:
             self._qiec_module = self._lower_qiec(self._qiec_source)
         return self._qiec_module
+
+    def entry_points(self) -> tuple[EntryPoint, ...]:
+        """The executable entry points of the checked module.
+
+        Returns
+        -------
+        tuple[EntryPoint, ...]
+            Every ``program`` and ``define`` computation, in declaration
+            order; empty when the source has no checked module.
+        """
+        module = self.qiec_module
+        if module is None:
+            return ()
+        return entry_points(module)
+
+    def entry(self, name: str) -> EntryPoint:
+        """One entry point of the checked module, by name.
+
+        Parameters
+        ----------
+        name : str
+            The entry's source name.
+
+        Returns
+        -------
+        EntryPoint
+            The entry.
+
+        Raises
+        ------
+        ExecutionFailure
+            With code ``qiec-run-module`` if the source has no checked
+            module, or ``qiec-run-computation`` for an unknown name.
+        """
+        module = self.qiec_module
+        if module is None:
+            raise ExecutionFailure(
+                ExecutionDiagnostic(
+                    "qiec-run-module",
+                    "the source has no checked module and no entry points",
+                    name,
+                )
+            )
+        return entry_point(module, name)
 
     def _lower_qiec(self, module: Module) -> QiecModule:
         """Lower the source's QIEC surface to a checked module.

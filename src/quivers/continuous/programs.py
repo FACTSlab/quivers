@@ -49,13 +49,13 @@ PDS-style nested programs::
 
 from __future__ import annotations
 
-
-import collections.abc
+from collections.abc import Mapping
+from typing import Protocol, cast
 
 import torch
-from typing import cast
 
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
+from quivers.continuous.program_steps import _LetSpec, _ScoreSpec, _StepSpec
 
 
 def _lookup_arg(
@@ -99,96 +99,101 @@ def _lookup_arg(
     raise KeyError(arg)
 
 
-class _StepSpec:
-    """Metadata record for a single draw step.
+class ProgramEvaluator(Protocol):
+    """What runs a program: the reference machine under the handler stack.
 
-    Parameters
-    ----------
-    vars : tuple[str, ...]
-        Bound variable name(s). Single-element for simple binding,
-        multi-element for destructuring.
-    morphism_name : str
-        Key into the program's morphism module dict.
-    args : tuple[str, ...] or None
-        Names of bound variables to use as input (stacked along
-        feature dim), or None for the program input.
+    The evaluator lives in `quivers.effects`, which builds on programs;
+    it installs itself here when imported, so a program's own methods
+    reach it without the program package depending on the effects
+    package at import.
     """
 
-    __slots__ = ("vars", "morphism_name", "args", "is_observed", "is_marginalized")
-
-    def __init__(
+    def sample_program(
         self,
-        vars: tuple[str, ...],
-        morphism_name: str,
-        args: tuple[str, ...] | None,
-        is_observed: bool = False,
-        is_marginalized: bool = False,
-    ) -> None:
-        self.vars: tuple[str, ...] = vars
-        self.morphism_name: str = morphism_name
-        self.args: tuple[str, ...] | None = args
-        self.is_observed: bool = is_observed
-        # When True, the variable bound by this step is fully
-        # integrated out by a subsequent `_ScoreSpec`
-        # (a marginalize block's runtime callable). It must NOT be
-        # surfaced as a latent to inference algorithms: the guide
-        # cannot reparameterize it (the support is typically
-        # discrete) and the marginalize already accounts for its
-        # density contribution in the score step.
-        self.is_marginalized: bool = is_marginalized
+        program: MonadicProgram,
+        x: torch.Tensor,
+        sample_shape: torch.Size,
+        observations: Mapping[str, torch.Tensor] | None,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
+        """Run the program forward.
 
+        Parameters
+        ----------
+        program : MonadicProgram
+            The program.
+        x : torch.Tensor
+            Program input.
+        sample_shape : torch.Size
+            Leading sample dimensions.
+        observations : Mapping[str, torch.Tensor] or None
+            Values to clamp observed variables to, and host data.
 
-class _LetSpec:
-    """Metadata for a deterministic let binding (no morphism).
+        Returns
+        -------
+        torch.Tensor or dict[str, torch.Tensor]
+            The program's return value.
+        """
+        ...
 
-    Parameters
-    ----------
-    var : str
-        Variable name to bind.
-    value : float, str, or callable
-        Constant literal (float), name of a bound variable to
-        alias (str), or a callable that computes the value from
-        the environment dict.
-    """
-
-    __slots__ = ("var", "value")
-
-    def __init__(
-        self, var: str, value: float | str | collections.abc.Callable[..., torch.Tensor]
-    ) -> None:
-        self.var = var
-        self.value = value
-
-
-class _ScoreSpec:
-    """Metadata for a step whose callable contributes to log_joint.
-
-    Used for marginalize blocks: the callable computes a log-density
-    contribution (the marginal log-likelihood obtained by summing the
-    body's per-latent-value scores against the categorical prior).
-    The callable's return value is both stored in ``env[var]`` for
-    later reference and added to ``total`` in ``log_joint``. Under
-    ``rsample`` it behaves like a let binding (its result is stored;
-    nothing is scored).
-
-    Parameters
-    ----------
-    var : str
-        Variable name to bind the callable's return value to.
-    score : callable
-        ``score(env) -> torch.Tensor`` of shape ``(batch,)``: the
-        per-sample log-density contribution.
-    """
-
-    __slots__ = ("var", "score")
-
-    def __init__(
+    def log_joint(
         self,
-        var: str,
-        score: collections.abc.Callable[..., torch.Tensor],
-    ) -> None:
-        self.var = var
-        self.score = score
+        program: MonadicProgram,
+        x: torch.Tensor,
+        intermediates: Mapping[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """Score the program at values for all of its draws.
+
+        Parameters
+        ----------
+        program : MonadicProgram
+            The program.
+        x : torch.Tensor
+            Program input.
+        intermediates : Mapping[str, torch.Tensor]
+            A value for every draw, and host data.
+
+        Returns
+        -------
+        torch.Tensor
+            The joint log density.
+        """
+        ...
+
+
+_EVALUATOR: ProgramEvaluator | None = None
+
+
+def install_evaluator(evaluator: ProgramEvaluator) -> None:
+    """Install the evaluator every program's methods run through.
+
+    Parameters
+    ----------
+    evaluator : ProgramEvaluator
+        The evaluator.
+    """
+    global _EVALUATOR
+    _EVALUATOR = evaluator
+
+
+def _evaluator() -> ProgramEvaluator:
+    """The installed evaluator.
+
+    Returns
+    -------
+    ProgramEvaluator
+        The evaluator `quivers.effects` installed.
+
+    Raises
+    ------
+    RuntimeError
+        If `quivers.effects` has not been imported.
+    """
+    if _EVALUATOR is None:
+        raise RuntimeError(
+            "no program evaluator is installed; import `quivers.effects`, "
+            "whose interpreter runs programs on the reference machine"
+        )
+    return _EVALUATOR
 
 
 class MonadicProgram(ContinuousMorphism):
@@ -604,20 +609,20 @@ class MonadicProgram(ContinuousMorphism):
     ) -> torch.Tensor | dict[str, torch.Tensor]:
         """Run the program forward, returning the designated output(s).
 
-        Each draw step is executed in order. Steps that reference
-        the program input use ``x`` directly; steps that reference
-        bound variables use those variables' sampled values.
+        The program runs on the reference machine under the active
+        handler stack, so a `clamp`, `do`, or `trace` in scope applies
+        to the draws the run makes.
 
         Parameters
         ----------
         x : torch.Tensor
             Program input.
         sample_shape : torch.Size
-            Additional leading sample dimensions (applied to the
-            first draw only; subsequent draws inherit the shape).
+            Additional leading sample dimensions; each element is one
+            independent run of the program.
         observations : dict[str, torch.Tensor] or None
-            Values to clamp observed variables to. Keys are variable
-            names, values are tensors of the appropriate shape.
+            Values to clamp observed variables to, keyed by variable
+            name, together with any host data the steps read by name.
 
         Returns
         -------
@@ -626,137 +631,7 @@ class MonadicProgram(ContinuousMorphism):
             for single-variable returns, or a dict keyed by variable
             name for tuple returns.
         """
-        if observations is None:
-            observations = {}
-
-        env: dict[str, torch.Tensor] = {}
-        # Reserved synthetic key: compiler-emitted let-callables that
-        # need the program input (e.g. captured observes inside a
-        # grouped marginalize block) read ``env["_x_input"]``.
-        env["_x_input"] = x
-
-        # pre-populate env with named params (split product input)
-        if self._params is not None and self._param_dims is not None:
-            splits = torch.split(x, self._param_dims, dim=-1)
-
-            assert self._param_is_continuous is not None
-            for pname, chunk, is_cont in zip(
-                self._params, splits, self._param_is_continuous
-            ):
-                # only squeeze discrete components (continuous dim=1 should stay 2D)
-                if not is_cont and chunk.shape[-1] == 1:
-                    env[pname] = chunk.squeeze(-1)
-
-                else:
-                    env[pname] = chunk
-
-        for i, spec in enumerate(self._step_specs):
-            if isinstance(spec, _ScoreSpec):
-                # forward path: bind the score callable's result like a
-                # let, score contribution is only meaningful for log_joint.
-                env[spec.var] = cast(torch.Tensor, spec.score(env))
-                continue
-
-            if isinstance(spec, _LetSpec):
-                # deterministic binding: constant, alias, or expression
-                if isinstance(spec.value, str):
-                    env[spec.var] = env[spec.value]
-
-                elif callable(spec.value):
-                    env[spec.var] = cast(torch.Tensor, spec.value(env))
-
-                else:
-                    env[spec.var] = torch.full(
-                        (x.shape[0],),
-                        spec.value,
-                        device=x.device,
-                    )
-
-                continue
-
-            assert self._modules[spec.morphism_name] is not None
-            bound = self._modules[spec.morphism_name]
-            inp = self._resolve_input(spec, x, env)
-
-            # A bound module may be either a ContinuousMorphism
-            # (probabilistic; has rsample / log_prob) or the wrapper
-            # produced by `as_torch_module` around a V-Cat
-            # `Morphism` (deterministic; has ``_morphism``
-            # attached). The deterministic path materialises the
-            # morphism's tensor and contracts it against the input,
-            # binding the result like a let-step.
-            from quivers.core.morphisms import (
-                extract_morphism,
-            )
-
-            cat_morph = extract_morphism(bound)
-            if cat_morph is not None and not isinstance(bound, ContinuousMorphism):
-                value = self._apply_categorical_morphism(cat_morph, inp, x.shape[0])
-                self._bind_result(spec, value, env)
-                continue
-            morph = cast(ContinuousMorphism, bound)
-
-            # check if any vars in this step are observed
-            if len(spec.vars) == 1:
-                var_name = spec.vars[0]
-
-                if spec.is_observed and var_name in observations:
-                    # clamp to observed value
-                    env[var_name] = observations[var_name]
-                    continue
-
-            else:
-                # destructuring: if observed vars are present, clamp them
-                any_clamped = False
-
-                for v in spec.vars:
-                    if spec.is_observed and v in observations:
-                        env[v] = observations[v]
-                        any_clamped = True
-
-                if any_clamped:
-                    # for partially observed destructuring, sample the rest
-                    all_clamped = all(v in observations for v in spec.vars)
-
-                    if not all_clamped:
-                        result = morph.rsample(inp)
-                        # only bind un-clamped vars
-                        if isinstance(result, dict):
-                            result_dict = cast(dict[str, torch.Tensor], result)
-                            for v in spec.vars:
-                                if v not in observations:
-                                    env[v] = result_dict[v]
-
-                        else:
-                            dims = self._compute_component_dims(morph.codomain)
-                            splits = torch.split(result, dims, dim=-1)
-
-                            for v, chunk in zip(spec.vars, splits):
-                                if v not in observations:
-                                    env[v] = (
-                                        chunk.squeeze(-1)
-                                        if chunk.shape[-1] == 1
-                                        else chunk
-                                    )
-
-                    continue
-
-            # only apply sample_shape to the first draw from input
-            if i == 0 and spec.args is None and len(sample_shape) > 0:
-                result = morph.rsample(inp, sample_shape)
-
-            else:
-                result = morph.rsample(inp)
-
-            self._bind_result(spec, result, env)
-
-        # return
-        if self._return_is_single:
-            return env[self._return_vars[0]]
-
-        # use labels as keys if available, otherwise variable names
-        keys = self._return_labels if self._return_labels else self._return_vars
-        return {k: env[v] for k, v in zip(keys, self._return_vars)}
+        return _evaluator().sample_program(self, x, sample_shape, observations)
 
     def _apply_categorical_morphism(
         self,
@@ -856,11 +731,10 @@ class MonadicProgram(ContinuousMorphism):
             log p(x_1, ..., x_n | input) = sum_i log p(x_i | pa(x_i))
 
         where pa(x_i) is the parent variable of step i (either the
-        program input or a previously drawn variable).
-
-        For destructuring draw steps (tuple-returning sub-programs),
-        the intermediates dict should contain entries for each
-        individual variable name.
+        program input or a previously drawn variable). The program
+        runs on the reference machine with every draw conditioned on
+        its given value, under the active handler stack, so the joint
+        is the one [`trace`][quivers.inference.trace.trace] reports.
 
         Parameters
         ----------
@@ -868,105 +742,20 @@ class MonadicProgram(ContinuousMorphism):
             Program input.
         intermediates : dict[str, torch.Tensor]
             Values for ALL bound variables (keyed by variable name
-            or by return label if labels are set).
+            or by return label if labels are set), together with any
+            host data the steps read by name.
 
         Returns
         -------
         torch.Tensor
             Joint log-density. Shape (batch,).
+
+        Raises
+        ------
+        KeyError
+            If a draw the program makes is given no value.
         """
-        total = torch.zeros(x.shape[0], device=x.device)
-
-        # if labels are used, map label keys back to variable names
-        env = dict(intermediates)
-        # Reserved synthetic key: compiler-emitted let-callables that
-        # need the program input (e.g. captured observes inside a
-        # grouped marginalize block when the family takes the program
-        # input directly) read ``env["_x_input"]``.
-        env["_x_input"] = x
-
-        if self._return_labels:
-            for label, var in zip(self._return_labels, self._return_vars):
-                if label in env and var not in env:
-                    env[var] = env[label]
-
-        if self._params is not None and self._param_dims is not None:
-            splits = torch.split(x, self._param_dims, dim=-1)
-
-            assert self._param_is_continuous is not None
-            for pname, chunk, is_cont in zip(
-                self._params, splits, self._param_is_continuous
-            ):
-                if pname not in env:
-                    if not is_cont and chunk.shape[-1] == 1:
-                        env[pname] = chunk.squeeze(-1)
-
-                    else:
-                        env[pname] = chunk
-
-        for spec in self._step_specs:
-            if isinstance(spec, _ScoreSpec):
-                # Score step (e.g. compiled marginalize): the callable
-                # returns a (batch,)-shaped log-density contribution
-                # that is both bound to env (for any later step that
-                # references it) and added to the joint.
-                val = cast(torch.Tensor, spec.score(env))
-                env[spec.var] = val
-                total = total + val
-                continue
-
-            if isinstance(spec, _LetSpec):
-                # deterministic binding: populate env, contribute 0
-                if spec.var not in env:
-                    if isinstance(spec.value, str):
-                        env[spec.var] = env[spec.value]
-
-                    elif callable(spec.value):
-                        env[spec.var] = cast(torch.Tensor, spec.value(env))
-
-                    else:
-                        env[spec.var] = torch.full(
-                            (x.shape[0],),
-                            spec.value,
-                            device=x.device,
-                        )
-
-                continue
-
-            assert self._modules[spec.morphism_name] is not None
-            morph = cast(ContinuousMorphism, self._modules[spec.morphism_name])
-            inp = self._resolve_input(spec, x, env)
-
-            if len(spec.vars) == 1:
-                val = env[spec.vars[0]]
-                total = total + morph.log_prob(inp, val)
-
-            else:
-                # destructuring step: if sub-program, call its log_joint
-                # with the individual intermediate values
-                if hasattr(morph, "log_joint") and hasattr(morph, "_return_vars"):
-                    # reconstruct the sub-program's intermediates from
-                    # the overall intermediates dict
-                    sub_morph = cast(MonadicProgram, morph)
-                    sub_intermediates = {}
-
-                    for sub_spec in sub_morph._step_specs:
-                        if isinstance(sub_spec, (_LetSpec, _ScoreSpec)):
-                            continue
-
-                        for sv in sub_spec.vars:
-                            if sv in env:
-                                sub_intermediates[sv] = env[sv]
-
-                    total = total + sub_morph.log_joint(inp, sub_intermediates)
-
-                else:
-                    # product-codomain morphism: reconstruct stacked output
-                    parts = [env[v] for v in spec.vars]
-                    val = self._stack_tensors(parts)
-                    total = total + morph.log_prob(inp, val)
-
-        return total
+        return _evaluator().log_joint(self, x, intermediates)
 
     def __repr__(self) -> str:
         parts = []

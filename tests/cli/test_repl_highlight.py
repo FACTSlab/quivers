@@ -8,7 +8,6 @@ prompt_toolkit lexer, and the LSP semantic-tokens encoder all consume.
 
 from __future__ import annotations
 
-import pytest
 from pygments.token import Name
 
 from quivers.cli.repl_highlight import (
@@ -18,6 +17,7 @@ from quivers.cli.repl_highlight import (
     to_semantic_token_data,
     to_semantic_token_legend,
     tokenize,
+    to_rich_text,
 )
 from quivers.dsl.pygments_lexer import QvrLexer
 
@@ -129,9 +129,6 @@ def test_unicode_offsets_match_pygments_and_lsp_coordinate_systems() -> None:
 
 
 def test_to_rich_text_smoke() -> None:
-    pytest.importorskip("rich")
-    from quivers.cli.repl_highlight import to_rich_text
-
     rt = to_rich_text("object X : FinSet 3")
     # Renders without raising; carries the source verbatim.
     plain = rt.plain
@@ -140,9 +137,6 @@ def test_to_rich_text_smoke() -> None:
 
 
 def test_link_action_wraps_identifiers() -> None:
-    pytest.importorskip("rich")
-    from quivers.cli.repl_highlight import to_rich_text
-
     rt = to_rich_text(
         "f X",
         env_kinds={"f": "function", "X": "type"},

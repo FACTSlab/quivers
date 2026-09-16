@@ -25,9 +25,29 @@ import shutil
 import subprocess
 
 
+#: Whether the daemon has answered once this process; a daemon that has
+#: answered is not asked again, so a slow `docker info` under the load of
+#: the probe containers cannot read as an absent daemon mid-session.
+_DAEMON_ANSWERED = False
+
+#: The image tags found present this process; an image does not vanish
+#: mid-session, so a slow `docker images` under load cannot read as an
+#: absent image once the image has been seen.
+_IMAGES_SEEN: set[str] = set()
+
+
 def docker_available() -> bool:
-    """True iff the `docker` CLI is on PATH and the daemon answers
-    `docker info` in under three seconds."""
+    """True iff the `docker` CLI is on PATH and the daemon answers `docker info`.
+
+    Returns
+    -------
+    bool
+        Whether the daemon is reachable; once it has answered, True for
+        the rest of the process.
+    """
+    global _DAEMON_ANSWERED
+    if _DAEMON_ANSWERED:
+        return True
     if shutil.which("docker") is None:
         return False
     try:
@@ -35,16 +55,16 @@ def docker_available() -> bool:
             ["docker", "info", "--format", "{{.ServerVersion}}"],
             capture_output=True,
             text=True,
-            timeout=3,
+            timeout=60,
         )
     except subprocess.TimeoutExpired, OSError:
         return False
-    return completed.returncode == 0
+    _DAEMON_ANSWERED = completed.returncode == 0
+    return _DAEMON_ANSWERED
 
 
 def image_available(tag: str) -> bool:
-    """True iff a Docker image matching ``tag`` is built or pulled
-    locally.
+    """True iff a Docker image matching ``tag`` is built or pulled locally.
 
     Uses ``docker images --filter reference=<tag>`` rather than
     ``docker image inspect`` because Docker Desktop 28+ has a daemon
@@ -53,24 +73,43 @@ def image_available(tag: str) -> bool:
     images`` lists the image. The filter-form query goes through a
     different daemon path and reliably returns the image when it
     exists.
+
+    Parameters
+    ----------
+    tag : str
+        The image tag.
+
+    Returns
+    -------
+    bool
+        Whether the image is present; once seen, True for the rest of
+        the process.
     """
+    if tag in _IMAGES_SEEN:
+        return True
     if not docker_available():
         return False
-    completed = subprocess.run(
-        [
-            "docker",
-            "images",
-            "--filter",
-            f"reference={tag}",
-            "--format",
-            "{{.ID}}",
-        ],
-        capture_output=True,
-        timeout=10,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "images",
+                "--filter",
+                f"reference={tag}",
+                "--format",
+                "{{.ID}}",
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired, OSError:
+        return False
     if completed.returncode != 0:
         return False
-    return bool(completed.stdout.strip())
+    present = bool(completed.stdout.strip())
+    if present:
+        _IMAGES_SEEN.add(tag)
+    return present
 
 
 #: Environment variable naming the directory that holds memoised probe

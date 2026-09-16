@@ -37,6 +37,7 @@ import torch.nn as nn
 from torch.distributions import constraints as _constraints
 
 from quivers.continuous.inline import FixedDistribution
+from quivers.continuous.program_steps import reading
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import Unit
@@ -309,7 +310,9 @@ def bayesian_lift_parameters(
                 out[b] = ll_b - placeholder_log_prior
         return out
 
-    steps.append((("log_lik",), None, _score_fn, True))
+    steps.append(
+        (("log_lik",), None, reading(_score_fn, [*param_sites, *latent_sites]), True)
+    )
     lifted = MonadicProgram(
         domain=Unit,
         codomain=Unit,

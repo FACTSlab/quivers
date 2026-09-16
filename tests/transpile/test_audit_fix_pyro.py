@@ -43,6 +43,11 @@ import pathlib
 
 import pytest
 
+import pyro
+import torch
+from scipy.stats import invwishart
+
+from quivers.transpile import runtime_pyro as runtime
 from quivers.dsl.parser import parse
 from quivers.transpile import transpile
 
@@ -211,9 +216,6 @@ def test_inversewishart_emitted_density_matches_reference() -> None:
     form density in the constrained coordinates, so no change of
     variables and no Jacobian correction enters `log_prob`.
     """
-    pyro = pytest.importorskip("pyro")
-    torch = pytest.importorskip("torch")
-    invwishart = pytest.importorskip("scipy.stats").invwishart
     text, _ = _emit(_INVERSEWISHART_SOURCE)
     namespace: dict[str, object] = {"pyro": pyro, "torch": torch}
     exec(text, namespace)  # noqa: S102 - emitted source under test
@@ -243,8 +245,6 @@ def test_inversewishart_sampler_mean_matches_theory() -> None:
     empirical mean of many draws approaches ``Psi / (nu - d - 1)``,
     confirming the Wishart-inverse construction is the right law.
     """
-    torch = pytest.importorskip("torch")
-    runtime = pytest.importorskip("quivers.transpile.runtime_pyro")
     torch.manual_seed(0)
     scale_tril = torch.tensor([list(row) for row in _INVERSEWISHART_SCALE_TRIL])
     scale = scale_tril @ scale_tril.transpose(-1, -2)
@@ -287,8 +287,6 @@ def test_emitted_model_executes(source: str) -> None:
     """The emitted Pyro model runs end-to-end under a `{pyro, torch}`
     namespace: the grafted helpers and the LKJ dimension arg are not
     merely well-formed text but a runnable program."""
-    pyro = pytest.importorskip("pyro")
-    torch = pytest.importorskip("torch")
     text, _ = _emit(source)
     namespace: dict[str, object] = {"pyro": pyro, "torch": torch}
     exec(text, namespace)  # noqa: S102 - emitted source under test

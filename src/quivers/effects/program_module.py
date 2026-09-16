@@ -5,8 +5,10 @@ morphism at an input built from earlier bindings, a deterministic binding
 computed by a host closure, or a score contributed by one. The kernel has
 no term for a host function, and does not need one: each step's host part
 is an instance of the prelude's ``Compute`` interface, performed on the
-environment of every value bound so far, and each draw is the canonical
-``Random.sample`` request on the sampleable the host part returns.
+values it reads (the arguments of a draw, the names a closure declares,
+or every value bound so far when it declares none), and each draw is the
+canonical ``Random.sample`` request on the sampleable the host part
+returns.
 
 The computation this module builds therefore makes the program's data flow
 and effect structure explicit while every tensor operation stays in the
@@ -18,16 +20,23 @@ compose by the kernel's own rules.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from quivers.continuous.programs import (
-    MonadicProgram,
+from quivers.continuous.program_steps import (
     _LetSpec,
     _ScoreSpec,
     _StepSpec,
+    reads_of,
 )
+
+if TYPE_CHECKING:
+    from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.spaces import ContinuousSpace, ProductSpace
+from quivers.core.morphisms import extract_morphism
 from quivers.core.objects import SetObject
 from quivers.qiec.builtins import (
     COMPUTE,
@@ -107,9 +116,10 @@ class HostStep:
         The applied ``Compute[X, A]`` interface of the instance.
     kind
         ``"input"`` for the program's parameter split, ``"draw"`` for a
-        morphism applied to its input, ``"bind"`` for a destructuring
-        split, ``"let"`` for a deterministic binding, ``"score"`` for a
-        scored binding.
+        morphism applied to its input, ``"apply"`` for a categorical
+        morphism's tensor contracted against its input, ``"bind"`` for
+        a destructuring split, ``"let"`` for a deterministic binding,
+        ``"score"`` for a scored binding.
     spec
         The program's step record, or ``None`` for the input split.
     environment
@@ -215,6 +225,59 @@ def _origin(path: tuple[str | int, ...], role: str, module: str) -> SourceOrigin
     return SourceOrigin(module, path, role, SOURCE_PROTOCOL)
 
 
+def _arg_reads(args: tuple[object, ...] | None) -> tuple[str, ...]:
+    """The environment names a draw's arguments read.
+
+    Parameters
+    ----------
+    args : tuple[object, ...] | None
+        The draw's arguments: bound names, indexed references, or
+        ``None`` for the program input.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The names read, the program input's included when the draw
+        takes it.
+    """
+    if args is None:
+        return (INPUT_NAME,)
+    names: list[str] = []
+    for arg in args:
+        if isinstance(arg, str):
+            names.append(arg)
+        elif getattr(arg, "kind", None) == "index":
+            names.append(getattr(arg, "name"))
+            names.extend(getattr(arg, "indices"))
+        else:
+            text = getattr(arg, "text", None)
+            if isinstance(text, str):
+                names.append(text)
+    return tuple(names)
+
+
+def _let_reads(spec: _LetSpec) -> tuple[str, ...] | None:
+    """The environment names a let step reads.
+
+    Parameters
+    ----------
+    spec : _LetSpec
+        The step.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        The aliased name, nothing for a constant, a closure's declared
+        names, or ``None`` when the closure declares none.
+    """
+    if isinstance(spec.value, str):
+        return (spec.value,)
+    if callable(spec.value):
+        names = reads_of(spec.value)
+        return None if names is None else tuple(sorted(names))
+    return ()
+
+
 def _step_sites(spec: _StepSpec) -> str:
     """The site label of a draw step.
 
@@ -270,6 +333,8 @@ class _Builder:
         self.sites: list[str] = []
         self.site_types: dict[str, TypeExpr] = {}
         self.locals: dict[str, Local] = {}
+        # How many names have been rebound, which keeps rebound locals apart.
+        self.rebinds = 0
         self.order: list[str] = []
         self.binds: list[tuple[Local, Computation]] = []
         self.random = self._instance(RANDOM_INSTANCE, RANDOM)
@@ -317,21 +382,42 @@ class _Builder:
         Local
             The local.
         """
-        local = Local(name, type_)
+        # A step may rebind a name the program bound before, as a
+        # nested marginalize block does for its placeholder lets; the
+        # kernel local is then fresh, and the host environment reads
+        # the name's latest binding.
+        rebound = name in self.locals
+        local = Local(f"{name}#{self.rebinds}" if rebound else name, type_)
+        if rebound:
+            self.rebinds += 1
+        else:
+            self.order.append(name)
         self.locals[name] = local
-        self.order.append(name)
         self.binds.append((local, computation))
         return local
 
-    def _environment(self) -> tuple[tuple[str, ...], TupleValue, TypeExpr]:
-        """The tuple of every local bound so far.
+    def _environment(
+        self, reads: Sequence[str] | None
+    ) -> tuple[tuple[str, ...], TupleValue, TypeExpr]:
+        """The tuple of the locals a step reads.
+
+        Parameters
+        ----------
+        reads : Sequence[str] | None
+            The names the step reads, of which those bound so far are
+            passed in binding order; ``None`` passes every local bound
+            so far.
 
         Returns
         -------
         tuple[tuple[str, ...], TupleValue, TypeExpr]
             The local names in order, the tuple value, and its type.
         """
-        names = tuple(self.order)
+        if reads is None:
+            names = tuple(self.order)
+        else:
+            wanted = set(reads)
+            names = tuple(name for name in self.order if name in wanted)
         locals_ = [self.locals[name] for name in names]
         value = TupleValue(
             tuple(Var(local) for local in locals_),
@@ -346,6 +432,7 @@ class _Builder:
         spec: _StepSpec | _LetSpec | _ScoreSpec | None,
         answer_type: TypeExpr,
         site: str | None = None,
+        reads: Sequence[str] | None = None,
     ) -> Local:
         """Add a host step and bind its result.
 
@@ -361,13 +448,16 @@ class _Builder:
             The type the host part returns.
         site : str | None
             The site label of a draw step.
+        reads : Sequence[str] | None
+            The names the step reads, or ``None`` for every local bound
+            so far.
 
         Returns
         -------
         Local
             The bound result.
         """
-        environment_names, environment, environment_type = self._environment()
+        environment_names, environment, environment_type = self._environment(reads)
         effect = EffectRef(COMPUTE.id, COMPUTE.name, (environment_type, answer_type))
         position = len(self.steps)
         instance = self._instance(f"step_{position}", effect)
@@ -472,7 +562,9 @@ class _Builder:
             components = tuple(
                 self._component_type(index) for index in range(len(program._params))
             )
-            split = self._host("__params", "input", None, product_type(*components))
+            split = self._host(
+                "__params", "input", None, product_type(*components), reads=()
+            )
             for index, name in enumerate(program._params):
                 self._bind(
                     name,
@@ -481,9 +573,11 @@ class _Builder:
                 )
         for position, spec in enumerate(program._step_specs):
             if isinstance(spec, _LetSpec):
-                self._host(spec.var, "let", spec, REAL)
+                self._host(spec.var, "let", spec, REAL, reads=_let_reads(spec))
             elif isinstance(spec, _ScoreSpec):
-                weight = self._host(spec.var, "score", spec, LOG_WEIGHT)
+                weight = self._host(
+                    spec.var, "score", spec, LOG_WEIGHT, reads=reads_of(spec.score)
+                )
                 self._add_score(weight, position)
             else:
                 self._draw(spec)
@@ -559,15 +653,27 @@ class _Builder:
         """
         morphism = self.program._modules[spec.morphism_name]
         assert morphism is not None
+        label = _step_sites(spec)
+        reads = _arg_reads(spec.args)
+        categorical = extract_morphism(morphism)
+        if categorical is not None and not isinstance(morphism, ContinuousMorphism):
+            # A categorical morphism is deterministic: its tensor is
+            # contracted against the input, and the result is bound
+            # like a let.
+            shape = tuple(
+                IndexLiteral(int(extent), NAT) for extent in categorical.codomain.shape
+            )
+            self._host(label, "apply", spec, tensor_type(REAL, shape), reads=reads)
+            return
         codomain = getattr(morphism, "codomain")
         type_ = space_type(codomain)
-        label = _step_sites(spec)
         sampleable = self._host(
             f"__sampleable_{label}",
             "draw",
             spec,
             sampleable_type(type_),
             site=label,
+            reads=reads,
         )
         drawn = self._sample(label, sampleable, type_)
         if len(spec.vars) > 1:
@@ -576,6 +682,7 @@ class _Builder:
                 "bind",
                 spec,
                 product_type(*(REAL for _ in spec.vars)),
+                reads=(label,),
             )
             for index, name in enumerate(spec.vars):
                 self._bind(name, REAL, Return(Projection(Var(parts), index, REAL)))

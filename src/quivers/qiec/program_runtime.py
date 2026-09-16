@@ -29,6 +29,7 @@ from quivers.qiec.execution import (
     ExecutionResult,
     RuntimeConfiguration,
     RuntimeSelection,
+    TraceObserver,
     run_named,
 )
 from quivers.qiec.evaluator import RuntimeConstructor
@@ -62,6 +63,8 @@ from quivers.qiec.types import (
 
 #: The names of the wrapper's handlers, which no source may declare.
 REPLAY_HANDLER = "__program_replay"
+CONDITION_HANDLER = "__program_condition"
+DRAW_HANDLER = "__program_draw"
 ACCUMULATE_HANDLER = "__program_accumulate"
 PARAMS_HANDLER = "__program_params"
 
@@ -192,6 +195,63 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     KeyError
         If the module has no such program.
     """
+    return _wrapped_module(module, name, sampling=False)
+
+
+def sample_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
+    """Extend a module with a computation running one program forward.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper computation's name. The
+        wrapper takes the program's parameters, handles its ``random``
+        instance with a conditioning replay of the given sites inside a
+        scoring draw of every other site, its ``score`` instance with an
+        accumulating handler, and returns the program's value paired
+        with the accumulated log weight: the log joint of the draws it
+        made and the sites it was given.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program.
+    """
+    return _wrapped_module(module, name, sampling=True)
+
+
+def _wrapped_module(
+    module: QiecModule, name: str, *, sampling: bool
+) -> tuple[QiecModule, str]:
+    """Extend a module with a wrapper handling one program's instances.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+    sampling : bool
+        Whether the wrapper draws the sites it is not given (a forward
+        run) or requires every site (a replay scoring the log joint).
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper computation's name.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program.
+    """
     entry = program_entry(module, name)
     computation = _computation(module, entry.computation)
     answer: TypeExpr = computation.type.result
@@ -210,18 +270,36 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         for instance in module.instances
         if instance.entry.instance == entry.score_instance
     )
-    replay = HandlerDef(
-        HandlerId.derive(module.module, "handler", REPLAY_HANDLER),
-        REPLAY_HANDLER,
-        random.entry.effect,
-        (HandlerClauseDef(RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
-        answer,
-        answer,
-        EffectRow((score.entry,)),
-        total=True,
-        implementation="foreign",
-        telescope=computation.telescope,
-    )
+    role = "sample" if sampling else "joint"
+
+    def random_handler(handler_name: str, total: bool) -> HandlerDef:
+        """A handler of the program's ``random`` instance.
+
+        Parameters
+        ----------
+        handler_name : str
+            The wrapper handler's name.
+        total : bool
+            Whether the handler answers every sample request.
+
+        Returns
+        -------
+        HandlerDef
+            The declaration, scoring into the ``score`` instance.
+        """
+        return HandlerDef(
+            HandlerId.derive(module.module, "handler", handler_name),
+            handler_name,
+            random.entry.effect,
+            (HandlerClauseDef(RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+            answer,
+            answer,
+            EffectRow((score.entry,)),
+            total=total,
+            implementation="foreign",
+            telescope=computation.telescope,
+        )
+
     accumulate = HandlerDef(
         HandlerId.derive(module.module, "handler", ACCUMULATE_HANDLER),
         ACCUMULATE_HANDLER,
@@ -247,7 +325,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         computation.type.effects,
         SourceOrigin(
             module.module,
-            ("programs", name, "joint", "call"),
+            ("programs", name, role, "call"),
             "call",
             module.source_protocol,
         ),
@@ -256,10 +334,18 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
     handlers: list[HandlerDef] = []
     body: Computation = call
     if random.entry.instance in performed:
-        # Replaying a draw scores its density, so a replayed program
-        # always has scores to accumulate.
-        body = Handle(random.entry.instance, replay.id, body, statics)
-        handlers.append(replay)
+        # Replaying or drawing a site scores its density, so a program
+        # with a site always has scores to accumulate.
+        if sampling:
+            condition = random_handler(CONDITION_HANDLER, False)
+            draw = random_handler(DRAW_HANDLER, True)
+            body = Handle(random.entry.instance, condition.id, body, statics)
+            body = Handle(random.entry.instance, draw.id, body, statics)
+            handlers.extend((condition, draw))
+        else:
+            replay = random_handler(REPLAY_HANDLER, True)
+            body = Handle(random.entry.instance, replay.id, body, statics)
+            handlers.append(replay)
     if random.entry.instance in performed or score.entry.instance in performed:
         body = Handle(score.entry.instance, accumulate.id, body, statics)
         handlers.append(accumulate)
@@ -280,7 +366,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
                             LOG_WEIGHT,
                             SourceOrigin(
                                 module.module,
-                                ("programs", name, "joint", "zero"),
+                                ("programs", name, role, "zero"),
                                 "primitive",
                                 module.source_protocol,
                             ),
@@ -308,7 +394,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         )
         body = Handle(params.instance, store.id, body, statics)
         handlers.append(store)
-    wrapper_name = f"__joint_{name}"
+    wrapper_name = f"__{role}_{name}"
     wrapper = NamedComputation(
         ComputationId.derive(module.module, "computation", wrapper_name),
         wrapper_name,
@@ -318,7 +404,7 @@ def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
         ComputationType(EffectRow(), product_type(result_type, LOG_WEIGHT)),
         SourceOrigin(
             module.module,
-            ("programs", name, "joint"),
+            ("programs", name, role),
             "computation",
             module.source_protocol,
         ),
@@ -457,6 +543,7 @@ def run_program(
     sites: Mapping[str, object],
     parameters: Mapping[str, object] | None = None,
     fuel: int | None = None,
+    observer: TraceObserver | None = None,
 ) -> ProgramRun:
     """Run a program with every site replayed and score its log joint.
 
@@ -479,6 +566,8 @@ def run_program(
         name; an absent weight reads as zero.
     fuel : int | None
         A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
 
     Returns
     -------
@@ -496,8 +585,6 @@ def run_program(
     """
     entry = program_entry(module, name)
     extended, wrapper_name = joint_module(module, name)
-    arguments = tuple(data[parameter.name] for parameter in entry.parameters)
-    statics = static_arguments_for(entry, data)
     configured: dict[str, object] = {
         REPLAY_HANDLER: {
             "kind": "replay",
@@ -506,6 +593,142 @@ def run_program(
         },
         ACCUMULATE_HANDLER: {"kind": "score"},
     }
+    return _run_wrapped(
+        module,
+        extended,
+        wrapper_name,
+        entry,
+        configured,
+        data=data,
+        parameters=parameters,
+        fuel=fuel,
+        observer=observer,
+    )
+
+
+def sample_program(
+    module: QiecModule,
+    name: str,
+    *,
+    data: Mapping[str, object],
+    sites: Mapping[str, object] | None = None,
+    parameters: Mapping[str, object] | None = None,
+    fuel: int | None = None,
+    observer: TraceObserver | None = None,
+) -> ProgramRun:
+    """Run a program forward, drawing every site it is not given.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+    data : Mapping[str, object]
+        A host value for each of the program's parameters, by name:
+        its data, observations, fibrations, and map numbers.
+    sites : Mapping[str, object] | None
+        A host value for each conditioned site, by label, or by label
+        and occurrence as ``"<label>@<n>"``; every other site is drawn
+        from its distribution. A given site the program never reaches
+        is an error.
+    parameters : Mapping[str, object] | None
+        The learned weights a deduction the program calls reads, by
+        name; an absent weight reads as zero.
+    fuel : int | None
+        A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
+
+    Returns
+    -------
+    ProgramRun
+        The returned value and the log joint of the drawn and given
+        sites together with the program's observations and scores.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program, a parameter is not given, or
+        an open extent cannot be read off the data.
+    ExecutionFailure
+        If the run fails or a value does not inhabit its type.
+    """
+    entry = program_entry(module, name)
+    extended, wrapper_name = sample_module(module, name)
+    configured: dict[str, object] = {
+        CONDITION_HANDLER: {
+            "kind": "replay",
+            "values": dict(sites or {}),
+            "score_instance": entry.score_instance,
+        },
+        DRAW_HANDLER: {"kind": "draw-scoring", "score_instance": entry.score_instance},
+        ACCUMULATE_HANDLER: {"kind": "score"},
+    }
+    return _run_wrapped(
+        module,
+        extended,
+        wrapper_name,
+        entry,
+        configured,
+        data=data,
+        parameters=parameters,
+        fuel=fuel,
+        observer=observer,
+    )
+
+
+def _run_wrapped(
+    module: QiecModule,
+    extended: QiecModule,
+    wrapper_name: str,
+    entry: ProgramEntry,
+    configured: dict[str, object],
+    *,
+    data: Mapping[str, object],
+    parameters: Mapping[str, object] | None,
+    fuel: int | None,
+    observer: TraceObserver | None,
+) -> ProgramRun:
+    """Run a program's wrapper under the core provider.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    extended : QiecModule
+        The module extended with the wrapper.
+    wrapper_name : str
+        The wrapper computation's name.
+    entry : ProgramEntry
+        The program's entry point.
+    configured : dict[str, object]
+        The core configuration of the wrapper's handlers, by name; a
+        handler the wrapper did not add is dropped.
+    data : Mapping[str, object]
+        A host value for each of the program's parameters, by name.
+    parameters : Mapping[str, object] | None
+        The learned weights the program's parameter store answers.
+    fuel : int | None
+        A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
+
+    Returns
+    -------
+    ProgramRun
+        The returned value and the accumulated log weight.
+
+    Raises
+    ------
+    KeyError
+        If a parameter is not given or an open extent cannot be read
+        off the data.
+    ExecutionFailure
+        If the run fails.
+    """
+    arguments = tuple(data[parameter.name] for parameter in entry.parameters)
+    statics = static_arguments_for(entry, data)
     configured = {
         handler_name: options
         for handler_name, options in configured.items()
@@ -524,6 +747,7 @@ def run_program(
         static_arguments=statics,
         runtime=runtime,
         fuel=fuel,
+        observer=observer,
     )
     value, weight = result.value  # type: ignore[misc]
     return ProgramRun(value, float(weight), result)  # type: ignore[arg-type]
@@ -852,6 +1076,8 @@ def _deduction_wrapper(
 __all__ = [
     "ACCUMULATE_HANDLER",
     "COLLECT_COMBINE_OF",
+    "CONDITION_HANDLER",
+    "DRAW_HANDLER",
     "PARAMS_HANDLER",
     "REPLAY_HANDLER",
     "SEARCH_REDUCTION_OF",
@@ -863,5 +1089,7 @@ __all__ = [
     "program_entry",
     "run_deduction",
     "run_program",
+    "sample_module",
+    "sample_program",
     "static_arguments_for",
 ]
