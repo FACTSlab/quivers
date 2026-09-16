@@ -27,13 +27,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from pygments.token import (
+    Comment,
+    Keyword,
+    Name,
+    Number,
+    Operator,
+    Punctuation,
+    String,
+)
+
 from quivers.dsl.pygments_lexer import (
-    _ALGEBRA_NAMES,
     _BUILTIN_FUNCTION_TOKENS,
     _BUILTIN_TYPE_TOKENS,
     _KEYWORD_TOKENS,
     _OPERATOR_TOKENS,
+    _TokenType,
     _load_parser,
+    _node_kind_to_pygments_token,
 )
 
 
@@ -265,107 +276,75 @@ def _merge_split_operators(spans: list[Span], source: bytes) -> list[Span]:
     return merged
 
 
+#: The highlight class of each Pygments token family the lexer emits,
+#: most specific first: the first family a token type descends from wins.
+_TOKEN_CLASSES: tuple[tuple[_TokenType, str], ...] = (
+    (Comment, "comment"),
+    (Name.Decorator, "decorator"),
+    (Number, "number"),
+    (String.Symbol, "namespace"),
+    (String, "string"),
+    (Keyword, "keyword"),
+    (Punctuation, "punctuation"),
+    (Operator, "operator"),
+    (Name.Class, "type"),
+    (Name.Function, "function"),
+    (Name.Builtin, "function"),
+    (Name.Constant, "keyword"),
+)
+
+
 def _classify(
     kind: str,
     text: str,
     parent_kind: str | None,
     field_name: str | None = None,
 ) -> str:
-    if kind == "doc_comment":
-        return "comment"
-    if kind == "line_comment":
-        return "comment"
-    if kind == "block_comment":
-        return "comment"
-    if kind in {"pragma_outer", "pragma_inner"}:
+    """The highlight class of one leaf, by the lexer's own classification.
+
+    Parameters
+    ----------
+    kind : str
+        The leaf's node kind.
+    text : str
+        The leaf's text.
+    parent_kind : str | None
+        The kind of the node the leaf sits in.
+    field_name : str | None
+        The field the leaf fills in its parent.
+
+    Returns
+    -------
+    str
+        One of `SEMANTIC_TOKEN_TYPES`: the Pygments token the lexer
+        assigns, mapped to its highlight class, so every surface colours
+        a construct the way the Pygments lexer does. Punctuation the
+        lexer leaves as plain text is classed by the punctuation set.
+    """
+    if kind in _PUNCT:
+        return "punctuation"
+    if kind == "identifier" and parent_kind in {
+        "pragma_entry",
+        "pragma_outer",
+        "pragma_inner",
+    }:
         return "decorator"
-    if kind == "integer" or kind == "float" or kind == "signed_number":
-        return "number"
-    if kind == "string":
-        return "string"
-    if kind == "identifier":
-        if parent_kind == "qiec_effect_request":
-            if field_name == "operation":
-                return "function"
-            if field_name == "instance":
-                return "variable"
-        if parent_kind in {
-            "object_atom",
-            "object_effect_apply",
-            "discrete_constructor",
-            "continuous_constructor",
-            "sort_decl",
-            "constructor_decl",
-            "binder_decl",
-            "binder_var_decl",
-            "binder_arg_decl",
-            "vertex_kind_decl",
-            "edge_kind_decl",
-            "morphism_init_family",
-            "index_decl",
-            "indexed_family_decl",
-            "qiec_type_name",
-            "qiec_type_application",
-            "qiec_type_binder",
-            "qiec_effect_ref",
-        }:
-            return "type"
-        if parent_kind in {
-            "qiec_index_constructor",
-            "qiec_constructor_decl",
-            "qiec_constructor_value",
-            "qiec_case_branch",
-            "qiec_operation_decl",
-            "qiec_handler_application",
-            "handler_decl",
-            "computation_decl",
-        }:
-            return "function"
-        if parent_kind == "effect_decl":
-            return "type"
-        if parent_kind in {"pragma_entry", "pragma_outer", "pragma_inner"}:
-            return "decorator"
+    token = _node_kind_to_pygments_token(kind, text, parent_kind, field_name)
+    if kind == "identifier" and token is Name.Variable:
         # When a tree-sitter parse error puts a known keyword in the
-        # identifier bucket, the literal text still tells us what the user
-        # wrote. Context wins first because QIEC permits declarations such as
-        # ``index Nat`` whose name also has a built-in spelling.
+        # identifier bucket, the literal text still tells us what the
+        # user wrote. Context wins first because QIEC permits
+        # declarations such as ``index Nat`` whose name also has a
+        # built-in spelling.
         if text in _KEYWORD_TOKENS:
             return "keyword"
         if text in _BUILTIN_FUNCTION_TOKENS:
             return "function"
         if text in _BUILTIN_TYPE_TOKENS:
             return "type"
-        if text in _ALGEBRA_NAMES:
-            return "namespace"
-        return "variable"
-    if kind in _PUNCT:
-        return "punctuation"
-    if kind in _OPERATOR_TOKENS:
-        return "operator"
-    if kind in {
-        "qiec_type_kind",
-        "qiec_effect_kind",
-        "qiec_nat_sort",
-        "qiec_shape_sort",
-        "qiec_context_sort",
-        "qiec_user_index_sort",
-    }:
-        return "type"
-    if kind == "qiec_resumption_grade":
-        return "number"
-    if kind in {"qiec_bool_literal", "qiec_unit_literal"}:
-        return "keyword"
-    if kind in _KEYWORD_TOKENS:
-        return "keyword"
-    # Anonymous string tokens (constructors / builtin function heads)
-    # surface with the literal as their node kind. Match against the
-    # builtin sets so e.g. `FinSet`, `Real`, `Simplex` get the type
-    # colour and `parser` / `chart_fold` / `identity` get the function
-    # colour.
-    if kind in _BUILTIN_TYPE_TOKENS:
-        return "type"
-    if kind in _BUILTIN_FUNCTION_TOKENS:
-        return "function"
+    for family, name in _TOKEN_CLASSES:
+        if token in family:
+            return name
     return "variable"
 
 

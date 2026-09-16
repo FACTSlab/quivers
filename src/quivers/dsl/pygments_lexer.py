@@ -123,6 +123,10 @@ def _node_kind_to_pygments_token(
                 return Name.Function
             if field_name == "instance":
                 return Name.Variable
+        if parent_kind == "qiec_handler_operation_clause" and field_name == "operation":
+            return Name.Function
+        if parent_kind == "qiec_call_computation" and field_name == "callee":
+            return Name.Function
         if text in _BUILTIN_FUNCTION_TOKENS:
             return Name.Builtin
         if text in _BUILTIN_TYPE_TOKENS:
@@ -185,8 +189,17 @@ def _node_kind_to_pygments_token(
         "qiec_user_index_sort",
     }:
         return Name.Class
-    if kind == "qiec_resumption_grade":
+    if kind == "qiec_resumption_grade" or parent_kind == "qiec_resumption_grade":
         return Number
+    if kind in {
+        "qiec_handler_coverage_key",
+        "qiec_handler_forwards_key",
+        "qiec_handler_introduces_key",
+        "qiec_handler_implementation_key",
+    }:
+        # The opening bracket and the first option key are one lexical
+        # token; it reads as the keyword it names.
+        return Keyword
     if kind in {"qiec_bool_literal", "qiec_unit_literal"}:
         return Keyword.Constant
     if kind in {"(", ")", "[", "]", "{", "}", ",", ":", "."}:

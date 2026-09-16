@@ -1111,15 +1111,16 @@ Every capability advertised by `qvr-lsp`:
 | LSP method | What it returns |
 | --- | --- |
 | `textDocument/publishDiagnostics` | Parser, constraint-solver, probabilistic-compiler, stable QIEC, and selected-target `qiec:capability:*` diagnostics with source ranges |
-| `textDocument/hover` | The declaration and inferred kind or type as fenced `qvr` blocks, with the didactic AST `repr()` beneath a collapsed `<details>`; nested QIEC constructors and operations are addressable symbols |
+| `textDocument/hover` | The declaration and inferred kind or type as fenced `qvr` blocks, with the didactic AST `repr()` beneath a collapsed `<details>`; nested constructors and operations are addressable symbols. At a call site, a **Call** pane first shows the signature the call instantiates its callee at (`identity[Int](value : Int) : Int !{}` for `identity[Int](7)`); a computation adds an **Inferred row** pane with the row its body performs once every call is expanded to its callee's signature; the operation of a `perform instance.op(...)` request shows an **Operation** pane with the instance's instantiated signature above the interface's own |
 | `textDocument/definition` | Jump to the originating declaration |
-| `textDocument/references` | Every textual occurrence of the name |
-| `textDocument/documentSymbol` | All top-level declarations plus nested QIEC constructors, operations, and handler clauses, grouped by symbol kind |
-| `textDocument/completion` | Env names, QIEC members and qualified instance operations, grammar keywords, builtins, and paths, from the same source as the REPL completer |
-| `textDocument/semanticTokens/full` | Env-aware semantic token stream driven by the shared [`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) |
-| `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md) |
+| `textDocument/references` | Every occurrence that resolves to the selected declaration: a computation's call sites, an operation's requests and clauses, a binder's uses inside its scope |
+| `textDocument/prepareRename` / `textDocument/rename` | Rename a declaration the document makes (a computation, an operation, a handler, an instance, or a lexical binder) at every reference; a prelude name or a keyword is refused |
+| `textDocument/documentSymbol` | All top-level declarations plus their nested symbols: a computation's parameters, locals, scoped instances, branch binders, and call sites (a recursive call marked as such); a handler's clauses, each with its binders and calls; a program's steps, a call step detailed by its callee, a marginalize block's scope nested beneath it |
+| `textDocument/completion` | Env names, members and qualified instance operations (the prelude's `random.sample` included), grammar keywords, builtins, and paths, from the same source as the REPL completer |
+| `textDocument/semanticTokens/full` | Env-aware semantic token stream classified by the Pygments lexer's own rules, so a handler clause's operation, a call's callee, a resumption grade, and a handler option key colour the same everywhere |
+| `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md); a document whose checked module fails to lower is left unformatted |
 | `textDocument/didOpen` / `didChange` / `didSave` / `didClose` | Incremental sync, full re-analysis per change |
-| `workspace/didChangeConfiguration` | Update the selected transpile target and republish diagnostics for every open document |
+| `workspace/didChangeConfiguration` | Update the selected transpile target and republish diagnostics for every open document, re-running only the capability pass over the already checked module |
 
 ### Hover format
 

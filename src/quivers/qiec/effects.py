@@ -1073,8 +1073,8 @@ def render_row(
     -------
     str
         ``!{a : Effect, b : Other[Int] | rho}``: each entry as its
-        instance's name and interface, and an open row's tail after a
-        bar, with the instances it lacks after a backslash.
+        instance's name and interface, in name order, and an open row's
+        tail after a bar, with the instances it lacks after a backslash.
     """
     table = names or {}
 
@@ -1094,8 +1094,10 @@ def render_row(
         return table.get(identity, f"instance:{identity.digest[:8]}")
 
     entries = ", ".join(
-        f"{instance(entry.instance)} : {render_static(entry.effect)}"
-        for entry in row.entries
+        sorted(
+            f"{instance(entry.instance)} : {render_static(entry.effect)}"
+            for entry in row.entries
+        )
     )
     if row.tail is None:
         return "!{" + entries + "}"

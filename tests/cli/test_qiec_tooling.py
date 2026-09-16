@@ -196,6 +196,7 @@ def test_document_resolves_repeated_operations_from_source_context() -> None:
 
     hover = _render_hover(document, "get", line=10, col=34)
     assert hover is not None
+    assert "reader.get : Unit -> Int" in hover
     assert "Reader.get : Unit -> T" in hover
 
 

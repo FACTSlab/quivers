@@ -60,7 +60,7 @@ from quivers.analysis.scope import (
     scope_children,
 )
 from quivers.dsl.constraints import Violation, check_constraints
-from quivers.dsl.emit import module_to_source, static_argument_to_source
+from quivers.dsl.emit import module_to_source
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.cli.repl_browse import (
     _children_for_bundle,
@@ -79,7 +79,6 @@ from quivers.cli.repl_browse import (
 from quivers.dsl.ast_nodes.qiec import (
     QiecComputationDecl,
     QiecEffectDecl,
-    QiecEffectInstanceDecl,
     QiecHandlerDecl,
 )
 from quivers.dsl.qiec_tooling import (
@@ -90,8 +89,8 @@ from quivers.dsl.qiec_tooling import (
     qiec_bindings,
     qiec_env_kinds,
     qiec_module_name,
+    qualified_operation_signature,
     render_effect,
-    render_operation,
 )
 from quivers.qiec.checking import KernelRegistry
 from quivers.transpile import UnsupportedConstruct, available_targets, transpile
@@ -480,7 +479,7 @@ class ReplSession:
         if prelude_effect(bare) is not None:
             return _err(f"{bare} is a type, not an expression; use :kind {bare}")
         if "." in bare and all(part.isidentifier() for part in bare.split(".")):
-            operation = self._qualified_operation(bare)
+            operation = qualified_operation_signature(self._module, bare)
             if operation is not None:
                 return _resp(operation, body_kind="qvr")
             owner, _, member = bare.partition(".")
@@ -1995,70 +1994,6 @@ class ReplSession:
         except KeyError:
             return None
         return render_row(inferred.effects, self._qiec_registry.instance_names)
-
-    def _qualified_operation(self, spelling: str) -> str | None:
-        """Render an operation addressed through its interface or an instance.
-
-        Parameters
-        ----------
-        spelling : str
-            ``Effect.op`` or ``instance.op``, where the interface is the
-            module's own or the prelude's.
-
-        Returns
-        -------
-        str | None
-            The operation's declaration line, with an instance's static
-            arguments substituted for the interface's binders, or
-            ``None`` when nothing of that spelling exists.
-        """
-        owner, _, member = spelling.partition(".")
-        effect_name = owner
-        arguments: tuple[str, ...] = ()
-        instance = next(
-            (
-                statement
-                for statement in self._module.statements
-                if isinstance(statement, QiecEffectInstanceDecl)
-                and statement.name == owner
-            ),
-            None,
-        )
-        if instance is not None:
-            effect_name = instance.effect.name
-            arguments = tuple(
-                static_argument_to_source(argument)
-                for argument in instance.effect.arguments
-            )
-        declared = next(
-            (
-                statement
-                for statement in self._module.statements
-                if isinstance(statement, QiecEffectDecl)
-                and statement.name == effect_name
-            ),
-            None,
-        )
-        if declared is not None:
-            line = render_qiec_signature(self._module, f"{effect_name}.{member}")
-            if line is None or line.endswith(":: operation"):
-                return None
-            binders = tuple(binder.name for binder in declared.binders)
-            line = line.replace(f"{effect_name}.{member}", member, 1)
-        else:
-            prelude = prelude_effect(effect_name)
-            if prelude is None:
-                return None
-            operation = next(
-                (item for item in prelude.operations if item.name == member), None
-            )
-            if operation is None:
-                return None
-            line = render_operation(operation)
-            binders = tuple(binder.name for binder in prelude.telescope)
-        for binder, argument in zip(binders, arguments):
-            line = re.sub(rf"\b{re.escape(binder)}\b", argument, line)
-        return f"{spelling}{line[len(member) :]}"
 
     def _scratch_compiler(self) -> Compiler:
         """A fresh Compiler with the current module already elaborated.

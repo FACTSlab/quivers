@@ -46,10 +46,12 @@ from quivers.dsl.ast_nodes import (
     DefineDecl,
     MorphismDecl,
     ObjectDecl,
+    ProgramDecl,
     Statement,
     TypeFromExpr,
     TypeInitializer,
 )
+from quivers.dsl.ast_nodes.program_steps import CallStep
 from quivers.dsl.ast_nodes.qiec import (
     QiecBinder,
     QiecComputationDecl,
@@ -57,13 +59,26 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecEffectInstanceDecl,
     QiecFamilyDecl,
     QiecHandlerDecl,
+    QiecHandlerReturnClause,
     QiecIndexDecl,
     QiecLocalBinding,
     QiecTypeName,
     QiecValueParameter,
 )
 from quivers.dsl.emit import _emit_qiec_binder, _emit_qiec_type, module_to_source
-from quivers.dsl.qiec_tooling import qiec_bindings, qiec_env_kinds
+from quivers.dsl.qiec_tooling import (
+    call_site_at,
+    call_sites,
+    instance_effect_name,
+    instantiated_call_signature,
+    prelude_effect,
+    qiec_bindings,
+    qiec_env_kinds,
+    qiec_local_bindings,
+    qualified_operation_signature,
+)
+from quivers.qiec.effects import render_row
+from quivers.qiec.module import inferred_computation_type
 from quivers.lsp.document import DocumentState, decl_names
 
 SERVER_NAME = "qvr-lsp"
@@ -157,8 +172,7 @@ def build_server(*, target: str | None = None) -> LanguageServer:
             return
         selected_target = cast(str | None, configured)
         for doc in docs.values():
-            doc.target = selected_target
-            doc.update(source=doc.source, version=doc.version)
+            doc.retarget(selected_target)
             _publish(ls, doc)
 
     # ----- semantic tokens ---------------------------------------------
@@ -251,6 +265,56 @@ def build_server(*, target: str | None = None) -> LanguageServer:
             )
         )
 
+    @server.feature(lsp.TEXT_DOCUMENT_PREPARE_RENAME)
+    def _prepare_rename(
+        _ls: LanguageServer, params: lsp.PrepareRenameParams
+    ) -> lsp.PrepareRenameResult_Type1 | None:
+        doc = docs.get(params.text_document.uri)
+        if doc is None:
+            return None
+        name = doc.name_at_position(params.position.line, params.position.character)
+        if name is None:
+            return None
+        if _renameable_declaration(doc, name, params.position) is None:
+            return None
+        line, col = params.position.line, params.position.character
+        text = doc.source.splitlines()[line]
+        start = text.rfind(name, 0, col + len(name))
+        return lsp.PrepareRenameResult_Type1(
+            range=lsp.Range(
+                start=lsp.Position(line=line, character=start),
+                end=lsp.Position(line=line, character=start + len(name)),
+            ),
+            placeholder=name,
+        )
+
+    @server.feature(lsp.TEXT_DOCUMENT_RENAME)
+    def _rename(
+        _ls: LanguageServer, params: lsp.RenameParams
+    ) -> lsp.WorkspaceEdit | None:
+        doc = docs.get(params.text_document.uri)
+        if doc is None:
+            return None
+        name = doc.name_at_position(params.position.line, params.position.character)
+        if name is None:
+            return None
+        if _renameable_declaration(doc, name, params.position) is None:
+            return None
+        if not params.new_name.isidentifier():
+            return None
+        edits = [
+            lsp.TextEdit(range=location.range, new_text=params.new_name)
+            for location in _find_references(
+                doc,
+                name,
+                line=params.position.line,
+                col=params.position.character,
+            )
+        ]
+        if not edits:
+            return None
+        return lsp.WorkspaceEdit(changes={doc.uri: edits})
+
     @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_SYMBOL)
     def _symbols(
         _ls: LanguageServer, params: lsp.DocumentSymbolParams
@@ -320,6 +384,8 @@ def build_server(*, target: str | None = None) -> LanguageServer:
         _hover,
         _definition,
         _references,
+        _prepare_rename,
+        _rename,
         _symbols,
         _completion,
         _formatting,
@@ -475,6 +541,23 @@ def _render_hover(
     ``role=`` shows no role, since the compiler infers one from
     program usage and the server does not run that inference.
     """
+    if line is not None and col is not None:
+        qualified = doc.qualified_name_at_position(line, col)
+        if qualified is not None:
+            operation = qualified_operation_signature(doc.module, qualified)
+            if operation is not None:
+                lines = [operation]
+                owner, _, member = qualified.partition(".")
+                interface = instance_effect_name(doc.module, owner)
+                if interface is not None:
+                    # An instance's operation, followed by the interface's
+                    # own declaration of it.
+                    declared = qualified_operation_signature(
+                        doc.module, f"{interface}.{member}"
+                    )
+                    if declared is not None and declared != operation:
+                        lines.append(declared)
+                return "**Operation**\n\n```qvr\n" + "\n".join(lines) + "\n```"
     qiec_local = (
         doc.find_qiec_local(name, line=line, col=col) if line is not None else None
     )
@@ -516,6 +599,21 @@ def _render_hover(
     docs = getattr(decl, "docs", ())
 
     parts: list[str] = []
+    site = (
+        call_site_at(doc.module, line, col)
+        if line is not None and col is not None
+        else None
+    )
+    if site is not None and site.callee == name:
+        instantiated = instantiated_call_signature(doc.module, site)
+        if instantiated is not None:
+            parts.append("**Call**")
+            parts.append(f"```qvr\n{instantiated}\n```")
+    inferred = (
+        _inferred_row(doc, name) if isinstance(decl, QiecComputationDecl) else None
+    )
+    if inferred is not None:
+        parts.append(f"**Inferred row**\n\n```qvr\n{inferred}\n```")
     lookup_name = qiec_binding.qualified_name if qiec_binding is not None else name
     if qiec_local is decl:
         signature = _qiec_local_signature(decl)
@@ -553,6 +651,36 @@ def _render_hover(
         "</details>"
     )
     return "\n\n".join(parts)
+
+
+def _inferred_row(doc: DocumentState, name: str) -> str | None:
+    """The row the checker infers for a computation's body.
+
+    Parameters
+    ----------
+    doc : DocumentState
+        The document, whose checked module holds the computation.
+    name : str
+        The computation's name.
+
+    Returns
+    -------
+    str | None
+        The row after every call is expanded to its callee's signature,
+        rendered with the instances' source names; ``None`` when the
+        document has no checked module or no computation of that name.
+    """
+    module = doc.qiec_module
+    if module is None:
+        return None
+    registry = doc.registry()
+    if registry is None:
+        return None
+    try:
+        inferred = inferred_computation_type(module, registry, name)
+    except KeyError:
+        return None
+    return render_row(inferred.effects, registry.instance_names)
 
 
 type _AstValue = (
@@ -742,6 +870,10 @@ def _statement_symbol_children(
 
     if isinstance(statement, DefineDecl):
         return _statement_symbols(doc, statement.where)
+    if isinstance(statement, QiecComputationDecl):
+        return _body_symbols(doc, statement.name)
+    if isinstance(statement, ProgramDecl):
+        return _program_step_symbols(doc, statement)
     members: tuple[object, ...] = ()
     kind = lsp.SymbolKind.Variable
     if isinstance(statement, QiecIndexDecl):
@@ -760,6 +892,8 @@ def _statement_symbol_children(
     out: list[lsp.DocumentSymbol] = []
     for member in members:
         name = getattr(member, "name", None) or getattr(member, "operation", None)
+        if isinstance(member, QiecHandlerReturnClause):
+            name = "return"
         if not isinstance(name, str):
             continue
         line, col = _name_position(doc, member, name)
@@ -775,7 +909,191 @@ def _statement_symbol_children(
                 selection_range=rng,
             )
         )
+    if isinstance(statement, QiecHandlerDecl):
+        # A clause's binders and the calls its body makes nest under the
+        # clause that introduces them.
+        nested = _body_symbols(doc, statement.name)
+        for clause_symbol, clause in zip(out, statement.clauses):
+            first = clause_symbol.range.start.line
+            following = [
+                other.range.start.line
+                for other in out
+                if other.range.start.line > first
+            ]
+            last = min(following) if following else None
+            children = [
+                symbol
+                for symbol in nested
+                if symbol.range.start.line >= first
+                and (last is None or symbol.range.start.line < last)
+            ]
+            clause_symbol.children = children or None
+            del clause
     return out
+
+
+def _symbol_at(
+    name: str, line: int, col: int, kind: lsp.SymbolKind, detail: str | None = None
+) -> lsp.DocumentSymbol:
+    """A document symbol anchored at one identifier.
+
+    Parameters
+    ----------
+    name : str
+        The symbol's name.
+    line : int
+        The 0-based line of the identifier.
+    col : int
+        The 0-based column of the identifier.
+    kind : lsp.SymbolKind
+        The symbol kind.
+    detail : str | None
+        A detail string, shown beside the name.
+
+    Returns
+    -------
+    lsp.DocumentSymbol
+        The symbol, its range the identifier's own.
+    """
+    rng = lsp.Range(
+        start=lsp.Position(line=line, character=col),
+        end=lsp.Position(line=line, character=col + len(name)),
+    )
+    return lsp.DocumentSymbol(
+        name=name, kind=kind, range=rng, selection_range=rng, detail=detail
+    )
+
+
+def _body_symbols(doc: DocumentState, owner: str) -> list[lsp.DocumentSymbol]:
+    """The symbols nested in a computation: its binders and its calls.
+
+    Parameters
+    ----------
+    doc : DocumentState
+        The document.
+    owner : str
+        The computation's name.
+
+    Returns
+    -------
+    list[lsp.DocumentSymbol]
+        One symbol per lexical binder (a let, a scoped instance, a
+        branch binder) and one per call site, in source order.
+    """
+    out: list[tuple[int, int, lsp.DocumentSymbol]] = []
+    for binding in qiec_local_bindings(doc.module):
+        if getattr(binding.owner, "name", None) != owner:
+            continue
+        line = max(0, getattr(binding.declaration, "line", 1) - 1)
+        col = getattr(binding.declaration, "col", 0)
+        kind = (
+            lsp.SymbolKind.Object
+            if binding.kind == "scoped-instance"
+            else lsp.SymbolKind.Variable
+        )
+        out.append((line, col, _symbol_at(binding.name, line, col, kind, binding.kind)))
+    for site in call_sites(doc.module):
+        if site.owner != owner:
+            continue
+        line = max(0, site.line - 1)
+        detail = "recursive call" if site.callee == owner else "call"
+        out.append(
+            (
+                line,
+                site.col,
+                _symbol_at(
+                    site.callee, line, site.col, lsp.SymbolKind.Function, detail
+                ),
+            )
+        )
+    return [symbol for _, _, symbol in sorted(out, key=lambda item: (item[0], item[1]))]
+
+
+def _program_step_symbols(
+    doc: DocumentState, program: ProgramDecl
+) -> list[lsp.DocumentSymbol]:
+    """The symbols nested in a program: the names its steps bind.
+
+    Parameters
+    ----------
+    doc : DocumentState
+        The document.
+    program : ProgramDecl
+        The program.
+
+    Returns
+    -------
+    list[lsp.DocumentSymbol]
+        One symbol per step, named by the variable it binds and
+        detailed by its kind, a call step detailed by its callee; a
+        marginalize block's scope nests under its own symbol.
+    """
+
+    def steps(items: tuple[object, ...]) -> list[lsp.DocumentSymbol]:
+        """The symbols of one step sequence.
+
+        Parameters
+        ----------
+        items : tuple[object, ...]
+            The steps.
+
+        Returns
+        -------
+        list[lsp.DocumentSymbol]
+            Their symbols in order.
+        """
+        out: list[lsp.DocumentSymbol] = []
+        for step in items:
+            names = getattr(step, "vars", None) or (
+                (getattr(step, "name", None),) if getattr(step, "name", None) else ()
+            )
+            names = tuple(name for name in names if isinstance(name, str))
+            if not names:
+                continue
+            line = max(0, getattr(step, "line", 1) - 1)
+            col = getattr(step, "col", 0)
+            kind_name = type(step).__name__.removesuffix("Step").lower()
+            detail = kind_name
+            if isinstance(step, CallStep):
+                detail = f"call {step.call.callee}"
+            symbol = _symbol_at(
+                ", ".join(names), line, col, lsp.SymbolKind.Variable, detail
+            )
+            scope = getattr(step, "scope", None)
+            if isinstance(scope, tuple) and scope:
+                symbol.children = steps(scope) or None
+            out.append(symbol)
+        return out
+
+    return steps(program.draws)
+
+
+def _renameable_declaration(
+    doc: DocumentState, name: str, position: lsp.Position
+) -> object | None:
+    """The declaration a rename at a position would rename, if any.
+
+    Parameters
+    ----------
+    doc : DocumentState
+        The document.
+    name : str
+        The identifier at the position.
+    position : lsp.Position
+        The position.
+
+    Returns
+    -------
+    object | None
+        The declaration the identifier resolves to when it is declared
+        in this document: a top-level declaration, a signature member,
+        or a lexical binder. ``None`` for a keyword, a prelude name, or
+        a name the document does not declare, none of which a rename
+        may touch.
+    """
+    if prelude_effect(name) is not None:
+        return None
+    return doc.find_decl(name, line=position.line, col=position.character)
 
 
 def _find_references(

@@ -27,12 +27,17 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecFamilyDecl,
     QiecHandleComputation,
     QiecHandlerDecl,
+    QiecHandlerOperationClause,
+    QiecHandlerReturnClause,
     QiecLocalBinding,
     QiecSequenceComputation,
     QiecTypeName,
     QiecValueParameter,
 )
 from quivers.dsl.constraints import check_constraints
+from quivers.qiec.checking import KernelRegistry
+from quivers.qiec.module import validate_module
+from quivers.transpile.qiec_ir import analyze_qiec_capabilities
 from quivers.dsl.qiec_tooling import (
     QiecBinding,
     analyze_module,
@@ -84,6 +89,10 @@ class DocumentState:
         self.qiec_module = None
         self.env = {}
         self.diagnostics = []
+        #: The diagnostics of the parse and the check, before any target's
+        #: capability pass adds its own.
+        self._base_diagnostics: list[Diagnostic] = []
+        self._registry: KernelRegistry | None = None
 
     def update(self, *, source: str, version: int) -> None:
         """Re-parse + re-elaborate after a text change."""
@@ -93,6 +102,7 @@ class DocumentState:
         self.module = Module(statements=())
         self.compiler = None
         self.qiec_module = None
+        self._registry = None
         self.env = {}
         try:
             module = parse(source, file_path=self.uri)
@@ -107,6 +117,7 @@ class DocumentState:
                     col=col,
                 )
             )
+            self._base_diagnostics = list(self.diagnostics)
             return
         self.module = module
         analysis = analyze_module(
@@ -148,20 +159,54 @@ class DocumentState:
         self.env = analysis.env
         self.compiler = analysis.compiler
         self.qiec_module = analysis.qiec_module
-        if self.target is not None and self.qiec_module is not None:
-            from quivers.transpile.qiec_ir import analyze_qiec_capabilities
+        self._base_diagnostics = list(self.diagnostics)
+        self.retarget(self.target)
 
-            for diagnostic in analyze_qiec_capabilities(self.qiec_module, self.target):
-                origin = diagnostic.origin
-                self.diagnostics.append(
-                    Diagnostic(
-                        message=diagnostic.message,
-                        severity="error",
-                        line=(origin.line or 0) if origin is not None else 0,
-                        col=(origin.column or 0) if origin is not None else 0,
-                        code=diagnostic.kind,
-                    )
+    def registry(self) -> KernelRegistry | None:
+        """The registry the checked module validates against.
+
+        Returns
+        -------
+        KernelRegistry | None
+            The registry, resolved once per checked module and reused
+            until the document changes; ``None`` when the document has
+            no checked module.
+        """
+        if self.qiec_module is None:
+            return None
+        if self._registry is None:
+            self._registry = validate_module(self.qiec_module)
+        return self._registry
+
+    def retarget(self, target: str | None) -> None:
+        """Recompute the target-capability diagnostics against ``target``.
+
+        The parsed module and its checked projection are kept: only the
+        capability pass runs again, so a configuration change costs no
+        reparse and cannot change the grammar the document was read
+        with.
+
+        Parameters
+        ----------
+        target : str | None
+            The transpile target, or ``None`` for no capability
+            diagnostics.
+        """
+        self.target = target
+        self.diagnostics = list(self._base_diagnostics)
+        if target is None or self.qiec_module is None:
+            return
+        for diagnostic in analyze_qiec_capabilities(self.qiec_module, target):
+            origin = diagnostic.origin
+            self.diagnostics.append(
+                Diagnostic(
+                    message=diagnostic.message,
+                    severity="error",
+                    line=(origin.line or 0) if origin is not None else 0,
+                    col=(origin.column or 0) if origin is not None else 0,
+                    code=diagnostic.kind,
                 )
+            )
 
     def find_decl(
         self,
@@ -275,6 +320,34 @@ class DocumentState:
                 for local in owner.binders
                 if _binder_has_entered_scope(local, source_line, source_col)
             )
+            # A clause's binders and parameters, and the locals of its
+            # body, are visible from the clause's own line to the line
+            # before the next clause.
+            clauses = sorted(owner.clauses, key=lambda clause: clause.line)
+            for index, clause in enumerate(clauses):
+                following = (
+                    clauses[index + 1].line if index + 1 < len(clauses) else None
+                )
+                if source_line < clause.line or (
+                    following is not None and source_line >= following
+                ):
+                    continue
+                if isinstance(clause, QiecHandlerOperationClause):
+                    visible.extend(
+                        local
+                        for local in (*clause.binders, *clause.parameters)
+                        if _binder_has_entered_scope(local, source_line, source_col)
+                    )
+                elif isinstance(clause, QiecHandlerReturnClause):
+                    if _binder_has_entered_scope(
+                        clause.binder, source_line, source_col
+                    ):
+                        visible.append(clause.binder)
+                body = getattr(clause, "body", None)
+                if body is not None:
+                    visible.extend(
+                        _visible_computation_locals(body, source_line, source_col)
+                    )
         elif isinstance(owner, QiecComputationDecl):
             visible.extend(
                 local
@@ -372,6 +445,44 @@ class DocumentState:
         if j <= i:
             return None
         return text[i:j] or None
+
+    def qualified_name_at_position(self, line: int, col: int) -> str | None:
+        """The ``owner.member`` spelling covering a position, if any.
+
+        Parameters
+        ----------
+        line : int
+            The 0-based line.
+        col : int
+            The 0-based column.
+
+        Returns
+        -------
+        str | None
+            ``owner.member`` when the identifier at the position is the
+            member of such a spelling, as the operation of a
+            ``perform instance.operation(...)`` request is; ``None``
+            when the identifier stands alone.
+        """
+        lines = self.source.splitlines()
+        if line >= len(lines):
+            return None
+        text = lines[line]
+        i = col
+        while i > 0 and _is_ident_char(text[i - 1]):
+            i -= 1
+        j = col
+        while j < len(text) and _is_ident_char(text[j]):
+            j += 1
+        if j <= i or i == 0 or text[i - 1] != ".":
+            return None
+        k = i - 1
+        while k > 0 and _is_ident_char(text[k - 1]):
+            k -= 1
+        owner = text[k : i - 1]
+        if not owner:
+            return None
+        return f"{owner}.{text[i:j]}"
 
 
 def decl_names(stmt: Statement) -> tuple[str, ...]:

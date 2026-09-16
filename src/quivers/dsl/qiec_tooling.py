@@ -12,8 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from quivers.dsl.ast_nodes import Module, Statement
+import re
+
+import didactic.api as dx
+
+from quivers.dsl.ast_nodes import Module, ProgramDecl, Statement
+from quivers.dsl.ast_nodes.program_steps import CallStep, MarginalizeStep
 from quivers.dsl.ast_nodes.qiec import (
+    QiecCallComputation,
     QiecComputationDecl,
     QiecSequenceComputation,
     QiecPureBinding,
@@ -31,6 +37,7 @@ from quivers.dsl.ast_nodes.qiec import (
     QiecIndexDecl,
 )
 from quivers.dsl.compiler import Compiler, CompileError
+from quivers.dsl.emit import module_to_source, static_argument_to_source
 from quivers.dsl.qiec_lowering import (
     QIEC_STATEMENT_TYPES,
     has_qiec_surface,
@@ -853,6 +860,266 @@ def effect_operation_names(module: Module, effect: str) -> tuple[str, ...]:
     if prelude is None:
         return ()
     return tuple(operation.name for operation in prelude.operations)
+
+
+class CallSite(dx.Model):
+    """One call of a named computation in a body.
+
+    Parameters
+    ----------
+    callee
+        The computation called.
+    owner
+        The name of the declaration the call sits in.
+    line
+        The call's 1-based line.
+    col
+        The call's 0-based column, at the callee's name.
+    static_arguments
+        The call's static arguments in source form, in order.
+    argument_count
+        The number of value arguments passed.
+    """
+
+    callee: str
+    owner: str
+    line: int
+    col: int
+    static_arguments: tuple[str, ...] = ()
+    argument_count: int = 0
+
+
+def _collect_calls(node: object, owner: str, out: list[CallSite]) -> None:
+    """Collect the calls a computation or a program step tree makes.
+
+    Parameters
+    ----------
+    node : object
+        A computation, a program step, or a tuple of either.
+    owner : str
+        The declaration the calls belong to.
+    out : list[CallSite]
+        Accumulator, appended to in source order.
+    """
+    if isinstance(node, tuple):
+        for item in node:
+            _collect_calls(item, owner, out)
+        return
+    if isinstance(node, QiecCallComputation):
+        out.append(
+            CallSite(
+                callee=node.callee,
+                owner=owner,
+                line=node.line,
+                col=node.col,
+                static_arguments=tuple(
+                    static_argument_to_source(argument)
+                    for argument in node.static_arguments
+                ),
+                argument_count=len(node.arguments),
+            )
+        )
+        return
+    if isinstance(node, CallStep):
+        _collect_calls(node.call, owner, out)
+        return
+    if isinstance(node, MarginalizeStep):
+        _collect_calls(node.scope, owner, out)
+        return
+    if isinstance(node, QiecPureBinding | QiecBindComputation):
+        if isinstance(node, QiecBindComputation):
+            _collect_calls(node.first, owner, out)
+        _collect_calls(node.then, owner, out)
+        return
+    if isinstance(node, QiecSequenceComputation):
+        _collect_calls(node.first, owner, out)
+        _collect_calls(node.then, owner, out)
+        return
+    if isinstance(node, QiecInstanceComputation | QiecHandleComputation):
+        _collect_calls(node.body, owner, out)
+        return
+    if isinstance(node, QiecIfComputation):
+        _collect_calls(node.then, owner, out)
+        _collect_calls(node.otherwise, owner, out)
+        return
+    if isinstance(node, QiecCaseComputation):
+        for branch in node.branches:
+            _collect_calls(branch.body, owner, out)
+
+
+def call_sites(module: Module) -> tuple[CallSite, ...]:
+    """Every call of a named computation in a module.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+
+    Returns
+    -------
+    tuple[CallSite, ...]
+        The calls in computation bodies, handler clause bodies, and
+        program bodies, in source order. A recursive call is a call whose
+        callee is its owner.
+    """
+    out: list[CallSite] = []
+    for statement in module.statements:
+        if isinstance(statement, QiecComputationDecl):
+            _collect_calls(statement.body, statement.name, out)
+        elif isinstance(statement, QiecHandlerDecl):
+            for clause in statement.clauses:
+                _collect_calls(getattr(clause, "body", None), statement.name, out)
+        elif isinstance(statement, ProgramDecl):
+            _collect_calls(statement.draws, statement.name, out)
+    return tuple(out)
+
+
+def call_site_at(module: Module, line: int, col: int) -> CallSite | None:
+    """The call whose callee name covers a source position.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+    line : int
+        The 0-based line.
+    col : int
+        The 0-based column.
+
+    Returns
+    -------
+    CallSite | None
+        The call, or ``None`` when no callee name covers the position.
+    """
+    for site in call_sites(module):
+        if site.line - 1 == line and site.col <= col <= site.col + len(site.callee):
+            return site
+    return None
+
+
+def instantiated_call_signature(module: Module, site: CallSite) -> str | None:
+    """Render the signature a call instantiates its callee at.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+    site : CallSite
+        The call.
+
+    Returns
+    -------
+    str | None
+        The callee's declaration line with each static binder replaced
+        by the call's argument for it, and the ``define`` keyword and
+        the trailing ``=`` removed: ``identity[Int](value : Int) : Int !{}``
+        for ``identity[Int](7)``. ``None`` when the callee is not a
+        computation of the module (a program called by name renders
+        through its own signature).
+    """
+    declaration = next(
+        (
+            statement
+            for statement in module.statements
+            if isinstance(statement, QiecComputationDecl)
+            and statement.name == site.callee
+        ),
+        None,
+    )
+    if declaration is None:
+        return None
+    rendered = module_to_source(Module(statements=(declaration,)))
+    header = rendered.splitlines()[0].strip()
+    header = header.removeprefix("define ").removesuffix(" =").rstrip()
+    binders = tuple(binder.name for binder in declaration.binders)
+    for binder, argument in zip(binders, site.static_arguments):
+        header = re.sub(rf"\b{re.escape(binder)}\b", argument, header)
+    if declaration.binders:
+        # The telescope is instantiated, so the binder list gives way to
+        # the arguments the call supplies.
+        telescope = "[" + ", ".join(site.static_arguments) + "]"
+        header = re.sub(
+            r"^(\w+)\[[^\]]*\]", lambda m: f"{m.group(1)}{telescope}", header
+        )
+    return header
+
+
+def qualified_operation_signature(module: Module, spelling: str) -> str | None:
+    """Render an operation addressed through its interface or an instance.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+    spelling : str
+        ``Effect.op`` or ``instance.op``, where the interface is the
+        module's own or the prelude's.
+
+    Returns
+    -------
+    str | None
+        The operation's declaration line under the given spelling, with
+        an instance's static arguments substituted for the interface's
+        binders (``cell.get : Unit -> Int`` for ``instance cell :
+        State[Int]``), or ``None`` when nothing of that spelling exists.
+    """
+    owner, _, member = spelling.partition(".")
+    effect_name = owner
+    arguments: tuple[str, ...] = ()
+    instance = next(
+        (
+            statement
+            for statement in module.statements
+            if isinstance(statement, QiecEffectInstanceDecl) and statement.name == owner
+        ),
+        None,
+    )
+    if instance is not None:
+        effect_name = instance.effect.name
+        arguments = tuple(
+            static_argument_to_source(argument)
+            for argument in instance.effect.arguments
+        )
+    declared = next(
+        (
+            statement
+            for statement in module.statements
+            if isinstance(statement, QiecEffectDecl) and statement.name == effect_name
+        ),
+        None,
+    )
+    if declared is not None:
+        operation = next(
+            (item for item in declared.operations if item.name == member), None
+        )
+        if operation is None:
+            return None
+        rendered = module_to_source(Module(statements=(declared,)))
+        line = next(
+            (
+                text.strip()
+                for text in rendered.splitlines()[1:]
+                if re.match(rf"\s*{re.escape(member)}\b", text)
+            ),
+            None,
+        )
+        if line is None:
+            return None
+        binders = tuple(binder.name for binder in declared.binders)
+    else:
+        prelude = PRELUDE_EFFECTS.get(effect_name)
+        if prelude is None:
+            return None
+        operation = next(
+            (item for item in prelude.operations if item.name == member), None
+        )
+        if operation is None:
+            return None
+        line = render_operation(operation)
+        binders = tuple(binder.name for binder in prelude.telescope)
+    for binder, argument in zip(binders, arguments):
+        line = re.sub(rf"\b{re.escape(binder)}\b", argument, line)
+    return f"{spelling}{line[len(member) :]}"
 
 
 def qiec_module_name(file_path: str | Path | None) -> str:

@@ -8,9 +8,9 @@ repository = "https://github.com/FACTSlab/quivers"
 
 [grammars.qvr]
 repository = "https://github.com/FACTSlab/quivers"
-# Immutable commit containing the QVR v0.19 grammar. Update this pin whenever
+# Immutable commit containing the current QVR grammar. Update this pin whenever
 # grammar.js or its generated parser/query assets change.
-commit = "afa858dd6f13956ae8739ef92e6717f800bc390c"
+commit = "0e82ac98706a571709c759a8717caf39cb3ffe25"
 path = "grammars/qvr"
 
 [language_servers.qvr-lsp]
