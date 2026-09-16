@@ -212,7 +212,6 @@ def test_package_assets_take_precedence_over_repository_assets(
     assert _assets.vcs_root() == package_root
 
 
-@pytest.mark.skipif(shutil.which("cc") is None, reason="C compiler unavailable")
 def test_packaged_source_snapshot_compiles_without_prebuilt_library(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

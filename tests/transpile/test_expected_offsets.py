@@ -1732,18 +1732,16 @@ def test_registry_offset_matches_the_closed_form_derivation(
     pinned number cannot drift toward whatever a runtime happened to
     return: it has to stay equal to `drops_half(T) * n_half(M) * log 2`.
     An entry the derivation does not cover is registered as
-    `Unexplained` and skipped here, and
-    `test_no_unexplained_offsets_are_registered` then makes it visible.
+    `Unexplained`, which fails here and in
+    `test_no_unexplained_offsets_are_registered`.
     """
     backend, stem = cell
     entry = _EXPECTED_OFFSET[cell]
     justification = entry.justification
-    if isinstance(justification, Unexplained):
-        pytest.skip(
-            f"{backend!r} on {stem!r}: registered as unexplained "
-            f"({justification.missing}); "
-            f"`test_no_unexplained_offsets_are_registered` reports it."
-        )
+    assert not isinstance(justification, Unexplained), (
+        f"{backend!r} on {stem!r}: registered as unexplained "
+        f"({justification.missing}); derive the constant and register it."
+    )
     assert isinstance(justification, Derived), (
         f"{backend!r} on {stem!r}: justification "
         f"{type(justification).__name__!r} is neither `Derived` nor "

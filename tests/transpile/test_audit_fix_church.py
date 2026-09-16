@@ -35,16 +35,15 @@ Covered defects:
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
 
-import pytest
 
 from quivers.dsl.parser import parse
 from quivers.transpile import transpile
 from quivers.transpile._pipeline import parser_registry
 from tests.transpile import _equivalence, _gallery_data
 from tests.transpile.probes._protocol import Point
+from tests.transpile._tools import require_scheme
 from tests.transpile.probes.church import ChurchProbe
 from tests.transpile.probes.qvr import QvrProbe
 
@@ -80,18 +79,23 @@ def _nospace(text: str) -> str:
 _RUNTIME_TEXT = _RUNTIME.read_text()
 _RUNTIME_NS = _nospace(_RUNTIME_TEXT)
 
+
 #: Scheme interpreter binaries the runtime evaluates under; the same
 #: preference order the Church probe uses.
-_SCHEME_INTERPRETERS: tuple[str, ...] = ("chez", "scheme", "petite", "chezscheme")
+def _scheme_interpreter() -> str:
+    """The Scheme interpreter the audit runs the emitted programs through.
 
+    Returns
+    -------
+    str
+        The interpreter's path.
 
-def _scheme_interpreter() -> str | None:
-    """First reachable Scheme interpreter binary, or None."""
-    for name in _SCHEME_INTERPRETERS:
-        found = shutil.which(name)
-        if found is not None:
-            return found
-    return None
+    Raises
+    ------
+    RuntimeError
+        If no Chez Scheme interpreter is on ``PATH``.
+    """
+    return require_scheme()
 
 
 def _run_scheme(interpreter: str, program: str, scratch: pathlib.Path) -> str:
@@ -372,8 +376,6 @@ def test_variadic_operators_execute_at_high_arity(tmp_path: pathlib.Path) -> Non
     arguments and `draw-gamma-unit` cubes via `(* t t t)`, which a
     strictly binary shadow would reject with an arity error."""
     interp = _scheme_interpreter()
-    if interp is None:
-        pytest.skip("no Scheme interpreter on PATH")
     program = _RUNTIME_TEXT + (
         "\n(display (* 2.0 3.0 4.0))(newline)"
         "\n(display (+ 1 2 3 4))(newline)"
@@ -426,12 +428,6 @@ def test_emitted_church_reparses_to_a_fixed_point() -> None:
 # ---------------------------------------------------------------------------
 
 
-_HAS_SCHEME = ChurchProbe().available()
-_needs_scheme = pytest.mark.skipif(
-    not _HAS_SCHEME, reason="no Scheme interpreter on PATH"
-)
-
-
 def _church_qvr_diffs(
     fixture: pathlib.Path,
     points: list[Point],
@@ -450,7 +446,6 @@ def _church_qvr_diffs(
     return church.log_densities, qvr.log_densities
 
 
-@_needs_scheme
 def test_executed_halfnormal_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The HalfNormal emit runs in Scheme and its executed joint tracks
     the QVR reference at every clamped positive point, which checks the
@@ -465,7 +460,6 @@ def test_executed_halfnormal_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
 
 
-@_needs_scheme
 def test_executed_halfcauchy_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The HalfCauchy emit folds a `cauchy`, not a `gaussian`; its
     executed joint tracks the QVR reference."""
@@ -478,7 +472,6 @@ def test_executed_halfcauchy_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
 
 
-@_needs_scheme
 def test_executed_horseshoe_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The horseshoe couples a HalfCauchy global scale, per-coordinate
     HalfCauchy local scales, and standard-Normal raw coefficients
@@ -534,7 +527,6 @@ def _gallery_points(
     return dataset, [base, _scaled(0.7), _scaled(1.3)]
 
 
-@_needs_scheme
 def test_executed_beta_regression_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The multi-output beta regression is the hierarchical witness: it
     threads per-output Normal / HalfCauchy priors through a

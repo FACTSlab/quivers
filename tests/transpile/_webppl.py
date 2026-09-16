@@ -10,11 +10,12 @@ transform, none of which Node would notice.
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
 
-#: The `webppl` command line, or None when it is not installed.
-WEBPPL_EXECUTABLE = shutil.which("webppl")
+from tests.transpile._tools import require_tool
+
+#: The `webppl` command line.
+WEBPPL_EXECUTABLE = require_tool("webppl")
 
 #: WebPPL compiles a program through a recursive transform whose depth
 #: follows the program's size, and the grafted runtime is large enough
@@ -42,13 +43,9 @@ def run_webppl(
 
     Raises
     ------
-    RuntimeError
-        If `webppl` is not installed.
     subprocess.CalledProcessError
         If ``check`` is set and the program exits nonzero.
     """
-    if WEBPPL_EXECUTABLE is None:
-        raise RuntimeError("the `webppl` command line is not installed")
     completed = subprocess.run(
         [
             "node",

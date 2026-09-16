@@ -150,44 +150,9 @@ def test_mapping_composition_equivalence(backend: str) -> None:
 
 
 # Per-backend grammar emit_pretty fixed-point status. False marks
-# backends whose underlying tree-sitter `emit_pretty` re-emit cycle
-# is known not to be a fixed point on the canonical fixture; the
-# strict-xfail flips when panproto fixes the upstream non-determinism.
-_REEMIT_IS_FIXED_POINT: dict[str, bool] = {
-    "stan": True,
-    "numpyro": True,
-    "pyro": True,
-    "pymc": True,
-    "edward2": True,
-    "church": True,  # vacuous: panproto/panproto#172 makes both emits empty
-    "webppl": True,
-    "turing": True,
-    "gen": True,
-    "bugs": True,
-    "jags": True,
-}
-
-
 @pytest.mark.parametrize("backend", _BACKENDS)
-def test_reemit_fixed_point(backend: str, request: pytest.FixtureRequest) -> None:
-    """Re-parsing the emit and re-emitting produces the same bytes.
-
-    Strict-xfail for cells whose grammar's `emit_pretty` is known not
-    to be a fixed point on the canonical fixture; flips when panproto
-    fixes the upstream re-emit non-determinism.
-    """
-    if not _REEMIT_IS_FIXED_POINT[backend]:
-        request.applymarker(
-            pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    f"panproto `emit_pretty({backend!r}, ...)` round-trip is "
-                    f"not a fixed point on the canonical fixture; first emit "
-                    f"normalises differently than the re-emit of the parsed "
-                    f"schema. Upstream tree-sitter Python emit-pretty bug."
-                ),
-            )
-        )
+def test_reemit_fixed_point(backend: str) -> None:
+    """Re-parsing the emit and re-emitting produces the same bytes."""
     module = parse(_FIXTURE)
     grammar = _grammar_for(backend)
     reg = panproto.AstParserRegistry()

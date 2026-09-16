@@ -6,7 +6,7 @@ invocation and assert it exits 0.
 
 The check is gated by a per-backend ``requires_tool`` marker in
 [`conftest.py`][tests.transpile.conftest]; when the binary is absent,
-the cell skips with a clear reason naming the binary.
+the cell fails with a clear reason naming the binary to install.
 
 This tier is the second layer of correctness: the tree-sitter parse
 in `test_roundtrip.py` is permissive; this tier asserts the real
@@ -30,13 +30,13 @@ The check is syntax-only (no execution). Per backend:
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
 import tempfile
 
 import pytest
 
 from quivers.dsl.parser import parse
+from tests.transpile._tools import require_scheme, require_tool
 from quivers.transpile import transpile
 
 
@@ -63,14 +63,7 @@ define collision(class : Int, qiec_handlers : Int, end : Int) : Int !{} =
     return class
 """
 
-_SCHEME_EXECUTABLE = next(
-    (
-        executable
-        for name in ("scheme", "chez", "petite", "chezscheme")
-        if (executable := shutil.which(name)) is not None
-    ),
-    None,
-)
+_SCHEME_EXECUTABLE = require_scheme()
 
 _EXTERNAL_PROGRAMS = (
     pytest.param(_BETA_BERNOULLI, id="probabilistic"),
@@ -96,11 +89,7 @@ def _run_syntax_check(
     past half a minute. A parser that has actually hung still fails
     here, only later.
     """
-    if shutil.which(binary) is None:
-        pytest.xfail(
-            f"{binary!r} not on PATH; install it in the local toolchain "
-            f"or add the install step to CI"
-        )
+    require_tool(binary)
     completed = subprocess.run(
         argv,
         input=input_bytes,
@@ -255,10 +244,6 @@ def test_jags_external_syntax(backend: str, program: str, tmp_path) -> None:
 @pytest.mark.parametrize("program", _EXTERNAL_PROGRAMS)
 def test_church_external_syntax(program: str, tmp_path) -> None:
     """Chez loads the complete generated Church module."""
-    if _SCHEME_EXECUTABLE is None:
-        pytest.xfail(
-            "Chez Scheme is not on PATH under scheme, chez, petite, or chezscheme"
-        )
     source = transpile(parse(program), target="church")
     script = tmp_path / "model.scm"
     script.write_bytes(source)

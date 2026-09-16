@@ -45,6 +45,24 @@ def _gallery_cells() -> list[pathlib.Path]:
     return _gallery_data.gallery_examples_with_data()
 
 
+def _backend_cells() -> list[tuple[pathlib.Path, str]]:
+    """Every ``(example, backend)`` cell the backend comparison is a test
+    case for: the cells the probe scores and the cells whose transpile
+    is a pinned refusal. A cell in one of the ``_SKIP_*`` registries is
+    not a test case; the registry tests keep those registries honest.
+    """
+    cells: list[tuple[pathlib.Path, str]] = []
+    for example in _gallery_cells():
+        stem = example.stem
+        if stem in _SKIP_DATASET_LOAD_FAILED or stem in _SKIP_QVR_INCOMPATIBLE:
+            continue
+        for backend in sorted(_BACKENDS_WITH_IMAGES):
+            if (backend, stem) in _SKIP_PROBE_INCOMPATIBLE:
+                continue
+            cells.append((example, backend))
+    return cells
+
+
 # ----------------------------------------------------------------------
 # Pre-declared cell outcomes.
 #
@@ -893,12 +911,10 @@ def test_gallery_qvr_reference_pin_holds_at_every_point(
         log-normaliser that cancels at the generating parameters) and
         non-zero once the data moves.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
     exempt_reason = _REFERENCE_PIN_EXEMPT.get(example.stem)
     if exempt_reason is not None:
         # No pin to hold, so what is asserted is that the exemption is
@@ -985,12 +1001,10 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     program has a structural defect that the trace surfaces only
     on real data.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
@@ -1101,12 +1115,10 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
     cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
            and has the frozen data section asserted rather than assumed.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
@@ -1185,8 +1197,11 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
         )
 
 
-@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
-@pytest.mark.parametrize("backend", sorted(_BACKENDS_WITH_IMAGES))
+@pytest.mark.parametrize(
+    ("example", "backend"),
+    _backend_cells(),
+    ids=lambda value: value.stem if isinstance(value, pathlib.Path) else value,
+)
 def test_gallery_backend_logdensity_matches_qvr(
     example: pathlib.Path, backend: str
 ) -> None:
@@ -1222,24 +1237,6 @@ def test_gallery_backend_logdensity_matches_qvr(
             f"`_EXPECTED_TRANSPILE_RAISES`) or a different gap fired."
         )
         return
-
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
-    if example.stem in _SKIP_QVR_INCOMPATIBLE:
-        pytest.skip(
-            f"{example.stem!r}: in-process QVR trace cannot evaluate "
-            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
-        )
-    if cell in _SKIP_PROBE_INCOMPATIBLE:
-        pytest.skip(
-            f"{backend!r} on {example.stem!r}: in-container probe "
-            f"script has no shape registration for this example's "
-            f"dataset; populate / drop from `_SKIP_PROBE_INCOMPATIBLE`."
-        )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (

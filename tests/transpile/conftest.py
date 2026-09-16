@@ -32,7 +32,6 @@ import fcntl
 import os
 import pathlib
 import platform
-import shutil
 import subprocess
 import tempfile
 import time
@@ -41,6 +40,7 @@ from collections.abc import Iterator
 import pytest
 
 from tests.transpile import _docker
+from tests.transpile._tools import require_tool
 from tests.transpile.fixtures import _load
 from tests.transpile.probes._protocol import LogDensityProbe
 
@@ -253,45 +253,45 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Apply per-marker xfails at collection time.
 
-        Environment shortfalls (binary missing from PATH, probe runtime
-        not installed) become `strict=False` xfails so the gap is visible
-        in the test report rather than absorbed into the skip pile. The
+    A missing binary or probe runtime fails the test that declares
+    it (see `_required_tools`), naming what to install, since a
+    skipped or expected-failing test would hide the gap. The
     Docker daemon and probe images are checked by the
-        session-scope `_ensure_docker_environment` autouse fixture, so
-        the `requires_docker` / `requires_image` markers reduce to a
-        declaration-of-intent here and don't introduce per-test skips.
+    session-scope `_ensure_docker_environment` autouse fixture, so
+    the `requires_docker` / `requires_image` markers reduce to a
+    declaration-of-intent here and don't introduce per-test skips.
     """
     del config
     for item in items:
         if item.path.parent == _TRANSPILE_DIR and item.path.stem in PROBE_MODULES:
             item.add_marker(pytest.mark.probe)
-        for marker in item.iter_markers(name="requires_tool"):
-            binary = marker.args[0]
-            if shutil.which(binary) is None:
-                item.add_marker(
-                    pytest.mark.xfail(
-                        reason=(
-                            f"binary {binary!r} not on PATH; install it "
-                            f"in the local toolchain or add the install "
-                            f"step to CI"
-                        ),
-                        strict=False,
-                    )
-                )
-        for marker in item.iter_markers(name="requires_probe"):
-            backend = marker.args[0]
-            probe = _probe_for_name(backend)
-            if probe is None or not probe.available():
-                item.add_marker(
-                    pytest.mark.xfail(
-                        reason=(
-                            f"{backend} probe runtime unavailable; install "
-                            f"the runtime locally or add the install step "
-                            f"to CI"
-                        ),
-                        strict=False,
-                    )
-                )
+
+
+@pytest.fixture(autouse=True)
+def _required_tools(request: pytest.FixtureRequest) -> None:
+    """Fail a test whose declared tool or probe runtime is missing.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        The running test, whose ``requires_tool`` and ``requires_probe``
+        markers name what it needs.
+
+    Raises
+    ------
+    RuntimeError
+        If a required binary is not on ``PATH``.
+    """
+    for marker in request.node.iter_markers(name="requires_tool"):
+        require_tool(marker.args[0])
+    for marker in request.node.iter_markers(name="requires_probe"):
+        backend = marker.args[0]
+        probe = _probe_for_name(backend)
+        if probe is None or not probe.available():
+            pytest.fail(
+                f"{backend} probe runtime unavailable; install the runtime "
+                "locally or add the install step to CI"
+            )
 
 
 def _probe_for_name(backend: str) -> LogDensityProbe | None:

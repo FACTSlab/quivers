@@ -1,21 +1,12 @@
-"""Gallery-wide SVI + NUTS sweep.
+"""Gallery-wide compile, fit, and doc-block sweep.
 
-For every ``docs/examples/source/*.qvr`` example, the suite checks:
-
-1. **SVI** drives the negative ELBO strictly down (or holds it flat
-   if the model has already converged at the synthetic data's
-   noise floor). The harness constructs observations from the
-   example's shape in the same way as its ``Try it`` block.
-
-2. **NUTS** runs to completion with finite log-density, positive
-   acceptance, and zero divergences. Models with explicit
-   ``sample`` priors go through ``NUTSKernel`` directly; models
-   whose latents are ``[role=latent]`` parameters are lifted via
-   :func:`bayesian_lift_parameters` so the same kernel applies
-   uniformly.
-
-Deep nonlinear networks and large transformers use the
-``@pytest.mark.slow`` marker.
+Every ``docs/examples/source/*.qvr`` example compiles. Each deduction
+example fits its corpus: a MAP fit drives the negative log partition
+function down, and NUTS on the lifted Bayesian model runs to completion
+with finite log-density and positive acceptance. Every monadic example's
+SVI + NUTS contract is the ``Try it`` block of its page, executed
+verbatim by :func:`test_gallery_try_it_blocks_execute`, so the docs and
+the sweep share one source of truth.
 
 How this stays in sync with the gallery
 ---------------------------------------
@@ -25,7 +16,9 @@ The suite follows the contents of ``docs/examples/`` in two ways:
 * The ``stem`` parameter list is computed at collection time by
   :func:`_all_example_stems`, which globs
   ``docs/examples/source/*.qvr``. Adding (or deleting) a ``.qvr``
-  file adds or removes a parametrised test case.
+  file adds or removes a parametrised test case, and a deduction
+  example must register the corpus it parses in
+  ``_DEDUCTION_CORPORA``.
 
 * The ``Try it`` code blocks inside ``docs/examples/*.md`` are
   extracted by :func:`test_gallery_try_it_blocks_execute` and
@@ -51,41 +44,17 @@ from quivers.stochastic.deduction import (
 )
 
 
-# Examples whose declared deductions need a worked corpus for the
-# MAP+NUTS contract to be testable (they parse only a specific
-# input under the current rule set / lexicon).
+# The corpus each deduction example parses, keyed by its stem: the
+# deduction's name and the sentences its rules and lexicon license.
 _DEDUCTION_CORPORA: dict[str, tuple[str, list[list[str]]]] = {
     "ccg": ("CCG", [["the", "cat", "sleeps"]]),
     "custom_rules": ("AB", [["the", "dog", "runs"]]),
     "multimodal_tlg": ("MMTLG", [["the", "dog", "barks"]]),
     "type_logical": ("Lambek", [["every", "dog", "barks"]]),
+    "pcfg": ("PCFG", [["the", "cat", "sleeps"]]),
     "pmcfg": ("PMCFG", [["the", "man", "who", "Mary", "saw"]]),
     "montague_nli": ("Montague", [["every", "dog", "barks"]]),
-}
-
-
-# Models whose total parameter count or composition depth makes a
-# full NUTS sweep slow; the suite still exercises them but only
-# under ``pytest -m slow``.
-_SLOW_EXAMPLES: frozenset[str] = frozenset(
-    {
-        "transformer_lm",
-        "seq2seq",
-        "lda",
-        "vae",
-        "bidirectional_rnn_lm",
-    }
-)
-
-
-# Examples that are present in the gallery but exhibit a *model-
-# design* issue rather than a framework issue (the .qvr file's
-# rules / lexicon do not actually license the corpus). The sweep
-# skips them explicitly with the reason so the suite stays
-# informative.
-_KNOWN_MODEL_BUGS: dict[str, str] = {
-    "pcfg": "PCFG branch rule has unbound RHS wildcard A; needs fixed productions",
-    "quantifier_scope": "lexicon does not license 'every dog barks' under current rules",
+    "quantifier_scope": ("QScope", [["every", "dog", "barks"]]),
 }
 
 
@@ -93,72 +62,27 @@ def _all_example_stems() -> list[str]:
     return sorted(p.stem for p in Path("docs/examples/source").glob("*.qvr"))
 
 
-def _is_slow(stem: str) -> bool:
-    return stem in _SLOW_EXAMPLES
-
-
-def _maybe_skip_buggy(stem: str) -> None:
-    if stem in _KNOWN_MODEL_BUGS:
-        pytest.skip(f"{stem}: {_KNOWN_MODEL_BUGS[stem]}")
-
-
-@pytest.fixture(scope="module")
-def gallery_stems() -> list[str]:
-    return _all_example_stems()
-
-
-# ---------------------------------------------------------------------------
-# SVI / MAP sweep
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("stem", _all_example_stems())
-def test_gallery_fit(stem: str) -> None:
-    """SVI + NUTS contract for one gallery example.
-
-    Marked ``slow`` for deep / wide models to keep the default
-    ``pytest`` run fast.
-    """
-    _maybe_skip_buggy(stem)
-    if _is_slow(stem):
-        pytest.skip(f"{stem}: slow example; run with ``pytest -m slow`` to include")
-    _run_one(stem)
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("stem", sorted(_SLOW_EXAMPLES))
-def test_gallery_fit_slow(stem: str) -> None:
-    """SVI + NUTS contract for the slow gallery examples (run with
-    ``pytest -m slow``)."""
-    _maybe_skip_buggy(stem)
-    _run_one(stem)
-
-
-def _run_one(stem: str) -> None:
+def test_gallery_example_compiles(stem: str) -> None:
+    """Every gallery example parses and compiles, and every deduction it
+    declares has a registered corpus."""
     path = Path(f"docs/examples/source/{stem}.qvr")
     mod = parse_file(str(path))
     Compiler(mod).compile_env()
     prog = load(str(path))
-    # Examples with a registered deduction corpus go through the
-    # deduction-fit harness here. Every monadic example's SVI +
-    # NUTS contract is covered separately by
-    # :func:`test_gallery_try_it_blocks_execute`, which executes
-    # the doc's ``Try it`` blocks verbatim: that is the canonical
-    # path for monadic gallery models and ensures the docs and the
-    # gallery sweep stay in sync without an external harness.
-    if stem in _DEDUCTION_CORPORA:
-        _run_deduction_only(stem, prog)
-        return
-    pytest.skip(
-        f"{stem}: monadic SVI + NUTS contract is covered by "
-        "test_gallery_try_it_blocks_execute (the canonical "
-        "doc-block execution path)."
-    )
+    if prog.deductions:
+        assert stem in _DEDUCTION_CORPORA, (
+            f"{stem} declares the deduction(s) {sorted(prog.deductions)} but "
+            "registers no corpus in _DEDUCTION_CORPORA"
+        )
+        name, _ = _DEDUCTION_CORPORA[stem]
+        assert name in prog.deductions
 
 
-def _run_deduction_only(stem: str, prog) -> None:
-    if stem not in _DEDUCTION_CORPORA:
-        pytest.skip(f"{stem}: deduction example without a registered corpus")
+@pytest.mark.parametrize("stem", sorted(_DEDUCTION_CORPORA))
+def test_gallery_deduction_fits(stem: str) -> None:
+    """MAP + NUTS contract for one deduction example on its corpus."""
+    prog = load(f"docs/examples/source/{stem}.qvr")
     ded_name, corpus = _DEDUCTION_CORPORA[stem]
     ded = prog.deductions[ded_name]
     # MAP fit: log Z should rise (loss should fall).
@@ -169,10 +93,10 @@ def _run_deduction_only(stem: str, prog) -> None:
         lr=5e-2,
         prior_scale=1.0,
     )
-    if history:
-        assert history[-1] <= history[0] + 1.0, (
-            f"{stem}: MAP loss did not decrease ({history[0]:.2f} -> {history[-1]:.2f})"
-        )
+    assert history, f"{stem}: the MAP fit recorded no loss"
+    assert history[-1] <= history[0] + 1.0, (
+        f"{stem}: MAP loss did not decrease ({history[0]:.2f} -> {history[-1]:.2f})"
+    )
     # NUTS on the lifted Bayesian model.
     model, x, obs = nuts_program_from_deduction(
         ded,
@@ -193,13 +117,6 @@ def _run_deduction_only(stem: str, prog) -> None:
     assert float(res.acceptance_rates.mean()) > 0.05, (
         f"{stem}: NUTS acceptance too low ({float(res.acceptance_rates.mean()):.2f})"
     )
-
-
-# Monadic SVI + NUTS sweep lives in
-# ``test_gallery_try_it_blocks_execute``, which exec's each doc's
-# verbatim ``Try it`` block. That single source of truth keeps the
-# docs and the test suite synchronised; a separate harness-based
-# sweep would duplicate the contract.
 
 
 # ---------------------------------------------------------------------------
@@ -252,8 +169,7 @@ def test_gallery_try_it_blocks_execute(doc_name):
     HTML comment immediately above the fenced block."""
     path = Path(f"docs/examples/{doc_name}")
     blocks = _extract_try_it_blocks(path.read_text())
-    if not blocks:
-        pytest.skip(f"{doc_name}: no Try-it blocks")
+    assert blocks, f"{doc_name}: every example page carries a Try-it block"
     ns = {"__name__": f"_try_it_{path.stem}"}
     for i, block in enumerate(blocks):
         try:

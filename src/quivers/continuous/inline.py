@@ -138,12 +138,25 @@ class FixedDistribution(ContinuousMorphism):
         """
         batch = x.shape[0]
         dist = self._make_dist_fn(batch, x.device)
+        shape = torch.Size(sample_shape)
+        if not dist.batch_shape and not dist.event_shape:
+            # A closed-form operator measure (the `Restrict` a
+            # desugared half-family produces, say) carries no batch of
+            # its own: one draw per row, and per coordinate of a
+            # continuous codomain, keeps the ``(batch, dim)`` contract
+            # of every other fixed distribution.
+            rows = (
+                torch.Size((batch,))
+                if self._discrete
+                else torch.Size((batch, int(getattr(self.codomain, "dim", 1))))
+            )
+            shape = shape + rows
         if self._discrete:
-            return dist.sample(sample_shape).long()
+            return dist.sample(shape).long()
         if getattr(dist, "has_rsample", True):
-            return dist.rsample(sample_shape)
+            return dist.rsample(shape)
         # Continuous but non-reparameterizable (e.g. VonMises).
-        return dist.sample(sample_shape)
+        return dist.sample(shape)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability under the fixed distribution.

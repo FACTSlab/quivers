@@ -29,13 +29,13 @@ The four-tier verification hierarchy:
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from quivers.dsl.parser import parse
+from tests.transpile._tools import require_tool
 from quivers.transpile import UnsupportedConstruct, transpile
 
 
@@ -273,11 +273,7 @@ def test_gallery_example_compiles(example: Path, backend: str, tmp_path: Path) -
     """Transpile a gallery example to `backend` and run its target
     compiler / parser as a syntax check."""
     binary, argv, suffix = _SYNTAX_CHECKS[backend]
-    if shutil.which(binary) is None:
-        pytest.skip(
-            f"{binary!r} not on PATH; install it in the local toolchain "
-            f"or add the install step to CI"
-        )
+    require_tool(binary)
 
     source = example.read_text()
     cell = (backend, example.stem)

@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import math
 import pathlib
-import shutil
 import subprocess
 from collections.abc import Sequence
 
@@ -25,18 +24,12 @@ from quivers.dsl import parse
 from quivers.transpile import transpile
 from quivers.transpile.family_meta import FAMILY_META
 from quivers.transpile.family_spelling import can_spell
+from tests.transpile._tools import require_scheme
 from tests.transpile._docker import image_available, run_probe_script
 
 _SCRIPTS = pathlib.Path(__file__).parent / "probes" / "_scripts"
 
-SCHEME_EXECUTABLE = next(
-    (
-        executable
-        for name in ("scheme", "chez", "petite", "chezscheme")
-        if (executable := shutil.which(name)) is not None
-    ),
-    None,
-)
+SCHEME_EXECUTABLE = require_scheme()
 
 
 class Case:
@@ -403,7 +396,6 @@ def test_every_host_scores_the_registry_density(
     _check(cases, results, _TOLERANCES[target])
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_church_scores_the_registry_density(tmp_path: pathlib.Path) -> None:
     cases = _cases_for("church")
     script = tmp_path / "score.scm"

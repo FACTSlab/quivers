@@ -354,3 +354,38 @@ def test_restrict_sample_in_support() -> None:
     r = Restrict(base, low=torch.tensor(0.0), high=torch.tensor(1.0))
     s = r.sample()
     assert (s >= 0.0) and (s <= 1.0)
+
+
+def test_operator_measure_draws_one_value_per_row_and_coordinate() -> None:
+    """A fixed distribution built from a closed-form operator measure,
+    as a desugared half-family is, keeps the ``(batch, dim)`` sample
+    contract of every other fixed distribution, and scores a batch of
+    such draws row by row."""
+    import textwrap
+
+    from quivers.dsl import loads
+
+    src = """
+    object Obs : FinSet 3
+    object Out : Real 1
+
+    program prior : Obs -> Out
+        sample scale <- HalfNormal(2.0)
+        sample shift <- TruncatedNormal(0.0, 1.0, -1.0, 1.0)
+        return scale
+    export prior
+    """
+    model = loads(textwrap.dedent(src)).morphism
+    torch.manual_seed(0)
+    scale = model.rsample(torch.zeros(3, 1), observations={"shift": torch.zeros(3, 1)})
+    assert scale.shape == (3, 1)
+    assert (scale > 0).all()
+    values = torch.tensor([[0.5], [2.0], [0.1]])
+    shift = torch.tensor([[0.2], [-0.4], [0.9]])
+    joint = model.log_joint(torch.zeros(3, 1), {"scale": values, "shift": shift})
+    assert joint.shape == (3,)
+    half = torch.distributions.HalfNormal(2.0).log_prob(values).sum(-1)
+    normal = torch.distributions.Normal(0.0, 1.0)
+    inside = normal.cdf(torch.tensor(1.0)) - normal.cdf(torch.tensor(-1.0))
+    truncated = normal.log_prob(shift[:, 0]) - torch.log(inside)
+    assert torch.allclose(joint, half + truncated, atol=1e-5)

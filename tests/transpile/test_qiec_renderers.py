@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import shutil
 import subprocess
 
 import pytest
@@ -35,7 +34,8 @@ from quivers.transpile.qiec_ir import (
     IRQiecVar,
 )
 from quivers.transpile.renderers._qiec import _ir_data, _julia_data, _scheme_data
-from tests.transpile._webppl import WEBPPL_EXECUTABLE, run_webppl
+from tests.transpile._tools import require_scheme
+from tests.transpile._webppl import run_webppl
 
 
 DYNAMIC_TARGETS = (
@@ -49,14 +49,7 @@ DYNAMIC_TARGETS = (
     "church",
 )
 STATIC_TARGETS = ("stan", "bugs", "jags")
-SCHEME_EXECUTABLE = next(
-    (
-        executable
-        for name in ("scheme", "chez", "petite", "chezscheme")
-        if (executable := shutil.which(name)) is not None
-    ),
-    None,
-)
+SCHEME_EXECUTABLE = require_scheme()
 
 PURE = """\
 define answer() : Int !{} =
@@ -1123,11 +1116,6 @@ def test_nested_state_handler_is_isolated_across_unrestricted_shots() -> None:
     assert not any(event.startswith("drop:") for event in events)
 
 
-_WEBPPL_UNAVAILABLE = pytest.mark.skipif(
-    WEBPPL_EXECUTABLE is None, reason="WebPPL is unavailable"
-)
-
-
 def _webppl_table(entries: dict[str, str]) -> str:
     """A WebPPL object literal over stable identities.
 
@@ -1149,7 +1137,6 @@ def _webppl_table(entries: dict[str, str]) -> str:
     return f"_.zipObject([{keys}], [{values}])"
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_qiec_function_executes_in_webppl(tmp_path) -> None:
     script = tmp_path / "qiec.wppl"
     script.write_bytes(
@@ -1160,7 +1147,6 @@ def test_generated_webppl_qiec_function_executes_in_webppl(tmp_path) -> None:
     assert completed.stdout.strip() == "42"
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_effect_dispatch_uses_stable_ids(tmp_path) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
@@ -1178,7 +1164,6 @@ def test_generated_webppl_effect_dispatch_uses_stable_ids(tmp_path) -> None:
     assert completed.stdout.strip() == "41"
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_attachment_is_typed_and_validated(tmp_path) -> None:
     ir, attachment, expected_type = _attachment_program_ir()
     script = tmp_path / "qiec-attachment.wppl"
@@ -1200,7 +1185,6 @@ def test_generated_webppl_attachment_is_typed_and_validated(tmp_path) -> None:
     assert json.loads(completed.stdout) == [53, [53]]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_evidence_and_transport_execute(tmp_path) -> None:
     script = tmp_path / "qiec-evidence.wppl"
     script.write_bytes(
@@ -1212,7 +1196,6 @@ def test_generated_webppl_evidence_and_transport_execute(tmp_path) -> None:
     assert json.loads(completed.stdout) == ["evidence", "reflexivity", 42]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_linear_grade_is_enforced(tmp_path) -> None:
     """A linear clause resuming twice ends the program with the grade error."""
     linear_qiec = Lower().forward(parse(HANDLED)).module
@@ -1234,7 +1217,6 @@ def test_generated_webppl_linear_grade_is_enforced(tmp_path) -> None:
     assert "QIEC resumption exceeds grade 1" in completed.stdout + completed.stderr
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_handler_specialization(tmp_path) -> None:
     parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
     parameterized_handler = parameterized_qiec.handlers[0]
@@ -1258,7 +1240,6 @@ def test_generated_webppl_handler_specialization(tmp_path) -> None:
     assert json.loads(completed.stdout) == [61, [], "Int"]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) -> None:
     qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
@@ -1313,7 +1294,6 @@ def test_generated_webppl_handler_forwarding_validation_and_lifecycle(tmp_path) 
     ]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None:
     parameter_ir = Lower().forward(parse(PARAMETER)).module
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
@@ -1336,7 +1316,6 @@ def test_generated_webppl_existential_case_specializes_request(tmp_path) -> None
     assert json.loads(completed.stdout) == ["tagged", [int_type]]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> None:
     qiec = Lower().forward(parse(MULTISHOT)).module
     handler = qiec.handlers[0]
@@ -1368,7 +1347,6 @@ def test_generated_webppl_unrestricted_resumption_isolates_shots(tmp_path) -> No
     assert json.loads(completed.stdout) == [3, [0, 1]]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None:
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
@@ -1423,7 +1401,6 @@ def test_generated_webppl_nested_mutable_state_is_branch_local(tmp_path) -> None
     ]
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_qiec_function_executes_in_chez(tmp_path) -> None:
     script = tmp_path / "qiec.scm"
     script.write_bytes(
@@ -1440,7 +1417,6 @@ def test_generated_church_qiec_function_executes_in_chez(tmp_path) -> None:
     assert completed.stdout.strip() == "42"
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_effect_dispatch_uses_structural_request(tmp_path) -> None:
     qiec = Lower().forward(parse(EFFECTFUL)).module
     request = qiec.computations[0].body.steps[0].first.request  # type: ignore[union-attr]
@@ -1467,7 +1443,6 @@ def test_generated_church_effect_dispatch_uses_structural_request(tmp_path) -> N
     assert completed.stdout.strip() == "45"
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_attachment_is_typed_and_validated(tmp_path) -> None:
     ir, attachment, expected_type = _attachment_program_ir()
     script = tmp_path / "qiec-attachment.scm"
@@ -1492,7 +1467,6 @@ def test_generated_church_attachment_is_typed_and_validated(tmp_path) -> None:
     assert completed.stdout.strip() == "(53 (53))"
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_evidence_and_transport_execute(tmp_path) -> None:
     script = tmp_path / "qiec-evidence.scm"
     script.write_bytes(
@@ -1509,7 +1483,6 @@ def test_generated_church_evidence_and_transport_execute(tmp_path) -> None:
     assert completed.stdout.strip() == '("evidence" "reflexivity" 42)'
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_linear_grade_and_handler_specialization(tmp_path) -> None:
     linear_qiec = Lower().forward(parse(HANDLED)).module
     parameterized_qiec = Lower().forward(parse(PARAMETERIZED_HANDLER)).module
@@ -1547,7 +1520,6 @@ def test_generated_church_linear_grade_and_handler_specialization(tmp_path) -> N
     )
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_existential_case_specializes_request(tmp_path) -> None:
     parameter_ir = Lower().forward(parse(PARAMETER)).module
     qiec = Lower().forward(parse(EXISTENTIAL_REQUEST)).module
@@ -1580,7 +1552,6 @@ def test_generated_church_existential_case_specializes_request(tmp_path) -> None
     assert completed.stdout.strip() == '("tagged" #t)'
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_partial_handler_forwards_to_outer_handler(tmp_path) -> None:
     qiec = Lower().forward(parse(PARTIAL_FORWARDING)).module
     inner, outer = qiec.handlers
@@ -1612,7 +1583,6 @@ def test_generated_church_partial_handler_forwards_to_outer_handler(tmp_path) ->
     assert completed.stdout.strip() == "19"
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_generated_church_nested_mutable_state_is_branch_local(tmp_path) -> None:
     qiec = Lower().forward(parse(NESTED_STATE_OMEGA)).module
     state, choose = qiec.handlers
@@ -1667,7 +1637,6 @@ def test_generated_church_nested_mutable_state_is_branch_local(tmp_path) -> None
     )
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_qiec_function_executes(
     target: str,
@@ -1690,7 +1659,6 @@ def test_generated_julia_qiec_function_executes(
     assert completed.stdout.strip() == "42"
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_effect_dispatch_uses_stable_ids(
     target: str,
@@ -1718,7 +1686,6 @@ def test_generated_julia_effect_dispatch_uses_stable_ids(
     assert completed.stdout.strip() == "43"
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_attachment_is_typed_and_validated(
     target: str,
@@ -1744,7 +1711,6 @@ def test_generated_julia_attachment_is_typed_and_validated(
     assert completed.stdout.strip() == "(53, Any[53])"
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_evidence_and_transport_execute(
     target: str,
@@ -1767,7 +1733,6 @@ def test_generated_julia_evidence_and_transport_execute(
     assert completed.stdout.strip() == '("evidence", "reflexivity", 42)'
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_indexed_constructor_and_case_execute(
     target: str,
@@ -1796,7 +1761,6 @@ def test_generated_julia_indexed_constructor_and_case_execute(
     assert completed.stdout.strip() == "37"
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_existential_case_specializes_request(
     target: str,
@@ -1827,7 +1791,6 @@ def test_generated_julia_existential_case_specializes_request(
     assert completed.stdout.strip().splitlines() == ["tagged", "true"]
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_linear_grade_and_handler_specialization(
     target: str,
@@ -1870,7 +1833,6 @@ def test_generated_julia_linear_grade_and_handler_specialization(
     ]
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_partial_handler_forwards_to_outer_handler(
     target: str,
@@ -1905,7 +1867,6 @@ def test_generated_julia_partial_handler_forwards_to_outer_handler(
     assert completed.stdout.strip() == "19"
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 @pytest.mark.parametrize(("target", "macro"), (("turing", "model"), ("gen", "gen")))
 def test_generated_julia_nested_mutable_state_is_branch_local(
     target: str,

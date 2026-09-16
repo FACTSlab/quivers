@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import math
 import pathlib
-import shutil
 import subprocess
 import sys
 from typing import cast
@@ -24,16 +23,10 @@ import pytest
 from quivers.dsl import parse
 from quivers.transpile import Lower, transpile
 from quivers.transpile.qiec_ir import IRQiecRowEntry
-from tests.transpile._webppl import WEBPPL_EXECUTABLE, run_webppl
+from tests.transpile._tools import require_scheme
+from tests.transpile._webppl import run_webppl
 
-SCHEME_EXECUTABLE = next(
-    (
-        executable
-        for name in ("scheme", "chez", "petite", "chezscheme")
-        if (executable := shutil.which(name)) is not None
-    ),
-    None,
-)
+SCHEME_EXECUTABLE = require_scheme()
 
 LIST = """\
 family List[A : Type] : Type
@@ -289,12 +282,7 @@ var lst = function(n) {
 var INT = %s;
 """
 
-_WEBPPL_UNAVAILABLE = pytest.mark.skipif(
-    WEBPPL_EXECUTABLE is None, reason="WebPPL is unavailable"
-)
 
-
-@_WEBPPL_UNAVAILABLE
 def test_webppl_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "deep.wppl"
     script.write_bytes(
@@ -312,7 +300,6 @@ def test_webppl_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
     assert json.loads(completed.stdout) == [0, DEEP - 1, False, True, 0]
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 def test_julia_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
     cons = _constructors(RECURSION)
     script = tmp_path / "deep.jl"
@@ -343,7 +330,6 @@ println(qiec_last(lst({DEEP}), -1; qiec_static_arguments=Any[INT]), " ",
     assert completed.stdout.split() == ["0", str(DEEP - 1), "false", "true", "0"]
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_scheme_recursion_and_authored_handler(tmp_path: pathlib.Path) -> None:
     cons = _constructors(RECURSION)
     script = tmp_path / "deep.scm"
@@ -431,7 +417,6 @@ def test_python_expressions_and_branches() -> None:
         assert namespace["qiec_mixed"](x, y) == pytest.approx(_mixed_expected(x, y))  # type: ignore[operator]
 
 
-@_WEBPPL_UNAVAILABLE
 def test_webppl_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "expr.wppl"
     script.write_bytes(
@@ -449,7 +434,6 @@ def test_webppl_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 def test_julia_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "expr.jl"
     script.write_text(
@@ -471,7 +455,6 @@ def test_julia_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_scheme_expressions_and_branches(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "expr.scm"
     script.write_bytes(
@@ -544,7 +527,6 @@ def test_python_tensor_expressions() -> None:
     )
 
 
-@_WEBPPL_UNAVAILABLE
 def test_webppl_tensor_expressions(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "tensors.wppl"
     script.write_bytes(
@@ -558,7 +540,6 @@ def test_webppl_tensor_expressions(tmp_path: pathlib.Path) -> None:
     assert json.loads(completed.stdout) == pytest.approx(_stats_expected(_TENSOR_POINT))
 
 
-@pytest.mark.skipif(shutil.which("julia") is None, reason="Julia is unavailable")
 def test_julia_tensor_expressions(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "tensors.jl"
     script.write_text(
@@ -577,7 +558,6 @@ def test_julia_tensor_expressions(tmp_path: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.skipif(SCHEME_EXECUTABLE is None, reason="Chez Scheme is unavailable")
 def test_scheme_tensor_expressions(tmp_path: pathlib.Path) -> None:
     script = tmp_path / "tensors.scm"
     point = " ".join(str(x) for x in _TENSOR_POINT)
