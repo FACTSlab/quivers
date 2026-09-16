@@ -49,7 +49,7 @@ def main() -> int:
     check.add_argument(
         "--target",
         default=None,
-        help="Also diagnose QIEC features unsupported by this transpile target.",
+        help="Also diagnose the features this transpile target lacks.",
     )
 
     repl = sub.add_parser(
@@ -66,6 +66,15 @@ def main() -> int:
         "--plain",
         action="store_true",
         help="Use the prompt_toolkit single-line front end instead of the TUI.",
+    )
+    repl.add_argument(
+        "--target",
+        default=None,
+        metavar="TARGET",
+        help=(
+            "Report this transpile target's capability diagnostics on :load "
+            "and :reload, as `qvr check --target` does."
+        ),
     )
 
     run = sub.add_parser(
@@ -167,7 +176,7 @@ def main() -> int:
     lsp.add_argument(
         "--target",
         default=None,
-        help="Diagnose QIEC capabilities against this transpile target.",
+        help="Diagnose the features this transpile target lacks.",
     )
 
     migrate = sub.add_parser(

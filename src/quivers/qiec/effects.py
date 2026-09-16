@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Literal
@@ -19,6 +20,7 @@ from quivers.qiec.types import (
     StaticArgument,
     TypeExpr,
     check_static_arguments,
+    render_static,
 )
 
 if TYPE_CHECKING:
@@ -1054,6 +1056,55 @@ def instantiate_effect(
     return RowEntry(instance, effect)
 
 
+def render_row(
+    row: EffectRow, names: Mapping[EffectInstanceId, str] | None = None
+) -> str:
+    """Render an effect row in the surface spelling.
+
+    Parameters
+    ----------
+    row : EffectRow
+        The row.
+    names : Mapping[EffectInstanceId, str] | None
+        The source name of each lexical instance; an instance with no
+        name renders as the first eight characters of its digest.
+
+    Returns
+    -------
+    str
+        ``!{a : Effect, b : Other[Int] | rho}``: each entry as its
+        instance's name and interface, and an open row's tail after a
+        bar, with the instances it lacks after a backslash.
+    """
+    table = names or {}
+
+    def instance(identity: EffectInstanceId) -> str:
+        """The rendering of one instance.
+
+        Parameters
+        ----------
+        identity : EffectInstanceId
+            The instance.
+
+        Returns
+        -------
+        str
+            Its source name, or a digest prefix.
+        """
+        return table.get(identity, f"instance:{identity.digest[:8]}")
+
+    entries = ", ".join(
+        f"{instance(entry.instance)} : {render_static(entry.effect)}"
+        for entry in row.entries
+    )
+    if row.tail is None:
+        return "!{" + entries + "}"
+    tail = row.tail.name
+    if row.tail.lacks:
+        tail += " \\ " + ", ".join(instance(item) for item in row.tail.lacks)
+    return "!{" + (entries + " | " if entries else "") + tail + "}"
+
+
 __all__ = [
     "ArgumentDef",
     "ComputationType",
@@ -1071,6 +1122,7 @@ __all__ = [
     "RowVariable",
     "HandlerReturnClauseDef",
     "instantiate_effect",
+    "render_row",
     "unify_effect_rows",
 ]
 

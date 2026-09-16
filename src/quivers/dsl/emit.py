@@ -1109,6 +1109,22 @@ def _emit_qiec_effect_ref(effect: QiecEffectRef) -> str:
     return f"{effect.name}[{arguments}]"
 
 
+def static_argument_to_source(argument: QiecStaticArgument) -> str:
+    """Emit one static argument of an effect or type application.
+
+    Parameters
+    ----------
+    argument : QiecStaticArgument
+        A type, an effect written as type syntax, or an index literal.
+
+    Returns
+    -------
+    str
+        The argument's source form, as the module emitter writes it.
+    """
+    return _emit_qiec_static_argument(argument)
+
+
 def _emit_qiec_static_argument(argument: QiecStaticArgument) -> str:
     """Emit one static argument.
 
@@ -1916,4 +1932,4 @@ def _emit_program_param(param: ProgramParam) -> str:
     raise EmitError(f"emit: unknown ProgramParam kind {type(param).__name__!r}")
 
 
-__all__ = ["EmitError", "module_to_source"]
+__all__ = ["EmitError", "module_to_source", "static_argument_to_source"]

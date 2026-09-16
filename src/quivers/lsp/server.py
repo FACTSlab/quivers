@@ -852,7 +852,7 @@ def _qiec_local_signature(local: object) -> str:
         return (
             f"{name} : {_emit_qiec_type(local.type_expr)}"
             if local.type_expr is not None
-            else f"{name} : (inferred by QIEC)"
+            else f"{name} : (inferred)"
         )
     if isinstance(local, QiecTypeName):
         return f"{name} : (branch static)"

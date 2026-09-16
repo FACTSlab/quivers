@@ -34,7 +34,7 @@ def _entry() -> int:
     parser.add_argument(
         "--target",
         default=None,
-        help="publish diagnostics for QIEC features unsupported by TARGET",
+        help="publish diagnostics for the features TARGET lacks",
     )
     parser.add_argument(
         "--stdio",

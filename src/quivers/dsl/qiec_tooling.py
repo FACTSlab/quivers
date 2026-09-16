@@ -37,6 +37,10 @@ from quivers.dsl.qiec_lowering import (
     non_qiec_projection,
 )
 from quivers.qiec import QiecModule
+from quivers.qiec.builtins import BUILTIN_EFFECTS
+from quivers.qiec.effects import EffectDef, OperationDef
+from quivers.qiec.kinds import ArrowKind, EffectBinder, IndexBinder, TypeBinder
+from quivers.qiec.types import render_static
 
 
 type QiecBindingKind = Literal[
@@ -685,6 +689,170 @@ def qiec_surface_values(module: Module) -> dict[str, object]:
     return {
         name: binding.declaration for name, binding in qiec_binding_map(module).items()
     }
+
+
+def _render_binder(binder: TypeBinder | IndexBinder | EffectBinder) -> str:
+    """Render one static binder in the surface spelling.
+
+    Parameters
+    ----------
+    binder : TypeBinder | IndexBinder | EffectBinder
+        The binder.
+
+    Returns
+    -------
+    str
+        ``name : Type`` for a type binder (an arrow kind rendered as
+        ``Type -> Type``), ``name : Sort`` for an index binder, and
+        ``name : Effect`` for an effect binder.
+    """
+    if isinstance(binder, TypeBinder):
+        kind = binder.kind
+        rendered = "Type"
+        while isinstance(kind, ArrowKind):
+            rendered = f"Type -> {rendered}"
+            kind = kind.codomain
+        return f"{binder.name} : {rendered}"
+    if isinstance(binder, IndexBinder):
+        return f"{binder.name} : {render_static(binder.sort)}"
+    return f"{binder.name} : Effect"
+
+
+def _render_telescope(
+    binders: tuple[TypeBinder | IndexBinder | EffectBinder, ...],
+) -> str:
+    """Render a static telescope as a bracketed binder list.
+
+    Parameters
+    ----------
+    binders : tuple[TypeBinder | IndexBinder | EffectBinder, ...]
+        The binders, in order.
+
+    Returns
+    -------
+    str
+        ``[a : Type, n : Nat]``, or the empty string for no binders.
+    """
+    if not binders:
+        return ""
+    return "[" + ", ".join(_render_binder(binder) for binder in binders) + "]"
+
+
+def render_operation(operation: OperationDef) -> str:
+    """Render one operation of an effect interface as its declaration line.
+
+    Parameters
+    ----------
+    operation : OperationDef
+        The operation.
+
+    Returns
+    -------
+    str
+        ``name[binders] : Arg * Arg -> Result``, the arguments joined by
+        ``*`` as the surface writes them, or ``name : Result`` for an
+        operation with no arguments.
+    """
+    head = f"{operation.name}{_render_telescope(operation.telescope)}"
+    result = render_static(operation.result_type)
+    if not operation.arguments:
+        return f"{head} : {result}"
+    arguments = " * ".join(
+        render_static(argument.type) for argument in operation.arguments
+    )
+    return f"{head} : {arguments} -> {result}"
+
+
+def render_effect(effect: EffectDef) -> str:
+    """Render an effect interface as its declaration.
+
+    Parameters
+    ----------
+    effect : EffectDef
+        The interface.
+
+    Returns
+    -------
+    str
+        The ``effect`` header line followed by one indented line per
+        operation.
+    """
+    lines = [f"effect {effect.ref.name}{_render_telescope(effect.telescope)}"]
+    lines.extend(
+        f"    {render_operation(operation)}" for operation in effect.operations
+    )
+    return "\n".join(lines)
+
+
+#: The prelude's effect interfaces by name, which any module may
+#: instantiate and handle without declaring them.
+PRELUDE_EFFECTS: dict[str, EffectDef] = {
+    effect.ref.name: effect for effect in BUILTIN_EFFECTS
+}
+
+
+def prelude_effect(name: str) -> EffectDef | None:
+    """The prelude interface of a name, if the prelude declares one.
+
+    Parameters
+    ----------
+    name : str
+        The interface's name.
+
+    Returns
+    -------
+    EffectDef | None
+        The interface, or ``None`` for a name the prelude does not
+        declare.
+    """
+    return PRELUDE_EFFECTS.get(name)
+
+
+def instance_effect_name(module: Module, instance: str) -> str | None:
+    """The interface a module-level instance declaration instantiates.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+    instance : str
+        The instance's name.
+
+    Returns
+    -------
+    str | None
+        The interface's name, or ``None`` when the module declares no
+        such instance.
+    """
+    for statement in module.statements:
+        if isinstance(statement, QiecEffectInstanceDecl) and statement.name == instance:
+            return statement.effect.name
+    return None
+
+
+def effect_operation_names(module: Module, effect: str) -> tuple[str, ...]:
+    """The operations of an interface, declared in the module or by the prelude.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module.
+    effect : str
+        The interface's name.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The operation names in declaration order; empty for an unknown
+        interface. A module's own declaration shadows the prelude's.
+    """
+    for statement in module.statements:
+        if isinstance(statement, QiecEffectDecl) and statement.name == effect:
+            return tuple(operation.name for operation in statement.operations)
+    prelude = PRELUDE_EFFECTS.get(effect)
+    if prelude is None:
+        return ()
+    return tuple(operation.name for operation in prelude.operations)
 
 
 def qiec_module_name(file_path: str | Path | None) -> str:

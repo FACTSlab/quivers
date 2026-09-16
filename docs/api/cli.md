@@ -74,11 +74,15 @@ files may also be supplied. The migration tooling is built on the
 in-tree panproto VCS at `grammars/qvr/vcs/`. A new release adds a
 migration without changing the earlier migration steps.
 
-## `qvr repl [FILE]`
+## `qvr repl [FILE] [--plain] [--target TARGET]`
 
 Start the interactive REPL. Without a file, opens an empty
 session; with a file, loads and elaborates it before dropping to
-the prompt. See [REPL and Language Server](../guides/repl-and-lsp.md).
+the prompt. `--plain` uses the single-line front end instead of the
+TUI, and `--target TARGET` makes every load report the capability
+diagnostics of that transpile target beside the module's own, as
+`qvr check --target` does. See
+[REPL and Language Server](../guides/repl-and-lsp.md).
 
 ## `qvr run FILE [ENTRY [ARGUMENTS...]]`
 

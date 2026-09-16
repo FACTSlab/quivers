@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from argparse import Namespace
+
+import pytest
 import json
 
 from pygments.token import Name
@@ -320,7 +322,7 @@ def test_lsp_resolves_qiec_parameters_and_let_binders() -> None:
     assert getattr(local, "name", None) == "y"
     assert getattr(local, "line", 0) == 7
     hover = _render_hover(document, "y", line=7, col=12)
-    assert hover is not None and "inferred by QIEC" in hover
+    assert hover is not None and ": (inferred)" in hover
 
 
 def test_lsp_reports_selected_target_qiec_capabilities() -> None:
@@ -388,7 +390,9 @@ def test_effectful_execution_crosses_cli_repl_and_tui_boundaries(
     assert session.dispatch(":run effectful 9").ok
     from quivers.cli.repl_tui import _runtime_status
 
-    assert _runtime_status(session) == "runtime:core last:effectful=9:Int"
+    assert _runtime_status(session) == (
+        "runtime:core entry:effectful(computation) last:effectful=9:Int"
+    )
 
 
 def test_qvr_run_and_repl_honor_a_fuel_budget(tmp_path: Path, capsys) -> None:
@@ -418,3 +422,208 @@ def test_qvr_run_and_repl_honor_a_fuel_budget(tmp_path: Path, capsys) -> None:
     rejected = session.dispatch(":run spin 1 --fuel 0")
     assert not rejected.ok
     assert rejected.diagnostics[0].code == "qiec-run-config"
+
+
+# ---------------------------------------------------------------------------
+# One check path: the same codes and positions on every surface.
+# ---------------------------------------------------------------------------
+
+
+_DIAGNOSTIC_SOURCES: dict[str, tuple[str, str, int, int]] = {
+    # An unknown callee in a call graph.
+    "call": (
+        "define shift(x : Real) : Real !{} =\n"
+        "    return x + 1.0\n\n"
+        "define caller(x : Real) : Real !{} =\n"
+        "    let y <- missing(x)\n"
+        "    return y\n",
+        "qiec-route",
+        5,
+        13,
+    ),
+    # A body performing an effect its declared row lacks.
+    "row": (
+        "instance random : Random\n\n"
+        "define draws(x : Real) : Real !{} =\n"
+        '    let y <- perform random.sample[Real](site("y"), Normal(x, 1.0))\n'
+        "    return y\n",
+        "qiec-row",
+        3,
+        0,
+    ),
+    # A handler clause naming an operation its interface lacks.
+    "handler": (
+        "effect Echo\n"
+        "    ping : Int -> Int\n\n"
+        "instance echo : Echo\n\n"
+        "handler pass for Echo : Int -> Int [coverage=total, implementation=foreign]\n"
+        "    pong resumes 1\n",
+        "qiec-handler",
+        7,
+        4,
+    ),
+    # A recursive call at the wrong arity.
+    "recursion": (
+        "define spin(n : Int) : Int !{} =\n    spin(n, n)\n",
+        "qiec-call-arity",
+        2,
+        4,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_DIAGNOSTIC_SOURCES))
+def test_check_repl_and_tui_report_one_diagnostic(case: str, tmp_path: Path) -> None:
+    """`qvr check`, a REPL load, and the TUI's diagnostics panel report
+    the same code at the same position for a call-graph, row,
+    handler-body, and recursion error."""
+    source, code, line, col = _DIAGNOSTIC_SOURCES[case]
+    path = tmp_path / f"{case}.qvr"
+    path.write_text(source)
+    check = [(d.code, d.line, d.col) for d in _check_one(path)]
+    assert check[0] == (code, line, col), check
+    session = ReplSession()
+    response = session.load_file(path)
+    loaded = [(d.code, d.line, d.col) for d in response.diagnostics]
+    assert loaded[0] == (code, line, col), loaded
+    assert loaded == check
+    message = _check_one(path)[0].message
+    assert response.diagnostics[0].message == message
+    assert "EffectRow(" not in message and "RowEntry(" not in message
+
+
+def test_row_diagnostics_render_instances_by_name(tmp_path: Path) -> None:
+    source, _, _, _ = _DIAGNOSTIC_SOURCES["row"]
+    path = tmp_path / "row.qvr"
+    path.write_text(source)
+    message = _check_one(path)[0].message
+    assert message == (
+        "computation body has effect row !{random : Random}, not declared row !{}"
+    )
+
+
+def test_check_and_repl_report_the_same_target_capability(tmp_path: Path) -> None:
+    """`qvr check --target` and a REPL session with `target` set report a
+    target's capability diagnostics alike, and the REPL's status line
+    names the target."""
+    from quivers.cli.repl_tui import _runtime_status
+
+    path = tmp_path / "recursive.qvr"
+    path.write_text(
+        "define count(n : Int) : Int !{} =\n"
+        "    if n == 0 then\n"
+        "        return 0\n"
+        "    else\n"
+        "        let rest <- count(n - 1)\n"
+        "        return rest + 1\n"
+    )
+    checked = [(d.code, d.line, d.col) for d in _check_one(path, target="bugs")]
+    session = ReplSession()
+    assert session.set_option("target=bugs").ok
+    response = session.load_file(path)
+    loaded = [(d.code, d.line, d.col) for d in response.diagnostics]
+    assert loaded == checked
+    assert loaded, "BUGS admits no call, so the recursive computation is refused"
+    assert all(code.startswith("qiec:capability") for code, _, _ in loaded)
+    assert _runtime_status(session) == "runtime:core target:bugs"
+    rejected = session.set_option("target=nowhere")
+    assert not rejected.ok
+    assert session.options.target == "bugs"
+    assert session.set_option("target=").ok
+    assert session.load_file(path).diagnostics == ()
+
+
+def test_status_line_shows_program_entries_and_failures(tmp_path: Path) -> None:
+    from quivers.cli.repl_tui import _runtime_status
+
+    path = tmp_path / "prog.qvr"
+    path.write_text(
+        "object Obs : FinSet 4\n\n"
+        "program prog : Obs -> Obs\n"
+        "    sample a <- Normal(0.0, 1.0)\n"
+        "    observe y : Obs <- Normal(a, 0.5)\n"
+        "    return a\n"
+        "export prog\n\n"
+        "define spin(n : Int) : Int !{} =\n    spin(n)\n"
+    )
+    session = ReplSession()
+    assert session.load_file(path).ok
+    response = session.dispatch(":run prog [0.1,0.2,0.3,0.4] --site a=0.5 --seed 0")
+    assert response.ok, response.diagnostics
+    status = _runtime_status(session)
+    assert status.startswith("runtime:core entry:prog(program) last:prog=0.5:Real")
+    assert "log_joint=" in status
+    failed = session.dispatch(":run spin 1 --fuel 50")
+    assert not failed.ok
+    assert failed.diagnostics[0].code == "qiec-run-fuel"
+    assert _runtime_status(session) == "runtime:core failed:spin[qiec-run-fuel]"
+    assert session.dispatch(":run spin --fuel 50").diagnostics[0].code == (
+        "qiec-run-arity"
+    )
+    assert _runtime_status(session) == "runtime:core failed:spin[qiec-run-arity]"
+
+
+def test_repl_introspects_prelude_effects_and_qualified_operations(
+    tmp_path: Path,
+) -> None:
+    """`:kind`, `:type`, `:effects`, and completion reach the prelude's
+    interfaces and the operations an instance addresses."""
+    from quivers.cli.repl_complete import all_completions
+
+    path = tmp_path / "calls.qvr"
+    path.write_text(
+        "instance random : Random\n"
+        "instance score : Score\n\n"
+        "define noisy(x : Real) : Real !{random, score} =\n"
+        '    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))\n'
+        "    perform score.add(weight(-0.25 * y * y))\n"
+        "    return y\n\n"
+        "define shift(x : Real) : Real !{} =\n"
+        "    let y <- noisy(x)\n"
+        "    return y + 1.0\n"
+    )
+    session = ReplSession()
+    load = session.load_file(path)
+    assert not load.ok
+    assert load.diagnostics[0].code == "qiec-row"
+    path.write_text(
+        path.read_text().replace(
+            "!{} =\n    let y <- noisy", "!{random, score} =\n    let y <- noisy"
+        )
+    )
+    assert session.load_file(path).ok
+    assert session.dispatch(":kind Random").body == "effect Random"
+    assert session.dispatch(":type Random.sample").body == (
+        "Random.sample[a : Type] : Site[a] * Sampleable[a] -> a"
+    )
+    assert session.dispatch(":type random.sample").body == (
+        "random.sample[a : Type] : Site[a] * Sampleable[a] -> a"
+    )
+    assert session.dispatch(":type score.add").body == "score.add : LogWeight -> Unit"
+    assert session.dispatch(":effects Random").body == (
+        "effect Random (prelude)\n  operations: {sample}"
+    )
+    effects = session.dispatch(":effects shift").body
+    assert "inferred  : !{random : Random, score : Score}" in effects
+    assert {item.text for item in all_completions(session, "random.")} == {
+        "random.sample"
+    }
+    missing = session.dispatch(":type random.draw")
+    assert not missing.ok
+    assert (
+        session.dispatch(":type Random")
+        .diagnostics[0]
+        .message.endswith("use :kind Random")
+    )
+
+
+def test_instance_qualified_operations_substitute_the_instance_arguments() -> None:
+    session = ReplSession()
+    assert session.dispatch(SOURCE).ok
+    assert session.dispatch(":type cell.get").body == "cell.get : Unit -> Int"
+    assert session.dispatch(":type cell.put").body == "cell.put : Int -> Unit"
+    assert session.dispatch(":type State.put").body == "State.put : S -> Unit"
+    assert session.dispatch(":info cell").body.splitlines()[0] == (
+        "instance cell : State[Int]"
+    )
+    assert "-- declared at <repl>:7:0" in session.dispatch(":info cell").body

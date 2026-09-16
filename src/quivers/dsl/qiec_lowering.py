@@ -38,6 +38,7 @@ from quivers.qiec.canonical import (
 from quivers.qiec.builtins import BUILTIN_EFFECTS
 from quivers.qiec.families import FAMILIES, DistributionFamily
 from quivers.qiec.programs import ProgramEntry
+from quivers.qiec.effects import render_row
 from quivers.qiec.types import render_static
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.pure_builtins import (
@@ -1463,6 +1464,7 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
                     "effect-instance",
                 ),
             )
+            self.registry.instance_names[entry.instance] = declaration.name
 
     def _declare_handlers(self) -> None:
         """Lower every handler, including its authored clause bodies.
@@ -1854,15 +1856,17 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             if actual.result != computation.type.result:
                 self._fail(
                     declaration,
-                    f"computation body returns {actual.result!r}, "
-                    f"expected {computation.type.result!r}",
+                    f"computation body returns {render_static(actual.result)}, "
+                    f"expected {render_static(computation.type.result)}",
                     code="qiec-kind",
                 )
             if not computation_type_conforms(actual, computation.type):
                 self._fail(
                     declaration,
-                    f"computation body has effect row {actual.effects!r}, "
-                    f"not declared row {computation.type.effects!r}",
+                    f"computation body has effect row "
+                    f"{render_row(actual.effects, self.registry.instance_names)}, "
+                    f"not declared row "
+                    f"{render_row(computation.type.effects, self.registry.instance_names)}",
                     code="qiec-row",
                 )
             computations.append(computation)
@@ -4142,6 +4146,7 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             entry,
             self._origin(authored, path, "effect-instance"),
         )
+        self.registry.instance_names[entry.instance] = authored.name
         try:
             body = self._lower_computation(
                 authored.body,

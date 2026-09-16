@@ -71,7 +71,7 @@ mermaid.live.
 ```bash
 qvr --version
 qvr check docs/examples/source/lda.qvr      # batch-validate one or more files
-qvr run --help                              # inspect named QIEC execution
+qvr run --help                              # inspect entry-point execution
 qvr repl --help                              # confirm the TUI is reachable
 ```
 
@@ -85,7 +85,7 @@ qvr repl --help                              # confirm the TUI is reachable
 | `qvr run FILE.qvr [NAME [JSON ...]]` | Execute one entry point, a `define` computation or a `program`; list them with no name |
 | `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config); add `--target TARGET` for live backend-capability diagnostics |
 | `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec named `quivers` |
-| `qvr check FILE...` | Batch parse + compile; add `--target TARGET` to check QIEC target capabilities; non-zero exit code on any error |
+| `qvr check FILE...` | Batch parse + compile; add `--target TARGET` to report the features that target lacks; non-zero exit code on any error |
 
 ## The REPL
 
@@ -134,8 +134,13 @@ The top bar shows, separated by `·`:
 - the loaded file path (or `<no file>`),
 - the active algebra (`ProductFuzzyAlgebra`, `LogProbAlgebra`, …),
 - counts such as `N obj · M space · K morph · J rule · L qiec`, and
-- the active QIEC runtime as `runtime:LABEL`. After `:run`, the same fragment
-  includes `last:NAME=VALUE:TYPE`; a detached runtime is shown in yellow.
+- the active runtime as `runtime:LABEL`, and the transpile target whose
+  capability diagnostics `:load` reports as `target:NAME` when `:set target=`
+  names one. After a successful `:run`, the same fragment names the entry
+  point and its kind, `entry:NAME(program)` or `entry:NAME(computation)`,
+  its value as `last:NAME=VALUE:TYPE`, and a program's `log_joint=`; after a
+  failed one it shows `failed:NAME[CODE]`, so a run out of fuel reads
+  `failed:spin[qiec-run-fuel]`. A detached runtime is shown in yellow.
 
 It refreshes after every evaluation, reload, runtime change, or watch update.
 
@@ -205,8 +210,8 @@ column.
 | `:kind T` | `:k` | Resolve a type-level name or expression (`object X : FinSet 3`, `FinSet 3 :: FinSet 3`) |
 | `:transpile TARGET` |  | Emit the loaded module for `stan`, `numpyro`, `pyro`, `pymc`, `edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, or `jags` |
 | `:runtime [PROVIDER\|FILE.json]` |  | Show the current runtime, attach a registered provider, or load an explicit provider configuration |
-| `:run NAME [JSON ...] [--static NAME=TERM] [--fuel STEPS]` |  | Execute one named QIEC computation with checked value and static arguments |
-| `:detach` |  | Detach every QIEC runtime provider from the session |
+| `:run [NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON] [--static NAME=TERM] [--fuel STEPS] [--seed N]]` |  | Execute an entry point, a `define` computation or a `program`, with checked arguments; alone, list the entry points |
+| `:detach` |  | Detach every runtime provider from the session |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` |  | Render only the doc comment(s) for NAME |
 | `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
@@ -221,7 +226,7 @@ column.
 | `:save [FILE]` | `:s` | Write the live module to FILE (or back to the loaded path) via [`module_to_source`](../api/dsl/emit.md) |
 | `:watch EXPR` | `:w` | Pin EXPR for re-eval on every recompile; result appears in the Watches strip |
 | `:unwatch [EXPR]` |  | Remove one watch, or clear all when no argument is given |
-| `:set k=v` |  | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`) |
+| `:set k=v` |  | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`, `target`) |
 | `:help [CMD]` | `:h` | Without arg: full command list. With one: detailed help for CMD |
 | `:quit` | `:q` / `:exit` | Exit the REPL |
 
@@ -301,8 +306,10 @@ object Doc : FinSet 20
 family Vec[A : Type](n : Nat) : Type
 ```
 
-QIEC index sorts, indexed families, and effect interfaces participate in the
-same kind lookup. `:type` likewise renders signatures for effect instances,
+Index sorts, indexed families, and effect interfaces participate in the
+same kind lookup, the prelude's interfaces included: `:kind Random` prints
+`effect Random` without a declaration in the module. `:type` likewise renders
+signatures for effect instances,
 handlers, constructors, operations, and typed computations.
 
 #### `:transpile TARGET`
@@ -567,9 +574,13 @@ a sample site, the output flags a `! leak` line. If it declares
 `[effects=[Sample, Score]]` but the body never observes, the
 output flags an `! unused` line.
 
-For a QIEC name, the same command reports the corresponding stable contract:
-an effect's operations; a handler's coverage, forwarding policy, and clause
-grades; or a computation's row entries, tail, and `lacks` constraints.
+For a checked declaration, the same command reports the corresponding stable
+contract: an effect's operations (a prelude interface is marked as such); a
+handler's coverage, forwarding policy, and clause grades; or a computation's
+declared row entries, tail, and `lacks` constraints together with the row the
+checker infers for its body once every call in it is expanded to its callee's
+signature, rendered with the instances' source names. A program's report adds
+a `checked` line with the row of the computation it elaborates to.
 
 ```
 > :effects State
@@ -581,6 +592,21 @@ computation exchange:
   instances : {left, right}
   tail      : (closed)
   lacks     : {(none)}
+  inferred  : !{left : State[Int], right : State[Int]}
+```
+
+An operation is addressed through its interface or through an instance, and
+an instance's static arguments replace the interface's binders:
+
+```
+> :type State.put
+State.put : S -> Unit
+
+> :type cell.put
+cell.put : Int -> Unit
+
+> :type random.sample
+random.sample[a : Type] : Site[a] * Sampleable[a] -> a
 ```
 
 #### `:shape PROGRAM`
@@ -685,6 +711,7 @@ Toggle session options. The options table:
 | `paranoid` | `false` | Re-run constraint checks after every recompile |
 | `autoload_on_save` | `true` | Re-load the file when its mtime advances |
 | `theme` | `ansi_dark` | Rich/Pygments syntax theme; see the [Themes](#themes) section below for the full list |
+| `target` | (none) | A transpile target whose capability diagnostics `:load` and `:reload` report beside the module's own, as `qvr check --target` does; setting it reloads the file, and `qvr repl --target TARGET` sets it at startup |
 
 ```
 > :set show_axes=true

@@ -17,6 +17,7 @@ from quivers.qiec.effects import (
     HandlerDef,
     OperationDef,
     RowEntry,
+    render_row,
 )
 from quivers.qiec.coverage import (
     BranchPattern,
@@ -32,6 +33,7 @@ from quivers.qiec.identifiers import (
     ComputationId,
     ConstructorId,
     EffectId,
+    EffectInstanceId,
     EqualityId,
     FamilyId,
     HandlerId,
@@ -336,6 +338,9 @@ class KernelRegistry:
         known with.
     computations
         Named computation signatures by identity.
+    instance_names
+        The source name of each lexical effect instance, for rendering
+        rows in diagnostics.
     """
 
     families: dict[FamilyId, FamilyDecl] = field(default_factory=dict)
@@ -349,6 +354,7 @@ class KernelRegistry:
     computations: dict[ComputationId, ComputationSignature] = field(
         default_factory=dict
     )
+    instance_names: dict[EffectInstanceId, str] = field(default_factory=dict)
 
     def _record_type_constructor(self, constructor: TypeConstructorRef) -> None:
         """Remember one type constructor's telescope, or confirm it.
@@ -805,7 +811,7 @@ class KernelRegistry:
                     raise KernelError(
                         f"clause {operation.name!r} of handler "
                         f"{handler.name!r} binds {parameter.name!r} at "
-                        f"{parameter.type!r}, not the declared {declared!r}",
+                        f"{render_static(parameter.type)}, not the declared {render_static(declared)}",
                         "qiec-handler-body",
                     )
                 context = context.extend(parameter)
@@ -1879,7 +1885,7 @@ def _plated_sample_type(
             ):
                 raise KernelError(
                     f"family {value.name!r} samples a Tensor[{element_name}] of "
-                    f"rank {family.event_rank}, not {value.result_type!r}",
+                    f"rank {family.event_rank}, not {render_static(value.result_type)}",
                     "qiec-distribution",
                 )
             event = tuple(shape[1][len(plate.batch) :])
@@ -1922,7 +1928,7 @@ def _infer_tensor(
     split = tensor_shape(value.result_type)
     if split is None:
         raise KernelError(
-            f"tensor construction claims non-tensor type {value.result_type!r}",
+            f"tensor construction claims non-tensor type {render_static(value.result_type)}",
             "qiec-primitive",
         )
     element, dimensions = split
@@ -1951,7 +1957,7 @@ def _infer_tensor(
         if actual != slice_type:
             raise KernelError(
                 f"tensor entry {position} has type {render_static(actual)}, not the slice type "
-                f"{slice_type!r}",
+                f"{render_static(slice_type)}",
                 "qiec-primitive",
             )
     registry.validate_type(value.result_type)
@@ -2280,8 +2286,8 @@ def _infer_distribution(
     expected = _plated_sample_type(value, family, argument_types)
     if value.result_type != expected:
         raise KernelError(
-            f"family {value.name!r} produces {expected!r}, not the claimed "
-            f"{value.result_type!r}",
+            f"family {value.name!r} produces {render_static(expected)}, not the claimed "
+            f"{render_static(value.result_type)}",
             "qiec-distribution",
         )
     registry.validate_type(expected)
@@ -2400,8 +2406,8 @@ def infer_value(
         )
         if value.result_type != expected_result:
             raise KernelError(
-                f"primitive {value.name!r} produces {expected_result!r}, not "
-                f"the claimed {value.result_type!r}",
+                f"primitive {value.name!r} produces {render_static(expected_result)}, not "
+                f"the claimed {render_static(value.result_type)}",
                 "qiec-primitive",
             )
         return expected_result
@@ -2416,7 +2422,7 @@ def infer_value(
             and len(value.result_type.arguments) == 1
         ):
             raise KernelError(
-                f"site {value.label!r} claims {value.result_type!r}, not a Site",
+                f"site {value.label!r} claims {render_static(value.result_type)}, not a Site",
                 "qiec-distribution",
             )
         registry.validate_type(value.result_type)
@@ -2433,8 +2439,8 @@ def infer_value(
         actual = infer_value(value.value, registry, context)
         if actual != element:
             raise KernelError(
-                f"log_prob evaluates a distribution over {element!r} at a value "
-                f"of type {actual!r}",
+                f"log_prob evaluates a distribution over {render_static(element)} at a value "
+                f"of type {render_static(actual)}",
                 "qiec-distribution",
             )
         if not value.batch:
@@ -2525,8 +2531,8 @@ def infer_value(
             )
         if value.result_type != actual:
             raise KernelError(
-                f"{value.operator} keeps its argument's type {actual!r}, not the "
-                f"claimed {value.result_type!r}",
+                f"{value.operator} keeps its argument's type {render_static(actual)}, not the "
+                f"claimed {render_static(value.result_type)}",
                 "qiec-primitive",
             )
         return actual
@@ -2572,7 +2578,7 @@ def infer_value(
             and source.constructor.id == product_type(*source.arguments).constructor.id  # type: ignore[arg-type]
         ):
             raise KernelError(
-                f"projection from a value of non-product type {source!r}",
+                f"projection from a value of non-product type {render_static(source)}",
                 "qiec-primitive",
             )
         if not 0 <= value.position < len(source.arguments):
@@ -2643,7 +2649,7 @@ def infer_value(
         )
         if value.result_type != expected_result:
             raise KernelError(
-                f"constructor result is {value.result_type!r}, expected {expected_result!r}"
+                f"constructor result is {render_static(value.result_type)}, expected {render_static(expected_result)}"
             )
         return expected_result
     raise KernelError(f"unknown value term {value!r}")
@@ -2721,7 +2727,7 @@ def check_request(
             )
     if request.result_type != result_type:
         raise KernelError(
-            f"request result is {request.result_type!r}, expected {result_type!r}"
+            f"request result is {render_static(request.result_type)}, expected {render_static(result_type)}"
         )
     return request.effect, result_type
 
@@ -3189,8 +3195,8 @@ def _infer_call(
         )
     if call.effects != effects:
         raise KernelError(
-            f"call to {signature.name!r} records row {call.effects!r} "
-            f"but the instantiated signature gives {effects!r}",
+            f"call to {signature.name!r} records row {render_row(call.effects, registry.instance_names)} "
+            f"but the instantiated signature gives {render_row(effects, registry.instance_names)}",
             "qiec-call",
         )
     return _checked_computation_type(effects, result, registry, context)

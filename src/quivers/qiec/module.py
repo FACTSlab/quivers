@@ -7,6 +7,7 @@ but never parser nodes, compiler objects, callbacks, or backend-specific data.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 
 from quivers.qiec.checking import (
@@ -24,6 +25,7 @@ from quivers.qiec.effects import (
     EffectRow,
     HandlerDef,
     RowEntry,
+    render_row,
 )
 from quivers.qiec.programs import ProgramEntry
 from quivers.qiec.identifiers import (
@@ -52,7 +54,13 @@ from quivers.qiec.terms import (
     Local,
     NewInstance,
 )
-from quivers.qiec.types import EffectRef, EffectVariable, IndexVariable, TypeVariable
+from quivers.qiec.types import (
+    EffectRef,
+    EffectVariable,
+    IndexVariable,
+    TypeVariable,
+    render_static,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,6 +458,7 @@ def validate_module(module: QiecModule) -> KernelRegistry:
             raise KernelError(
                 f"unknown effect interface for instance {instance.name!r}"
             )
+        registry.instance_names[instance.entry.instance] = instance.name
     # Every computation signature is registered before any body is
     # rechecked, for the same reason the lowerer collects them first: a
     # body may call a computation declared after it, and two may call
@@ -502,10 +511,68 @@ def validate_module(module: QiecModule) -> KernelRegistry:
         actual = infer_computation(computation.body, registry, context)
         if not computation_type_conforms(actual, computation.type):
             raise KernelError(
-                f"computation {computation.name!r} has type {actual!r}, "
-                f"not declared type {computation.type!r}"
+                f"computation {computation.name!r} has type "
+                f"{render_computation_type(actual, registry.instance_names)}, "
+                f"not declared type "
+                f"{render_computation_type(computation.type, registry.instance_names)}"
             )
     return registry
+
+
+def render_computation_type(
+    type_: ComputationType, names: Mapping[EffectInstanceId, str] | None = None
+) -> str:
+    """Render a computation type as its result and row.
+
+    Parameters
+    ----------
+    type_ : ComputationType
+        The type.
+    names : Mapping[EffectInstanceId, str] | None
+        The source name of each lexical instance, for the row.
+
+    Returns
+    -------
+    str
+        ``Result !{row}``.
+    """
+    return f"{render_static(type_.result)} {render_row(type_.effects, names)}"
+
+
+def inferred_computation_type(
+    module: QiecModule, registry: KernelRegistry, name: str
+) -> ComputationType:
+    """The type a named computation's body has, as the checker infers it.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module, already validated.
+    registry : KernelRegistry
+        The registry `validate_module` resolved for it.
+    name : str
+        The computation's name.
+
+    Returns
+    -------
+    ComputationType
+        The inferred result type and the row the body performs, which the
+        declared row may widen.
+
+    Raises
+    ------
+    KeyError
+        If the module has no computation of that name.
+    """
+    computation = next(
+        (item for item in module.computations if item.name == name), None
+    )
+    if computation is None:
+        raise KeyError(f"module {module.module!r} has no computation {name!r}")
+    context = CheckContext()
+    for parameter in computation.parameters:
+        context = context.extend(parameter)
+    return infer_computation(computation.body, registry, context)
 
 
 def computation_type_conforms(
@@ -839,5 +906,7 @@ __all__ = [
     "NamedComputation",
     "NamedEffectInstance",
     "QiecModule",
+    "inferred_computation_type",
+    "render_computation_type",
     "validate_module",
 ]

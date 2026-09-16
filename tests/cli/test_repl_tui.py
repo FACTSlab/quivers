@@ -144,7 +144,7 @@ def test_style_table_uses_truecolor_hex_codes():
 
 
 def test_program_builder_renders_full_signature(lda_session):
-    from quivers.cli.repl_tui import _children_for_program
+    from quivers.cli.repl_browse import _children_for_program
 
     tmpl = lda_session._compiler.programs["lda"]
     head, children = _children_for_program("lda", tmpl)
@@ -165,7 +165,7 @@ def test_program_builder_renders_full_signature(lda_session):
 
 
 def test_object_builder_renders_finset(lda_session):
-    from quivers.cli.repl_tui import _children_for_object
+    from quivers.cli.repl_browse import _children_for_object
 
     head, children = _children_for_object("Doc", lda_session._compiler.objects["Doc"])
     assert head == "Doc : FinSet 20", head
@@ -173,7 +173,7 @@ def test_object_builder_renders_finset(lda_session):
 
 
 def test_deduction_builder_renders_rule_lines():
-    from quivers.cli.repl_tui import _children_for_deduction
+    from quivers.cli.repl_browse import _children_for_deduction
 
     s = ReplSession()
     s.load_file("docs/examples/source/ccg.qvr")
@@ -363,9 +363,8 @@ def test_completion_classifies_program_with_detail(lda_session):
 
 
 def test_tui_module_imports_cleanly():
-    """Importing ``quivers.cli.repl_tui`` must not raise even when
-    Textual is not installed (the imports are lazy inside
-    ``run_tui``)."""
+    """Importing ``quivers.cli.repl_tui`` resolves every front-end
+    dependency the ``repl`` extra installs."""
     import importlib
 
     importlib.import_module("quivers.cli.repl_tui")
@@ -404,7 +403,10 @@ def test_real_textual_app_executes_qiec_run_end_to_end(tmp_path: Path) -> None:
             assert session.last_run.computation == "identity"
             assert session.last_run.value == 7
             status = app.query_one("#status", Static)  # type: ignore[attr-defined]
-            assert "runtime:core last:identity=7:Int" in str(status.render())
+            assert (
+                "runtime:core entry:identity(computation) last:identity=7:Int"
+                in str(status.render())
+            )
 
     asyncio.run(exercise())
 
