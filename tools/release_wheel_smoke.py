@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 import sys
+import tempfile
 
 import quivers
 from quivers.cli.migrations import CHAIN, compose_migration, vcs_coverage_report
@@ -12,13 +13,16 @@ from quivers.cli.migrations import _grammar as migration_grammar
 from quivers.dsl import parse
 from quivers.dsl import _grammar_build as grammar_build
 from quivers.dsl.pygments_lexer import QvrLexer
+from quivers.cli.check import _check_one as check_one
+from quivers.dsl import Compiler
+from quivers.qiec import invoke_entry
 from quivers.transpile import available_targets, transpile
 
 
 _EXPECTED_DEPENDENCIES = {
-    "didactic": "0.15.0",
-    "panproto": "0.74.2",
-    "panproto-grammars-all": "0.74.2",
+    "didactic": "0.17.1",
+    "panproto": "0.74.4",
+    "panproto-grammars-all": "0.74.4",
 }
 
 
@@ -57,7 +61,7 @@ def main() -> None:
 
     module = parse("index Nat = Z | S(Nat)\n")
     if len(module.statements) != 1:
-        raise SystemExit("installed-wheel v0.19 parser returned the wrong module")
+        raise SystemExit("installed-wheel parser returned the wrong module")
     if not list(QvrLexer().get_tokens("index Nat = Z | S(Nat)\n")):
         raise SystemExit("installed-wheel highlighter returned no tokens")
 
@@ -73,6 +77,37 @@ def main() -> None:
     exec(rendered["pyro"], namespace)
     if namespace["qiec_answer"]() != 42:  # type: ignore[operator]
         raise SystemExit("installed-wheel Python QIEC runtime returned wrong value")
+
+    checked = Compiler(qiec_source, module_name="smoke", file_path="smoke.qvr")
+    module = checked.qiec_module
+    if module is None:
+        raise SystemExit("installed-wheel compiler produced no checked module")
+    if invoke_entry(module, "answer").value != 42:
+        raise SystemExit("installed-wheel reference machine returned wrong value")
+    with tempfile.TemporaryDirectory() as scratch:
+        path = Path(scratch) / "model.qvr"
+        path.write_text(
+            "object Obs : FinSet 4\n\n"
+            "program prog : Obs -> Obs\n"
+            "    sample a <- Normal(0.0, 1.0)\n"
+            "    observe y : Obs <- Normal(a, 0.5)\n"
+            "    return a\n"
+            "export prog\n"
+        )
+        if check_one(path):
+            raise SystemExit("installed-wheel check reported diagnostics on a program")
+        program = Compiler(
+            parse(path.read_bytes(), file_path=str(path)),
+            module_name="model",
+            file_path=str(path),
+        ).qiec_module
+        if program is None:
+            raise SystemExit("installed-wheel compiler produced no program entry")
+        run = invoke_entry(
+            program, "prog", ((0.1, 0.2, 0.3, 0.4),), sites={"a": 0.5}, seed=0
+        )
+        if run.value != 0.5 or run.log_joint is None:
+            raise SystemExit("installed-wheel program run returned the wrong value")
 
     available = set(migration_grammar.available_revisions())
     missing = set(CHAIN) - available
