@@ -2232,7 +2232,8 @@ def analyze_qiec_capabilities(
     }
     recursive = _recursive_computations(module)
     # A program's computation and its marginal helpers are rendered from
-    # the target plan the renderer builds for the program, so the host
+    # the target plan the renderer builds for the program, and a program
+    # another program draws from is planned in place, so the host
     # runtime is never asked to carry them.
     programs = module.program_computations()
     for computation in module.computations:

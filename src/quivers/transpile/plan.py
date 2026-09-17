@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Sequence
-from dataclasses import replace
-from typing import Literal
+from dataclasses import fields, replace
+from typing import Literal, cast
 
 from torch.distributions import Distribution
 
@@ -71,6 +71,7 @@ from quivers.qiec.terms import (
     Bind,
     Call,
     Comprehension,
+    ConstructorValue,
     Computation,
     DistributionValue,
     Gather,
@@ -84,6 +85,7 @@ from quivers.qiec.terms import (
     PlateAxis,
     PlateShape,
     PrimitiveApplication,
+    Projection,
     Reduction,
     Return,
     Rowwise,
@@ -135,6 +137,7 @@ from quivers.transpile.ir import (
     IRArgNumber,
     IRArgRef,
     IRCall,
+    IRQiecValueExpr,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -168,7 +171,7 @@ from quivers.transpile.lower import (
     object_shapes,
     pick_program,
 )
-from quivers.transpile.qiec_ir import IRQiecStatic, _convert, lower_qiec_ir
+from quivers.transpile.qiec_ir import IRQiecStatic, IRQiecValue, _convert, lower_qiec_ir
 
 #: The registry's name for a structured family's constructor argument
 #: where the two differ.
@@ -279,11 +282,18 @@ class _Planner:
         inputs = walk.inputs(body)
         return IRProgram(
             name=program.name,
-            inputs=inputs,
-            body=body,
+            inputs=tuple(_spelled(item) for item in inputs),
+            body=tuple(_spelled(item) for item in body),
             module=lower_qiec_ir(self.module),
             cards=dict(self.cards),
         )
+
+
+#: The value terms a plan walks into when reading a pair's components
+#: back: every variant of `Value`, as one runtime tuple.
+_VALUE_TYPES: tuple[type, ...] = tuple(
+    item for item in Value.__value__.__args__ if isinstance(item, type)
+)
 
 
 class _ProgramWalk:
@@ -328,6 +338,9 @@ class _ProgramWalk:
         }
         self.local_types: dict[str, TypeExpr] = {}
         self.via: str | None = None
+        # The components of every local bound to a tuple of bindings,
+        # which the plan holds as the bindings themselves.
+        self.tuples: dict[str, tuple[Value, ...]] = {}
 
     # ------------------------------------------------------------------
     # body
@@ -541,6 +554,12 @@ class _ProgramWalk:
         IRNode
             The deterministic binding.
         """
+        value = self._resolved(value)
+        if isinstance(value, TupleValue):
+            # A pair of bindings has no expression on any target; its
+            # components are read back where the pair is projected.
+            self.tuples[binder.name] = value.items
+            return
         axes = self._inferred_axes(binder.type, value)
         self.axes[binder.name] = axes
         plate = self._inferred_plate(binder.type, axes, value)
@@ -552,6 +571,45 @@ class _ProgramWalk:
             constraint=CSReal(),
             plate=plate,
         )
+
+    def _resolved(self, value: Value) -> Value:
+        """A value with every projection of a held pair read back.
+
+        Parameters
+        ----------
+        value : Value
+            The value.
+
+        Returns
+        -------
+        Value
+            The value with ``t[i]`` replaced by the ``i``-th component
+            of every local ``t`` the plan holds as a tuple of bindings.
+        """
+        if isinstance(value, Projection):
+            inner = self._resolved(value.value)
+            if isinstance(inner, Var) and inner.local.name in self.tuples:
+                return self.tuples[inner.local.name][value.position]
+            return replace(value, value=inner)
+        if isinstance(value, (Var, LiteralValue)):
+            return value
+        changes: dict[str, Value | tuple[Value, ...]] = {}
+        for field in fields(value):
+            current = getattr(value, field.name)
+            if isinstance(current, _VALUE_TYPES):
+                resolved = self._resolved(current)
+                if resolved is not current:
+                    changes[field.name] = resolved
+            elif isinstance(current, tuple) and any(
+                isinstance(item, _VALUE_TYPES) for item in current
+            ):
+                items = tuple(
+                    self._resolved(item) if isinstance(item, _VALUE_TYPES) else item
+                    for item in current
+                )
+                if any(a is not b for a, b in zip(items, current, strict=True)):
+                    changes[field.name] = items
+        return replace(value, **changes) if changes else value
 
     def _inferred_axes(self, type_: TypeExpr, value: Value) -> tuple[str, ...]:
         """The axis names of a bound value.
@@ -689,6 +747,19 @@ class _ProgramWalk:
             raise UnsupportedConstruct(
                 f"qvr-{self.planner.target}",
                 [f"qiec:call:{call.name}:{self.program.name}"],
+            )
+        if call.name in self.planner.entries:
+            # A program called as a computation keeps its own sites
+            # under the callee's names, which no target's plan holds; a
+            # draw from the program runs it in place under this
+            # program's names instead.
+            raise UnsupportedConstruct(
+                f"qvr-{self.planner.target}",
+                [
+                    f"qiec:call:program:{call.name}:{self.program.name}: a "
+                    f"program is called as a computation; draw from it with "
+                    f"`sample {binder.name} <- {call.name}` to run it in place"
+                ],
             )
         arguments = tuple(self._expr(argument) for argument in call.arguments)
         inlined = _inline_pure(callee, arguments)
@@ -1942,6 +2013,16 @@ def _expression(
             f"qvr-{target}",
             [f"qiec:expression:log_density:{program}"],
         )
+    if isinstance(value, ConstructorValue):
+        # A constructor value reaches a callee through the target's QIEC
+        # runtime; its fields are values of the model body.
+        return IRQiecValueExpr(value=cast(IRQiecValue, _convert(value)))
+    if isinstance(value, Projection):
+        # A component of a product, as the source subscripts a tuple.
+        return LetExprIndex(
+            array=_expression(value.value, cards, target, program),
+            indices=(LetExprLiteral(value=float(value.position)),),
+        )
     raise UnsupportedConstruct(
         f"qvr-{target}",
         [f"qiec:expression:{type(value).__name__}:{program}"],
@@ -2295,6 +2376,71 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return program_plan(qiec_module, expanded, program, target)
 
 
+#: How a target spells the ``$`` of a name a program draw renamed:
+#: ``theta$z`` is the site of the local ``z`` of a program drawn under
+#: ``theta``, and no target language admits ``$`` in an identifier.
+TARGET_NAME_SEPARATOR = "__"
+
+
+def target_name(name: str) -> str:
+    """A source name as every target spells it.
+
+    Parameters
+    ----------
+    name : str
+        The name, as the reference machine labels it.
+
+    Returns
+    -------
+    str
+        The name with each ``$`` a program draw introduced spelled as
+        [`TARGET_NAME_SEPARATOR`][quivers.transpile.plan.TARGET_NAME_SEPARATOR].
+    """
+    return name.replace("$", TARGET_NAME_SEPARATOR)
+
+
+def _spelled[NodeT: dx.Model](node: NodeT) -> NodeT:
+    """A plan node with every name spelled as the targets spell it.
+
+    Parameters
+    ----------
+    node : NodeT
+        The node.
+
+    Returns
+    -------
+    NodeT
+        The node with ``$`` rewritten in every string field and every
+        nested node, a string literal's text excepted.
+    """
+    if isinstance(node, LetExprString):
+        return node
+    changes: dict[str, str | dx.Model | tuple[str | dx.Model, ...]] = {}
+    for field in type(node).__field_specs__:
+        current = getattr(node, field)
+        if isinstance(current, str):
+            if "$" in current:
+                changes[field] = target_name(current)
+        elif isinstance(current, dx.Model):
+            spelled = _spelled(current)
+            if spelled is not current:
+                changes[field] = spelled
+        elif isinstance(current, tuple) and current:
+            items = tuple(
+                target_name(item)
+                if isinstance(item, str)
+                else _spelled(item)
+                if isinstance(item, dx.Model)
+                else item
+                for item in current
+            )
+            if any(a is not b for a, b in zip(items, current, strict=True)):
+                changes[field] = items
+    if not changes:
+        return node
+    return node.with_(**changes)
+
+
 def program_plan(
     module: QiecModule, source: Module, program: ProgramDecl, target: str
 ) -> IRProgram:
@@ -2319,4 +2465,10 @@ def program_plan(
     return _Planner(module, source, target).plan(program)
 
 
-__all__ = ["Lower", "checked_module", "program_plan"]
+__all__ = [
+    "Lower",
+    "TARGET_NAME_SEPARATOR",
+    "checked_module",
+    "program_plan",
+    "target_name",
+]

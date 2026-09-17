@@ -87,19 +87,6 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     # BUGS lower family registry has no target name for. Every other
     # backend resolves it and its cell is live.
     ("bugs", "mixture_model"): "family:MixtureNormal",
-    # parametric_pooling samples the `school_effects` sub-program
-    # (program-as-distribution); no backend resolves it to a target
-    # family.
-    ("bugs", "parametric_pooling"): "family:school_effects",
-    ("edward2", "parametric_pooling"): "family:school_effects",
-    ("gen", "parametric_pooling"): "family:school_effects",
-    ("jags", "parametric_pooling"): "family:school_effects",
-    ("numpyro", "parametric_pooling"): "family:school_effects",
-    ("pymc", "parametric_pooling"): "family:school_effects",
-    ("pyro", "parametric_pooling"): "family:school_effects",
-    ("stan", "parametric_pooling"): "family:school_effects",
-    ("turing", "parametric_pooling"): "family:school_effects",
-    ("webppl", "parametric_pooling"): "family:school_effects",
     # pmf / tensor_contraction carry `composition` (and `contraction`)
     # declarations; no PPL backend has a surface for them. Both
     # examples still score a joint, because their `.md` snippets wrap
@@ -128,16 +115,17 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # zip_regression names `ContinuousBernoulli` and
-    # kumaraswamy_bounded_outcome names `Kumaraswamy`, and neither
-    # family has a JAGS or a BUGS target name. The two engines part
-    # company on both: the JAGS renderer writes each density out in
-    # `log` and `pow` alone and adds it through the zeros trick, so
-    # its cells are live and score the model up to the lift the trick
-    # pays. The BUGS renderer carries no such path and its cells stay
-    # a raise.
+    # kumaraswamy_bounded_outcome names `Kumaraswamy`, which has no
+    # JAGS or BUGS target name. The two engines part company: the JAGS
+    # renderer writes the density out in `log` and `pow` alone and
+    # adds it through the zeros trick, so its cell is live and scores
+    # the model up to the lift the trick pays. The BUGS renderer
+    # carries no such path and its cell stays a raise. zip_regression
+    # marginalizes over a Poisson scope, which is no categorical
+    # mixture, and BUGS has no statement that adds the integrated
+    # log-density to the joint.
     ("bugs", "kumaraswamy_bounded_outcome"): "family:Kumaraswamy",
-    ("bugs", "zip_regression"): "family:",
+    ("bugs", "zip_regression"): "marginalize:no-collapse",
     # beta_binomial_ab_test observes `BetaBinomial`. Every other
     # backend either has the family natively or reaches it through
     # the closed-form marginal: JAGS writes that marginal into the

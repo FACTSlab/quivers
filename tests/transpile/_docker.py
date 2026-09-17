@@ -24,6 +24,8 @@ import pathlib
 import shutil
 import subprocess
 
+from quivers.transpile.plan import target_name
+
 
 #: Whether the daemon has answered once this process; a daemon that has
 #: answered is not asked again, so a slow `docker info` under the load of
@@ -196,6 +198,47 @@ def _probe_cache_key(
     return digest.hexdigest()
 
 
+def spelled_keys[ValueT](table: dict[str, ValueT]) -> dict[str, ValueT]:
+    """A name-keyed table under the targets' spelling of each name.
+
+    Parameters
+    ----------
+    table : dict[str, ValueT]
+        The table, keyed by names as the reference machine labels them.
+
+    Returns
+    -------
+    dict[str, ValueT]
+        The same table keyed by
+        [`target_name`][quivers.transpile.plan.target_name] of each
+        name, so a site a program draw renamed (``theta$z``) reaches
+        the emitted program under the identifier it declares.
+    """
+    return {target_name(name): value for name, value in table.items()}
+
+
+def spelled_points(points: list[dict]) -> list[dict]:
+    """Points with their parameter and data names spelled for the targets.
+
+    Parameters
+    ----------
+    points : list[dict]
+        The points, each a ``params`` and a ``data`` table.
+
+    Returns
+    -------
+    list[dict]
+        The points with every name under the targets' spelling.
+    """
+    return [
+        {
+            key: spelled_keys(value) if key in ("params", "data") else value
+            for key, value in point.items()
+        }
+        for point in points
+    ]
+
+
 def run_probe(
     *,
     image: str,
@@ -236,11 +279,11 @@ def run_probe(
     scratch.mkdir(parents=True, exist_ok=True)
     source_path = scratch / f"source.{source_ext}"
     source_path.write_bytes(source)
-    (scratch / "points.json").write_text(json.dumps(points))
+    (scratch / "points.json").write_text(json.dumps(spelled_points(points)))
     if shapes is not None:
-        (scratch / "shapes.json").write_text(json.dumps(shapes))
+        (scratch / "shapes.json").write_text(json.dumps(spelled_keys(shapes)))
     if dtypes is not None:
-        (scratch / "dtypes.json").write_text(json.dumps(dtypes))
+        (scratch / "dtypes.json").write_text(json.dumps(spelled_keys(dtypes)))
     (scratch / "probe.py").write_bytes(script.read_bytes())
     # The per-backend probe scripts import a shared reshape helper that
     # sits beside them in `_scripts/`: Python probes do `from _reshape

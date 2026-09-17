@@ -65,6 +65,8 @@ from quivers.dsl.ast_nodes import (
     ProgramStep,
     ReturnStep,
     SampleStep,
+    ObjectParam,
+    MorphismParam,
     ScalarParam,
     ScoreStep,
     TypeEnumSet,
@@ -169,6 +171,11 @@ from quivers.qiec.types import (
 )
 from quivers.dsl.composite_lets import expand_composite_lets
 from quivers.dsl.deduction_elaboration import PARAMS_INSTANCE
+from quivers.dsl.program_templates import (
+    TemplateError,
+    instantiate_program,
+    template_bindings,
+)
 from quivers.dsl.pure_builtins import PURE_BUILTINS
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.step_resolution import (
@@ -308,15 +315,17 @@ class ObjectInfo:
     ----------
     extent
         The object's size as an axis: its cardinality when finite, its
-        coordinate count when continuous.
+        coordinate count when continuous. An object parameter of a
+        program template has an index variable for its size, bound by
+        the template's telescope.
     real_width
         The width of a ``Real N`` object, whose values are real vectors.
     finite
         Whether the object is a finite set.
     """
 
-    extent: int | None = None
-    real_width: int | None = None
+    extent: int | IndexVariable | None = None
+    real_width: int | IndexVariable | None = None
     finite: bool = False
 
 
@@ -778,37 +787,22 @@ def _free_let_names(
     return found
 
 
-def _is_gap(kinds: Sequence[str], elaborator: _Elaborator | None = None) -> bool:
+def _is_gap(kinds: Sequence[str]) -> bool:
     """Whether a resolution failure names a construct outside the calculus.
 
     Parameters
     ----------
     kinds : Sequence[str]
         The failure's structured kinds.
-    elaborator : _Elaborator | None
-        The elaborator, whose source says which names are program
-        templates.
 
     Returns
     -------
     bool
-        ``True`` for a network-parameterized morphism, a ``scan``
-        recurrence, or a reference to a program template, whose
-        elaborations are not yet defined.
+        ``True`` for a network-parameterized morphism the elaboration
+        has no form for, or a ``scan`` recurrence outside the shapes
+        it elaborates.
     """
-    for kind in kinds:
-        if kind.startswith(("param-source:", "scan:")):
-            return True
-        if kind.startswith("family:") and elaborator is not None:
-            name = kind.split(":", 1)[1].split(":", 1)[0]
-            if any(
-                isinstance(statement, ProgramDecl)
-                and statement.name == name
-                and statement.type_params is not None
-                for statement in elaborator.source.syntax.statements
-            ):
-                return True
-    return False
+    return any(kind.startswith(("param-source:", "scan:")) for kind in kinds)
 
 
 def _unknown_call(expr: LetExprNode, macros: Mapping[str, object]) -> str | None:
@@ -877,6 +871,10 @@ def _chart_construct(expr: LetExprNode) -> str | None:
         or ``None``.
     """
     if isinstance(expr, LetExprMethodCall):
+        if expr.method == "goal_weight":
+            # A chart's goal weight lowers to a real; only the receiver
+            # could hide another chart construct.
+            return _chart_construct(expr.receiver)
         return f"the method call `.{expr.method}(...)`"
     if isinstance(expr, LetExprCall):
         if expr.func in _CHART_BUILTINS:
@@ -1091,6 +1089,11 @@ class _ProgramElaboration:
                 code=GAP_CODE if _is_gap(error.kinds) else "qiec-program",
             )
         self._program_lets = build_let_table(expanded)
+        self._program_declarations = {
+            declaration.name: declaration
+            for declaration in expanded.statements
+            if isinstance(declaration, ProgramDecl)
+        }
         computations: list[NamedComputation] = []
         for declaration in expanded.statements:
             if isinstance(declaration, ProgramDecl) and _is_entry_point(declaration):
@@ -1349,6 +1352,8 @@ class _ProgramElaboration:
             )
         )
         self._program_state = None
+        for name in state.template_objects:
+            del self._program_objects[name]
         return (computation, *state.helpers)
 
     def _program_parameters(
@@ -1377,6 +1382,7 @@ class _ProgramElaboration:
             If the parameter count does not fit the domain, or a factor
             has no readable shape.
         """
+        self._template_objects(declaration, state)
         factors = _factors(declaration.domain)
         scanned = _scanned_names(declaration.draws)
         if declaration.params is not None:
@@ -1442,6 +1448,53 @@ class _ProgramElaboration:
                         state,
                         declaration,
                     )
+
+    def _template_objects(
+        self: _Elaborator, declaration: ProgramDecl, state: _ProgramState
+    ) -> None:
+        """Bind a template's object parameters as index binders.
+
+        An object parameter ``K : FinSet`` is an object of the program's
+        body whose extent is the index variable ``K`` of the nat sort,
+        bound first in the computation's telescope so a call supplies
+        it as a static argument; a ``Space`` parameter is a real object
+        of that width. The bindings last while the program elaborates.
+
+        Parameters
+        ----------
+        declaration : ProgramDecl
+            The program.
+        state : _ProgramState
+            The program's accumulating state, whose extents gain one
+            binder per object parameter.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If an object parameter shadows a declared object.
+        """
+        if declaration.type_params is None:
+            return
+        for parameter in declaration.type_params:
+            if not isinstance(parameter, ObjectParam):
+                continue
+            if parameter.name in self._program_objects:
+                self._fail(
+                    parameter,
+                    f"object parameter {parameter.name!r} of program "
+                    f"{declaration.name!r} shadows a declared object",
+                    code="qiec-program",
+                )
+            variable = IndexVariable(parameter.name, NAT)
+            state.extents[parameter.name] = IndexBinder(parameter.name, NAT)
+            if parameter.universe == "Space":
+                info = ObjectInfo(extent=variable, real_width=variable)
+            else:
+                info = ObjectInfo(
+                    extent=variable, finite=parameter.universe == "FinSet"
+                )
+            self._program_objects[parameter.name] = info
+            state.template_objects.append(parameter.name)
 
     def _declare_parameter(
         self: _Elaborator,
@@ -1684,13 +1737,17 @@ class _ProgramElaboration:
         Raises
         ------
         QiecDiagnosticError
-            If the step destructures a tuple, or its distribution cannot
-            be elaborated.
+            If the step destructures a family draw, or its distribution
+            cannot be elaborated.
         """
+        if step.morphism in self._program_declarations:
+            self._elaborate_program_draw(step, scope, state)
+            return
         if len(step.vars) != 1:
             self._fail(
                 step,
-                "a sample step binds one name; tuple destructuring has no elaboration",
+                "a sample step destructures the value of a program; a family "
+                "draw binds one name",
                 code="qiec-program",
             )
         name = step.vars[0]
@@ -1714,6 +1771,91 @@ class _ProgramElaboration:
             )
         )
         self._bind_step(scope, name, sampled, Perform(request), step)
+
+    def _elaborate_program_draw(
+        self: _Elaborator, step: SampleStep, scope: _Scope, state: _ProgramState
+    ) -> None:
+        """Elaborate ``sample x <- sub(args)`` by running ``sub`` in place.
+
+        The program's steps join this program's under names of its own:
+        each local ``z`` of ``sub`` becomes ``x$z``, the name ``sub``
+        returns becomes ``x`` itself, and a pattern ``(u, v)`` takes the
+        returned names positionally, as
+        [`instantiate_program`][quivers.dsl.program_templates.instantiate_program]
+        states. A template's object parameters take the objects the
+        draw names and its scalar parameters the numbers or bound names,
+        so every draw of a program contributes its own sites.
+
+        Parameters
+        ----------
+        step : SampleStep
+            The draw.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the arguments do not fit the program's parameters, or the
+            pattern's arity is not what it returns.
+        """
+        self._inline_program(
+            step.morphism, step.vars, step.args or (), step, scope, state
+        )
+
+    def _inline_program(
+        self: _Elaborator,
+        name: str,
+        binders: tuple[str, ...],
+        arguments: tuple[DrawArg, ...],
+        node: SampleStep | CallStep,
+        scope: _Scope,
+        state: _ProgramState,
+    ) -> None:
+        """Elaborate a program's steps in this program under a pattern.
+
+        Parameters
+        ----------
+        name : str
+            The program drawn from.
+        binders : tuple[str, ...]
+            The draw's pattern.
+        arguments : tuple[DrawArg, ...]
+            The draw's arguments, filling the program's template
+            parameters.
+        node : SampleStep | CallStep
+            The source step, for diagnostics.
+        scope : _Scope
+            The scope.
+        state : _ProgramState
+            The program's accumulating state.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the arguments do not fit the program's parameters or the
+            pattern's arity is not what it returns.
+        """
+        template = self._program_declarations[name]
+        bound = {local: LetExprVar(name=local) for local in scope.locals}
+        try:
+            objects, values = template_bindings(template, arguments, bound)
+            steps = instantiate_program(template, binders, objects, values)
+        except TemplateError as error:
+            self._fail(
+                node, error.message, code=GAP_CODE if error.gap else "qiec-program"
+            )
+        for parameter, argument in objects.items():
+            if argument not in self._program_objects:
+                self._fail(
+                    node,
+                    f"object {argument!r} passed as {parameter!r} of program "
+                    f"{name!r} is not declared",
+                    code="qiec-program",
+                )
+        self._elaborate_steps(steps, scope, state)
 
     def _sample_request(
         self: _Elaborator,
@@ -2717,57 +2859,6 @@ class _ProgramElaboration:
         assert weight_scope.weight_instance is not None
         self._add_weight(weight_scope.weight_instance, weight, scope, state, step)
 
-    def _goal_weight(
-        self: _Elaborator, expr: LetExprNode, scope: _Scope, node: object
-    ) -> Value | None:
-        """Read ``chart.goal_weight()`` on a deduction's answer as a real.
-
-        Parameters
-        ----------
-        expr : LetExprNode
-            The expression.
-        scope : _Scope
-            The scope.
-        node : object
-            The source node.
-
-        Returns
-        -------
-        Value | None
-            The answer as a ``Real`` when the expression is that method
-            call on a bound deduction answer: a log weight's value, or a
-            count's; else ``None``.
-
-        Raises
-        ------
-        QiecDiagnosticError
-            If the answer is a Boolean, which has no real value.
-        """
-        if (
-            not isinstance(expr, LetExprMethodCall)
-            or expr.method != "goal_weight"
-            or expr.args
-            or not isinstance(expr.receiver, LetExprVar)
-        ):
-            return None
-        local = scope.lookup(expr.receiver.name)
-        if local is None or local.type not in (LOG_WEIGHT, INT, BOOL):
-            return None
-        if local.type == LOG_WEIGHT:
-            return self._primitive(
-                "weight_value", (Var(local),), node, ("goal_weight", local.name)
-            )
-        if local.type == INT:
-            return self._primitive(
-                "int_to_real", (Var(local),), node, ("goal_weight", local.name)
-            )
-        self._fail(
-            node,
-            f"{expr.receiver.name!r} is the answer of a Boolean deduction, which "
-            "has no real value to score",
-            code="qiec-program",
-        )
-
     def _let_value(
         self: _Elaborator,
         expr: LetExprNode,
@@ -2793,9 +2884,6 @@ class _ProgramElaboration:
         Value
             The lowered value.
         """
-        goal = self._goal_weight(expr, scope, node)
-        if goal is not None:
-            return goal
         chart = _chart_construct(expr)
         if chart is not None:
             self._fail(
@@ -3645,7 +3733,7 @@ class _ProgramElaboration:
                     self._fail(
                         step,
                         "; ".join(error.kinds),
-                        code=GAP_CODE if _is_gap(error.kinds, self) else "qiec-program",
+                        code=GAP_CODE if _is_gap(error.kinds) else "qiec-program",
                     )
                 resolved = network
         family_name = OPERATOR_ALIASES.get(resolved.family, resolved.family)
@@ -4281,14 +4369,14 @@ class _ProgramElaboration:
             dimension = length.value
         else:
             info = self._object_info(state.declaration.codomain, step)
-            if info.extent is None:
+            dimension = None if info.extent is None else _fixed_extent(info.extent)
+            if dimension is None:
                 self._fail(
                     step,
                     f"family {record.name!r} takes a vector whose length the "
                     "program's codomain leaves open; write its entries",
                     code="qiec-program",
                 )
-            dimension = info.extent
         return [_Spread(items[0].value, dimension)]
 
     def _draw_argument(
@@ -5236,13 +5324,19 @@ class _ProgramElaboration:
                 if isinstance(factor, TypeName)
                 else None
             )
-            if factor_info is None or factor_info.real_width is None:
+            factor_width = (
+                None
+                if factor_info is None or factor_info.real_width is None
+                else _fixed_extent(factor_info.real_width)
+            )
+            if factor_width is None:
                 self._fail(
                     step,
-                    f"morphism {step.morphism!r} has a domain factor with no real width",
+                    f"morphism {step.morphism!r} has a domain factor with no fixed "
+                    "real width",
                     code="qiec-program",
                 )
-            declared += factor_info.real_width
+            declared += factor_width
         rows_axis = _rows_axis(plate, step)
         sources: list[Value] = []
         widths: list[int] = []
@@ -5467,31 +5561,41 @@ class _ProgramElaboration:
             else None
         )
         if record.name in _LOGIT_HEAD_FAMILIES:
-            if info is None or not info.finite or info.extent is None:
+            classes = (
+                None
+                if info is None or not info.finite or info.extent is None
+                else _fixed_extent(info.extent)
+            )
+            if classes is None:
                 self._fail(
                     step,
                     f"morphism {step.morphism!r} draws from {record.name} onto a "
-                    "codomain that is not a finite object",
+                    "codomain that is not a finite object of fixed size",
                     code="qiec-program",
                 )
             if record.name == "Bernoulli":
-                if info.extent != 2:
+                if classes != 2:
                     self._fail(
                         step,
                         f"morphism {step.morphism!r} draws from Bernoulli onto a "
-                        f"codomain of {info.extent} elements, not two",
+                        f"codomain of {classes} elements, not two",
                         code="qiec-program",
                     )
                 return 1
-            return info.extent
-        if info is None or info.real_width is None:
+            return classes
+        width = (
+            None
+            if info is None or info.real_width is None
+            else _fixed_extent(info.real_width)
+        )
+        if width is None:
             self._fail(
                 step,
                 f"morphism {step.morphism!r} maps its parameters onto a codomain with no "
-                "real width",
+                "fixed real width",
                 code="qiec-program",
             )
-        return info.real_width
+        return width
 
     def _transformed_head(
         self: _Elaborator,
@@ -5663,7 +5767,10 @@ class _ProgramElaboration:
         info = self._program_objects.get(factors[0].name)
         if info is None or not info.finite or info.extent is None:
             return None
-        return factors[0].name, info.extent
+        rows = _fixed_extent(info.extent)
+        if rows is None:
+            return None
+        return factors[0].name, rows
 
     def _table_arguments(
         self: _Elaborator,
@@ -6100,6 +6207,12 @@ class _ProgramState:
         let expression reads.
     parameter_axes
         The axis names of each parameter's dimensions.
+    extents
+        The index binders of the computation's telescope: the object
+        parameters of a template, then the open extents of its inputs.
+    template_objects
+        The object parameters bound as objects of the body while the
+        program elaborates.
     random
         The canonical ``Random`` instance.
     score
@@ -6117,6 +6230,7 @@ class _ProgramState:
     pending_alphabet: PlateAxis | None = None
     current_site: str = ""
     extents: dict[str, IndexBinder] = field(default_factory=dict)
+    template_objects: list[str] = field(default_factory=list)
     input_shapes: dict[str, tuple[TypeApplication, PlateAxis | None]] = field(
         default_factory=dict
     )
@@ -6192,30 +6306,50 @@ def _is_entry_point(declaration: ProgramDecl) -> bool:
     Returns
     -------
     bool
-        ``True`` unless the program is a template over objects or
-        morphisms, which only its call sites instantiate; scalar
-        parameters alone make an ordinary computation with real or
-        natural parameters.
+        ``True`` unless the program is a template over morphisms, which
+        only its call sites instantiate; scalar parameters make an
+        ordinary computation with real or natural parameters, and object
+        parameters bind the computation's telescope.
     """
-    return declaration.type_params is None or all(
-        isinstance(parameter, ScalarParam) for parameter in declaration.type_params
+    return declaration.type_params is None or not any(
+        isinstance(parameter, MorphismParam) for parameter in declaration.type_params
     )
 
 
-def _extent(size: int) -> IndexLiteral:
-    """A literal axis extent.
+def _extent(size: int | IndexVariable) -> IndexTerm:
+    """An axis extent as an index term.
 
     Parameters
     ----------
-    size : int
+    size : int | IndexVariable
+        The extent: a cardinality, or the index variable a program
+        template binds for an object parameter.
+
+    Returns
+    -------
+    IndexTerm
+        The literal of the nat sort, or the variable itself.
+    """
+    if isinstance(size, IndexVariable):
+        return size
+    return IndexLiteral(size, NAT)
+
+
+def _fixed_extent(size: int | IndexVariable) -> int | None:
+    """An extent as a cardinality, when it has one.
+
+    Parameters
+    ----------
+    size : int | IndexVariable
         The extent.
 
     Returns
     -------
-    IndexLiteral
-        The literal of the nat sort.
+    int | None
+        The cardinality, or ``None`` for the index variable of a
+        template's object parameter, which no call has fixed yet.
     """
-    return IndexLiteral(size, NAT)
+    return None if isinstance(size, IndexVariable) else size
 
 
 def _axis_name(expr: ObjectExpr) -> str:
@@ -6489,13 +6623,16 @@ def _object_expr_info(
         return ObjectInfo(extent=extents[0])
     if isinstance(expr, ObjectProduct):
         factors = [_object_expr_info(item, table) for item in _factors(expr)]
-        if any(item is None or item.extent is None for item in factors):
+        if any(
+            item is None or item.extent is None or _fixed_extent(item.extent) is None
+            for item in factors
+        ):
             return None
         total = 1
         finite = True
         for item in factors:
             assert item is not None and item.extent is not None
-            total *= item.extent
+            total *= cast(int, _fixed_extent(item.extent))
             finite = finite and item.finite
         return ObjectInfo(extent=total, finite=finite)
     return None
@@ -6519,7 +6656,9 @@ def _size_argument(argument: str, table: Mapping[str, ObjectInfo]) -> int | None
     if argument.isdigit():
         return int(argument)
     prior = table.get(argument)
-    return None if prior is None else prior.extent
+    return (
+        None if prior is None or prior.extent is None else _fixed_extent(prior.extent)
+    )
 
 
 def _object_table(statements: Sequence[object]) -> dict[str, ObjectInfo]:

@@ -41,6 +41,8 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from quivers.transpile.plan import target_name
+
 if TYPE_CHECKING:
     import pathlib
 
@@ -64,6 +66,28 @@ class Point:
     data: dict[str, float | int | list[float] | list[int]]
     """Observed data values at this point. Keys are the QVR observe
     variable names."""
+
+
+def spelled_point(point: Point) -> Point:
+    """A point with its names spelled as the targets spell them.
+
+    Parameters
+    ----------
+    point : Point
+        The point, keyed by names as the reference machine labels them.
+
+    Returns
+    -------
+    Point
+        The point keyed by
+        [`target_name`][quivers.transpile.plan.target_name] of each
+        name, so a site a program draw renamed (``theta$z``) reaches
+        the emitted program under the identifier it declares.
+    """
+    return Point(
+        params={target_name(name): value for name, value in point.params.items()},
+        data={target_name(name): value for name, value in point.data.items()},
+    )
 
 
 #: One exported value as it crosses the probe boundary: a scalar, or
@@ -175,4 +199,5 @@ __all__ = [
     "LogDensityProbe",
     "Point",
     "ProbeResult",
+    "spelled_point",
 ]

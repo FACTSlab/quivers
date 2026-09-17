@@ -31,6 +31,7 @@ is the exported value rather than a draw.
 import json
 import os
 import pathlib
+import re
 
 import numpy as np
 import pyjags
@@ -99,6 +100,11 @@ def _monitored_export(
     return as_nested(core)
 
 
+#: A zeros-trick carrier the emitted model scores: the `score` step's
+#: `zero_<name> ~ dpois(C_<name>)` relation.
+_CARRIER_RE = re.compile(r"\b(zero_[A-Za-z_][A-Za-z0-9_]*)\s*~\s*dpois\(")
+
+
 def main() -> None:
     io = pathlib.Path("/io")
     ext = os.environ.get("FIXTURE_EXT", "jags")
@@ -108,7 +114,18 @@ def main() -> None:
     export_names = load_export_names(io)
     # JAGS / BUGS index arrays from 1; lift every 0-based covariate
     # the model subscripts before it becomes an observed node.
-    index_names = index_input_names(source_path.read_text(), dtypes)
+    source_text = source_path.read_text()
+    index_names = index_input_names(source_text, dtypes)
+    # A `score` step is a zeros-trick relation `zero_<name> ~ dpois(C)`
+    # whose carrier the BUGS emission leaves to the host's data list,
+    # the language having no data block of its own; JAGS binds the
+    # carrier in its `data { ... }` block, and a carrier the source
+    # binds is not supplied twice.
+    carriers = {
+        name
+        for name in _CARRIER_RE.findall(source_text)
+        if f"{name} <- 0" not in source_text
+    }
 
     log_densities = []
     exports = []
@@ -125,6 +142,8 @@ def main() -> None:
             merged[k] = _arr(v)
         for k, v in reshaped.get("params", {}).items():
             merged[k] = _arr(v)
+        for name in carriers:
+            merged[name] = _arr(0)
         model = pyjags.Model(
             file=str(source_path),
             data=merged,

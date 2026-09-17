@@ -127,10 +127,7 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 #    schema_chart_parser (schema + bundle), pmf (composition),
 #    tensor_contraction (composition + contraction), and
 #    term_autoencoder (encoder / decoder / loss / signature).
-# 2. Lower-pass family resolution. parametric_pooling samples the
-#    `school_effects` sub-program (program-as-distribution), which
-#    resolves to no target family on any backend.
-# 3. A program calling a deduction (montague_nli), which the QIEC
+# 2. A program calling a deduction (montague_nli), which the QIEC
 #    boundary refuses on every target for want of a search runtime.
 #
 # The `sum` builtin is deliberately absent from this registry. It
@@ -177,16 +174,7 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "term_autoencoder"): "signature_decl",
     ("turing", "term_autoencoder"): "signature_decl",
     ("webppl", "term_autoencoder"): "signature_decl",
-    # 2. Lower-pass family resolution (all backends).
-    ("edward2", "parametric_pooling"): "family:school_effects",
-    ("gen", "parametric_pooling"): "family:school_effects",
-    ("numpyro", "parametric_pooling"): "family:school_effects",
-    ("pymc", "parametric_pooling"): "family:school_effects",
-    ("pyro", "parametric_pooling"): "family:school_effects",
-    ("stan", "parametric_pooling"): "family:school_effects",
-    ("turing", "parametric_pooling"): "family:school_effects",
-    ("webppl", "parametric_pooling"): "family:school_effects",
-    # 3. A program calling a deduction is refused at the QIEC boundary
+    # 2. A program calling a deduction is refused at the QIEC boundary
     #    on every target: the deduction enumerates its derivations
     #    through a search handler no target runtime carries.
     **{

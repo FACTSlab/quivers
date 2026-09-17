@@ -12,7 +12,7 @@ from collections.abc import Callable
 import sys
 
 from quivers.cli.repl_prompt import run_plain
-from quivers.cli.repl_session import ReplSession
+from quivers.cli.repl_session import Diagnostic, ReplSession
 
 try:
     from quivers.cli.repl_tui import run_tui
@@ -63,7 +63,20 @@ def main(args: argparse.Namespace) -> int:
     return run_tui(session)
 
 
-def _format_diag(d) -> str:
+def _format_diag(d: Diagnostic) -> str:
+    """Render one diagnostic as a single line.
+
+    Parameters
+    ----------
+    d : Diagnostic
+        The diagnostic.
+
+    Returns
+    -------
+    str
+        ``severity[code]:line:col: message``, the position omitted when
+        the diagnostic has none.
+    """
     loc = f":{d.line}:{d.col}" if d.line else ""
     return f"{d.severity}[{d.code}]{loc}: {d.message}"
 

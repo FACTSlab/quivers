@@ -19,7 +19,12 @@ import pathlib
 import shutil
 import subprocess
 
-from tests.transpile.probes._protocol import LogDensityProbe, Point, ProbeResult
+from tests.transpile.probes._protocol import (
+    LogDensityProbe,
+    Point,
+    ProbeResult,
+    spelled_point,
+)
 
 
 _WEBPPL_DRIVER = """\
@@ -71,7 +76,8 @@ class WebPPLProbe:
         scratch.mkdir(parents=True, exist_ok=True)
 
         log_densities: list[float] = []
-        for i, pt in enumerate(points):
+        for i, point in enumerate(points):
+            pt = spelled_point(point)
             clamped_path = scratch / f"{fixture_name}.{i}.clamped.json"
             observed_path = scratch / f"{fixture_name}.{i}.observed.json"
             clamped_path.write_text(json.dumps(pt.params))

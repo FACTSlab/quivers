@@ -245,11 +245,9 @@ def _scorable_examples() -> list[pathlib.Path]:
 # so it is not reachable through the test package's import path. It is
 # plain stdlib, though, and the arity guard in its `export_payload` is
 # the code that catches a renderer dropping *part* of a multi-name
-# `return` clause. Every gallery example exports a single name, and
-# the one that exports two (`parametric_pooling`) raises on all ten
-# targets before it reaches a container, so no live cell exercises
-# that guard. Loading the module here is what keeps it from being
-# untested code standing in for a check.
+# `return` clause. Loading the module here tests that guard directly,
+# beside the one gallery example that exports two names
+# (`parametric_pooling`).
 # ---------------------------------------------------------------------
 
 _RESHAPE_PATH = pathlib.Path(__file__).parent / "probes" / "_scripts" / "_reshape.py"

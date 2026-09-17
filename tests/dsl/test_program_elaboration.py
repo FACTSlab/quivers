@@ -346,7 +346,10 @@ def test_scores_add_as_weights() -> None:
 @pytest.mark.parametrize(
     ("body", "fragment"),
     [
-        ("    sample (a, b) <- Normal(0.0, 1.0)\n    return a\n", "binds one name"),
+        (
+            "    sample (a, b) <- Normal(0.0, 1.0)\n    return a\n",
+            "a family draw binds one name",
+        ),
         (
             "    observe y <- Normal(0.0, 1.0) [via=idx]\n    return y\n",
             "outside a grouped",
@@ -369,6 +372,137 @@ def test_forms_outside_the_elaboration_are_reported_at_the_step(
     assert captured.value.code == "qiec-program"
     assert fragment in captured.value.message
     assert captured.value.line == 3
+
+
+_PAIRED = """\
+object X : FinSet 2
+object R : FinSet 2
+program sub : X -> R * R
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(a, 1.0)
+    return (a, b)
+program main : X -> R
+    sample (u, v) <- sub
+    let s = u + v
+    sample w <- Normal(s, 1.0)
+    return w
+export main
+"""
+
+
+def test_a_program_draw_runs_the_program_in_place_under_the_pattern() -> None:
+    """``sample (u, v) <- sub`` runs ``sub``'s steps in the caller: the
+    names it returns become the pattern's, so its sites are ``u`` and
+    ``v``, and the joint is the two programs' together."""
+    module = _module(_PAIRED)
+    run = run_program(module, "main", data={}, sites={"u": 0.3, "v": 0.5, "w": 1.0})
+    expected = (
+        td.Normal(0.0, 1.0).log_prob(torch.tensor(0.3))
+        + td.Normal(0.3, 1.0).log_prob(torch.tensor(0.5))
+        + td.Normal(0.8, 1.0).log_prob(torch.tensor(1.0))
+    )
+    assert run.log_joint == pytest.approx(float(expected), rel=1e-6)
+    assert run.value == 1.0
+    entry = next(item for item in module.entries if item.name == "main")
+    assert [site.name for site in entry.sites] == ["u", "v", "w"]
+
+
+def test_a_program_draw_under_one_name_prefixes_the_program_locals() -> None:
+    """``sample pair <- sub`` binds ``pair`` to the pair ``sub`` returns
+    and names ``sub``'s locals ``pair$a`` and ``pair$b``, as the torch
+    runtime names a template's inlined latents."""
+    source = _PAIRED.replace(
+        "    sample (u, v) <- sub\n    let s = u + v\n",
+        "    sample pair <- sub\n    let s = pair[0] + pair[1]\n",
+    )
+    module = _module(source)
+    run = run_program(
+        module, "main", data={}, sites={"pair$a": 0.3, "pair$b": 0.5, "w": 1.0}
+    )
+    assert run.log_joint == pytest.approx(
+        float(
+            td.Normal(0.0, 1.0).log_prob(torch.tensor(0.3))
+            + td.Normal(0.3, 1.0).log_prob(torch.tensor(0.5))
+            + td.Normal(0.8, 1.0).log_prob(torch.tensor(1.0))
+        ),
+        rel=1e-6,
+    )
+
+
+def test_a_pattern_of_the_wrong_arity_is_reported_at_the_step() -> None:
+    source = _PAIRED.replace("sample (u, v) <- sub", "sample (u, v, t) <- sub")
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert captured.value.code == "qiec-program"
+    assert "destructures 3 names" in captured.value.message
+    assert "returns 2" in captured.value.message
+    assert captured.value.line == 8
+
+
+_TEMPLATE = """\
+object School : FinSet 8
+object Effect : Real 1
+program school_effects(spread : Real, K : FinSet) : K -> Effect
+    sample z : K <- Normal(0.0, 1.0)
+    let effect = spread * z
+    return effect
+program pooled : School -> Effect
+    sample theta <- school_effects(0.6, School)
+    sample sigma <- LogNormal(0.0, 0.5)
+    observe y : School <- Normal(theta, sigma)
+    return theta
+export pooled
+"""
+
+
+def test_a_template_draw_instantiates_the_template_and_agrees_with_torch() -> None:
+    """A draw from a program template substitutes the objects and scalars
+    it names, renames the template's local ``z`` to ``theta$z`` and its
+    return to ``theta``, and scores the same joint the torch runtime
+    does under those names; the template itself is a computation over
+    the extent of ``K``."""
+    module = _module(_TEMPLATE)
+    template = next(
+        item for item in module.computations if item.name == "school_effects"
+    )
+    assert [binder.name for binder in template.telescope] == ["K"]
+    z = [0.1, -0.2, 0.3, 0.0, 0.5, -0.4, 0.2, 0.1]
+    y = [0.3, -0.1, 0.4, 0.2, 0.6, -0.5, 0.1, 0.0]
+    run = run_program(
+        module,
+        "pooled",
+        data={"y": tuple(y)},
+        sites={"theta$z": tuple(z), "sigma": 0.8},
+    )
+    theta = 0.6 * torch.tensor(z, dtype=torch.float64)
+    expected = (
+        td.Normal(0.0, 1.0).log_prob(torch.tensor(z, dtype=torch.float64)).sum()
+        + td.LogNormal(0.0, 0.5).log_prob(torch.tensor(0.8, dtype=torch.float64))
+        + td.Normal(theta, 0.8).log_prob(torch.tensor(y, dtype=torch.float64)).sum()
+    )
+    assert run.log_joint == pytest.approx(float(expected), rel=1e-6)
+    compiled = Compiler(parse(_TEMPLATE)).compile().morphism
+    traced = trace(
+        compiled,
+        torch.zeros(1, 1, dtype=torch.float64),
+        observations={
+            "theta$z": torch.tensor(z, dtype=torch.float64),
+            "sigma": torch.tensor(0.8, dtype=torch.float64),
+            "y": torch.tensor(y, dtype=torch.float64),
+        },
+    )
+    assert float(traced.log_joint) == pytest.approx(float(expected), rel=1e-5)
+
+
+def test_a_template_draw_with_the_wrong_arguments_is_reported() -> None:
+    source = _TEMPLATE.replace(
+        "sample theta <- school_effects(0.6, School)",
+        "sample theta <- school_effects(School, 0.6)",
+    )
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(source)
+    assert captured.value.code == "qiec-program"
+    assert "takes a number or a bound name" in captured.value.message
 
 
 def test_an_input_without_a_plate_gets_a_static_extent() -> None:

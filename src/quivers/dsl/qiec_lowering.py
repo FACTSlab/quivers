@@ -1101,6 +1101,7 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
         self._program_objects: dict[str, ObjectInfo] = {}
         self._program_morphisms: dict[str, surface.MorphismDecl] = {}
         self._program_lets: dict[str, surface.Expr] = {}
+        self._program_declarations: dict[str, surface.ProgramDecl] = {}
         self.registry = KernelRegistry()
         # The type a `return` in the body being lowered should produce. It
         # is a hint for positions that cannot state their type, such as a
@@ -2801,6 +2802,10 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             )
         if isinstance(authored, surface.LetExprFactor):
             return self._lower_factor(authored, scope, context, static_bindings, path)
+        if isinstance(authored, surface.LetExprMethodCall):
+            goal = self._goal_weight_value(authored, context, path)
+            if goal is not None:
+                return goal
         if isinstance(
             authored,
             surface.LetExprLambda | surface.LetExprMethodCall,
@@ -2813,6 +2818,59 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
                 code="qiec-primitive",
             )
         self._fail(authored, "unknown QIEC value")
+
+    def _goal_weight_value(
+        self,
+        authored: surface.LetExprMethodCall,
+        context: CheckContext,
+        path: tuple[str | int, ...],
+    ) -> Value | None:
+        """Read ``chart.goal_weight()`` on a deduction's answer as a real.
+
+        Parameters
+        ----------
+        authored : surface.LetExprMethodCall
+            The method call.
+        context : CheckContext
+            The bindings in scope, where the chart's answer is a local.
+        path : tuple[str | int, ...]
+            The structural path of the value.
+
+        Returns
+        -------
+        Value | None
+            The answer as a ``Real`` when the call is ``goal_weight()``
+            on a bound deduction answer: a log weight's value, or a
+            count's; ``None`` for any other method call.
+
+        Raises
+        ------
+        QiecDiagnosticError
+            If the answer is a Boolean, which has no real value.
+        """
+        if (
+            authored.method != "goal_weight"
+            or authored.args
+            or not isinstance(authored.receiver, surface.LetExprVar)
+        ):
+            return None
+        name = authored.receiver.name
+        local = next(
+            (item for item in reversed(context.locals) if item.name == name), None
+        )
+        if local is None or local.type not in (LOG_WEIGHT, INT, BOOL):
+            return None
+        if local.type == BOOL:
+            self._fail(
+                authored,
+                f"{name!r} is the answer of a Boolean deduction, which has no "
+                "real value to score",
+                code="qiec-program",
+            )
+        conversion = "weight_value" if local.type == LOG_WEIGHT else "int_to_real"
+        return self._primitive(
+            conversion, (Var(local),), authored, (*path, "goal_weight", name)
+        )
 
     def _lower_tensor_literal(
         self,

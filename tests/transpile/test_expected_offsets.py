@@ -32,8 +32,10 @@ import pytest
 
 from quivers.dsl.ast_nodes import (
     DiscreteConstructor,
+    DrawArgName,
     ExportDecl,
     ExprIdent,
+    LetExprVar,
     MarginalizeStep,
     Module,
     ObjectDecl,
@@ -45,6 +47,7 @@ from quivers.dsl.ast_nodes import (
     TypeFromExpr,
 )
 from quivers.dsl.parser import parse
+from quivers.dsl.program_templates import instantiate_program, template_bindings
 from quivers.transpile import UnsupportedConstruct, transpile
 from quivers.transpile.family_meta import FAMILY_META
 from tests.transpile import _docker, _equivalence, _gallery_data
@@ -207,10 +210,11 @@ renderer that changes the lift, or drops it as
 this number stale."""
 
 _ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset(
-    {"MixtureNormal", "BetaBinomial", "Kumaraswamy"}
+    {"MixtureNormal", "BetaBinomial", "Kumaraswamy", "score"}
 )
 """QVR families the BUGS / JAGS renderers score through the zeros
-trick rather than through a named distribution.
+trick rather than through a named distribution, and the `score` step,
+which both renderers lower through the same trick as one row.
 
 Membership is a statement about the lowering, not about the lift: both
 families reach the engine as `zeros[n] ~ dpois(phi[n])`, and only the
@@ -225,6 +229,7 @@ _ZEROS_TRICK_OFFSET_FAMILIES: dict[str, frozenset[str]] = {
     "MixtureNormal": frozenset({"jags"}),
     "BetaBinomial": frozenset(),
     "Kumaraswamy": frozenset({"jags"}),
+    "score": frozenset({"jags", "bugs"}),
 }
 """Per zeros-trick family, the targets whose emit lifts the Poisson
 rate by [`_ZEROS_TRICK_OFFSET`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET].
@@ -234,6 +239,10 @@ inner term is a density value and so may exceed one; the lift is what
 keeps the rate positive when it does. `Kumaraswamy` lowers the same
 way and for the same reason: it is a density on `(0, 1)` rather than a
 mass function, so its log form exceeds zero wherever the density does.
+A `score` step is no family, but both renderers lower it through the
+same trick as one lifted row, `C_<name> <- 1e6 - (<expr>)` scored by
+`zero_<name> ~ dpois(C_<name>)`, so the table carries it under the
+name `score` and every `score` step of a source counts one row.
 `BetaBinomial` lowers to `phi[n] <- -(<log pmf>)`, already positive
 because a pmf is at most one, and `renderers/jags.py` emits it with no
 lift at all. The three therefore do not sit on one side of this table
@@ -288,6 +297,17 @@ program probe : Resp -> Val
 
 export probe
 """,
+    "score": """object Resp : FinSet 5
+object Val : Real 1
+
+program probe : Resp -> Val
+    sample a <- Normal(0.0, 1.0)
+    score penalty = -0.5 * a * a
+    observe y : Resp <- Normal(a, 1.0)
+    return a
+
+export probe
+""",
 }
 """Smallest QVR module that puts one zeros-trick observation on every
 target, per family.
@@ -300,9 +320,10 @@ two positive shapes. All three are self-contained, so the emit check
 does not depend on which gallery example happens to use the family."""
 
 _ZEROS_TRICK_PHI_RE = re.compile(
-    r"phi_\w+\[[^\]]*\] <- ?(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)-"
+    r"(?:phi_\w+\[[^\]]*\]|C_\w+) <- ?(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)-"
 )
-"""Matches the lift out of a `phi_<site>[n] <- <C>-log(...)` relation.
+"""Matches the lift out of a `phi_<site>[n] <- <C>-log(...)` relation,
+or of the `C_<name> <- <C>-(...)` relation a `score` step lowers to.
 
 The negative case is what makes the pattern the right shape. An
 unlifted row reads `phi_<site>[n] <-- (<term>)`, the assignment arrow
@@ -879,6 +900,25 @@ _EXPECTED_OFFSET: dict[tuple[str, str], ExpectedOffset] = {
     ("stan", "type_logical"): _derived(half_sites=0, dropped_sites=0),
     ("turing", "type_logical"): _derived(half_sites=0, dropped_sites=0),
     ("webppl", "type_logical"): _derived(half_sites=0, dropped_sites=0),
+    # parametric_pooling: a draw from a program template inlines its
+    # `Normal` plate under `theta$z`, spelled `theta__z` on every
+    # target; no folded-family site anywhere. Its `score` step is one
+    # lifted zeros-trick row on `jags` and `bugs`, and nothing
+    # elsewhere.
+    ("bugs", "parametric_pooling"): _derived(
+        half_sites=0, dropped_sites=0, lifted_rows=1
+    ),
+    ("edward2", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("gen", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("jags", "parametric_pooling"): _derived(
+        half_sites=0, dropped_sites=0, lifted_rows=1
+    ),
+    ("numpyro", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("pymc", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("pyro", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("stan", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("turing", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
+    ("webppl", "parametric_pooling"): _derived(half_sites=0, dropped_sites=0),
     # zip_regression: no folded-family site, so every target is
     # entitled to nothing and scores the reference exactly.
     #
@@ -1053,6 +1093,67 @@ def _flatten_steps(
     return out
 
 
+def _inlined_steps(module: Module, program: ProgramDecl) -> tuple[ProgramStep, ...]:
+    """A program's steps with every draw from a program run in place.
+
+    Parameters
+    ----------
+    module : Module
+        The source module, whose other programs the draws name.
+    program : ProgramDecl
+        The program.
+
+    Returns
+    -------
+    tuple[ProgramStep, ...]
+        The steps, a draw from a program replaced by the callee's steps
+        instantiated at the draw's objects as the elaboration runs
+        them, recursively.
+    """
+    templates = {
+        statement.name: statement
+        for statement in module.statements
+        if isinstance(statement, ProgramDecl) and statement.name != program.name
+    }
+
+    def inlined(steps: tuple[ProgramStep, ...]) -> tuple[ProgramStep, ...]:
+        """The steps with every draw from a program run in place.
+
+        Parameters
+        ----------
+        steps : tuple[ProgramStep, ...]
+            The steps.
+
+        Returns
+        -------
+        tuple[ProgramStep, ...]
+            The steps, recursively instantiated.
+        """
+        out: list[ProgramStep] = []
+        for step in steps:
+            template = (
+                templates.get(step.morphism)
+                if isinstance(step, (SampleStep, ObserveStep))
+                else None
+            )
+            if template is None:
+                out.append(step)
+                continue
+            arguments = step.args or ()
+            names = {
+                argument.text: LetExprVar(name=argument.text)
+                for argument in arguments
+                if isinstance(argument, DrawArgName)
+            }
+            objects, values = template_bindings(template, arguments, names)
+            out.extend(
+                inlined(instantiate_program(template, step.vars, objects, values))
+            )
+        return tuple(out)
+
+    return inlined(program.draws)
+
+
 def half_family_factor_counts(example: pathlib.Path) -> dict[str, int]:
     """Scalar folded-family density factors in a QVR source, by family.
 
@@ -1069,27 +1170,24 @@ def half_family_factor_counts(example: pathlib.Path) -> dict[str, int]:
     Turing and WebPPL emit a bare base for `HalfCauchy` and `HalfNormal`
     but a folded runtime helper for `HalfStudentT`.
 
+    A step drawing from another program of the module is counted as
+    the callee's steps run in place, instantiated at the draw's objects
+    as the elaboration runs them, so a folded site inside the callee
+    counts under the axes the draw names.
+
     Raises
     ------
     AssertionError
-        If the exported program draws from another program declared in
-        the same module (a folded site could hide inside the callee, and
-        the count would silently miss it), if a `marginalize` head names
-        a folded family (the reduction's own treatment of the constant
-        would need its own derivation), or if a folded site indexes an
-        axis that is not a plain `FinSet`.
+        If a `marginalize` head names a folded family (the reduction's
+        own treatment of the constant would need its own derivation),
+        or if a folded site indexes an axis that is not a plain
+        `FinSet`.
     """
     module = parse(example.read_text())
     program = _exported_program(module, example.stem)
     cardinalities = _finset_cardinalities(module)
-    sub_programs = {
-        statement.name
-        for statement in module.statements
-        if isinstance(statement, ProgramDecl) and statement.name != program.name
-    }
-
     counts: dict[str, int] = {}
-    for step in _flatten_steps(program.draws):
+    for step in _flatten_steps(_inlined_steps(module, program)):
         if isinstance(step, MarginalizeStep):
             if step.morphism in _HALF_FAMILIES:
                 raise AssertionError(
@@ -1103,15 +1201,6 @@ def half_family_factor_counts(example: pathlib.Path) -> dict[str, int]:
             continue
         if not isinstance(step, (SampleStep, ObserveStep)):
             continue
-        if step.morphism in sub_programs:
-            raise AssertionError(
-                f"{example.stem!r}: step {step.vars!r} draws from the "
-                f"sub-program {step.morphism!r}, so a folded-family site "
-                f"may sit inside the callee and the syntactic count "
-                f"would miss it. Extend "
-                f"`half_family_factor_counts` to descend into the "
-                f"callee before registering an offset for this example."
-            )
         if step.morphism not in _HALF_FAMILIES:
             continue
         multiplicity = len(step.vars)
@@ -1152,13 +1241,14 @@ def zeros_trick_factor_counts(example: pathlib.Path) -> dict[str, int]:
     [`_ZEROS_TRICK_OFFSET_FAMILIES`][tests.transpile.test_expected_offsets._ZEROS_TRICK_OFFSET_FAMILIES]
     decides which targets pay for it.
 
+    A `score` step counts one row under the name `score`, the lifted
+    relation both renderers lower it to. A draw from another program of
+    the module counts the callee's steps run in place.
+
     Raises
     ------
     AssertionError
-        If the exported program carries a `score` statement (the BUGS
-        renderer lowers one through the same lifted trick, so the
-        program would pay a constant this count does not model), or if
-        a zeros-trick site indexes an axis that is not a plain
+        If a zeros-trick site indexes an axis that is not a plain
         `FinSet`.
     """
     module = parse(example.read_text())
@@ -1166,17 +1256,10 @@ def zeros_trick_factor_counts(example: pathlib.Path) -> dict[str, int]:
     cardinalities = _finset_cardinalities(module)
 
     counts: dict[str, int] = {}
-    for step in _flatten_steps(program.draws):
+    for step in _flatten_steps(_inlined_steps(module, program)):
         if isinstance(step, ScoreStep):
-            raise AssertionError(
-                f"{example.stem!r}: the exported program carries a "
-                f"`score` statement, which the BUGS and JAGS renderers "
-                f"lower through the same zeros trick and lift by the "
-                f"same constant. Extend `zeros_trick_factor_counts` to "
-                f"count it before registering an offset for this "
-                f"example; leaving it out would charge the cell less "
-                f"than its emit pays."
-            )
+            counts["score"] = counts.get("score", 0) + 1
+            continue
         if not isinstance(step, ObserveStep):
             continue
         if step.morphism not in _ZEROS_TRICK_FAMILIES:
@@ -1338,7 +1421,7 @@ def _assert_container_read_our_inputs(
         f"nobody in this test chose."
     )
     written = json.loads((scratch / "points.json").read_text())
-    assert written == payload, (
+    assert written == _docker.spelled_points(payload), (
         f"{context}: {scratch / 'points.json'} no longer holds the point "
         f"set this cell built. The container therefore scored one set of "
         f"points while the QVR reference scored another, and the "

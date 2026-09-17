@@ -152,3 +152,49 @@ def test_graphical_targets_refuse_named_qiec_parameters() -> None:
         assert [diagnostic.kind for diagnostic in diagnostics] == [
             "qiec:capability:named-parameter:identity"
         ]
+
+
+_PROGRAM_CALLING_PROGRAM = """\
+object X : FinSet 2
+object R : FinSet 2
+program sub : X -> R * R
+    sample a <- Normal(0.0, 1.0)
+    sample b <- Normal(a, 1.0)
+    return (a, b)
+program main : X -> R
+    sample (u, v) <- sub
+    let s = u + v
+    sample w <- Normal(s, 1.0)
+    return w
+export main
+"""
+
+
+@pytest.mark.parametrize("target", sorted(available_targets()))
+def test_a_program_drawn_from_is_planned_in_place(target: str) -> None:
+    """A program another program draws from runs in place on every
+    target: the names it returns take the pattern's, so its draws are
+    the sites ``u`` and ``v`` of the root, and no host computation is
+    defined for it."""
+    emitted = transpile(parse(_PROGRAM_CALLING_PROGRAM), target=target).decode("utf-8")
+    assert "qiec_sub" not in emitted
+    assert "_draw_u_v" not in emitted
+    for site in ("u", "v", "w"):
+        assert site in emitted
+
+
+_PREFIXED = _PROGRAM_CALLING_PROGRAM.replace(
+    "    sample (u, v) <- sub\n    let s = u + v\n",
+    "    sample pair <- sub\n    let s = pair[0] + pair[1]\n",
+)
+
+
+@pytest.mark.parametrize("target", ("pyro", "stan", "turing", "webppl", "church"))
+def test_a_prefixed_site_is_spelled_with_the_target_separator(target: str) -> None:
+    """A local of a program drawn under one name is the site ``pair$a``
+    on the reference machine and ``pair__a`` in every emission, since
+    no target admits ``$`` in an identifier."""
+    emitted = transpile(parse(_PREFIXED), target=target).decode("utf-8")
+    assert "$" not in emitted
+    assert "pair__a" in emitted
+    assert "pair__b" in emitted

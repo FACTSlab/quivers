@@ -33,7 +33,12 @@ import re
 import shutil
 import subprocess
 
-from tests.transpile.probes._protocol import LogDensityProbe, Point, ProbeResult
+from tests.transpile.probes._protocol import (
+    LogDensityProbe,
+    Point,
+    ProbeResult,
+    spelled_point,
+)
 
 
 #: Scheme interpreter binaries that evaluate the grafted runtime. Each
@@ -294,7 +299,8 @@ class ChurchProbe:
         sites = _sample_sites(model_form)
 
         log_densities: list[float] = []
-        for i, pt in enumerate(points):
+        for i, point in enumerate(points):
+            pt = spelled_point(point)
             cursor = self._cursor_literals(pt, sites, fixture_name)
             args = self._call_args(pt, inputs, fixture_name)
             labelled = " ".join(
