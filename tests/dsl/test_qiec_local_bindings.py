@@ -50,9 +50,14 @@ def test_every_local_binder_is_collected() -> None:
         "x": "parameter",
         "s": "parameter",
         "seed": "parameter",
+        "next": "local",
         "start": "local",
         "cell": "scoped-instance",
         "current": "local",
+        "outer": "scoped-instance",
+        "inner": "scoped-instance",
+        "a": "local",
+        "b": "local",
     }
 
 
@@ -65,7 +70,13 @@ def test_a_let_binder_is_visible_only_after_its_binding() -> None:
     _, scope = _bindings()["start"]
     assert scope is not None
     start, end = scope
-    _, seed_scope = _bindings()["seed"]
+    bindings = qiec_local_bindings(parse(_GOLDEN.read_text()))
+    seed = next(
+        binding
+        for binding in bindings
+        if binding.name == "seed" and binding.covers(start)
+    )
+    seed_scope = seed.scope
     assert seed_scope is not None
     assert seed_scope[0] < start, (
         "the enclosing parameter must be visible before the `let` that "

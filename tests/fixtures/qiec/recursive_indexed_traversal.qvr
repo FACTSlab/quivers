@@ -11,3 +11,22 @@ define length[A : Type, n : Nat](xs : Vec[A](n)) : Int !{} =
         Cons[k](head, tail) =>
             let rest <- length[A, k](tail)
             return 1 + rest
+
+define fold[n : Nat](xs : Vec[Real](n), acc : Real) : Real !{} =
+    case xs motive (m : Nat) => Real
+        Nil =>
+            return acc
+        Cons[k](head, tail) =>
+            let rest <- fold[k](tail, acc + head)
+            return rest
+
+define triple(a : Real, b : Real, c : Real) : Vec[Real](S(S(S(Z)))) !{} =
+    let last = construct Cons[Real, Z](c, construct Nil[Real]() as Vec[Real](Z)) as Vec[Real](S(Z))
+    let pair = construct Cons[Real, S(Z)](b, last) as Vec[Real](S(S(Z)))
+    return construct Cons[Real, S(S(Z))](a, pair) as Vec[Real](S(S(S(Z))))
+
+define total(a : Real, b : Real, c : Real) : Real !{} =
+    let xs <- triple(a, b, c)
+    let count <- length[Real, S(S(S(Z)))](xs)
+    let sum <- fold[S(S(S(Z)))](xs, 0.0)
+    return sum + count

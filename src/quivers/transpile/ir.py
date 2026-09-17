@@ -44,7 +44,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
-from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic
+from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic, IRQiecValue
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +55,19 @@ from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic
 #: wrapping. `IRDeterministic.expr` and `IRScore.expr` carry the
 #: existing `LetExprNode` tree unchanged.
 IRExpr = LetExprNode
+
+
+class IRQiecValueExpr(LetExprNode):
+    """A checked kernel value in a program body, as a call argument.
+
+    A constructor value built in a program step, such as the
+    ``Measurement`` a helper case-analyzes, has no tensor expression
+    form; a renderer spells it through the target's QIEC runtime, under
+    the value encoding the callee reads.
+    """
+
+    value: IRQiecValue
+    kind: Literal["qiec_value"] = "qiec_value"
 
 
 # ---------------------------------------------------------------------------

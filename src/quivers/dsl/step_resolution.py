@@ -76,6 +76,7 @@ from quivers.dsl.ast_nodes import (
     ScoreStep,
     VectorisedObserveStep,
 )
+from quivers.dsl.ast_nodes.qiec import QiecConstructorValue
 from quivers.dsl.ast_nodes._shared import (
     OptionCall,
     OptionEntry,
@@ -287,6 +288,13 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
             ),
         )
         return inner - bound
+    if isinstance(expr, QiecConstructorValue):
+        # The constructor and its static arguments are declaration names;
+        # only the fields carry values.
+        return frozenset().union(
+            *(_let_expr_value_names(field) for field in expr.fields),
+            frozenset(),
+        )
     raise TypeError(
         f"_let_expr_value_names: unsupported let-expression variant "
         f"{type(expr).__name__}"

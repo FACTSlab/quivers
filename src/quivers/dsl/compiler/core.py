@@ -34,7 +34,6 @@ from quivers.dsl.compiler._prelude import (
     _CompiledContraction,
     _build_default_trans_constructors,
     _build_default_trans_singletons,
-    _register_extra_algebras,
 )
 from quivers.dsl.compiler.declarations import _DeclarationsMixin
 from quivers.dsl.compiler.programs import _ProgramsMixin
@@ -329,7 +328,6 @@ class Compiler(
         CompileError
             On semantic errors (undefined names, type mismatches, etc.).
         """
-        _register_extra_algebras()
         for stmt in self._module.statements:
             self._compile_statement(stmt)
         qiec_module = self.qiec_module
@@ -429,7 +427,6 @@ class Compiler(
             (parametric templates), deductions, signatures, encoders,
             decoders, losses, bundles, contractions, transformations.
         """
-        _register_extra_algebras()
         for stmt in self._module.statements:
             self._compile_statement(stmt)
         env: dict = {}

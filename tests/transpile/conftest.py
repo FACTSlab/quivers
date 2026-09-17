@@ -86,6 +86,7 @@ PROBE_MODULES = frozenset(
         "test_numeric_equivalence",
         "test_qiec_call_equivalence",
         "test_qiec_distributions",
+        "test_qiec_fixture_equivalence",
         "test_via_fibration_numeric",
     }
 )

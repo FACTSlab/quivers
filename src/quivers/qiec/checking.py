@@ -17,6 +17,7 @@ from quivers.qiec.effects import (
     HandlerDef,
     OperationDef,
     RowEntry,
+    render_instance,
     render_row,
 )
 from quivers.qiec.coverage import (
@@ -3236,13 +3237,16 @@ def _infer_new_instance(
     definition = registry.effects.get(allocation.effect.id)
     if definition is None or not definition.matches(allocation.effect):
         raise KernelError(
-            f"unknown effect interface for local instance {allocation.instance}"
+            "unknown effect interface for local instance "
+            f"{render_instance(allocation.instance, registry.instance_names)}"
         )
     inner = _infer_computation(allocation.body, registry, context)
     if inner.effects.contains(allocation.instance):
         raise KernelError(
-            f"local instance {allocation.instance} escapes its scope: the body "
-            f"still performs it, so nothing outside can discharge it",
+            "local instance "
+            f"{render_instance(allocation.instance, registry.instance_names)} "
+            f"escapes its scope: the body still performs it, so nothing "
+            f"outside can discharge it",
             "qiec-instance-escape",
         )
     return _checked_computation_type(

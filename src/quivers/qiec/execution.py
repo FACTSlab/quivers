@@ -2064,7 +2064,15 @@ def _parse_static(
     if isinstance(binder.sort, NatSort) and head.isdigit():
         return IndexLiteral(int(head), binder.sort)
     if isinstance(binder.sort, UserIndexSort):
-        return IndexConstructor(head, (), binder.sort)
+        # A nullary constructor is the sort's literal, the form the
+        # lowering gives it, so a parsed term compares equal to a
+        # checked type mentioning the same constructor.
+        if binder.sort.constructor_arity(head) != 0:
+            raise ValueError(
+                f"index constructor {head!r} of {binder.sort.name} takes "
+                f"{binder.sort.constructor_arity(head)} arguments"
+            )
+        return IndexLiteral(head, binder.sort)
     raise ValueError(f"cannot parse closed index term {text!r} for {binder.sort!r}")
 
 

@@ -36,7 +36,11 @@ _REQUIRED_FORMS: dict[str, str] = {
     "qiec_handler_return_clause": "authored_state_handler",
     "qiec_handler_operation_clause": "authored_state_handler",
     "qiec_case_computation": "recursive_indexed_traversal",
-    "marginalize_step": "grouped_marginal_gadt_state",
+    "marginalize_step": "grouped_marginalization",
+    "qiec_constructor_value": "effectful_probabilistic_helper",
+    "call_step": "effectful_probabilistic_helper",
+    "deduction_decl": "ambiguous_deduction",
+    "morphism_decl": "network_decoder",
 }
 
 

@@ -1,23 +1,35 @@
-effect Trace
-    note : Real -> Unit
+index Status = Observed | Missing
 
-instance journal : Trace
+family Measurement(s : Status) : Type
+    constructor Present : Real -> Measurement(Observed)
+    constructor Absent : Measurement(Missing)
 
-handler record for Trace : Real -> Real [coverage=total, forwards=none, implementation=authored]
-    return x =>
-        return x
-    note(weight : Real) resumes 1 =>
-        resume(unit)
+instance random : Random
 
-define scored(weight : Real) : Real !{journal} =
-    perform journal.note(weight)
-    return weight
+instance score : Score
 
-object Resp : FinSet 4
+define account[s : Status](m : Measurement(s), location : Real, spread : Real) : Real !{random, score} =
+    case m motive (t : Status) => Real
+        Present(value) =>
+            perform score.add(log_prob(Normal(location, spread), value))
+            return value
+        Absent =>
+            let drawn <- perform random.sample[Real](site("predicted"), Normal(location, spread))
+            return drawn
 
-program tagged : Resp -> Resp
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
-    return theta
+object Group : FinSet 3
 
-export tagged
+object Resp : FinSet 6
+
+program hierarchy : Resp -> Resp
+    sample mu <- Normal(0.0, 1.0)
+    sample tau <- HalfNormal(1.0)
+    sample theta : Group <- Normal(mu, tau)
+    let rate = exp(theta)
+    let expected = rate[idx]
+    observe y : Resp <- Normal(expected, 0.5)
+    let seen <- account[Observed](construct Present(2.0) as Measurement(Observed), mu, 1.0)
+    let held_out <- account[Missing](construct Absent() as Measurement(Missing), mu, 1.0)
+    return held_out
+
+export hierarchy

@@ -973,6 +973,64 @@ def _fire(
 # ---------------------------------------------------------------------------
 
 
+def _full_extent_goal(
+    goal: Callable[[Item], bool], input_value: object
+) -> Callable[[Item], bool]:
+    """Restrict a goal predicate to spans covering the whole input.
+
+    A span-shaped chart holds an item for every substring the rules
+    derive, and the goal category may head several of them; the system's
+    answer is the weight of the derivations of the *whole* input, so a
+    goal span must run from position zero to the input's length. An item
+    that is not a span, and an input that is not a sequence, are judged
+    by the predicate alone.
+
+    Parameters
+    ----------
+    goal : Callable[[Item], bool]
+        The declared goal predicate.
+    input_value : object
+        The input the system is run on.
+
+    Returns
+    -------
+    Callable[[Item], bool]
+        The predicate, narrowed to full-extent spans when the input is a
+        sequence.
+    """
+    if not isinstance(input_value, (list, tuple)):
+        return goal
+    extent = len(input_value)
+
+    def full_extent(item: Item) -> bool:
+        """Whether an item is a goal covering the whole input.
+
+        Parameters
+        ----------
+        item : Item
+            The chart item.
+
+        Returns
+        -------
+        bool
+            The declared predicate's answer, and for a span item also
+            that it runs from zero to the input's length.
+        """
+        if not goal(item):
+            return False
+        if (
+            isinstance(item, tuple)
+            and len(item) >= 4
+            and item[0] == "span"
+            and isinstance(item[1], int)
+            and isinstance(item[2], int)
+        ):
+            return item[1] == 0 and item[2] == extent
+        return True
+
+    return full_extent
+
+
 @dataclass
 class DeductionSystem:
     """A weighted deductive system parameterized over its components.
@@ -1049,7 +1107,7 @@ class DeductionSystem:
             rules=self.rules,
             semiring=self.semiring,
             agenda=self.agenda_factory(),
-            goal=self.goal,
+            goal=_full_extent_goal(self.goal, input_value),
             max_iterations=self.max_iterations,
             chart=chart_inst,
             rule_callback=(_rule_callback if registry is not None else None),

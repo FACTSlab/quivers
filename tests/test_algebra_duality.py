@@ -31,6 +31,7 @@ from quivers.core.algebras import (
     CustomAlgebra,
     DualAlgebra,
 )
+from quivers.dsl.compiler import _ALGEBRA_REGISTRY
 
 
 _SAMPLES_3 = torch.tensor([0.3, 0.5, 0.8])
@@ -247,16 +248,10 @@ def test_custom_algebra_blank_name_rejected() -> None:
 def test_dsl_algebra_registry_includes_reichenbach() -> None:
     """``algebra reichenbach`` resolves to the
     ``ProductFuzzyAlgebra.dual`` singleton via the compiler registry."""
-    from quivers.dsl.compiler import _ALGEBRA_REGISTRY, _register_extra_algebras
-
-    _register_extra_algebras()
     assert "reichenbach" in _ALGEBRA_REGISTRY
     assert _ALGEBRA_REGISTRY["reichenbach"] is REICHENBACH
 
 
 def test_dsl_algebra_registry_includes_named_duals() -> None:
-    from quivers.dsl.compiler import _ALGEBRA_REGISTRY, _register_extra_algebras
-
-    _register_extra_algebras()
     for key in ("reichenbach", "boolean_dual", "dual_lukasiewicz", "dual_godel"):
         assert key in _ALGEBRA_REGISTRY, f"DSL algebra registry missing {key!r}"

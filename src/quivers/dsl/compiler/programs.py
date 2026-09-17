@@ -20,9 +20,10 @@ from quivers.continuous.morphisms import (
     MarginalizedFactor,
 )
 from quivers.core.algebras import CompositionRule
-from quivers.core.morphisms import Morphism
+from quivers.core.morphisms import Morphism, ObservedMorphism
 
-from quivers.continuous.plate import marginalize_grouped
+from quivers.continuous.inline import get_inline_param_names, make_inline_distribution
+from quivers.continuous.plate import PlateDraw, VectorisedObserve, marginalize_grouped
 from quivers.continuous.program_steps import reading, reads_of
 from quivers.continuous.programs import MonadicProgram, _lookup_arg
 from quivers.effects.checked_program import CheckedProgram
@@ -98,6 +99,9 @@ from quivers.dsl.compiler._options import (
     get_program_effects,
     get_program_over_model,
 )
+from quivers.dsl.compiler.sugar import desugar_step
+from quivers.program import Program
+from quivers.stochastic.agenda import DeductionSystem
 from quivers.dsl.compiler._prelude import (
     CompileError,
     _CompiledContraction,
@@ -672,8 +676,6 @@ class _ProgramsMixin:
         [`desugar_step`][quivers.dsl.compiler.sugar.desugar_step], so
         downstream IR walks the single operator vocabulary.
         """
-        from quivers.dsl.compiler.sugar import desugar_step
-
         if isinstance(step, CallStep):
             raise CompileError(
                 f"`let {step.name} <- {step.call.callee}(...)` calls a named "
@@ -1843,8 +1845,6 @@ class _ProgramsMixin:
         `ObservedMorphism` with the contraction's declared
         domain and codomain.
         """
-        from quivers.core.morphisms import ObservedMorphism
-
         contraction = self._contractions.get(expr.callee)
         if contraction is None:
             # Fall through to parametric-program template
@@ -1913,13 +1913,11 @@ class _ProgramsMixin:
         ``prog.<name>(alpha=0.5, beta=0.1)`` to instantiate the
         template at concrete parameters.
         """
-        from quivers.program import Program as _Program
-
         tmpl = self._program_templates[name]
         type_params = tmpl.type_params or ()
         param_names = tuple(p.name for p in type_params)
 
-        def _invoke(*args, **kwargs) -> _Program:
+        def _invoke(*args, **kwargs) -> Program:
             if args and kwargs:
                 raise TypeError(
                     f"template {name!r}: pass either all positional or all "
@@ -1950,7 +1948,7 @@ class _ProgramsMixin:
                 col=tmpl.col,
             )
             morph = self._compile_program_template_call(call_expr)
-            return _Program(morph)
+            return Program(morph)
 
         _invoke.__name__ = name
         _invoke.__qualname__ = f"template:{name}"
@@ -2280,10 +2278,8 @@ class _ProgramsMixin:
             )
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
-        from quivers.continuous.spaces import ProductSpace as _PS
-
         if decl.params is not None:
-            if isinstance(domain, (ProductSet, _PS)):
+            if isinstance(domain, (ProductSet, ProductSpace)):
                 if len(decl.params) != len(domain.components):
                     raise CompileError(
                         f"program has {len(decl.params)} params but domain has {len(domain.components)} components",
@@ -2304,7 +2300,7 @@ class _ProgramsMixin:
             return
         bound_vars: dict[str, AnySpace | None] = {}
         if decl.params is not None:
-            if isinstance(domain, (ProductSet, _PS)):
+            if isinstance(domain, (ProductSet, ProductSpace)):
                 for pname, factor in zip(decl.params, domain.components):
                     bound_vars[pname] = factor
             else:
@@ -2334,9 +2330,6 @@ class _ProgramsMixin:
                 # Kern-morphism A → B; we realise it as a PlateDraw
                 # whose codomain is the flat product space of
                 # |A| copies of the per-row family's codomain.
-                from quivers.continuous.plate import PlateDraw as _PlateDraw
-                from quivers.continuous.spaces import Euclidean as _Euc
-
                 idx_space = self._resolve_plate_index(
                     step.index,
                     f"indexed sample {step.name!r}",
@@ -2352,7 +2345,7 @@ class _ProgramsMixin:
                     and step.codomain.name.isdigit()
                     and step.codomain.name not in self._objects
                 ):
-                    cod_space = _Euc(
+                    cod_space = Euclidean(
                         name=f"_plate_codom_{step.name}",
                         dim=int(step.codomain.name),
                     )
@@ -2412,7 +2405,7 @@ class _ProgramsMixin:
                     bound_vars[step.name] = family.codomain
                     steps.append(((step.name,), family, step_args, False))
                     continue
-                plate = _PlateDraw(idx_space.size, family, domain=family.domain)
+                plate = PlateDraw(idx_space.size, family, domain=family.domain)
                 bound_vars[step.name] = plate.codomain
                 steps.append(((step.name,), plate, step_args, False))
                 continue
@@ -2541,6 +2534,28 @@ class _ProgramsMixin:
                                 resolved.append(p.expand(target))
                             except RuntimeError:
                                 resolved.append(p)
+                        # A family applied to literals beside variables
+                        # records the literals in its parameter spec;
+                        # they take their place among the broadcast
+                        # variable parts before the builder runs.
+                        spec = getattr(_family, "_param_spec", None)
+                        if spec is not None:
+                            full: list[torch.Tensor] = []
+                            variable_parts = iter(resolved)
+                            for kind, literal in spec:
+                                if kind == "lit":
+                                    full.append(
+                                        torch.full(
+                                            target,
+                                            float(literal),
+                                            dtype=resolved[0].dtype
+                                            if resolved
+                                            else torch.get_default_dtype(),
+                                        )
+                                    )
+                                else:
+                                    full.append(next(variable_parts))
+                            resolved = full
                         dist = _family._dist_builder(resolved)
                         resp_broadcast = response
                         # Add singleton dims to make response
@@ -2594,10 +2609,6 @@ class _ProgramsMixin:
                 # threads through the existing _StepSpec(is_observed=True)
                 # path. The response buffer is supplied at runtime
                 # via the `observations` dict on the program.
-                from quivers.continuous.plate import (
-                    VectorisedObserve as _VectorisedObserve,
-                )
-
                 idx_space = self._resolve_plate_index(
                     step.index_set,
                     f"indexed observe {step.response_var!r}",
@@ -2626,10 +2637,8 @@ class _ProgramsMixin:
                 # the placeholder is (idx_size,); continuous
                 # codomains take the codomain's event shape after
                 # the row axis.
-                from quivers.core.objects import SetObject as _SetObject
-
                 resp_shape: tuple[int, ...]
-                if isinstance(family.codomain, _SetObject):
+                if isinstance(family.codomain, SetObject):
                     resp_shape = (idx_space.size,)
                 elif hasattr(family.codomain, "dim"):
                     d = int(family.codomain.dim)
@@ -2637,7 +2646,7 @@ class _ProgramsMixin:
                 else:
                     resp_shape = (idx_space.size,) + tuple(family.codomain.shape)
                 placeholder = torch.zeros(*resp_shape)
-                vec_obs = _VectorisedObserve(family, placeholder)
+                vec_obs = VectorisedObserve(family, placeholder)
                 # The step's response_var is the data column supplied
                 # at fit time. We expose it as the bound name so the
                 # runtime's observations[response_var] = data flow
@@ -3554,11 +3563,6 @@ class _ProgramsMixin:
                         converted.append(str(a))
                 step_args = tuple(converted)
             return (morph, step_args)
-        from quivers.continuous.inline import (
-            get_inline_param_names,
-            make_inline_distribution,
-        )
-
         param_names = get_inline_param_names(draw.morphism)
         if param_names is not None:
             if draw.args is None:
@@ -4421,8 +4425,6 @@ class _ProgramsMixin:
                             "compose() takes exactly two arguments: "
                             "deduction systems D1 and D2"
                         )
-                    from quivers.stochastic.agenda import DeductionSystem
-
                     d1 = arg_fns[0](env)
                     d2 = arg_fns[1](env)
                     if not (

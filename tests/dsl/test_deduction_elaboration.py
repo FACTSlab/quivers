@@ -214,13 +214,14 @@ def test_an_ambiguous_sentence_sums_over_its_derivations() -> None:
     tokens = ["I", "saw", "man", "with", "telescope"]
     run = run_deduction(module, "Attach", tokens=tokens)
     assert run.weight == pytest.approx(math.log(2.0))
-    # The agenda's goal weight sums every span of the start symbol, the
-    # prefix "I saw man" included; the deduction's answer is the whole
-    # sentence's, which is the chart's weight at that one item.
+    # The chart also derives the prefix "I saw man" as an S, but the
+    # deduction's answer is the whole sentence's: the agenda's goal
+    # weight is the chart's weight at that one item.
     view = _classic(AMBIGUOUS, "Attach")(tokens)
     whole = view.weight(("span", 0, 5, ("atom", "S")))
     assert run.weight == pytest.approx(float(whole))
-    assert float(view.goal_weight()) == pytest.approx(math.log(3.0))
+    assert float(view.goal_weight()) == pytest.approx(math.log(2.0))
+    assert [item for item, _ in view.goal_items] == [("span", 0, 5, ("atom", "S"))]
 
 
 @pytest.mark.parametrize(

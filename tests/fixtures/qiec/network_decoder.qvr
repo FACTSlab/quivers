@@ -1,0 +1,14 @@
+object Feature : Real 2
+
+object Target : Real 1
+
+object Resp : FinSet 6
+
+morphism decoder : Feature -> Target [param_source=mlp(4.0)] ~ Normal
+
+program regression : Resp -> Target
+    sample tau <- HalfNormal(1.0)
+    observe y : Resp <- decoder(x)
+    return tau
+
+export regression

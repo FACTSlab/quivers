@@ -1,0 +1,27 @@
+object Term : FinSet 8
+
+object Weight : Real 1
+
+deduction Ambiguous : Term -> Term [semiring=LogProb, start=S, depth=8.0]
+    atoms S, NP, VP, PP, V, P, Det, N, span, the, dog, saw, cat, with, telescope
+    rule s_np_vp : span(I, K, NP), span(K, J, VP) |- span(I, J, S) #[learnable]
+    rule np_det_n : span(I, K, Det), span(K, J, N) |- span(I, J, NP) #[learnable]
+    rule np_np_pp : span(I, K, NP), span(K, J, PP) |- span(I, J, NP) #[learnable]
+    rule vp_v_np : span(I, K, V), span(K, J, NP) |- span(I, J, VP) #[learnable]
+    rule vp_vp_pp : span(I, K, VP), span(K, J, PP) |- span(I, J, VP) #[learnable]
+    rule pp_p_np : span(I, K, P), span(K, J, NP) |- span(I, J, PP) #[learnable]
+    lexicon
+        "the" : Det = the #[learnable]
+        "dog" : N = dog #[learnable]
+        "cat" : N = cat #[learnable]
+        "telescope" : N = telescope #[learnable]
+        "saw" : V = saw #[learnable]
+        "with" : P = with #[learnable]
+
+program attach : Term -> Weight
+    sample bias <- Normal(0.0, 1.0)
+    let chart = parse(Ambiguous, sentence)
+    score log_z = chart.goal_weight() + bias
+    return log_z
+
+export attach

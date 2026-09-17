@@ -1056,6 +1056,28 @@ def instantiate_effect(
     return RowEntry(instance, effect)
 
 
+def render_instance(
+    identity: EffectInstanceId, names: Mapping[EffectInstanceId, str] | None = None
+) -> str:
+    """Render one effect instance in the surface spelling.
+
+    Parameters
+    ----------
+    identity : EffectInstanceId
+        The instance.
+    names : Mapping[EffectInstanceId, str] | None
+        The source name of each lexical instance.
+
+    Returns
+    -------
+    str
+        Its source name, or ``instance:`` and the first eight characters
+        of its digest when it has none.
+    """
+    table = names or {}
+    return table.get(identity, f"instance:{identity.digest[:8]}")
+
+
 def render_row(
     row: EffectRow, names: Mapping[EffectInstanceId, str] | None = None
 ) -> str:
@@ -1076,26 +1098,9 @@ def render_row(
         instance's name and interface, in name order, and an open row's
         tail after a bar, with the instances it lacks after a backslash.
     """
-    table = names or {}
-
-    def instance(identity: EffectInstanceId) -> str:
-        """The rendering of one instance.
-
-        Parameters
-        ----------
-        identity : EffectInstanceId
-            The instance.
-
-        Returns
-        -------
-        str
-            Its source name, or a digest prefix.
-        """
-        return table.get(identity, f"instance:{identity.digest[:8]}")
-
     entries = ", ".join(
         sorted(
-            f"{instance(entry.instance)} : {render_static(entry.effect)}"
+            f"{render_instance(entry.instance, names)} : {render_static(entry.effect)}"
             for entry in row.entries
         )
     )
@@ -1103,7 +1108,9 @@ def render_row(
         return "!{" + entries + "}"
     tail = row.tail.name
     if row.tail.lacks:
-        tail += " \\ " + ", ".join(instance(item) for item in row.tail.lacks)
+        tail += " \\ " + ", ".join(
+            render_instance(item, names) for item in row.tail.lacks
+        )
     return "!{" + (entries + " | " if entries else "") + tail + "}"
 
 
@@ -1124,6 +1131,7 @@ __all__ = [
     "RowVariable",
     "HandlerReturnClauseDef",
     "instantiate_effect",
+    "render_instance",
     "render_row",
     "unify_effect_rows",
 ]
