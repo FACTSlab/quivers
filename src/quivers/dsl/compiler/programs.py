@@ -2928,6 +2928,7 @@ class _ProgramsMixin:
                         )
                         if per_group_prior:
                             per_group = log_prior.new_zeros((_sizes[0],))
+                            total = log_prior.new_zeros(())
                             for ll, idx in zip(ll_list, idx_list):
                                 assert isinstance(idx, torch.Tensor)
                                 gathered = log_prior[idx]
@@ -2939,9 +2940,14 @@ class _ProgramsMixin:
                                 else:
                                     per_row = weighted.mean(dim=-1)
                                 per_group = per_group.index_add(0, idx, per_row)
+                                total = total + per_row.sum()
                             if _per_group:
                                 return per_group
-                            return per_group.sum().reshape(1)
+                            # The block's total is the rows' own sum: the
+                            # per-group scatter is what an enclosing block
+                            # reads, and summing the rows directly keeps the
+                            # float32 accumulation in row order.
+                            return total.reshape(1)
                         result = marginalize_grouped(
                             ll_list,
                             idx_list,
