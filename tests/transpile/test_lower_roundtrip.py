@@ -25,8 +25,11 @@ import pathlib
 import pytest
 
 from quivers.dsl.ast_nodes import (
+    DrawArgName,
+    LetExprVar,
     LetStep,
     MarginalizeStep,
+    Module,
     ObserveStep,
     ProgramDecl,
     ProgramStep,
@@ -36,6 +39,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.ast_nodes.declarations import ExportDecl
 from quivers.dsl.parser import parse
+from quivers.dsl.program_templates import instantiate_program, template_bindings
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile.ir import (
@@ -100,7 +104,6 @@ _EXPECTED_LOWER_REFUSAL: dict[str, str] = {
     "gru_lm": "scan:no-lowering",
     "lstm_lm": "scan:no-lowering",
     "montague_nli": "qiec:capability:search",
-    "parametric_pooling": "family:school_effects",
     "pmf": "program:absent",
     "schema_chart_parser": "program:absent",
     "seq2seq": "param-source:mlp",
@@ -142,10 +145,13 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     # Free names in the (expanded) source must be covered by the
     # IR's `inputs` plus the bound names in the body.
     expanded = expand_composite_lets(module, target="stan")
-    expanded_program = next(
-        s
-        for s in expanded.statements
-        if isinstance(s, ProgramDecl) and s.name == program.name
+    expanded_program = _with_program_draws_inlined(
+        expanded,
+        next(
+            s
+            for s in expanded.statements
+            if isinstance(s, ProgramDecl) and s.name == program.name
+        ),
     )
     source_free = _source_free_names(expanded_program)
     ir_bound = _ir_bound_names(ir)
@@ -178,6 +184,70 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
         f"{path.name}: IR body step count {body_step_count} != "
         f"expected source step count {expected_body_len}"
     )
+
+
+def _with_program_draws_inlined(module: Module, program: ProgramDecl) -> ProgramDecl:
+    """The program with every draw from another program run in place.
+
+    The plan runs a drawn program's steps in the caller under the
+    caller's names, as the elaboration does, so the source the plan is
+    compared against carries those steps rather than the draw.
+
+    Parameters
+    ----------
+    module : Module
+        The expanded module, whose other programs the draws name.
+    program : ProgramDecl
+        The program.
+
+    Returns
+    -------
+    ProgramDecl
+        The program with each draw from a program replaced by the
+        callee's instantiated steps, recursively.
+    """
+    templates = {
+        statement.name: statement
+        for statement in module.statements
+        if isinstance(statement, ProgramDecl) and statement.name != program.name
+    }
+
+    def inlined(steps: tuple[ProgramStep, ...]) -> tuple[ProgramStep, ...]:
+        """The steps with every draw from a program run in place.
+
+        Parameters
+        ----------
+        steps : tuple[ProgramStep, ...]
+            The steps.
+
+        Returns
+        -------
+        tuple[ProgramStep, ...]
+            The steps, recursively instantiated.
+        """
+        out: list[ProgramStep] = []
+        for step in steps:
+            template = (
+                templates.get(step.morphism)
+                if isinstance(step, (SampleStep, ObserveStep))
+                else None
+            )
+            if template is None:
+                out.append(step)
+                continue
+            arguments = step.args or ()
+            names = {
+                argument.text: LetExprVar(name=argument.text)
+                for argument in arguments
+                if isinstance(argument, DrawArgName)
+            }
+            objects, values = template_bindings(template, arguments, names)
+            out.extend(
+                inlined(instantiate_program(template, step.vars, objects, values))
+            )
+        return tuple(out)
+
+    return program.with_(draws=inlined(program.draws))
 
 
 def _source_free_names(program: ProgramDecl) -> set[str]:

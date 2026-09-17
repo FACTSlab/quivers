@@ -174,21 +174,30 @@ def test_an_unknown_let_call_is_refused_under_its_kind() -> None:
     assert caught.value.kinds == ["let:call:unknown:helper"]
 
 
-def test_a_program_template_call_is_refused_under_its_kind() -> None:
+def test_a_program_template_draw_is_planned_in_place() -> None:
+    """A draw from a program template plans the template's steps in the
+    caller: its draw of ``z`` is the site ``theta$z``, spelled
+    ``theta__z``, under a plate of the object the draw names, and its
+    return binds ``theta``."""
     source = """\
 object School : FinSet 3
 object Effect : Real 1
 program effects(spread : Real, K : FinSet) : K -> Effect
     sample z : K <- Normal(0.0, 1.0)
-    return z
+    let effect = spread * z
+    return effect
 program prog : School -> Effect
     sample theta <- effects(0.5, School)
     return theta
 export prog
 """
-    with pytest.raises(UnsupportedConstruct) as caught:
-        Lower().forward(parse(source))
-    assert caught.value.kinds[0].startswith("family:effects")
+    ir = Lower().forward(parse(source))
+    names = [getattr(node, "name", None) for node in ir.body]
+    assert names[:2] == ["theta__z", "theta"]
+    sample = ir.body[0]
+    assert isinstance(sample, IRSample)
+    assert sample.family == "Normal"
+    assert [dim.name for dim in sample.plate.batch_dims] == ["School"]
 
 
 CALLS = """\
