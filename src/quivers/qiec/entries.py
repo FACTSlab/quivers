@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal, cast
+from typing import Literal, NoReturn, cast
 
 import didactic.api as dx
 import torch
@@ -483,7 +483,7 @@ def invoke_entry(
     )
 
 
-def _refuse(name: str, message: str) -> None:
+def _refuse(name: str, message: str) -> NoReturn:
     """Fail an invocation with a configuration diagnostic.
 
     Parameters
