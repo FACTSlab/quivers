@@ -494,6 +494,44 @@ def test_a_template_draw_instantiates_the_template_and_agrees_with_torch() -> No
     assert float(traced.log_joint) == pytest.approx(float(expected), rel=1e-5)
 
 
+_MORPHISM_TEMPLATE = """\
+object Subj : FinSet 5
+object UnitSpace : Real 1
+morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(0.0, 1.0)
+program with_prior(G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> Real 1
+    sample v : G <- prior
+    return v
+program demo : Subj -> Subj
+    sample by_subj <- with_prior(Subj, my_prior)
+    return by_subj
+export demo
+"""
+
+
+def test_a_template_over_a_morphism_draws_through_the_morphism_it_is_given() -> None:
+    """A morphism parameter takes a declared morphism at the draw: the
+    template's `sample v : G <- prior` becomes a draw through
+    `my_prior` over `Subj`, named `by_subj` in the caller. The template
+    itself is no entry point, since a morphism is no static argument."""
+    module = _module(_MORPHISM_TEMPLATE)
+    assert [item.name for item in module.entries] == ["demo"]
+    entry = program_entry(module, "demo")
+    assert [(site.name, site.family) for site in entry.sites] == [("by_subj", "Normal")]
+    values = (0.1, 0.2, -0.3, 0.0, 0.5)
+    run = run_program(
+        module, "demo", data={}, sites={"by_subj": tuple((v,) for v in values)}
+    )
+    expected = td.Normal(0.0, 1.0).log_prob(torch.tensor(values, dtype=torch.float64))
+    assert run.log_joint == pytest.approx(float(expected.sum()), rel=1e-6)
+    with pytest.raises(QiecDiagnosticError) as captured:
+        _module(
+            _MORPHISM_TEMPLATE.replace(
+                "with_prior(Subj, my_prior)", "with_prior(Subj, 2.0)"
+            )
+        )
+    assert "takes a declared morphism" in captured.value.message
+
+
 def test_a_template_draw_with_the_wrong_arguments_is_reported() -> None:
     source = _TEMPLATE.replace(
         "sample theta <- school_effects(0.6, School)",

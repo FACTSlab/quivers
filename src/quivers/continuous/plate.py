@@ -104,6 +104,7 @@ import torch
 
 
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
+from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
 
 
@@ -205,9 +206,15 @@ class PlateDraw(ContinuousMorphism):
         resolved input ``x`` (the scale of ``by_subj <- Normal(0, sigma)``
         is the latent ``sigma``), so ``x`` is threaded through, broadcast
         from a single shared row to every row when needed rather than
-        discarded.
+        discarded. A family over a finite domain reads its parameters
+        from a table indexed by the domain's elements, and a plate over
+        that domain draws one row per element, so each row is
+        conditioned on its own index.
         """
         width = self._domain_width
+        if isinstance(self._family.domain, FinSet):
+            rows = torch.arange(n_rows, device=device) % self._index_size
+            return rows.reshape(n_rows, 1)
         if x is None or x.numel() == 0:
             return torch.zeros(n_rows, width, device=device)
         xf = x if x.dim() == 2 else x.reshape(1, -1)

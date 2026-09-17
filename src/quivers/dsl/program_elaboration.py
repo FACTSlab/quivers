@@ -1841,17 +1841,26 @@ class _ProgramElaboration:
         template = self._program_declarations[name]
         bound = {local: LetExprVar(name=local) for local in scope.locals}
         try:
-            objects, values = template_bindings(template, arguments, bound)
-            steps = instantiate_program(template, binders, objects, values)
+            bindings = template_bindings(template, arguments, bound)
+            steps = instantiate_program(template, binders, bindings)
         except TemplateError as error:
-            self._fail(
-                node, error.message, code=GAP_CODE if error.gap else "qiec-program"
-            )
-        for parameter, argument in objects.items():
+            self._fail(node, error.message, code="qiec-program")
+        for parameter, argument in bindings.objects.items():
             if argument not in self._program_objects:
                 self._fail(
                     node,
                     f"object {argument!r} passed as {parameter!r} of program "
+                    f"{name!r} is not declared",
+                    code="qiec-program",
+                )
+        for parameter, argument in bindings.morphisms.items():
+            if (
+                argument not in self._program_morphisms
+                and argument not in self._program_declarations
+            ):
+                self._fail(
+                    node,
+                    f"morphism {argument!r} passed as {parameter!r} of program "
                     f"{name!r} is not declared",
                     code="qiec-program",
                 )

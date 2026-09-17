@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import didactic.api as dx
+
 from quivers.dsl.ast_nodes import (
     AxisSpec,
     CallStep,
@@ -62,23 +64,36 @@ class TemplateError(Exception):
     ----------
     message : str
         What does not fit.
-    gap : bool
-        Whether the draw is well formed but names a construct the
-        elaboration has no form for, a morphism parameter, rather
-        than an error of the source.
     """
 
-    def __init__(self, message: str, gap: bool = False) -> None:
+    def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
-        self.gap = gap
+
+
+class TemplateBindings(dx.Model):
+    """What a draw's arguments substitute into the program drawn from.
+
+    Parameters
+    ----------
+    objects : dict[str, str]
+        The object each object parameter takes.
+    values : dict[str, LetExprNode]
+        The expression each scalar parameter takes.
+    morphisms : dict[str, str]
+        The declared morphism each morphism parameter takes.
+    """
+
+    objects: dict[str, str]
+    values: dict[str, LetExprNode]
+    morphisms: dict[str, str]
 
 
 def template_bindings(
     template: ProgramDecl,
     arguments: tuple[DrawArg, ...],
     bound: Mapping[str, LetExprNode],
-) -> tuple[dict[str, str], dict[str, LetExprNode]]:
+) -> TemplateBindings:
     """The substitutions a draw's arguments fix for a program's parameters.
 
     Parameters
@@ -93,16 +108,16 @@ def template_bindings(
 
     Returns
     -------
-    tuple[dict[str, str], dict[str, LetExprNode]]
-        The object each object parameter takes, and the expression each
-        scalar parameter takes.
+    TemplateBindings
+        The object each object parameter takes, the expression each
+        scalar parameter takes, and the morphism each morphism
+        parameter takes.
 
     Raises
     ------
     TemplateError
-        If the argument count differs from the parameter count, an
-        argument does not fit its parameter, or a parameter is a
-        morphism, which no draw supplies.
+        If the argument count differs from the parameter count or an
+        argument does not fit its parameter.
     """
     parameters = template.type_params or ()
     if len(arguments) != len(parameters):
@@ -112,6 +127,7 @@ def template_bindings(
         )
     objects: dict[str, str] = {}
     values: dict[str, LetExprNode] = {}
+    morphisms: dict[str, str] = {}
     for argument, parameter in zip(arguments, parameters, strict=True):
         if isinstance(parameter, ObjectParam):
             if not isinstance(argument, DrawArgName):
@@ -131,19 +147,19 @@ def template_bindings(
                     f"takes a number or a bound name"
                 )
         else:
-            raise TemplateError(
-                f"parameter {parameter.name!r} of program {template.name!r} is a "
-                f"morphism; a template over morphisms has no elaboration",
-                gap=True,
-            )
-    return objects, values
+            if not isinstance(argument, DrawArgName):
+                raise TemplateError(
+                    f"parameter {parameter.name!r} of program {template.name!r} "
+                    f"takes a declared morphism"
+                )
+            morphisms[parameter.name] = argument.text
+    return TemplateBindings(objects=objects, values=values, morphisms=morphisms)
 
 
 def instantiate_program(
     template: ProgramDecl,
     binders: tuple[str, ...],
-    objects: Mapping[str, str],
-    values: Mapping[str, LetExprNode],
+    bindings: TemplateBindings,
 ) -> tuple[ProgramStep, ...]:
     """The steps a draw from a program runs in the caller.
 
@@ -153,10 +169,9 @@ def instantiate_program(
         The program drawn from.
     binders : tuple[str, ...]
         The draw's pattern: one name, or one per returned name.
-    objects : Mapping[str, str]
-        The object each object parameter takes.
-    values : Mapping[str, LetExprNode]
-        The expression each scalar parameter takes.
+    bindings : TemplateBindings
+        What the draw's arguments substitute for the program's
+        parameters.
 
     Returns
     -------
@@ -185,7 +200,7 @@ def instantiate_program(
     for name in _bound_names(template.draws):
         rename.setdefault(name, f"{prefix}${name}")
     steps = tuple(
-        _rename_step(step, objects, values, rename)
+        _rename_step(step, bindings, rename)
         for step in template.draws
         if not isinstance(step, ReturnStep)
     )
@@ -235,8 +250,7 @@ def _bound_names(steps: tuple[ProgramStep, ...]) -> list[str]:
 
 def _rename_step(
     step: ProgramStep,
-    objects: Mapping[str, str],
-    values: Mapping[str, LetExprNode],
+    bindings: TemplateBindings,
     rename: Mapping[str, str],
 ) -> ProgramStep:
     """One step under the substitution and the renaming.
@@ -245,10 +259,9 @@ def _rename_step(
     ----------
     step : ProgramStep
         The step.
-    objects : Mapping[str, str]
-        The object each object parameter takes.
-    values : Mapping[str, LetExprNode]
-        The expression each scalar parameter takes.
+    bindings : TemplateBindings
+        What the draw's arguments substitute for the program's
+        parameters.
     rename : Mapping[str, str]
         The caller's name of each name the program binds.
 
@@ -263,10 +276,11 @@ def _rename_step(
         If a scalar parameter is drawn through where only a number or
         a name fits.
     """
+    objects, values, morphisms = bindings.objects, bindings.values, bindings.morphisms
     if isinstance(step, (SampleStep, ObserveStep)):
         return step.with_(
             vars=tuple(rename.get(name, name) for name in step.vars),
-            morphism=rename.get(step.morphism, step.morphism),
+            morphism=_rename_morphism(step.morphism, morphisms, rename),
             args=_rename_args(step.args, values, rename),
             index=None if step.index is None else _rename_object(step.index, objects),
             axes=_rename_axes(step.axes, objects),
@@ -274,7 +288,7 @@ def _rename_step(
     if isinstance(step, MarginalizeStep):
         return step.with_(
             var=rename.get(step.var, step.var),
-            morphism=rename.get(step.morphism, step.morphism),
+            morphism=_rename_morphism(step.morphism, morphisms, rename),
             args=_rename_args(step.args, values, rename),
             index=None if step.index is None else _rename_object(step.index, objects),
             over=None if step.over is None else objects.get(step.over, step.over),
@@ -283,9 +297,7 @@ def _rename_step(
                 if step.over_objs is None
                 else tuple(objects.get(name, name) for name in step.over_objs)
             ),
-            scope=tuple(
-                _rename_step(inner, objects, values, rename) for inner in step.scope
-            ),
+            scope=tuple(_rename_step(inner, bindings, rename) for inner in step.scope),
         )
     if isinstance(step, (LetStep, ScoreStep)):
         return step.with_(
@@ -303,6 +315,32 @@ def _rename_step(
             ),
         )
     return step
+
+
+def _rename_morphism(
+    name: str, morphisms: Mapping[str, str], rename: Mapping[str, str]
+) -> str:
+    """The morphism a step draws through, under the substitutions.
+
+    Parameters
+    ----------
+    name : str
+        The name the step names.
+    morphisms : Mapping[str, str]
+        The declared morphism each morphism parameter takes.
+    rename : Mapping[str, str]
+        The caller's name of each name the program binds.
+
+    Returns
+    -------
+    str
+        The morphism the parameter takes, the renamed local a
+        let-bound morphism was renamed to, or the name itself.
+    """
+    replacement = morphisms.get(name)
+    if replacement is not None:
+        return replacement
+    return rename.get(name, name)
 
 
 def _rename_args(
@@ -522,6 +560,7 @@ def _rename_expr(
 
 
 __all__ = [
+    "TemplateBindings",
     "TemplateError",
     "instantiate_program",
     "template_bindings",
