@@ -203,6 +203,18 @@ var _qvr_gather_log = function(rows, idx) {
   // them, so the gather is a map rather than a subscript.
   return map(function(i) { return log(rows[i]); }, idx);
 };
+var _qvr_group_sums = function(rows, via, extent) {
+  // Sum the per-row entries of `rows` within each of the `extent`
+  // groups the fibration `via` sends the rows to. A grouped
+  // `marginalize` keys its accumulator by group, so one atom's
+  // per-row log-likelihoods are pooled per group before the
+  // reduction over the atoms runs.
+  return mapN(function(g) {
+    return sum(mapN(function(i) {
+      return via[i] === g ? rows[i] : 0;
+    }, rows.length));
+  }, extent);
+};
 var _qvr_concat = function(rows, i) {
   // Concatenate `rows` (an array of arrays) from index `i` onward.
   // WebPPL's `reduce` is a right fold, which would reverse the

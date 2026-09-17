@@ -166,7 +166,8 @@ def test_edward2_and_gen_trace_a_score_as_a_factor_choice() -> None:
     assert "struct QvrFactorDist" in gen
     assert "@trace(_qvr_qiec_factor(penalty) , :qvr_factor => :penalty)" in gen
     church = transpile(parse(SCORE), target="church").decode()
-    assert "(define penalty(* x x))(factor penalty)" in church
+    assert "(define penalty(* x x))(define _qvr_stmt_" in church
+    assert "(factor penalty))" in church
 
 
 def test_gen_marginalizes_through_a_traced_factor() -> None:

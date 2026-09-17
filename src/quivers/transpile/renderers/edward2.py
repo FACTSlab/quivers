@@ -47,6 +47,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -717,6 +718,19 @@ class Edward2Renderer(RendererBase):
             Plate(event_dims=observe.plate.event_dims, batch_dims=())
         )
         prefix = f"__marg_{node.latent}"
+        fibration = marginalize_fibration(
+            node,
+            observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            self._emit_grouped_marginalize(
+                py, body_vid, node, raw, atoms, fibration, input_specs, bindings
+            )
+            return
         per_arg: list[list[str]] = [[] for _ in observe.arg_names]
         for position, atom in enumerate(atoms):
             scored = marginalize_body(
@@ -911,6 +925,125 @@ class Edward2Renderer(RendererBase):
     # ------------------------------------------------------------------
     # Distribution-call construction
     # ------------------------------------------------------------------
+
+    def _emit_grouped_marginalize(
+        self,
+        py: PyCtx,
+        body_vid: str,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        fibration: tuple[str, Dim],
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+    ) -> None:
+        """Integrate a grouped block's latent out as a traced factor.
+
+        A block whose rows are fibred into fewer groups than rows, under
+        a prior shared across the groups, keys its accumulator by group
+        (`docs/semantics/programs.md` §2.7): each atom's per-row
+        log-density is scattered into a ``(|G|, K)`` accumulator through
+        the fibration with ``tf.math.unsorted_segment_sum``, the log
+        prior is added, and the reduction over the atoms summed over the
+        groups is traced as a factor variable. A mixture is a per-row
+        integral, which is a different measure here.
+
+        Parameters
+        ----------
+        py : PyCtx
+            The emission context.
+        body_vid : str
+            The model body.
+        node : IRMarginalize
+            The block.
+        raw : MarginalizeBody
+            The block's scope, split into its bindings and its observe.
+        atoms : tuple[IRMarginalAtom, ...]
+            The block's atoms.
+        fibration : tuple[str, Dim]
+            The fibration's name and the grouping plate's axis.
+        input_specs : dict[str, ConstraintSpec]
+            The declared inputs.
+        bindings : dict[str, _Binding]
+            The bindings in scope.
+        """
+        observe = raw.observe
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                asn = py.v(py.fresh("asn"), "assignment")
+                py.e(asn, identifier(py, det.name), "left")
+                py.e(asn, render_deterministic_python(py, det), "right")
+                py.e(body_vid, asn, "child_of")
+                bindings[det.name] = _Binding(
+                    constraint=det.constraint, plate=det.plate
+                )
+            component = self._dist_call(
+                py,
+                name=observe.name,
+                family=scored.observe.family,
+                args=scored.observe.args,
+                arg_names=scored.observe.arg_names,
+                plate=Plate(event_dims=(), batch_dims=()),
+                input_specs=input_specs,
+                bindings=bindings,
+                observed_name=None,
+                callee_chain=("tfp", "distributions"),
+            )
+            term = f"{prefix}_{position}"
+            py.e(
+                body_vid,
+                assignment(
+                    py,
+                    lhs_name=term,
+                    rhs=call(
+                        py,
+                        attribute(py, ("tf", "cast")),
+                        positional=(
+                            _python_method_call(
+                                py,
+                                component,
+                                "log_prob",
+                                (identifier(py, observe.name),),
+                            ),
+                            attribute(py, ("tf", "float32")),
+                        ),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        py.e(
+            body_vid,
+            assignment(
+                py,
+                lhs_name=f"{prefix}_w",
+                rhs=call(
+                    py,
+                    attribute(py, ("tf", "math", "log")),
+                    positional=(self._marginal_weights(py, node, raw, atoms),),
+                ),
+            ),
+            "child_of",
+        )
+        via, group = fibration
+        extent = str(group.size) if isinstance(group, DimStatic) else group.size_name
+        stacked = ", ".join(term_names)
+        graft_python_statements(
+            py.builder,
+            f"{prefix} = tf.stack([{stacked}], axis=-1)\n"
+            f"{prefix} = tf.math.unsorted_segment_sum({prefix}, "
+            f"tf.cast({via}, tf.int32), {extent})\n"
+            f"{prefix}_total = tf.reduce_sum(tf.reduce_logsumexp("
+            f"tf.cast({prefix}_w, {prefix}.dtype) + {prefix}, axis=-1))\n"
+            f'_qvr_qiec_factor("{node.latent}", {prefix}_total)\n',
+            body_vid,
+            f"marg_{node.latent}_group",
+        )
 
     def _dist_call(
         self,
@@ -1937,7 +2070,36 @@ def _ir_has_factor(body: tuple[IRNode, ...]) -> bool:
     bool
         Whether the module needs the factor helper.
     """
-    return any(isinstance(node, (IRScore, IRCall)) for node in body)
+    return any(
+        isinstance(node, (IRScore, IRCall))
+        or (isinstance(node, IRMarginalize) and _marginalize_is_grouped(node))
+        for node in body
+    )
+
+
+def _marginalize_is_grouped(node: IRMarginalize) -> bool:
+    """Whether a block scatters its rows through a fibration.
+
+    Parameters
+    ----------
+    node : IRMarginalize
+        The block.
+
+    Returns
+    -------
+    bool
+        ``True`` when the block carries a grouping plate finer than
+        its observe's plate and an observe with a ``via`` fibration,
+        which the renderer traces as a factor.
+    """
+    if not node.plate.batch_dims:
+        return False
+    return any(
+        isinstance(inner, IRObserve)
+        and inner.via is not None
+        and inner.plate.batch_dims != node.plate.batch_dims
+        for inner in node.scope
+    )
 
 
 def _tf_stack(py: PyCtx, items: tuple[str, ...], axis: int) -> str:

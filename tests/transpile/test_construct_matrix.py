@@ -139,6 +139,10 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     # check before the construct gate.
     ("bugs", "axes", "matrix_kronecker"): "family:",
     ("jags", "axes", "matrix_kronecker"): "family:",
+    # A grouped block whose rows fibre into its groups sums each atom's
+    # rows per group before the reduction, and BUGS has no statement
+    # that adds the per-group log-density to the joint.
+    ("bugs", "steps", "marginalize_step"): "marginalize:grouped-fibration",
 }
 
 

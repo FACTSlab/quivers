@@ -535,33 +535,6 @@ class RendererBase(abc.ABC):
             ],
         )
 
-    # ----- explicit-latent rewrite for marginalize -----
-
-    def explicit_latent_scope(self, node: IRMarginalize) -> tuple[IRNode, ...]:
-        """Rewrite an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to `IRSample(latent)` plus the scope body inline.
-
-        This is the *draw* rewrite, not the marginal: it denotes a
-        measure on the product of the latent's support with the
-        scope's, where
-        [`marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
-        denotes the integral of that product over the latent. The
-        emitted program thus declares a latent site the QVR
-        reference has integrated away, and scoring it at any single
-        coordinate differs from the marginal by an amount that moves
-        with the data. Backends measured against the QVR reference
-        want `marginal_atoms`.
-        """
-        latent_sample = IRSample(
-            name=node.latent,
-            family=node.family,
-            args=node.args,
-            arg_names=node.arg_names,
-            constraint=node.constraint,
-            plate=node.plate,
-        )
-        return (latent_sample, *node.scope)
-
     # ----- score / return defaults -----
 
     def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:

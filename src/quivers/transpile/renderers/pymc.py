@@ -36,6 +36,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -88,6 +89,7 @@ from quivers.transpile.renderers._base import (
 )
 from quivers.transpile.renderers._qiec import (
     emit_call_python,
+    graft_python_statements,
     qiec_helper_families_used,
     render_computations_dynamic,
 )
@@ -849,6 +851,17 @@ class PyMCRenderer(RendererBase):
             support_size=marginal_support_size(node, name_plates=py.name_plates),
         )
         prefix = f"__marg_{node.latent}"
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            self._emit_grouped_marginalize(ctx, node, raw, atoms, fibration)
+            return
         component_names: list[str] = []
         for position, atom in enumerate(atoms):
             scored = marginalize_body(
@@ -886,6 +899,90 @@ class PyMCRenderer(RendererBase):
         stmt = py.v(py.fresh("es"), "expression_statement")
         py.e(stmt, mixture, "child_of")
         py.e(ctx.with_body, stmt, "child_of")
+
+    def _emit_grouped_marginalize(
+        self,
+        ctx: _PyMCCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        fibration: tuple[str, Dim],
+    ) -> None:
+        """Integrate a grouped block's latent out as a potential.
+
+        A block whose rows are fibred into fewer groups than rows, under
+        a prior shared across the groups, keys its accumulator by group
+        (`docs/semantics/programs.md` §2.7): each atom's per-row
+        log-density is scattered into a ``(|G|, K)`` accumulator through
+        the fibration, the log prior is added, and the reduction over
+        the atoms is summed over the groups into a
+        [`pymc.Potential`][pymc.Potential]. A mixture is a per-row
+        integral, which is a different measure here.
+
+        Parameters
+        ----------
+        ctx : _PyMCCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+        raw : MarginalizeBody
+            The block's scope, split into its bindings and its observe.
+        atoms : tuple[IRMarginalAtom, ...]
+            The block's atoms.
+        fibration : tuple[str, Dim]
+            The fibration's name and the grouping plate's axis.
+        """
+        py = ctx.py
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                self._emit_deterministic(ctx, det)
+            term = f"{prefix}_{position}"
+            py.e(
+                ctx.with_body,
+                assignment(
+                    py,
+                    lhs_name=term,
+                    rhs=call(
+                        py,
+                        attribute(py, ("pymc", "logp")),
+                        positional=(
+                            self._component_dist(ctx, scored.observe),
+                            identifier(py, scored.observe.name),
+                        ),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        via, group = fibration
+        extent = str(group.size) if isinstance(group, DimStatic) else group.size_name
+        weights = self._marginal_weights(ctx, node, raw, atoms)
+        py.e(
+            ctx.with_body,
+            assignment(
+                py,
+                lhs_name=f"{prefix}_w",
+                rhs=call(
+                    py, attribute(py, ("pymc", "math", "log")), positional=(weights,)
+                ),
+            ),
+            "child_of",
+        )
+        stacked = ", ".join(term_names)
+        graft_python_statements(
+            py.builder,
+            f"{prefix} = pymc.math.stack([{stacked}], axis=-1)\n"
+            f"{prefix} = pymc.math.dot(pymc.math.eye({extent})[{via}].T, {prefix})\n"
+            f'pymc.Potential("{node.latent}", pymc.math.sum('
+            f"pymc.math.logsumexp({prefix}_w + {prefix}, axis=-1)))\n",
+            ctx.with_body,
+            f"marg_{node.latent}_group",
+        )
 
     def _component_dist(self, ctx: _PyMCCtx, observe: IRObserve) -> str:
         """Build the unregistered ``pymc.<Family>.dist(**args)`` an

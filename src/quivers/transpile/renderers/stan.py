@@ -139,6 +139,7 @@ from quivers.transpile.renderers._base import (
     mixture_normal_components,
 )
 from quivers.transpile.renderers._qiec import (
+    refuse_static_gaps,
     render_computations_static,
     carried_computations,
     has_runtime_computations,
@@ -373,6 +374,10 @@ class StanRenderer(RendererBase):
         self._vector_promotions_state.update(self._compute_vector_promotions(ir))
         self._class_index_widths_state.clear()
         self._class_index_widths_state.update(self._compute_class_index_widths(ir))
+        # A needed computation the static subset lacks is refused before
+        # the body is walked, so its call site is never rendered.
+        if has_runtime_computations(ir):
+            refuse_static_gaps(ir, self.target)
         # Program root.
         ctx.sb.vertex("prog", "program")
         if carried_computations(ir, self.target):

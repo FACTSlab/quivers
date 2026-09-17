@@ -2,9 +2,10 @@
 
 Variables are declared by stochastic or deterministic relations, with
 batch axes emitted as nested loops. The renderer collapses supported
-categorical mixtures to ``dcat`` and uses an explicit latent for other
-marginalization scopes. Family names and argument conversions come
-from ``FAMILY_META``.
+categorical mixtures to ``dcat`` and refuses every other
+marginalization scope, since the language has no statement that adds
+a free log-density term to the joint. Family names and argument
+conversions come from ``FAMILY_META``.
 """
 
 from __future__ import annotations
@@ -72,6 +73,11 @@ from quivers.transpile.renderers._base import (
     reorder_weibull_args,
 )
 from quivers.transpile.renderers._qiec import render_computations_static
+from quivers.transpile.renderers._python_helpers import (
+    marginal_support_size,
+    marginalize_body,
+    marginalize_fibration,
+)
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
     CategoricalMixture,
@@ -585,17 +591,17 @@ class BUGSRenderer(RendererBase):
     ) -> SchemaFragment:
         """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         as the collapsed `dcat` row its atoms sum to when the scope is
-        a categorical mixture, and as the explicit latent draw
-        otherwise.
+        a categorical mixture, and refuse it otherwise.
 
-        A program that declares the latent denotes a measure on the
-        product of the latent's support with the scope's, where QVR's
-        `marginalize` denotes the integral of that product over the
-        latent, so the collapse is preferred wherever the language
-        writes it. BUGS has no statement that adds a free log-density
-        term to the joint, which is what a general `logsumexp`
-        reduction would need, so the remaining scopes lower to the
-        native discrete draw BUGS does sample.
+        QVR's `marginalize` denotes the integral over the latent of
+        the measure the scope carries. A program that declares the
+        latent instead denotes a measure on the product of the
+        latent's support with the scope's, which differs from the
+        integral by an amount that moves with the data, so it is no
+        rendering of the block. BUGS has no statement that adds a
+        free log-density term to the joint, which is what a general
+        `logsumexp` reduction would need, so every scope the collapse
+        does not write is refused.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
         if not isinstance(ctx, _BugsCtx):
@@ -938,17 +944,62 @@ class BUGSRenderer(RendererBase):
     def _emit_marginalize_node(self, ctx: _BugsCtx, node: IRMarginalize) -> None:
         """Emit a BUGS marginalization.
 
-        A categorical mixture recognized by `categorical_mixture` is collapsed
-        to a `dcat` row. Other supported cases become an explicit latent draw
-        followed by the scope because BUGS cannot add a free log-density term
-        without a data-bound zeros-trick carrier.
+        A categorical mixture recognized by `categorical_mixture` is
+        collapsed to a `dcat` row, one per observed cell. A block whose
+        rows fibre into its groups keys its accumulator by group, which
+        the per-cell collapse does not write, and a scope that is no
+        categorical mixture has no collapse at all; both are refused,
+        because BUGS cannot add a free log-density term without a
+        data-bound zeros-trick carrier.
+
+        Parameters
+        ----------
+        ctx : _BugsCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the block's rows fibre into its groups under a shared
+            prior, or the scope is no categorical mixture.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(node, name_plates=ctx.decl_plates),
+        )
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=ctx.decl_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"marginalize:grouped-fibration:{node.latent}: the rows "
+                    f"`{via}` sends to each `{group.name}` are summed before "
+                    f"the reduction over the atoms, and BUGS has no statement "
+                    f"that adds the per-group log-density to the joint"
+                ],
+            )
         mixture = categorical_mixture(node, ctx.decl_plates)
         if mixture is None:
-            for inner in self.explicit_latent_scope(node):
-                self._dispatch_bugs_node(ctx, inner)
-            return
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"marginalize:no-collapse:{node.latent}: the scope is no "
+                    f"categorical mixture, and BUGS has no statement that "
+                    f"adds its integrated log-density to the joint"
+                ],
+            )
         self._emit_collapsed_mixture(ctx, node, mixture)
 
     def _emit_collapsed_mixture(

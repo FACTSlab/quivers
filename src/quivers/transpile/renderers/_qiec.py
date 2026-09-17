@@ -17,6 +17,8 @@ import panproto
 
 from quivers.qiec.identifiers import SiteId
 from quivers.transpile._api import UnsupportedConstruct
+import didactic.api as dx
+
 from quivers.transpile._pipeline import parser_registry
 from quivers.transpile.family_spelling import (
     bridge_source,
@@ -25,7 +27,13 @@ from quivers.transpile.family_spelling import (
     spell_distribution,
 )
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode, LetExprVar
-from quivers.transpile.ir import IRCall, IRMarginalize, IRNode, IRProgram
+from quivers.transpile.ir import (
+    IRCall,
+    IRMarginalize,
+    IRNode,
+    IRProgram,
+    IRQiecValueExpr,
+)
 from quivers.transpile.renderers._python_helpers import (
     PyCtx,
     assignment,
@@ -145,8 +153,9 @@ def _runtime_computations(
     Returns
     -------
     tuple[IRQiecNamedComputation, ...]
-        Every computation but the program entry points and their marginal
-        helpers, which the renderer emits from the program's own plan.
+        Every computation but the programs and their helpers: a
+        program's plan is rendered from its computation, and a program
+        another program draws from is planned in place at the call.
     """
     programs = module.program_computations()
     return tuple(
@@ -460,6 +469,139 @@ def canonical_operations(module: IRQiecModule) -> tuple[str, str]:
     return found["Random"], found["Score"]
 
 
+#: How each host family spells the closed static environment a model
+#: body evaluates a checked value under, binds a name, and aliases a
+#: model local under the runtime's local naming.
+_VALUE_HOSTS: dict[str, tuple[str, str, str]] = {
+    "python": (
+        "qiec_static = _qvr_qiec_static_environment([], [])\n",
+        "{name} = {value}\n",
+        "{alias} = {name}\n",
+    ),
+    "julia": (
+        "qiec_static = _qvr_qiec_static_environment([], [])\n",
+        "{name} = {value}\n",
+        "{alias} = {name}\n",
+    ),
+    "javascript": (
+        "var qiec_static = _qvr_qiec_static_environment([], []);\n",
+        "var {name} = {value};\n",
+        "var {alias} = {name};\n",
+    ),
+    "scheme": (
+        "(define qiec-static (_qvr-qiec-static-environment '() '()))\n",
+        "(define {name} {value})\n",
+        "(define {alias} {name})\n",
+    ),
+}
+
+
+def _value_locals(node: IRQiecValue) -> tuple[str, ...]:
+    """The locals a checked value reads, in first-occurrence order.
+
+    Parameters
+    ----------
+    node : IRQiecValue
+        The value.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The names of every `IRQiecVar` inside it, each once.
+    """
+    found: list[str] = []
+
+    def walk(item: object) -> None:
+        """Visit one node of the value.
+
+        Parameters
+        ----------
+        item : object
+            A value, a container of values, or a scalar.
+        """
+        if isinstance(item, IRQiecVar):
+            if item.local.name not in found:
+                found.append(item.local.name)
+            return
+        if isinstance(item, dx.Model):
+            for field in type(item).__field_specs__:
+                walk(getattr(item, field))
+            return
+        if isinstance(item, (tuple, list)):
+            for member in item:
+                walk(member)
+
+    walk(node)
+    return tuple(found)
+
+
+def value_argument_source(
+    host: str,
+    target: str,
+    name: str,
+    node: IRQiecValue,
+    model_names: Callable[[str], str],
+    *,
+    body: str,
+    defined: set[str],
+) -> str:
+    """The statements binding a checked value under a name in a model body.
+
+    The value is rendered as the callee's runtime reads it, with the
+    program's locals aliased under the runtime's local naming and the
+    closed static environment the model body evaluates under. The
+    environment and each alias are bound once per body, since every
+    host admits one definition of a name in a body.
+
+    Parameters
+    ----------
+    host : str
+        The host family: ``python``, ``julia``, ``javascript``, or
+        ``scheme``.
+    target : str
+        The transpile target.
+    name : str
+        The name the value is bound to.
+    node : IRQiecValue
+        The value.
+    model_names : Callable[[str], str]
+        How the model body spells a program local.
+    body : str
+        The body the value is bound in, as the key of ``defined``.
+    defined : set[str]
+        The bindings every body holds, as ``<body>:<name>`` entries,
+        extended with the ones this value binds.
+
+    Returns
+    -------
+    str
+        The host statements, ending in a newline.
+    """
+    environment, bind, alias = _VALUE_HOSTS[host]
+    render = {
+        "python": _python_value,
+        "julia": _julia_value,
+        "javascript": _javascript_value,
+        "scheme": _scheme_value,
+    }[host]
+    source = ""
+    if f"{body}:{_ENVIRONMENT_MARKER}" not in defined:
+        defined.add(f"{body}:{_ENVIRONMENT_MARKER}")
+        source += environment
+    for local in _value_locals(node):
+        local_name = _local_name(local)
+        if f"{body}:{local_name}" in defined:
+            continue
+        defined.add(f"{body}:{local_name}")
+        source += alias.format(alias=local_name, name=model_names(local))
+    return source + bind.format(name=name, value=render(target, node))
+
+
+#: The name under which a body's ``defined`` set records that the
+#: closed static environment is bound.
+_ENVIRONMENT_MARKER = "<static environment>"
+
+
 def python_call_source(
     node: IRCall,
     module: IRQiecModule,
@@ -546,14 +688,28 @@ def emit_call_python(
         The module the callee belongs to.
     bound : set[str]
         The bodies whose operation table is already bound, extended
-        with ``body`` once its table is placed.
+        with ``body`` once its table is placed, and the names checked
+        value arguments have bound in each body.
     """
     names: list[str] = []
+    source = ""
     for position, argument in enumerate(node.arguments):
         if isinstance(argument, LetExprVar):
             names.append(argument.name)
             continue
         bound_name = f"{node.name}_arg{position}"
+        if isinstance(argument, IRQiecValueExpr):
+            source += value_argument_source(
+                "python",
+                py.target,
+                bound_name,
+                argument.value,
+                lambda local: local,
+                body=body,
+                defined=bound,
+            )
+            names.append(bound_name)
+            continue
         py.e(
             body,
             assignment(
@@ -563,7 +719,6 @@ def emit_call_python(
         )
         names.append(bound_name)
     operations = "_qvr_qiec_operations"
-    source = ""
     if body not in bound:
         bound.add(body)
         source += python_operations_source(node, module, operations)
@@ -697,7 +852,8 @@ def emit_call_julia(
         The module the callee belongs to.
     bound : set[str]
         The bodies whose operation table is already bound, extended
-        with ``body`` once its table is placed.
+        with ``body`` once its table is placed, and the names checked
+        value arguments have bound in each body.
     target : str
         The Julia target.
     body : str
@@ -709,15 +865,27 @@ def emit_call_julia(
         Places one statement vertex in the body, in order.
     """
     names: list[str] = []
+    source = ""
     for position, argument in enumerate(node.arguments):
         if isinstance(argument, LetExprVar):
             names.append(argument.name)
             continue
         bound_name = f"{node.name}_arg{position}"
+        if isinstance(argument, IRQiecValueExpr):
+            source += value_argument_source(
+                "julia",
+                target,
+                bound_name,
+                argument.value,
+                lambda local: local,
+                body=body,
+                defined=bound,
+            )
+            names.append(bound_name)
+            continue
         bind_argument(bound_name, argument)
         names.append(bound_name)
     operations = "_qvr_qiec_operations"
-    source = ""
     if body not in bound:
         bound.add(body)
         source += julia_operations_source(node, module, operations, target)

@@ -33,6 +33,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    IRQiecValueExpr,
     LetExprAffineMap,
     ConstraintSpec,
     Dim,
@@ -75,6 +76,7 @@ from quivers.transpile.renderers._qiec import (
     javascript_call_source,
     javascript_operations_source,
     qiec_helper_families_used,
+    value_argument_source,
     render_computations_dynamic,
 )
 from quivers.transpile.renderers._javascript_helpers import (
@@ -85,6 +87,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
 )
 
@@ -856,6 +859,16 @@ class WebPPLRenderer(RendererBase):
             )
         finally:
             self._group_plate_axes = prev_group
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
         # An ungrouped block shares one latent across the body's rows,
         # so each class's per-row log-likelihoods are accumulated to a
         # scalar before the weight is added and the reduction runs
@@ -868,6 +881,17 @@ class WebPPLRenderer(RendererBase):
         ):
             name = f"{prefix}_t_{position}"
             term_vid = self._ident(ctx, term)
+            if fibration is not None:
+                via, group = fibration
+                term_vid = self._call(
+                    ctx,
+                    self._ident(ctx, "_qvr_group_sums"),
+                    (
+                        term_vid,
+                        self._ident(ctx, via),
+                        self._dim_size_value(ctx, group),
+                    ),
+                )
             if accumulate_rows:
                 term_vid = self._call(
                     ctx,
@@ -1362,18 +1386,30 @@ class WebPPLRenderer(RendererBase):
             The call.
         """
         names: list[str] = []
+        source = ""
         for position, argument in enumerate(node.arguments):
             if isinstance(argument, LetExprVar):
                 names.append(argument.name)
                 continue
             bound = f"{node.name}_arg{position}"
+            if isinstance(argument, IRQiecValueExpr):
+                source += value_argument_source(
+                    "javascript",
+                    "webppl",
+                    bound,
+                    argument.value,
+                    lambda local: local,
+                    body=self._body_vid,
+                    defined=self._operations_bound,
+                )
+                names.append(bound)
+                continue
             rhs = render_let_expr_javascript(
                 _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
                 _reduce_last_axis(argument, self._name_event_rank),
             )
             self._emit_var_decl(ctx, self._body_vid, bound, rhs)
             names.append(bound)
-        source = ""
         if self._body_vid not in self._operations_bound:
             self._operations_bound.add(self._body_vid)
             source += javascript_operations_source(node, self._module, _OPERATIONS)

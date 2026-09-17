@@ -19,8 +19,9 @@ Covered defects:
   list by the enclosing row variable, not the whole list.
 * `sample-event-dims`: a scalar family stamped with event axes wraps
   an inner `map` so each draw is the declared vector.
-* `marginalize-over-batch-axis`: the marginalized latent's arguments
-  and the via-fibrated observe index by the per-row loop variable.
+* `marginalize-over-batch-axis`: the marginalized latent is integrated
+  out, its prior gathered through the via fibration and each atom's
+  observe indexed by the per-row loop variable.
 * `undefined-let-builtins`: `sigmoid` and `sum` are defined in the
   grafted runtime.
 * `nonexistent-church-distributions`: every emitted distribution name
@@ -203,28 +204,40 @@ def test_intrinsic_vector_family_has_no_inner_event_map() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_marginalize_latent_indexes_group_plate() -> None:
-    """The marginalized categorical draws its per-document topic mixture
-    indexed by the document loop variable, not the whole list."""
+def test_marginalize_latent_reads_its_prior_through_the_fibration() -> None:
+    """The marginalized categorical declares no site: its per-document
+    topic mixture is gathered one row per token through the ``via``
+    fibration and read as the log-weight of each atom."""
     model = _nospace(_model(_church_file(_GALLERY / "lda.qvr")))
-    assert "(sample(categorical(list-refthetam_Doc)))" in model
+    assert "(sample(categorical" not in model
+    assert (
+        "(define__marg_z_w(broadcast1log(map(lambda(i)(list-refthetai))word_idx)))"
+        in model
+    )
+    assert "(define__marg_z_w_0(take-last__marg_z_w0))" in model
+    assert "(factor(sum-leaves__marg_z))" in model
 
 
 def test_via_fibration_threads_through_group_plate() -> None:
-    """The observed word indexes the per-topic word distribution through
-    the ``via`` fibration: `phi[z[word_idx[m_Token]]]`.
+    """Each atom scores the observed word against the per-topic word
+    distribution the atom pins: `phi[k]` for atom `k`.
 
     The observation plate is `Token`, the corpus-wide set of 200 word
     positions declared by `object Token : FinSet 200`, so the loop
     variable is `m_Token`. `word_idx` carries a token position to its
-    document, `z` reads the document's topic, and `phi` reads that
+    document, whose prior weights the atoms; `phi` reads the pinned
     topic's distribution over `Vocab`.
     """
     model = _nospace(_model(_church_file(_GALLERY / "lda.qvr")))
+    for atom in range(3):
+        assert (
+            f"(define(__marg_z_atom_{atom})(map(lambda(m_Token)(dist-score"
+            f"(categorical(list-refphi{atom}))(list-refwm_Token)))(iota200)))"
+        ) in model
     assert (
-        "(observe(categorical(list-refphi(list-refz(list-refword_idxm_Token))))"
-        "(list-refwm_Token))"
-    ) in model
+        "(define__marg_z(log-sum-exp(list__marg_z_t_0__marg_z_t_1__marg_z_t_2)))"
+        in model
+    )
 
 
 # ---------------------------------------------------------------------------

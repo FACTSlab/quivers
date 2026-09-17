@@ -7,7 +7,8 @@ The Church idiom for a probabilistic program is a top-level
 ``(define <name> (map (lambda (m_<axis>) (sample <dist>)) (iota N)))``
 form for each batch axis; observed steps are
 ``(for-each (lambda (m_<axis>) (observe <dist> (list-ref <obs>
-m_<axis>))) (iota N))``. The IR's
+m_<axis>))) (iota N))``, bound under a name nothing reads so a
+definition may follow them in the body. The IR's
 [`IRDataInput`][quivers.transpile.ir.IRDataInput] entries become the
 model's formal parameter list (Scheme has no separate declaration
 block; the function header carries the inputs).
@@ -24,9 +25,9 @@ The renderer reads
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] for each
 family's Church distribution name (`target_names["church"]`), reuses
 [`RendererBase`][quivers.transpile.renderers._base.RendererBase] for
-the IR walk and the explicit-latent rewrite that lowers
-[`IRMarginalize`][quivers.transpile.ir.IRMarginalize] inline (Church
-has no native ``log_sum_exp`` enumeration construct), and dispatches
+the IR walk and the atom enumeration that integrates an
+[`IRMarginalize`][quivers.transpile.ir.IRMarginalize] latent out
+through the runtime's ``log-sum-exp`` and ``factor``, and dispatches
 the four primitives (`declare`, `sample`, `marginalize`, `broadcast`)
 per `Renderer`. Broadcast scalars emit ``(make-list K <value>)``; list
 literals emit ``(list e0 e1 ...)``; matrix literals raise
@@ -83,6 +84,7 @@ from quivers.transpile.ir import (
     IRReturn,
     IRSample,
     IRCall,
+    IRQiecValueExpr,
     IRScore,
     LetExprAffineMap,
     Plate,
@@ -90,15 +92,25 @@ from quivers.transpile.ir import (
 from quivers.transpile.renderers._base import (
     refuse_ungrouped_row_marginalize,
     BlockKind,
+    IRMarginalAtom,
     RendererBase,
     SchemaFragment,
     _RenderCtx,
     assert_no_dropped_param_map,
+    marginalize_row_rank,
+)
+from quivers.transpile.renderers._python_helpers import (
+    MarginalizeBody,
+    marginal_support_size,
+    marginal_weight_probs,
+    marginalize_body,
+    marginalize_fibration,
 )
 from quivers.transpile.renderers._qiec import (
     graft_scheme_forms,
     render_computations_dynamic,
     scheme_call_source,
+    value_argument_source,
     scheme_operations_source,
 )
 
@@ -240,6 +252,8 @@ class ChurchRenderer(RendererBase):
         self._module = ir.module
         # Whether the model body has bound its native operation table.
         self._operations_bound = False
+        # The names checked value arguments have bound in the model body.
+        self._value_bindings: set[str] = set()
         proto = self.target_protocol()
         sb = proto.schema()
         ctx = _RenderCtx(sb=sb, morphisms={}, defines={}, cards=self._cards)
@@ -337,8 +351,10 @@ class ChurchRenderer(RendererBase):
                 _LetExprCtx(ctx.sb, ctx, self._cards), node.expr
             )
             return (
-                _list(ctx, (_sym(ctx, "define"), _sym(ctx, node.name), expr_id)),
-                _list(ctx, (_sym(ctx, "factor"), _sym(ctx, node.name))),
+                _define(ctx, node.name, expr_id),
+                _statement(
+                    ctx, _list(ctx, (_sym(ctx, "factor"), _sym(ctx, node.name)))
+                ),
             )
         if isinstance(node, IRCall):
             return self._render_call_forms(ctx, node)
@@ -373,17 +389,29 @@ class ChurchRenderer(RendererBase):
         """
         forms: list[SchemaFragment] = []
         names: list[str] = []
+        source = ""
         for position, argument in enumerate(node.arguments):
             if isinstance(argument, LetExprVar):
                 names.append(argument.name)
                 continue
             bound = f"{node.name}_arg{position}"
+            if isinstance(argument, IRQiecValueExpr):
+                source += value_argument_source(
+                    "scheme",
+                    "church",
+                    bound,
+                    argument.value,
+                    lambda local: local,
+                    body="model",
+                    defined=self._value_bindings,
+                )
+                names.append(bound)
+                continue
             expr_id = render_let_expr_scheme(
                 _LetExprCtx(ctx.sb, ctx, self._cards), argument
             )
             forms.append(_list(ctx, (_sym(ctx, "define"), _sym(ctx, bound), expr_id)))
             names.append(bound)
-        source = ""
         if not self._operations_bound:
             self._operations_bound = True
             source += scheme_operations_source(node, self._module, _OPERATIONS)
@@ -671,20 +699,317 @@ class ChurchRenderer(RendererBase):
         self, ctx: _RenderCtx, node: IRMarginalize
     ) -> tuple[SchemaFragment, ...]:
         """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to its sibling forms: the latent sample define, then one form
-        per scope step (typically an observe).
+        to the sibling forms that integrate its latent out.
+
+        One scored copy of the scope per atom of the latent's finite
+        support, then a reduction across the atoms whose result the
+        runtime `factor` adds to the log-weight:
+
+        ```scheme
+        (define (__marg_z_atom_0)
+          (map (lambda (m_Resp)
+                 (dist-score (gaussian (list-ref mu 0) 1) (list-ref y m_Resp)))
+               (iota 6)))
+        (define __marg_z_0 (__marg_z_atom_0))
+        ...
+        (define __marg_z_w (broadcast1 log probs))
+        (define __marg_z_w_0 (take-last __marg_z_w 0))
+        (define __marg_z_t_0 (+ __marg_z_w_0 (group-sums __marg_z_0 idx 3)))
+        ...
+        (define __marg_z (log-sum-exp (list __marg_z_t_0 __marg_z_t_1)))
+        (factor (sum-leaves __marg_z))
+        ```
+
+        Each atom's deterministic bindings live inside that atom's own
+        thunk, which gives them a scope: a Scheme body admits one
+        definition per name. A grouped block keys its accumulator by
+        group, so the rows the fibration sends to one group are
+        summed before the reduction; an ungrouped block shares one
+        latent across the body's rows, so their log-likelihoods are
+        summed to a scalar first. No site is declared for the latent:
+        the atoms replace it, and the emitted program denotes the same
+        measure the QVR reference integrates.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+
+        Returns
+        -------
+        tuple[SchemaFragment, ...]
+            The sibling forms, in order.
         """
         refuse_ungrouped_row_marginalize(_TARGET, node)
-        expanded = self.explicit_latent_scope(node)
+        plates = dict(self._binding_plates)
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(node, name_plates=plates),
+        )
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
+        prefix = f"__marg_{node.latent}"
         prev_group = self._group_plate_axes
         self._group_plate_axes = tuple(str(d.name) for d in node.plate.batch_dims)
+        out: list[SchemaFragment] = []
+        term_names: list[str] = []
         try:
-            out: list[SchemaFragment] = []
-            for child in expanded:
-                out.extend(self._render_body_forms(ctx, child))
+            for position, atom in enumerate(atoms):
+                out.extend(self._atom_forms(ctx, node, atom, prefix, position))
+                term_names.append(f"{prefix}_{position}")
+            weight_names, weight_forms = self._atom_weight_forms(
+                ctx, node, raw, atoms, prefix, plates
+            )
+            out.extend(weight_forms)
         finally:
             self._group_plate_axes = prev_group
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
+        accumulate_rows = marginalize_row_rank(node) > 0
+        shifted: list[str] = []
+        for position, (weight, term) in enumerate(
+            zip(weight_names, term_names, strict=True)
+        ):
+            term_form: SchemaFragment = _sym(ctx, term)
+            if fibration is not None:
+                via, group = fibration
+                term_form = _list(
+                    ctx,
+                    (
+                        _sym(ctx, "group-sums"),
+                        term_form,
+                        _sym(ctx, via),
+                        self._dim_size_form(ctx, group),
+                    ),
+                )
+            if accumulate_rows:
+                term_form = _list(ctx, (_sym(ctx, "sum-leaves"), term_form))
+            name = f"{prefix}_t_{position}"
+            out.append(
+                _define(
+                    ctx,
+                    name,
+                    _list(ctx, (_sym(ctx, "+"), _sym(ctx, weight), term_form)),
+                )
+            )
+            shifted.append(name)
+        out.append(
+            _define(
+                ctx,
+                prefix,
+                _list(
+                    ctx,
+                    (
+                        _sym(ctx, "log-sum-exp"),
+                        _list(
+                            ctx, (_sym(ctx, "list"), *(_sym(ctx, n) for n in shifted))
+                        ),
+                    ),
+                ),
+            )
+        )
+        out.append(
+            _statement(
+                ctx,
+                _list(
+                    ctx,
+                    (
+                        _sym(ctx, "factor"),
+                        _list(ctx, (_sym(ctx, "sum-leaves"), _sym(ctx, prefix))),
+                    ),
+                ),
+            )
+        )
         return tuple(out)
+
+    def _atom_forms(
+        self,
+        ctx: _RenderCtx,
+        node: IRMarginalize,
+        atom: IRMarginalAtom,
+        prefix: str,
+        position: int,
+    ) -> tuple[SchemaFragment, SchemaFragment]:
+        """One atom's scope log-density as a thunk and its binding.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+        atom : IRMarginalAtom
+            The atom, with the latent pinned in its scope.
+        prefix : str
+            The block's naming prefix.
+        position : int
+            The atom's position in the support.
+
+        Returns
+        -------
+        tuple[SchemaFragment, SchemaFragment]
+            The thunk's definition and the binding of its value.
+        """
+        scored = marginalize_body(atom.scope, latent=node.latent, target=self.target)
+        body: list[SchemaFragment] = []
+        for det in scored.deterministics:
+            body.extend(self._render_body_forms(ctx, det))
+        observe = scored.observe
+        dist_form = self._dist_form(
+            ctx, observe.family, observe.args, observe.plate, observe.via
+        )
+        body.append(self._wrap_score_map(ctx, observe.name, dist_form, observe.plate))
+        thunk = f"{prefix}_atom_{position}"
+        definition = _list(
+            ctx,
+            (_sym(ctx, "define"), _list(ctx, (_sym(ctx, thunk),)), *body),
+        )
+        binding = _define(ctx, f"{prefix}_{position}", _list(ctx, (_sym(ctx, thunk),)))
+        return definition, binding
+
+    def _atom_weight_forms(
+        self,
+        ctx: _RenderCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        prefix: str,
+        plates: dict[str, Plate],
+    ) -> tuple[tuple[str, ...], tuple[SchemaFragment, ...]]:
+        """Bind one log-weight name per atom.
+
+        A `Bernoulli` atom set weights the atoms 0 and 1 by
+        `log(1 - p)` and `log(p)`, both shaped like the probability
+        itself. A `Categorical` atom set reads the class axis of the
+        probability tensor, which `take-last` slices however many
+        grouping axes sit above it; a prior read through a fibration
+        is gathered one row per observation first.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+        raw : MarginalizeBody
+            The block's scope with its latent still free.
+        atoms : tuple[IRMarginalAtom, ...]
+            The atoms.
+        prefix : str
+            The block's naming prefix.
+        plates : dict[str, Plate]
+            The plate of every bound name.
+
+        Returns
+        -------
+        tuple[tuple[str, ...], tuple[SchemaFragment, ...]]
+            The weight names, one per atom, and the forms binding them.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the atom set's weight family has no log-weight form.
+        """
+        probs = marginal_weight_probs(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
+        family = atoms[0].weight_family
+        log_form = _sym(ctx, "log")
+        if family == "Bernoulli":
+            zero = f"{prefix}_w_0"
+            one = f"{prefix}_w_1"
+            complement = _list(
+                ctx, (_sym(ctx, "-"), _num(ctx, 1.0), self._render_arg(ctx, probs))
+            )
+            forms = (
+                _define(
+                    ctx,
+                    zero,
+                    _list(ctx, (_sym(ctx, "broadcast1"), log_form, complement)),
+                ),
+                _define(
+                    ctx,
+                    one,
+                    _list(
+                        ctx,
+                        (
+                            _sym(ctx, "broadcast1"),
+                            _sym(ctx, "log"),
+                            self._render_arg(ctx, probs),
+                        ),
+                    ),
+                ),
+            )
+            return (zero, one), forms
+        if family != "Categorical":
+            raise UnsupportedConstruct(
+                _TARGET,
+                [
+                    f"marginalize:weight-family:{family}: no Church "
+                    f"log-weight form for this atom set"
+                ],
+            )
+        log_probs = f"{prefix}_w"
+        if isinstance(probs, IRArgRef) and probs.indices:
+            gathered = _list(
+                ctx,
+                (
+                    _sym(ctx, "map"),
+                    _list(
+                        ctx,
+                        (
+                            _sym(ctx, "lambda"),
+                            _list(ctx, (_sym(ctx, "i"),)),
+                            _list(
+                                ctx,
+                                (
+                                    _sym(ctx, "list-ref"),
+                                    _sym(ctx, probs.name),
+                                    _sym(ctx, "i"),
+                                ),
+                            ),
+                        ),
+                    ),
+                    self._render_arg(ctx, probs.indices[0]),
+                ),
+            )
+            weight_form = _list(ctx, (_sym(ctx, "broadcast1"), log_form, gathered))
+        else:
+            weight_form = _list(
+                ctx, (_sym(ctx, "broadcast1"), log_form, self._render_arg(ctx, probs))
+            )
+        forms: list[SchemaFragment] = [_define(ctx, log_probs, weight_form)]
+        names: list[str] = []
+        for position in range(len(atoms)):
+            name = f"{prefix}_w_{position}"
+            forms.append(
+                _define(
+                    ctx,
+                    name,
+                    _list(
+                        ctx,
+                        (
+                            _sym(ctx, "take-last"),
+                            _sym(ctx, log_probs),
+                            _num(ctx, float(position)),
+                        ),
+                    ),
+                )
+            )
+            names.append(name)
+        return tuple(names), tuple(forms)
 
     def _return_form(
         self, ctx: _RenderCtx, body: tuple[IRNode, ...]
@@ -757,6 +1082,52 @@ class ChurchRenderer(RendererBase):
         over the event dims so each draw is the declared vector.
         """
         del arg_names
+        dist_form = self._dist_form(ctx, family, args, plate, via)
+        if observed:
+            return _statement(ctx, self._wrap_observe(ctx, name, dist_form, plate))
+        return self._wrap_sample_define(ctx, name, dist_form, plate, constraint)
+
+    def _dist_form(
+        self,
+        ctx: _RenderCtx,
+        family: str,
+        args: tuple[IRArg, ...],
+        plate: Plate,
+        via: str | None,
+    ) -> SchemaFragment:
+        """The distribution form of one site, its arguments indexed
+        against the site's plate.
+
+        Half-support families (`HalfNormal`, `HalfCauchy`) inject a
+        ``loc=0`` argument and wrap the base distribution in the
+        runtime ``half`` fold; references bound on an aligned plate
+        are indexed by the per-row loop variable, and references bound
+        on the group plate of an enclosing block are gathered through
+        `via`.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        family : str
+            The distribution family.
+        args : tuple[IRArg, ...]
+            The family's arguments.
+        plate : Plate
+            The site's plate.
+        via : str | None
+            The fibration an observe gathers group-plate values through.
+
+        Returns
+        -------
+        SchemaFragment
+            The distribution form.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the family has no Church constructor.
+        """
         meta = FAMILY_META.get(family)
         if meta is None:
             raise UnsupportedConstruct(_TARGET, [f"family:{family}"])
@@ -783,9 +1154,7 @@ class ChurchRenderer(RendererBase):
         dist_form = self._build_dist_call(ctx, target_symbol, args)
         if family in _HALF_FAMILIES:
             dist_form = _list(ctx, (_sym(ctx, _HALF_WRAP), dist_form))
-        if observed:
-            return self._wrap_observe(ctx, name, dist_form, plate)
-        return self._wrap_sample_define(ctx, name, dist_form, plate, constraint)
+        return dist_form
 
     def _substitute_ref_indexing(
         self, arg: IRArg, plate: Plate, loop_name: str
@@ -856,12 +1225,7 @@ class ChurchRenderer(RendererBase):
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
-        to ``(define <latent> (map ...))`` plus the scope body inline.
-
-        Church has no native ``log_sum_exp`` enumeration construct; the
-        spec dictates inline lowering via
-        [`explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-        for every backend except Stan.
+        to the forms that integrate its latent out.
 
         The top-level
         [`render`][quivers.transpile.renderers.church.ChurchRenderer.render]
@@ -1122,6 +1486,60 @@ class ChurchRenderer(RendererBase):
             )
         return current
 
+    def _wrap_score_map(
+        self,
+        ctx: _RenderCtx,
+        obs_name: str,
+        dist_form: SchemaFragment,
+        plate: Plate,
+    ) -> SchemaFragment:
+        """`(map (lambda (n) (dist-score <dist> (list-ref <obs> n)))
+        (iota <N>))` over the observation plate.
+
+        The per-row log-densities of one marginalize atom, shaped like
+        the plate: nested `map`s for higher-rank batch dims, and a
+        single ``(dist-score <dist> <obs>)`` for an empty plate.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        obs_name : str
+            The observed data's name.
+        dist_form : SchemaFragment
+            The distribution form, its arguments indexed per row.
+        plate : Plate
+            The observation plate.
+
+        Returns
+        -------
+        SchemaFragment
+            The scoring form.
+        """
+        if not plate.batch_dims:
+            return _list(ctx, (_sym(ctx, "dist-score"), dist_form, _sym(ctx, obs_name)))
+        loop_vars = tuple(f"m_{dim.name}" for dim in plate.batch_dims)
+        obs_ref: SchemaFragment = _sym(ctx, obs_name)
+        for lv in loop_vars:
+            obs_ref = _list(ctx, (_sym(ctx, "list-ref"), obs_ref, _sym(ctx, lv)))
+        current = _list(ctx, (_sym(ctx, "dist-score"), dist_form, obs_ref))
+        for lv, dim in zip(
+            reversed(loop_vars),
+            reversed(plate.batch_dims),
+            strict=True,
+        ):
+            lambda_form = _list(
+                ctx,
+                (
+                    _sym(ctx, "lambda"),
+                    _list(ctx, (_sym(ctx, lv),)),
+                    current,
+                ),
+            )
+            iota_form = _list(ctx, (_sym(ctx, "iota"), self._dim_size_form(ctx, dim)))
+            current = _list(ctx, (_sym(ctx, "map"), lambda_form, iota_form))
+        return current
+
 
 # ---------------------------------------------------------------------------
 # Schema-builder helpers (vertex / edge / literal constructors).
@@ -1162,6 +1580,50 @@ def _list(ctx: _RenderCtx, children: tuple[SchemaFragment, ...]) -> SchemaFragme
         if child:
             _e(ctx, lst, child)
     return lst
+
+
+def _statement(ctx: _RenderCtx, form: SchemaFragment) -> SchemaFragment:
+    """`(define _qvr_stmt_<n> <form>)`: an expression placed among the
+    definitions of a body.
+
+    A Scheme body admits definitions before expressions only, so a
+    form evaluated for its effect on the log-weight (an `observe`, a
+    `factor`) is bound under a name nothing reads, which lets a later
+    step still define its own binding.
+
+    Parameters
+    ----------
+    ctx : _RenderCtx
+        The render context.
+    form : SchemaFragment
+        The expression form.
+
+    Returns
+    -------
+    SchemaFragment
+        The definition form.
+    """
+    return _define(ctx, _fresh(ctx, "_qvr_stmt"), form)
+
+
+def _define(ctx: _RenderCtx, name: str, value: SchemaFragment) -> SchemaFragment:
+    """`(define <name> <value>)`.
+
+    Parameters
+    ----------
+    ctx : _RenderCtx
+        The render context.
+    name : str
+        The bound name.
+    value : SchemaFragment
+        The bound form.
+
+    Returns
+    -------
+    SchemaFragment
+        The definition form.
+    """
+    return _list(ctx, (_sym(ctx, "define"), _sym(ctx, name), value))
 
 
 # ---------------------------------------------------------------------------

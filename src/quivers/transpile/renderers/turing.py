@@ -21,11 +21,10 @@ Per the Turing.jl idiom the renderer:
   when none of the family's args depend on that batch's index; into
   an `arraydist([<Family>(<args[i]>) for i in 1:B])` call when at
   least one arg has an index expression rooted in that batch;
-* drops [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] into an
-  explicit [`IRSample`][quivers.transpile.ir.IRSample] plus the
-  scoped body inline, via the shared
-  [`RendererBase.explicit_latent_scope`][quivers.transpile.renderers._base.RendererBase.explicit_latent_scope]
-  helper (Turing samples discrete latents natively, no `log_sum_exp`);
+* integrates an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
+  latent out: one scored copy of the scope per atom of its support,
+  a max-shifted `logsumexp` across the atoms written in `Base`, and
+  the reduced weight added through `@addlogprob!`;
 * broadcasts scalars to vector / matrix shapes via Julia's `fill`;
 * renders list literals as `[<e0>, <e1>, ...]` (Julia vector_expression)
   and matrix literals as `[<row0>; <row1>; ...]`
@@ -102,6 +101,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
 )
 from quivers.transpile.renderers._base import (
@@ -1135,6 +1135,22 @@ class TuringRenderer(RendererBase):
                 ctx, term, self._atom_log_density(ctx, scored.observe)
             )
             term_names.append(term)
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            for term in term_names:
+                self._emit_assignment(
+                    ctx, term, self._group_sums(ctx, term, via, group)
+                )
         weight_names = self._emit_atom_weights(ctx, node, raw, atoms, prefix, plates)
         shifted: list[str] = []
         for position, (weight, term) in enumerate(
@@ -1200,6 +1216,57 @@ class TuringRenderer(RendererBase):
         )
         self._add_log_weight(ctx, summed, prefix)
         return ""
+
+    def _group_sums(self, ctx: _TuringCtx, term: str, via: str, group: Dim) -> str:
+        """`[sum(<term>[<via> .== g]) for g in 1:<extent>]`.
+
+        The per-row log-likelihoods of one atom summed within each
+        group the fibration sends the rows to, one entry per group.
+        The fibration is subscripted, so the point's index covariate
+        reaches the model lifted to Julia's one-based indexing.
+
+        Parameters
+        ----------
+        ctx : _TuringCtx
+            The render context.
+        term : str
+            The name of the per-row vector.
+        via : str
+            The name of the fibration sending rows to groups.
+        group : Dim
+            The grouping plate's leading axis.
+
+        Returns
+        -------
+        str
+            The comprehension's vertex id.
+        """
+        sb, counter = ctx.sb, ctx.counter
+        binder = "g"
+        selected = _index_expr(
+            sb,
+            counter,
+            _identifier(sb, counter, term),
+            (
+                _dotted_binary(
+                    sb,
+                    counter,
+                    _identifier(sb, counter, via),
+                    "==",
+                    _identifier(sb, counter, binder),
+                ),
+            ),
+        )
+        body = _call(sb, counter, _identifier(sb, counter, "sum"), (selected,))
+        return _comprehension(
+            sb,
+            counter,
+            body,
+            binder,
+            _range(
+                sb, counter, _integer(sb, counter, 1), _dim_to_size(sb, counter, group)
+            ),
+        )
 
     def _add_log_weight(self, ctx: _TuringCtx, weight: str, name: str) -> None:
         """Add a reduced log weight to the model's joint.

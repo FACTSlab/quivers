@@ -25,6 +25,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -81,6 +82,7 @@ from quivers.transpile.renderers._base import (
 from quivers.transpile.qiec_ir import IRQiecModule
 from quivers.transpile.renderers._qiec import (
     emit_call_python,
+    graft_python_statements,
     qiec_helper_roots,
     render_computations_dynamic,
 )
@@ -384,6 +386,28 @@ class NumPyroRenderer(RendererBase):
             "child_of",
         )
         py.required_imports.add(_MARGINALIZE_IMPORT)
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            extent = (
+                str(group.size) if isinstance(group, DimStatic) else group.size_name
+            )
+            graft_python_statements(
+                py.builder,
+                f"{prefix} = jnp.zeros(({extent}, {prefix}.shape[-1]), "
+                f"dtype={prefix}.dtype).at[{via}].add({prefix})\n",
+                body_vid,
+                f"marg_{node.latent}_group",
+            )
         # An ungrouped block shares one latent across the body's rows,
         # so their per-class log-likelihoods are accumulated before the
         # reduction rather than each row reducing on its own.

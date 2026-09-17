@@ -39,6 +39,7 @@ from quivers.dsl.ast_nodes.objects import TypeName
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
+    Dim,
     DimStatic,
     LetAffineSource,
     LetExprAffineMap,
@@ -1613,6 +1614,67 @@ def marginal_weight_probs(
         name=probs.name,
         indices=(IRArgRef(name=observe.via), *probs.indices),
     )
+
+
+def marginalize_fibration(
+    node: IRMarginalize,
+    observe: IRObserve,
+    weight_args: tuple[IRArg, ...],
+    weight_arg_names: tuple[str, ...],
+    *,
+    name_plates: dict[str, Plate],
+    target: str,
+) -> tuple[str, Dim] | None:
+    """The fibration a grouped block gathers its rows through, if any.
+
+    `docs/semantics/programs.md` §2.7 keys a grouped block's accumulator
+    by group: the rows an observe fibres into one group are summed
+    before the reduction over the latent. A renderer that reduces each
+    row on its own scores that measure only when the rows and the
+    groups coincide, or when the prior is allocated per group, which
+    denotes one latent per row. Otherwise the per-row per-class
+    log-likelihoods have to be scattered into a ``(|G|, K)`` accumulator
+    through the observe's ``via`` fibration first.
+
+    Parameters
+    ----------
+    node : IRMarginalize
+        The block.
+    observe : IRObserve
+        The scope's observe.
+    weight_args : tuple[IRArg, ...]
+        The prior's arguments.
+    weight_arg_names : tuple[str, ...]
+        The prior's argument names.
+    name_plates : dict[str, Plate]
+        The plate of every named tensor.
+    target : str
+        The transpile target, for diagnostics.
+
+    Returns
+    -------
+    tuple[str, Dim] | None
+        The fibration's name and the grouping plate's leading axis when
+        the rows must be scattered; ``None`` when each row reduces on
+        its own.
+    """
+    if observe.via is None or not node.plate.batch_dims:
+        return None
+    if observe.plate.batch_dims == node.plate.batch_dims:
+        return None
+    probs = marginal_weight_probs(
+        node,
+        observe,
+        weight_args,
+        weight_arg_names,
+        name_plates=name_plates,
+        target=target,
+    )
+    if isinstance(probs, IRArgRef) and probs.indices:
+        # A per-group prior gathered through the fibration: one latent
+        # per row, each reducing on its own.
+        return None
+    return observe.via, node.plate.batch_dims[0]
 
 
 def marginal_atom_axis(family: str, arg_names: tuple[str, ...], *, target: str) -> int:
