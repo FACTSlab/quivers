@@ -158,6 +158,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+      # The transpile test modules require their target tools at
+      # import (`tests/transpile/_tools.py`), whichever tier collects
+      # them, so every tier installs the same set: Chez Scheme for the
+      # Church runtime, JAGS for the JAGS and BUGS model files, `stanc`
+      # for Stan, Julia for Turing and Gen, and Node with WebPPL for
+      # the WebPPL runtime.
+      - run: sudo apt-get update && sudo apt-get install -y chezscheme jags
+      - name: Install stanc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/stanc" \
+            https://github.com/stan-dev/stanc3/releases/download/v2.39.0/linux-stanc
+          sudo install -m 0755 "$RUNNER_TEMP/stanc" /usr/local/bin/stanc
+          stanc --version
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g webppl
       - run: pip install -e ".[dev,data,diagnostics,formulas,repl,lsp,targets]"
       # The suite refuses to skip on a missing probe image and builds
       # all nine instead. They change only when their Dockerfiles do, so
@@ -220,6 +240,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+      # The transpile test modules require their target tools at
+      # import (`tests/transpile/_tools.py`), whichever tier collects
+      # them, so every tier installs the same set: Chez Scheme for the
+      # Church runtime, JAGS for the JAGS and BUGS model files, `stanc`
+      # for Stan, Julia for Turing and Gen, and Node with WebPPL for
+      # the WebPPL runtime.
+      - run: sudo apt-get update && sudo apt-get install -y chezscheme jags
+      - name: Install stanc
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/stanc" \
+            https://github.com/stan-dev/stanc3/releases/download/v2.39.0/linux-stanc
+          sudo install -m 0755 "$RUNNER_TEMP/stanc" /usr/local/bin/stanc
+          stanc --version
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install -g webppl
       # `test_audit_fix_pymc` imports pymc to check the emission
       # against the library's own API rather than against a
       # transcript of it, so the library has to be here: without
