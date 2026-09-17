@@ -1145,10 +1145,8 @@ def _inlined_steps(module: Module, program: ProgramDecl) -> tuple[ProgramStep, .
                 for argument in arguments
                 if isinstance(argument, DrawArgName)
             }
-            objects, values = template_bindings(template, arguments, names)
-            out.extend(
-                inlined(instantiate_program(template, step.vars, objects, values))
-            )
+            bindings = template_bindings(template, arguments, names)
+            out.extend(inlined(instantiate_program(template, step.vars, bindings)))
         return tuple(out)
 
     return inlined(program.draws)
