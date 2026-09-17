@@ -2394,7 +2394,7 @@ def target_name(name: str) -> str:
     -------
     str
         The name with each ``$`` a program draw introduced spelled as
-        [`TARGET_NAME_SEPARATOR`][quivers.transpile.plan.TARGET_NAME_SEPARATOR].
+        ``TARGET_NAME_SEPARATOR``, two underscores.
     """
     return name.replace("$", TARGET_NAME_SEPARATOR)
 
