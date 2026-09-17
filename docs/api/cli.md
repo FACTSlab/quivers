@@ -101,9 +101,11 @@ replay of the sites given with `--site` inside a scoring draw of every other
 site, and its `score` instance by an accumulator, so the run reports the
 program's value together with the log joint of the drawn and given sites, its
 observations, and its scores. A program's parameters may also be given by name
-with `--data`; its extents are read off the data, so `--static` applies to
-computations only, and its handlers are fixed by the run, so `--runtime`
-applies to computations only.
+with `--data`; its extents are read off the data where the data fix them, so
+`--static` names only an extent no data fixes, the object parameter of a
+program template (`qvr run pooling.qvr school_effects 0.6 --static K=8`), and
+its handlers are fixed by the run, so `--runtime` applies to computations
+only.
 
 Flags:
 

@@ -31,6 +31,7 @@ from quivers.qiec import (
 )
 from quivers.qiec.distributions import seed_reference_rng
 from quivers.qiec.program_runtime import run_program
+from quivers.qiec.types import render_static
 
 SOURCE = """\
 object Obs : FinSet 4
@@ -156,7 +157,7 @@ def test_invocation_refusals_carry_stable_codes() -> None:
         (
             dict(arguments=(DATA,), static_arguments=("A=Int",)),
             "prog",
-            "qiec-run-config",
+            "qiec-run-static",
         ),
         (
             dict(
@@ -177,6 +178,51 @@ def test_invocation_refusals_carry_stable_codes() -> None:
         with pytest.raises(ExecutionFailure) as failure:
             invoke_entry(module, name, arguments, **options)  # type: ignore[arg-type]
         assert failure.value.diagnostic.code == code, (name, options)
+
+
+_TEMPLATE = """\
+object School : FinSet 8
+object Effect : Real 1
+program school_effects(spread : Real, K : FinSet) : K -> Effect
+    sample z : K <- Normal(0.0, 1.0)
+    let effect = spread * z
+    return effect
+program pooled : School -> Effect
+    sample theta <- school_effects(0.6, School)
+    sample sigma <- LogNormal(0.0, 0.5)
+    observe y : School <- Normal(theta, sigma)
+    return theta
+export pooled
+"""
+
+
+def test_a_template_entry_takes_its_extent_as_a_static_argument() -> None:
+    """A template's object parameter is an extent no data fixes, so a
+    run supplies it, and the result type is instantiated at it; a
+    program whose data fix its extents refuses a static argument that
+    disagrees, and a template run without its extent is refused."""
+    module = Compiler(parse(_TEMPLATE)).qiec_module
+    assert module is not None
+    entry = entry_point(module, "school_effects")
+    assert entry.statics == ("K",)
+    seed_reference_rng(3)
+    run = invoke_entry(module, "school_effects", (0.6,), static_arguments=("K=8",))
+    assert isinstance(run.value, tuple) and len(run.value) == 8
+    assert render_static(run.result.result_type) == "Tensor[Real]([8])"
+    assert run.log_joint is not None
+    with pytest.raises(ExecutionFailure) as failure:
+        invoke_entry(module, "school_effects", (0.6,))
+    assert failure.value.diagnostic.code == "qiec-run-config"
+    assert "supply it as a static argument" in failure.value.diagnostic.message
+    y = tuple(float(v) / 10 for v in range(8))
+    pooled = invoke_entry(
+        module, "pooled", (), data={"y": y}, sites={"theta$z": y, "sigma": 0.8}
+    )
+    assert pooled.log_joint == pytest.approx(
+        run_program(
+            module, "pooled", data={"y": y}, sites={"theta$z": y, "sigma": 0.8}
+        ).log_joint
+    )
 
 
 def test_parse_bindings_reads_name_json_pairs() -> None:

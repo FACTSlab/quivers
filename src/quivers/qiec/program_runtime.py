@@ -59,6 +59,7 @@ from quivers.qiec.types import (
     TypeApplication,
     TypeExpr,
     product_type,
+    render_static,
 )
 
 #: The names of the wrapper's handlers, which no source may declare.
@@ -476,7 +477,9 @@ def _extent_of(value: object, depth: int) -> int:
 
 
 def static_arguments_for(
-    entry: ProgramEntry, data: Mapping[str, object]
+    entry: ProgramEntry,
+    data: Mapping[str, object],
+    given: Sequence[StaticArgument] = (),
 ) -> tuple[StaticArgument, ...]:
     """Read a program's static extents off the data it is applied to.
 
@@ -486,22 +489,35 @@ def static_arguments_for(
         The program's entry point, whose telescope names the extents.
     data : Mapping[str, object]
         The host value of each parameter, by name.
+    given : Sequence[StaticArgument]
+        Static arguments supplied explicitly, one per telescope binder
+        in telescope order, or none. A template's object parameter is
+        an extent no data fixes, so a run of the template supplies it;
+        a binder the data does fix must agree with what is supplied.
 
     Returns
     -------
     tuple[StaticArgument, ...]
         One index literal per telescope binder, in telescope order: the
         length of the axis of the first parameter whose tensor type is
-        shaped by the binder.
+        shaped by the binder, else the supplied argument.
 
     Raises
     ------
     KeyError
-        If a binder shapes no parameter, or the parameter is not given
-        or has too few axes.
+        If a binder shapes no parameter and none is supplied, or the
+        parameter is not given or has too few axes, or a supplied
+        argument disagrees with the data, or the supplied arguments do
+        not number the telescope.
     """
+    if given and len(given) != len(entry.telescope):
+        raise KeyError(
+            f"program {entry.name!r} binds {len(entry.telescope)} extent(s); "
+            f"{len(given)} static argument(s) were given"
+        )
     arguments: list[StaticArgument] = []
-    for binder in entry.telescope:
+    for position, binder in enumerate(entry.telescope):
+        supplied = given[position] if given else None
         found: int | None = None
         for parameter in entry.parameters:
             type_ = parameter.type
@@ -527,11 +543,21 @@ def static_arguments_for(
             if found is not None:
                 break
         if found is None:
+            if supplied is None:
+                raise KeyError(
+                    f"program {entry.name!r} has an extent {binder.name!r} that "
+                    "no parameter fixes; supply it as a static argument"
+                )
+            arguments.append(supplied)
+            continue
+        literal = IndexLiteral(found, binder.sort)  # type: ignore[arg-type]
+        if supplied is not None and supplied != literal:
             raise KeyError(
-                f"program {entry.name!r} has an extent {binder.name!r} that no "
-                "parameter fixes"
+                f"static argument {binder.name!r} of program {entry.name!r} is "
+                f"given as {render_static(supplied)}, but its data fix it at "
+                f"{found}"
             )
-        arguments.append(IndexLiteral(found, binder.sort))  # type: ignore[arg-type]
+        arguments.append(literal)
     return tuple(arguments)
 
 
@@ -542,6 +568,7 @@ def run_program(
     data: Mapping[str, object],
     sites: Mapping[str, object],
     parameters: Mapping[str, object] | None = None,
+    static_arguments: Sequence[StaticArgument] = (),
     fuel: int | None = None,
     observer: TraceObserver | None = None,
 ) -> ProgramRun:
@@ -564,6 +591,10 @@ def run_program(
     parameters : Mapping[str, object] | None
         The learned weights a deduction the program calls reads, by
         name; an absent weight reads as zero.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents, one per telescope binder, for an
+        extent no data fixes (a template's object parameter); empty
+        when the data fix every extent.
     fuel : int | None
         A step budget for the run.
     observer : TraceObserver | None
@@ -601,6 +632,7 @@ def run_program(
         configured,
         data=data,
         parameters=parameters,
+        static_arguments=static_arguments,
         fuel=fuel,
         observer=observer,
     )
@@ -613,6 +645,7 @@ def sample_program(
     data: Mapping[str, object],
     sites: Mapping[str, object] | None = None,
     parameters: Mapping[str, object] | None = None,
+    static_arguments: Sequence[StaticArgument] = (),
     fuel: int | None = None,
     observer: TraceObserver | None = None,
 ) -> ProgramRun:
@@ -635,6 +668,9 @@ def sample_program(
     parameters : Mapping[str, object] | None
         The learned weights a deduction the program calls reads, by
         name; an absent weight reads as zero.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents, one per telescope binder, for an
+        extent no data fixes; empty when the data fix every extent.
     fuel : int | None
         A step budget for the run.
     observer : TraceObserver | None
@@ -673,6 +709,7 @@ def sample_program(
         configured,
         data=data,
         parameters=parameters,
+        static_arguments=static_arguments,
         fuel=fuel,
         observer=observer,
     )
@@ -687,6 +724,7 @@ def _run_wrapped(
     *,
     data: Mapping[str, object],
     parameters: Mapping[str, object] | None,
+    static_arguments: Sequence[StaticArgument],
     fuel: int | None,
     observer: TraceObserver | None,
 ) -> ProgramRun:
@@ -709,6 +747,9 @@ def _run_wrapped(
         A host value for each of the program's parameters, by name.
     parameters : Mapping[str, object] | None
         The learned weights the program's parameter store answers.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents supplied explicitly, one per
+        telescope binder, or none.
     fuel : int | None
         A step budget for the run.
     observer : TraceObserver | None
@@ -728,7 +769,7 @@ def _run_wrapped(
         If the run fails.
     """
     arguments = tuple(data[parameter.name] for parameter in entry.parameters)
-    statics = static_arguments_for(entry, data)
+    statics = static_arguments_for(entry, data, static_arguments)
     configured = {
         handler_name: options
         for handler_name, options in configured.items()

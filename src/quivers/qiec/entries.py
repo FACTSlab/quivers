@@ -33,9 +33,15 @@ from quivers.qiec.execution import (
 )
 from quivers.qiec.distributions import seed_reference_rng
 from quivers.qiec.module import NamedComputation, QiecModule
-from quivers.qiec.program_runtime import program_entry, sample_program
+from quivers.qiec.kinds import IndexBinder
+from quivers.qiec.program_runtime import (
+    program_entry,
+    sample_program,
+    static_arguments_for,
+)
 from quivers.qiec.programs import ProgramEntry
-from quivers.qiec.types import render_static
+from quivers.qiec.substitution import StaticSubstitution, substitute_type
+from quivers.qiec.types import IndexTerm, render_static
 
 type EntryKind = Literal["computation", "program"]
 """How an entry point is declared: with ``define`` or with ``program``."""
@@ -333,7 +339,9 @@ def invoke_entry(
     static_arguments : Sequence[str]
         Closed terms instantiating a computation's telescope, as
         ``NAME=TERM`` text in any order. A program's extents are read
-        off its data instead, so none are accepted for a program.
+        off its data where the data fix them, so a program takes a
+        static argument only for an extent no data fixes, a template's
+        object parameter.
     runtime : RuntimeConfiguration | None
         The providers a computation runs under; the core provider alone
         by default. A program's handlers are fixed by the run, so only
@@ -385,8 +393,11 @@ def invoke_entry(
             log_joint=None,
             result=result,
         )
-    if static_arguments:
-        _refuse(name, "a program's extents are read off its data")
+    statics = (
+        parse_static_arguments(module, name, tuple(static_arguments))
+        if static_arguments
+        else ()
+    )
     if runtime is not None and runtime != RuntimeConfiguration():
         _refuse(
             name,
@@ -430,24 +441,39 @@ def invoke_entry(
     ]
     if unknown:
         _refuse(name, f"program {name!r} has no parameter(s) {', '.join(unknown)}")
-    run = sample_program(
-        module,
-        name,
-        data=supplied,
-        sites=sites,
-        fuel=fuel,
-        observer=observer,
-    )
+    try:
+        run = sample_program(
+            module,
+            name,
+            data=supplied,
+            sites=sites,
+            static_arguments=statics,
+            fuel=fuel,
+            observer=observer,
+        )
+    except KeyError as error:
+        _refuse(name, str(error.args[0]))
     computation = next(
         item for item in module.computations if item.id == program.computation
     )
     # The wrapper returns the value paired with the log weight; the
-    # entry's result is the program's value at the program's type.
+    # entry's result is the program's value at the program's type,
+    # instantiated at the extents the run fixed.
+    extents = static_arguments_for(program, supplied, statics)
     result = replace(
         run.result,
         computation=name,
         value=run.value,
-        result_type=computation.type.result,
+        result_type=substitute_type(
+            computation.type.result,
+            StaticSubstitution(
+                indices=tuple(
+                    (binder.name, cast(IndexTerm, extent))
+                    for binder, extent in zip(program.telescope, extents, strict=True)
+                    if isinstance(binder, IndexBinder)
+                )
+            ),
+        ),
     )
     return EntryRun(
         entry=entry,
