@@ -380,7 +380,9 @@ parameter by name as an alternative to the positional form, `--site NAME=JSON`
 conditions one of its sample sites and leaves every other site drawn, and
 `--seed N` seeds the reference generator the draws use. The response carries
 the program's value and the log joint of the drawn and given sites together
-with its observations and scores. A program's handlers are fixed by the run,
+with its observations and scores. A program's extents are read off its data,
+and an extent no data fixes, the object parameter of a program template, is
+given with `--static NAME=TERM`. A program's handlers are fixed by the run,
 so the session's runtime configuration applies to computations only.
 
 Named computations may recurse without bound, so `--fuel STEPS` caps the

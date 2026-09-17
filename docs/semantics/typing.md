@@ -847,10 +847,11 @@ Two well-typed phrases $\phi_1, \phi_2$ at the same judgment are *denotationally
 
 ### 9.6 QIEC indexed and effect typing
 
-QVR v0.19 adds a **QIEC judgment layer** beside the judgments above. It does
-not reinterpret `ObjectEffectApply` or the structural-compression
-`ConstructorDecl`; the parser builds distinct indexed-family, effect, value,
-and computation nodes and the QIEC checker owns their rules. In schematic
+The **QIEC judgment layer** is the layer the judgments above elaborate into:
+a program's steps, plates, and lets are checked as the computation they
+denote. The parser builds distinct indexed-family, effect, value, and
+computation nodes and the QIEC checker owns their rules; `ObjectEffectApply`
+and the structural-compression `ConstructorDecl` keep their own. In schematic
 form, its central computation judgment is
 
 $$

@@ -120,25 +120,36 @@ compiler = Compiler(ast)
 program = compiler.compile()
 ```
 
-### The QIEC route
+### One checked core
 
-QVR v0.19 adds a second typed route for indexed families and algebraic effects.
-The parser represents `index`, `family`, `effect`, `instance`, `handler`, and
-typed computation `define` declarations in a distinct AST. Quivers constructs
-a first-order projection through Didactic's public `GADT` API, which checks
-indexed-family declarations and constructor refinements through Panproto.
-Didactic then negotiates the exact route `qvr-source/v0.19` to
-`qiec-core/v1alpha1`; the QIEC checker retains the parameter/index distinction
-and validates effect rows, handler coverage, and branch-local evidence.
+Every executable declaration of a module elaborates to a computation of the
+[Quivers Indexed Effect Core](../developer/qiec.md): `index`, `family`,
+`effect`, `instance`, `handler`, and typed `define` declarations are its
+surface directly, and a `program` is domain-specific notation for a named
+computation over the module's canonical `random` and `score` instances, whose
+`sample` and `observe` steps perform `Random.sample` and `Score.add`, whose
+plates are typed tensor shapes, and whose `marginalize` blocks are helper
+computations enumerated under the prelude's enumeration handler. Quivers
+constructs the module's first-order projection through Didactic's `GADT` API,
+which checks indexed-family declarations and constructor refinements through
+Panproto; Didactic then negotiates the exact route `qvr-source/v0.19` to
+`qiec-core/v1alpha1`, and the QIEC checker validates effect rows, handler
+coverage, call graphs, and branch-local evidence over the whole module at
+once.
 
-The two routes may occur in one source module. Declaration-only QIEC metadata
-may accompany a probabilistic `program`, and each checked QIEC computation is
-retained beside the probabilistic IR. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
-WebPPL, and Church execute the complete QIEC graph through generated host
-runtimes. Stan, BUGS, and JAGS accept a checked, effect-free scalar subset and
-report a feature-specific capability diagnostic for other computations. See
-[Quivers Indexed Effect Core](../developer/qiec.md) for the complete surface and
-target boundary.
+The checked module is what every downstream surface reads. The reference
+machine runs a `define` or a `program` through one entry-point invocation
+([`invoke_entry`](../api/qiec/entries.md)); the torch runtime binds a program
+whose steps call a computation to a
+[`CheckedProgram`](../api/effects/checked_program.md) that scores the same
+joint; and the transpiler lowers a program's plan from its checked
+computation and places the module's other computations beside it. Pyro,
+NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church execute the complete
+computation graph through generated host runtimes. Stan, BUGS, and JAGS accept
+a checked, effect-free scalar subset and report a feature-specific capability
+diagnostic for other computations. See
+[Quivers Indexed Effect Core](../developer/qiec.md) for the complete surface
+and target boundary.
 
 ### Programs as panproto schemas
 

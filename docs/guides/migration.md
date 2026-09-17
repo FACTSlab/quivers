@@ -156,8 +156,8 @@ tables. Every other non-identity structural hop declares the source rules it
 converts through
 [`SOURCE_RULE_COVERAGE`](#-check-mode-coverage-against-the-vcs).
 
-The final hop adds the v0.19 indexed-family and algebraic-effect grammar without
-removing any v0.18 production. Thus migration does not invent indices, effect
+The final hop adds the indexed-family and algebraic-effect grammar without
+removing any production of the previous release. Thus migration does not invent indices, effect
 rows, or handlers in v0.18 input. It validates the input with the pinned
 v0.18 parser, validates the unchanged bytes again with the current parser, and
 leaves deliberate QIEC adoption to the author.
@@ -292,4 +292,4 @@ the coverage / blame tooling layered on top.
   the VCS workflow for grammar authors.
 - The
   [DSL overview](dsl-overview.md)
-  for the current v0.19 source-level surface.
+  for the current source-level surface.

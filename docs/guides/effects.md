@@ -135,9 +135,11 @@ handlers, ending in an effect-pure target.
 
 ## QIEC effect interfaces and rows
 
-QVR v0.19 adds the **QIEC effect calculus**, a source-level interface that is
-separate from both the Python typeclass tower and the probabilistic
-`program [effects=[...]]` check. An `effect` may take heterogeneous static
+QVR's **QIEC effect calculus** is the source-level interface every
+computation of a module is checked under, a probabilistic `program` included:
+its `sample` and `observe` steps perform `Random.sample` and `Score.add` on the
+module's canonical instances, and a `program [effects=[...]]` signature is a
+summary of that row. An `effect` may take heterogeneous static
 parameters and declares operations. An `instance` applies that
 interface and receives a lexical identity, so two instances of `State[Int]`
 remain different row entries. A typed computation records those entries in an
@@ -151,15 +153,18 @@ explicitly forwarding partial handler passes structurally uncovered operations
 to an outer handler.
 
 This calculus unifies the types used by logic-style `Choose`, weighted
-accumulation, state, abort, random choice, and scoring. QIEC handler bodies
-remain process-local attachments. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
-WebPPL, and Church consume those attachments through corresponding, tested
-implementations of the stable-ID runtime ABI; this test evidence is not an
-equivalence proof. Stan, BUGS, and JAGS instead require a closed, empty effect
-row, an empty static telescope, a scalar result, and scalar `Return`/`Bind`
-forms. Stan may also accept named `Bool`, `Int`, and `Real` value parameters;
-BUGS and JAGS require parameterless computations. These targets reject
-unsupported control or value features explicitly. The
+accumulation, state, abort, random choice, and scoring. A handler's clauses
+are authored in the source, each resuming as its grade admits, or supplied as
+process-local attachments; the effect handlers of `quivers.effects` are
+themselves lexical handlers of the kernel's `Random`, `Score`, `Compute`, and
+`Param` interfaces. Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and
+Church run the same computation graph through corresponding implementations
+of the stable-ID runtime ABI, tested against the reference machine at clamped
+points; this test evidence is not an equivalence proof. Stan lowers a
+computation with a closed empty effect row, an empty static telescope, and a
+scalar result as a user-defined function; BUGS and JAGS refuse every call.
+These targets reject unsupported control or value features explicitly, under
+`qiec:capability:<feature>:<name>` and `call:graph:<name>`. The
 [QIEC developer note](../developer/qiec.md) specifies the source forms,
 checker, serialization boundary, evaluator, and transpiler contracts.
 

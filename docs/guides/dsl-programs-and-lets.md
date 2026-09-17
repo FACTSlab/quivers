@@ -66,9 +66,10 @@ basis of the effect surface.
 
 ### QIEC typed computations
 
-The v0.19 **typed computation surface** is distinct from the probabilistic
-`program` block above. Its `define` header gives a value result and an instance
-row, while `perform` names an operation through a lexical effect instance:
+The **typed computation surface** is what a `program` block elaborates to; a
+`define` writes such a computation directly. Its header gives a value result
+and an instance row, while `perform` names an operation through a lexical
+effect instance:
 
 <!-- compile: qiec -->
 ```qvr
@@ -83,18 +84,34 @@ define echo(value : Int) : Int !{tap} =
 ```
 
 The stable computation terms are `return`, `let ... <- perform ...`, bare
-`perform` sequencing, `handle ... with ... in`, and indexed `case` with an
-explicit motive. Rows contain lexical instance names, as in `!{tap}`; an open
-row has the form `!{tap | rho lacks tap}`. The tail and each `lacks`
-constraint are checked rather than treated as comments.
+`perform` sequencing, a call of a named computation `let x <- f[statics](args)`,
+`handle ... with ... in`, `with instance x : E in` allocating a scoped
+instance, and indexed `case` with an explicit motive. Rows contain lexical
+instance names, as in `!{tap}`; an open row has the form
+`!{tap | rho lacks tap}`. The tail and each `lacks` constraint are checked
+rather than treated as comments.
 
-QIEC computations currently have no source call or recursion term, no scoped
-instance-allocation term, and no authored handler-clause body. They nevertheless
-parse, type-check, and lower to the stable QIEC module. Eight dynamic targets
-execute the full computation through generated target runtimes. Stan, BUGS, and
-JAGS lower closed monomorphic effect-free scalar computations and refuse other
-QIEC features before rendering. A module with QIEC declarations but no QIEC
-computation body remains valid on every target. The complete surface appears in
+A call is checked against the callee's signature instantiated at the call's
+static arguments, and the module's call graph is checked one strongly
+connected component at a time, so mutually recursive computations need no
+forward declaration; a recursive computation must reach a `case` branch or an
+`if` arm that does not call again, which is what lets it stop. A scoped
+instance may not survive in its body's row: the checker reports
+`qiec-instance-escape` for a body that still performs on it. A handler's
+clauses may be authored in the source with `=>` bodies, each resuming as often
+as its grade admits (`0`, `aff`, `1`, or `omega`), and a foreign handler's
+clauses are process-local attachments. A `program` elaborates to such a
+computation; a program draws from another with `sample x <- sub(args)` (or
+`sample (a, b) <- sub` for a pair), which runs `sub`'s steps in place under
+names of its own (`sub`'s local `z` becomes `x$z`), and calls a computation
+with `let x <- f(args)`.
+
+Eight dynamic targets execute the full computation graph through generated
+target runtimes. Stan lowers closed monomorphic effect-free scalar computations
+as user-defined functions and refuses every other feature under
+`qiec:capability:<feature>:<name>`; BUGS and JAGS refuse a call under
+`call:graph:<name>`. A module with QIEC declarations but no computation the
+program reaches remains valid on every target. The complete surface appears in
 [Quivers Indexed Effect Core](../developer/qiec.md).
 
 ### Kleisli bind syntax

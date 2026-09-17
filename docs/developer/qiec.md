@@ -1,14 +1,15 @@
 # Quivers Indexed Effect Core
 
-The Quivers Indexed Effect Core (QIEC) is the typed integration boundary for
-indexed families and algebraic effects. QVR v0.19 parses these constructs into
-a distinct source AST and projects indexed declarations through Didactic
-0.15's public `GADT` API. It then lowers them through the exact
-`qvr-source/v0.19` to `qiec-core/v1alpha1` route. This **QIEC route** checks the
-result against both Didactic's compiled first-order theory and the Python
-reference kernel's deterministic serialization contract. It does not
-reinterpret the independent representations used by probabilistic `program`
-declarations.
+The Quivers Indexed Effect Core (QIEC) is the typed core every executable
+declaration of a QVR module elaborates to. Indexed families, effect
+interfaces, instances, handlers, and typed computations are its surface
+directly; a probabilistic `program` is domain-specific notation for a named
+computation over the module's canonical `random` and `score` instances. The
+parser reads the whole surface into one source AST, Quivers projects the
+indexed declarations through Didactic's public `GADT` API, and the module
+lowers through the exact `qvr-source/v0.19` to `qiec-core/v1alpha1` route,
+checked against both Didactic's compiled first-order theory and the Python
+reference kernel's deterministic serialization contract.
 
 QIEC makes two boundaries explicit. First, the **stable core boundary** contains
 only typed, deterministic data: kinds, telescopes, indexed-family declarations,
@@ -17,7 +18,7 @@ source provenance, and equality evidence. Second, the **runtime attachment
 boundary** associates stable identifiers with process-local values and handler
 implementations. Host callables and mutable resources cannot cross the stable
 core boundary. This note first describes the static kernel; it then turns to
-serialization and evaluation, gives four complete v0.19 examples, and closes
+serialization and evaluation, gives four complete examples, and closes
 with the typed IR and target-capability contract used by the transpilers.
 
 ## Static kernel
@@ -142,7 +143,9 @@ instance with an accumulator, and returns the program's value paired with the
 accumulated log weight. The wrapper is checked like any other computation
 before it runs. The program's parameters are its data, observations,
 fibrations, and scalars, given positionally or by name (`--data NAME=JSON`);
-its open extents are read off the data. Each invocation owns its state:
+its open extents are read off the data, and an extent no data fixes, a
+template's object parameter, is supplied as a static argument. Each
+invocation owns its state:
 observations and conditioned sites are arguments of the run, the module's
 parameter store answers `Param` requests from the values the run is given,
 draws use the reference generator (`--seed N` reseeds it), the score
@@ -180,6 +183,15 @@ score closing over another program's joint, a sub-program drawn as a step) is
 a separate invocation, whose sites the enclosing run's handlers neither
 observe nor condition.
 
+A draw from another program, `sample theta <- school_effects(0.6, School)`
+or `sample (u, v) <- sub`, runs that program's steps in place under names of
+the caller's own: the objects and scalars the draw names substitute for the
+callee's template parameters, its local `z` becomes the site `theta$z`, and
+the name it returns becomes `theta` itself, on the reference machine and the
+torch runtime alike; a target spells such a site `theta__z`. A program over
+object parameters is a computation whose telescope binds one index variable
+per object, so `qvr run` invokes it with its statics.
+
 A program that calls a named computation has no step table the runtime
 compiler can build, so it compiles to a
 [`CheckedProgram`][quivers.effects.checked_program.CheckedProgram]: a
@@ -191,7 +203,7 @@ it is the transpile targets' work.
 ## QVR surface
 
 The following examples use the normative grammar. Each block parses,
-lowers through the QIEC route, validates against the kernel, and reaches a
+lowers to the core, validates against the kernel, and reaches a
 canonical parse–emit fixed point in the documentation tests.
 
 A length-indexed vector illustrates constructor refinement:
@@ -572,6 +584,33 @@ a collecting handler configured `forkable` gives each shot its own copy of
 the total so far, which is the context cloning an unrestricted resumption
 needs.
 
+### The fixture corpus
+
+Six source files under `tests/fixtures/qiec/` exercise the surface end to end,
+and every claim above about calls, handlers, programs, marginalization,
+deductions, and parameter maps is tested against them by
+`tests/test_qiec_fixture_corpus.py` and, on the transpile targets, by
+`tests/transpile/test_qiec_fixture_equivalence.py`:
+
+- `recursive_indexed_traversal.qvr`: `Nat` and `Vec[A](n)`, a recursive fold
+  whose constructor branch refines the tail's length, called from another
+  computation and specialized at a closed length.
+- `authored_state_handler.qvr`: `State[S]`, an authored handler with `get`,
+  `put`, and an explicit return clause, nested scoped instances, and a
+  computation called from a clause.
+- `effectful_probabilistic_helper.qvr`: an index sort of observation status, a
+  GADT of measurements, a helper that scores a `Present` value and draws an
+  `Absent` one under a site name, and a hierarchical program that calls it
+  with both constructors.
+- `grouped_marginalization.qvr`: a per-item class integrated out of a Normal
+  mixture whose rows fibre into the items, against an independent `logsumexp`
+  oracle.
+- `ambiguous_deduction.qvr`: a prepositional-attachment grammar whose two
+  derivations are summed under an unrestricted `Choose` handler and added to
+  a program's score.
+- `network_decoder.qvr`: a morphism parameterized by a network, observed
+  through the canonical effects and backpropagated to the attached weights.
+
 ## Integration contract
 
 The integration establishes five results. First, QVR has one typed surface
@@ -594,7 +633,7 @@ A potential worry is that a common IR implies identical target capabilities.
 The **QIEC capability boundary** blocks that inference. Pyro, NumPyro, PyMC,
 Edward2, Turing, Gen, WebPPL, and Church lower the complete stable computation
 graph through corresponding target-language implementations of the QIEC
-runtime ABI. This route retains stable operation and instance identifiers,
+runtime ABI. That lowering retains stable operation and instance identifiers,
 dynamic addresses, lexical handler scope, indexed constructors, equality
 transport, and the four resumption grades.
 
@@ -720,7 +759,7 @@ possibilities: target runtimes may acquire native, optimized implementations of
 particular handlers, and the static target subset may expand when a
 semantics-preserving encoding exists for additional value or control forms.
 
-Panproto 0.74.2 restores version-aware validation for persisted objects written
-by earlier releases. The migration gate reads the original QVR history without
+Panproto validates persisted objects written by earlier releases against
+the version they were written under. The migration gate reads the original QVR history without
 rewriting its content-addressed object IDs, so those fixtures continue to test
 the compatibility contract rather than a regenerated approximation of it.

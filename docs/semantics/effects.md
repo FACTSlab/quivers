@@ -281,7 +281,8 @@ extension over the bare grammar fragment.
 
 ## 8. QIEC rows and lexical handlers
 
-QIEC supplies a second, explicitly typed account of effects. An applied
+QIEC is the explicitly typed account of effects every computation of a module
+is checked under, the elaborated `program` included. An applied
 interface $E[\bar a]$ describes an operation family, while a lexical instance
 $i:E[\bar a]$ supplies the identity that appears in a row. This distinction
 means that two state cells with the same value type need not collapse into one
@@ -299,19 +300,19 @@ accident. Dynamic grade checks enforce the declared number of resumptions, and
 multi-shot resumptions extend their trace address with a branch path.
 
 This **row bridge** unifies the source contracts of state, abort, random choice,
-scoring, nondeterministic choice, and weighted accumulation. Runtime handlers
-remain process-local attachments. Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
-WebPPL, and Church now lower the same typed computation graph through
-corresponding implementations of the stable-ID runtime ABI. Conformance tests
-exercise these implementations in available target runtimes, but do not prove
+scoring, nondeterministic choice, and weighted accumulation. A handler's
+clauses are authored in the source or remain process-local attachments. Pyro,
+NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church lower the same typed
+computation graph through corresponding implementations of the stable-ID
+runtime ABI. Conformance tests exercise these implementations in the target
+runtimes against the reference machine at clamped points, but do not prove
 them equivalent; each dispatches by stable instance and operation identifiers
-rather than by interface names. Stan, BUGS, and JAGS require an empty closed
-effect row, an empty static telescope, a scalar result, and scalar
-`Return`/`Bind` forms. Stan may still accept named scalar value parameters,
-while BUGS and JAGS require parameterless computations. The static targets
-issue precise capability diagnostics for the rest. Establishing a
-backend-level adequacy proof between each generated runtime and the reference
-evaluator remains a live possibility. The
+rather than by interface names. Stan lowers a computation with an empty closed
+effect row, an empty static telescope, and a scalar result as a user-defined
+function, conditionals, calls, and recursion included; BUGS and JAGS refuse
+every call. The static targets issue precise capability diagnostics for the
+rest. Establishing a backend-level adequacy proof between each generated
+runtime and the reference evaluator remains a live possibility. The
 [QIEC developer note](../developer/qiec.md) gives the executable boundary.
 
 The effect handlers of [`quivers.effects`](../api/effects/index.md) are

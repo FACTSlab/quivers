@@ -31,17 +31,17 @@ What this page does not cover is whether a rendered program's density agrees wit
 
 | Backend                                               | Gallery programs | Constructs |
 |-------------------------------------------------------|------------------|------------|
-| [bugs](semantics/transpile-correctness/bugs.md)       | 25 / 46          | 40 / 49    |
-| [church](semantics/transpile-correctness/church.md)   | 22 / 46          | 43 / 49    |
-| [edward2](semantics/transpile-correctness/edward2.md) | 30 / 46          | 43 / 49    |
-| [gen](semantics/transpile-correctness/gen.md)         | 30 / 46          | 43 / 49    |
-| [jags](semantics/transpile-correctness/jags.md)       | 29 / 46          | 40 / 49    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 31 / 46          | 45 / 49    |
-| [pymc](semantics/transpile-correctness/pymc.md)       | 30 / 46          | 43 / 49    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 31 / 46          | 45 / 49    |
-| [stan](semantics/transpile-correctness/stan.md)       | 31 / 46          | 41 / 49    |
-| [turing](semantics/transpile-correctness/turing.md)   | 30 / 46          | 43 / 49    |
-| [webppl](semantics/transpile-correctness/webppl.md)   | 31 / 46          | 43 / 49    |
+| [bugs](semantics/transpile-correctness/bugs.md)       | 26 / 46          | 39 / 49    |
+| [church](semantics/transpile-correctness/church.md)   | 24 / 46          | 43 / 49    |
+| [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 43 / 49    |
+| [gen](semantics/transpile-correctness/gen.md)         | 31 / 46          | 43 / 49    |
+| [jags](semantics/transpile-correctness/jags.md)       | 30 / 46          | 40 / 49    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 45 / 49    |
+| [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 43 / 49    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 45 / 49    |
+| [stan](semantics/transpile-correctness/stan.md)       | 32 / 46          | 41 / 49    |
+| [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 43 / 49    |
+| [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 43 / 49    |
 
 Each backend links to its transpilation-correctness page, which documents the structure it emits, the parameter conversions it applies, and the evidence exercised for it.
 
@@ -81,7 +81,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`montague_nli`](examples/montague-nli.md)                               | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`multimodal_tlg`](examples/multimodal-tlg.md)                           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`negbin_regression`](examples/negbin-regression.md)                     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| [`parametric_pooling`](examples/parametric-pooling.md)                   | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
+| [`parametric_pooling`](examples/parametric-pooling.md)                   | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`pcfg`](examples/pcfg.md)                                               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`pmcfg`](examples/pmcfg.md)                                             | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`pmf`](examples/pmf.md)                                                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
@@ -98,7 +98,7 @@ Each backend links to its transpilation-correctness page, which documents the st
 | [`type_logical`](examples/type-logical.md)                               | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | [`vae`](examples/vae.md)                                                 | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | [`vanilla_rnn_lm`](examples/vanilla-rnn-lm.md)                           | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
-| [`zip_regression`](examples/zip-regression.md)                           | no   | no     | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| [`zip_regression`](examples/zip-regression.md)                           | no   | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 
 ### 1.2 Constructs
 
@@ -134,7 +134,7 @@ One minimal program per surface construct, so a `no` here isolates the construct
 |--------------------------|------|--------|---------|-----|------|---------|------|------|------|--------|--------|
 | `steps/call_step`        | no   | yes    | yes     | yes | no   | yes     | yes  | yes  | no   | yes    | yes    |
 | `steps/let_step`         | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `steps/marginalize_step` | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
+| `steps/marginalize_step` | no   | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/observe_step`     | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/return_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `steps/sample_step`      | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
@@ -234,22 +234,6 @@ Each backend words it differently; this is bugs's. `bugs` on `tensor_contraction
 bugs cannot transpile this program:
   - the module's `composition_decl` declaration declares a composition rule: the algebra (its `tensor_op`, `join`, `unit` and `zero`) that says how morphism scores combine when morphisms are composed. It is structure over the whole module, not a random variable and not a step. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for declaring the algebra a category composes in. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. A composition rule has no counterpart to emit. Add a `program ... :` block to the module and the rule is carried as module metadata while that program is transpiled; to run the rule itself, evaluate the module in quivers, which is where composition rules have meaning.
   - the module's `contraction_decl` declaration declares a contraction: a morphism built by folding several input morphisms together over their shared axes, with the product and sum of the fold taken from the `rule=` composition rule it names. Its meaning lives entirely in that algebra. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a morphism defined by contracting other morphisms over an algebra's fold. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. A contraction has no counterpart to emit. Write the quantities you want scored as explicit `sample` / `observe` steps of a `program ... :` block, or evaluate the contraction in quivers and pass its result in as data.
-```
-
-### `family:school_effects`
-
-Refused for: [`parametric_pooling`](examples/parametric-pooling.md).
-
-Reported kinds:
-
-```text
-family:school_effects
-```
-
-Each backend words it differently; this is bugs's. `bugs` on `parametric_pooling` reports:
-
-```text
-bugs has no `school_effects` distribution: the family registry contains no matching target distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
 ### `loss_decl`
@@ -486,24 +470,6 @@ family:BetaBinomial:no-bugs-distribution: the BUGS distribution catalogue has no
 bugs cannot score a draw from `BetaBinomial`: the BUGS distribution catalogue has no beta-binomial, and the zeros trick that would write its closed-form marginal into the joint needs a data-bound carrier the BUGS language cannot declare (it has no `data { ... }` block)
 ```
 
-**`family:ContinuousBernoulli:no-free-density-term`**
-
-Refused for: [`zip_regression`](examples/zip-regression.md).
-
-Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-family:ContinuousBernoulli:no-free-density-term: the density is elementary in `log` and `abs`, but adding a written-out density to the joint needs a free log-density term the language has no statement for
-```
-
-`bugs` on `zip_regression` reports:
-
-```text
-bugs cannot score a draw from `ContinuousBernoulli`: the density is elementary in `log` and `abs`, but adding a written-out density to the joint needs a free log-density term the language has no statement for
-```
-
 **`family:Kumaraswamy:no-free-density-term`**
 
 Refused for: [`kumaraswamy_bounded_outcome`](examples/kumaraswamy-bounded-outcome.md).
@@ -574,6 +540,42 @@ family:MixtureNormal:no-free-density-term: a finite mixture is an explicit weigh
 
 ```text
 bugs cannot score a draw from `MixtureNormal`: a finite mixture is an explicit weighted density in the BUGS function library, but adding one to the joint needs a free log-density term the language has no statement for
+```
+
+**`marginalize:grouped-fibration:cls`**
+
+Refused for: `steps/marginalize_step`.
+
+Renders on: `church`, `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:grouped-fibration:cls: the rows `idx` sends to each `Item` are summed before the reduction over the atoms, and BUGS has no statement that adds the per-group log-density to the joint
+```
+
+`bugs` on `steps/marginalize_step` reports:
+
+```text
+bugs cannot marginalize this latent out: the rows `idx` sends to each `Item` are summed before the reduction over the atoms, and BUGS has no statement that adds the per-group log-density to the joint
+```
+
+**`marginalize:no-collapse:z`**
+
+Refused for: [`zip_regression`](examples/zip-regression.md).
+
+Renders on: `church`, `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
+
+Reported kinds:
+
+```text
+marginalize:no-collapse:z: the scope is no categorical mixture, and BUGS has no statement that adds its integrated log-density to the joint
+```
+
+`bugs` on `zip_regression` reports:
+
+```text
+bugs cannot marginalize this latent out: the scope is no categorical mixture, and BUGS has no statement that adds its integrated log-density to the joint
 ```
 
 **`marginalize:ungrouped-over-plate:state`**
@@ -674,24 +676,6 @@ family:BetaBinomial:no-church-target
 
 ```text
 church has no `BetaBinomial` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
-```
-
-**`family:ContinuousBernoulli:no-church-target`**
-
-Refused for: [`zip_regression`](examples/zip-regression.md).
-
-Renders on: `edward2`, `gen`, `jags`, `numpyro`, `pymc`, `pyro`, `stan`, `turing`, `webppl`.
-
-Reported kinds:
-
-```text
-family:ContinuousBernoulli:no-church-target
-```
-
-`church` on `zip_regression` reports:
-
-```text
-church has no `ContinuousBernoulli` distribution. Pick a family this target supports, or write the density you want as an explicit `score` step.
 ```
 
 **`family:HalfStudentT:no-church-target`**

@@ -46,7 +46,7 @@ Pygments lexer, CLI, REPL, and language server load this pair directly and fail
 closed if either component is absent or inconsistent. Editable checkouts may
 compile a content-addressed development parser after grammar changes.
 `panproto-grammars-all` remains a dependency for the eleven transpiler-target
-grammars, but it is not the QVR v0.19 source of truth.
+grammars, but it is not the QVR source of truth.
 
 Editor integrations use the first-party extensions below or clone the quivers
 repository and build against `grammars/qvr/`. The grammar follows standard

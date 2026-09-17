@@ -34,7 +34,7 @@ Each arrow is a small transformation; the composition is
 the correctness framework's first structural handle,
 because each arrow's correctness lemma is local to its file.
 
-* **`Check`** elaborates the module through the QIEC route: it compiles the
+* **`Check`** elaborates the module to its checked core: it compiles the
   indexed-family signature through Didactic's public `GADT` API, negotiates
   the exact route, elaborates every entry-point program to a named
   computation, validates the complete module, and returns its stable kernel
@@ -446,6 +446,12 @@ implementing `dx.Mapping[Module, IRProgram]`. Its `forward`:
    module and named by the axes the elaboration recorded, in the groups
    the targets declare them: the program's domain, its scalars,
    fibrations, observations, parameter maps, and data.
+7. Spells every name for the targets. A draw from a program runs the
+   program in place under names of the caller's own, a local `z` of a
+   program drawn under `theta` being the site `theta$z` on the reference
+   machine and the torch runtime; no target language admits `$` in an
+   identifier, so the plan spells such a name `theta__z` (`target_name`),
+   and the probe harness spells its points the same way.
 
 Lower is target-independent. It never imports any renderer or
 backend-specific module.
@@ -491,9 +497,8 @@ sample(observed=True)`, `IRDeterministic → declare + assignment`,
 `IRScore → declare scalar + log-density increment`, `IRMarginalize
 → marginalize`, `IRReturn → backend return idiom`), index-
 substitution helpers consumed by both `sample` and `marginalize`,
-and the explicit-latent rewrite helper shared by every backend
-whose `marginalize` lowers `IRMarginalize` to `IRSample` plus the
-scope inline.
+and the atom enumeration (`marginal_atoms`) every backend's
+`marginalize` scores one copy of the scope under.
 
 `declare` dispatches on the predicates of §2.3. The Stan
 renderer's table:
