@@ -138,6 +138,11 @@ accompanying ``program_decl``; each renderer applies its capability policy
 after lowering, where a diagnostic can name the computation and feature.
 """
 
+STRUCTURAL_QIEC: frozenset[str] = frozenset(
+    {"signature_decl", "encoder_decl", "decoder_decl", "loss_decl"}
+)
+"""Structural declarations elaborated as host-backed QIEC computations."""
+
 #: Adds encoder/decoder declarations for backends with a deep-learning
 #: idiom (Pyro modules, NumPyro/Flax modules, Edward2/TF, PyMC custom
 #: dists).
@@ -200,9 +205,19 @@ def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> No
     """
     kinds = {cast_kind(s) for s in module.statements}
     has_program = "program_decl" in kinds
+    has_schema_parser = any(
+        cast_kind(statement) == "define_decl"
+        and str(getattr(getattr(statement, "expr", None), "kind", "")) == "expr_parser"
+        for statement in module.statements
+    )
+    has_structural = "signature_decl" in kinds and bool(
+        kinds & {"encoder_decl", "decoder_decl"}
+    )
     effective_allow = allow | QIEC_SURFACE
-    if has_program:
+    if has_program or has_schema_parser:
         effective_allow |= CATEGORICAL_METADATA_IGNORABLE
+    if has_structural:
+        effective_allow |= STRUCTURAL_QIEC
     bad: set[str] = set()
     for statement in module.statements:
         kind = cast_kind(statement)

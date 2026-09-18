@@ -398,11 +398,14 @@ def invoke_entry(
         if static_arguments
         else ()
     )
-    if runtime is not None and runtime != RuntimeConfiguration():
+    if runtime is not None and runtime.selections not in (
+        RuntimeConfiguration().selections,
+        (),
+    ):
         _refuse(
             name,
-            "a program's handlers are fixed by the run; only the default "
-            "runtime configuration is accepted",
+            "a program's handlers are fixed by the run; runtime selections "
+            "must be the default core provider or empty",
         )
     program = program_entry(module, name)
     if len(arguments) > len(program.parameters):
@@ -450,6 +453,7 @@ def invoke_entry(
             static_arguments=statics,
             fuel=fuel,
             observer=observer,
+            providers=runtime.providers if runtime is not None else (),
         )
     except KeyError as error:
         _refuse(name, str(error.args[0]))

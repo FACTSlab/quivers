@@ -45,21 +45,31 @@ import math
 from typing import TYPE_CHECKING, Literal
 
 from quivers.dsl.ast_nodes import (
+    BundleDecl,
     DeductionDecl,
+    DefineDecl,
+    ExprParser,
     LetExprCall,
     LetExprLiteral,
     LetExprNode,
     LetExprVar,
+    LexiconEntry,
     LexiconCategoryFixed,
     LexiconCategoryRestricted,
     LexiconCategoryWildcard,
+    ObjectDecl,
     ObjectEffectApply,
     ObjectExpr,
     ObjectProduct,
     ObjectSlash,
+    OptionEntry,
+    OptionFlag,
     OptionName,
     OptionNumber,
+    SchemaDecl,
     SequentRule,
+    TypeEnumSet,
+    TypeFreeResiduated,
     TypeName,
 )
 from quivers.dsl.compiler._options import (
@@ -68,6 +78,21 @@ from quivers.dsl.compiler._options import (
     get_option_name,
 )
 from quivers.dsl.compiler.deductions import load_lexicon_tsv
+from quivers.stochastic.categories import (
+    AtomicCategory,
+    Category,
+    CategorySystem,
+    ModalCategory,
+    ProductCategory,
+    SlashCategory,
+    UnitCategory,
+)
+from quivers.stochastic.schema import (
+    SCHEMA_REGISTRY,
+    PatternBinarySchema,
+    PatternUnarySchema,
+    RuleSchema,
+)
 from quivers.qiec.canonical import LOG_WEIGHT, tensor_type
 from quivers.qiec.declarations import ConstructorDecl, FamilyDecl, FieldDef
 from quivers.qiec.effects import (
@@ -351,6 +376,9 @@ class _System:
     symbols: dict[str, list[Sort]] = field(default_factory=dict)
     bare: set[str] = field(default_factory=set)
     span_shaped: bool = False
+    span_fuel_factor: int = 0
+    schema_categories: tuple[Pattern, ...] = ()
+    schema_words: tuple[str, ...] = ()
     family: FamilyDecl | None = None
     constructors: dict[str, ConstructorDecl] = field(default_factory=dict)
     choice: NamedEffectInstance | None = None
@@ -529,15 +557,334 @@ class _DeductionElaboration:
             for statement in self.source.syntax.statements
             if isinstance(statement, DeductionDecl)
         ]
+        schema_parsers = self._schema_parser_declarations()
+        declarations.extend(declaration for declaration, _ in schema_parsers)
         if not declarations:
             return
         self._declare_search_effect()
         self._program_instance(PARAMS_INSTANCE, "Param")
         for declaration in declarations:
             system = self._read_deduction(declaration)
+            if any(item[0] is declaration for item in schema_parsers):
+                # A schema parser's ``depth`` bounds its category algebra,
+                # not its derivation. The classic chart applies unary closure
+                # three times per cell, so four units of fuel per sentence
+                # position cover those rounds and the binary spine.
+                system.depth = None
+                system.span_fuel_factor = 4
+                first_word = system.entries[0].word
+                category_count = next(
+                    (
+                        index
+                        for index, entry in enumerate(system.entries)
+                        if entry.word != first_word
+                    ),
+                    len(system.entries),
+                )
+                system.schema_categories = tuple(
+                    entry.category for entry in system.entries[:category_count]
+                )
+                system.schema_words = tuple(
+                    dict.fromkeys(entry.word for entry in system.entries)
+                )
             self._declare_item_family(system)
             self._declare_deduction_instances(system)
             self._deductions[declaration.name] = system
+
+    def _schema_parser_declarations(
+        self: _Elaborator,
+    ) -> list[tuple[DeductionDecl, DefineDecl]]:
+        """Translate schema-backed parser definitions into deductions.
+
+        Returns
+        -------
+        list[tuple[DeductionDecl, DefineDecl]]
+            One synthetic deduction and its source definition for every
+            ``define name = parser(...)`` over declared schemas.
+        """
+        statements = self.source.syntax.statements
+        schemas = {
+            statement.name: statement
+            for statement in statements
+            if isinstance(statement, SchemaDecl)
+        }
+        bundles = {
+            statement.name: statement
+            for statement in statements
+            if isinstance(statement, BundleDecl)
+        }
+        objects = [
+            statement for statement in statements if isinstance(statement, ObjectDecl)
+        ]
+        translated: list[tuple[DeductionDecl, DefineDecl]] = []
+        for statement in statements:
+            if not (
+                isinstance(statement, DefineDecl)
+                and isinstance(statement.expr, ExprParser)
+            ):
+                continue
+            translated.append(
+                (
+                    self._schema_parser_declaration(
+                        statement, statement.expr, schemas, bundles, objects
+                    ),
+                    statement,
+                )
+            )
+        return translated
+
+    def _schema_parser_declaration(
+        self: _Elaborator,
+        definition: DefineDecl,
+        parser: ExprParser,
+        schemas: dict[str, SchemaDecl],
+        bundles: dict[str, BundleDecl],
+        objects: list[ObjectDecl],
+    ) -> DeductionDecl:
+        """Build the deduction denoted by one schema parser definition."""
+
+        def expand(name: str, seen: frozenset[str]) -> list[str]:
+            bundle = bundles.get(name)
+            if bundle is None:
+                return [name]
+            if name in seen:
+                self._fail(
+                    definition,
+                    f"bundle cycle through {name!r}",
+                    code="qiec-program",
+                )
+            expanded: list[str] = []
+            for member in bundle.rules:
+                expanded.extend(expand(member, seen | {name}))
+            return expanded
+
+        rule_names: list[str] = []
+        for name in parser.rules:
+            rule_names.extend(expand(name, frozenset()))
+        selected: list[tuple[SchemaDecl | None, RuleSchema | None]] = []
+        for name in rule_names:
+            schema = schemas.get(name)
+            builtin = SCHEMA_REGISTRY.get(name)
+            if schema is None and builtin is None:
+                self._fail(
+                    definition,
+                    f"schema parser {definition.name!r} uses {name!r}, which is "
+                    "neither a declared schema nor a built-in schema primitive; "
+                    "morphism-backed parser rules require chart_fold and do not "
+                    "have a finite schema projection",
+                    code="qiec-program-gap",
+                )
+            selected.append((schema, builtin))
+        if not selected:
+            self._fail(
+                definition,
+                f"schema parser {definition.name!r} has no rules",
+                code="qiec-program",
+            )
+        atoms = self._schema_parser_atoms(definition, parser, objects)
+        categories = (
+            CategorySystem.from_generators(
+                list(atoms), list(parser.constructors), parser.depth
+            )
+            if parser.constructors is not None
+            else CategorySystem.from_atoms_and_slash_depth(list(atoms), parser.depth)
+        )
+        category_patterns = tuple(
+            self._category_object(category) for category in categories
+        )
+        words = self._schema_parser_terminals(definition, parser, objects)
+        learnable = (OptionEntry(key="learnable", value=OptionFlag()),)
+        schema_runtime = None
+        for schema, builtin in selected:
+            if builtin is not None:
+                piece = builtin
+                schema_runtime = (
+                    piece if schema_runtime is None else schema_runtime | piece
+                )
+                continue
+            assert schema is not None
+            variables = frozenset(
+                name for parameter in schema.parameters for name in parameter.names
+            )
+            if not (
+                isinstance(schema.domain, ObjectProduct)
+                and len(schema.domain.components) == 2
+            ):
+                piece = PatternUnarySchema(
+                    schema.domain, schema.codomain, variables, schema.name
+                )
+            else:
+                left, right = schema.domain.components
+                piece = PatternBinarySchema(
+                    left,
+                    right,
+                    schema.codomain,
+                    variables,
+                    schema.name,
+                )
+            schema_runtime = piece if schema_runtime is None else schema_runtime | piece
+        assert schema_runtime is not None
+        rule_system = schema_runtime(categories)
+        rules: list[SequentRule] = []
+        for index, (result, left, right) in enumerate(rule_system.binary_rules):
+            rules.append(
+                SequentRule(
+                    name=f"binary_{index}",
+                    premises=(
+                        self._span("I", "K", category_patterns[left]),
+                        self._span("K", "J", category_patterns[right]),
+                    ),
+                    conclusion=self._span("I", "J", category_patterns[result]),
+                    options=learnable,
+                    line=definition.line,
+                    col=definition.col,
+                )
+            )
+        for index, (result, premise) in enumerate(rule_system.unary_rules):
+            # `UnarySpanDeduction` applies its closure update three times.
+            # Three same-named branches reproduce that multiplicity while
+            # sharing the one learned rule weight.
+            for _ in range(3):
+                rules.append(
+                    SequentRule(
+                        name=f"unary_{index}",
+                        premises=(self._span("I", "J", category_patterns[premise]),),
+                        conclusion=self._span("I", "J", category_patterns[result]),
+                        options=learnable,
+                        line=definition.line,
+                        col=definition.col,
+                    )
+                )
+        lexicon = tuple(
+            LexiconEntry(
+                words=(word,),
+                category=LexiconCategoryFixed(category=category),
+                lf=LetExprLiteral(value=0.0),
+                options=learnable,
+                line=definition.line,
+                col=definition.col,
+            )
+            for word in words
+            for category in category_patterns
+        )
+        start = parser.start if isinstance(parser.start, str) else "S"
+        options = (
+            OptionEntry(key="semiring", value=OptionName(value="LogProb")),
+            OptionEntry(key="start", value=OptionName(value=start)),
+            # `_read_deduction` requires a bound for unary rules. It is
+            # replaced by dynamic span fuel after validation.
+            OptionEntry(key="depth", value=OptionNumber(value=1.0)),
+        )
+        terminal = TypeName(name=parser.terminal or "Token")
+        return DeductionDecl(
+            name=definition.name,
+            domain=terminal,
+            codomain=terminal,
+            options=options,
+            atoms=atoms,
+            rules=tuple(rules),
+            lexicon=lexicon,
+            docs=definition.docs,
+            line=definition.line,
+            col=definition.col,
+        )
+
+    def _schema_parser_atoms(
+        self: _Elaborator,
+        definition: DefineDecl,
+        parser: ExprParser,
+        objects: list[ObjectDecl],
+    ) -> tuple[str, ...]:
+        """Return the atom names of a schema parser's category algebra."""
+        if parser.categories:
+            return parser.categories
+        residuated = [
+            declaration
+            for declaration in objects
+            if isinstance(declaration.init, TypeFreeResiduated)
+        ]
+        if len(residuated) != 1:
+            self._fail(
+                definition,
+                f"schema parser {definition.name!r} needs one FreeResiduated "
+                "object or an explicit categories list",
+                code="qiec-program",
+            )
+        generator = residuated[0].init.generators
+        for declaration in objects:
+            if generator in declaration.names and isinstance(
+                declaration.init, TypeEnumSet
+            ):
+                return declaration.init.elements
+        self._fail(
+            definition,
+            f"schema parser {definition.name!r} names the undeclared atom "
+            f"inventory {generator!r}",
+            code="qiec-program",
+        )
+
+    def _schema_parser_terminals(
+        self: _Elaborator,
+        definition: DefineDecl,
+        parser: ExprParser,
+        objects: list[ObjectDecl],
+    ) -> tuple[str, ...]:
+        """Return the terminal vocabulary of a schema parser."""
+        if parser.terminal is None:
+            self._fail(
+                definition,
+                f"schema parser {definition.name!r} requires terminal=<object>",
+                code="qiec-program",
+            )
+        for declaration in objects:
+            if parser.terminal in declaration.names and isinstance(
+                declaration.init, TypeEnumSet
+            ):
+                return declaration.init.elements
+        self._fail(
+            definition,
+            f"schema parser {definition.name!r} terminal {parser.terminal!r} "
+            "must be a declared enum object",
+            code="qiec-program-gap",
+        )
+
+    @staticmethod
+    def _span(start: str, stop: str, category: ObjectExpr) -> ObjectEffectApply:
+        """Return a chart item pattern over one span and category."""
+        return ObjectEffectApply(
+            effect=SPAN,
+            args=(TypeName(name=start), TypeName(name=stop), category),
+        )
+
+    def _category_object(self: _Elaborator, category: Category) -> ObjectExpr:
+        """Translate a finite category term back to the QVR object AST."""
+        if isinstance(category, AtomicCategory):
+            return TypeName(name=category.name)
+        if isinstance(category, SlashCategory):
+            return ObjectSlash(
+                result=self._category_object(category.result),
+                argument=self._category_object(category.argument),
+                direction=category.direction,
+            )
+        if isinstance(category, ProductCategory):
+            return ObjectProduct(
+                components=(
+                    self._category_object(category.left),
+                    self._category_object(category.right),
+                )
+            )
+        if isinstance(category, UnitCategory):
+            return TypeName(name="I")
+        if isinstance(category, ModalCategory):
+            return ObjectEffectApply(
+                effect=category.modality,
+                args=(self._category_object(category.inner),),
+            )
+        self._fail(
+            self.source.syntax.statements[0],
+            f"category term {category!r} has no QIEC chart encoding",
+            code="qiec-program-gap",
+        )
 
     def _declare_search_effect(self: _Elaborator) -> None:
         """Declare the ``Search`` effect and register it.
@@ -1286,12 +1633,20 @@ class _DeductionElaboration:
         if system.entries:
             tokens_type = tensor_type(STRING, (n,))
             axiom = declare(
-                system.name("axiom"), (extent,), (INT, tokens_type), item, axiom_row
+                system.name("axiom"),
+                (extent,),
+                (INT, item, tokens_type)
+                if system.schema_categories
+                else (INT, tokens_type),
+                item,
+                axiom_row,
             )
             derive = declare(
                 system.name("derive"),
                 (extent,),
-                (INT, INT, INT, tokens_type)
+                (INT, INT, INT, item, tokens_type)
+                if system.schema_categories
+                else (INT, INT, INT, tokens_type)
                 if system.span_shaped
                 else (INT, tokens_type),
                 item,
@@ -1987,6 +2342,8 @@ class _Context:
             The computation, choosing among the entries whose word is
             the token and adding the entry's weight.
         """
+        if self.system.schema_categories:
+            return self.schema_axiom(signature)
         position = Local("position", INT)
         tokens = Local("tokens", signature.parameters[1])
         entries = self.system.entries
@@ -2100,6 +2457,105 @@ class _Context:
             ),
         )
         return self.computation(signature, (position, tokens), body)
+
+    def schema_axiom(self, signature: ComputationSignature) -> NamedComputation:
+        """Build a schema parser's lexical item at an expected category.
+
+        Parameters
+        ----------
+        signature : ComputationSignature
+            The axiom computation's registered signature.
+
+        Returns
+        -------
+        NamedComputation
+            The lexical axiom computation.
+        """
+        system = self.system
+        position = Local("position", INT)
+        expected = Local("expected", system.item)
+        tokens = Local("tokens", signature.parameters[2])
+        token = system.local("token", STRING)
+        count = len(system.schema_categories)
+
+        def token_body(token_index: int, category_index: int) -> Computation:
+            """Add one lexical-table cell and return its span."""
+            span = self.constructor(
+                SPAN,
+                (
+                    Var(position),
+                    self.primitive("add_int", Var(position), _int(1)),
+                    Var(expected),
+                ),
+            )
+            flat_index = token_index * count + category_index
+
+            def weighted(weight: Value) -> Computation:
+                """Add the lexical weight and return its span."""
+                return Bind(
+                    system.local("added", UNIT),
+                    self.add_weight(
+                        weight,
+                        "lexicon",
+                        flat_index,
+                        "weight",
+                    ),
+                    Return(span),
+                )
+
+            return self.bind(
+                "weight",
+                REAL,
+                self.parameter(
+                    _string(f"{system.decl.name}.lex.{flat_index}"),
+                    "lexicon",
+                    flat_index,
+                    "parameter",
+                ),
+                lambda real: weighted(self.weight_of(Var(real))),
+            )
+
+        def word(token_index: int, category_index: int) -> Computation:
+            """Dispatch the observed token for one expected category."""
+            if token_index == len(system.schema_words):
+                return self.fail(system.item, "lexicon", "token", "none")
+            return If(
+                self.primitive(
+                    "eq_string",
+                    Var(token),
+                    _string(system.schema_words[token_index]),
+                ),
+                token_body(token_index, category_index),
+                word(token_index + 1, category_index),
+            )
+
+        def category(index: int) -> Computation:
+            """Dispatch the expected category against the finite algebra."""
+            if index == count:
+                return self.fail(system.item, "lexicon", "category", "none")
+            return self.bind(
+                "same",
+                BOOL,
+                self.call(
+                    system.name("eq"),
+                    (Var(expected), self.ground(system.schema_categories[index])),
+                ),
+                lambda same: If(
+                    Var(same),
+                    Bind(
+                        token,
+                        Return(Gather(Var(tokens), Var(position), STRING)),
+                        word(0, index),
+                    ),
+                    category(index + 1),
+                ),
+            )
+
+        return self.computation(
+            signature,
+            (position, expected, tokens),
+            category(0),
+        )
 
     def ground(self, pattern: Pattern) -> Value:
         """The item a ground pattern denotes.
@@ -2299,6 +2755,8 @@ class _Context:
             The computation, which answers the conclusion of the chosen
             rule having added its weight.
         """
+        if self.system.schema_categories:
+            return self.schema_derivation(signature)
         system = self.system
         item = system.item
         fuel = Local("fuel", INT)
@@ -2748,6 +3206,215 @@ class _Context:
         )
         return self.computation(signature, parameters, body)
 
+    def schema_derivation(self, signature: ComputationSignature) -> NamedComputation:
+        """Derive one expected category of a schema chart.
+
+        The ordinary deduction computation enumerates an arbitrary item
+        before matching it against a rule. A schema chart has a finite
+        category algebra, so it can run goal-directed instead: every
+        recursive call carries the ground category its parent rule needs.
+        This is the recursive counterpart of the classic chart's sparse
+        rule tensors and avoids enumerating every category tuple only to
+        reject nearly all of them.
+
+        Parameters
+        ----------
+        signature : ComputationSignature
+            The goal-directed derivation signature.
+
+        Returns
+        -------
+        NamedComputation
+            The checked derivation computation.
+        """
+        system = self.system
+        item = system.item
+        fuel = Local("fuel", INT)
+        start = Local("start", INT)
+        stop = Local("stop", INT)
+        expected = Local("expected", item)
+        tokens = Local("tokens", signature.parameters[4])
+        parameters = (fuel, start, stop, expected, tokens)
+        spent = self.primitive("sub_int", Var(fuel), _int(1))
+
+        def recursion(low: Value, high: Value, category: Pattern) -> Call:
+            """Call the derivation on a ground premise category."""
+            return self.call(
+                signature.name,
+                (spent, low, high, self.ground(category), Var(tokens)),
+            )
+
+        def answer() -> Return:
+            """Return the expected category over the current span."""
+            return Return(
+                self.constructor(
+                    SPAN,
+                    (Var(start), Var(stop), Var(expected)),
+                )
+            )
+
+        def weighted(index: int, rule: _Rule) -> Computation:
+            """Add one concrete rule's learned log weight."""
+
+            def added(weight: Value) -> Computation:
+                """Add the carrier weight and return the chart item."""
+                return Bind(
+                    system.local("added", UNIT),
+                    self.add_weight(weight, "derive", "rule", index, "weight"),
+                    answer(),
+                )
+
+            if not rule.learnable:
+                return added(self.weight_of(None))
+            return self.bind(
+                "raw",
+                REAL,
+                self.parameter(
+                    _string(f"{system.decl.name}.rule.{rule.source.name}:"),
+                    "derive",
+                    "rule",
+                    index,
+                    "parameter",
+                ),
+                lambda raw: added(self.weight_of(Var(raw))),
+            )
+
+        def apply_rule(index: int) -> Computation:
+            """Apply one ground unary or binary schema rule."""
+            rule = system.rules[index]
+
+            def premises() -> Computation:
+                """Derive the selected rule's ground premises."""
+                if len(rule.premises) == 1:
+                    premise = rule.premises[0]
+                    assert isinstance(premise, _App) and premise.symbol == SPAN
+                    return self.bind(
+                        "premise",
+                        item,
+                        recursion(Var(start), Var(stop), premise.args[2]),
+                        lambda _: weighted(index, rule),
+                    )
+                left, right = rule.premises
+                assert isinstance(left, _App) and left.symbol == SPAN
+                assert isinstance(right, _App) and right.symbol == SPAN
+                split_index = system.local("k", INT)
+                return self.bind(
+                    "split",
+                    INT,
+                    self.choose(
+                        Comprehension(
+                            split_index,
+                            self.extent,
+                            Var(split_index),
+                            tensor_type(INT, (self.extent,)),
+                        ),
+                        INT,
+                        self.extent,
+                        "derive",
+                        "rule",
+                        index,
+                        "split",
+                    ),
+                    lambda split: If(
+                        self.primitive(
+                            "and",
+                            self.primitive("lt_int", Var(start), Var(split)),
+                            self.primitive("lt_int", Var(split), Var(stop)),
+                        ),
+                        self.bind(
+                            "left",
+                            item,
+                            recursion(Var(start), Var(split), left.args[2]),
+                            lambda _: self.bind(
+                                "right",
+                                item,
+                                recursion(Var(split), Var(stop), right.args[2]),
+                                lambda _: weighted(index, rule),
+                            ),
+                        ),
+                        self.fail(item, "derive", "rule", index, "split"),
+                    ),
+                )
+
+            return premises()
+
+        lexical = If(
+            self.primitive(
+                "eq_int", Var(stop), self.primitive("add_int", Var(start), _int(1))
+            ),
+            self.call(
+                system.name("axiom"),
+                (Var(start), Var(expected), Var(tokens)),
+            ),
+            self.fail(item, "derive", "lexical", "span"),
+        )
+        rules_by_category: list[list[int]] = [[] for _ in system.schema_categories]
+        for rule_index, rule in enumerate(system.rules):
+            conclusion = rule.conclusion
+            assert isinstance(conclusion, _App) and conclusion.symbol == SPAN
+            category = conclusion.args[2]
+            category_index = system.schema_categories.index(category)
+            rules_by_category[category_index].append(rule_index)
+
+        def category_dispatch(category_index: int) -> Computation:
+            """Choose only rules whose result is the expected category."""
+            if category_index == len(system.schema_categories):
+                return self.fail(item, "derive", "category")
+            rule_indices = rules_by_category[category_index]
+            alternatives = TensorValue(
+                (_int(-1), *(_int(index) for index in rule_indices)),
+                tensor_type(INT, (IndexLiteral(len(rule_indices) + 1, NAT),)),
+            )
+
+            def rule_dispatch(chosen: Local, offset: int) -> Computation:
+                """Dispatch one rule from the category-specific choice."""
+                if offset == len(rule_indices):
+                    return self.fail(item, "derive", "none")
+                rule_index = rule_indices[offset]
+                return If(
+                    self.primitive("eq_int", Var(chosen), _int(rule_index)),
+                    apply_rule(rule_index),
+                    rule_dispatch(chosen, offset + 1),
+                )
+
+            category = system.schema_categories[category_index]
+            return self.bind(
+                "same",
+                BOOL,
+                self.call(
+                    system.name("eq"),
+                    (Var(expected), self.ground(category)),
+                ),
+                lambda same: If(
+                    Var(same),
+                    self.bind(
+                        "alternative",
+                        INT,
+                        self.choose(
+                            alternatives,
+                            INT,
+                            IndexLiteral(len(rule_indices) + 1, NAT),
+                            "derive",
+                            "choose",
+                            category_index,
+                        ),
+                        lambda chosen: If(
+                            self.primitive("eq_int", Var(chosen), _int(-1)),
+                            lexical,
+                            rule_dispatch(chosen, 0),
+                        ),
+                    ),
+                    category_dispatch(category_index + 1),
+                ),
+            )
+
+        body = If(
+            self.primitive("le_int", Var(fuel), _int(0)),
+            self.fail(item, "derive", "fuel"),
+            category_dispatch(0),
+        )
+        return self.computation(signature, parameters, body)
+
     def rule_groups(self) -> list[_Group]:
         """Group the rules by the shape of their premises.
 
@@ -3073,13 +3740,30 @@ class _Context:
                 ),
                 INT,
             )
-            fuel_value: Value = (
-                _int(system.depth) if system.depth is not None else length
-            )
-            derived = self.call(
-                system.name("derive"),
-                (fuel_value, _int(0), length, Var(parameters[0])),
-            )
+            if system.span_fuel_factor:
+                fuel_value = length
+                for _ in range(system.span_fuel_factor - 1):
+                    fuel_value = self.primitive("add_int", fuel_value, length)
+            else:
+                fuel_value = _int(system.depth) if system.depth is not None else length
+            if system.schema_categories:
+                assert system.start is not None
+                expected = self.constructor(system.start, ())
+                derived = self.call(
+                    system.name("derive"),
+                    (
+                        fuel_value,
+                        _int(0),
+                        length,
+                        expected,
+                        Var(parameters[0]),
+                    ),
+                )
+            else:
+                derived = self.call(
+                    system.name("derive"),
+                    (fuel_value, _int(0), length, Var(parameters[0])),
+                )
         else:
             # Without a declared depth, a system deriving without spans
             # enumerates derivations at most as deep as it has tokens or

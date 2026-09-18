@@ -224,6 +224,12 @@ Two shapes:
   configures the family's event / batch decomposition over codomain
   factors.
 
+An explicit all-literal family call fixes the family instead:
+`morphism prior : A -> R ~ Normal(0.0, 1.0)` ignores its input and draws
+from that Normal for every element of `A`. It has no learned parameter
+table. Leave the arguments off, as in `~ Normal`, when the input should
+select parameters through the kernel's parameter source.
+
 <!-- compile: false -->
 ```qvr
 # Lookup-table kernel on finite sets.

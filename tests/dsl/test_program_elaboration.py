@@ -523,6 +523,21 @@ def test_a_template_over_a_morphism_draws_through_the_morphism_it_is_given() -> 
     )
     expected = td.Normal(0.0, 1.0).log_prob(torch.tensor(values, dtype=torch.float64))
     assert run.log_joint == pytest.approx(float(expected.sum()), rel=1e-6)
+    compiled = Compiler(parse(_MORPHISM_TEMPLATE)).compile().morphism
+    assert not tuple(compiled.named_parameters())
+    traced = trace(
+        compiled,
+        torch.tensor([0]),
+        observations={
+            "by_subj": torch.tensor(
+                tuple((value,) for value in values), dtype=torch.float64
+            )
+        },
+    )
+    assert traced.log_joint is not None
+    assert float(traced.log_joint.sum()) == pytest.approx(
+        float(run.log_joint), rel=1e-6
+    )
     with pytest.raises(QiecDiagnosticError) as captured:
         _module(
             _MORPHISM_TEMPLATE.replace(

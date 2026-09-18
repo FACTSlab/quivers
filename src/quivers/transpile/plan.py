@@ -62,7 +62,6 @@ from quivers.dsl.ast_nodes.let_expressions import (
 )
 from quivers.transpile._resolve import build_let_table, build_morphism_table
 from quivers.qiec import QiecModule, validate_module
-from quivers.qiec.module import reachable_computations
 from quivers.qiec.effects import EffectRequest
 from quivers.qiec.module import NamedComputation
 from quivers.qiec.programs import ProgramEntry, ProgramParameter
@@ -118,6 +117,7 @@ from quivers.qiec.types import (
 import didactic.api as dx
 
 from quivers.transpile._api import UnsupportedConstruct
+from quivers.transpile.qiec_ir import host_runtime_capability_diagnostics
 from quivers.transpile._expand_composites import expand_composite_lets
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta, class_index_outcome
 from quivers.transpile.ir import (
@@ -2196,7 +2196,9 @@ def _walk(body: tuple[IRNode, ...]) -> Iterator[IRNode]:
             yield from _walk(node.scope)
 
 
-def checked_module(module: Module, *, target: str) -> QiecModule | None:
+def checked_module(
+    module: Module, *, target: str, require_target_runtime: bool = True
+) -> QiecModule | None:
     """Elaborate and check a module at the lowering boundary.
 
     A source with nothing to elaborate takes no checking path. Otherwise
@@ -2215,6 +2217,10 @@ def checked_module(module: Module, *, target: str) -> QiecModule | None:
         The parsed module.
     target : str
         The transpile target, for diagnostics.
+    require_target_runtime : bool
+        Whether to reject host-only runtime capabilities before deriving a
+        target plan. Disable this only when retaining the checked QIEC graph
+        for reference execution without a target-oriented plan.
 
     Returns
     -------
@@ -2250,7 +2256,8 @@ def checked_module(module: Module, *, target: str) -> QiecModule | None:
             f"qvr-{target}", [_elaboration_kind(error.code, error.message)]
         ) from error
     validate_module(qiec_module)
-    _refuse_deduction_calls(qiec_module, target)
+    if require_target_runtime:
+        _refuse_host_runtime_calls(qiec_module, target)
     return qiec_module
 
 
@@ -2281,13 +2288,13 @@ def _elaboration_kind(code: str, message: str) -> str:
     return f"program:elaboration:{code}: {message}"
 
 
-def _refuse_deduction_calls(qiec_module: QiecModule, target: str) -> None:
-    """Refuse a program that calls a deduction.
+def _refuse_host_runtime_calls(qiec_module: QiecModule, target: str) -> None:
+    """Refuse computations that require an unavailable host runtime.
 
-    A deduction enumerates its derivations through a search handler that
-    no target runtime carries, so a program calling one is refused at
-    the boundary, before any target-specific lowering, under the
-    capability tag the renderers use.
+    A deduction needs the search runtime. A structural encoder, decoder,
+    or loss needs its neural attachment. Neither belongs to a target's
+    probabilistic runtime, so the boundary reports the exact computation
+    and capability before target-specific lowering.
 
     Parameters
     ----------
@@ -2299,17 +2306,11 @@ def _refuse_deduction_calls(qiec_module: QiecModule, target: str) -> None:
     Raises
     ------
     UnsupportedConstruct
-        If a program's computation reaches a deduction's computation.
+        If a reachable computation needs search or a neural attachment.
     """
-    by_id = {computation.id: computation for computation in qiec_module.computations}
     kinds = [
-        f"qiec:capability:search:{by_id[identity].name}"
-        for identity in sorted(
-            reachable_computations(qiec_module), key=lambda item: item.digest
-        )
-        if identity in by_id
-        and by_id[identity].origin.structural_path[:1] == ("deductions",)
-        and by_id[identity].name.endswith("__run")
+        diagnostic.kind
+        for diagnostic in host_runtime_capability_diagnostics(qiec_module, target)
     ]
     if kinds:
         raise UnsupportedConstruct(f"qvr-{target}", kinds)
@@ -2326,7 +2327,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
     each call.
     """
 
-    def forward(self, module: Module, *, target: str = "ir") -> IRProgram:
+    def forward(
+        self, module: Module, *, target: str = "ir", optimize: bool = True
+    ) -> IRProgram:
         """Lower a parsed module to the transpile IR.
 
         Parameters
@@ -2337,6 +2340,10 @@ class Lower(dx.Mapping[Module, IRProgram]):
         target : str
             The transpile target the lowering serves, named in the
             diagnostics the QIEC boundary raises.
+        optimize : bool
+            Whether to derive the target-oriented probabilistic plan. When
+            false, retain only the checked QIEC graph so reference execution
+            can test semantics before target-plan recognition or rewriting.
 
         Returns
         -------
@@ -2352,7 +2359,11 @@ class Lower(dx.Mapping[Module, IRProgram]):
         QiecDiagnosticError
             If a QIEC declaration is rejected.
         """
-        qiec_module = checked_module(module, target=target)
+        qiec_module = checked_module(
+            module,
+            target=target,
+            require_target_runtime=optimize,
+        )
         if qiec_module is None:
             # A source with nothing to elaborate has no program either;
             # report the established precise ``program:absent`` error.
@@ -2373,6 +2384,14 @@ class Lower(dx.Mapping[Module, IRProgram]):
             # construct by a kind the diagnostics explain.
             kind = qiec_module.gap.partition("; ")[0]
             raise UnsupportedConstruct(f"qvr-{target}", [kind])
+        if not optimize:
+            return IRProgram(
+                name=program.name,
+                inputs=(),
+                body=(),
+                module=lower_qiec_ir(qiec_module),
+                cards={},
+            )
         return program_plan(qiec_module, expanded, program, target)
 
 

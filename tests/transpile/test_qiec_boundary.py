@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from quivers.dsl.parser import parse
-from quivers.dsl.qiec_lowering import QiecDiagnosticError
+from quivers.dsl.qiec_lowering import QiecDiagnosticError, lower_qvr_to_qiec
 from quivers.transpile import UnsupportedConstruct, available_targets, transpile
 from quivers.transpile.plan import Lower
 from quivers.transpile.qiec_ir import (
@@ -152,6 +154,36 @@ def test_graphical_targets_refuse_named_qiec_parameters() -> None:
         assert [diagnostic.kind for diagnostic in diagnostics] == [
             "qiec:capability:named-parameter:identity"
         ]
+
+
+@pytest.mark.parametrize(
+    ("example", "expected"),
+    [
+        ("schema_chart_parser", "qiec:capability:search:lp_parser__run"),
+        ("term_autoencoder", "qiec:capability:neural-attachment:reconstruct"),
+    ],
+)
+def test_host_runtime_capabilities_match_the_transpile_boundary(
+    example: str,
+    expected: str,
+) -> None:
+    """Every user-facing diagnostic surface selects the same entry root."""
+
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "examples"
+        / "source"
+        / f"{example}.qvr"
+    )
+    parsed = parse(path.read_text(), str(path))
+    module = lower_qvr_to_qiec(parsed, module_name=example, file_path=str(path))
+    assert [
+        diagnostic.kind for diagnostic in analyze_qiec_capabilities(module, "pyro")
+    ] == [expected]
+    with pytest.raises(UnsupportedConstruct) as caught:
+        transpile(parsed, target="pyro")
+    assert caught.value.kinds == [expected]
 
 
 _PROGRAM_CALLING_PROGRAM = """\

@@ -94,11 +94,34 @@ class FixedDistribution(ContinuousMorphism):
         make_dist: Callable,
         discrete: bool = False,
         support: _constraints.Constraint | None = None,
+        *,
+        domain: AnySpace = Unit,
     ) -> None:
-        super().__init__(Unit, codomain)
+        super().__init__(domain, codomain)
         self._make_dist_fn = make_dist
         self._discrete = discrete
         self._support = support if support is not None else D.constraints.real
+
+    def with_domain(self, domain: AnySpace) -> FixedDistribution:
+        """Return the same fixed family on a declared input space.
+
+        Parameters
+        ----------
+        domain : AnySpace
+            Input space whose values select no family parameters.
+
+        Returns
+        -------
+        FixedDistribution
+            A fixed distribution that keeps the declared kernel domain.
+        """
+        return FixedDistribution(
+            self.codomain,
+            self._make_dist_fn,
+            discrete=self._discrete,
+            support=self._support,
+            domain=domain,
+        )
 
     @property
     def support(self) -> _constraints.Constraint:

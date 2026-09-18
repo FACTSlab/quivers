@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import torch.nn as nn
 from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.objects import SetObject
 from quivers.program import Program
@@ -369,6 +370,17 @@ class Compiler(
         program.encoders = getattr(self, "_encoders", {})
         program.decoders = getattr(self, "_decoders", {})
         program.losses = getattr(self, "_loss_registry", None)
+        # Structural components are ordinary PyTorch modules. Register them
+        # under stable source-derived names as well as exposing the ergonomic
+        # dictionaries above, so ``Program.parameters()``, ``state_dict()``,
+        # optimizers, and checkpointing see every learned tensor.
+        for role, components in (
+            ("encoder", program.encoders),
+            ("decoder", program.decoders),
+        ):
+            for name, component in components.items():
+                if isinstance(component, nn.Module):
+                    program.add_module(f"_qvr_{role}_{name}", component)
         # Preserve the checked projection on the compiled container.  A
         # QIEC-only source thus becomes an inspection/evaluation container;
         # its computation graph is never misrepresented as a PyTorch morphism.

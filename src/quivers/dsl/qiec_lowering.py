@@ -48,6 +48,7 @@ from quivers.dsl.pure_builtins import (
     _ROWWISE,
 )
 from quivers.dsl.deduction_elaboration import _DeductionElaboration
+from quivers.dsl.structural_elaboration import _StructuralElaboration
 from quivers.dsl.program_elaboration import (
     ObjectInfo,
     _object_expr_info,
@@ -192,6 +193,12 @@ PROGRAM_CONTEXT_TYPES = (
     surface.ObjectDecl,
     surface.MorphismDecl,
     surface.DefineDecl,
+    surface.SchemaDecl,
+    surface.BundleDecl,
+    surface.SignatureDecl,
+    surface.EncoderDecl,
+    surface.DecoderDecl,
+    surface.LossDecl,
 )
 
 
@@ -251,7 +258,21 @@ def has_qiec_surface(module: surface.Module) -> bool:
     """
 
     return any(
-        isinstance(statement, (*QIEC_STATEMENT_TYPES, surface.DeductionDecl))
+        isinstance(
+            statement,
+            (
+                *QIEC_STATEMENT_TYPES,
+                surface.DeductionDecl,
+                surface.SignatureDecl,
+                surface.EncoderDecl,
+                surface.DecoderDecl,
+                surface.LossDecl,
+            ),
+        )
+        or (
+            isinstance(statement, surface.DefineDecl)
+            and isinstance(statement.expr, surface.ExprParser)
+        )
         or (
             isinstance(statement, surface.ProgramDecl)
             and (
@@ -1070,7 +1091,11 @@ class _DidacticGadtProjection:
         return operation
 
 
-class _Elaborator(_ProgramElaboration, _DeductionElaboration):
+class _Elaborator(
+    _ProgramElaboration,
+    _DeductionElaboration,
+    _StructuralElaboration,
+):
     """Lower one parsed source to a checked kernel module.
 
     The elaborator keeps the declarations it has processed in dictionaries
@@ -1135,15 +1160,18 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
         self._declare_effect_headers()
         self._declare_effect_operations()
         self._declare_constructors()
+        self._declare_structural_declarations()
         self._validate_indexed_language()
         self._declare_instances()
         self._declare_program_instances()
         self._build_registry()
         self._declare_deduction_declarations()
+        self._declare_structural_signatures()
         self._declare_computation_signatures()
         self._declare_handlers()
         self._register_handlers()
         deductions = self._declare_deductions()
+        structural = self._declare_structural_computations()
         programs = self._declare_programs()
         computations = self._declare_computations()
         return QiecModule(
@@ -1155,7 +1183,7 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             tuple(self.effects.values()),
             tuple(self.instances.values()),
             tuple(self.handlers.values()),
-            (*deductions, *programs, *computations),
+            (*deductions, *structural, *programs, *computations),
             tuple(self.entries),
         )
 
@@ -1723,9 +1751,21 @@ class _Elaborator(_ProgramElaboration, _DeductionElaboration):
             try:
                 self.registry.register_handler(handler)
             except (KernelError, TypeError, ValueError) as error:
-                self._fail_kernel(
-                    handler_nodes[handler.name], error, fallback="qiec-handler"
-                )
+                node = handler_nodes.get(handler.name)
+                if node is None:
+                    node = next(
+                        (
+                            component.declaration
+                            for component in getattr(
+                                self, "_structural_components", {}
+                            ).values()
+                            if component.handler.id == handler.id
+                        ),
+                        None,
+                    )
+                if node is None:
+                    raise
+                self._fail_kernel(node, error, fallback="qiec-handler")
 
     def _declare_computation_signatures(self) -> None:
         """Collect every computation signature before any body is lowered.

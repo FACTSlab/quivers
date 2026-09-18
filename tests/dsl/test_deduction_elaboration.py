@@ -449,6 +449,83 @@ def test_every_gallery_deduction_elaborates(example: str) -> None:
     assert module.gap == ""
 
 
+def test_schema_chart_parser_elaborates_as_a_checked_deduction() -> None:
+    path = _EXAMPLES / "schema_chart_parser.qvr"
+    module = lower_qvr_to_qiec(
+        parse(path.read_text()),
+        module_name="schema_chart_parser",
+        file_path=str(path),
+    )
+    validate_module(module)
+    assert loads(dumps(module)) == module
+    assert [family.name for family in module.families] == ["lp_parser__Item"]
+    assert [computation.name for computation in module.computations] == [
+        "lp_parser__eq",
+        "lp_parser__show",
+        "lp_parser__goal",
+        "lp_parser__fail",
+        "lp_parser__axiom",
+        "lp_parser__derive",
+        "lp_parser__run",
+    ]
+    assert [handler.name for handler in module.handlers] == [
+        "lp_parser__search_logprob",
+        "lp_parser__collect_logprob",
+    ]
+
+
+def test_schema_chart_parser_agrees_with_the_classic_chart() -> None:
+    path = _EXAMPLES / "schema_chart_parser.qvr"
+    parsed = parse(path.read_text())
+    compiler = Compiler(
+        parsed,
+        module_name="schema_chart_parser",
+        file_path=str(path),
+    )
+    classic_parser = compiler.compile().morphism
+    with torch.no_grad():
+        classic_parser.axiom.lexicon_logits.zero_()
+    classic = float(classic_parser(torch.tensor([1, 3])).detach())
+
+    module = compiler.qiec_module
+    assert module is not None
+    n_categories = classic_parser.rule_system.n_categories
+    n_terminals = classic_parser.axiom.lexicon_logits.shape[0]
+    uniform = -math.log(n_categories)
+    parameters = {
+        f"lp_parser.lex.{index}": uniform for index in range(n_categories * n_terminals)
+    }
+    run = run_deduction(
+        module,
+        "lp_parser",
+        tokens=("dog", "sleeps"),
+        parameters=parameters,
+        fuel=1_000_000,
+    )
+    assert run.weight == pytest.approx(classic)
+
+
+def test_builtin_schema_parser_elaborates_through_the_same_core() -> None:
+    source = """\
+object Atoms : {N, S}
+object Cat : FreeResiduated(Atoms)
+object Token : {word}
+
+define builtin_parser = parser(rules=[evaluation], terminal=Token, start=S, depth=1)
+export builtin_parser
+"""
+    module = lower_qvr_to_qiec(
+        parse(source),
+        module_name="builtin_schema_parser",
+        file_path="builtin_schema_parser.qvr",
+    )
+    validate_module(module)
+    assert loads(dumps(module)) == module
+    assert any(
+        computation.name == "builtin_parser__run" for computation in module.computations
+    )
+
+
 @pytest.mark.parametrize(
     ("example", "name", "sentence"),
     [

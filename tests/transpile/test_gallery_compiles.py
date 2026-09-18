@@ -120,15 +120,13 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 #
 # Five boundary classes are represented:
 #
-# 1. Structural / categorical declarations (`schema`, `bundle`,
-#    `composition`, `contraction`, `encoder`/`decoder`/`loss`/
-#    `signature`). No PPL backend has a surface for these, so the
-#    examples that carry them fail to lower on every target:
-#    schema_chart_parser (schema + bundle), pmf (composition),
-#    tensor_contraction (composition + contraction), and
-#    term_autoencoder (encoder / decoder / loss / signature).
-# 2. A program calling a deduction (montague_nli), which the QIEC
-#    boundary refuses on every target for want of a search runtime.
+# 1. Composition and contraction declarations still have no executable
+#    QIEC entry, so those examples fail before target capability analysis.
+# 2. Executable search computations (`schema_chart_parser` and the
+#    deduction call in `montague_nli`) reach the QIEC boundary, which
+#    refuses them on every target for want of a search runtime.
+# 3. The term autoencoder reaches the same boundary with typed structural
+#    computations, which require a neural attachment no target provides.
 #
 # The `sum` builtin is deliberately absent from this registry. It
 # lowers to each target's own sum-axis reduction (`jnp.sum(...,
@@ -141,15 +139,15 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 # Key: (backend, example-stem). Value: kind-prefix the raised
 # `UnsupportedConstruct.kinds` must match.
 _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
-    # 1. Structural / categorical declarations (all backends).
-    ("edward2", "schema_chart_parser"): "bundle_decl",
-    ("gen", "schema_chart_parser"): "bundle_decl",
-    ("numpyro", "schema_chart_parser"): "bundle_decl",
-    ("pymc", "schema_chart_parser"): "bundle_decl",
-    ("pyro", "schema_chart_parser"): "bundle_decl",
-    ("stan", "schema_chart_parser"): "bundle_decl",
-    ("turing", "schema_chart_parser"): "bundle_decl",
-    ("webppl", "schema_chart_parser"): "bundle_decl",
+    # 1. Standalone QIEC computations and structural declarations.
+    ("edward2", "schema_chart_parser"): "qiec:capability:search",
+    ("gen", "schema_chart_parser"): "qiec:capability:search",
+    ("numpyro", "schema_chart_parser"): "qiec:capability:search",
+    ("pymc", "schema_chart_parser"): "qiec:capability:search",
+    ("pyro", "schema_chart_parser"): "qiec:capability:search",
+    ("stan", "schema_chart_parser"): "qiec:capability:search",
+    ("turing", "schema_chart_parser"): "qiec:capability:search",
+    ("webppl", "schema_chart_parser"): "qiec:capability:search",
     ("edward2", "pmf"): "composition_decl",
     ("gen", "pmf"): "composition_decl",
     ("numpyro", "pmf"): "composition_decl",
@@ -166,14 +164,14 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "tensor_contraction"): "composition_decl",
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    ("edward2", "term_autoencoder"): "signature_decl",
-    ("gen", "term_autoencoder"): "signature_decl",
-    ("numpyro", "term_autoencoder"): "signature_decl",
-    ("pymc", "term_autoencoder"): "signature_decl",
-    ("pyro", "term_autoencoder"): "signature_decl",
-    ("stan", "term_autoencoder"): "signature_decl",
-    ("turing", "term_autoencoder"): "signature_decl",
-    ("webppl", "term_autoencoder"): "signature_decl",
+    ("edward2", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("gen", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("numpyro", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("pymc", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("pyro", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("stan", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("turing", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("webppl", "term_autoencoder"): "qiec:capability:neural-attachment",
     # 2. A program calling a deduction is refused at the QIEC boundary
     #    on every target: the deduction enumerates its derivations
     #    through a search handler no target runtime carries.

@@ -22,6 +22,7 @@ from quivers.qiec.entries import (
 )
 from quivers.qiec.execution import ExecutionDiagnostic, ExecutionFailure
 from quivers.qiec.module import QiecModule
+from quivers.qiec.structural_runtime import structural_runtime_configuration
 
 
 class Program(nn.Module):
@@ -201,6 +202,7 @@ class Program(nn.Module):
             data=data,
             sites=sites,
             static_arguments=static_arguments,
+            runtime=structural_runtime_configuration(self._checked_module(), self),
             fuel=fuel,
             seed=seed,
         )

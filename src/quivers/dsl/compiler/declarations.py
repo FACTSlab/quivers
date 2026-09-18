@@ -32,6 +32,7 @@ from quivers.core.algebras import (
 )
 from quivers.continuous.boundaries import Discretize, Embed
 from quivers.continuous.flows import ConditionalFlow
+from quivers.continuous.inline import make_inline_distribution
 from quivers.continuous.spaces import ContinuousSpace
 from quivers.core.morphisms import (
     ObservedMorphism,
@@ -1090,6 +1091,48 @@ class _DeclarationsMixin:
             return
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
+        explicit_args = decl.init_family.args if decl.init_family is not None else ()
+        if explicit_args and all(isinstance(arg, float) for arg in explicit_args):
+            network_options = {
+                entry.key
+                for entry in decl.options
+                if entry.key
+                in {"hidden_dim", "n_layers", "param_source", "rank", "temperature"}
+            }
+            if network_options:
+                key = sorted(network_options)[0]
+                entry = find_option(decl.options, key)
+                raise CompileError(
+                    f"kernel morphism {name!r}: option {key!r} configures a "
+                    f"learned parameter source, but explicit literal family "
+                    f"arguments declare a fixed {family}",
+                    entry.line if entry is not None and entry.line else decl.line,
+                    entry.col if entry is not None and entry.col else decl.col,
+                )
+            try:
+                fixed, inputs = make_inline_distribution(
+                    family,
+                    explicit_args,
+                    codomain,
+                )
+            except (TypeError, ValueError) as exc:
+                raise CompileError(
+                    f"kernel morphism {name!r}: cannot construct fixed "
+                    f"{family} family from its literal arguments: {exc}",
+                    decl.line,
+                    decl.col,
+                ) from exc
+            if inputs is not None:
+                raise CompileError(
+                    f"kernel morphism {name!r}: fixed {family} unexpectedly "
+                    f"retained parameter inputs",
+                    decl.line,
+                    decl.col,
+                )
+            fixed = fixed.with_domain(domain)
+            for member in names:
+                self._morphisms[member] = fixed
+            return
         for member in names:
             morph = self._make_continuous_morphism(
                 domain,

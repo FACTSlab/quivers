@@ -36,9 +36,9 @@ What this page does not cover is whether a rendered program's density agrees wit
 | [edward2](semantics/transpile-correctness/edward2.md) | 31 / 46          | 43 / 49    |
 | [gen](semantics/transpile-correctness/gen.md)         | 31 / 46          | 43 / 49    |
 | [jags](semantics/transpile-correctness/jags.md)       | 30 / 46          | 40 / 49    |
-| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 45 / 49    |
+| [numpyro](semantics/transpile-correctness/numpyro.md) | 32 / 46          | 43 / 49    |
 | [pymc](semantics/transpile-correctness/pymc.md)       | 31 / 46          | 43 / 49    |
-| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 45 / 49    |
+| [pyro](semantics/transpile-correctness/pyro.md)       | 32 / 46          | 43 / 49    |
 | [stan](semantics/transpile-correctness/stan.md)       | 32 / 46          | 41 / 49    |
 | [turing](semantics/transpile-correctness/turing.md)   | 31 / 46          | 43 / 49    |
 | [webppl](semantics/transpile-correctness/webppl.md)   | 32 / 46          | 43 / 49    |
@@ -112,9 +112,9 @@ One minimal program per surface construct, so a `no` here isolates the construct
 | `statements/category_decl`              | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `statements/composition_decl`           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `statements/contraction_decl`           | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/decoder_decl`               | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
+| `statements/decoder_decl`               | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | `statements/deduction_decl`             | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
-| `statements/encoder_decl`               | no   | no     | no      | no  | no   | yes     | no   | yes  | no   | no     | no     |
+| `statements/encoder_decl`               | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
 | `statements/export_decl`                | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `statements/let_decl`                   | yes  | yes    | yes     | yes | yes  | yes     | yes  | yes  | yes  | yes    | yes    |
 | `statements/loss_decl`                  | no   | no     | no      | no  | no   | no      | no   | no   | no   | no     | no     |
@@ -182,25 +182,6 @@ One minimal program per surface construct, so a `no` here isolates the construct
 
 Each construct below is refused by all 11 backends, so it marks the boundary of what QVR exports at all rather than a gap in one target. Reaching a target means writing the model differently, not switching language.
 
-### `bundle_decl`, `schema_decl`
-
-Refused for: [`schema_chart_parser`](examples/schema-chart-parser.md).
-
-Reported kinds:
-
-```text
-bundle_decl
-schema_decl
-```
-
-Each backend words it differently; this is bugs's. `bugs` on `schema_chart_parser` reports:
-
-```text
-bugs cannot transpile this program:
-  - the module's `bundle_decl` declaration binds a name to a tuple of `schema` references, so a parser or a chart fold can splice the whole set in at once. It is a compile-time set of grammar rules. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a first-class, nameable set of grammar rules. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. A rule bundle has no counterpart to emit. Parse in quivers and transpile a `program` over the resulting chart weights, or pass the parse in as observed data.
-  - the module's `schema_decl` declaration declares a morphism schema: a family of morphisms quantified over type parameters, instantiated at concrete objects wherever it is used. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a declaration quantified over type parameters: its variables and distributions are all at concrete shapes. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Instantiate the schema at the concrete objects you want and write the result as a `morphism` or a `program` step, which does have a target form.
-```
-
 ### `composition_decl`
 
 Refused for: [`pmf`](examples/pmf.md).
@@ -252,27 +233,6 @@ Each backend words it differently; this is bugs's. `bugs` on `options/option_cal
 the module's `loss_decl` declaration declares a training objective attached to a program, a deduction, an encoder or a decoder. A loss is something an optimiser minimises, not a term of the model's density. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for an optimisation objective separate from the joint it scores. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. If the term belongs in the density, write it as a `score` step inside the program; if it is an optimiser objective, keep it in quivers, which is where training happens.
 ```
 
-### `loss_decl`, `signature_decl`
-
-Refused for: [`term_autoencoder`](examples/term-autoencoder.md).
-
-Reported kinds:
-
-```text
-loss_decl
-signature_decl
-```
-
-Each backend words it differently; this is bugs's. `bugs` on `term_autoencoder` reports:
-
-```text
-bugs cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `loss_decl` declaration declares a training objective attached to a program, a deduction, an encoder or a decoder. A loss is something an optimiser minimises, not a term of the model's density. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for an optimisation objective separate from the joint it scores. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. If the term belongs in the density, write it as a `score` step inside the program; if it is an optimiser objective, keep it in quivers, which is where training happens.
-  - the module's `signature_decl` declaration declares a term signature: the sorts, constructors and binders of an algebraic term language. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for an algebraic term signature: sorts and constructors are not things its model block can declare. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. A term signature has no counterpart to emit. Encode the terms you need as indices into a declared finite object and score those with an ordinary family.
-```
-
 ### `param-source:mlp`
 
 Refused for: [`bnn`](examples/bnn.md), [`deep_markov`](examples/deep-markov.md), [`seq2seq`](examples/seq2seq.md), [`transformer_lm`](examples/transformer-lm.md), [`vae`](examples/vae.md).
@@ -289,6 +249,59 @@ Every backend reports it in the same words. `bugs` on `bnn` reports:
 no transpile target can transpile this program:
   - no transpile target can transpile this program. The refusal is tagged `morphism 'net' draws its parameters from a 'mlp' network. The network's weights are model-internal and appear in neither the wire form nor the sample sites, so no backend can reconstruct the mean the morphism computes at line 33. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.`, which has no explanation registered yet; please report it.
   - a morphism draws its parameters from a `mlp` network, whose weights are not sites the program declares, so no target can reconstruct the parameter it computes. Express the network as explicit sampled weights and a deterministic forward pass, or write the step as a `sample` / `observe` against a closed-form family.
+```
+
+### `qiec:capability:neural-attachment:dec`, `qiec:capability:neural-attachment:dec__nll`, `qiec:capability:neural-attachment:enc`
+
+Refused for: `statements/decoder_decl`.
+
+Reported kinds:
+
+```text
+qiec:capability:neural-attachment:dec
+qiec:capability:neural-attachment:dec__nll
+qiec:capability:neural-attachment:enc
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `statements/decoder_decl` reports:
+
+```text
+bugs cannot transpile this program:
+  - QIEC computation `dec` requires the `neural-attachment` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `dec__nll` requires the `neural-attachment` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+  - QIEC computation `enc` requires the `neural-attachment` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+```
+
+### `qiec:capability:neural-attachment:enc`
+
+Refused for: `statements/encoder_decl`.
+
+Reported kinds:
+
+```text
+qiec:capability:neural-attachment:enc
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `statements/encoder_decl` reports:
+
+```text
+QIEC computation `enc` requires the `neural-attachment` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
+```
+
+### `qiec:capability:neural-attachment:reconstruct`
+
+Refused for: [`term_autoencoder`](examples/term-autoencoder.md).
+
+Reported kinds:
+
+```text
+qiec:capability:neural-attachment:reconstruct
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `term_autoencoder` reports:
+
+```text
+QIEC computation `reconstruct` requires the `neural-attachment` QIEC capability, but BUGS has no semantics-preserving lowering for it. Choose a target whose QIEC capability set includes this feature, or change the computation; silently erasing it would change the program.
 ```
 
 ### `qiec:capability:search:Montague__run`
@@ -321,6 +334,22 @@ Each backend words it differently; this is bugs's. `bugs` on `let_expressions/le
 
 ```text
 QIEC computation `PCFG__run` is a deduction's entry, which enumerates its derivations through a search handler that resumes once per alternative, and BUGS has no runtime for that search. Run the deduction on the reference machine with `run_deduction`, or keep the program's chart out of the transpiled model.
+```
+
+### `qiec:capability:search:lp_parser__run`
+
+Refused for: [`schema_chart_parser`](examples/schema-chart-parser.md).
+
+Reported kinds:
+
+```text
+qiec:capability:search:lp_parser__run
+```
+
+Each backend words it differently; this is bugs's. `bugs` on `schema_chart_parser` reports:
+
+```text
+QIEC computation `lp_parser__run` is a deduction's entry, which enumerates its derivations through a search handler that resumes once per alternative, and BUGS has no runtime for that search. Run the deduction on the reference machine with `run_deduction`, or keep the program's chart out of the transpiled model.
 ```
 
 ### `scan:no-lowering:fwd_cell`
@@ -411,45 +440,6 @@ call:graph:noisy
 
 ```text
 the program calls the computation `noisy` at run time, and BUGS is a graph language: a model is a set of stochastic and deterministic relations between named nodes, with no statement that runs a computation, draws under a site name it computes, or scores a weight it accumulates. A pure computation whose body is a chain of bindings is inlined before the plan reaches this target, so `noisy` is either effectful or recursive. Write its draws and scores as steps of the program, or transpile to a target with a host runtime.
-```
-
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`bugs` on `statements/decoder_decl` reports:
-
-```text
-bugs cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`bugs` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; BUGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
 **`family:BetaBinomial:no-bugs-distribution`**
@@ -621,45 +611,6 @@ bugs cannot transpile this program:
 
 Every program below renders on at least one other backend and is refused here.
 
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`church` on `statements/decoder_decl` reports:
-
-```text
-church cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Church has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Church has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`church` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Church has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
 **`family:BetaBinomial:no-church-target`**
 
 Refused for: [`beta_binomial_ab_test`](examples/beta-binomial-ab-test.md).
@@ -808,45 +759,6 @@ marginalize:ungrouped-over-plate:state
 
 Every program below renders on at least one other backend and is refused here.
 
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`edward2` on `statements/decoder_decl` reports:
-
-```text
-edward2 cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Edward2 has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Edward2 has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`edward2` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Edward2 has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
 **`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
@@ -868,45 +780,6 @@ marginalize:ungrouped-over-plate:state
 ### gen
 
 Every program below renders on at least one other backend and is refused here.
-
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`gen` on `statements/decoder_decl` reports:
-
-```text
-gen cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`gen` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Gen.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
 
 **`marginalize:ungrouped-over-plate:state`**
 
@@ -946,45 +819,6 @@ call:graph:noisy
 
 ```text
 the program calls the computation `noisy` at run time, and JAGS is a graph language: a model is a set of stochastic and deterministic relations between named nodes, with no statement that runs a computation, draws under a site name it computes, or scores a weight it accumulates. A pure computation whose body is a chain of bindings is inlined before the plan reaches this target, so `noisy` is either effectful or recursive. Write its draws and scores as steps of the program, or transpile to a target with a host runtime.
-```
-
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`jags` on `statements/decoder_decl` reports:
-
-```text
-jags cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; JAGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; JAGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`jags` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; JAGS has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
 ```
 
 **`family:no-target-name:LKJCholesky`**
@@ -1070,45 +904,6 @@ numpyro renders every program any other backend renders. Its remaining refusals 
 
 Every program below renders on at least one other backend and is refused here.
 
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`pymc` on `statements/decoder_decl` reports:
-
-```text
-pymc cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; PyMC has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; PyMC has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`pymc` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; PyMC has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
 **`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
@@ -1134,45 +929,6 @@ pyro renders every program any other backend renders. Its remaining refusals are
 ### stan
 
 Every program below renders on at least one other backend and is refused here.
-
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`stan` on `statements/decoder_decl` reports:
-
-```text
-stan cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Stan has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Stan has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`stan` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Stan has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
 
 **`qiec:capability:distribution:noisy`, `qiec:capability:effectful-row:noisy`, `qiec:capability:non-scalar-parameter:noisy`, `qiec:capability:perform:noisy`, `qiec:capability:site:noisy`, `qiec:capability:weight:noisy`**
 
@@ -1228,45 +984,6 @@ stan cannot transpile this program:
 
 Every program below renders on at least one other backend and is refused here.
 
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`turing` on `statements/decoder_decl` reports:
-
-```text
-turing cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Turing.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Turing.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`turing` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; Turing.jl has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
 **`marginalize:ungrouped-over-plate:state`**
 
 Refused for: [`hmm`](examples/hmm.md).
@@ -1287,43 +1004,4 @@ marginalize:ungrouped-over-plate:state
 
 ### webppl
 
-Every program below renders on at least one other backend and is refused here.
-
-**`decoder_decl`, `encoder_decl`**
-
-Refused for: `statements/decoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-decoder_decl
-encoder_decl
-```
-
-`webppl` on `statements/decoder_decl` reports:
-
-```text
-webppl cannot transpile this program:
-  - the module's `decoder_decl` declaration declares a neural decoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; WebPPL has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-  - the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; WebPPL has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
-
-**`encoder_decl`**
-
-Refused for: `statements/encoder_decl`.
-
-Renders on: `numpyro`, `pyro`.
-
-Reported kinds:
-
-```text
-encoder_decl
-```
-
-`webppl` on `statements/encoder_decl` reports:
-
-```text
-the module's `encoder_decl` declaration declares a neural encoder over a `signature`. Its weights are model-internal: they appear in neither the wire form nor the sample sites. A probabilistic-programming target has statements for declaring data and parameters, drawing a variable from a distribution, and adding a term to the log density; WebPPL has none for a network whose weights are not themselves sites. This module also declares no `program`, so there is no probabilistic program here to transpile in its place. Express the network as explicit sampled weights and a deterministic forward pass, so every weight is a site the target can emit.
-```
+webppl renders every program any other backend renders. Its remaining refusals are the language-level gaps of section 2.

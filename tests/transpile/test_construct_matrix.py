@@ -39,6 +39,7 @@ from quivers.transpile._api import (
     CHURCH_LIKE,
     QIEC_SURFACE,
     STAN_LIKE,
+    STRUCTURAL_QIEC,
 )
 from tests.transpile.fixtures import _load
 
@@ -85,6 +86,8 @@ def _expected_unsupported_kinds(fixture: _load.Fixture, backend: str) -> set[str
     effective_tier = tier | QIEC_SURFACE
     if has_program:
         effective_tier |= CATEGORICAL_METADATA_IGNORABLE
+    if "signature_decl" in kinds and kinds & {"encoder_decl", "decoder_decl"}:
+        effective_tier |= STRUCTURAL_QIEC
     return {k for k in kinds if k not in effective_tier}
 
 
@@ -144,6 +147,12 @@ _EXPECTED_ORTHOGONAL_RAISES: dict[tuple[str, str, str], str] = {
     # that adds the per-group log-density to the joint.
     ("bugs", "steps", "marginalize_step"): "marginalize:grouped-fibration",
 }
+
+for _backend in _BACKENDS:
+    for _fixture in ("encoder_decl", "decoder_decl"):
+        _EXPECTED_ORTHOGONAL_RAISES[(_backend, "statements", _fixture)] = (
+            "qiec:capability:neural-attachment"
+        )
 
 
 def _construct_fixtures() -> list[_load.Fixture]:

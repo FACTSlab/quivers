@@ -7,6 +7,8 @@ import pytest
 from quivers.dsl.parser import parse
 from quivers.transpile import UnsupportedConstruct, transpile
 from quivers.dsl.ast_nodes.let_expressions import LetExprBinOp, LetExprVar
+from quivers.dsl.qiec_lowering import lower_qvr_to_qiec
+from quivers.qiec.program_runtime import run_program
 from quivers.transpile.ir import (
     CSIntegerInterval,
     DimStatic,
@@ -69,6 +71,14 @@ program prog : Obs -> Obs
 export prog
 """
 
+DETERMINISTIC = """\
+object Obs : Real 1
+program prog : Obs -> Obs
+    let shifted = x + 2.0
+    return shifted
+export prog
+"""
+
 
 def _kinds(body: tuple[object, ...]) -> list[str]:
     """The node kinds of a plan body, in order."""
@@ -106,6 +116,28 @@ def test_the_plan_reads_every_statement_off_the_computation() -> None:
     ]
     assert all(isinstance(item, IRDataInput) for item in ir.inputs)
     assert ir.inputs[1].plate.batch_dims == (DimStatic(size=5, name="Resp"),)
+
+
+def test_target_plan_optimization_can_be_disabled() -> None:
+    """The checked graph remains executable without a target plan."""
+
+    source = parse(DETERMINISTIC)
+    optimized = Lower().forward(source)
+    unoptimized = Lower().forward(source, optimize=False)
+
+    assert optimized.body
+    assert unoptimized.body == ()
+    assert unoptimized.name == optimized.name == "prog"
+    assert unoptimized.module == optimized.module
+
+    reference = run_program(
+        lower_qvr_to_qiec(source),
+        "prog",
+        data={"obs": (0.0,), "x": 3.0},
+        sites={},
+    )
+    assert reference.value == 5.0
+    assert reference.log_joint == 0.0
 
 
 def test_a_grouped_marginalization_states_its_fibration_on_the_observation() -> None:

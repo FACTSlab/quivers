@@ -28,6 +28,7 @@ from quivers.qiec.effects import (
 from quivers.qiec.execution import (
     ExecutionResult,
     RuntimeConfiguration,
+    RuntimeProvider,
     RuntimeSelection,
     TraceObserver,
     run_named,
@@ -571,6 +572,7 @@ def run_program(
     static_arguments: Sequence[StaticArgument] = (),
     fuel: int | None = None,
     observer: TraceObserver | None = None,
+    providers: tuple[RuntimeProvider, ...] = (),
 ) -> ProgramRun:
     """Run a program with every site replayed and score its log joint.
 
@@ -599,6 +601,8 @@ def run_program(
         A step budget for the run.
     observer : TraceObserver | None
         A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
 
     Returns
     -------
@@ -635,6 +639,7 @@ def run_program(
         static_arguments=static_arguments,
         fuel=fuel,
         observer=observer,
+        providers=providers,
     )
 
 
@@ -648,6 +653,7 @@ def sample_program(
     static_arguments: Sequence[StaticArgument] = (),
     fuel: int | None = None,
     observer: TraceObserver | None = None,
+    providers: tuple[RuntimeProvider, ...] = (),
 ) -> ProgramRun:
     """Run a program forward, drawing every site it is not given.
 
@@ -675,6 +681,8 @@ def sample_program(
         A step budget for the run.
     observer : TraceObserver | None
         A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
 
     Returns
     -------
@@ -712,6 +720,7 @@ def sample_program(
         static_arguments=static_arguments,
         fuel=fuel,
         observer=observer,
+        providers=providers,
     )
 
 
@@ -727,6 +736,7 @@ def _run_wrapped(
     static_arguments: Sequence[StaticArgument],
     fuel: int | None,
     observer: TraceObserver | None,
+    providers: tuple[RuntimeProvider, ...],
 ) -> ProgramRun:
     """Run a program's wrapper under the core provider.
 
@@ -754,6 +764,8 @@ def _run_wrapped(
         A step budget for the run.
     observer : TraceObserver | None
         A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
 
     Returns
     -------
@@ -779,7 +791,8 @@ def _run_wrapped(
         configured[PARAMS_HANDLER] = {"kind": "param", "values": dict(parameters or {})}
     configured.update(foreign_handler_configuration(module))
     runtime = RuntimeConfiguration(
-        (RuntimeSelection("core", {"handlers": configured}),)
+        (RuntimeSelection("core", {"handlers": configured}),),
+        providers,
     )
     result = run_named(
         extended,

@@ -1632,6 +1632,16 @@ def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
         need not walk every body to find them.
     """
     reachable = m.reachable_computations(module)
+    standalone_deduction_roots = (
+        {
+            computation.id
+            for computation in module.computations
+            if _is_deduction_origin(computation.origin)
+            and computation.name.endswith("__run")
+        }
+        if not module.entries
+        else set()
+    )
     values = {
         field.name: _convert(getattr(module, field.name))
         for field in fields(module)
@@ -1646,6 +1656,7 @@ def lower_qiec_ir(module: QiecModule) -> IRQiecModule:
             for computation in module.computations
             if not _is_deduction_origin(computation.origin)
             or computation.id in reachable
+            or computation.id in standalone_deduction_roots
         )
     )
     values["programs"] = tuple(
@@ -1704,6 +1715,7 @@ type QiecFeature = Literal[
     "kernel-matrix",
     "affine-map",
     "table-map",
+    "neural-attachment",
     "search",
     "reduction",
     "rowwise",
@@ -2015,6 +2027,8 @@ def _body_features(node: IRQiecComputation) -> set[QiecFeature]:
             visit(item.then)
         elif isinstance(item, IRQiecPerform):
             required.add("perform")
+            if item.request.effect.name == "Compute":
+                required.add("neural-attachment")
             for argument in item.request.arguments:
                 value(argument)
         elif isinstance(item, IRQiecHandle):
@@ -2213,7 +2227,13 @@ def analyze_qiec_capabilities(
         else lower_qiec_ir(module_or_ir)
     )
     supported = capabilities or capabilities_for_target(target)
-    diagnostics: list[QiecCapabilityDiagnostic] = []
+    diagnostics: list[QiecCapabilityDiagnostic] = list(
+        host_runtime_capability_diagnostics(
+            module,
+            target,
+            capabilities=supported,
+        )
+    )
     if not supported.supports("declarations") and (
         module.index_sorts or module.families or module.effects or module.handlers
     ):
@@ -2237,18 +2257,13 @@ def analyze_qiec_capabilities(
     # runtime is never asked to carry them.
     programs = module.program_computations()
     for computation in module.computations:
-        if _is_deduction_origin(computation.origin):
-            # A deduction enumerates derivations through a search
-            # handler no host runtime carries.
-            diagnostics.append(
-                QiecCapabilityDiagnostic(
-                    target=target,
-                    feature="search",
-                    computation=computation.name,
-                    origin=computation.origin,
-                    detail="has no search runtime to enumerate its derivations",
-                )
-            )
+        if _is_deduction_origin(computation.origin) or _is_structural_origin(
+            computation.origin
+        ):
+            # These computations have one canonical entry-level diagnostic,
+            # selected by ``host_runtime_capability_diagnostics``. Walking
+            # every generated helper would make the editor and transpiler
+            # disagree about which source construct is unsupported.
             continue
         if computation.id.text in programs:
             continue
@@ -2285,6 +2300,186 @@ def analyze_qiec_capabilities(
     return tuple(diagnostics)
 
 
+def _is_structural_origin(origin: SourceOrigin | IRQiecSourceOrigin) -> bool:
+    """Whether an origin belongs to a structural neural declaration."""
+
+    path = origin.structural_path
+    return bool(path) and path[0] == "structural"
+
+
+def _reachable_ir_computations(
+    module: IRQiecModule,
+    roots: set[str],
+) -> frozenset[str]:
+    """Close ``roots`` over the IR computation call graph."""
+
+    graph = {
+        computation.id.text: _callees(computation.body)
+        for computation in module.computations
+    }
+    found: set[str] = set()
+    pending = list(roots)
+    while pending:
+        identity = pending.pop()
+        if identity in found or identity not in graph:
+            continue
+        found.add(identity)
+        pending.extend(graph[identity])
+    return frozenset(found)
+
+
+def _host_runtime_root_ids(module: IRQiecModule) -> frozenset[str]:
+    """Select the search and neural entries a target must preserve.
+
+    Program modules retain every structural declaration because those
+    declarations are independently executable. Standalone structural modules
+    diagnose their loss entries, falling back to their components when no loss
+    exists. Standalone deductions diagnose only their public ``__run`` entry.
+    """
+
+    structural = {
+        computation.id.text
+        for computation in module.computations
+        if _is_structural_origin(computation.origin)
+    }
+    if module.entries:
+        programs = {identity.text for identity in module.programs}
+        roots = _reachable_ir_computations(module, programs)
+        return frozenset((*roots, *structural))
+    deduction_roots = {
+        computation.id.text
+        for computation in module.computations
+        if _is_deduction_origin(computation.origin)
+        and computation.name.endswith("__run")
+    }
+    structural_losses = {
+        computation.id.text
+        for computation in module.computations
+        if computation.origin.structural_path[:2] == ("structural", "loss")
+    }
+    return frozenset(
+        (*deduction_roots, *(structural_losses if structural_losses else structural))
+    )
+
+
+def _core_host_runtime_root_ids(module: QiecModule) -> frozenset[StableId]:
+    """Select host-runtime roots without projecting the core into IR."""
+
+    structural = {
+        computation.id
+        for computation in module.computations
+        if _is_structural_origin(computation.origin)
+    }
+    if module.entries:
+        return frozenset((*m.reachable_computations(module), *structural))
+    deduction_roots = {
+        computation.id
+        for computation in module.computations
+        if _is_deduction_origin(computation.origin)
+        and computation.name.endswith("__run")
+    }
+    structural_losses = {
+        computation.id
+        for computation in module.computations
+        if computation.origin.structural_path[:2] == ("structural", "loss")
+    }
+    return frozenset(
+        (*deduction_roots, *(structural_losses if structural_losses else structural))
+    )
+
+
+def host_runtime_capability_diagnostics(
+    module_or_ir: QiecModule | IRQiecModule,
+    target: str,
+    *,
+    capabilities: QiecTargetCapabilities | None = None,
+) -> tuple[QiecCapabilityDiagnostic, ...]:
+    """Report unavailable search and neural runtime boundaries.
+
+    This is the shared entry-root policy used by transpilation, the CLI, the
+    REPL, the TUI, and the language server. Keeping it beside the general
+    capability analyzer prevents those surfaces from diagnosing different
+    generated helpers for the same source declaration.
+    """
+
+    supported = capabilities or capabilities_for_target(target)
+    if isinstance(module_or_ir, QiecModule):
+        candidates = tuple(
+            computation
+            for computation in module_or_ir.computations
+            if _is_deduction_origin(computation.origin)
+            or _is_structural_origin(computation.origin)
+        )
+        if not candidates:
+            return ()
+        roots = _core_host_runtime_root_ids(module_or_ir)
+        diagnostics: list[QiecCapabilityDiagnostic] = []
+        for computation in candidates:
+            if computation.id not in roots:
+                continue
+            feature: QiecFeature | None = None
+            detail = "has no semantics-preserving lowering for that feature"
+            if _is_deduction_origin(computation.origin) and computation.name.endswith(
+                "__run"
+            ):
+                feature = "search"
+                detail = "has no search runtime to enumerate its derivations"
+            elif _is_structural_origin(computation.origin):
+                feature = "neural-attachment"
+            if feature is None or supported.supports(feature):
+                continue
+            diagnostics.append(
+                QiecCapabilityDiagnostic(
+                    target=target,
+                    feature=feature,
+                    computation=computation.name,
+                    origin=cast(IRQiecSourceOrigin, _convert(computation.origin)),
+                    detail=detail,
+                )
+            )
+        return tuple(diagnostics)
+
+    module = module_or_ir
+    candidates = tuple(
+        computation
+        for computation in module.computations
+        if _is_deduction_origin(computation.origin)
+        or _is_structural_origin(computation.origin)
+    )
+    # Nearly every transpiled module has only ordinary QIEC computations.
+    # Avoid decoding its (potentially large) Didactic term graph merely to
+    # discover that no host-runtime boundary exists. This guard keeps the
+    # shared CLI/LSP/transpiler check constant-time on that common path.
+    if not candidates:
+        return ()
+    roots = _host_runtime_root_ids(module)
+    diagnostics: list[QiecCapabilityDiagnostic] = []
+    for computation in candidates:
+        if computation.id.text not in roots:
+            continue
+        feature: QiecFeature | None = None
+        detail = "has no semantics-preserving lowering for that feature"
+        if _is_deduction_origin(computation.origin) and computation.name.endswith(
+            "__run"
+        ):
+            feature = "search"
+            detail = "has no search runtime to enumerate its derivations"
+        elif _is_structural_origin(computation.origin):
+            feature = "neural-attachment"
+        if feature is None or supported.supports(feature):
+            continue
+        diagnostics.append(
+            QiecCapabilityDiagnostic(
+                target=target,
+                feature=feature,
+                computation=computation.name,
+                origin=computation.origin,
+                detail=detail,
+            )
+        )
+    return tuple(diagnostics)
+
+
 def _handled_ids(node: IRQiecComputation) -> set[str]:
     out: set[str] = set()
     if isinstance(node, IRQiecHandle):
@@ -2308,4 +2503,9 @@ def _handled_ids(node: IRQiecComputation) -> set[str]:
 __all__ = [
     name for name in globals() if name.startswith("IRQiec") or name.startswith("Qiec")
 ]
-__all__ += ["analyze_qiec_capabilities", "capabilities_for_target", "lower_qiec_ir"]
+__all__ += [
+    "analyze_qiec_capabilities",
+    "capabilities_for_target",
+    "host_runtime_capability_diagnostics",
+    "lower_qiec_ir",
+]

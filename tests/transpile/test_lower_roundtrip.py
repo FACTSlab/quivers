@@ -25,9 +25,14 @@ import pathlib
 import pytest
 
 from quivers.dsl.ast_nodes import (
+    DecoderDecl,
+    DefineDecl,
     DrawArgName,
+    EncoderDecl,
+    ExprParser,
     LetExprVar,
     LetStep,
+    LossDecl,
     MarginalizeStep,
     Module,
     ObserveStep,
@@ -36,6 +41,7 @@ from quivers.dsl.ast_nodes import (
     ReturnStep,
     SampleStep,
     ScoreStep,
+    SignatureDecl,
 )
 from quivers.dsl.ast_nodes.declarations import ExportDecl
 from quivers.dsl.parser import parse
@@ -69,7 +75,7 @@ _GALLERY_DIR = pathlib.Path(__file__).resolve().parents[2] / ("docs/examples/sou
 
 
 def _gallery_paths() -> list[pathlib.Path]:
-    """Return every `.qvr` gallery example with a `ProgramDecl`."""
+    """Return every executable `.qvr` gallery example."""
     paths: list[pathlib.Path] = []
     for path in sorted(_GALLERY_DIR.glob("*.qvr")):
         src = path.read_text()
@@ -77,7 +83,18 @@ def _gallery_paths() -> list[pathlib.Path]:
             module = parse(src)
         except Exception:  # noqa: BLE001
             continue
-        if any(isinstance(s, ProgramDecl) for s in module.statements):
+        if any(
+            isinstance(statement, ProgramDecl)
+            or (
+                isinstance(statement, DefineDecl)
+                and isinstance(statement.expr, ExprParser)
+            )
+            or isinstance(
+                statement,
+                (SignatureDecl, EncoderDecl, DecoderDecl, LossDecl),
+            )
+            for statement in module.statements
+        ):
             paths.append(path)
     return paths
 
@@ -93,8 +110,7 @@ GALLERY = _gallery_paths()
 #: fails here and asks to be lowered for real, and a refusal that
 #: changes kind fails rather than passing under the old reason.
 #:
-#: `program:absent` covers the modules that declare no probabilistic
-#: program at all: a schema, a term signature, a composition rule. The
+#: `program:absent` covers modules with no executable QIEC entry. The
 #: rest name a construct the lowering has no form for, and each is the
 #: same kind the renderers report for it.
 _EXPECTED_LOWER_REFUSAL: dict[str, str] = {
@@ -105,10 +121,10 @@ _EXPECTED_LOWER_REFUSAL: dict[str, str] = {
     "lstm_lm": "scan:no-lowering",
     "montague_nli": "qiec:capability:search",
     "pmf": "program:absent",
-    "schema_chart_parser": "program:absent",
+    "schema_chart_parser": "qiec:capability:search",
     "seq2seq": "param-source:mlp",
     "tensor_contraction": "program:absent",
-    "term_autoencoder": "program:absent",
+    "term_autoencoder": "qiec:capability:neural-attachment",
     "transformer_lm": "param-source:mlp",
     "vae": "param-source:mlp",
     "vanilla_rnn_lm": "scan:no-lowering",
@@ -120,7 +136,6 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
     """Lower the gallery example and verify the structural invariants."""
     src = path.read_text()
     module = parse(src)
-    program = _pick_program(module)
     expected = _EXPECTED_LOWER_REFUSAL.get(path.stem)
     if expected is not None:
         with pytest.raises(UnsupportedConstruct) as exc_info:
@@ -134,6 +149,7 @@ def test_lower_roundtrip(path: pathlib.Path) -> None:
             f"is the thing to look at."
         )
         return
+    program = _pick_program(module)
     ir = Lower().forward(module)
 
     # Structural invariants on the IR shape.

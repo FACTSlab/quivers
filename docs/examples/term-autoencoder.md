@@ -107,6 +107,8 @@ loss reconstruct [weight=1.0, on=decoder(Dec)]
 
 A `loss` declaration registers a weighted scalar head in the module's [`LossRegistry`](../api/structural/losses.md#quivers.structural.losses.LossRegistry). The body is compiled as a let-expression closure over an environment: `Enc` and `Dec` resolve to the compiled module's own artifacts, while `term` is supplied by the caller at evaluation time. The `on=decoder(Dec)` option attaches the entry to a named site, so a training driver may evaluate it selectively via [`evaluate_on`](../api/structural/losses.md#quivers.structural.losses.LossRegistry.evaluate_on); `weight=1.0` sets the multiplier applied by [`evaluate`](../api/structural/losses.md#quivers.structural.losses.LossRegistry.evaluate).
 
+The same declarations lower to a checked QIEC graph. `STLC` becomes an opaque term family indexed by `Term`, `Type`, and `Name`; `Enc`, `Dec`, and `Dec__nll` become typed host-computation requests; and `reconstruct` calls `Enc` followed by `Dec__nll`. `program.run("reconstruct", term)` supplies the compiled PyTorch modules for those requests and validates their host results against the checked types. Its result is the same tensor as `losses.evaluate({"term": term})`, including the autograd edges to encoder and decoder parameters. The encoder and decoder are registered submodules, so `program.parameters()` and `program.state_dict()` expose their learned tensors. Targets without a structural provider reject the named computation under `qiec:capability:neural-attachment`.
+
 ## Try it
 
 ### Compile, encode, decode
