@@ -33,7 +33,22 @@ if TYPE_CHECKING:
 
 
 def _tensor_value(type_: TypeExpr, value: object) -> bool:
-    """Return whether a torch tensor has the checked tensor shape."""
+    """Return whether a torch tensor has the checked tensor shape.
+
+    Parameters
+    ----------
+    type_
+        The closed QIEC type whose tensor shape supplies the expected rank
+        and any literal dimensions.
+    value
+        The host value to validate.
+
+    Returns
+    -------
+    bool
+        Whether ``value`` is a tensor matching every statically known
+        dimension of ``type_``.
+    """
 
     shape = tensor_shape(type_)
     if shape is None or not isinstance(value, torch.Tensor):
@@ -50,7 +65,18 @@ def _tensor_value(type_: TypeExpr, value: object) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class StructuralRuntimeProvider(RuntimeProvider):
-    """PyTorch components and validators for one structural invocation."""
+    """PyTorch components and validators for one structural invocation.
+
+    Parameters
+    ----------
+    runtimes
+        The host handlers implementing the module's structural computations.
+    term_types
+        Type identities whose host values are structural :class:`Term`
+        instances.
+    name
+        The provider name recorded in execution results and traces.
+    """
 
     runtimes: tuple[RuntimeHandler, ...]
     term_types: frozenset[TypeId]
@@ -73,7 +99,20 @@ class StructuralRuntimeProvider(RuntimeProvider):
             attachments.bind_handler(runtime)
 
     def validator_for(self, type_: TypeExpr) -> RuntimeValidator | None:
-        """Return the validator for structural terms and torch values."""
+        """Return the validator for structural terms and torch values.
+
+        Parameters
+        ----------
+        type_
+            The closed QIEC type a host argument or result must inhabit.
+
+        Returns
+        -------
+        RuntimeValidator | None
+            A predicate for scalar weights, structural terms, tensors, and
+            structural products, or ``None`` when the provider does not cover
+            ``type_``.
+        """
 
         if type_ == REAL or type_ == LOG_WEIGHT:
             return lambda value: (
@@ -99,7 +138,19 @@ class StructuralRuntimeProvider(RuntimeProvider):
                 return None
 
             def product(value: object) -> bool:
-                """Check a structural product componentwise."""
+                """Check a structural product componentwise.
+
+                Parameters
+                ----------
+                value
+                    The host value to validate against the product type.
+
+                Returns
+                -------
+                bool
+                    Whether ``value`` is a tuple whose components pass the
+                    corresponding validators.
+                """
 
                 return (
                     isinstance(value, tuple)
@@ -115,7 +166,20 @@ class StructuralRuntimeProvider(RuntimeProvider):
 
 
 def _is_term_type(type_: TypeExpr, identities: frozenset[TypeId]) -> bool:
-    """Return whether a type is one of the module's structural families."""
+    """Return whether a type is one of the module's structural families.
+
+    Parameters
+    ----------
+    type_
+        The closed QIEC type to inspect.
+    identities
+        Type-constructor identities belonging to structural term families.
+
+    Returns
+    -------
+    bool
+        Whether ``type_`` applies one of those family constructors.
+    """
 
     return isinstance(type_, TypeApplication) and type_.constructor.id in identities
 
@@ -124,7 +188,21 @@ def _validator_for(
     type_: TypeExpr,
     term_types: frozenset[TypeId],
 ) -> RuntimeValidator | None:
-    """Return the structural validator for one closed runtime type."""
+    """Return the structural validator for one closed runtime type.
+
+    Parameters
+    ----------
+    type_
+        The closed QIEC type to validate at the host boundary.
+    term_types
+        Type identities whose host values are structural terms.
+
+    Returns
+    -------
+    RuntimeValidator | None
+        The matching predicate, or ``None`` when the structural provider does
+        not cover ``type_``.
+    """
 
     provider = StructuralRuntimeProvider((), term_types)
     return provider.validator_for(type_)
@@ -137,7 +215,24 @@ def structural_handler_definition(
     instance_name: str,
     computation_name: str,
 ) -> HandlerDef:
-    """Build the stable checked handler signature for one neural attachment."""
+    """Build the stable checked handler signature for one neural attachment.
+
+    Parameters
+    ----------
+    effect
+        The applied ``Compute`` interface served by the attachment.
+    result
+        The closed result type returned by the host component.
+    instance_name
+        The source-derived effect-instance name.
+    computation_name
+        The source-derived structural computation name.
+
+    Returns
+    -------
+    HandlerDef
+        A stable foreign handler declaration for the component.
+    """
 
     runtime = compute_handler(
         lambda argument, _context: argument,
@@ -153,7 +248,22 @@ def structural_handler_definition(
 
 
 def _loss_value(program: Program, name: str, argument: object) -> torch.Tensor:
-    """Evaluate one named loss entry under its term argument."""
+    """Evaluate one named loss entry under its term argument.
+
+    Parameters
+    ----------
+    program
+        The compiled program containing the structural loss registry.
+    name
+        The loss entry to evaluate.
+    argument
+        The structural term supplied to the loss body and optional weight.
+
+    Returns
+    -------
+    torch.Tensor
+        The weighted loss value, retaining its autograd graph.
+    """
 
     registry = program.losses
     entry = next(item for item in registry.entries if item.name == name)
@@ -173,7 +283,28 @@ def _component_function(
     program: Program,
     instance: NamedEffectInstance,
 ) -> Callable[[object, ClauseContext], object]:
-    """Resolve one structural instance to its compiled PyTorch operation."""
+    """Resolve one structural instance to its compiled PyTorch operation.
+
+    Parameters
+    ----------
+    program
+        The compiled container supplying encoder, decoder, and loss objects.
+    instance
+        The QIEC effect instance whose source provenance names the component.
+
+    Returns
+    -------
+    Callable[[object, ClauseContext], object]
+        The host operation installed as the instance's ``Compute.run``
+        clause.
+
+    Raises
+    ------
+    KeyError
+        If the structural registry has no component named by ``instance``.
+    ValueError
+        If the instance lacks structural provenance or names an unknown role.
+    """
 
     path = instance.origin.structural_path
     if len(path) < 4 or path[0] != "structural":
@@ -191,7 +322,26 @@ def _component_function(
         decoder = program.decoders[decoder_name]
 
         def nll(argument: object, _context: ClauseContext) -> torch.Tensor:
-            """Score one observed term and code as negative log likelihood."""
+            """Score one observed term and code as negative log likelihood.
+
+            Parameters
+            ----------
+            argument
+                A ``(term, code)`` pair supplied to the decoder likelihood.
+            _context
+                The enclosing clause context, unused by this pure host call.
+
+            Returns
+            -------
+            torch.Tensor
+                The decoder's negative log probability, retaining its
+                autograd graph.
+
+            Raises
+            ------
+            TypeError
+                If ``argument`` is not a pair.
+            """
 
             if not isinstance(argument, tuple) or len(argument) != 2:
                 raise TypeError("decoder negative log likelihood takes (term, code)")
@@ -208,7 +358,26 @@ def structural_runtime_provider(
     module: QiecModule,
     program: Program,
 ) -> StructuralRuntimeProvider:
-    """Build the typed neural-attachment provider for a compiled module."""
+    """Build the typed neural-attachment provider for a compiled module.
+
+    Parameters
+    ----------
+    module
+        The checked QIEC module whose structural instances need handlers.
+    program
+        The compiled container supplying the corresponding PyTorch objects.
+
+    Returns
+    -------
+    StructuralRuntimeProvider
+        A provider containing one validated runtime handler per structural
+        instance.
+
+    Raises
+    ------
+    TypeError
+        If a structural component returns a type with no host validator.
+    """
 
     term_types = frozenset(
         family.type_constructor.id
@@ -249,7 +418,21 @@ def structural_runtime_configuration(
     module: QiecModule,
     program: Program,
 ) -> RuntimeConfiguration:
-    """Return the standard runtime configuration for structural entries."""
+    """Return the standard runtime configuration for structural entries.
+
+    Parameters
+    ----------
+    module
+        The checked QIEC module whose structural entries may be invoked.
+    program
+        The compiled container supplying their PyTorch attachments.
+
+    Returns
+    -------
+    RuntimeConfiguration
+        A configuration selecting the structural provider when the module has
+        structural runtimes, or no providers otherwise.
+    """
 
     provider = structural_runtime_provider(module, program)
     return RuntimeConfiguration(
