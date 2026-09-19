@@ -1,5 +1,11 @@
 # Docker images for the transpile numeric-equivalence tier
 
+QVR v0.19 has eleven named transpilation targets: Pyro, NumPyro, PyMC,
+Edward2, Turing, Gen, WebPPL, Church, Stan, BUGS, and JAGS. These images test
+the part of each target's declared capability boundary that can be executed in
+CI. They do not widen that boundary: `qvr check --target TARGET` remains the
+source-level gate for a reachable QIEC computation graph.
+
 Tier 3 of the transpile test suite runs each backend's transpiled
 output through the real target runtime to verify
 [log-density equivalence][tests.transpile._equivalence.assert_log_density_match]
@@ -34,6 +40,12 @@ cache hit; first build takes 5–20 minutes depending on bandwidth
 
 Church has no Tier-3 image: no maintained interpreter exposes a
 programmable joint log-density for a `(sample, observe)` program.
+
+The eight runtime-ABI targets (Pyro, NumPyro, PyMC, Edward2, Turing, Gen,
+WebPPL, and Church) can lower reachable QIEC computations. Stan accepts closed
+monomorphic effect-free scalar functions; BUGS and JAGS accept their measured
+program subset. Unsupported calls, effects, handlers, or value forms must fail
+with a stable capability diagnostic before a probe is launched.
 
 ## Test gating
 
