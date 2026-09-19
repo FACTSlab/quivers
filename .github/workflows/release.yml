@@ -63,7 +63,8 @@ jobs:
         uses: pypa/cibuildwheel@v4.1.0
         env:
           CIBW_BUILD: cp314-*
-          CIBW_ARCHS: auto
+          CIBW_ARCHS: auto64
+          CIBW_SKIP: "*-musllinux_*"
           CIBW_TEST_REQUIRES: >-
             didactic==0.17.1
             panproto==0.74.4
