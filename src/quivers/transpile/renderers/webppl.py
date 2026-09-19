@@ -33,6 +33,7 @@ from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
+    IRQiecValueExpr,
     LetExprAffineMap,
     ConstraintSpec,
     Dim,
@@ -46,6 +47,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -69,6 +71,14 @@ from quivers.transpile.renderers._base import (
     mixture_component_count,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import (
+    graft_javascript_statements,
+    javascript_call_source,
+    javascript_operations_source,
+    qiec_helper_families_used,
+    value_argument_source,
+    render_computations_dynamic,
+)
 from quivers.transpile.renderers._javascript_helpers import (
     render_let_expr_javascript,
 )
@@ -77,8 +87,13 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
 )
+
+
+#: The model-body name of the native operation table.
+_OPERATIONS = "_qvr_qiec_operations"
 
 
 class _JsLetCtx:
@@ -276,6 +291,7 @@ class WebPPLRenderer(RendererBase):
             # although the family itself is scored through `.score`
             # rather than through the helper path.
             or _ir_uses_family(ir.body, "Categorical")
+            or qiec_helper_families_used(ir, self.target)
         ):
             _graft_runtime_webppl_helper(ctx.sb, self, "prog")
         var_decl = self._fresh(ctx, "vd")
@@ -302,10 +318,13 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.edge(var_decl, declarator, "child_of")
         ctx.sb.edge("prog", var_decl, "child_of")
         self._body_vid = body
+        self._module = ir.module
+        self._operations_bound: set[str] = set()
         # Walk the body. Inputs were registered above; declare is a
         # no-op for WebPPL, so we dispatch only the body nodes.
         for node in ir.body:
             self._dispatch_node(ctx, node)
+        render_computations_dynamic(ctx.sb, ir, target=self.target, root="prog")
         return ctx.sb.build()
 
     # ----- declare dispatch -----
@@ -840,6 +859,16 @@ class WebPPLRenderer(RendererBase):
             )
         finally:
             self._group_plate_axes = prev_group
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=plates,
+            target=self.target,
+        )
         # An ungrouped block shares one latent across the body's rows,
         # so each class's per-row log-likelihoods are accumulated to a
         # scalar before the weight is added and the reduction runs
@@ -852,6 +881,17 @@ class WebPPLRenderer(RendererBase):
         ):
             name = f"{prefix}_t_{position}"
             term_vid = self._ident(ctx, term)
+            if fibration is not None:
+                via, group = fibration
+                term_vid = self._call(
+                    ctx,
+                    self._ident(ctx, "_qvr_group_sums"),
+                    (
+                        term_vid,
+                        self._ident(ctx, via),
+                        self._dim_size_value(ctx, group),
+                    ),
+                )
             if accumulate_rows:
                 term_vid = self._call(
                     ctx,
@@ -1316,6 +1356,9 @@ class WebPPLRenderer(RendererBase):
         if isinstance(node, IRScore):
             self._emit_score(ctx, node)
             return
+        if isinstance(node, IRCall):
+            self._emit_call(ctx, node)
+            return
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node)
             return
@@ -1325,6 +1368,54 @@ class WebPPLRenderer(RendererBase):
         raise UnsupportedConstruct(
             "qvr-webppl",
             [f"node:{type(node).__name__}"],
+        )
+
+    def _emit_call(self, ctx: _RenderCtx, node: IRCall) -> None:
+        """Place a call of a module computation in the model body.
+
+        The first call in a body binds the native operation table,
+        under which the callee's draws are `sample` sites and its
+        scores `factor` terms; an argument that is not a bare name is
+        bound first, so the call reads names alone.
+
+        Parameters
+        ----------
+        ctx : _RenderCtx
+            The render context.
+        node : IRCall
+            The call.
+        """
+        names: list[str] = []
+        source = ""
+        for position, argument in enumerate(node.arguments):
+            if isinstance(argument, LetExprVar):
+                names.append(argument.name)
+                continue
+            bound = f"{node.name}_arg{position}"
+            if isinstance(argument, IRQiecValueExpr):
+                source += value_argument_source(
+                    "javascript",
+                    "webppl",
+                    bound,
+                    argument.value,
+                    lambda local: local,
+                    body=self._body_vid,
+                    defined=self._operations_bound,
+                )
+                names.append(bound)
+                continue
+            rhs = render_let_expr_javascript(
+                _JsLetCtx(ctx.sb, lambda p: self._fresh(ctx, p), self._cards),
+                _reduce_last_axis(argument, self._name_event_rank),
+            )
+            self._emit_var_decl(ctx, self._body_vid, bound, rhs)
+            names.append(bound)
+        if self._body_vid not in self._operations_bound:
+            self._operations_bound.add(self._body_vid)
+            source += javascript_operations_source(node, self._module, _OPERATIONS)
+        source += javascript_call_source(node, self._module, tuple(names), _OPERATIONS)
+        graft_javascript_statements(
+            ctx.sb, source, self._body_vid, f"qiec_call_{node.name}"
         )
 
     def _emit_deterministic(

@@ -6,6 +6,7 @@ Quivers is a functional probabilistic programming language for PyTorch. The synt
 
 - **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`Sample`, `Score`, `Marginal`, `Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ...` followed by an indented body.
 - **Shared substrate for inference, deduction, and structural compression.** A CKY parser written as a `deduction` block, a transformer-as-encoder over a `signature` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can thus compose with each other.
+- **Indexed families and algebraic effects have a typed core.** QVR has GADT-style indexed constructors, lexical effect instances, row-polymorphic computations, handlers, and resumption grades, and every executable declaration, a probabilistic `program` included, checks and lowers to the stable [Quivers Indexed Effect Core](developer/qiec.md). Eight host-language transpilers emit the complete computation graph through a common runtime ABI; Stan, BUGS, and JAGS accept the closed pure scalar fragment and report precise capability diagnostics for other forms.
 - **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values along which models can be transported. The compiler checks their source and target types; the algebraic laws remain assumptions of each instance.
 
 The probabilistic-programming surface also includes:
@@ -60,10 +61,12 @@ print(fit.__name__)
 
 - **[Installation](getting-started/installation.md)** for setup.
 - **[Quickstart](getting-started/quickstart.md)** for a working model in five minutes.
-- **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: seven chapters from linear regression through hierarchical models, sequence models, and inference-algorithm choice, with Pyro / NumPyro / Stan equivalents side-by-side.
-- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: seven chapters covering the typed categorical API.
-- **[Examples gallery](examples/index.md)**: 46 end-to-end models grouped by family.
+- **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: thirteen chapters from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks.
+- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: nine chapters covering the typed categorical API.
+- **[QVR language reference](reference/qvr/index.md)** for v0.19 syntax, type-and-effect rules, program elaboration, entry execution, runtime providers, LSP behavior, and grammar ownership.
+- **[Examples gallery](examples/index.md)** for end-to-end models grouped by statistical family and language feature, including the integrated [Amortized Bayesian Semantics](examples/amortized-bayesian-semantics.md) case study.
 - **[Conceptual guides](guides/index.md)** for feature-area deep dives.
+- **[Quivers Indexed Effect Core](developer/qiec.md)** for kernel internals, serialization, and the target runtime ABI.
 - **[API reference](api/index.md)** for the typed Python API.
 - **[Denotational semantics](semantics/index.md)** for the formal meaning of every well-typed program.
 

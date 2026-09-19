@@ -65,16 +65,21 @@ A few features distinguish the QVR surface from those alternatives:
 ```mermaid
 flowchart TB
     SRC[".qvr source"]
-    PARSE["tree-sitter parse via panproto-grammars-all"]
-    AST["AST nodes (didactic dx.Model)"]
-    COMPILER["Compiler statement dispatch"]
-    PROG["Program (nn.Module) ready to train"]
-    SRC --> PARSE --> AST --> COMPILER --> PROG
+    PARSE["tree-sitter parse from the packaged current grammar"]
+    AST["typed source AST (didactic dx.Model)"]
+    OLD["probabilistic compiler"]
+    QIEC["QIEC route: Didactic GADT + Quivers kernel"]
+    PROG["Program (nn.Module)"]
+    CORE["checked QiecModule"]
+    SRC --> PARSE --> AST
+    AST --> OLD --> PROG
+    AST --> QIEC --> CORE
 ```
 
-The grammar at `grammars/qvr/` is registered with panproto's
-`panproto-grammars-all` distribution; the AST nodes are documented
-in [`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
+The grammar at `grammars/qvr/` is authoritative. Quivers compiles that current
+source from the checkout during development and ships it in the wheel, avoiding
+a silent fallback to a stale grammar bundle. The AST nodes are documented in
+[`ast_nodes`](../api/dsl/ast_nodes.md); resolution between
 syntactic [`ObjectExpr`](../api/dsl/ast_nodes.md) trees and runtime
 [`SetObject`](../api/core/objects.md) /
 [`ContinuousSpace`](../api/continuous/spaces.md) values is handled
@@ -115,6 +120,38 @@ compiler = Compiler(ast)
 program = compiler.compile()
 ```
 
+### One checked core
+
+Every executable declaration of a module elaborates to a computation of the
+[QVR language reference](../reference/qvr/index.md): `index`, `family`,
+`effect`, `instance`, `handler`, and typed `define` declarations are its
+surface directly, and a `program` is domain-specific notation for a named
+computation over the module's canonical `random` and `score` instances, whose
+`sample` and `observe` steps perform `Random.sample` and `Score.add`, whose
+plates are typed tensor shapes, and whose `marginalize` blocks are helper
+computations enumerated under the prelude's enumeration handler. Quivers
+constructs the module's first-order projection through Didactic's `GADT` API,
+which checks indexed-family declarations and constructor refinements through
+Panproto; Didactic then negotiates the exact route `qvr-source/v0.19` to
+`qiec-core/v1alpha1`, and the QIEC checker validates effect rows, handler
+coverage, call graphs, and branch-local evidence over the whole module at
+once.
+
+The checked module is what every downstream surface reads. The reference
+machine runs a `define` or a `program` through one entry-point invocation
+([`invoke_entry`](../api/qiec/entries.md)); the torch runtime binds a program
+whose steps call a computation to a
+[`CheckedProgram`](../api/effects/checked_program.md) that scores the same
+joint; and the transpiler lowers a program's plan from its checked
+computation and places the module's other computations beside it. Pyro,
+NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church execute the complete
+computation graph through generated host runtimes. Stan, BUGS, and JAGS accept
+a checked, effect-free scalar subset and report a feature-specific capability
+diagnostic for other computations. See
+[QVR language reference](../reference/qvr/index.md) for the complete user
+surface and target boundary, and the [QIEC developer note](../developer/qiec.md)
+for the kernel and runtime ABI.
+
 ### Programs as panproto schemas
 
 After compilation, the resolved environment can be exported as a
@@ -141,7 +178,8 @@ available on `.qvr` programs without further work.
 ## Grammar
 
 The authoritative grammar is the tree-sitter source at
-`grammars/qvr/grammar.js` in the quivers repository. The summary
+`grammars/qvr/grammar.js` in the quivers repository and in the installed wheel.
+The summary
 below is a human-readable EBNF view of the same productions; the
 tree-sitter grammar is the source of truth.
 

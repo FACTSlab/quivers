@@ -25,7 +25,9 @@ direct regression tests here:
 
 from __future__ import annotations
 
+import asyncio
 import re
+from pathlib import Path
 
 import pytest  # noqa: E402
 
@@ -142,7 +144,7 @@ def test_style_table_uses_truecolor_hex_codes():
 
 
 def test_program_builder_renders_full_signature(lda_session):
-    from quivers.cli.repl_tui import _children_for_program
+    from quivers.cli.repl_browse import _children_for_program
 
     tmpl = lda_session._compiler.programs["lda"]
     head, children = _children_for_program("lda", tmpl)
@@ -163,7 +165,7 @@ def test_program_builder_renders_full_signature(lda_session):
 
 
 def test_object_builder_renders_finset(lda_session):
-    from quivers.cli.repl_tui import _children_for_object
+    from quivers.cli.repl_browse import _children_for_object
 
     head, children = _children_for_object("Doc", lda_session._compiler.objects["Doc"])
     assert head == "Doc : FinSet 20", head
@@ -171,7 +173,7 @@ def test_object_builder_renders_finset(lda_session):
 
 
 def test_deduction_builder_renders_rule_lines():
-    from quivers.cli.repl_tui import _children_for_deduction
+    from quivers.cli.repl_browse import _children_for_deduction
 
     s = ReplSession()
     s.load_file("docs/examples/source/ccg.qvr")
@@ -199,19 +201,39 @@ def _ansi_for_info_body(session: ReplSession) -> str:
 
     from rich.console import Console
 
-    from quivers.cli.repl_highlight import to_rich_text
+    from quivers.cli.repl_tui import _to_tui_rich_text
 
     env_kinds = session.env_kinds()
     body = session.info("lda").body
     console = Console(
-        file=StringIO(), force_terminal=True, color_system="truecolor", width=160
+        file=StringIO(),
+        force_terminal=True,
+        color_system="truecolor",
+        no_color=False,
+        width=160,
     )
     for line in body.splitlines() or [""]:
         stripped = line.lstrip()
         if stripped.startswith("--") and not stripped.startswith("->"):
             continue
-        console.print(to_rich_text(line, env_kinds=env_kinds, link_action="info"))
+        console.print(_to_tui_rich_text(line, env_kinds=env_kinds, link_action="info"))
     return console.file.getvalue()  # type: ignore[attr-defined]
+
+
+def test_tui_click_metadata_preserves_truecolor_style() -> None:
+    from rich.console import Console
+
+    from quivers.cli.repl_tui import _to_tui_rich_text
+
+    rendered = _to_tui_rich_text(
+        "State", env_kinds={"State": "type"}, link_action="info"
+    )
+    style = rendered.get_style_at_offset(Console(no_color=False), 0)
+
+    assert style.color is not None
+    assert style.color.triplet is not None
+    assert tuple(style.color.triplet) == (97, 175, 239)
+    assert style.meta["@click"] == "info('State')"
 
 
 def test_info_body_emits_truecolor_codes(lda_session):
@@ -341,9 +363,8 @@ def test_completion_classifies_program_with_detail(lda_session):
 
 
 def test_tui_module_imports_cleanly():
-    """Importing ``quivers.cli.repl_tui`` must not raise even when
-    Textual is not installed (the imports are lazy inside
-    ``run_tui``)."""
+    """Importing ``quivers.cli.repl_tui`` resolves every front-end
+    dependency the ``repl`` extra installs."""
     import importlib
 
     importlib.import_module("quivers.cli.repl_tui")
@@ -353,6 +374,41 @@ def test_tui_module_exports_resolve_click_target():
     from quivers.cli import repl_tui
 
     assert callable(repl_tui.resolve_click_target)
+
+
+def test_real_textual_app_executes_qiec_run_end_to_end(tmp_path: Path) -> None:
+    """Drive ``:run`` through Textual's event loop and submit action."""
+
+    from textual.widgets import Static, TextArea
+
+    from quivers.cli.repl_tui import _build_tui_app
+
+    path = tmp_path / "identity.qvr"
+    path.write_text(
+        "define identity[A : Type](value : A) : A !{} =\n    return value\n"
+    )
+    session = ReplSession()
+    assert session.load_file(path).ok
+
+    async def exercise() -> None:
+        app = _build_tui_app(session)
+        async with app.run_test(size=(120, 40)) as pilot:  # type: ignore[attr-defined]
+            input_widget = app.query_one("#input", TextArea)  # type: ignore[attr-defined]
+            input_widget.text = ":run identity --static A=Int 7"
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+
+            assert input_widget.text == ""
+            assert session.last_run is not None
+            assert session.last_run.computation == "identity"
+            assert session.last_run.value == 7
+            status = app.query_one("#status", Static)  # type: ignore[attr-defined]
+            assert (
+                "runtime:core entry:identity(computation) last:identity=7:Int"
+                in str(status.render())
+            )
+
+    asyncio.run(exercise())
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ zeros trick. Family names and argument conversions come from
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Literal
 
 import panproto
@@ -42,6 +43,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -67,6 +69,8 @@ from quivers.transpile.renderers._bugs_helpers import (
     inline_letexpr,
     irarg_letexpr,
     kumaraswamy_log_pdf,
+    list_cells,
+    list_sizes,
     marginal_scope_density,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
@@ -80,6 +84,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
 )
 from quivers.transpile.renderers._base import (
     refuse_ungrouped_row_marginalize,
@@ -96,6 +101,7 @@ from quivers.transpile.renderers._base import (
     reorder_negbin_args,
     reorder_weibull_args,
 )
+from quivers.transpile.renderers._qiec import render_computations_static
 
 
 #: The backend key consulted in
@@ -143,7 +149,6 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, _TransformKind]] = {
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
-    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -194,13 +199,7 @@ def _reorder_studentt_dt(
 #: one-sided truncation suffix
 #: [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
 #: supplies.
-#:
-#: ``Horseshoe(scale)`` is the same shape of gap without the
-#: truncation: the family denotes ``Normal(0, scale)`` on all of R and
-#: the QVR call site writes only the scale, so the prepended zero
-#: fills ``dnorm``'s location and the family carries no entry in
-#: ``HALF_SUPPORT_LOWER_BOUND``.
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
 #: JAGS-side argument injection for QVR families that map to JAGS'
 #: ``dt(mu, tau, k)`` distribution. JAGS Student-t requires three
@@ -308,6 +307,27 @@ _ZEROS_TRICK_LIFTED_FAMILIES: frozenset[str] = frozenset(
 )
 
 
+def _ir_has_score(body: tuple[IRNode, ...]) -> bool:
+    """Whether a plan carries a `score` step, marginalize scopes included.
+
+    Parameters
+    ----------
+    body : tuple[IRNode, ...]
+        The plan body.
+
+    Returns
+    -------
+    bool
+        ``True`` when any statement is an `IRScore`.
+    """
+    for node in body:
+        if isinstance(node, IRScore):
+            return True
+        if isinstance(node, IRMarginalize) and _ir_has_score(node.scope):
+            return True
+    return False
+
+
 def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
     """True iff `body` carries an
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize].
@@ -369,14 +389,16 @@ class JAGSRenderer(RendererBase):
         jctx.decl_plates = build_decl_plates(ir)
 
         _vertex(jctx, "src", "source_file")
-        # A site whose family JAGS cannot name, and every
-        # `marginalize` block, scores through the zeros trick, whose
-        # constant-zero carrier is a node JAGS has to see as data. The
-        # language's `data { ... }` transformation block binds exactly
-        # such nodes from inside the model source, so the emit declares
-        # one when, and only when, a site needs it.
-        if _ir_has_marginalize(ir.body) or any(
-            ir_uses_family(ir.body, family) for family in _ZEROS_TRICK_FAMILIES
+        # A site whose family JAGS cannot name, every `marginalize`
+        # block, and every `score` step scores through the zeros trick,
+        # whose constant-zero carrier is a node JAGS has to see as
+        # data. The language's `data { ... }` transformation block
+        # binds exactly such nodes from inside the model source, so the
+        # emit declares one when, and only when, a site needs it.
+        if (
+            _ir_has_marginalize(ir.body)
+            or _ir_has_score(ir.body)
+            or any(ir_uses_family(ir.body, family) for family in _ZEROS_TRICK_FAMILIES)
         ):
             jctx.sb.constraint("src", "ptrace-0", "Cdata_block")
             jctx.sb.constraint("src", "ptrace-1", "Cmodel_block")
@@ -398,6 +420,7 @@ class JAGSRenderer(RendererBase):
 
         self._finalise_model_block(jctx)
         self._finalise_data_block(jctx)
+        render_computations_static(sb, ir, target=self.target, destination=mb)
         return sb.build()
 
     def declare(
@@ -501,6 +524,20 @@ class JAGSRenderer(RendererBase):
             node,
             support_size=marginal_support_size(node, name_plates=ctx.decl_plates),
         )
+        fibration = marginalize_fibration(
+            node,
+            observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=ctx.decl_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            self._emit_grouped_marginal_reduction(
+                ctx, node, atoms, observe, via=via, group=group
+            )
+            return
         total: LetExprNode | None = None
         lifted = False
         for atom in atoms:
@@ -543,6 +580,221 @@ class JAGSRenderer(RendererBase):
             family=node.family,
             log_density=LetExprCall(func="log", args=(total,)),
             row_plate=observe.plate,
+            lifted=lifted,
+        )
+
+    def _emit_grouped_marginal_reduction(
+        self,
+        ctx: _JAGSCtx,
+        node: IRMarginalize,
+        atoms: tuple[IRMarginalAtom, ...],
+        observe: IRObserve,
+        *,
+        via: str,
+        group: Dim,
+    ) -> None:
+        """Emit a grouped block whose rows fibre into its groups.
+
+        The block keys its accumulator by group: the rows the
+        fibration sends to one group are summed per atom before the
+        reduction over the atoms, so the integrated density is one
+        weighted sum per group rather than per row:
+
+        ```
+        for (m_Item in 1:3) { for (m_Item_of in 1:3) {
+          ident_z[m_Item, m_Item_of] <- equals(m_Item, m_Item_of) } }
+        for (m_Resp in 1:6) { ld_z_0[m_Resp] <- log(<density of atom 0>) }
+        for (m_Item in 1:3) { for (m_Resp in 1:6) {
+          sel_z_0[m_Item, m_Resp] <- ident_z[idx[m_Resp], m_Item] * ld_z_0[m_Resp] } }
+        for (m_Item in 1:3) { lp_z_0[m_Item] <- sum(sel_z_0[m_Item, 1:6]) }
+        ...
+        for (m_Item in 1:3) { mx_z[m_Item] <- max(lp_z_0[m_Item], lp_z_1[m_Item]) }
+        for (m_Item in 1:3) { phi_z[m_Item] <- 1000000 - (mx_z[m_Item] + log(
+          probs[1] * exp(lp_z_0[m_Item] - mx_z[m_Item]) + ...)) }
+        for (m_Item in 1:3) { zeros_z[m_Item] ~ dpois(phi_z[m_Item]) }
+        ```
+
+        The rows of a group are selected through an identity matrix
+        subscripted by the fibration, which is how a JAGS model states
+        that an integer input is a one-based index, and the per-group
+        sums are shifted by their maximum before the exponentials so
+        the weighted sum stays in range.
+
+        Parameters
+        ----------
+        ctx : _JAGSCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+        atoms : tuple[IRMarginalAtom, ...]
+            The atoms, with the latent pinned in each scope.
+        observe : IRObserve
+            The scope's observe, with the latent still free.
+        via : str
+            The fibration sending rows to groups.
+        group : Dim
+            The grouping plate's axis.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the scope's rows carry more than one batch axis, which
+            the per-group sum has no slice for.
+        """
+        if len(observe.plate.batch_dims) != 1:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"marginalize:group-rows-rank:{node.latent}: the "
+                    f"per-group sum slices one row axis, but the scope's "
+                    f"observed site replicates over "
+                    f"{[_dim_name(d) for d in observe.plate.batch_dims]!r}"
+                ],
+            )
+        latent = node.latent
+        group_plate = Plate(event_dims=(), batch_dims=(group,))
+        group_loop = f"m_{_dim_name(group)}"
+        mirror = _mirror_dim(group)
+        ident = self._fresh_helper_name(ctx, f"ident_{latent}")
+        ident_plate = Plate(event_dims=(), batch_dims=(group, mirror))
+        ctx.decl_plates[ident] = ident_plate
+        self._emit_deterministic(
+            ctx,
+            IRDeterministic(
+                name=ident,
+                expr=LetExprCall(
+                    func="equals",
+                    args=(
+                        LetExprVar(name=group_loop),
+                        LetExprVar(name=f"m_{_dim_name(mirror)}"),
+                    ),
+                ),
+                constraint=CSReal(),
+                plate=ident_plate,
+            ),
+        )
+        sums: list[str] = []
+        weights: list[LetExprNode] = []
+        lifted = False
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(atom.scope, latent=latent, target=self.target)
+            bindings: dict[str, LetExprNode] = {}
+            for det in scored.deterministics:
+                bindings[det.name] = inline_letexpr(det.expr, bindings)
+            density = marginal_scope_density(
+                _BACKEND,
+                family=scored.observe.family,
+                variate=scored.observe.name,
+                args=tuple(
+                    irarg_letexpr(_BACKEND, arg, bindings)
+                    for arg in scored.observe.args
+                ),
+                arg_names=scored.observe.arg_names,
+            )
+            lifted = lifted or not density.mass
+            rows = self._fresh_helper_name(ctx, f"ld_{latent}_{position}")
+            ctx.decl_plates[rows] = observe.plate
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=rows,
+                    expr=LetExprCall(func="log", args=(density.expr,)),
+                    constraint=CSReal(),
+                    plate=observe.plate,
+                ),
+            )
+            selected = self._fresh_helper_name(ctx, f"sel_{latent}_{position}")
+            selected_plate = Plate(
+                event_dims=(), batch_dims=(group, *observe.plate.batch_dims)
+            )
+            ctx.decl_plates[selected] = selected_plate
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=selected,
+                    expr=LetExprBinOp(
+                        op="*",
+                        left=LetExprIndex(
+                            array=LetExprVar(name=ident),
+                            indices=(
+                                LetExprVar(name=via),
+                                LetExprVar(name=group_loop),
+                            ),
+                        ),
+                        right=LetExprVar(name=rows),
+                    ),
+                    constraint=CSReal(),
+                    plate=selected_plate,
+                ),
+            )
+            # Under the group loop the selection's row axis is the
+            # slice the sum contracts.
+            ctx.decl_plates[selected] = Plate(
+                event_dims=observe.plate.batch_dims, batch_dims=(group,)
+            )
+            total = self._fresh_helper_name(ctx, f"lp_{latent}_{position}")
+            ctx.decl_plates[total] = group_plate
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=total,
+                    expr=LetExprCall(func="sum", args=(LetExprVar(name=selected),)),
+                    constraint=CSReal(),
+                    plate=group_plate,
+                ),
+            )
+            sums.append(total)
+            weights.append(self._marginal_atom_weight(ctx, node, observe, atom))
+        shift = self._fresh_helper_name(ctx, f"mx_{latent}")
+        ctx.decl_plates[shift] = group_plate
+        maximum: LetExprNode = LetExprVar(name=sums[0])
+        for name in sums[1:]:
+            maximum = LetExprCall(func="max", args=(maximum, LetExprVar(name=name)))
+        self._emit_deterministic(
+            ctx,
+            IRDeterministic(
+                name=shift, expr=maximum, constraint=CSReal(), plate=group_plate
+            ),
+        )
+        weighted: LetExprNode | None = None
+        for weight, name in zip(weights, sums, strict=True):
+            term = LetExprBinOp(
+                op="*",
+                left=weight,
+                right=LetExprCall(
+                    func="exp",
+                    args=(
+                        LetExprBinOp(
+                            op="-",
+                            left=LetExprVar(name=name),
+                            right=LetExprVar(name=shift),
+                        ),
+                    ),
+                ),
+            )
+            weighted = (
+                term
+                if weighted is None
+                else LetExprBinOp(op="+", left=weighted, right=term)
+            )
+        if weighted is None:
+            raise UnsupportedConstruct(
+                f"qvr-{_BACKEND}",
+                [
+                    f"marginalize:empty-support:{latent}: a "
+                    f"latent with no atoms has no integrated density"
+                ],
+            )
+        self._emit_zeros_trick_row(
+            ctx,
+            name=latent,
+            family=node.family,
+            log_density=LetExprBinOp(
+                op="+",
+                left=LetExprVar(name=shift),
+                right=LetExprCall(func="log", args=(weighted,)),
+            ),
+            row_plate=group_plate,
             lifted=lifted,
         )
 
@@ -800,6 +1052,10 @@ class JAGSRenderer(RendererBase):
             if isinstance(node.expr, LetExprFactor):
                 self._emit_factor_deterministic(ctx, node)
                 return
+            if isinstance(node.expr, LetExprList) and node.plate.batch_dims:
+                self._check_factor_plate(node, list_sizes(node.expr))
+                self._emit_cells(ctx, node, list_cells(node.expr, ()))
+                return
             self._emit_deterministic(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -811,6 +1067,11 @@ class JAGSRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
             return
+        if isinstance(node, IRCall):
+            # A graph language relates variables; it has no statement
+            # that runs a computation, and the plan has already inlined
+            # every pure call it could.
+            raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"call:graph:{node.callee}"])
         raise UnsupportedConstruct(
             f"qvr-{_BACKEND}",
             [f"node:{type(node).__name__}"],
@@ -2034,9 +2295,32 @@ class JAGSRenderer(RendererBase):
                 [f"let-expr:factor:expected-factor:{node.name}"],
             )
         let_ctx = _jags_let_ctx(ctx, self._cards)
-        sizes = factor_axis_sizes(let_ctx, expr)
-        self._check_factor_plate(node, sizes)
-        for indices, body in factor_cells(let_ctx, expr):
+        self._check_factor_plate(node, factor_axis_sizes(let_ctx, expr))
+        self._emit_cells(ctx, node, factor_cells(let_ctx, expr))
+
+    def _emit_cells(
+        self,
+        ctx: _JAGSCtx,
+        node: IRDeterministic,
+        cells: Iterable[tuple[tuple[int, ...], LetExprNode]],
+    ) -> None:
+        """Emit one relation per enumerated cell of a tensor binding.
+
+        A plated list literal is written out the way a factor is:
+        `<name>[i_1, ..., i_n] <- <item>`, the nesting of the literal
+        supplying the coordinates.
+
+        Parameters
+        ----------
+        ctx : _JAGSCtx
+            The render context.
+        node : IRDeterministic
+            The binding the cells belong to.
+        cells : Iterable[tuple[tuple[int, ...], LetExprNode]]
+            The cells' zero-based coordinates and scalar expressions.
+        """
+        let_ctx = _jags_let_ctx(ctx, self._cards)
+        for indices, body in cells:
             dr = _fresh(ctx, "dr", "deterministic_relation")
             ctx.sb.constraint(dr, "chose-alt-fingerprint", "<-")
             ctx.sb.constraint(dr, "ptrace-0", "Cindexed_variable")
@@ -2702,8 +2986,9 @@ class JAGSRenderer(RendererBase):
         zero_<name> ~ dpois(C_<name>)
         ```
 
-        The host supplies ``zero_<name> = 0`` through the JAGS
-        ``.data`` file. The stochastic relation contributes
+        The carrier ``zero_<name> <- 0`` is bound in the ``data { ... }``
+        block, as every zeros-trick carrier is, so the emitted source
+        is self-contained. The stochastic relation contributes
         ``-(1.0e6 - <expr>) = <expr> - 1.0e6`` to the log-density;
         the additive constant absorbs into the normalising constant.
 
@@ -2766,9 +3051,8 @@ class JAGSRenderer(RendererBase):
         # IRArgRef.
         ctx.decl_plates[c_name] = empty_plate
         ctx.decl_plates[zero_name] = empty_plate
+        self._emit_zeros_carrier(ctx, "Poisson", zero_name, empty_plate)
         # Emit the stochastic relation `zero_<name> ~ dpois(C_<name>)`.
-        # The host supplies `zero_<name> = 0` through the JAGS `.data`
-        # file.
         self._emit_sample(
             ctx,
             name=zero_name,
@@ -2776,6 +3060,7 @@ class JAGSRenderer(RendererBase):
             args=(IRArgRef(name=c_name),),
             arg_names=("rate",),
             plate=empty_plate,
+            observed=True,
         )
 
     # ------------------------------------------------------------------
@@ -3190,6 +3475,30 @@ def _dim_name(dim: object) -> str:
     """Return the source-axis name carried by a Dim."""
     if isinstance(dim, (DimStatic, DimDynamic)):
         return dim.name
+    raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
+
+
+def _mirror_dim(dim: Dim) -> Dim:
+    """A second axis of the same extent as `dim`, named apart from it.
+
+    A square helper over one plate loops over the plate twice, and
+    the loop variables are named after the axes, so the second copy
+    carries its own name.
+
+    Parameters
+    ----------
+    dim : Dim
+        The axis.
+
+    Returns
+    -------
+    Dim
+        The copy, named ``<name>_of``.
+    """
+    if isinstance(dim, DimStatic):
+        return DimStatic(size=dim.size, name=f"{dim.name}_of")
+    if isinstance(dim, DimDynamic):
+        return DimDynamic(size_name=dim.size_name, name=f"{dim.name}_of")
     raise UnsupportedConstruct(f"qvr-{_BACKEND}", [f"dim:{type(dim).__name__}"])
 
 

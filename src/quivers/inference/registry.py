@@ -51,7 +51,8 @@ from torch.distributions.transforms import Transform
 
 from quivers.continuous.plate import PlateDraw
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram, _LetSpec, _ScoreSpec
+from quivers.continuous.program_steps import _LetSpec, _ScoreSpec
+from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import ContinuousSpace
 
 

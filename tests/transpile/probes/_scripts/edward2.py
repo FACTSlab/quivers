@@ -37,6 +37,23 @@ from _reshape import (
 )
 
 
+def _is_factor(rv) -> bool:
+    """Whether a traced variable is a scored weight rather than a draw.
+
+    Parameters
+    ----------
+    rv
+        A random variable read off the tape.
+
+    Returns
+    -------
+    bool
+        True for the factor distribution generated Edward2 modules
+        trace a `score` step or a scored call through.
+    """
+    return type(rv.distribution).__name__ == "_QvrFactorDistribution"
+
+
 def _tensor(value):
     """Cast a JSON-decoded payload into a TF tensor.
 
@@ -156,11 +173,14 @@ def main() -> None:
         # varies run to run and the constant-spread contract measures
         # sampling noise rather than the model's measure. Fail instead,
         # matching the pymc probe's hard error on a free RV with no
-        # supplied value.
+        # supplied value. A factor variable is a one-point distribution
+        # whose log density is a scored weight; it has nothing to pin.
         unclamped = sorted(
             name
-            for name in recorded
-            if name not in safe_overrides and name not in direct_scores
+            for name, rv in recorded.items()
+            if name not in safe_overrides
+            and name not in direct_scores
+            and not _is_factor(rv)
         )
         if unclamped:
             msg = (

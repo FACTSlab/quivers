@@ -62,7 +62,11 @@ plugins:
         python:
           paths:
             - src
+          inventories:
+            - https://docs.pytorch.org/docs/stable/objects.inv
           options:
+            extensions:
+              - tools/griffe_didactic.py
             show_source: true
             show_root_heading: true
             show_root_full_path: false
@@ -112,6 +116,14 @@ nav:
     - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
     - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
     - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
+  - QVR Language Reference:
+    - Overview: reference/qvr/index.md
+    - Types and Indexed Families: reference/qvr/types-and-indexed-families.md
+    - Effects and Handlers: reference/qvr/effects-and-handlers.md
+    - Computations: reference/qvr/computations.md
+    - Probabilistic Programs: reference/qvr/probabilistic-programs.md
+    - Generated Computation Graphs: reference/qvr/generated-computations.md
+    - Execution and Tooling: reference/qvr/execution-and-tooling.md
   - Transpilation Support: transpile-support.md
   - Denotational Semantics:
     - Overview: semantics/index.md
@@ -132,6 +144,7 @@ nav:
     - Transpilation correctness: semantics/transpile-correctness/index.md
   - Examples Gallery:
     - Overview: examples/index.md
+    - Amortized Bayesian Semantics: examples/amortized-bayesian-semantics.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
     - Beta Regression: examples/beta-regression.md
     - Gamma Regression: examples/gamma-regression.md
@@ -189,6 +202,11 @@ nav:
     - 6. Choosing an inference algorithm: tutorials/qvr/06-inference-zoo.md
     - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
     - 8. Diagnostics and model comparison: tutorials/qvr/08-diagnostics-and-comparison.md
+    - 9. Indexed data and total functions: tutorials/qvr/09-indexed-data.md
+    - 10. Effects and handlers: tutorials/qvr/10-effects-and-handlers.md
+    - 11. Parsing as an effectful computation: tutorials/qvr/11-parsing-and-search.md
+    - 12. Structural autoencoders: tutorials/qvr/12-structural-autoencoders.md
+    - 13. Check, inspect, and transpile: tutorials/qvr/13-release-workflow.md
   - Python API tutorials:
     - 1. Your first quiver: tutorials/python/01-first-quiver.md
     - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md
@@ -264,6 +282,7 @@ nav:
       - Parameter Sources: api/continuous/param_source.md
       - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
+      - Program steps: api/continuous/program_steps.md
       - Scan: api/continuous/scan.md
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
@@ -275,6 +294,15 @@ nav:
       - AST → Source Emit: api/dsl/emit.md
       - Constraint Solver: api/dsl/constraints.md
       - Program Theory: api/dsl/program_theory.md
+      - Composite lets: api/dsl/composite_lets.md
+      - Step resolution: api/dsl/step_resolution.md
+      - Draw arguments: api/dsl/draw_args.md
+      - Pure builtins: api/dsl/pure_builtins.md
+      - QIEC lowering: api/dsl/qiec_lowering.md
+      - Program elaboration: api/dsl/program_elaboration.md
+      - Deduction elaboration: api/dsl/deduction_elaboration.md
+      - QIEC diagnostics: api/dsl/qiec_diagnostics.md
+      - QIEC tooling: api/dsl/qiec_tooling.md
     - Structural:
       - Overview: api/structural/signature.md
       - Encoders: api/structural/encoder.md
@@ -307,7 +335,57 @@ nav:
       - Families & Links: api/formulas/family.md
       - Fit Entry Point: api/formulas/fit.md
     - Program: api/program.md
+    - Effects:
+      - Overview: api/effects/index.md
+      - Handler base: api/effects/base.md
+      - Program encoding: api/effects/program_module.md
+      - Interpreter: api/effects/interpreter.md
+      - Checked programs: api/effects/checked_program.md
+      - Sampleables: api/effects/sites.md
+      - Traces: api/effects/trace.md
+      - Trace types: api/effects/trace_types.md
+      - Handlers: api/effects/handlers.md
+      - Collapse: api/effects/collapse.md
+      - Conjugate marginals: api/effects/conjugate.md
+      - Reparameterisation: api/effects/reparam.md
+    - Transpile:
+      - Overview: api/transpile/index.md
+      - Plan: api/transpile/plan.md
+      - Lowering support: api/transpile/lower.md
+      - Structural IR: api/transpile/ir.md
+      - Kernel IR: api/transpile/qiec_ir.md
+      - Family metadata: api/transpile/family_meta.md
+      - Family spelling: api/transpile/family_spelling.md
+      - Renderer registry: api/transpile/renderer_registry.md
+      - Renderers: api/transpile/renderers.md
+    - Indexed Effect Core:
+      - Overview: api/qiec/index.md
+      - Identifiers: api/qiec/identifiers.md
+      - Kinds: api/qiec/kinds.md
+      - Types: api/qiec/types.md
+      - Declarations: api/qiec/declarations.md
+      - Effects: api/qiec/effects.md
+      - Terms: api/qiec/terms.md
+      - Evidence: api/qiec/evidence.md
+      - Substitution: api/qiec/substitution.md
+      - Coverage: api/qiec/coverage.md
+      - Checking: api/qiec/checking.md
+      - Canonical types: api/qiec/canonical.md
+      - Families: api/qiec/families.md
+      - Primitives: api/qiec/primitives.md
+      - Distributions: api/qiec/distributions.md
+      - Reference families: api/qiec/reference_families.md
+      - Reference support: api/qiec/reference_support.md
+      - Builtins: api/qiec/builtins.md
+      - Module: api/qiec/module.md
+      - Serialization: api/qiec/serialization.md
+      - Evaluator: api/qiec/evaluator.md
+      - Execution: api/qiec/execution.md
+      - Programs: api/qiec/programs.md
+      - Program runtime: api/qiec/program_runtime.md
+      - Entry points: api/qiec/entries.md
   - Developer Guide:
     - Overview: developer/contributing.md
+    - Indexed effects and GADTs: developer/qiec.md
     - Changelog: developer/changelog.md
     - Inference benchmarks: developer/inference-benchmarks.md

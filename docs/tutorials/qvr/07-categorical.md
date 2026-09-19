@@ -118,10 +118,14 @@ The guides under `guides/` cover individual feature areas at the level of "what'
 
 ## You're done
 
-If you've read all seven chapters, you can write models in QVR, fit them with any of the shipped inference algorithms, marginalize discrete latents, build hierarchical and sequence-shaped models, and read the categorical machinery underneath when you need to. Suggested next stops:
+At this point, you can write models in QVR, fit them with the shipped inference
+algorithms, marginalize discrete latents, build hierarchical and
+sequence-shaped models, and read the categorical machinery underneath when you
+need to. Chapters 8–13 continue with diagnostics, indexed data, effects,
+generated computation graphs, and release checks. Suggested next stops:
 
 - The [examples gallery](../../examples/index.md) for end-to-end model code (Bayesian regression, mixture models, VAE, transformer, vanilla RNN).
-- The [DSL reference guide](../../guides/dsl-overview.md) for the full surface of `.qvr` syntax.
+- The [QVR language reference](../../reference/qvr/index.md) for the complete v0.19 source and execution surface.
 - The [inference benchmark report](../../developer/inference-benchmarks.md) for the empirical truth-table of which algorithm fits which problem.
 
 

@@ -82,7 +82,23 @@ marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
     observe w : Token <- Categorical(phi[z]) [via=word_idx]
 ```
 
-introduces the per-word topic latent $z$ under a Categorical prior parameterised by the document-shaped `theta`. The body's `Categorical(phi[z])` looks up the chosen topic's vocabulary row and scores the observed token `w`. The `[over=Doc]` grouping plate accumulates each observation into its document; `[via=word_idx]` names the runtime fibration from each word position into its document. The agenda evaluates the `[reduction=logsumexp]` reduction over the $K$ topics, integrating $z$ out by pushforward along the projection $\Phi \times \mathsf{Topic} \to \Phi$ and recovering the closed-form per-word mixture marginal $\sum_k \theta_d[k]\,\phi_k[w]$.
+introduces one shared topic latent $z_d$ per document under a Categorical prior
+parameterized by the document-shaped `theta`. The body's
+`Categorical(phi[z])` looks up that topic's vocabulary row and scores every
+observed token in the document. The `[over=Doc]` grouping plate accumulates
+each observation into its document; `[via=word_idx]` names the runtime
+fibration from each word position into its document. The agenda evaluates the
+`[reduction=logsumexp]` reduction over the $K$ topics, recovering the
+document-level mixture likelihood
+$\sum_k \theta_d[k] \prod_{n:\,d[n]=d} \phi_k[w_n]$.
+
+In the checked computation, this block is a helper that enumerates `Topic`
+under the prelude handler and returns one aggregate per `Doc`. The `word_idx`
+fibration scatter-sums word likelihoods into those document cells before
+`logsumexp` reduces over topics. Thus the reference-machine trace and every
+supporting target preserve a shared topic assignment per document, not an
+independent marginal for each token. See [Probabilistic
+programs](../reference/qvr/probabilistic-programs.md#exact-marginalization).
 
 Finally `return theta` projects the program's joint kernel onto the document-topic mixture; the per-document topic mixture is the natural quantity to inspect after fitting.
 

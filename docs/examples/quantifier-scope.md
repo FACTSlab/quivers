@@ -60,7 +60,7 @@ deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=4, tolerance=1
     rule fwd_app_cont : span(I, K, Cont(Fwd(A, B))), span(K, J, Cont(B)) |- span(I, J, Cont(A)) #[learnable]
     rule pure_cont : span(I, J, A) |- span(I, J, Cont(A)) #[learnable, bounded]
     rule scope_take : span(I, K, Cont(A)), span(K, J, Bwd(B, A)) |- span(I, J, Cont(B)) #[learnable]
-    rule cont_elim : span(I, J, Cont(S)) |- span(I, J, S) #[learnable]
+    rule cont_elim : span(I, J, Cont(S)) |- span(I, J, S) #[learnable, bounded]
     lexicon
         "every" : Cont(Fwd(NP, N)) = every #[learnable]
         "dog"   : N                = dog   #[learnable]
@@ -79,7 +79,7 @@ Six sequent rules realize the scope fragment:
 - **`fwd_app_cont`**: the applicative lift of forward application under `Cont`. Two scope-taking expressions compose by pulling both continuations to the outside.
 - **`pure_cont`**: the unit `A |- Cont(A)` of the continuation monad. Promotes any non-scope-taking constituent to a trivial scope-taker. Marked `#[bounded]` so the agenda's `depth=4` bound terminates the otherwise unbounded `Cont`-tower.
 - **`scope_take`**: the scope-extruding bind. A continuation-typed expression of type `Cont(A)` adjacent to a `Bwd(B, A)` (a functor expecting an `A` argument) absorbs the surrounding context and yields a `Cont(B)`. Surface vs inverse scope corresponds to the order in which two scope-takers apply `scope_take` against the surrounding sentence-internal functors.
-- **`cont_elim`**: the lower-at-answer-type closing step `Cont(S) |- S`, which collapses a saturated continuation reading to a flat `S` so the grammar's `start=S` goal applies.
+- **`cont_elim`**: the lower-at-answer-type closing step `Cont(S) |- S`, which collapses a saturated continuation reading to a flat `S` so the grammar's `start=S` goal applies. It closes a cycle with `pure_cont` (`S |- Cont(S) |- S`), so it is `#[bounded]` as well: with both rules bounded, the joint sub-stochastic cap of [§2.3](../semantics/grammar.md#23-bounded-rule-weights-bounded) keeps the cycle's Kleene-star series convergent at every parameter value, where a bound on `pure_cont` alone would let a fitted `cont_elim` weight push the cycle's mass past one.
 
 A determiner is a generalised quantifier in continuation form: `"every" : Cont(Fwd(NP, N)) = every` lifts the determiner type `NP/N` into the continuation monad, so applying it to a common-noun-typed argument lifted into `Cont(N)` via `pure_cont` yields `Cont(NP)`, which then binds an inhomogeneous-typed VP under `scope_take` to give a saturated `Cont(S)`; the final `cont_elim` lowers to a flat `S`. The deduction's semiring is `LogProb`, so every distinct derivation of the start category `S` contributes a differentiable inside score; summing over derivations gives the marginal log-probability under the grammar, while taking max gives the most-likely single reading.
 

@@ -1,0 +1,14 @@
+object Item : FinSet 3
+
+object Resp : FinSet 6
+
+object Comp : FinSet 2
+
+program mixture : Resp -> Resp
+    sample probs <- Dirichlet(2.0) [over=Comp]
+    sample mu : Comp <- Normal(0.0, 3.0)
+    marginalize z : Comp <- Categorical(probs) [over=Item]
+        observe y : Resp <- Normal(mu[z], 1.0) [via=idx]
+    return mu
+
+export mixture

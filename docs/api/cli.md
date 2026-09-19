@@ -13,6 +13,9 @@ Flags:
 
 - `--json`: emit a single JSON document on stdout containing the
   full diagnostic list, as expected by CI and pre-commit hooks.
+- `--target TARGET`: compare every checked QIEC computation with the selected
+  transpiler's capabilities. Unsupported features are errors, so this mode is
+  suitable for a target-specific release gate.
 
 Diagnostic codes:
 
@@ -29,6 +32,22 @@ Diagnostic codes:
   arguments or incompatible argument shapes.
 - `implicit-family-defaults`: a distribution call relies on deprecated
   implicit defaults. This diagnostic is a warning.
+- `qiec-route`: the exact `qvr-source/v0.19` to `qiec-core/v1alpha1`
+  Didactic route is unavailable or mismatched.
+- `qiec-kind`: a static argument or binder has the wrong kind.
+- `qiec-index`: an index expression has the wrong sort or constructor shape.
+- `qiec-row`: an effect row violates instance identity, unification, or a
+  `lacks` constraint.
+- `qiec-coverage`: indexed case branches are incomplete, duplicated, or not
+  justified by refinement.
+- `qiec-skolem-escape`: branch-local static evidence escapes its scope.
+- `qiec-handler`: a handler signature violates coverage, forwarding, or
+  resumption requirements.
+- `qiec-unhandled-effect`: a computation performs an instance absent from its
+  declared row.
+- `qiec-backend`: a requested backend boundary cannot preserve a QIEC form.
+- `qiec:capability:FEATURE:COMPUTATION`: `--target` selected a backend that
+  cannot preserve `FEATURE` in the named computation.
 - `io`: a file-system error, such as a missing or unreadable file.
 
 ## `qvr migrate PATHS...`
@@ -41,8 +60,8 @@ have to know the intermediate versions; pinning the boundary with
 
 Flags:
 
-- `--from VERSION`: source revision in the chain (defaults to
-  the most recent release).
+- `--from VERSION`: required source revision in the chain. QVR files do not
+  encode an unambiguous grammar version.
 - `--to VERSION`: target revision (defaults to `HEAD`).
 - `--dry-run`: report which files would change without writing.
 - `--output DIR`: write migrated copies under `DIR` instead
@@ -55,17 +74,121 @@ files may also be supplied. The migration tooling is built on the
 in-tree panproto VCS at `grammars/qvr/vcs/`. A new release adds a
 migration without changing the earlier migration steps.
 
-## `qvr repl [FILE]`
+## `qvr repl [FILE] [--plain] [--target TARGET]`
 
 Start the interactive REPL. Without a file, opens an empty
 session; with a file, loads and elaborates it before dropping to
-the prompt. See [REPL and Language Server](../guides/repl-and-lsp.md).
+the prompt. `--plain` uses the single-line front end instead of the
+TUI, and `--target TARGET` makes every load report the capability
+diagnostics of that transpile target beside the module's own, as
+`qvr check --target` does. See
+[REPL and Language Server](../guides/repl-and-lsp.md).
+
+## `qvr run FILE [ENTRY [ARGUMENTS...]]`
+
+Execute one entry point of a checked module: a `define` computation or a
+`program`. With no entry name, or with `--list`, the command prints every
+entry point with its signature: a computation's value parameters, statics,
+performed effects, and result type; a program's data parameters, result type,
+and the sample sites a run may condition on.
+
+Each positional argument is a JSON literal and corresponds to one value
+parameter in declaration order. A computation runs under the configured
+runtime providers, validating the arguments and result against the
+specialized QIEC types with a fresh attachment table. A program runs forward
+on the reference machine: its `random` instance is handled by a conditioning
+replay of the sites given with `--site` inside a scoring draw of every other
+site, and its `score` instance by an accumulator, so the run reports the
+program's value together with the log joint of the drawn and given sites, its
+observations, and its scores. A program's parameters may also be given by name
+with `--data`; its extents are read off the data where the data fix them, so
+`--static` names only an extent no data fixes, the object parameter of a
+program template (`qvr run pooling.qvr school_effects 0.6 --static K=8`), and
+its handlers are fixed by the run, so `--runtime` applies to computations
+only.
+
+Flags:
+
+- `--list`: print the file's entry points and exit.
+- `--static NAME=TERM`: specialize one static telescope binder with a closed
+  type, index, or effect term. Repeat the flag once for every binder.
+- `--data NAME=JSON`: supply one program parameter by name (its data, an
+  observation, a fibration, or a scalar). Repeatable.
+- `--site NAME=JSON`: condition one sample site of a program on a value;
+  every other site is drawn. Repeatable. A site the run never reaches is an
+  error.
+- `--seed N`: seed the reference generator a program run draws with, so two
+  runs seeded alike draw alike.
+- `--runtime FILE.json`: select runtime providers and their options through a
+  non-executable JSON configuration.
+- `--fuel STEPS`: bound the number of evaluation steps.
+- `--trace`: write stable execution events to stderr in human-readable mode.
+- `--json`: emit the result, runtime label, and complete trace as JSON, with
+  the entry's kind and a program's log joint. A failure instead emits a JSON
+  diagnostic and exits 1.
+
+For instance, this command specializes `A` to `Int` and supplies the value
+argument `7`:
+
+```bash
+qvr run identity.qvr identity 7 --static A=Int --json
+```
+
+and this one runs a program on four observations with its site `a` fixed:
+
+```bash
+qvr run calls.qvr prog '[0.1, 0.2, 0.3, 0.4]' --site a=0.5 --seed 0
+```
+
+The same invocation is available from Python through
+[`Program.run`][quivers.program.Program.run] on a loaded module, from
+[`Compiler.entry`][quivers.dsl.compiler.Compiler.entry] and
+[`invoke_entry`][quivers.qiec.entries.invoke_entry] on its checked module,
+and from the REPL's `:run`, with the same validation, providers, trace, and
+diagnostic codes.
+
+The default runtime configuration selects the built-in `core` provider. A
+configuration can select that provider with handler behavior or name an
+installed `quivers.qiec_runtime` entry point:
+
+```json
+{
+  "providers": [
+    {
+      "name": "core",
+      "options": {
+        "handlers": {
+          "pass": {"kind": "passthrough"}
+        }
+      }
+    }
+  ]
+}
+```
+
+The core provider accepts `passthrough`, `scripted`, and `state` handler
+configurations, and the prelude kinds `draw`, `draw-scoring`, `enumerate`,
+`replay`, `collect`, `score`, `search`, and `param`. These options supply
+process-local clause behavior; the source handler still fixes the checked
+effect, coverage, forwarding policy, clause set, and resumption grades.
+Runtime plugins are discoverable by name but are loaded only when the
+configuration explicitly selects them.
+
+Execution failures use stable codes including `qiec-run-computation`,
+`qiec-run-config`, `qiec-run-arity`, `qiec-run-static`, `qiec-run-provider`,
+`qiec-run-validator`, `qiec-run-argument`, `qiec-run-evaluation`,
+`qiec-run-fuel`, and `qiec-run-result`.
 
 ## `qvr lsp`
 
 Run the Language Server over stdio, or pass `--tcp PORT` to bind a
-TCP port. Editor extensions invoke this command; the protocol is LSP 3.17. See
-[REPL and Language Server](../guides/repl-and-lsp.md).
+TCP port. `--target TARGET` enables live `qiec:capability:*` diagnostics for
+the selected transpiler. Editor extensions invoke this command; the protocol
+is LSP 3.17. The server accepts later target changes through
+`workspace/didChangeConfiguration`, using either
+`{"qvr": {"transpileTarget": "TARGET"}}` or
+`{"transpileTarget": "TARGET"}`; an empty target disables these diagnostics.
+See [REPL and Language Server](../guides/repl-and-lsp.md).
 
 ## `qvr transpile FILE`
 
@@ -85,5 +208,6 @@ and `--prefix PREFIX` selects an explicit Jupyter prefix.
 
 ::: quivers.cli
 ::: quivers.cli.check
+::: quivers.cli.run
 ::: quivers.cli.migrate
 ::: quivers.cli.migrations

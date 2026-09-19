@@ -6,19 +6,11 @@ we exercise the kernel-side glue: cell splitting, prefix extraction
 for completion, word extraction for inspect, and the do_execute /
 do_complete / do_inspect surface against a directly-instantiated
 ``QuiversKernel`` (no jupyter_client round-trip required).
-
-Skipped when ``ipykernel`` is unavailable.
 """
 
 from __future__ import annotations
 
-import pytest
-
-
-pytest.importorskip("ipykernel")
-
-
-from quivers.kernel.quivers_kernel import (  # noqa: E402
+from quivers.kernel.quivers_kernel import (
     _prefix_at,
     _split_cell,
     _word_at,

@@ -26,6 +26,9 @@ appears here.
 
 from __future__ import annotations
 
+import dataclasses
+import pathlib
+
 import panproto
 
 from quivers.transpile._api import UnsupportedConstruct
@@ -44,6 +47,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -78,6 +82,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -105,10 +110,37 @@ from quivers.transpile.renderers._base import (
     ir_uses_family,
     mixture_normal_components,
 )
+from quivers.transpile.renderers._qiec import (
+    emit_call_python,
+    graft_python_statements,
+    qiec_families_used,
+    render_computations_dynamic,
+)
+from quivers.transpile.qiec_ir import IRQiecModule
 
 
 _TARGET = "edward2"
 _BACKEND_KEY = f"qvr-{_TARGET}"
+
+#: The factor helper grafted into a module whose plan scores or calls:
+#: a one-point distribution whose log density is the scored weight.
+_FACTOR_HELPER = pathlib.Path(__file__).parent.parent / "runtime_factor_edward2.py"
+
+
+@dataclasses.dataclass
+class _Edward2Ctx(_RenderCtx):
+    """The render context with the module the plan's calls read.
+
+    Parameters
+    ----------
+    module : IRQiecModule
+        The checked module the plan was derived from.
+    operations_bound : set[str]
+        The bodies whose native operation table is already bound.
+    """
+
+    module: IRQiecModule = dataclasses.field(kw_only=True)
+    operations_bound: set[str] = dataclasses.field(default_factory=set, kw_only=True)
 
 
 #: Edward2-side argument injection for QVR families whose underlying
@@ -214,7 +246,7 @@ class Edward2Renderer(RendererBase):
             factor_towers=factor_tower_names(ir),
             name_plates=name_plate_map(ir),
         )
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        ctx = _Edward2Ctx(sb=sb, morphisms={}, defines={}, module=ir.module)
 
         sb.vertex("mod", "module")
         # A marginalize block reduces to a `MixtureSameFamily` whose
@@ -222,10 +254,24 @@ class Edward2Renderer(RendererBase):
         # than Edward2 random variables (an Edward2 constructor would
         # register a second, unobserved site on the trace). TFP is a
         # hard dependency of Edward2, so the emitted module imports it
-        # directly when a marginalize is present.
-        if _ir_has_marginalize(ir.body) or ir_uses_family(ir.body, "MixtureNormal"):
+        # directly when a marginalize is present. A score or a call
+        # needs the factor helper, a TFP distribution.
+        factors = _ir_has_factor(ir.body)
+        if (
+            _ir_has_marginalize(ir.body)
+            or ir_uses_family(ir.body, "MixtureNormal")
+            or qiec_families_used(ir)
+            or factors
+        ):
             self._emit_tfp_import(py)
+        if factors:
+            graft_python_statements(
+                sb, _FACTOR_HELPER.read_text(), "mod", "qiec_factor"
+            )
         body_vid = py.v(py.fresh("body"), "block")
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(body_vid, noop, "child_of")
         param_names = tuple(inp.name for inp in ir.inputs)
         fn = function_def(
             py, name="model", default_params=param_names, body_vid=body_vid
@@ -264,6 +310,7 @@ class Edward2Renderer(RendererBase):
         for node in ir.body:
             self._emit_node(py, ctx, body_vid, node, input_specs, bindings)
 
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def emit_bytes(self, ir: IRProgram) -> bytes:
@@ -278,7 +325,7 @@ class Edward2Renderer(RendererBase):
     def _emit_node(
         self,
         py: PyCtx,
-        ctx: _RenderCtx,
+        ctx: _Edward2Ctx,
         body_vid: str,
         node: IRNode,
         input_specs: dict[str, ConstraintSpec],
@@ -351,6 +398,9 @@ class Edward2Renderer(RendererBase):
             return
         if isinstance(node, IRScore):
             self._emit_score_node(py, body_vid, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(py, body_vid, node, ctx.module, ctx.operations_bound)
             return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize(py, body_vid, node, input_specs, bindings)
@@ -497,18 +547,27 @@ class Edward2Renderer(RendererBase):
         )
 
     def _emit_score_node(self, py: PyCtx, body_vid: str, node: IRScore) -> None:
-        """Bind ``<name> = <expr>``.
+        """``<name> = <expr>; _qvr_qiec_factor("<name>", <name>)``.
 
-        Edward2 has no top-level factor primitive; the canonical idiom
-        is to compute the log-density factor at trace time. For the
-        static fragment we bind the expression and leave the factor
-        accumulation to the consumer's tape / interceptor.
+        Edward2 reads a joint off its tape as the sum of each traced
+        variable's log density, so the weight is traced as a factor
+        variable, a one-point distribution whose log density is the
+        weight.
         """
         asn = py.v(py.fresh("asn"), "assignment")
         lhs = identifier(py, node.name)
         py.e(asn, lhs, "left")
         py.e(asn, render_let_expr_python(py, node.expr), "right")
         py.e(body_vid, asn, "child_of")
+        factor_call = call(
+            py,
+            identifier(py, "_qvr_qiec_factor"),
+            positional=(
+                string_literal(py, node.name),
+                identifier(py, node.name),
+            ),
+        )
+        py.e(body_vid, factor_call, "child_of")
 
     def _emit_return_statement(
         self, py: PyCtx, body_vid: str, names: tuple[str, ...]
@@ -659,6 +718,19 @@ class Edward2Renderer(RendererBase):
             Plate(event_dims=observe.plate.event_dims, batch_dims=())
         )
         prefix = f"__marg_{node.latent}"
+        fibration = marginalize_fibration(
+            node,
+            observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            self._emit_grouped_marginalize(
+                py, body_vid, node, raw, atoms, fibration, input_specs, bindings
+            )
+            return
         per_arg: list[list[str]] = [[] for _ in observe.arg_names]
         for position, atom in enumerate(atoms):
             scored = marginalize_body(
@@ -853,6 +925,125 @@ class Edward2Renderer(RendererBase):
     # ------------------------------------------------------------------
     # Distribution-call construction
     # ------------------------------------------------------------------
+
+    def _emit_grouped_marginalize(
+        self,
+        py: PyCtx,
+        body_vid: str,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        fibration: tuple[str, Dim],
+        input_specs: dict[str, ConstraintSpec],
+        bindings: dict[str, _Binding],
+    ) -> None:
+        """Integrate a grouped block's latent out as a traced factor.
+
+        A block whose rows are fibred into fewer groups than rows, under
+        a prior shared across the groups, keys its accumulator by group
+        (`docs/semantics/programs.md` §2.7): each atom's per-row
+        log-density is scattered into a ``(|G|, K)`` accumulator through
+        the fibration with ``tf.math.unsorted_segment_sum``, the log
+        prior is added, and the reduction over the atoms summed over the
+        groups is traced as a factor variable. A mixture is a per-row
+        integral, which is a different measure here.
+
+        Parameters
+        ----------
+        py : PyCtx
+            The emission context.
+        body_vid : str
+            The model body.
+        node : IRMarginalize
+            The block.
+        raw : MarginalizeBody
+            The block's scope, split into its bindings and its observe.
+        atoms : tuple[IRMarginalAtom, ...]
+            The block's atoms.
+        fibration : tuple[str, Dim]
+            The fibration's name and the grouping plate's axis.
+        input_specs : dict[str, ConstraintSpec]
+            The declared inputs.
+        bindings : dict[str, _Binding]
+            The bindings in scope.
+        """
+        observe = raw.observe
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                asn = py.v(py.fresh("asn"), "assignment")
+                py.e(asn, identifier(py, det.name), "left")
+                py.e(asn, render_deterministic_python(py, det), "right")
+                py.e(body_vid, asn, "child_of")
+                bindings[det.name] = _Binding(
+                    constraint=det.constraint, plate=det.plate
+                )
+            component = self._dist_call(
+                py,
+                name=observe.name,
+                family=scored.observe.family,
+                args=scored.observe.args,
+                arg_names=scored.observe.arg_names,
+                plate=Plate(event_dims=(), batch_dims=()),
+                input_specs=input_specs,
+                bindings=bindings,
+                observed_name=None,
+                callee_chain=("tfp", "distributions"),
+            )
+            term = f"{prefix}_{position}"
+            py.e(
+                body_vid,
+                assignment(
+                    py,
+                    lhs_name=term,
+                    rhs=call(
+                        py,
+                        attribute(py, ("tf", "cast")),
+                        positional=(
+                            _python_method_call(
+                                py,
+                                component,
+                                "log_prob",
+                                (identifier(py, observe.name),),
+                            ),
+                            attribute(py, ("tf", "float32")),
+                        ),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        py.e(
+            body_vid,
+            assignment(
+                py,
+                lhs_name=f"{prefix}_w",
+                rhs=call(
+                    py,
+                    attribute(py, ("tf", "math", "log")),
+                    positional=(self._marginal_weights(py, node, raw, atoms),),
+                ),
+            ),
+            "child_of",
+        )
+        via, group = fibration
+        extent = str(group.size) if isinstance(group, DimStatic) else group.size_name
+        stacked = ", ".join(term_names)
+        graft_python_statements(
+            py.builder,
+            f"{prefix} = tf.stack([{stacked}], axis=-1)\n"
+            f"{prefix} = tf.math.unsorted_segment_sum({prefix}, "
+            f"tf.cast({via}, tf.int32), {extent})\n"
+            f"{prefix}_total = tf.reduce_sum(tf.reduce_logsumexp("
+            f"tf.cast({prefix}_w, {prefix}.dtype) + {prefix}, axis=-1))\n"
+            f'_qvr_qiec_factor("{node.latent}", {prefix}_total)\n',
+            body_vid,
+            f"marg_{node.latent}_group",
+        )
 
     def _dist_call(
         self,
@@ -1864,6 +2055,51 @@ def _ir_has_marginalize(body: tuple[IRNode, ...]) -> bool:
     """True iff `body` carries an
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] anywhere."""
     return any(isinstance(node, IRMarginalize) for node in body)
+
+
+def _ir_has_factor(body: tuple[IRNode, ...]) -> bool:
+    """True iff `body` scores or calls, either of which traces a factor.
+
+    Parameters
+    ----------
+    body : tuple[IRNode, ...]
+        The plan body.
+
+    Returns
+    -------
+    bool
+        Whether the module needs the factor helper.
+    """
+    return any(
+        isinstance(node, (IRScore, IRCall))
+        or (isinstance(node, IRMarginalize) and _marginalize_is_grouped(node))
+        for node in body
+    )
+
+
+def _marginalize_is_grouped(node: IRMarginalize) -> bool:
+    """Whether a block scatters its rows through a fibration.
+
+    Parameters
+    ----------
+    node : IRMarginalize
+        The block.
+
+    Returns
+    -------
+    bool
+        ``True`` when the block carries a grouping plate finer than
+        its observe's plate and an observe with a ``via`` fibration,
+        which the renderer traces as a factor.
+    """
+    if not node.plate.batch_dims:
+        return False
+    return any(
+        isinstance(inner, IRObserve)
+        and inner.via is not None
+        and inner.plate.batch_dims != node.plate.batch_dims
+        for inner in node.scope
+    )
 
 
 def _tf_stack(py: PyCtx, items: tuple[str, ...], axis: int) -> str:

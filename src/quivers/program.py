@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 import torch
@@ -12,6 +12,17 @@ import torch.nn.functional as F
 
 from quivers.core.morphisms import Morphism
 from quivers.continuous.morphisms import ContinuousMorphism
+from quivers.qiec.entries import (
+    EntryPoint,
+    EntryRun,
+    HostValue,
+    entry_point,
+    entry_points,
+    invoke_entry,
+)
+from quivers.qiec.execution import ExecutionDiagnostic, ExecutionFailure
+from quivers.qiec.module import QiecModule
+from quivers.qiec.structural_runtime import structural_runtime_configuration
 
 
 class Program(nn.Module):
@@ -51,6 +62,9 @@ class Program(nn.Module):
         # invoker instantiates the template at concrete arguments
         # and returns the resulting Program.
         self.templates: dict[str, Callable[..., Program]] = {}
+        #: The checked projection of the compiled module, or ``None``
+        #: for a Program built directly around a morphism.
+        self.qiec: QiecModule | None = None
         self._morphism = morphism
         self._is_continuous = isinstance(morphism, ContinuousMorphism)
         self._is_callable_module = (
@@ -71,6 +85,127 @@ class Program(nn.Module):
             self._root = morphism
         else:
             self._root = cast(Morphism, morphism).module()
+
+    def _checked_module(self) -> QiecModule:
+        """The checked module the Program's entry points live in.
+
+        Returns
+        -------
+        QiecModule
+            The module.
+
+        Raises
+        ------
+        ExecutionFailure
+            With code ``qiec-run-module`` if the Program has none.
+        """
+        if self.qiec is None:
+            raise ExecutionFailure(
+                ExecutionDiagnostic(
+                    "qiec-run-module",
+                    "this Program was not compiled from source and has no "
+                    "checked module to run entry points in",
+                    "",
+                )
+            )
+        return self.qiec
+
+    def entry_points(self) -> tuple[EntryPoint, ...]:
+        """The executable entry points of the compiled module.
+
+        Returns
+        -------
+        tuple[EntryPoint, ...]
+            Every ``program`` and ``define`` computation, in declaration
+            order, as [`entry_points`][quivers.qiec.entries.entry_points]
+            lists them.
+
+        Raises
+        ------
+        ExecutionFailure
+            With code ``qiec-run-module`` if the Program has no checked
+            module.
+        """
+        return entry_points(self._checked_module())
+
+    def entry(self, name: str) -> EntryPoint:
+        """One entry point of the compiled module, by name.
+
+        Parameters
+        ----------
+        name : str
+            The entry's source name.
+
+        Returns
+        -------
+        EntryPoint
+            The entry.
+
+        Raises
+        ------
+        ExecutionFailure
+            With code ``qiec-run-module`` if the Program has no checked
+            module, or ``qiec-run-computation`` for an unknown name.
+        """
+        return entry_point(self._checked_module(), name)
+
+    def run(
+        self,
+        name: str,
+        *arguments: HostValue,
+        data: Mapping[str, HostValue] | None = None,
+        sites: Mapping[str, HostValue] | None = None,
+        static_arguments: Sequence[str] = (),
+        fuel: int | None = None,
+        seed: int | None = None,
+    ) -> EntryRun:
+        """Invoke an entry point on the reference machine.
+
+        The invocation is the one ``qvr run`` and the REPL's ``:run``
+        make, through [`invoke_entry`][quivers.qiec.entries.invoke_entry],
+        with the same validation, providers, trace, and error codes.
+
+        Parameters
+        ----------
+        name : str
+            The entry's source name.
+        *arguments : HostValue
+            Host values for its value parameters, in order.
+        data : Mapping[str, HostValue] | None
+            A program's parameters by name.
+        sites : Mapping[str, HostValue] | None
+            The sites a program run conditions on; every other site is
+            drawn.
+        static_arguments : Sequence[str]
+            ``NAME=TERM`` specializations of a computation's telescope.
+        fuel : int | None
+            A step budget for the run.
+        seed : int | None
+            A seed for the reference generator the run draws with.
+
+        Returns
+        -------
+        EntryRun
+            The value, a program's log joint, and the execution result.
+
+        Raises
+        ------
+        ExecutionFailure
+            With code ``qiec-run-module`` if the Program has no checked
+            module, and otherwise as
+            [`invoke_entry`][quivers.qiec.entries.invoke_entry] raises.
+        """
+        return invoke_entry(
+            self._checked_module(),
+            name,
+            arguments,
+            data=data,
+            sites=sites,
+            static_arguments=static_arguments,
+            runtime=structural_runtime_configuration(self._checked_module(), self),
+            fuel=fuel,
+            seed=seed,
+        )
 
     @property
     def morphism(self) -> Morphism | ContinuousMorphism | nn.Module | None:

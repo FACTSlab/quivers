@@ -28,28 +28,34 @@ flowchart LR
 ```
 
 Each adjacent revision pair `(X, Y)` on the migration
-[`CHAIN`](#the-migration-chain) has its own converter module under
-`src/quivers/cli/migrations/vX_Y_Z_to_vA_B_C.py`. Migrating across
-multiple revisions composes the intermediate hops.
+[`CHAIN`](#the-migration-chain) has either a converter module under
+`src/quivers/cli/migrations/` or a manifest-verified mapping from
+`_identity.migrator(X, Y)`. Migrating across multiple revisions composes the
+intermediate hops.
 
-The per-revision tree-sitter parsers live at
-`grammars/qvr/vcs/parsers/<rev>/qvr.{dylib,so,dll}`; the migration
-schemas live in the [panproto VCS](#the-panproto-vcs-chain) at
-`grammars/qvr/vcs/.panproto/`.
+Immutable tree-sitter parser sources live at
+`grammars/qvr/vcs/parsers/<snapshot>/source/`; a manifest maps releases with
+byte-identical grammars to the same snapshot. The migration schemas live in the
+[panproto VCS](#the-panproto-vcs-chain) at
+`grammars/qvr/vcs/.panproto/`. Installed packages carry the same assets under
+`quivers.cli.migrations._grammar_vcs`. Each platform wheel also carries a native
+library and source-binding manifest for every snapshot. Thus an installed
+`qvr migrate` never needs to locate a host C compiler; a missing or inconsistent
+native pair is an installation error rather than a request to compile at first
+use.
 
 ## Common invocations
 
-Migrate one file in place from the default source revision to the
-current grammar:
+Migrate one file in place from v0.18.0 to the current grammar:
 
 ```bash
-qvr migrate docs/examples/source/lda.qvr
+qvr migrate --from v0.18.0 docs/examples/source/lda.qvr
 ```
 
 Migrate every `.qvr` under a directory:
 
 ```bash
-qvr migrate docs/examples/source/
+qvr migrate --from v0.18.0 docs/examples/source/
 ```
 
 Pick specific revisions explicitly:
@@ -61,13 +67,13 @@ qvr migrate --from v0.10.0 --to v0.11.0 docs/examples/source/lda.qvr
 Dry-run (report what would change, write nothing):
 
 ```bash
-qvr migrate --dry-run docs/examples/source/
+qvr migrate --from v0.18.0 --dry-run docs/examples/source/
 ```
 
 Write migrated copies to a separate directory:
 
 ```bash
-qvr migrate --output /tmp/migrated docs/examples/source/
+qvr migrate --from v0.18.0 --output /tmp/migrated docs/examples/source/
 ```
 
 Run the [coverage check](#-check-mode-coverage-against-the-vcs) against
@@ -77,20 +83,21 @@ the migration chain without migrating any files:
 qvr migrate --check
 ```
 
-`--from` defaults to the penultimate entry of `CHAIN` (currently
-`v0.14.0`). `--to` defaults to `HEAD`, an alias for the chain's final
-entry (currently `v0.15.0`).
+`--from` is required because QVR source files do not carry their grammar
+revision. This **explicit-origin rule** prevents the migrator from guessing a
+source grammar and reinterpreting accepted tokens. `--to` defaults to `HEAD`,
+the chain's current grammar.
 
 ## What survives migration
 
 What's preserved by the migrator today:
 
-- **Declarations handled by a full converter.** Each supported source
+- **Declarations handled by a converter.** Each supported source
   declaration becomes the semantically equivalent target declaration,
   even when the surface changed (e.g. `latent f : A -> B` becomes
-  `morphism f : A -> B [role=latent]`). Identity-scaffold hops pass
-  bytes through and may fail final target validation when an older
-  construct needs a converter.
+  `morphism f : A -> B [role=latent]`). The two hops with empty converter
+  tables still parse both endpoints and reject output that the target grammar
+  cannot accept.
 - **Top-level comments.** Header comments (file preamble,
   between-decl explanations) pass through verbatim.
 - **In-body comments.** Comments inside `program`, `deduction`,
@@ -125,27 +132,35 @@ What's intentionally dropped or transformed:
 
 The chain is declared in
 [`src/quivers/cli/migrations/__init__.py`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/migrations/__init__.py)
-as the tuple `CHAIN`. Each adjacent pair has a module:
+as the tuple `CHAIN`:
 
 | Pair | Status |
 | ---- | ------ |
-| `v0.2.0 → v0.3.0` | identity scaffold (no converters yet) |
-| `v0.3.0 → v0.4.0` | identity scaffold |
-| `v0.4.0 → v0.5.0` | identity scaffold |
-| `v0.5.0 → v0.6.0` | identity scaffold |
-| `v0.6.0 → v0.7.0` | identity scaffold |
-| `v0.7.0 → v0.9.0` | identity scaffold |
+| `v0.2.0 → v0.3.0` | explicit rule-declaration converter |
+| `v0.3.0 → v0.4.0` | explicit program and output converters |
+| `v0.4.0 → v0.5.0` | explicit continuous and stochastic converters |
+| `v0.5.0 → v0.6.0` | grammar-bound migration with an empty converter table |
+| `v0.6.0 → v0.7.0` | explicit `quantale` to `algebra` converter |
+| `v0.7.0 → v0.9.0` | grammar-bound migration with an empty converter table |
 | `v0.9.0 → v0.10.0` | identity (grammar byte-identical) |
 | `v0.10.0 → v0.11.0` | full homogenization hop (all in-tree examples) |
 | `v0.11.0 → v0.14.0` | identity (target grammar is an extension) |
 | `v0.14.0 → v0.15.0` | full token-local converter; removed compose operators raise `MigrationError` |
+| `v0.15.0 → v0.16.0` | manifest-verified identity |
+| `v0.16.0 → v0.17.0` | manifest-verified identity |
+| `v0.17.0 → v0.18.0` | manifest-verified identity |
+| `v0.18.0 → HEAD` | additive QIEC hop; validates both revisions and preserves source bytes |
 
-The 0.10.0 → 0.11.0 and 0.14.0 → 0.15.0 hops have full converters.
-The earlier scaffold hops parse and pass their source through
-unchanged. They become non-trivial when older source needs lowering;
-the
-[`SOURCE_RULE_COVERAGE`](#-check-mode-coverage-against-the-vcs)
-machinery makes the missing converters discoverable.
+The v0.5.0 → v0.6.0 and v0.7.0 → v0.9.0 modules have empty converter
+tables. Every other non-identity structural hop declares the source rules it
+converts through
+[`SOURCE_RULE_COVERAGE`](#-check-mode-coverage-against-the-vcs).
+
+The final hop adds the indexed-family and algebraic-effect grammar without
+removing any production of the previous release. Thus migration does not invent indices, effect
+rows, or handlers in v0.18 input. It validates the input with the pinned
+v0.18 parser, validates the unchanged bytes again with the current parser, and
+leaves deliberate QIEC adoption to the author.
 
 ## `--check` mode: coverage against the VCS
 
@@ -164,22 +179,12 @@ adjacent pair on `CHAIN`, computes
   will silently let source bytes through; the resulting target
   source will be invalid.
 
-The command exits non-zero when any pair has uncovered removals,
-which makes it CI-suitable.
-
-Sample output:
-
-```
-v0.6.0 -> v0.7.0:
-    removed: quantale_decl
-    added:   algebra_decl
-    UNCOVERED removed rules (no converter): quantale_decl
-
-v0.10.0 -> v0.11.0:
-    removed: (the homogenization-removed kinds)
-    added:   (object_decl, morphism_decl, composition_decl, ...)
-    all removed rules have converters [OK]
-```
+The command exits non-zero when any pair has uncovered removals, which makes it
+CI-suitable. Panproto 0.74.2 validates historical QVR objects against the exact
+persisted enum payload read from disk. Current writes and tamper detection
+remain unchanged. Thus `qvr migrate --check` exercises the original object IDs
+written by earlier Panproto versions; the fixtures must not be regenerated to
+match a new in-memory representation.
 
 To clear an "uncovered" entry: write a converter for the rule in
 the corresponding hop module and add the rule name to that
@@ -219,19 +224,24 @@ When a new QVR release ships:
    ```bash
    python grammars/qvr/vcs/build_parsers.py
    ```
-   Produces `grammars/qvr/vcs/parsers/v0.X.Y/qvr.{dylib,so,dll}`.
+   Produces the immutable source snapshot and a development-machine library
+   under `grammars/qvr/vcs/parsers/v0.X.Y/`. The Hatch wheel hook compiles the
+   current parser and every snapshot again on the wheel's target platform,
+   writes source-binding manifests, and marks the result as a platform wheel.
 4. Append the new revision to `CHAIN` in
    `src/quivers/cli/migrations/__init__.py`.
 5. If the new grammar differs structurally: write
    `vP_Q_R_to_v0_X_Y.py` with per-decl converters and a
    `SOURCE_RULE_COVERAGE` frozenset listing every source rule it
    handles. Register it in `MIGRATORS`.
-6. If the new grammar is byte-identical to the previous release:
-   add a tiny identity module like `v0_9_0_to_v0_10_0.py` (a
-   `migrate` function that returns its argument unchanged) and
-   register it in `MIGRATORS`.
+6. If the new grammar is byte-identical to the previous release, register
+   `_identity.migrator(previous, current)` in `MIGRATORS`. This validates the
+   manifest and both parse endpoints without adding another module.
 7. Run `qvr migrate --check` to confirm the new hop's coverage is
    complete.
+8. Let the release workflow build wheels through `cibuildwheel` on Linux,
+   macOS, and Windows. The installed-wheel CI smoke test disables compiler
+   fallback while loading the current parser and every migration snapshot.
 
 ## The panproto VCS chain
 
@@ -254,12 +264,12 @@ the migration; they are hand-written walks over the parsed source
 schema. The VCS provides authoritative grammar history and powers
 the coverage / blame tooling layered on top.
 
-## Limitations and planned work
+## Limits and planned work
 
-- **Earlier hops are identity scaffolds.** Migrating source from
-  v0.2.0–v0.8.0 lineage will pass the source through unchanged at
-  every hop until those modules are filled in. `qvr migrate
-  --check` lists the rules each hop still needs converters for.
+- **Two converter tables are empty.** The v0.5.0 → v0.6.0 and v0.7.0 →
+  v0.9.0 modules currently rely on grammar-bound pass-through and endpoint
+  validation. `qvr migrate --check` identifies any removed source rule that
+  still needs a converter.
 - **Interior-bracket comments in inline forms.** A `#` comment
   inside a single-line `[...]` / `(...)` / `{...}` cannot exist:
   the grammar forbids newlines in inline forms. The user must
@@ -279,7 +289,7 @@ the coverage / blame tooling layered on top.
 ## Related
 
 - [`grammars/qvr/vcs/README.md`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/vcs/README.md):
-  the VCS scaffolding for grammar authors.
+  the VCS workflow for grammar authors.
 - The
   [DSL overview](dsl-overview.md)
-  for the current (`v0.11.0`-shaped) source-level surface.
+  for the current source-level surface.

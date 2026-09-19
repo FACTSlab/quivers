@@ -30,6 +30,7 @@ Quivers is a functional probabilistic programming language for PyTorch. The surf
 
 - **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`[effects=[Sample, Score, Marginal]]`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with a scoped `marginalize z : K <- ...` block.
 - **Shared substrate for inference, deduction, and structural compression.** A CKY parser in a `deduction` block (its `atoms`, `rule`, and `lexicon` entries), a transformer-as-encoder over a `signature` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can thus compose with each other.
+- **Indexed families and algebraic effects have a typed core.** QVR v0.19 adds GADT-style indexed constructors, lexical effect instances, row-polymorphic computations, handlers, and resumption grades. These forms check and lower to the stable [Quivers Indexed Effect Core](https://FACTSlab.github.io/quivers/developer/qiec/). Eight host-language transpilers emit the complete computation graph through a common runtime ABI; Stan, BUGS, and JAGS accept the closed pure scalar fragment and report precise capability diagnostics for other forms.
 - **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values along which models can be transported. The compiler checks their source and target types; the algebraic laws remain assumptions of each instance.
 
 The probabilistic-programming surface also includes:
@@ -78,8 +79,9 @@ The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tut
 
 ## Documentation
 
-- [**Tutorial**](https://FACTSlab.github.io/quivers/tutorials/): the QVR DSL tutorial walks probabilistic-programming users from linear regression to inference-algorithm choice with PyMC, NumPyro, and Stan equivalents shown side-by-side, while the Python API tutorial covers the typed categorical surface.
-- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 46 end-to-end models covering regression, latent-variable, state-space, language models, seq2seq, and formal grammars.
+- [**Tutorial**](https://FACTSlab.github.io/quivers/tutorials/): the QVR DSL tutorial walks from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks, while the Python API tutorial covers the typed categorical surface.
+- [**QVR language reference**](https://FACTSlab.github.io/quivers/reference/qvr/): v0.19 syntax, type-and-effect rules, generated computation graphs, entry execution, tooling, and grammar ownership.
+- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 46 transpilation-measured programs plus an integrated QIEC case study, covering regression, latent-variable, state-space, language, structural, and formal-grammar models.
 - [**Conceptual guides**](https://FACTSlab.github.io/quivers/guides/): feature-area deep dives.
 - [**API reference**](https://FACTSlab.github.io/quivers/api/): the typed Python surface.
 - [**Denotational semantics**](https://FACTSlab.github.io/quivers/semantics/): the meaning of every well-typed program in a $\mathcal{V}$-enriched symmetric monoidal closed category.
@@ -98,7 +100,8 @@ cd quivers
 pip install -e ".[dev]"
 ```
 
-Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.7.1+, panproto 0.58.0+, panproto-grammars-all 0.58.0+.
+Requirements: Python 3.14+, PyTorch 2.0+, didactic 0.15.0+, panproto
+0.74.2+, panproto-grammars-all 0.58.0+.
 
 Optional extras:
 

@@ -212,6 +212,32 @@
     }
   },
   {
+    "type": "call_step",
+    "named": true,
+    "fields": {
+      "call": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "cap_expr",
     "named": true,
     "fields": {
@@ -618,6 +644,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -654,7 +684,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -679,6 +717,138 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "computation_decl",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_value_parameter",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "row": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_row",
             "named": true
           }
         ]
@@ -1107,6 +1277,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -1143,7 +1317,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -1305,6 +1487,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -1341,7 +1527,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -1375,6 +1569,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -1411,7 +1609,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -1445,6 +1651,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -1481,7 +1691,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2024,6 +2242,88 @@
     }
   },
   {
+    "type": "effect_decl",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "operations": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_operation_decl",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "effect_instance_decl",
+    "named": true,
+    "fields": {
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_ref",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "encoder_decl",
     "named": true,
     "fields": {
@@ -2166,6 +2466,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2202,7 +2506,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2252,6 +2564,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2288,7 +2604,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2352,6 +2676,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2388,7 +2716,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2442,6 +2778,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2478,7 +2818,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2502,6 +2850,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2538,7 +2890,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -2602,6 +2962,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -2638,7 +3002,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3094,6 +3466,120 @@
     }
   },
   {
+    "type": "handler_decl",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "clauses": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_handler_operation_clause",
+            "named": true
+          },
+          {
+            "type": "qiec_handler_return_clause",
+            "named": true
+          }
+        ]
+      },
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_ref",
+            "named": true
+          }
+        ]
+      },
+      "input": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "options": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_handler_options",
+            "named": true
+          }
+        ]
+      },
+      "output": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "ident_list",
     "named": true,
     "fields": {},
@@ -3125,6 +3611,108 @@
     }
   },
   {
+    "type": "index_decl",
+    "named": true,
+    "fields": {
+      "constructors": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_index_constructor",
+            "named": true
+          }
+        ]
+      },
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "indexed_family_decl",
+    "named": true,
+    "fields": {
+      "constructors": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_constructor_decl",
+            "named": true
+          }
+        ]
+      },
+      "docs": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "doc_comment_group",
+            "named": true
+          }
+        ]
+      },
+      "indices": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_index_telescope",
+            "named": true
+          }
+        ]
+      },
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_type_kind",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "let_binop",
     "named": true,
     "fields": {
@@ -3134,6 +3722,10 @@
         "types": [
           {
             "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
             "named": true
           },
           {
@@ -3173,7 +3765,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3186,6 +3786,18 @@
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "!=",
+            "named": false
+          },
+          {
+            "type": "%",
+            "named": false
+          },
+          {
+            "type": "&&",
+            "named": false
+          },
           {
             "type": "*",
             "named": false
@@ -3201,6 +3813,30 @@
           {
             "type": "/",
             "named": false
+          },
+          {
+            "type": "<",
+            "named": false
+          },
+          {
+            "type": "<=",
+            "named": false
+          },
+          {
+            "type": "==",
+            "named": false
+          },
+          {
+            "type": ">",
+            "named": false
+          },
+          {
+            "type": ">=",
+            "named": false
+          },
+          {
+            "type": "||",
+            "named": false
           }
         ]
       },
@@ -3210,6 +3846,10 @@
         "types": [
           {
             "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
             "named": true
           },
           {
@@ -3249,7 +3889,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3259,6 +3907,11 @@
         ]
       }
     }
+  },
+  {
+    "type": "let_bool",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "let_call",
@@ -3277,6 +3930,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3313,7 +3970,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3357,6 +4022,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3393,7 +4062,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3491,6 +4168,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3527,7 +4208,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3561,6 +4250,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3597,7 +4290,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3621,6 +4322,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3657,7 +4362,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3688,6 +4401,10 @@
       "types": [
         {
           "type": "let_binop",
+          "named": true
+        },
+        {
+          "type": "let_bool",
           "named": true
         },
         {
@@ -3727,7 +4444,15 @@
           "named": true
         },
         {
+          "type": "let_tuple",
+          "named": true
+        },
+        {
           "type": "let_unary",
+          "named": true
+        },
+        {
+          "type": "let_unit",
           "named": true
         },
         {
@@ -3773,6 +4498,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3809,7 +4538,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3853,6 +4590,10 @@
           "named": true
         },
         {
+          "type": "let_bool",
+          "named": true
+        },
+        {
           "type": "let_call",
           "named": true
         },
@@ -3889,7 +4630,15 @@
           "named": true
         },
         {
+          "type": "let_tuple",
+          "named": true
+        },
+        {
           "type": "let_unary",
+          "named": true
+        },
+        {
+          "type": "let_unit",
           "named": true
         },
         {
@@ -3922,6 +4671,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -3958,7 +4711,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -3985,13 +4746,21 @@
     }
   },
   {
-    "type": "let_unary",
+    "type": "let_tuple",
     "named": true,
     "fields": {
-      "operand": {
-        "multiple": false,
+      "items": {
+        "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
           {
             "type": "let_call",
             "named": true
@@ -4026,6 +4795,96 @@
           },
           {
             "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let_unary",
+    "named": true,
+    "fields": {
+      "op": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "-",
+            "named": false
+          },
+          {
+            "type": "not",
+            "named": false
+          }
+        ]
+      },
+      "operand": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -4110,6 +4969,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -4146,7 +5009,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -4245,6 +5116,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -4281,7 +5156,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -4414,6 +5297,10 @@
         "multiple": true,
         "required": false,
         "types": [
+          {
+            "type": "call_step",
+            "named": true
+          },
           {
             "type": "let_step",
             "named": true
@@ -5993,6 +6880,10 @@
         "required": false,
         "types": [
           {
+            "type": "call_step",
+            "named": true
+          },
+          {
             "type": "let_step",
             "named": true
           },
@@ -6024,6 +6915,2579 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "qiec_bind_computation",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      },
+      "first": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_call_computation",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      },
+      "callee": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "static_arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_case_branch",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_case_static_binder",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "constructor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "fields": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_case_computation",
+    "named": true,
+    "fields": {
+      "branches": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_case_branch",
+            "named": true
+          }
+        ]
+      },
+      "motive": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_case_motive",
+            "named": true
+          }
+        ]
+      },
+      "scrutinee": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_case_motive",
+    "named": true,
+    "fields": {
+      "indices": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_index_telescope",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_case_static_binder",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_constructor_decl",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_constructor_value",
+    "named": true,
+    "fields": {
+      "constructor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "fields": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "static_arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_effect_binder",
+    "named": true,
+    "fields": {
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_kind",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_effect_ref",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_effect_request",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      },
+      "instance": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "operation": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "static_arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_effect_row",
+    "named": true,
+    "fields": {
+      "row": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_row_literal",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_effect_row_literal",
+    "named": true,
+    "fields": {
+      "entries": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_row_entry",
+            "named": true
+          }
+        ]
+      },
+      "lacks": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "tail": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_function_type",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handle_computation",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "handler": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_handler_application",
+            "named": true
+          }
+        ]
+      },
+      "instance": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_application",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_first_option",
+    "named": true,
+    "fields": {
+      "coverage": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "partial",
+            "named": false
+          },
+          {
+            "type": "total",
+            "named": false
+          }
+        ]
+      },
+      "forwards": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "none",
+            "named": false
+          },
+          {
+            "type": "unknown",
+            "named": false
+          }
+        ]
+      },
+      "implementation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "authored",
+            "named": false
+          },
+          {
+            "type": "foreign",
+            "named": false
+          }
+        ]
+      },
+      "introduced": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_effect_row",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "qiec_handler_coverage_key",
+          "named": true
+        },
+        {
+          "type": "qiec_handler_forwards_key",
+          "named": true
+        },
+        {
+          "type": "qiec_handler_implementation_key",
+          "named": true
+        },
+        {
+          "type": "qiec_handler_introduces_key",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "qiec_handler_operation_clause",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "grade": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_resumption_grade",
+            "named": true
+          }
+        ]
+      },
+      "operation": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_option",
+    "named": true,
+    "fields": {
+      "coverage": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "partial",
+            "named": false
+          },
+          {
+            "type": "total",
+            "named": false
+          }
+        ]
+      },
+      "forwards": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "none",
+            "named": false
+          },
+          {
+            "type": "unknown",
+            "named": false
+          }
+        ]
+      },
+      "implementation": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "authored",
+            "named": false
+          },
+          {
+            "type": "foreign",
+            "named": false
+          }
+        ]
+      },
+      "introduced": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_effect_row",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_options",
+    "named": true,
+    "fields": {
+      "entries": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_handler_first_option",
+            "named": true
+          },
+          {
+            "type": "qiec_handler_option",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_handler_return_clause",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_if_computation",
+    "named": true,
+    "fields": {
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          }
+        ]
+      },
+      "otherwise": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_application",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_index_application",
+            "named": true
+          },
+          {
+            "type": "qiec_index_literal",
+            "named": true
+          },
+          {
+            "type": "qiec_index_name",
+            "named": true
+          },
+          {
+            "type": "qiec_shape_index",
+            "named": true
+          }
+        ]
+      },
+      "constructor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_binder",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "sort": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_index_sort",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_constructor",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_index_sort",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_literal",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_name",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_index_sort",
+    "named": true,
+    "fields": {
+      "rank": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "signature": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "qiec_context_sort",
+          "named": true
+        },
+        {
+          "type": "qiec_nat_sort",
+          "named": true
+        },
+        {
+          "type": "qiec_shape_sort",
+          "named": true
+        },
+        {
+          "type": "qiec_user_index_sort",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "qiec_index_telescope",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_index_binder",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_instance_computation",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "effect": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_ref",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_local_binding",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_operation_decl",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "binders": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_telescope",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "result": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_perform_computation",
+    "named": true,
+    "fields": {
+      "request": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_request",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_product_type",
+    "named": true,
+    "fields": {
+      "left": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      },
+      "right": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_pure_binding",
+    "named": true,
+    "fields": {
+      "binder": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_local_binding",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_resume_computation",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_resumption_grade",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "qiec_return_computation",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "let_binop",
+            "named": true
+          },
+          {
+            "type": "let_bool",
+            "named": true
+          },
+          {
+            "type": "let_call",
+            "named": true
+          },
+          {
+            "type": "let_factor",
+            "named": true
+          },
+          {
+            "type": "let_index",
+            "named": true
+          },
+          {
+            "type": "let_lambda",
+            "named": true
+          },
+          {
+            "type": "let_list",
+            "named": true
+          },
+          {
+            "type": "let_literal",
+            "named": true
+          },
+          {
+            "type": "let_method_call",
+            "named": true
+          },
+          {
+            "type": "let_paren",
+            "named": true
+          },
+          {
+            "type": "let_string",
+            "named": true
+          },
+          {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
+            "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
+            "named": true
+          },
+          {
+            "type": "let_var",
+            "named": true
+          },
+          {
+            "type": "qiec_constructor_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_row_entry",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_sequence_computation",
+    "named": true,
+    "fields": {
+      "first": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_bind_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_call_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_case_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_handle_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_if_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_instance_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_perform_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_pure_binding",
+            "named": true
+          },
+          {
+            "type": "qiec_resume_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_return_computation",
+            "named": true
+          },
+          {
+            "type": "qiec_sequence_computation",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_shape_index",
+    "named": true,
+    "fields": {
+      "dimensions": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_index_application",
+            "named": true
+          },
+          {
+            "type": "qiec_index_literal",
+            "named": true
+          },
+          {
+            "type": "qiec_index_name",
+            "named": true
+          },
+          {
+            "type": "qiec_shape_index",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_static_argument",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_index_literal",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_static_telescope",
+    "named": true,
+    "fields": {
+      "binders": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_effect_binder",
+            "named": true
+          },
+          {
+            "type": "qiec_index_binder",
+            "named": true
+          },
+          {
+            "type": "qiec_type_binder",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_type_application",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_static_argument",
+            "named": true
+          }
+        ]
+      },
+      "constructor": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "indices": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "qiec_index_application",
+            "named": true
+          },
+          {
+            "type": "qiec_index_literal",
+            "named": true
+          },
+          {
+            "type": "qiec_index_name",
+            "named": true
+          },
+          {
+            "type": "qiec_shape_index",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_type_binder",
+    "named": true,
+    "fields": {
+      "kind": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_type_kind",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_type_name",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_type_paren",
+    "named": true,
+    "fields": {
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_user_index_sort",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "qiec_value_parameter",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "qiec_function_type",
+            "named": true
+          },
+          {
+            "type": "qiec_product_type",
+            "named": true
+          },
+          {
+            "type": "qiec_type_application",
+            "named": true
+          },
+          {
+            "type": "qiec_type_name",
+            "named": true
+          },
+          {
+            "type": "qiec_type_paren",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -6704,6 +10168,10 @@
             "named": true
           },
           {
+            "type": "let_bool",
+            "named": true
+          },
+          {
             "type": "let_call",
             "named": true
           },
@@ -6740,7 +10208,15 @@
             "named": true
           },
           {
+            "type": "let_tuple",
+            "named": true
+          },
+          {
             "type": "let_unary",
+            "named": true
+          },
+          {
+            "type": "let_unit",
             "named": true
           },
           {
@@ -6970,6 +10446,10 @@
           "named": true
         },
         {
+          "type": "computation_decl",
+          "named": true
+        },
+        {
           "type": "contraction_decl",
           "named": true
         },
@@ -6986,11 +10466,31 @@
           "named": true
         },
         {
+          "type": "effect_decl",
+          "named": true
+        },
+        {
+          "type": "effect_instance_decl",
+          "named": true
+        },
+        {
           "type": "encoder_decl",
           "named": true
         },
         {
           "type": "export_decl",
+          "named": true
+        },
+        {
+          "type": "handler_decl",
+          "named": true
+        },
+        {
+          "type": "index_decl",
+          "named": true
+        },
+        {
+          "type": "indexed_family_decl",
           "named": true
         },
         {
@@ -7516,11 +11016,27 @@
     }
   },
   {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "!=",
+    "named": false
+  },
+  {
     "type": "#![",
     "named": false
   },
   {
     "type": "#[",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "&&",
     "named": false
   },
   {
@@ -7564,7 +11080,19 @@
     "named": false
   },
   {
+    "type": "0",
+    "named": false
+  },
+  {
+    "type": "1",
+    "named": false
+  },
+  {
     "type": ":",
+    "named": false
+  },
+  {
+    "type": "<",
     "named": false
   },
   {
@@ -7576,7 +11104,27 @@
     "named": false
   },
   {
+    "type": "<=",
+    "named": false
+  },
+  {
     "type": "=",
+    "named": false
+  },
+  {
+    "type": "==",
+    "named": false
+  },
+  {
+    "type": "=>",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
     "named": false
   },
   {
@@ -7676,6 +11224,10 @@
     "named": false
   },
   {
+    "type": "aff",
+    "named": false
+  },
+  {
     "type": "as",
     "named": false
   },
@@ -7685,6 +11237,10 @@
   },
   {
     "type": "attention",
+    "named": false
+  },
+  {
+    "type": "authored",
     "named": false
   },
   {
@@ -7721,6 +11277,10 @@
     "named": false
   },
   {
+    "type": "case",
+    "named": false
+  },
+  {
     "type": "categories",
     "named": false
   },
@@ -7745,11 +11305,23 @@
     "named": false
   },
   {
+    "type": "construct",
+    "named": false
+  },
+  {
+    "type": "constructor",
+    "named": false
+  },
+  {
     "type": "constructors",
     "named": false
   },
   {
     "type": "contraction",
+    "named": false
+  },
+  {
+    "type": "coverage",
     "named": false
   },
   {
@@ -7801,7 +11373,15 @@
     "named": false
   },
   {
+    "type": "effect",
+    "named": false
+  },
+  {
     "type": "effect_depth",
+    "named": false
+  },
+  {
+    "type": "else",
     "named": false
   },
   {
@@ -7817,12 +11397,32 @@
     "named": false
   },
   {
+    "type": "false",
+    "named": false
+  },
+  {
+    "type": "family",
+    "named": false
+  },
+  {
     "type": "fan",
     "named": false
   },
   {
     "type": "float",
     "named": true
+  },
+  {
+    "type": "for",
+    "named": false
+  },
+  {
+    "type": "foreign",
+    "named": false
+  },
+  {
+    "type": "forwards",
+    "named": false
   },
   {
     "type": "freeze",
@@ -7837,11 +11437,27 @@
     "named": false
   },
   {
+    "type": "handle",
+    "named": false
+  },
+  {
+    "type": "handler",
+    "named": false
+  },
+  {
     "type": "identifier",
     "named": true
   },
   {
     "type": "identity",
+    "named": false
+  },
+  {
+    "type": "if",
+    "named": false
+  },
+  {
+    "type": "implementation",
     "named": false
   },
   {
@@ -7857,11 +11473,23 @@
     "named": false
   },
   {
+    "type": "instance",
+    "named": false
+  },
+  {
     "type": "integer",
     "named": true
   },
   {
+    "type": "introduces",
+    "named": false
+  },
+  {
     "type": "iterations",
+    "named": false
+  },
+  {
+    "type": "lacks",
     "named": false
   },
   {
@@ -7871,6 +11499,10 @@
   {
     "type": "let",
     "named": false
+  },
+  {
+    "type": "let_unit",
+    "named": true
   },
   {
     "type": "lex",
@@ -7906,11 +11538,27 @@
     "named": false
   },
   {
+    "type": "motive",
+    "named": false
+  },
+  {
+    "type": "none",
+    "named": false
+  },
+  {
+    "type": "not",
+    "named": false
+  },
+  {
     "type": "object",
     "named": false
   },
   {
     "type": "observe",
+    "named": false
+  },
+  {
+    "type": "omega",
     "named": false
   },
   {
@@ -7926,12 +11574,56 @@
     "named": false
   },
   {
+    "type": "partial",
+    "named": false
+  },
+  {
+    "type": "perform",
+    "named": false
+  },
+  {
     "type": "primitive",
     "named": false
   },
   {
     "type": "program",
     "named": false
+  },
+  {
+    "type": "qiec_context_sort",
+    "named": true
+  },
+  {
+    "type": "qiec_effect_kind",
+    "named": true
+  },
+  {
+    "type": "qiec_handler_coverage_key",
+    "named": true
+  },
+  {
+    "type": "qiec_handler_forwards_key",
+    "named": true
+  },
+  {
+    "type": "qiec_handler_implementation_key",
+    "named": true
+  },
+  {
+    "type": "qiec_handler_introduces_key",
+    "named": true
+  },
+  {
+    "type": "qiec_nat_sort",
+    "named": true
+  },
+  {
+    "type": "qiec_shape_sort",
+    "named": true
+  },
+  {
+    "type": "qiec_type_kind",
+    "named": true
   },
   {
     "type": "readout",
@@ -7947,6 +11639,14 @@
   },
   {
     "type": "repeat",
+    "named": false
+  },
+  {
+    "type": "resume",
+    "named": false
+  },
+  {
+    "type": "resumes",
     "named": false
   },
   {
@@ -8006,11 +11706,27 @@
     "named": false
   },
   {
+    "type": "then",
+    "named": false
+  },
+  {
+    "type": "total",
+    "named": false
+  },
+  {
     "type": "trace",
     "named": false
   },
   {
+    "type": "true",
+    "named": false
+  },
+  {
     "type": "unary",
+    "named": false
+  },
+  {
+    "type": "unknown",
     "named": false
   },
   {
@@ -8030,7 +11746,15 @@
     "named": false
   },
   {
+    "type": "with",
+    "named": false
+  },
+  {
     "type": "{",
+    "named": false
+  },
+  {
+    "type": "|",
     "named": false
   },
   {
@@ -8039,6 +11763,10 @@
   },
   {
     "type": "|->",
+    "named": false
+  },
+  {
+    "type": "||",
     "named": false
   },
   {

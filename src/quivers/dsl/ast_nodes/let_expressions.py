@@ -8,44 +8,212 @@ from quivers.dsl.ast_nodes.objects import ObjectExpr
 
 
 class LetExprNode(dx.TaggedUnion, discriminator="kind"):
-    """Sum of let-step arithmetic expression nodes."""
+    """Sum of pure expression nodes.
+
+    One expression tree serves both surfaces: a ``program`` let step and a
+    QIEC value position parse to the same nodes. Every node carries the
+    1-based source line and column of its first token, which the QIEC
+    lowerer needs for diagnostics and stable provenance; a program step
+    ignores them.
+    """
+
+
+type LetBinaryOperator = Literal[
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "==",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "&&",
+    "||",
+]
 
 
 class LetExprBinOp(LetExprNode):
-    """Binary arithmetic operation in a let expression."""
+    """Binary operation in an expression.
 
-    op: Literal["+", "-", "*", "/"]
+    Parameters
+    ----------
+    op
+        The operator: arithmetic, comparison, or boolean.
+    left
+        The left operand.
+    right
+        The right operand.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_binop"``.
+    """
+
+    op: LetBinaryOperator
     left: LetExprNode
     right: LetExprNode
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_binop"] = "let_expr_binop"
 
 
 class LetExprUnaryOp(LetExprNode):
-    """Unary negation in a let expression."""
+    """Unary negation or boolean negation in an expression.
+
+    Parameters
+    ----------
+    operand
+        The operand.
+    op
+        ``"-"`` for arithmetic negation or ``"not"`` for boolean negation.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_unary"``.
+    """
 
     operand: LetExprNode
+    op: Literal["-", "not"] = "-"
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_unary"] = "let_expr_unary"
 
 
 class LetExprCall(LetExprNode):
-    """Built-in function call in a let expression."""
+    """Built-in function application in an expression.
+
+    Parameters
+    ----------
+    func
+        The builtin's name.
+    args
+        The arguments, in order.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_call"``.
+    """
 
     func: str
     args: tuple[LetExprNode, ...]
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_call"] = "let_expr_call"
 
 
 class LetExprLiteral(LetExprNode):
-    """Numeric literal in a let expression."""
+    """Numeric literal in an expression.
+
+    Parameters
+    ----------
+    value
+        The literal's value.
+    integral
+        Whether the source spelled an integer, with no fraction or
+        exponent. A program step treats every number as real; the QIEC
+        lowerer types an integral literal as ``Int``.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_literal"``.
+    """
 
     value: float
+    integral: bool = False
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_literal"] = "let_expr_literal"
 
 
+class LetExprBool(LetExprNode):
+    """Boolean literal ``true`` or ``false``.
+
+    Parameters
+    ----------
+    value
+        The literal's value.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_bool"``.
+    """
+
+    value: bool
+    line: int = 0
+    col: int = 0
+    kind: Literal["let_expr_bool"] = "let_expr_bool"
+
+
+class LetExprUnit(LetExprNode):
+    """The unit literal ``unit``.
+
+    Parameters
+    ----------
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_unit"``.
+    """
+
+    line: int = 0
+    col: int = 0
+    kind: Literal["let_expr_unit"] = "let_expr_unit"
+
+
+class LetExprTuple(LetExprNode):
+    """Tuple construction ``(a, b, ...)`` with at least two components.
+
+    Parameters
+    ----------
+    items
+        The components, in order.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_tuple"``.
+    """
+
+    items: tuple[LetExprNode, ...]
+    line: int = 0
+    col: int = 0
+    kind: Literal["let_expr_tuple"] = "let_expr_tuple"
+
+
 class LetExprVar(LetExprNode):
-    """Variable reference in a let expression."""
+    """Variable reference in an expression.
+
+    Parameters
+    ----------
+    name
+        The variable's name.
+    line
+        The 1-based source line, or 0 when unknown.
+    col
+        The 0-based source column, or 0 when unknown.
+    kind
+        The discriminator; always ``"let_expr_var"``.
+    """
 
     name: str
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_var"] = "let_expr_var"
 
 
@@ -70,6 +238,8 @@ class LetExprIndex(LetExprNode):
 
     array: LetExprNode
     indices: tuple[LetExprNode, ...]
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_index"] = "let_expr_index"
 
 
@@ -83,6 +253,8 @@ class LetExprString(LetExprNode):
     """
 
     value: str
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_string"] = "let_expr_string"
 
 
@@ -95,6 +267,8 @@ class LetExprList(LetExprNode):
     """
 
     items: tuple[LetExprNode, ...]
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_list"] = "let_expr_list"
 
 
@@ -109,6 +283,8 @@ class LetExprLambda(LetExprNode):
 
     param: str
     body: LetExprNode
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_lambda"] = "let_expr_lambda"
 
 
@@ -169,6 +345,8 @@ class LetExprFactor(LetExprNode):
     binders: tuple[LetFactorBinder, ...]
     body: LetExprNode | None = None
     cases: tuple[LetFactorCase, ...] = ()
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_factor"] = "let_expr_factor"
 
 
@@ -186,12 +364,18 @@ class LetExprMethodCall(LetExprNode):
     receiver: LetExprNode
     method: str
     args: tuple[LetExprNode, ...]
+    line: int = 0
+    col: int = 0
     kind: Literal["let_expr_method_call"] = "let_expr_method_call"
 
 
 __all__ = [
+    "LetBinaryOperator",
     "LetExprNode",
     "LetExprBinOp",
+    "LetExprBool",
+    "LetExprUnit",
+    "LetExprTuple",
     "LetExprUnaryOp",
     "LetExprCall",
     "LetExprLiteral",

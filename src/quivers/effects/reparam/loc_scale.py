@@ -10,15 +10,14 @@ that gives HMC and NUTS the funnel-collapse pathology described in
 and isolated as a challenge to samplers in
 [Neal (2003)](https://doi.org/10.1214/aos/1056562461).
 
-The handler is site-local: it consults the site's morphism for
-``(loc, scale)``, draws a base sample ``y_raw ~ Normal(0, 1)``,
-computes the deterministic image ``y = loc + scale * y_raw``, and
-scores ``y`` under the original ``Normal(loc, scale)``. Because
-change-of-variables through the affine map has log-Jacobian
-``log|scale|``, the reparameterised score
+The strategy is site-local: it reads the site's ``(loc, scale)``, draws
+a base sample ``y_raw ~ Normal(0, 1)``, computes the deterministic image
+``y = loc + scale * y_raw``, and scores ``y`` under the original
+``Normal(loc, scale)``. Because change-of-variables through the affine
+map has log-Jacobian ``log|scale|``, the reparameterised score
 ``log N(y_raw; 0, 1) - log|scale|`` equals ``log N(y; loc, scale)``
-exactly, so a downstream inference that already respects the
-reparam contract will see identical log-densities.
+exactly, so a downstream inference that already respects the reparam
+contract sees identical log-densities.
 """
 
 from __future__ import annotations
@@ -27,28 +26,30 @@ import math
 
 import torch
 
-from quivers.effects.base import Message
-from quivers.effects.reparam.base import Reparam
+from quivers.effects.reparam.base import Reparam, SiteRequest
 
 
 class LocScaleReparam(Reparam):
     """Non-centred rewrite for location-scale sample sites.
 
-    The site's morphism must expose a `_get_params(x)` method
-    returning `(loc, scale)` tensors of the same shape (the
-    convention every `ConditionalNormal`-shaped family in
-    `quivers.continuous.families` follows). Sites whose morphism
-    does not follow the convention raise on `apply`.
+    The site's morphism must expose a ``_get_params(x)`` method returning
+    ``(loc, scale)`` tensors of the same shape, the convention every
+    ``ConditionalNormal``-shaped family in
+    `quivers.continuous.families` follows.
 
     Parameters
     ----------
     centered : float
         Interpolation between fully centred (``1.0``) and fully
         non-centred (``0.0``) parameterisations. Values in between
-        produce a partial reparam, matching the ``centered``
-        parameter of Pyro's
+        produce a partial reparam, matching the ``centered`` parameter
+        of Pyro's
         [`LocScaleReparam`](https://docs.pyro.ai/en/stable/infer.reparam.html#pyro.infer.reparam.loc_scale.LocScaleReparam).
-        Default ``0.0`` (fully non-centred).
+
+    Raises
+    ------
+    ValueError
+        If ``centered`` is outside ``[0, 1]``.
     """
 
     def __init__(self, centered: float = 0.0) -> None:
@@ -58,42 +59,49 @@ class LocScaleReparam(Reparam):
             )
         self.centered = float(centered)
 
-    def apply(self, msg: Message) -> None:
-        morph = msg.morphism
-        assert morph is not None
-        assert msg.input is not None
-        get_params = getattr(morph, "_get_params", None)
+    def apply(self, site: SiteRequest) -> tuple[torch.Tensor, torch.Tensor]:
+        """Rewrite one site.
+
+        Parameters
+        ----------
+        site : SiteRequest
+            The site.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            The value and its log density under ``Normal(loc, scale)``,
+            summed over the trailing feature axis.
+
+        Raises
+        ------
+        TypeError
+            If the site's morphism exposes no ``_get_params``.
+        """
+        morphism = site.sampleable.morphism
+        get_params = getattr(morphism, "_get_params", None)
         if get_params is None:
             raise TypeError(
-                f"LocScaleReparam: site '{msg.name}' morphism "
-                f"{type(morph).__name__} does not expose `_get_params(x)`; "
+                f"LocScaleReparam: site '{site.name}' morphism "
+                f"{type(morphism).__name__} does not expose `_get_params(x)`; "
                 f"LocScaleReparam requires a Normal-family morphism."
             )
-        loc, scale = get_params(msg.input)
-
+        loc, scale = get_params(site.sampleable.input)
         # Partial centring interpolates the effective scale used to
-        # push the base sample forward. `centered=1` recovers the
-        # original sample-then-score path; `centered=0` is the fully
+        # push the base sample forward: ``centered=1`` recovers the
+        # original sample-then-score path, ``centered=0`` the fully
         # non-centred rewrite.
-        c = self.centered
-        eff_scale = scale.pow(c)  # scale ** c, elementwise
-        base_scale = scale / eff_scale  # = scale ** (1 - c)
-        eff_loc = loc * (1.0 - c) + loc * c  # loc regardless of c
-        _ = eff_loc  # loc unaffected by the partial-centring convex combo
-
-        if msg.value is None:
+        effective = scale.pow(self.centered)
+        base_scale = scale / effective
+        if site.given is None:
             eps = torch.randn_like(loc)
-            y_raw = eff_scale * eps  # base sample in the reparam space
+            y_raw = effective * eps
             y = loc + base_scale * y_raw
-            msg.value = y
         else:
-            y = msg.value
-
-        # Score y under the original Normal(loc, scale). The affine
-        # change-of-variable identity makes this equal the base-sample
-        # score minus log|scale|; scoring y directly is simpler and
-        # numerically identical.
+            y = site.given
         residual = (y - loc) / scale
-        # log N(y; loc, scale) summed over the trailing feature axis.
         log_p = -0.5 * residual.pow(2) - scale.log() - 0.5 * math.log(2 * math.pi)
-        msg.log_prob = log_p.sum(dim=-1)
+        return y, log_p.sum(dim=-1)
+
+
+__all__ = ["LocScaleReparam"]

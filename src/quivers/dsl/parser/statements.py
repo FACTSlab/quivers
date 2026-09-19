@@ -80,6 +80,7 @@ from quivers.dsl.parser.program_steps import (
     _walk_program_step,
     _walk_return_pattern,
 )
+from quivers.dsl.parser.qiec import _QIEC_STATEMENT_KINDS, _walk_qiec_statement
 
 # ---------------------------------------------------------------------------
 # top-level dispatcher
@@ -111,6 +112,8 @@ def _decl_docs(t: _Tree, vid: str) -> tuple[str, ...]:
 def _walk_statement(t: _Tree, vid: str) -> Statement | list[Statement]:
     k = t.kind(vid)
     line, col = t.line_col(vid)
+    if k in _QIEC_STATEMENT_KINDS:
+        return _walk_qiec_statement(t, vid)
     if k == "composition_decl":
         return _walk_composition_decl(t, vid, line, col)
     if k == "category_decl":

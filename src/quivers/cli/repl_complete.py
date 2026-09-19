@@ -19,12 +19,25 @@ import glob
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from quivers.analysis.scope import (
+    SCOPE_SEPARATOR,
+    resolve_scoped_path,
+    scope_children,
+)
+from quivers.cli import repl_session
 from quivers.dsl.pygments_lexer import (
     _ALGEBRA_NAMES,
     _BUILTIN_FUNCTION_TOKENS,
     _BUILTIN_TYPE_TOKENS,
     _KEYWORD_TOKENS,
 )
+
+from quivers.dsl.qiec_tooling import (
+    effect_operation_names,
+    instance_effect_name,
+    qiec_binding_map,
+)
+from quivers.transpile import available_targets
 
 if TYPE_CHECKING:
     from quivers.cli.repl_session import ReplSession
@@ -39,22 +52,21 @@ class Completion:
     detail: str = ""
 
 
-_META_COMMANDS = (
-    "load",
-    "reload",
-    "type",
-    "kind",
-    "transpile",
-    "info",
-    "doc",
-    "browse",
-    "dump",
-    "edit",
-    "trace",
-    "set",
-    "help",
-    "quit",
-)
+def public_meta_commands() -> tuple[str, ...]:
+    """Return one public spelling for every registered meta-command.
+
+    The dispatch table registers each long spelling before its short aliases.
+    Keeping the first name for each handler thus makes completion and the TUI
+    palette follow the executable command surface without advertising aliases.
+    """
+    seen: set[object] = set()
+    commands: list[str] = []
+    for name, handler in repl_session._META_COMMANDS.items():  # noqa: SLF001
+        if handler in seen:
+            continue
+        seen.add(handler)
+        commands.append(name)
+    return tuple(commands)
 
 
 def all_completions(session: "ReplSession", prefix: str) -> list[Completion]:
@@ -86,8 +98,6 @@ def _transpile_target_completions(prefix: str) -> list[Completion]:
     if not prefix.startswith(head):
         return []
     typed = prefix[len(head) :]
-    from quivers.transpile import available_targets
-
     out: list[Completion] = []
     for target in available_targets():
         if target.startswith(typed):
@@ -105,7 +115,7 @@ def _meta_completions(prefix: str) -> list[Completion]:
     out: list[Completion] = []
     if prefix.startswith(":"):
         p = prefix[1:]
-        for name in _META_COMMANDS:
+        for name in public_meta_commands():
             if name.startswith(p):
                 out.append(
                     Completion(text=":" + name, kind="command", detail="meta-command")
@@ -127,16 +137,34 @@ def _env_completions(session: "ReplSession", prefix: str) -> list[Completion]:
       Each candidate's text is the full ``::``-path so accepting it
       keeps the path complete.
     """
-    from quivers.analysis.scope import (
-        SCOPE_SEPARATOR,
-        resolve_scoped_path,
-        scope_children,
-    )
+    out: list[Completion] = []
+
+    # QIEC declarations do not live in the categorical Compiler registries. Expose
+    # their top-level names and signature members through the same stream.
+    for name, binding in qiec_binding_map(session.module).items():
+        if name.startswith(prefix):
+            out.append(Completion(name, binding.semantic_kind, binding.kind))
+
+    # ``perform`` addresses operations through a lexical instance, whose
+    # interface is the module's own or the prelude's.
+    if "." in prefix:
+        instance_name, _, operation_prefix = prefix.partition(".")
+        effect_name = instance_effect_name(session.module, instance_name)
+        if effect_name is not None:
+            out.extend(
+                Completion(
+                    f"{instance_name}.{operation}",
+                    "function",
+                    f"operation of {effect_name}",
+                )
+                for operation in effect_operation_names(session.module, effect_name)
+                if operation.startswith(operation_prefix)
+            )
+        return out
 
     compiler = session._compiler  # noqa: SLF001 — internal but stable
     if compiler is None:
-        return []
-    out: list[Completion] = []
+        return out
 
     # Mode B: scope-path completion. The prefix is ``a::b::`` (or
     # ``a::b::c``); enumerate the children of ``a::b``'s scope
@@ -211,8 +239,6 @@ def _walk_scope_for_prefix(  # type: ignore[no-untyped-def]
 ) -> None:
     """Walk ``ref``'s scope subtree; emit a completion for every
     descendant whose final-segment name starts with ``prefix``."""
-    from quivers.analysis.scope import scope_children
-
     for child_name, child_ref in scope_children(ref).items():
         if child_name.startswith(prefix) and child_ref.path not in seen:
             out.append(
@@ -251,4 +277,4 @@ def _path_completions(prefix: str) -> list[Completion]:
     return out
 
 
-__all__ = ["Completion", "all_completions"]
+__all__ = ["Completion", "all_completions", "public_meta_commands"]

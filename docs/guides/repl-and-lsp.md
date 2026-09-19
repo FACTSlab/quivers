@@ -1,17 +1,18 @@
 # Interactive surface: REPL, kernel, language server
 
 quivers ships an interactive type-explorer and a matching language
-server. Both share the same parser
-([panproto](https://github.com/panproto/panproto) tree-sitter), the
-same elaborator
+server. Both share the same bundled QVR tree-sitter parser, installed into
+[Panproto](https://github.com/panproto/panproto)'s registry, the same elaborator
 ([`quivers.dsl.Compiler`](../api/dsl/compiler.md)), and the same highlight
 table, so the colour you see in the TUI matches the colour your
 editor shows over LSP, which matches what gets emitted as Jupyter
 output. The REPL, plain prompt, kernel, and language server use these
 shared components.
 
-This page is the full reference. For a one-paragraph
-overview see [Quickstart](../getting-started/quickstart.md).
+This page is the full interactive-command reference. For a one-paragraph
+overview see [Quickstart](../getting-started/quickstart.md); for the shorter
+entry, provider, LSP, and grammar-ownership contract, see [QVR execution and
+tooling](../reference/qvr/execution-and-tooling.md).
 
 ## Installation
 
@@ -71,6 +72,7 @@ mermaid.live.
 ```bash
 qvr --version
 qvr check docs/examples/source/lda.qvr      # batch-validate one or more files
+qvr run --help                              # inspect entry-point execution
 qvr repl --help                              # confirm the TUI is reachable
 ```
 
@@ -81,9 +83,10 @@ qvr repl --help                              # confirm the TUI is reachable
 | `qvr repl` | Textual TUI (or prompt_toolkit fallback if stdin is not a TTY) |
 | `qvr repl --plain` | Force the single-line prompt_toolkit frontend |
 | `qvr repl FILE.qvr` | Load FILE on startup, then drop to the prompt |
-| `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config) |
+| `qvr run FILE.qvr [NAME [JSON ...]]` | Execute one entry point, a `define` computation or a `program`; list them with no name |
+| `qvr lsp` / `qvr-lsp` | Run the Language Server over stdio (use this in editor config); add `--target TARGET` for live backend-capability diagnostics |
 | `qvr kernel install --user` / `qvr-kernel install --user` | Register a Jupyter kernelspec named `quivers` |
-| `qvr check FILE...` | Batch parse + compile; non-zero exit code on any error |
+| `qvr check FILE...` | Batch parse + compile; add `--target TARGET` to report the features that target lacks; non-zero exit code on any error |
 
 ## The REPL
 
@@ -131,9 +134,16 @@ The top bar shows, separated by `·`:
 
 - the loaded file path (or `<no file>`),
 - the active algebra (`ProductFuzzyAlgebra`, `LogProbAlgebra`, …),
-- counts: `N obj · M space · K morph · J rule`.
+- counts such as `N obj · M space · K morph · J rule · L qiec`, and
+- the active runtime as `runtime:LABEL`, and the transpile target whose
+  capability diagnostics `:load` reports as `target:NAME` when `:set target=`
+  names one. After a successful `:run`, the same fragment names the entry
+  point and its kind, `entry:NAME(program)` or `entry:NAME(computation)`,
+  its value as `last:NAME=VALUE:TYPE`, and a program's `log_joint=`; after a
+  failed one it shows `failed:NAME[CODE]`, so a run out of fuel reads
+  `failed:spin[qiec-run-fuel]`. A detached runtime is shown in yellow.
 
-It refreshes after every evaluation, reload, or watch update.
+It refreshes after every evaluation, reload, runtime change, or watch update.
 
 ### Environment browser
 
@@ -143,6 +153,8 @@ The right-hand `Tree` widget groups bindings by namespace:
 - `spaces`, every `space` and `type` declaration
 - `morphisms`, `latent`, `observed`, `kernel`, `embed`, `program`, `let`
 - `rules`, `rule` declarations
+- `indices`, `families`, `constructors`, `effects`, `operations`, `instances`,
+  `handlers`, and `computations`, including compact QIEC signatures
 
 The root node auto-expands on every refresh; each namespace expands
 its leaves. Click a leaf (or arrow-key to it and press Enter) to fire
@@ -198,6 +210,9 @@ column.
 | `:type EXPR` | `:t` | Print a value-level GHCi-style signature (`f :: A -> B`); type-level names are handled by `:kind` |
 | `:kind T` | `:k` | Resolve a type-level name or expression (`object X : FinSet 3`, `FinSet 3 :: FinSet 3`) |
 | `:transpile TARGET` |  | Emit the loaded module for `stan`, `numpyro`, `pyro`, `pymc`, `edward2`, `turing`, `gen`, `church`, `webppl`, `bugs`, or `jags` |
+| `:runtime [PROVIDER\|FILE.json]` |  | Show the current runtime, attach a registered provider, or load an explicit provider configuration |
+| `:run [NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON] [--static NAME=TERM] [--fuel STEPS] [--seed N]]` |  | Execute an entry point, a `define` computation or a `program`, with checked arguments; alone, list the entry points |
+| `:detach` |  | Detach every runtime provider from the session |
 | `:info NAME` | `:i` | Show NAME's declaration verbatim from the source, plus its location and doc comment. Pass `--python` for the didactic AST `repr()` instead |
 | `:doc NAME` |  | Render only the doc comment(s) for NAME |
 | `:browse [PATH]` | `:b` | List every binding, optionally filtered by a top-level namespace (`objects`/`spaces`/`morphisms`/`rules`/...) or by a `::`-separated scope path (`lda`, `lda::z`, `CCG::fwd_app`). Paths show that binding's inner scope. |
@@ -212,7 +227,7 @@ column.
 | `:save [FILE]` | `:s` | Write the live module to FILE (or back to the loaded path) via [`module_to_source`](../api/dsl/emit.md) |
 | `:watch EXPR` | `:w` | Pin EXPR for re-eval on every recompile; result appears in the Watches strip |
 | `:unwatch [EXPR]` |  | Remove one watch, or clear all when no argument is given |
-| `:set k=v` |  | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`) |
+| `:set k=v` |  | Toggle session options (`highlight`, `unicode`, `show_axes`, `paranoid`, `autoload_on_save`, `theme`, `target`) |
 | `:help [CMD]` | `:h` | Without arg: full command list. With one: detailed help for CMD |
 | `:quit` | `:q` / `:exit` | Exit the REPL |
 
@@ -287,7 +302,16 @@ FinSet 20 :: FinSet 20
 
 > :kind Doc
 object Doc : FinSet 20
+
+> :kind Vec
+family Vec[A : Type](n : Nat) : Type
 ```
+
+Index sorts, indexed families, and effect interfaces participate in the
+same kind lookup, the prelude's interfaces included: `:kind Random` prints
+`effect Random` without a declaration in the module. `:type` likewise renders
+signatures for effect instances,
+handlers, constructors, operations, and typed computations.
 
 #### `:transpile TARGET`
 
@@ -301,6 +325,93 @@ data {
   // ...
 }
 ```
+
+All eleven targets accept QIEC declaration-only modules. Pyro, NumPyro, PyMC,
+Edward2, Turing, Gen, WebPPL, and Church also accept executable QIEC-only
+modules and emit named `qiec_*` functions through their corresponding
+target-language ABI implementations. They accept mixed modules when the
+probabilistic portion is already supported by that target. Stan, BUGS, and JAGS
+accept executable QIEC-only or mixed modules only when the same probabilistic
+condition holds and every computation is in their static subset: its effect row
+is closed and empty, its static telescope is empty, its result is scalar, and
+its body contains only scalar `Return` and `Bind` forms. Stan additionally
+permits named `Bool`, `Int`, and `Real` value parameters; BUGS and JAGS require
+parameterless computations. Each unsupported feature produces a source-located
+`qiec:capability:*` diagnostic.
+
+#### `:runtime [PROVIDER|FILE.json]`
+
+With no argument, show the active runtime-provider configuration and its
+source. A bare name selects the built-in `core` provider or an installed
+`quivers.qiec_runtime` entry point. A path loads the same non-executable JSON
+configuration accepted by `qvr run --runtime`:
+
+```json
+{
+  "providers": [
+    {
+      "name": "core",
+      "options": {
+        "handlers": {
+          "pass": {"kind": "passthrough"}
+        }
+      }
+    }
+  ]
+}
+```
+
+Provider names are resolved only when explicitly selected. The source handler
+declaration continues to determine its types, coverage, forwarding policy, and
+resumption grades; the runtime configuration supplies process-local behavior.
+
+#### `:run [NAME [JSON ...] [--data NAME=JSON] [--site NAME=JSON] [--static NAME=TERM] [--fuel STEPS] [--seed N]]`
+
+Execute an entry point of the checked module: a `define` computation or a
+`program`. `:run` alone lists the entry points with their signatures.
+Positional values must be JSON literals and appear in declaration order. A
+polymorphic computation requires one `--static NAME=TERM` assignment for every
+static binder; static terms are written as in source: closed types such as
+`Int` or `Vec[Int](S(Z))`, index terms such as `3`, `S(Z)`, or the shape
+`[2, 3]`, and effect applications such as `State[Int]`, all declared in the
+module.
+
+A program runs forward on the reference machine: `--data NAME=JSON` supplies a
+parameter by name as an alternative to the positional form, `--site NAME=JSON`
+conditions one of its sample sites and leaves every other site drawn, and
+`--seed N` seeds the reference generator the draws use. The response carries
+the program's value and the log joint of the drawn and given sites together
+with its observations and scores. A program's extents are read off its data,
+and an extent no data fixes, the object parameter of a program template, is
+given with `--static NAME=TERM`. A program's handlers are fixed by the run,
+so the session's runtime configuration applies to computations only.
+
+Named computations may recurse without bound, so `--fuel STEPS` caps the
+number of evaluation steps. A run that exhausts its budget fails with the
+`qiec-run-fuel` diagnostic rather than running forever.
+
+```
+> :run identity 7 --static A=Int
+{
+  "kind": "computation",
+  "value": 7,
+  "type": "Int",
+  "runtime": "core",
+  "trace_events": 5
+}
+```
+
+The command validates value arguments and the result against the specialized
+types, creates fresh runtime attachments for the invocation, and records a
+stable execution trace. Failures retain `qiec-run-*` diagnostic codes in both
+the plain and TUI frontends.
+
+#### `:detach`
+
+Remove every runtime provider from the session and clear the last-run status.
+Pure computations whose argument and result types require a provider validator
+will then fail with `qiec-run-validator`. Use `:runtime core`, another provider
+name, or a JSON configuration path to attach a runtime again.
 
 #### `:info NAME [--python]` / `:i NAME`
 
@@ -339,7 +450,8 @@ with scoped paths as well.
 Without an argument, lists every binding in the module grouped by
 top-level kind (objects / spaces / morphisms / rules / programs /
 deductions / signatures / encoders / decoders / losses / bundles
-/ contractions). With a `::`-path argument, lists the binding's
+/ contractions / indices / families / constructors / effects / operations /
+instances / handlers / computations). With a `::`-path argument, lists the binding's
 inner scope.
 
 ```
@@ -445,9 +557,9 @@ references to 'Doc':
   object         Doc
 ```
 
-#### `:effects PROGRAM`
+#### `:effects NAME`
 
-Compare PROGRAM's declared `[effects=[...]]` option block against
+For a probabilistic PROGRAM, compare its declared `[effects=[...]]` option block against
 the effect set the compiler infers from the body's step kinds
 (`Sample` from sample-sites, `Score` from observes, `Marginal`
 from marginalize blocks, `Pure` otherwise).
@@ -464,6 +576,41 @@ If the program declares `[effects=[Pure]]` but the body contains
 a sample site, the output flags a `! leak` line. If it declares
 `[effects=[Sample, Score]]` but the body never observes, the
 output flags an `! unused` line.
+
+For a checked declaration, the same command reports the corresponding stable
+contract: an effect's operations (a prelude interface is marked as such); a
+handler's coverage, forwarding policy, and clause grades; or a computation's
+declared row entries, tail, and `lacks` constraints together with the row the
+checker infers for its body once every call in it is expanded to its callee's
+signature, rendered with the instances' source names. A program's report adds
+a `checked` line with the row of the computation it elaborates to.
+
+```
+> :effects State
+effect State
+  operations: {get, put}
+
+> :effects exchange
+computation exchange:
+  instances : {left, right}
+  tail      : (closed)
+  lacks     : {(none)}
+  inferred  : !{left : State[Int], right : State[Int]}
+```
+
+An operation is addressed through its interface or through an instance, and
+an instance's static arguments replace the interface's binders:
+
+```
+> :type State.put
+State.put : S -> Unit
+
+> :type cell.put
+cell.put : Int -> Unit
+
+> :type random.sample
+random.sample[a : Type] : Site[a] * Sampleable[a] -> a
+```
 
 #### `:shape PROGRAM`
 
@@ -567,6 +714,7 @@ Toggle session options. The options table:
 | `paranoid` | `false` | Re-run constraint checks after every recompile |
 | `autoload_on_save` | `true` | Re-load the file when its mtime advances |
 | `theme` | `ansi_dark` | Rich/Pygments syntax theme; see the [Themes](#themes) section below for the full list |
+| `target` | (none) | A transpile target whose capability diagnostics `:load` and `:reload` report beside the module's own, as `qvr check --target` does; setting it reloads the file, and `qvr repl --target TARGET` sets it at startup |
 
 ```
 > :set show_axes=true
@@ -704,7 +852,9 @@ otherwise a TextArea action.
 
 1. Builds a candidate list from four sources:
    - Meta-command names (`:load`, `:type`, …) when the prefix starts with `:`.
-   - Env names: every object, space, morphism, rule in the live env, tagged with its namespace.
+   - Env names: every probabilistic declaration plus each QIEC declaration and nested
+     constructor or operation, tagged with its namespace. After a lexical
+     instance and `.`, completion offers that interface's operations.
    - QVR grammar keywords (`latent`, `observed`, `program`, `over`, `iid`, `via`, …) and builtins (`Normal`, `Euclidean`, `softmax`, …).
    - File-system paths after `:load`.
 2. Inserts the first candidate, replacing the prefix under the cursor.
@@ -880,10 +1030,19 @@ Notebook-side features:
 
 ## The Language Server
 
-`qvr-lsp` speaks LSP 3.17 over stdio. Pointed at any LSP-aware
-editor it provides hover, go-to-definition, references, document
+`qvr-lsp` speaks LSP 3.17 over stdio. Start it as `qvr lsp --target stan`
+or `qvr-lsp --target stan` to publish capability diagnostics for a selected
+backend from the first document analysis. With no target, it reports the
+target-independent parser, constraint, compiler, and QIEC diagnostics. Pointed
+at any LSP-aware editor, it provides hover, go-to-definition, references, document
 symbols, semantic highlighting, completion, formatting, and live
 diagnostics.
+
+The server also handles `workspace/didChangeConfiguration`. Either
+`{"qvr": {"transpileTarget": "stan"}}` or
+`{"transpileTarget": "stan"}` changes the selected backend and immediately
+reanalyzes every open document. An empty target disables target-specific
+diagnostics without restarting the server.
 
 ### VS Code / Cursor
 
@@ -907,6 +1066,7 @@ Settings:
 | `qvr.lsp.enabled` | `true` | Master toggle |
 | `qvr.lsp.path` | `qvr-lsp` | Override the executable path |
 | `qvr.lsp.args` | `[]` | Extra CLI arguments |
+| `qvr.transpileTarget` | `""` | Select one of the eleven transpile targets for live `qiec:capability:*` diagnostics; an empty string disables them |
 
 Install the packaged `.vsix` directly:
 
@@ -953,15 +1113,17 @@ Every capability advertised by `qvr-lsp`:
 
 | LSP method | What it returns |
 | --- | --- |
-| `textDocument/publishDiagnostics` | Parser, constraint-solver, and compiler diagnostics with source ranges |
-| `textDocument/hover` | The declaration as a fenced `qvr` block, with the didactic AST `repr()` stacked beneath under a collapsed `<details>` so both forms are always available |
+| `textDocument/publishDiagnostics` | Parser, constraint-solver, probabilistic-compiler, stable QIEC, and selected-target `qiec:capability:*` diagnostics with source ranges |
+| `textDocument/hover` | The declaration and inferred kind or type as fenced `qvr` blocks, with the didactic AST `repr()` beneath a collapsed `<details>`; nested constructors and operations are addressable symbols. At a call site, a **Call** pane first shows the signature the call instantiates its callee at (`identity[Int](value : Int) : Int !{}` for `identity[Int](7)`); a computation adds an **Inferred row** pane with the row its body performs once every call is expanded to its callee's signature; the operation of a `perform instance.op(...)` request shows an **Operation** pane with the instance's instantiated signature above the interface's own |
 | `textDocument/definition` | Jump to the originating declaration |
-| `textDocument/references` | Every textual occurrence of the name |
-| `textDocument/documentSymbol` | All top-level declarations grouped by symbol kind (`Class` for objects/spaces, `Function` for morphisms, `Variable` otherwise) |
-| `textDocument/completion` | Env names + grammar keywords + builtins + paths, same source as the REPL completer |
-| `textDocument/semanticTokens/full` | Env-aware semantic token stream driven by the shared [`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py) |
-| `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md) |
+| `textDocument/references` | Every occurrence that resolves to the selected declaration: a computation's call sites, an operation's requests and clauses, a binder's uses inside its scope |
+| `textDocument/prepareRename` / `textDocument/rename` | Rename a declaration the document makes (a computation, an operation, a handler, an instance, or a lexical binder) at every reference; a prelude name or a keyword is refused |
+| `textDocument/documentSymbol` | All top-level declarations plus their nested symbols: a computation's parameters, locals, scoped instances, branch binders, and call sites (a recursive call marked as such); a handler's clauses, each with its binders and calls; a program's steps, a call step detailed by its callee, a marginalize block's scope nested beneath it |
+| `textDocument/completion` | Env names, members and qualified instance operations (the prelude's `random.sample` included), grammar keywords, builtins, and paths, from the same source as the REPL completer |
+| `textDocument/semanticTokens/full` | Env-aware semantic token stream classified by the Pygments lexer's own rules, so a handler clause's operation, a call's callee, a resumption grade, and a handler option key colour the same everywhere |
+| `textDocument/formatting` | Canonical re-emission of the current QVR AST via [`module_to_source`](../api/dsl/emit.md); a document whose checked module fails to lower is left unformatted |
 | `textDocument/didOpen` / `didChange` / `didSave` / `didClose` | Incremental sync, full re-analysis per change |
+| `workspace/didChangeConfiguration` | Update the selected transpile target and republish diagnostics for every open document, re-running only the capability pass over the already checked module |
 
 ### Hover format
 

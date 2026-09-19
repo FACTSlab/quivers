@@ -35,6 +35,7 @@ import didactic.api as dx
 
 from quivers.dsl.ast_nodes._shared import (
     CompositionLevel,
+    Statement,
     OptionCall,
     OptionEntry,
     OptionFlag,
@@ -65,10 +66,6 @@ from quivers.dsl.ast_nodes.objects import ObjectExpr
 # ---------------------------------------------------------------------------
 # Statement root
 # ---------------------------------------------------------------------------
-
-
-class Statement(dx.TaggedUnion, discriminator="kind"):
-    """Sum of top-level statement kinds."""
 
 
 # ---------------------------------------------------------------------------

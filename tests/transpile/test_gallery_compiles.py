@@ -29,13 +29,13 @@ The four-tier verification hierarchy:
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from quivers.dsl.parser import parse
+from tests.transpile._tools import require_tool
 from quivers.transpile import UnsupportedConstruct, transpile
 
 
@@ -120,18 +120,13 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 #
 # Five boundary classes are represented:
 #
-# 1. Structural / categorical declarations (`schema`, `bundle`,
-#    `composition`, `contraction`, `encoder`/`decoder`/`loss`/
-#    `signature`). No PPL backend has a surface for these, so the
-#    examples that carry them fail to lower on every target:
-#    schema_chart_parser (schema + bundle), pmf (composition),
-#    tensor_contraction (composition + contraction), and
-#    term_autoencoder (encoder / decoder / loss / signature).
-# 2. Lower-pass family resolution. parametric_pooling samples the
-#    `school_effects` sub-program (program-as-distribution), which
-#    resolves to no target family on any backend.
-# 3. Method-call let-expressions, which Stan cannot render (it has no
-#    method-dispatch syntax), gapping the montague_nli Stan cell.
+# 1. Composition and contraction declarations still have no executable
+#    QIEC entry, so those examples fail before target capability analysis.
+# 2. Executable search computations (`schema_chart_parser` and the
+#    deduction call in `montague_nli`) reach the QIEC boundary, which
+#    refuses them on every target for want of a search runtime.
+# 3. The term autoencoder reaches the same boundary with typed structural
+#    computations, which require a neural attachment no target provides.
 #
 # The `sum` builtin is deliberately absent from this registry. It
 # lowers to each target's own sum-axis reduction (`jnp.sum(...,
@@ -144,15 +139,15 @@ _SYNTAX_CHECKS: dict[str, tuple[str, list[str], str | None]] = {
 # Key: (backend, example-stem). Value: kind-prefix the raised
 # `UnsupportedConstruct.kinds` must match.
 _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
-    # 1. Structural / categorical declarations (all backends).
-    ("edward2", "schema_chart_parser"): "bundle_decl",
-    ("gen", "schema_chart_parser"): "bundle_decl",
-    ("numpyro", "schema_chart_parser"): "bundle_decl",
-    ("pymc", "schema_chart_parser"): "bundle_decl",
-    ("pyro", "schema_chart_parser"): "bundle_decl",
-    ("stan", "schema_chart_parser"): "bundle_decl",
-    ("turing", "schema_chart_parser"): "bundle_decl",
-    ("webppl", "schema_chart_parser"): "bundle_decl",
+    # 1. Standalone QIEC computations and structural declarations.
+    ("edward2", "schema_chart_parser"): "qiec:capability:search",
+    ("gen", "schema_chart_parser"): "qiec:capability:search",
+    ("numpyro", "schema_chart_parser"): "qiec:capability:search",
+    ("pymc", "schema_chart_parser"): "qiec:capability:search",
+    ("pyro", "schema_chart_parser"): "qiec:capability:search",
+    ("stan", "schema_chart_parser"): "qiec:capability:search",
+    ("turing", "schema_chart_parser"): "qiec:capability:search",
+    ("webppl", "schema_chart_parser"): "qiec:capability:search",
     ("edward2", "pmf"): "composition_decl",
     ("gen", "pmf"): "composition_decl",
     ("numpyro", "pmf"): "composition_decl",
@@ -169,25 +164,33 @@ _EXPECTED_UNSUPPORTED: dict[tuple[str, str], str] = {
     ("stan", "tensor_contraction"): "composition_decl",
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    ("edward2", "term_autoencoder"): "signature_decl",
-    ("gen", "term_autoencoder"): "signature_decl",
-    ("numpyro", "term_autoencoder"): "signature_decl",
-    ("pymc", "term_autoencoder"): "signature_decl",
-    ("pyro", "term_autoencoder"): "signature_decl",
-    ("stan", "term_autoencoder"): "signature_decl",
-    ("turing", "term_autoencoder"): "signature_decl",
-    ("webppl", "term_autoencoder"): "signature_decl",
-    # 2. Lower-pass family resolution (all backends).
-    ("edward2", "parametric_pooling"): "family:school_effects",
-    ("gen", "parametric_pooling"): "family:school_effects",
-    ("numpyro", "parametric_pooling"): "family:school_effects",
-    ("pymc", "parametric_pooling"): "family:school_effects",
-    ("pyro", "parametric_pooling"): "family:school_effects",
-    ("stan", "parametric_pooling"): "family:school_effects",
-    ("turing", "parametric_pooling"): "family:school_effects",
-    ("webppl", "parametric_pooling"): "family:school_effects",
-    # 3. Method-call let-expressions have no Stan rendering.
-    ("stan", "montague_nli"): "let-expr:LetExprMethodCall",
+    ("edward2", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("gen", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("numpyro", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("pymc", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("pyro", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("stan", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("turing", "term_autoencoder"): "qiec:capability:neural-attachment",
+    ("webppl", "term_autoencoder"): "qiec:capability:neural-attachment",
+    # 2. A program calling a deduction is refused at the QIEC boundary
+    #    on every target: the deduction enumerates its derivations
+    #    through a search handler no target runtime carries.
+    **{
+        (backend, "montague_nli"): "qiec:capability:search"
+        for backend in (
+            "bugs",
+            "church",
+            "edward2",
+            "gen",
+            "jags",
+            "numpyro",
+            "pymc",
+            "pyro",
+            "stan",
+            "turing",
+            "webppl",
+        )
+    },
     # 3b. A recurrent cell adds two rank-1 operands. Neither BUGS nor
     #     JAGS lifts an infix operator over an axis, and the
     #     elementwise result exists only as a named array built one
@@ -231,13 +234,15 @@ for _scan_example in (
 
 # 6. An ungrouped `marginalize` over a plated `observe` shares one
 #    latent across the body's rows, so its density accumulates the
-#    rows and reduces once. These four targets reduce each row on its
+#    rows and reduces once. These targets reduce each row on its
 #    own, which gives every row a draw the source never declares, so
-#    they refuse rather than emit a different measure.
+#    they refuse rather than emit a different measure; `gen`
+#    marginalizes through the same emission as `turing`.
 for _ungrouped_backend in (
     "bugs",
     "church",
     "edward2",
+    "gen",
     "jags",
     "pymc",
     "turing",
@@ -248,27 +253,13 @@ for _ungrouped_backend in (
         )
 
 
-# 7. `gen` refuses every `marginalize`: its `@gen` DSL has no way to
-#    add a free log-density term to a trace, so it can only emit the
-#    latent as a draw, which denotes a measure on a larger space than
-#    the block means.
-for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
-    for _syntax_backend in _SYNTAX_CHECKS:
-        if _syntax_backend == "gen":
-            _EXPECTED_UNSUPPORTED[("gen", _gen_marginalize_model)] = "marginalize:"
-
-
 @pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)
 @pytest.mark.parametrize("backend", sorted(_SYNTAX_CHECKS))
 def test_gallery_example_compiles(example: Path, backend: str, tmp_path: Path) -> None:
     """Transpile a gallery example to `backend` and run its target
     compiler / parser as a syntax check."""
     binary, argv, suffix = _SYNTAX_CHECKS[backend]
-    if shutil.which(binary) is None:
-        pytest.skip(
-            f"{binary!r} not on PATH; install it in the local toolchain "
-            f"or add the install step to CI"
-        )
+    require_tool(binary)
 
     source = example.read_text()
     cell = (backend, example.stem)

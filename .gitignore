@@ -40,17 +40,24 @@ Thumbs.db
 
 # Local development notes (not committed)
 notes/
+.agent/
+.agents/
 .claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+AGENTS.md
+CLAUDE.md
 .gitignore
 
 # node
 node_modules/
 
 # Editor build artifacts
-editors/vscode-qvr/out/
 editors/vscode-qvr/node_modules/
-editors/vscode-qvr/package-lock.json
-editors/vscode-qvr/*.vsix
+# The compiled extension, lockfile, and VSIX are release inputs. CI verifies
+# that they match the TypeScript/grammar sources; only node_modules is local.
 
 # Tree-sitter build artifacts (local-grammar override)
 grammars/qvr/parser.dylib

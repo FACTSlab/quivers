@@ -3,8 +3,10 @@
 //
 // Each helper is a plain JavaScript function that takes a `params`
 // object and returns a distribution object with `sample`, `score`,
-// and `support` methods. WebPPL's `sample(dist)` and `observe(dist,
-// value)` accept any object exposing this triple.
+// and `support` methods, marked `qvr: true` so a reader can tell it
+// from a built-in distribution and score it through the transform.
+// WebPPL's `sample(dist)` and `observe(dist, value)` accept any
+// object exposing this triple.
 //
 // WebPPL compiles its source through a CPS transform that rejects
 // `while` / `for` loops, variable reassignment, and in-place array
@@ -201,6 +203,18 @@ var _qvr_gather_log = function(rows, idx) {
   // them, so the gather is a map rather than a subscript.
   return map(function(i) { return log(rows[i]); }, idx);
 };
+var _qvr_group_sums = function(rows, via, extent) {
+  // Sum the per-row entries of `rows` within each of the `extent`
+  // groups the fibration `via` sends the rows to. A grouped
+  // `marginalize` keys its accumulator by group, so one atom's
+  // per-row log-likelihoods are pooled per group before the
+  // reduction over the atoms runs.
+  return mapN(function(g) {
+    return sum(mapN(function(i) {
+      return via[i] === g ? rows[i] : 0;
+    }, rows.length));
+  }, extent);
+};
 var _qvr_concat = function(rows, i) {
   // Concatenate `rows` (an array of arrays) from index `i` onward.
   // WebPPL's `reduce` is a right fold, which would reverse the
@@ -300,6 +314,7 @@ var Logistic = function(params) {
   var loc = params.loc;
   var scale = params.scale;
   return {
+    qvr: true,
     sample: function() {
       var u = Math.random();
       return loc + scale * Math.log(u / (1 - u));
@@ -319,6 +334,7 @@ var BetaBinomial = function(params) {
   var a = params.concentration1;
   var b = params.concentration0;
   return {
+    qvr: true,
     sample: function() {
       var p = _beta_sample(a, b);
       return _binomial_sample(n, p);
@@ -339,6 +355,7 @@ var HalfStudentT = function(params) {
   var df = params.df;
   var scale = params.scale;
   return {
+    qvr: true,
     sample: function() {
       var z = _gaussian_sample(0, 1);
       var u = _gamma_sample(df / 2, 2);
@@ -363,6 +380,7 @@ var Kumaraswamy = function(params) {
   var a = params.concentration1;
   var b = params.concentration0;
   return {
+    qvr: true,
     sample: function() {
       var u = Math.random();
       return Math.pow(1 - Math.pow(1 - u, 1 / b), 1 / a);
@@ -383,6 +401,7 @@ var LKJCholesky = function(params) {
   var dim = params.dim;
   var eta = params.concentration;
   return {
+    qvr: true,
     sample: function() {
       // Onion method: draw beta-distributed partial correlations
       // and stitch them into a Cholesky factor. Returns a square
@@ -431,6 +450,7 @@ var ContinuousBernoulli = function(params) {
     : (Math.log(Math.abs(2 * Math.atanh(1 - 2 * p)))
        - Math.log(Math.abs(1 - 2 * p)));
   return {
+    qvr: true,
     sample: function() {
       var u = Math.random();
       if (Math.abs(p - 0.5) < 1e-4) { return u; }
@@ -582,6 +602,7 @@ var MatrixNormal = function(params) {
   var U = params.row_covariance;
   var V = params.col_covariance;
   return {
+    qvr: true,
     sample: function() {
       // X = loc + L_U Z L_V' with Z iid standard normal, L_U L_U' = U,
       // L_V L_V' = V.
@@ -633,6 +654,7 @@ var LogNormal = function(params) {
   var loc = params.loc;
   var scale = params.scale;
   return {
+    qvr: true,
     sample: function() {
       return Math.exp(_gaussian_sample(loc, scale));
     },
@@ -655,6 +677,7 @@ var StudentT = function(params) {
   var loc = params.loc;
   var scale = params.scale;
   return {
+    qvr: true,
     sample: function() {
       var z = _gaussian_sample(0, 1);
       var u = _gamma_sample(df / 2, 2);
@@ -681,6 +704,7 @@ var Weibull = function(params) {
   var lam = params.scale;
   var k = params.concentration;
   return {
+    qvr: true,
     sample: function() {
       var u = Math.random();
       return lam * Math.pow(-Math.log(1 - u), 1 / k);
@@ -705,6 +729,7 @@ var NegativeBinomial = function(params) {
   var r = params.total_count;
   var p = params.probs;
   return {
+    qvr: true,
     sample: function() {
       var lambda = _gamma_sample(r, p / (1 - p));
       return _poisson_sample(lambda);

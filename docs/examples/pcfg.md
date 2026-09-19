@@ -107,7 +107,17 @@ A PCFG is a weighted deduction in the `LogProb` semiring whose chart is a `K`-va
 
 ## Inside computation
 
-The runtime computes chart values through the agenda and supports autodiff through those operations. It exposes no analytic outside pass; gradients come from autodiff over the inside computation.
+The classic runtime computes chart values through the agenda and supports
+autodiff through those operations. It exposes no analytic outside pass;
+gradients come from autodiff over the inside computation.
+
+The same declaration also generates a QIEC item family, recursive derivation,
+`Search`, `Weight[LogWeight]`, and `Param` instances, collecting handlers, and
+a `PCFG__run` entry. `run_deduction(program.qiec, "PCFG", tokens=...)`
+evaluates that checked search on the reference machine. Given the same
+parameter store and depth bound, its goal weight equals the agenda chart's
+inside weight. The [parsing tutorial](../tutorials/qvr/11-parsing-and-search.md)
+shows the comparison and the target-capability boundary.
 
 ## Connections to Language Modeling
 

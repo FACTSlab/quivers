@@ -4,12 +4,8 @@ In addition to the syntax check in `test_roundtrip.py`, these
 assertions walk the emitted
 `panproto.Schema` and verify backend-specific shape contracts:
 correct block ordering, exact-count distribution calls, name-field
-edge wiring, identifier text on every literal.
-
-Cells that document a known-failing walker behaviour carry
-``pytest.mark.xfail(strict=True, ...)`` with a docstring summarising
-the issue. The strict-xfail flips to a failure when the backend is
-fixed, signalling the marker should drop.
+edge wiring, identifier text on every literal. Every cell asserts the
+contract outright; a walker that drops a form fails its cell.
 """
 
 from __future__ import annotations
@@ -286,11 +282,7 @@ def test_return_step_emitted(backend: str) -> None:
         return
     schema = _transpile_to_schema(backend, _RETURN_FIXTURE)
     matching = _structural.vertices_of_kind(schema, expected_kind)
-    if not matching:
-        pytest.xfail(
-            reason=(
-                f"qvr-{backend} walker silently drops ReturnStep; no "
-                f"{expected_kind!r} vertex in emitted schema. The "
-                f"assertion is correct; the xfail tracks the walker fix."
-            )
-        )
+    assert matching, (
+        f"qvr-{backend} walker drops ReturnStep; no {expected_kind!r} "
+        f"vertex in the emitted schema"
+    )

@@ -104,6 +104,7 @@ import torch
 
 
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
+from quivers.continuous.param_source import LookupSource
 from quivers.continuous.spaces import Euclidean
 
 
@@ -205,9 +206,15 @@ class PlateDraw(ContinuousMorphism):
         resolved input ``x`` (the scale of ``by_subj <- Normal(0, sigma)``
         is the latent ``sigma``), so ``x`` is threaded through, broadcast
         from a single shared row to every row when needed rather than
-        discarded.
+        discarded. A family whose parameters are a table indexed by the
+        elements of its finite domain is drawn one row per element by
+        a plate over that domain, so each row is conditioned on its own
+        index.
         """
         width = self._domain_width
+        if isinstance(getattr(self._family, "param_source", None), LookupSource):
+            rows = torch.arange(n_rows, device=device) % self._index_size
+            return rows.reshape(n_rows, 1)
         if x is None or x.numel() == 0:
             return torch.zeros(n_rows, width, device=device)
         xf = x if x.dim() == 2 else x.reshape(1, -1)
@@ -592,6 +599,7 @@ def marginalize_grouped(
     num_groups: int | tuple[int, ...],
     *,
     reduction: str = "logsumexp",
+    per_group: bool = False,
 ) -> torch.Tensor:
     """Per-group marginalisation over a discrete latent class.
 
@@ -659,11 +667,28 @@ def marginalize_grouped(
         the canonical mixture marginalisation; ``sum`` joint-scores
         without marginalising the class; ``mean`` averages
         symmetrically. Default ``logsumexp``.
+    per_group : bool
+        Whether to return the reduced per-group aggregates
+        ``(|G|, *extra)`` (flat over a product plate) instead of
+        their sum over the group axis. A block nested inside
+        another grouped block contributes one aggregate per
+        position of its group to the enclosing accumulator, so
+        the enclosing block consumes this form.
 
     Returns
     -------
     torch.Tensor
-        Scalar program-level log-density contribution.
+        Scalar program-level log-density contribution, or the
+        per-group aggregates when ``per_group`` is set.
+
+    Raises
+    ------
+    ValueError
+        If ``reduction`` is not one of the three reductions, if the
+        fibration and log-likelihood shapes disagree, if a prior has
+        a shape that fits neither the group plate nor the class
+        axis, or if ``per_group`` is requested for a log-likelihood
+        with no row axis (there is no group axis to keep).
 
     Notes
     -----
@@ -700,6 +725,7 @@ def marginalize_grouped(
             log_prior_per_group_per_class,
             num_groups,
             reduction=reduction,
+            per_group=per_group,
         )
     if reduction not in ("logsumexp", "sum", "mean"):
         raise ValueError(
@@ -761,6 +787,12 @@ def marginalize_grouped(
         # No N-axis: apply prior + reduce over the class axis only.
         # ``log_prior_per_group_per_class`` is broadcastable across
         # the extra axes (typically just (K,)).
+        if per_group:
+            raise ValueError(
+                "marginalize_grouped: per_group requires a log-likelihood "
+                "with a leading row axis; got shape "
+                f"{tuple(log_likelihood_per_row_per_class.shape)}"
+            )
         weighted = log_prior_per_group_per_class + log_likelihood_per_row_per_class
         if reduction == "logsumexp":
             return torch.logsumexp(weighted, dim=-1)
@@ -848,14 +880,16 @@ def marginalize_grouped(
             prior_view = prior_view.unsqueeze(1)
     weighted = prior_view + grouped
     if reduction == "logsumexp":
-        per_group = torch.logsumexp(weighted, dim=-1)
+        per_group_aggregates = torch.logsumexp(weighted, dim=-1)
     elif reduction == "sum":
-        per_group = weighted.sum(dim=-1)
+        per_group_aggregates = weighted.sum(dim=-1)
     else:  # mean
-        per_group = weighted.mean(dim=-1)
+        per_group_aggregates = weighted.mean(dim=-1)
+    if per_group:
+        return per_group_aggregates
     # Sum over the group axis; extra axes (outer-block class
     # broadcasts) pass through unchanged.
-    return per_group.sum(dim=0)
+    return per_group_aggregates.sum(dim=0)
 
 
 def _marginalize_grouped_multi(
@@ -865,6 +899,7 @@ def _marginalize_grouped_multi(
     num_groups: int | tuple[int, ...],
     *,
     reduction: str,
+    per_group: bool,
 ) -> torch.Tensor:
     """Multi-axis grouped marginalisation.
 
@@ -876,6 +911,37 @@ def _marginalize_grouped_multi(
     Empty list raises: the surface form ``in { }`` is rejected at
     compile time, so a caller-supplied empty list is a programming
     error, not a degenerate case to silently absorb.
+
+    Parameters
+    ----------
+    log_likelihoods : tuple[torch.Tensor, ...]
+        Per-axis log-likelihoods of shapes ``(N_m, *extra, K)``.
+    group_indices : tuple[torch.Tensor | tuple[torch.Tensor, ...], ...]
+        The fibration of each axis, parallel to ``log_likelihoods``.
+    log_prior_per_group_per_class : torch.Tensor
+        The per-(group, class) log-prior, shaped as for
+        :func:`marginalize_grouped`.
+    num_groups : int | tuple[int, ...]
+        Cardinality of the (product) group plate.
+    reduction : str
+        The per-group reduction over the class axis.
+    per_group : bool
+        Whether to return the per-group aggregates instead of their
+        sum over the group axis.
+
+    Returns
+    -------
+    torch.Tensor
+        The summed contribution, or the per-group aggregates.
+
+    Raises
+    ------
+    ValueError
+        If the reduction is unknown, the list is empty, the class or
+        extra axes disagree across entries, a fibration does not fit
+        its log-likelihood or the group plate, the prior has an
+        unusable shape, or ``per_group`` is requested with no row
+        axis.
     """
     if reduction not in ("logsumexp", "sum", "mean"):
         raise ValueError(
@@ -922,6 +988,12 @@ def _marginalize_grouped_multi(
     # the same outer-class log-likelihood), add the prior, and
     # reduce over the class axis. No scatter-add takes place.
     if all(ll.dim() == first_ll.dim() and ll.dim() < 2 for ll in log_likelihoods):
+        if per_group:
+            raise ValueError(
+                "marginalize_grouped: per_group requires log-likelihoods "
+                "with a leading row axis; got shape "
+                f"{tuple(first_ll.shape)}"
+            )
         acc = log_likelihoods[0]
         for ll in log_likelihoods[1:]:
             acc = acc + ll
@@ -1026,12 +1098,14 @@ def _marginalize_grouped_multi(
             prior_view = prior_view.unsqueeze(1)
     weighted = prior_view + grouped
     if reduction == "logsumexp":
-        per_group = torch.logsumexp(weighted, dim=-1)
+        per_group_aggregates = torch.logsumexp(weighted, dim=-1)
     elif reduction == "sum":
-        per_group = weighted.sum(dim=-1)
+        per_group_aggregates = weighted.sum(dim=-1)
     else:
-        per_group = weighted.mean(dim=-1)
-    return per_group.sum(dim=0)
+        per_group_aggregates = weighted.mean(dim=-1)
+    if per_group:
+        return per_group_aggregates
+    return per_group_aggregates.sum(dim=0)
 
 
 __all__ = [

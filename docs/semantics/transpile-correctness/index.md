@@ -64,12 +64,7 @@ Family names alone do not establish equivalence. For each supported family, the 
 
 An indexed `sample` or `observe` denotes repeated sites over a finite axis. A renderer may express that repetition through vectorization, a plate context, or an explicit loop. Correctness requires the same product of per-site factors, with event dimensions excluded from the plate reduction.
 
-Scoped `marginalize` has two principal target strategies:
-
-- finite enumeration with log-sum-exp over the latent support;
-- an explicit latent retained for a target inference engine that can handle it.
-
-These strategies are not interchangeable for every inference algorithm. In particular, HMC and NUTS do not directly sample discrete latent variables. A target that keeps a discrete latent needs an inference method capable of discrete state or a separate marginalization strategy.
+Scoped `marginalize` has one target strategy: finite enumeration with log-sum-exp over the latent support, added to the joint through the target's free log-density statement. A target that retained the latent as a site would denote a measure on the product of the latent's support with the scope's, which differs from the integral by an amount that moves with the data, so a target with no such statement for a block refuses it rather than declaring the latent: BUGS collapses a categorical mixture to `dcat` and refuses every other block. A grouped block sums each atom's per-row log-likelihoods within the group its `via` index sends the row to before the reduction, and a target reducing each row on its own would score one latent per row.
 
 The `via=` form groups or reindexes observations through a finite map. Correctness requires that each observation contribute to the factor for its mapped group exactly once. `tests/transpile/test_via_fibration_numeric.py` checks selected cases numerically.
 

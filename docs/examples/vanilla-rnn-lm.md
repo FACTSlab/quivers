@@ -69,6 +69,14 @@ Tokens are embedded into the 64-dimensional `Embedded` space, after which `scan(
 
 The two `FinSet` objects play different roles, and the positions they appear in are what fix them. `Resp : FinSet 32` sits in the observe step's index slot, so it is the plate: 32 scored rows, one next-token target per context. `Token : FinSet 256` sits in `lm_head`'s codomain and in the program's own codomain, so it is the value space: the 256 outcomes a draw ranges over, and the space the returned `next_token` lives in.
 
+Under v0.19, `scan(rnn_cell)` elaborates to a one-position step computation
+and a recursive helper over the input's open sequence extent. Repeated sites
+receive stable trajectory addresses such as `s@0`, `s@1`, and so on, which the
+reference machine can replay and score. Current transpile targets refuse the
+scan under `scan:no-lowering:rnn_cell`; the open sequence extent is runtime
+data rather than a declared object the target can use as a static loop bound.
+See the [probabilistic-program reference](../reference/qvr/probabilistic-programs.md#scans).
+
 ```mermaid
 flowchart LR
     tok["tok"] --> embed["embed"]

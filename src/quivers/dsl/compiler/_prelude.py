@@ -13,18 +13,37 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import torch
+import torch.distributions.constraints as constraints
+from torch.distributions.distribution import Distribution
 from quivers.continuous.spaces import (
     ContinuousSpace,
     Euclidean,
     PositiveReals,
     Simplex,
     UnitInterval,
+    ProductSpace,
 )
+from quivers.continuous import families
 from quivers.continuous.morphisms import AnySpace
+from quivers.transpile.family_meta import FAMILY_META
+from quivers.transpile.lower import _LowerCtx, _make_sentinel
 from quivers.core.algebras import (
     BOOLEAN,
+    BOOLEAN_DUAL,
+    COUNTING,
     CompositionRule,
+    DUAL_GODEL,
+    DUAL_LUKASIEWICZ,
+    GODEL,
+    LOG_PROB,
+    LUKASIEWICZ,
+    MARKOV,
+    MAX_PLUS,
+    PROBABILITY,
     PRODUCT_FUZZY,
+    REAL,
+    REICHENBACH,
+    TROPICAL,
     material_implication,
 )
 from quivers.core.wiring import EinsumWiring
@@ -48,12 +67,13 @@ from quivers.core.algebra_morphisms import (
 )
 
 
-from quivers.dsl.ast_nodes import SortVocabLiteral
 from quivers.dsl.ast_nodes import (
     AxisSpec,
     ObjectEffectApply,
-    TypeName,
     ObjectProduct,
+    ProgramDecl,
+    SortVocabLiteral,
+    TypeName,
 )
 
 # Registry of composition rules the DSL knows about by name.
@@ -67,6 +87,24 @@ from quivers.dsl.ast_nodes import (
 _ALGEBRA_REGISTRY: dict[str, "CompositionRule"] = {
     "product_fuzzy": PRODUCT_FUZZY,
     "boolean": BOOLEAN,
+    "lukasiewicz": LUKASIEWICZ,
+    "godel": GODEL,
+    "tropical": TROPICAL,
+    "max_plus": MAX_PLUS,
+    "log_prob": LOG_PROB,
+    "real": REAL,
+    "probability": PROBABILITY,
+    "counting": COUNTING,
+    # Built-in non-algebra composition rules.
+    "material_impl": material_implication(),
+    # Named de Morgan duals: each is the corresponding ``X.dual()``
+    # exposed under a DSL-friendly name so a user can write
+    # ``algebra reichenbach``.
+    "reichenbach": REICHENBACH,
+    "boolean_dual": BOOLEAN_DUAL,
+    "dual_lukasiewicz": DUAL_LUKASIEWICZ,
+    "dual_godel": DUAL_GODEL,
+    "markov": MARKOV,
 }
 
 
@@ -192,61 +230,6 @@ def _build_default_trans_constructors() -> dict:
     }
 
 
-def _register_extra_algebras() -> None:
-    """Lazily register every shipped algebra into the
-    ``algebra <name>`` resolution table the DSL uses at module
-    top.
-
-    The registration is idempotent and short-circuits when the
-    table is already populated. Catching `ImportError`
-    keeps the compiler usable for users who don't have the
-    optional dependencies (e.g. the stochastic module pulls in
-    ``torch.distributions`` heavily).
-    """
-    if "lukasiewicz" not in _ALGEBRA_REGISTRY:
-        try:
-            from quivers.core.algebras import (
-                COUNTING,
-                DUAL_GODEL,
-                DUAL_LUKASIEWICZ,
-                GODEL,
-                LOG_PROB,
-                LUKASIEWICZ,
-                MAX_PLUS,
-                PROBABILITY,
-                REAL,
-                TROPICAL,
-            )
-            from quivers.core.algebras import BOOLEAN_DUAL, REICHENBACH
-
-            _ALGEBRA_REGISTRY["lukasiewicz"] = LUKASIEWICZ
-            _ALGEBRA_REGISTRY["godel"] = GODEL
-            _ALGEBRA_REGISTRY["tropical"] = TROPICAL
-            _ALGEBRA_REGISTRY["max_plus"] = MAX_PLUS
-            _ALGEBRA_REGISTRY["log_prob"] = LOG_PROB
-            _ALGEBRA_REGISTRY["real"] = REAL
-            _ALGEBRA_REGISTRY["probability"] = PROBABILITY
-            _ALGEBRA_REGISTRY["counting"] = COUNTING
-            # Built-in non-algebra composition rules.
-            _ALGEBRA_REGISTRY["material_impl"] = material_implication()
-            # Named de-Morgan duals — each is the corresponding
-            # ``X.dual()`` exposed under a DSL-friendly name so a
-            # user can write ``algebra reichenbach``.
-            _ALGEBRA_REGISTRY["reichenbach"] = REICHENBACH
-            _ALGEBRA_REGISTRY["boolean_dual"] = BOOLEAN_DUAL
-            _ALGEBRA_REGISTRY["dual_lukasiewicz"] = DUAL_LUKASIEWICZ
-            _ALGEBRA_REGISTRY["dual_godel"] = DUAL_GODEL
-        except ImportError:
-            pass
-    if "markov" not in _ALGEBRA_REGISTRY:
-        try:
-            from quivers.stochastic import MARKOV
-
-            _ALGEBRA_REGISTRY["markov"] = MARKOV
-        except ImportError:
-            pass
-
-
 def _family_event_rank(family_name: str) -> int:
     """Return the declared event rank of a family (0 for scalar).
 
@@ -260,8 +243,6 @@ def _family_event_rank(family_name: str) -> int:
     `FAMILY_META`; the unknown-family condition is caught
     downstream by the family resolver with a richer diagnostic.
     """
-    from quivers.transpile.family_meta import FAMILY_META
-
     meta = FAMILY_META.get(family_name)
     if meta is None:
         return 0
@@ -278,10 +259,8 @@ def _event_rank_of_support(support: object) -> int | None:
     constraint, or ``None`` when the support is a property and must
     be evaluated on an instance.
     """
-    import torch.distributions.constraints as _c
-
-    if isinstance(support, _c.Constraint) and not isinstance(
-        support, _c._DependentProperty
+    if isinstance(support, constraints.Constraint) and not isinstance(
+        support, constraints._DependentProperty
     ):
         return int(getattr(support, "event_dim", 0))
     return None
@@ -295,12 +274,6 @@ def _family_sentinel(family_name: str):
     Constructs a minimal `_LowerCtx` so the sentinel cache key path
     works; the cache is throwaway for this call.
     """
-    from torch.distributions.distribution import Distribution
-
-    from quivers.dsl.ast_nodes import ProgramDecl, TypeName
-    from quivers.transpile.family_meta import FAMILY_META
-    from quivers.transpile.lower import _LowerCtx, _make_sentinel
-
     meta = FAMILY_META[family_name]
     cache: dict[tuple[str, tuple[str, ...]], Distribution] = {}
     placeholder_program = ProgramDecl(
@@ -469,13 +442,10 @@ def _get_family_registry() -> dict[str, type]:
     registry once the corresponding `Conditional<F>` wrapper exists.
     No parallel registration step is required.
     """
-    from quivers.continuous import families as _families
-    from quivers.transpile.family_meta import FAMILY_META
-
     out: dict[str, type] = {}
     for name in FAMILY_META:
         wrapper_name = f"Conditional{name}"
-        wrapper = getattr(_families, wrapper_name, None)
+        wrapper = getattr(families, wrapper_name, None)
         if wrapper is not None:
             out[name] = wrapper
     # Aliases: a few wrappers use a non-canonical name that does
@@ -487,7 +457,7 @@ def _get_family_registry() -> dict[str, type]:
     }
     for qvr_name, wrapper_name in aliases.items():
         if qvr_name in FAMILY_META and qvr_name not in out:
-            wrapper = getattr(_families, wrapper_name, None)
+            wrapper = getattr(families, wrapper_name, None)
             if wrapper is not None:
                 out[qvr_name] = wrapper
     # Families that ship a ``Conditional<F>`` wrapper for the runtime
@@ -505,7 +475,7 @@ def _get_family_registry() -> dict[str, type]:
     for qvr_name, wrapper_name in wrapper_only.items():
         if qvr_name in out:
             continue
-        wrapper = getattr(_families, wrapper_name, None)
+        wrapper = getattr(families, wrapper_name, None)
         if wrapper is not None:
             out[qvr_name] = wrapper
     return out
@@ -523,10 +493,6 @@ def _get_space_constructors() -> dict[
     global _SPACE_CONSTRUCTORS
     if _SPACE_CONSTRUCTORS is not None:
         return _SPACE_CONSTRUCTORS
-    from quivers.continuous.spaces import (
-        ProductSpace,
-    )
-
     _SPACE_CONSTRUCTORS = {
         "Euclidean": Euclidean,
         "Simplex": Simplex,

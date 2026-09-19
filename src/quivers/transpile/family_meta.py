@@ -17,6 +17,7 @@ import torch.distributions as td
 import torch.distributions.constraints as c
 from torch.distributions.distribution import Distribution
 
+from quivers.continuous.measure import Normalize, PointMass, Restrict
 from quivers.continuous.families import (
     ConditionalBernoulli,
     ConditionalBeta,
@@ -69,7 +70,12 @@ from quivers.continuous.families import (
     LKJCorrelationFactor,
     Truncated,
 )
-from quivers.continuous._zip_hurdle import MixtureNormal
+from quivers.continuous._zip_hurdle import (
+    HurdlePoisson,
+    MixtureNormal,
+    ZeroInflatedPoisson,
+    ZeroOneInflatedBeta,
+)
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.ordered import (
     ConditionalOrderedLogistic,
@@ -1175,19 +1181,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         qvr_name="Horseshoe",
         distribution_class=_Horseshoe,
         quivers_class=ConditionalHorseshoe,
-        target_names={
-            "stan": "normal",
-            "numpyro": "Normal",
-            "pyro": "Normal",
-            "pymc": "Normal",
-            "edward2": "Normal",
-            "turing": "Normal",
-            "gen": "normal",
-            "church": "gaussian",
-            "webppl": "Gaussian",
-            "bugs": "dnorm",
-            "jags": "dnorm",
-        },
+        target_names={},
     ),
     # ----- discrete -----
     "Bernoulli": FamilyMeta(
@@ -1450,6 +1444,36 @@ FAMILY_META: dict[str, FamilyMeta] = {
             "pymc": {"base_distribution": "dist"},
         },
     ),
+    "ZeroInflatedPoisson": FamilyMeta(
+        qvr_name="ZeroInflatedPoisson",
+        distribution_class=ZeroInflatedPoisson,
+        target_names={},
+    ),
+    "HurdlePoisson": FamilyMeta(
+        qvr_name="HurdlePoisson",
+        distribution_class=HurdlePoisson,
+        target_names={},
+    ),
+    "ZeroOneInflatedBeta": FamilyMeta(
+        qvr_name="ZeroOneInflatedBeta",
+        distribution_class=ZeroOneInflatedBeta,
+        target_names={},
+    ),
+    "Restrict": FamilyMeta(
+        qvr_name="Restrict",
+        distribution_class=Restrict,
+        target_names={},
+    ),
+    "Normalize": FamilyMeta(
+        qvr_name="Normalize",
+        distribution_class=Normalize,
+        target_names={},
+    ),
+    "PointMass": FamilyMeta(
+        qvr_name="PointMass",
+        distribution_class=PointMass,
+        target_names={},
+    ),
     "LKJCorrelationFactor": FamilyMeta(
         qvr_name="LKJCorrelationFactor",
         event_rank=2,
@@ -1552,6 +1576,7 @@ FAMILY_META: dict[str, FamilyMeta] = {
         },
     ),
 }
+"""The transpile-time family registry, keyed by QVR family name."""
 
 
 # Families whose declared index axis names their own support, so the

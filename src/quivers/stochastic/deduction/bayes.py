@@ -39,6 +39,7 @@ from collections.abc import Callable, Sequence
 
 import torch
 
+from quivers.continuous.program_steps import reading
 from quivers.continuous.programs import MonadicProgram
 from quivers.core.objects import Unit
 from quivers.stochastic.deduction._internal import build_locator, materialise_parameters
@@ -124,7 +125,7 @@ def nuts_program_from_deduction(
                 out[b] = log_z
         return out
 
-    steps.append((("log_Z",), None, _score_fn, True))
+    steps.append((("log_Z",), None, reading(_score_fn, site_names), True))
     model = MonadicProgram(
         domain=Unit,
         codomain=Unit,

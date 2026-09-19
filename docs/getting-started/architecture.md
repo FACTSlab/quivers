@@ -58,6 +58,8 @@ quivers/
 ├── structural/        # encoder/decoder shape inference, structural
 │                      # signatures, losses
 ├── effects/           # algebraic effect handlers and reparameterizers
+├── qiec/              # indexed-family/effect core, checker, codec,
+│                      # reference evaluator, built-in handlers
 ├── transpile/         # target-independent IR and eleven PPL renderers
 ├── cli/               # the `qvr` command, REPL, language-server
 │                      # entry-point, migration driver
@@ -70,7 +72,11 @@ quivers/
                        # FinStoch from stochastic.giry
 ```
 
-The QVR tree-sitter grammar lives at the repo root under `grammars/qvr/`; it is vendored by panproto's `panproto-grammars-all` distribution and consumed at runtime by quivers' parser.
+The QVR tree-sitter grammar lives at the repo root under `grammars/qvr/`.
+Quivers packages the generated current source and overrides Panproto's `qvr`
+protocol at runtime, so ordinary parsing and Python-side highlighting load the
+same grammar independently of the QVR revision in `panproto-grammars-all`.
+First-party editor assets are synchronized with the in-tree source.
 
 ## Module Descriptions
 
@@ -171,18 +177,38 @@ Continuous and hybrid discrete-continuous morphisms and monadic programs.
 
 ### `dsl/`
 
-Domain-specific language for quiver expressions in `.qvr` files. Parsing is delegated to panproto via the `qvr` tree-sitter grammar (located at `grammars/qvr/` in the repo, vendored by `panproto-grammars-all`); quivers does not run a hand-written lexer. The reference `.qvr` programs that drive the test suite and the tree-sitter grammar fixtures live at `docs/examples/source/`, not under the package itself.
+Domain-specific language for quiver expressions in `.qvr` files. Parsing is
+delegated to Panproto after Quivers installs its packaged current `qvr`
+tree-sitter grammar; Quivers does not run a hand-written lexer. The AST
+carries distinct QIEC nodes, and `qiec_lowering.py` constructs Didactic's
+public GADT representation before completing the exact route from
+`qvr-source/v0.19` to `qiec-core/v1alpha1`. The reference `.qvr`
+programs that drive the test suite and the tree-sitter grammar fixtures live at
+`docs/examples/source/`, not under the package itself.
 
-- **`parser/`:** A package that walks the panproto-produced parse tree and builds a tree of `dx.Model` AST nodes. The top-level module re-exports `parse()`, `parse_file()`, `ParseError`; submodules `core.py`, `expressions.py`, `options.py`, `program_steps.py`, `statements.py`, `_helpers.py`, and `_registry.py` partition the walk by syntactic category.
-- **`ast_nodes/`:** A package whose every node is a `dx.Model`. Recursive sums (`ObjectExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field. Submodules split nodes by category: `declarations.py`, `expressions.py`, `let_expressions.py`, `module.py`, `objects.py`, `program_steps.py`, `structural.py`, `_shared.py`.
+- **`parser/`:** A package that walks the panproto-produced parse tree and builds a tree of `dx.Model` AST nodes. The top-level module re-exports `parse()`, `parse_file()`, `ParseError`; `qiec.py` owns indexed-family, effect, handler, and computation forms, while the remaining submodules partition the established declarations and expressions.
+- **`ast_nodes/`:** A package whose every node is a `dx.Model`. Recursive sums (`ObjectExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field. `qiec.py` defines the complete QIEC surface; the other submodules split the probabilistic and structural nodes by category.
 - **`compiler/`:** A package that walks the AST and produces a `quivers.Program`. `core.py` defines `Compiler` (composed via mixins from `declarations.py`, `deductions.py`, `expressions.py`, `programs.py`, `structural.py`); `resolution.py` provides the `_ResolutionMixin` whose `_resolve_any_space` routes an `ObjectExpr` to either a `SetObject` (discrete) or a `ContinuousSpace`; `_options.py` parses option blocks and `_prelude.py` defines `CompileError` plus shared compiler-state primitives.
 - **`program_theory.py`:** Defines `QVR_PROGRAM_PROTOCOL` (a panproto protocol whose vertex kinds enumerate every `SetObject` and `ContinuousSpace` variant plus the QVR declaration variants), `extract_program_schema(compiler)`, and `extract_deduction_schema(compiler)`. These make every `.qvr` program a schema in panproto's sense, diff, migrate, and lens-generation workflows apply.
 - **`constraints.py`:** post-parse axiom checks: `check_constraints(module)` returns a list of `Violation` records (used by the LSP, the REPL, and `qvr check`).
 - **`emit.py`:** AST → `.qvr` source emission (the print direction of the parser).
-- **`pygments_lexer.py`:** A minimal Pygments lexer used to syntax-highlight `.qvr` blocks in this documentation site (registered as the `qvr` lexer entry point).
-- **`_grammar_build.py`, `_grammar_data/`, `_grammar_introspection.py`, `_historical_grammar.py`:** compiles the in-tree grammar for the Pygments lexer, pinned per-revision grammar blobs, runtime grammar introspection, and a loader that selects a historical grammar by revision string (used by `qvr migrate`). Parsing itself goes through the `qvr` grammar vendored in `panproto-grammars-all`.
+- **`pygments_lexer.py`:** The tree-sitter-backed Pygments lexer shared by documentation and notebook tooling, registered as the `qvr` lexer entry point.
+- **`_grammar_build.py`, `_grammar_data/`, `_grammar_introspection.py`:** loads
+  the generated checkout grammar during development or the packaged
+  source/native/manifest trio from a platform wheel, builds a content-addressed
+  parser only for editable grammar work, and derives shared syntax metadata.
+  Immutable migration snapshots remain separate under `quivers.cli.migrations`.
+- **`qiec_lowering.py`, `program_elaboration.py`, `qiec_tooling.py`:** project
+  indexed declarations into Didactic's public `GADT` API, elaborate every
+  `program` to a named computation over the module's canonical `random` and
+  `score` instances, check and lower the complete module, negotiate the exact
+  route, and expose one diagnostic and symbol model to the CLI, REPL, and LSP.
 
-Top-level DSL API (re-exported from `quivers.dsl`): `parse()`, `parse_file()`, `loads()`, `load()`, `Compiler`, `Module`, `QVR_PROGRAM_PROTOCOL`, `extract_program_schema()`, plus exceptions `ParseError`, `CompileError`.
+Top-level DSL API (re-exported from `quivers.dsl`): `parse()`, `parse_file()`,
+`loads()`, `load()`, `Compiler`, `Module`, `QVR_PROGRAM_PROTOCOL`,
+`extract_program_schema()`, `QVR_SOURCE_VERSION`, `QvrQiecLowerer`,
+`lower_qvr_to_qiec()`, `has_qiec_surface()`, `non_qiec_projection()`, plus
+`ParseError`, `CompileError`, and `QiecDiagnosticError`.
 
 Parametric programs, `program name (G : FinSet, scale : Real, prior : Mor[A, B]) : dom -> cod`, are stored as templates on the compiler (`Compiler._program_templates`) and inlined per call site by substitution + α-renaming; the runtime `MonadicProgram` is built from the inlined step list, so distinct call sites contribute distinct factors to the parent's joint kernel.
 
@@ -232,13 +258,38 @@ Structural compression: a uniform algebraic interface for encoding arbitrary str
 - **`losses.py`:** `LossEntry`, `LossRegistry` for plug-in reconstruction objectives.
 - **`shapes/`:** shape backends (`seq.py`, `tree.py`, `graph.py`), one per supported shape category.
 
+### `qiec/`
+
+The Quivers Indexed Effect Core (QIEC) is the stable kernel every executable
+declaration of a module elaborates to: indexed families, algebraic effects,
+and probabilistic programs. Its records represent kinds,
+heterogeneous telescopes, indexed constructors, lexical effect instances,
+effect rows, handler signatures, values, computations, and branch evidence.
+`serialization.py` defines the deterministic `qiec-json/v1` envelope;
+`checking.py` and `row_solver.py` validate indexed terms and row constraints;
+`evaluator.py` supplies the reference handler semantics; and `builtins.py`
+provides the standard effect interfaces and process-local runtime attachments.
+
+The package boundary is deliberate. Stable QIEC data may cross a process or
+Panproto boundary, while host callables, state cells, samplers, and handler
+implementations remain runtime attachments. The transpile layer projects that
+stable data into a typed `IRQiecModule`: eight host-language targets consume
+the complete computation tree through a common runtime ABI, while Stan, BUGS,
+and JAGS accept an analyzer-proven closed scalar subset. Unsupported features
+receive source-located capability diagnostics rather than being erased.
+See [Quivers Indexed Effect Core](../developer/qiec.md) for the source and ABI
+contracts.
+
 ### `effects/`
 
 Algebraic handlers for tracing, clamping observations, interventions,
 masking, scaling, blocking, replay, lifting, collapsing, and
-reparameterization. `interpreter.py` executes a program under the
-active handler stack; `reparam/` contains the loc-scale, transform,
-NeuTra, and conjugate strategies.
+reparameterization, each a lexical handler of the kernel's `Random`, `Score`,
+`Compute`, or `Param` interface. `interpreter.py` runs a program on the
+reference machine under the active handler stack through the kernel
+computation `program_module.py` encodes it to; `checked_program.py` binds a
+program whose steps call a computation to the module's entry point; `reparam/`
+contains the loc-scale, transform, NeuTra, and conjugate strategies.
 
 ### `transpile/`
 

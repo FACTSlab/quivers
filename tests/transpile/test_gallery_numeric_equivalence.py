@@ -45,6 +45,24 @@ def _gallery_cells() -> list[pathlib.Path]:
     return _gallery_data.gallery_examples_with_data()
 
 
+def _backend_cells() -> list[tuple[pathlib.Path, str]]:
+    """Every ``(example, backend)`` cell the backend comparison is a test
+    case for: the cells the probe scores and the cells whose transpile
+    is a pinned refusal. A cell in one of the ``_SKIP_*`` registries is
+    not a test case; the registry tests keep those registries honest.
+    """
+    cells: list[tuple[pathlib.Path, str]] = []
+    for example in _gallery_cells():
+        stem = example.stem
+        if stem in _SKIP_DATASET_LOAD_FAILED or stem in _SKIP_QVR_INCOMPATIBLE:
+            continue
+        for backend in sorted(_BACKENDS_WITH_IMAGES):
+            if (backend, stem) in _SKIP_PROBE_INCOMPATIBLE:
+                continue
+            cells.append((example, backend))
+    return cells
+
+
 # ----------------------------------------------------------------------
 # Pre-declared cell outcomes.
 #
@@ -69,19 +87,6 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     # BUGS lower family registry has no target name for. Every other
     # backend resolves it and its cell is live.
     ("bugs", "mixture_model"): "family:MixtureNormal",
-    # parametric_pooling samples the `school_effects` sub-program
-    # (program-as-distribution); no backend resolves it to a target
-    # family.
-    ("bugs", "parametric_pooling"): "family:school_effects",
-    ("edward2", "parametric_pooling"): "family:school_effects",
-    ("gen", "parametric_pooling"): "family:school_effects",
-    ("jags", "parametric_pooling"): "family:school_effects",
-    ("numpyro", "parametric_pooling"): "family:school_effects",
-    ("pymc", "parametric_pooling"): "family:school_effects",
-    ("pyro", "parametric_pooling"): "family:school_effects",
-    ("stan", "parametric_pooling"): "family:school_effects",
-    ("turing", "parametric_pooling"): "family:school_effects",
-    ("webppl", "parametric_pooling"): "family:school_effects",
     # pmf / tensor_contraction carry `composition` (and `contraction`)
     # declarations; no PPL backend has a surface for them. Both
     # examples still score a joint, because their `.md` snippets wrap
@@ -110,16 +115,17 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
     ("turing", "tensor_contraction"): "composition_decl",
     ("webppl", "pmf"): "composition_decl",
     ("webppl", "tensor_contraction"): "composition_decl",
-    # zip_regression names `ContinuousBernoulli` and
-    # kumaraswamy_bounded_outcome names `Kumaraswamy`, and neither
-    # family has a JAGS or a BUGS target name. The two engines part
-    # company on both: the JAGS renderer writes each density out in
-    # `log` and `pow` alone and adds it through the zeros trick, so
-    # its cells are live and score the model up to the lift the trick
-    # pays. The BUGS renderer carries no such path and its cells stay
-    # a raise.
+    # kumaraswamy_bounded_outcome names `Kumaraswamy`, which has no
+    # JAGS or BUGS target name. The two engines part company: the JAGS
+    # renderer writes the density out in `log` and `pow` alone and
+    # adds it through the zeros trick, so its cell is live and scores
+    # the model up to the lift the trick pays. The BUGS renderer
+    # carries no such path and its cell stays a raise. zip_regression
+    # marginalizes over a Poisson scope, which is no categorical
+    # mixture, and BUGS has no statement that adds the integrated
+    # log-density to the joint.
     ("bugs", "kumaraswamy_bounded_outcome"): "family:Kumaraswamy",
-    ("bugs", "zip_regression"): "family:",
+    ("bugs", "zip_regression"): "marginalize:no-collapse",
     # beta_binomial_ab_test observes `BetaBinomial`. Every other
     # backend either has the family natively or reaches it through
     # the closed-form marginal: JAGS writes that marginal into the
@@ -152,14 +158,7 @@ _EXPECTED_TRANSPILE_RAISES: dict[tuple[str, str], str] = {
 # transpiler raises on every backend. The same holds for every model
 # below: each hides part of its structure in a `param_source` network
 # rather than writing it as a program whose steps are declared sites.
-# `gen` refuses every `marginalize`. Its `@gen` DSL has no way to add
-# a free log-density term to a trace, so it can only emit the latent
-# as a draw, and that denotes a measure on the product of the latent's
-# support with the block's rather than the integral the block means.
-for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
-    _EXPECTED_TRANSPILE_RAISES[("gen", _gen_marginalize_model)] = "marginalize:"
-
-# The four targets that reduce an ungrouped `marginalize` row by row
+# The targets that reduce an ungrouped `marginalize` row by row
 # refuse it rather than emit it. An ungrouped block shares one latent
 # across the body's rows, so its density accumulates the rows and
 # reduces once; scoring each row on its own gives every row a draw the
@@ -167,12 +166,14 @@ for _gen_marginalize_model in ("hmm", "lda", "zip_regression"):
 # is a different measure rather than a different base measure. The
 # reference was itself reducing per row until it was corrected against
 # `docs/semantics/programs.md` §2.6, which is why these four were
-# built to agree with it. `stan`, `numpyro`, `pyro` and `webppl` emit
+# built to agree with it, and `gen` marginalizes through the same
+# emission as `turing`. `stan`, `numpyro`, `pyro` and `webppl` emit
 # the accumulated order and score the corrected reference.
 for _ungrouped_backend in (
     "bugs",
     "church",
     "edward2",
+    "gen",
     "jags",
     "pymc",
     "turing",
@@ -317,8 +318,10 @@ _SKIP_QVR_INCOMPATIBLE: frozenset[str] = frozenset(
 #    error, and neither can the constant-spread check when the same
 #    error rides on both sides, so between them that class would be
 #    invisible.
-# 3. **Tight.** The comparison runs at `reference_pin_atol`, which is
-#    never looser than the equivalence tolerance it underwrites.
+# 3. **Representable.** The comparison runs at `reference_pin_atol`,
+#    an eight-ULP bound on absolute float32 replay. The backend check
+#    separately bounds the centred spread of pairwise differences;
+#    its scalar floor cannot cap an absolute pin below one float32 ULP.
 #
 # Every value here is reproduced from an independent computation on
 # each run: an example with live backend cells is re-derived by those
@@ -666,18 +669,20 @@ a float32 accumulator. Two evaluations of the *same* density therefore
 agree exactly whenever they accumulate in the same order, and differ
 only in the low bits of that accumulator when they do not (a different
 reduction kernel, SIMD width, or BLAS). The budget is calibrated
-against a direct measurement of that re-association effect rather than
-against a guess: the raw-`torch.distributions` reconstructions in
+against direct measurements of that re-association effect rather than
+against a guess. The raw-`torch.distributions` reconstructions in
 `test_oracle_reference_strength.py` sum the same per-site terms in a
-different order and in different groupings, and across all six models
-and all six points their largest disagreement with the trace is
-**one** float32 ULP (`continuous_hmm`, 6.10e-05 at magnitude 736;
-`linear_gaussian_ssm`, 1.53e-05 at magnitude 219). Eight ULPs is three
-bits of headroom above the measured worst case.
+different order and grouping, while the CI probe replays the trace on
+independent runners. The largest observed difference is **two**
+float32 ULPs (`seq2seq`, 1.95e-03 at magnitude 15,836);
+`continuous_hmm`'s independent reconstruction differs by one ULP
+(6.10e-05 at magnitude 736). Eight ULPs is two bits of headroom above
+the measured worst case.
 
-This is a headroom figure, not a necessity: the oracle is bit-exact
-run to run and across `torch.set_num_threads`, both measured. A
-failure at this budget is a real change in the density, not noise."""
+This is a headroom figure, not a necessity: within each measured
+runtime and platform, the oracle is bit-exact run to run and across
+`torch.set_num_threads`. A failure at this budget is a real change in
+the density, not noise."""
 
 
 def _float32_ulp(value: float) -> float:
@@ -701,12 +706,25 @@ def _float32_ulp(value: float) -> float:
     return math.ldexp(1.0, exponent - 24)
 
 
+def reference_roundoff_atol(reference: float) -> float:
+    """Float32 reassociation budget at `reference`.
+
+    This is the tolerance for an independently grouped summand or
+    joint, where the only admissible difference is low-bit movement on
+    the float32 grid. It is not capped by the backend-equivalence
+    floor: a large float32 value may have an ULP wider than that scalar
+    floor.
+    """
+    return _REFERENCE_PIN_ULP_BUDGET * max(
+        _float32_ulp(reference),
+        _float32_ulp(1.0),
+    )
+
+
 def reference_pin_atol(reference: float) -> float:
-    """Absolute tolerance for the reference pin at `reference`.
+    """Absolute tolerance for a whole-joint reference pin.
 
-    Two bounds, and the tighter one wins.
-
-    The first is
+    The bound is
     [`_REFERENCE_PIN_ULP_BUDGET`][tests.transpile.test_gallery_numeric_equivalence._REFERENCE_PIN_ULP_BUDGET]
     ULPs of the float32 grid at the pinned magnitude, floored at the
     same budget taken at magnitude 1. The floor keeps a joint that
@@ -714,34 +732,24 @@ def reference_pin_atol(reference: float) -> float:
     joint is still a sum of order-one terms, and the grid at 1 is the
     finest resolution those terms carry.
 
-    The second is the equivalence tolerance from
-    [`adaptive_atol`][tests.transpile._equivalence.adaptive_atol] at
-    its floor, which is the tolerance
+    This absolute replay bound and the tolerance used by
     [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match]
-    holds the backends to. Taking the minimum is the whole point of
-    the function: a constant oracle error is invisible on the backend
-    side, so the pin is the only defence against it, and a defence
-    looser than the check it underwrites defends nothing. It also ties
-    the two together in code, so the pin cannot be left behind if the
-    equivalence floor ever moves.
+    measure different quantities. The former bounds absolute drift
+    from an independently derived scalar. The latter bounds the
+    centred spread of pointwise backend-minus-QVR differences, after
+    quotienting out an additive constant. Its scalar floor therefore
+    cannot cap this function below a representable float32 step.
 
-    Across the 192 pinned values the ULP bound binds for every one.
-    The largest pinned magnitudes are `continuous_hmm`'s 717 to 736,
-    where eight float32 ULPs are 4.88e-04, still inside the 5e-04
-    equivalence floor, so the loosest pin in the registry is
-    4.88e-04. The tightest is 9.54e-07, the magnitude-1 floor, which
+    The largest pinned magnitudes are `seq2seq`'s roughly 15,800-nat
+    joints, where eight float32 ULPs are 7.81e-03. The tightest bound is
+    9.54e-07, the magnitude-1 floor, which
     binds wherever a joint lands below 2
     (`kumaraswamy_bounded_outcome` at its first latents point,
-    magnitude 1.20). Measured at the ground-truth point of every
-    registry entry, the band is between 1173 times (`hmm`) and 3190
-    times (`survival_weibull`) tighter than the
-    `1e-3 * |reference| + 2e-2` relative band it replaces.
+    magnitude 1.20). Thus the pin remains magnitude-aware without
+    demanding a sub-ULP comparison that no float32 accumulator can
+    satisfy portably.
     """
-    ulp_bound = _REFERENCE_PIN_ULP_BUDGET * max(
-        _float32_ulp(reference),
-        _float32_ulp(1.0),
-    )
-    return min(_equivalence.adaptive_atol(n_obs=0), ulp_bound)
+    return reference_roundoff_atol(reference)
 
 
 # Gallery examples that genuinely carry no perturbable observation, so
@@ -891,12 +899,10 @@ def test_gallery_qvr_reference_pin_holds_at_every_point(
         log-normaliser that cancels at the generating parameters) and
         non-zero once the data moves.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
     exempt_reason = _REFERENCE_PIN_EXEMPT.get(example.stem)
     if exempt_reason is not None:
         # No pin to hold, so what is asserted is that the exemption is
@@ -983,12 +989,10 @@ def test_gallery_qvr_logdensity_finite(example: pathlib.Path) -> None:
     program has a structural defect that the trace surfaces only
     on real data.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
@@ -1099,12 +1103,10 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
     cannot move states and is in `_NO_PERTURBABLE_OBSERVATION`
            and has the frozen data section asserted rather than assumed.
     """
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
+    assert example.stem not in _SKIP_DATASET_LOAD_FAILED, (
+        f"{example.stem!r} is registered as failing to load its synthetic "
+        "data, which is a gap to close rather than a cell to pass over"
+    )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
@@ -1183,8 +1185,11 @@ def test_gallery_multipoint_set_is_in_support_and_varies(
         )
 
 
-@pytest.mark.parametrize("example", _gallery_cells(), ids=lambda p: p.stem)
-@pytest.mark.parametrize("backend", sorted(_BACKENDS_WITH_IMAGES))
+@pytest.mark.parametrize(
+    ("example", "backend"),
+    _backend_cells(),
+    ids=lambda value: value.stem if isinstance(value, pathlib.Path) else value,
+)
 def test_gallery_backend_logdensity_matches_qvr(
     example: pathlib.Path, backend: str
 ) -> None:
@@ -1220,24 +1225,6 @@ def test_gallery_backend_logdensity_matches_qvr(
             f"`_EXPECTED_TRANSPILE_RAISES`) or a different gap fired."
         )
         return
-
-    if example.stem in _SKIP_DATASET_LOAD_FAILED:
-        pytest.skip(
-            f"{example.stem!r}: synthetic-data snippet in the `.md` "
-            f"file fails to load; populate / drop from "
-            f"`_SKIP_DATASET_LOAD_FAILED`."
-        )
-    if example.stem in _SKIP_QVR_INCOMPATIBLE:
-        pytest.skip(
-            f"{example.stem!r}: in-process QVR trace cannot evaluate "
-            f"this program; populate / drop from `_SKIP_QVR_INCOMPATIBLE`."
-        )
-    if cell in _SKIP_PROBE_INCOMPATIBLE:
-        pytest.skip(
-            f"{backend!r} on {example.stem!r}: in-container probe "
-            f"script has no shape registration for this example's "
-            f"dataset; populate / drop from `_SKIP_PROBE_INCOMPATIBLE`."
-        )
 
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (

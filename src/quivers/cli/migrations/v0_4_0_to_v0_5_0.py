@@ -8,17 +8,41 @@ panproto's grammar-bound ``emit_pretty``.
 
 from __future__ import annotations
 
-from quivers.cli.migrations._common import DeclConverter, migrate_source
+from quivers.cli.migrations._common import (
+    DeclConverter,
+    MigrationError,
+    SchemaView,
+    migrate_source,
+)
 
 
-_DECL_CONVERTERS: dict[str, DeclConverter] = {}
+def _as_kernel(view: SchemaView, vid: str, keyword: str) -> str:
+    lo, hi = view.span(vid)
+    source = view.source[lo:hi]
+    encoded = keyword.encode("ascii")
+    if not source.startswith(encoded):
+        raise MigrationError(f"v0.4.0 {view.kind(vid)} does not start with {keyword!r}")
+    result = b"kernel" + source[len(encoded) :]
+    text = result.decode("utf-8")
+    return text if text.endswith("\n") else text + "\n"
+
+
+def _convert_continuous(view: SchemaView, vid: str) -> str:
+    return _as_kernel(view, vid, "continuous")
+
+
+def _convert_stochastic(view: SchemaView, vid: str) -> str:
+    return _as_kernel(view, vid, "stochastic")
+
+
+_DECL_CONVERTERS: dict[str, DeclConverter] = {
+    "continuous_decl": _convert_continuous,
+    "stochastic_decl": _convert_stochastic,
+}
 
 
 def migrate(source: bytes) -> bytes:
     return migrate_source(source, "v0.4.0", "v0.5.0", _DECL_CONVERTERS)
 
 
-# Identity hop or no converters declared yet. The chain-coverage
-# check will flag every removed source rule as uncovered until
-# the hop's converters are written.
-SOURCE_RULE_COVERAGE: frozenset[str] = frozenset()
+SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS)

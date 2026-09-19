@@ -1,0 +1,12 @@
+# The horseshoe written out as the product every target expresses:
+# tau (global) * lambda_local (per-coordinate) * z_raw (standard Normal
+# raw), per Carvalho, Polson, and Scott (2010).
+object Coef : FinSet 4
+object Obs : FinSet 200
+program horseshoe_fixture : Obs -> Obs
+    sample tau <- HalfCauchy(1.0)
+    sample lambda_local : Coef <- HalfCauchy(1.0)
+    sample z_raw : Coef <- Normal(0.0, 1.0)
+    let beta = tau * lambda_local * z_raw
+    return beta
+export horseshoe_fixture

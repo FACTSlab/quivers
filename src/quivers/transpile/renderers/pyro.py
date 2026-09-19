@@ -27,6 +27,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -62,6 +63,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     LetExprBinOp,
     LetExprCall,
@@ -83,6 +85,13 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     host_integer_input_names,
     mixture_normal_components,
+)
+from quivers.transpile.qiec_ir import IRQiecModule
+from quivers.transpile.renderers._qiec import (
+    emit_call_python,
+    graft_python_statements,
+    qiec_helper_roots,
+    render_computations_dynamic,
 )
 
 
@@ -159,7 +168,9 @@ class PyroRenderer(RendererBase):
         # parsed helper `class` subtree onto the module above `model`
         # so a reader sees the helper classes first (the natural Python
         # idiom: define classes before consumers).
-        for helper_name in sorted(_ir_helper_classes_used(ir.body)):
+        for helper_name in sorted(
+            _ir_helper_classes_used(ir.body) | qiec_helper_roots(ir, _TARGET)
+        ):
             _emit_runtime_helper(pctx, helper_name)
         body = pctx.v(pctx.fresh("body"), "block")
         func = _function_def_split(
@@ -173,6 +184,10 @@ class PyroRenderer(RendererBase):
 
         pctx.body = body
         pctx.observed = frozenset(observed_names)
+        pctx.module = ir.module
+        if not ir.body:
+            noop = pctx.v(pctx.fresh("pass"), "pass_statement")
+            pctx.e(body, noop, "child_of")
 
         # torch's advanced indexing requires integer index tensors, so
         # every host-integer input the program subscripts with is
@@ -211,6 +226,7 @@ class PyroRenderer(RendererBase):
         for node in ir.body:
             self._dispatch_pyro_node(pctx, ctx, node)
 
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- per-node dispatch driving pctx body emission -----
@@ -263,6 +279,9 @@ class PyroRenderer(RendererBase):
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node, pctx=pctx)
             return
+        if isinstance(node, IRCall):
+            self._emit_call_pyro(pctx, node)
+            return
         if isinstance(node, IRReturn):
             self._emit_return_pyro(pctx, node.names)
             return
@@ -270,6 +289,19 @@ class PyroRenderer(RendererBase):
             f"qvr-{self.target}",
             [f"node:{type(node).__name__}"],
         )
+
+    def _emit_call_pyro(self, pctx: _PyroCtx, node: IRCall) -> None:
+        """``<name> = qiec_<callee>(<args>, qiec_operations=<table>)``.
+
+        Parameters
+        ----------
+        pctx : _PyroCtx
+            The emission context.
+        node : IRCall
+            The call.
+        """
+        assert pctx.module is not None
+        emit_call_python(pctx, pctx.body, node, pctx.module, pctx.operations_bound)
 
     # ----- declare: no-op outside `"function_body"` -----
 
@@ -655,9 +687,8 @@ class PyroRenderer(RendererBase):
                 *positional,
             )
         # A family whose target class fixes a leading parameter the QVR
-        # call site never writes (`Horseshoe(scale)` -> `Normal(0,
-        # scale)`) gets that value prepended under the target's own
-        # parameter name.
+        # call site never writes gets that value prepended under the
+        # target's own parameter name.
         fixed_leading = _PYRO_FIXED_LEADING_ARGS.get(family)
         if fixed_leading is not None:
             positional = (
@@ -855,6 +886,28 @@ class PyroRenderer(RendererBase):
             ),
             "child_of",
         )
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=pctx.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            extent = (
+                str(group.size) if isinstance(group, DimStatic) else group.size_name
+            )
+            graft_python_statements(
+                pctx.builder,
+                f"{prefix} = torch.zeros(({extent}, {prefix}.shape[-1]), "
+                f"dtype={prefix}.dtype).index_add(0, {via}, {prefix})\n",
+                pctx.body,
+                f"marg_{node.latent}_group",
+            )
         # An ungrouped block shares one latent across the body's rows,
         # so their per-class log-likelihoods are accumulated before the
         # reduction rather than each row reducing on its own.
@@ -1265,6 +1318,8 @@ class _PyroCtx(PyCtx):
         self.body: str = ""
         self.observed: frozenset[str] = frozenset()
         self.morphisms: dict = {}
+        self.module: IRQiecModule | None = None
+        self.operations_bound: set[str] = set()
         # Plate-axis name -> the local variable holding a single reused
         # `pyro.plate(...)` object. Pyro registers each `pyro.plate`
         # context as a site named after the axis, so two inline plates
@@ -1613,14 +1668,10 @@ _PYRO_KEYWORD_BINDINGS: dict[str, dict[str, str]] = {
 
 #: Families whose Pyro target class carries a leading parameter that
 #: the QVR call site never writes because the family fixes it, mapped
-#: to the value that fills it. The horseshoe prior is
-#: `Normal(0, scale)` and QVR spells it `Horseshoe(scale)`; emitting
-#: that one argument positionally against `pyro.distributions.Normal`
-#: binds it to `loc` and scores a unit scale at a shifted location, so
-#: the renderer prepends the fixed location instead.
-_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {
-    "Horseshoe": 0.0,
-}
+#: to the value that fills it; emitting such a family's arguments
+#: positionally would bind the first to the fixed parameter, so the
+#: renderer prepends the fixed value instead.
+_PYRO_FIXED_LEADING_ARGS: dict[str, float] = {}
 
 
 _RUNTIME_PYRO_PATH = pathlib.Path(__file__).resolve().parent.parent / "runtime_pyro.py"

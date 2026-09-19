@@ -506,6 +506,15 @@ def _render_family_kind(backend: str, tail: str, explained: bool) -> str:
         # references the family the user wrote rather than the
         # absence sentinel.
         family, detail = detail, family
+    if family == "Horseshoe":
+        return (
+            f"{_has_no(backend, 'horseshoe distribution')}: `Horseshoe(scale)` "
+            f"denotes the marginal of a normal draw over a half-Cauchy local "
+            f"scale, which has no closed form and no library distribution on "
+            f"any target. Write the prior as its explicit decomposition, "
+            f"`tau * lambda * z` with `lambda ~ HalfCauchy(1.0)` and "
+            f"`z ~ Normal(0.0, 1.0)`, which every target expresses."
+        )
     if explained:
         return _cannot(backend, f"score a draw from `{family}`")
     if not detail:
@@ -635,6 +644,123 @@ def _render_node_kind(backend: str, tail: str, explained: bool) -> str:
     if explained:
         return _cannot(backend, f"emit {surface}")
     return f"{_cannot(backend, f'emit {surface}')}: {detail}"
+
+
+def _render_qiec_kind(backend: str, tail: str) -> str:
+    """Render one selected-target QIEC capability mismatch."""
+    reason, _, name = tail.partition(":")
+    if reason == "capability":
+        feature, _, subject = name.partition(":")
+        where = (
+            f"QIEC computation `{subject}`"
+            if subject != "module"
+            else "the QIEC module"
+        )
+        if feature == "search":
+            return (
+                f"{where} is a deduction's entry, which enumerates its "
+                "derivations through a search handler that resumes once per "
+                f"alternative, and {_language(backend)} has no runtime for that "
+                "search. Run the deduction on the reference machine with "
+                "`run_deduction`, or keep the program's chart out of the "
+                "transpiled model."
+            )
+        return (
+            f"{where} requires the `{feature}` QIEC capability, but "
+            f"{_language(backend)} has no semantics-preserving lowering for it. "
+            "Choose a target whose QIEC capability set includes this feature, "
+            "or change the computation; silently erasing it would change the program."
+        )
+    if reason == "call":
+        callee, _, program = name.partition(":")
+        return (
+            f"program `{program}` calls `{callee}`, which is not a "
+            f"computation of the checked module, so the plan "
+            f"{_language(backend)} is rendered from has nothing to call. "
+            f"Declare the computation with `define` in the module, or call "
+            f"one that is declared."
+        )
+    if reason == "stan":
+        form, _, rest = name.partition(":")
+        primitive, _, computation = rest.partition(":")
+        return (
+            f"QIEC computation `{computation}` applies the `{primitive}` "
+            f"primitive, which has no spelling in a Stan user-defined "
+            f"function: Stan's function library has no counterpart, or "
+            f"(as for a conversion to an integer) admits only data. Write "
+            f"the computation with the primitives Stan has, or keep it out "
+            f"of the transpiled model."
+        )
+    if reason == "effect":
+        effect, _, program = name.partition(":")
+        return (
+            f"program `{program}` performs on a `{effect}` instance, and "
+            f"{_language(backend)} carries only the canonical `Random` and "
+            f"`Score` requests of a program. Handle the instance inside a "
+            f"computation the program calls, or keep it out of the "
+            f"transpiled model."
+        )
+    if reason == "computation":
+        form, _, program = name.partition(":")
+        return (
+            f"program `{program}` elaborates to a `{form}` computation form, "
+            f"which the plan {_language(backend)} is rendered from has no "
+            f"statement for. Write the program with sample, observe, let, "
+            f"score, and marginalize steps, or keep the form out of the "
+            f"transpiled model."
+        )
+    if reason == "argument":
+        term, _, rest = name.partition(":")
+        site, _, head = rest.partition(":")
+        return (
+            f"the `{head}` argument of the draw at `{site}` is a `{term}` "
+            f"term of the checked module, which has no wire form in "
+            f"{_language(backend)}: a family argument on the wire is a "
+            f"literal, a bound name, an indexed name, a list, or a "
+            f"broadcast. Bind the value with a `let` before the draw."
+        )
+    if reason == "expression":
+        term, _, program = name.partition(":")
+        return (
+            f"a binding of program `{program}` is a `{term}` term of the "
+            f"checked module, which has no expression form in "
+            f"{_language(backend)}. Write the binding with the arithmetic, "
+            f"calls, indexing, lists, and factors of a let expression."
+        )
+    if reason == "fibration":
+        return (
+            f"program `{name}` fibres an observation by an index that is "
+            f"not a program input, and {_language(backend)} reads a "
+            f"fibration only as a data input. Pass the fibration as data."
+        )
+    if reason == "sample":
+        return (
+            f"a `Random.sample` request of the program does not carry a "
+            f"site and a family construction, so the plan {_language(backend)} "
+            f"is rendered from cannot read it as a draw. This is a defect in "
+            f"the elaboration rather than in the program; please report it "
+            f"with the module that provoked it."
+        )
+    return f"{_cannot(backend, 'transpile this checked QIEC construct')}: {tail}"
+
+
+def _render_call_kind(backend: str, tail: str) -> str:
+    """`call:graph:<callee>` -- a graph language has no statement that
+    runs a computation."""
+    reason, _, callee = tail.partition(":")
+    if reason == "graph":
+        return (
+            f"the program calls the computation `{callee}` at run time, and "
+            f"{_language(backend)} is a graph language: a model is a set of "
+            f"stochastic and deterministic relations between named nodes, "
+            f"with no statement that runs a computation, draws under a "
+            f"site name it computes, or scores a weight it accumulates. A "
+            f"pure computation whose body is a chain of bindings is inlined "
+            f"before the plan reaches this target, so `{callee}` is either "
+            f"effectful or recursive. Write its draws and scores as steps of "
+            f"the program, or transpile to a target with a host runtime."
+        )
+    return f"{_cannot(backend, 'transpile this call')}: {tail}"
 
 
 def _render_declare_kind(backend: str, tail: str) -> str:
@@ -834,6 +960,16 @@ def _render_let_kind(backend: str, tail: str, explained: bool) -> str:
             f"with a direct `~ Family(args)` declaration, or write "
             f"one `sample` step per stochastic link."
         )
+    if tail.startswith("call:unknown:"):
+        name = tail.partition("call:unknown:")[2]
+        return (
+            f"a `let` calls `{name}(...)`, which names no builtin of the "
+            f"expression language, no lambda, and no computation of the "
+            f"module, so nothing fixes what the call computes and "
+            f"{_language(backend)} would be handed an unresolved name. "
+            f"Write the computation as a `define` of the module, or as "
+            f"arithmetic and builtins the expression language has."
+        )
     if explained:
         return _cannot(backend, "resolve this `let` binding")
     return f"{_cannot(backend, 'resolve this `let` binding')}: {tail}"
@@ -971,6 +1107,16 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"`marginalize` block, or bind it with a `let` before the "
             f"block and reference the bound name inside."
         )
+    if tail.startswith("shape:"):
+        helper = tail.partition(":")[2]
+        return (
+            f"the marginalization helper `{helper}` of the checked module "
+            f"is not one enumerated draw over a collected scope, so the "
+            f"plan cannot read it back as a `marginalize` block for "
+            f"{backend}. This is a defect in the elaboration rather "
+            f"than in the program; please report it with the module "
+            f"that provoked it."
+        )
     if tail == "no-enclosing-body":
         if explained:
             return _cannot(backend, "marginalize this latent out")
@@ -980,21 +1126,6 @@ def _render_marginalize_kind(backend: str, tail: str, explained: bool) -> str:
             f"renderer reached this block with no body open. This is "
             f"a defect in the transpiler rather than in the program; "
             f"please report it with the module that provoked it."
-        )
-    if tail.startswith("no-log-weight:"):
-        latent = tail.partition(":")[2]
-        return (
-            f"`marginalize {latent}` denotes the integral of the "
-            f"block's measure over the latent, and "
-            f"{_language(backend)} has no way to add a free "
-            f"log-density term to a trace: every address it scores "
-            f"must be one it drew. Emitting the draw instead would "
-            f"denote a measure on the product of the latent's support "
-            f"with the block's, which is a larger space than the "
-            f"program's and differs from it by an amount that moves "
-            f"with the data. Draw the latent explicitly with `sample` "
-            f"if that is the model you want, or score the block on a "
-            f"target that carries a log-weight primitive."
         )
     if tail.startswith("ungrouped-over-plate:"):
         latent = tail.partition(":")[2]
@@ -1131,6 +1262,15 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
             f"target to read it as. Write `[param_source=<kind>]` "
             f"with an architecture name."
         )
+    elif kind == "table":
+        return (
+            f"the morphism `{name}` is a kernel over a finite domain, whose "
+            f"parameters are read from a learned table with one row per "
+            f"element, and {_language(backend)} has no wire form for a "
+            f"table-indexed parameter map. Draw the row's parameters as "
+            f"sites indexed by the element, or write the step against a "
+            f"closed-form family."
+        )
     else:
         headline = (
             f"a morphism draws its parameters from a `{kind}` network, "
@@ -1148,6 +1288,45 @@ def _render_param_source_kind(backend: str, tail: str, explained: bool) -> str:
         f"the network as explicit sampled weights and a deterministic "
         f"forward pass, or write the step as a `sample` / `observe` "
         f"against a closed-form family."
+    )
+
+
+def _render_embed_kind(backend: str, tail: str, explained: bool) -> str:
+    """`embed:<name>` -- a draw through an embedding morphism, whose
+    centres and scales are learned tables rather than sites the program
+    declares.
+
+    Parameters
+    ----------
+    backend : str
+        The target the refusal is reported for.
+    tail : str
+        The morphism's name.
+    explained : bool
+        Whether the raise site's own account follows the headline.
+
+    Returns
+    -------
+    str
+        The rendered explanation.
+    """
+    headline = (
+        f"the morphism `{tail}` is an embedding, a Normal kernel placed at "
+        f"each element's learned centre, whose centres and scales are not "
+        f"sites the program declares"
+    )
+    if explained:
+        return headline
+    unable = (
+        "no target can reconstruct"
+        if backend in _STAGE_TARGETS
+        else f"{_language(backend)} cannot reconstruct"
+    )
+    return (
+        f"{headline}, so {unable} the kernel it draws from. Sample the "
+        f"centres and scales as explicit sites indexed by the element, or "
+        f"write the step as a `sample` / `observe` against a closed-form "
+        f"family."
     )
 
 
@@ -1179,8 +1358,21 @@ def _render_program_kind(backend: str, tail: str, explained: bool) -> str:
             f"and never takes as an input. Bind it, or take it as a "
             f"program input."
         )
+    if reason == "elaboration":
+        return (
+            f"the elaboration of the program into the checked module refused "
+            f"it under `{rest}`, so {_language(backend)} has no computation "
+            f"to derive its plan from"
+        )
     if explained:
         return _cannot(backend, f"emit program `{rest or reason}`")
+    if reason == "unelaborated":
+        return (
+            f"program `{rest}` has no computation in the checked module, so "
+            f"the plan {_language(backend)} is rendered from cannot be "
+            f"derived. This is a defect in the elaboration rather than in "
+            f"the program; please report it with the module that provoked it."
+        )
     return f"{_cannot(backend, 'emit this program')}: {tail}"
 
 
@@ -1601,6 +1793,10 @@ def _render_head(
         return _render_family_kind(backend, tail, explained)
     if head == "node":
         return _render_node_kind(backend, tail, explained)
+    if head == "qiec":
+        return _render_qiec_kind(backend, tail)
+    if head == "call":
+        return _render_call_kind(backend, tail)
     if head == "declare":
         return _render_declare_kind(backend, tail)
     if head == "arg":
@@ -1633,6 +1829,8 @@ def _render_head(
         return _render_plate_kind(backend, tail, explained)
     if head == "param-source":
         return _render_param_source_kind(backend, tail, explained)
+    if head == "embed":
+        return _render_embed_kind(backend, tail, explained)
     if head == "program":
         return _render_program_kind(backend, tail, explained)
     if head == "program-domain":

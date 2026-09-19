@@ -3,7 +3,7 @@
 The lexer drives on the in-tree tree-sitter parser (compiled via
 [`quivers.dsl._grammar_build`][quivers.dsl._grammar_build]) so it always reflects
 the authoritative grammar; there is no regex approximation. When the
-shared library cannot be built, lexer construction raises with a
+shared library cannot be loaded, lexer construction raises with a
 typed diagnostic so the failure is visible at the rendering site
 rather than silently producing a degraded highlight.
 
@@ -37,7 +37,7 @@ from pygments.token import (
     _TokenType,
 )
 
-from quivers.dsl._grammar_build import _build_shared_lib, _grammar_dir
+from quivers.dsl._grammar_build import _parser_artifacts
 from quivers.dsl._grammar_introspection import (
     BUILTIN_FUNCTIONS as _GRAMMAR_BUILTIN_FUNCTIONS,
     BUILTIN_TYPES as _GRAMMAR_BUILTIN_TYPES,
@@ -92,7 +92,10 @@ _OPERATOR_TOKENS = _GRAMMAR_OPERATORS
 
 
 def _node_kind_to_pygments_token(
-    kind: str, text: str, parent_kind: str | None
+    kind: str,
+    text: str,
+    parent_kind: str | None,
+    field_name: str | None = None,
 ) -> _TokenType:
     """Map a tree-sitter node kind to a Pygments token type."""
     if kind == "doc_comment":
@@ -115,6 +118,15 @@ def _node_kind_to_pygments_token(
         # Context-sensitive tagging: identifiers inside type-like
         # productions colour as types; inside constructors as
         # builtin types/functions; the default is a variable.
+        if parent_kind == "qiec_effect_request":
+            if field_name == "operation":
+                return Name.Function
+            if field_name == "instance":
+                return Name.Variable
+        if parent_kind == "qiec_handler_operation_clause" and field_name == "operation":
+            return Name.Function
+        if parent_kind == "qiec_call_computation" and field_name == "callee":
+            return Name.Function
         if text in _BUILTIN_FUNCTION_TOKENS:
             return Name.Builtin
         if text in _BUILTIN_TYPE_TOKENS:
@@ -138,7 +150,26 @@ def _node_kind_to_pygments_token(
             "vertex_kind_decl",
             "edge_kind_decl",
             "morphism_init_family",
+            "index_decl",
+            "indexed_family_decl",
+            "qiec_type_name",
+            "qiec_type_application",
+            "qiec_type_binder",
+            "qiec_effect_ref",
         }:
+            return Name.Class
+        if parent_kind in {
+            "qiec_index_constructor",
+            "qiec_constructor_decl",
+            "qiec_constructor_value",
+            "qiec_case_branch",
+            "qiec_operation_decl",
+            "qiec_handler_application",
+            "handler_decl",
+            "computation_decl",
+        }:
+            return Name.Function
+        if parent_kind == "effect_decl":
             return Name.Class
         if parent_kind in {"pragma_entry", "pragma_outer", "pragma_inner"}:
             return Name.Decorator
@@ -149,6 +180,28 @@ def _node_kind_to_pygments_token(
         return Name.Variable
     if kind in _OPERATOR_TOKENS:
         return Operator
+    if kind in {
+        "qiec_type_kind",
+        "qiec_effect_kind",
+        "qiec_nat_sort",
+        "qiec_shape_sort",
+        "qiec_context_sort",
+        "qiec_user_index_sort",
+    }:
+        return Name.Class
+    if kind == "qiec_resumption_grade" or parent_kind == "qiec_resumption_grade":
+        return Number
+    if kind in {
+        "qiec_handler_coverage_key",
+        "qiec_handler_forwards_key",
+        "qiec_handler_introduces_key",
+        "qiec_handler_implementation_key",
+    }:
+        # The opening bracket and the first option key are one lexical
+        # token; it reads as the keyword it names.
+        return Keyword
+    if kind in {"qiec_bool_literal", "qiec_unit_literal"}:
+        return Keyword.Constant
     if kind in {"(", ")", "[", "]", "{", "}", ",", ":", "."}:
         return Punctuation
     if kind in _KEYWORD_TOKENS:
@@ -181,8 +234,7 @@ def _load_parser() -> tuple[tree_sitter.Parser, tree_sitter.Language, ctypes.CDL
     if _TS_PARSER is not None:
         return _TS_PARSER
 
-    gd = _grammar_dir()
-    lib_path = _build_shared_lib(gd)
+    _grammar_dir, lib_path = _parser_artifacts()
     lib = ctypes.CDLL(str(lib_path))
     lib.tree_sitter_qvr.restype = ctypes.c_void_p
     language_ptr = lib.tree_sitter_qvr()
@@ -209,7 +261,7 @@ class QvrLexer(Lexer):
 
     The lexer is a thin walker over the in-tree tree-sitter parse;
     the grammar is the single source of truth. There is no regex
-    approximation: when the shared library can't be built, the
+    approximation: when the shared library can't be loaded, the
     lexer raises a typed exception so the failure is visible at
     the rendering site rather than silently emitting a degraded
     highlight.
@@ -230,37 +282,47 @@ class QvrLexer(Lexer):
 
         # Walk leaf-first in source order, emitting tokens for
         # each leaf and reproducing inter-leaf whitespace as Text.
-        leaves: list[tuple[tree_sitter.Node, str | None]] = []
+        leaves: list[tuple[tree_sitter.Node, str | None, str | None]] = []
 
-        def walk(node: tree_sitter.Node, parent_kind: str | None) -> None:
+        def walk(
+            node: tree_sitter.Node,
+            parent_kind: str | None,
+            field_name: str | None,
+        ) -> None:
             if not node.children:
-                leaves.append((node, parent_kind))
+                leaves.append((node, parent_kind, field_name))
                 return
-            for c in node.children:
-                walk(c, node.type)
+            for index, child in enumerate(node.children):
+                walk(child, node.type, node.field_name_for_child(index))
 
-        walk(tree.root_node, None)
+        walk(tree.root_node, None, None)
 
         cursor = 0
-        for node, parent_kind in leaves:
+        for node, parent_kind, field_name in leaves:
             start = node.start_byte
             end = node.end_byte
             if start > cursor:
                 gap = src_bytes[cursor:start].decode("utf-8")
                 if gap:
-                    yield (cursor, Text, gap)
+                    yield (_byte_to_char_offset(src_bytes, cursor), Text, gap)
             node_text = src_bytes[start:end].decode("utf-8")
             token = _node_kind_to_pygments_token(
                 node.type,
                 node_text,
                 parent_kind,
+                field_name,
             )
-            yield (start, token, node_text)
+            yield (_byte_to_char_offset(src_bytes, start), token, node_text)
             cursor = end
         if cursor < len(src_bytes):
             tail = src_bytes[cursor:].decode("utf-8")
             if tail:
-                yield (cursor, Text, tail)
+                yield (_byte_to_char_offset(src_bytes, cursor), Text, tail)
+
+
+def _byte_to_char_offset(source: bytes, byte_offset: int) -> int:
+    """Translate a tree-sitter UTF-8 byte offset to a Python string offset."""
+    return len(source[:byte_offset].decode("utf-8"))
 
 
 __all__ = ["QvrLexer"]

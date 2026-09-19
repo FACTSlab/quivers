@@ -28,6 +28,9 @@
       "include": "#keyword-declaration"
     },
     {
+      "include": "#keyword-qiec-modifier"
+    },
+    {
       "include": "#keyword-composition-level"
     },
     {
@@ -56,6 +59,12 @@
     },
     {
       "include": "#distribution-family"
+    },
+    {
+      "include": "#qiec-option-value"
+    },
+    {
+      "include": "#qiec-literal"
     },
     {
       "include": "#numeric-literal"
@@ -107,11 +116,16 @@
     },
     "keyword-control": {
       "name": "keyword.control.qvr",
-      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|export)\\b"
+      "match": "\\b(sample|observe|marginalize|score|return|let|where|in|from|as|export|perform|handle|case|motive|resumes|resume|lacks|construct|for|with|if|then|else|not)\\b"
     },
     "keyword-declaration": {
       "name": "keyword.declaration.qvr",
-      "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss|define)\\b"
+      "match": "\\b(composition|contraction|category|object|morphism|schema|rule|bundle|program|deduction|signature|encoder|decoder|loss|define|index|family|constructor|effect|instance|handler)\\b"
+    },
+    "keyword-qiec-modifier": {
+      "comment": "QIEC kinds, handler coverage, forwarding, and resumption grades.",
+      "name": "storage.modifier.qvr",
+      "match": "\\b(Type|Effect|Row|Shape|Context|total|partial|aff|omega|coverage|forwards|introduces|implementation|authored|foreign)\\b"
     },
     "keyword-composition-level": {
       "comment": "Composition-level names carried by `[level=...]` option values.",
@@ -168,7 +182,7 @@
     },
     "builtin-type": {
       "name": "support.class.builtin.qvr",
-      "match": "\\b(FinSet|Real|Simplex|Sphere|Ball|CholeskyFactor|Covariance|Correlation|Orthogonal|Stiefel|LowerTriangular|Diagonal|Mor|Space|Object|Nat)\\b"
+      "match": "\\b(FinSet|Real|Simplex|Sphere|Ball|CholeskyFactor|Covariance|Correlation|Orthogonal|Stiefel|LowerTriangular|Diagonal|Mor|Space|Object|Nat|Unit|Bool|Int|String)\\b"
     },
     "semiring": {
       "comment": "Semiring names carried by `[semiring=...]` option values.",
@@ -183,6 +197,15 @@
     "distribution-family": {
       "name": "support.type.distribution.qvr",
       "match": "\\b(Normal|LogitNormal|Beta|TruncatedNormal|Truncated|Dirichlet|Bernoulli|Categorical|Uniform|Cauchy|Laplace|Gumbel|LogNormal|StudentT|Exponential|Gamma|Chi2|HalfCauchy|HalfNormal|InverseGamma|Weibull|Pareto|Kumaraswamy|ContinuousBernoulli|FisherSnedecor|MultivariateNormal|LowRankMVN|RelaxedBernoulli|RelaxedOneHotCategorical|Wishart|Flow|LKJCorrelationFactor)\\b"
+    },
+    "qiec-option-value": {
+      "comment": "QIEC handler-forwarding option values.",
+      "name": "constant.language.qvr",
+      "match": "\\b(unknown|none)\\b"
+    },
+    "qiec-literal": {
+      "name": "constant.language.qvr",
+      "match": "\\b(true|false|unit)\\b"
     },
     "numeric-literal": {
       "patterns": [

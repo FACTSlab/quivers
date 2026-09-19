@@ -25,6 +25,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -61,6 +62,7 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     LetExprFactor,
     LetExprList,
@@ -76,6 +78,13 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
     mixture_normal_components,
+)
+from quivers.transpile.qiec_ir import IRQiecModule
+from quivers.transpile.renderers._qiec import (
+    emit_call_python,
+    graft_python_statements,
+    qiec_helper_roots,
+    render_computations_dynamic,
 )
 
 
@@ -192,12 +201,16 @@ class NumPyroRenderer(RendererBase):
             observed_names=self._collect_observed(ir),
             scalar_refs=scalar_refs,
             bound_refs=bound_refs,
+            module=ir.module,
         )
 
         py.v("mod", "module")
         body = py.v(py.fresh("body"), "block")
         params = self._function_params(ir)
         func = self._build_function(py, body, params)
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(body, noop, "child_of")
 
         # Dispatch the body first so any ``LetExprCall`` records the
         # imports its symbol needs (jax.scipy.special / jax.nn), then emit
@@ -205,7 +218,9 @@ class NumPyroRenderer(RendererBase):
         # uses, and wire the function last so a reader sees imports, then
         # helper classes, then ``def model``.
         self._dispatch_body(ctx, body, ir.body)
-        used_helpers = _ir_helper_classes_used(ir.body)
+        used_helpers = _ir_helper_classes_used(ir.body) | qiec_helper_roots(
+            ir, _BACKEND
+        )
         for cls_name in used_helpers:
             extra_import = _NUMPYRO_HELPER_IMPORTS.get(cls_name)
             if extra_import is not None:
@@ -215,6 +230,7 @@ class NumPyroRenderer(RendererBase):
             _emit_runtime_helper(py, cls_name)
         py.e("mod", func, "child_of")
 
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     def declare(
@@ -370,6 +386,28 @@ class NumPyroRenderer(RendererBase):
             "child_of",
         )
         py.required_imports.add(_MARGINALIZE_IMPORT)
+        # A grouped block keys its accumulator by group: the rows the
+        # fibration sends to one group are summed before the reduction.
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            extent = (
+                str(group.size) if isinstance(group, DimStatic) else group.size_name
+            )
+            graft_python_statements(
+                py.builder,
+                f"{prefix} = jnp.zeros(({extent}, {prefix}.shape[-1]), "
+                f"dtype={prefix}.dtype).at[{via}].add({prefix})\n",
+                body_vid,
+                f"marg_{node.latent}_group",
+            )
         # An ungrouped block shares one latent across the body's rows,
         # so their per-class log-likelihoods are accumulated before the
         # reduction rather than each row reducing on its own.
@@ -704,6 +742,9 @@ class NumPyroRenderer(RendererBase):
             return
         if isinstance(node, IRMarginalize):
             self.marginalize(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(ctx.py, body_vid, node, ctx.module, ctx.operations_bound)
             return
         if isinstance(node, IRReturn):
             self._return_statement(ctx, body_vid, node.names)
@@ -1762,6 +1803,7 @@ class _NumPyroCtx(_RenderCtx):
         observed_names: set[str],
         scalar_refs: frozenset[str],
         bound_refs: frozenset[str],
+        module: IRQiecModule,
     ) -> None:
         super().__init__(sb=sb, morphisms=morphisms, defines=lets)
         self.py = py
@@ -1776,6 +1818,8 @@ class _NumPyroCtx(_RenderCtx):
         self.bound_refs = bound_refs
         self.current_body: str | None = None
         self.emitted_plate_names: set[str] = set()
+        self.module: IRQiecModule = module
+        self.operations_bound: set[str] = set()
 
 
 def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:

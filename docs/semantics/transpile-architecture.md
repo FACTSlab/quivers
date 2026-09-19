@@ -12,54 +12,71 @@ The companion [transpilation-correctness contract](transpile-correctness/index.m
 states the evidence available for supported programs. This page
 describes how the pieces fit together.
 
-## 1. The three-stage pipeline
+## 1. The shared pipeline
 
-The transpile pipeline is a
-`didactic.api.Mapping`
-composition:
+The transpile pipeline elaborates and checks the module first; the program's
+plan is derived from its checked computation; the selected renderer then
+renders the plan and the module's other computations, analyzing each
+computation's capabilities before it is placed:
 
 $$
 \mathrm{Module}
-\;\xrightarrow{\;\mathsf{Compile}\;}\;
-\mathrm{Program}
-\;\xrightarrow{\;\mathsf{Lower}\;}\;
-\mathrm{IR}
-\;\xrightarrow{\;\mathsf{Render}_{\mathsf{T}}\;}\;
+\;\xrightarrow{\;\mathsf{Lower}=\mathsf{Check};\mathsf{Plan}\;}\;
+\mathrm{IRProgram}
+\;\xrightarrow{\;\mathsf{Render}_{\mathsf{T}}[
+  \mathsf{AnalyzeQIEC}_{\mathsf{T}}]\;}\;
 \mathrm{panproto.Schema}
 \;\xrightarrow{\;\mathsf{Pretty}_{\mathsf{T}}\;}\;
 \mathrm{bytes}
 $$
 
-Each arrow is a small pure transformation; the composition is
+Each arrow is a small transformation; the composition is
 the correctness framework's first structural handle,
 because each arrow's correctness lemma is local to its file.
 
-* **Compile** parses a `.qvr` source text into a
-  [`Module`][quivers.dsl.ast_nodes.Module] AST and resolves
-  declarations into a `Program` containing the program's draws,
-  morphism table, and let table.
-* **`Lower`** is
-  target-independent. It walks the `Program` and emits an
-  `IRProgram` whose nodes carry
-  the structural intent (sample, observe, marginalize, ...) plus
-  the support and plate shape derived from
-  `FAMILY_META` and
-  `torch.distributions.Distribution.arg_constraints`.
+* **`Check`** elaborates the module to its checked core: it compiles the
+  indexed-family signature through Didactic's public `GADT` API, negotiates
+  the exact route, elaborates every entry-point program to a named
+  computation, validates the complete module, and returns its stable kernel
+  module. This step is target-independent.
+* **`Plan`** is
+  target-independent. It reads the program's computation and recognizes
+  the statements a probabilistic-programming target has: one `IRSample`
+  per `Random.sample` request, one `IRObserve` per scored density at an
+  observation, one `IRDeterministic` per pure binding, one `IRScore` per
+  other weight, and one `IRMarginalize` per marginalization helper whose
+  answer is scored. Each node carries the support and plate shape read off
+  the module's types, `FAMILY_META`, and
+  `torch.distributions.Distribution.arg_constraints`; the plan's inputs are
+  the entry point's parameters. The result is one `IRProgram` carrying the
+  complete module as the typed `IRQiecModule` tree beside the plan. A
+  QIEC-only source thus lowers to its module with an empty plan.
 * **`Render[T]`**
   is one subclass per backend
   (`StanRenderer`,
   `NumPyroRenderer`,
   `PyMCRenderer`,
-  ...). It consumes the IR and emits a target-specific
-  `panproto.Schema` using only the support
-  predicates of §2.2 and the `FAMILY_META` entries.
+  ...). It consumes the plan and emits a target-specific
+  `panproto.Schema` using the support predicates of §2.3 and the `FAMILY_META`
+  entries, then renders the module's other computations with
+  `render_computations_dynamic` or `render_computations_static`, which call
+  **`AnalyzeQIEC[T]`** over each named computation first. The analysis records
+  open or effectful rows, static polymorphism, indexed cases, transport,
+  attachments, and resumption grades, then compares that set with the target's
+  declared capabilities. A mismatch has the stable form
+  `qiec:capability:<feature>:<computation>`, retains the computation's source
+  origin, and stops the rendering.
 * **Pretty[T]** is
   `panproto.AstParserRegistry.emit_pretty`
   for the target's tree-sitter grammar. It renders the schema as
   the canonical source-byte serialization.
 
-Each of these claims is structural, enforced by the IR's shape and the
-renderer's interface; see §3.
+The ordinary compiler checks the same module and attaches its `QiecModule` to
+the compiler environment and produced `Program`. Transpilation does not depend
+on that runtime compiler object: `transpile()` classifies the surface, and
+`Lower.forward()` elaborates and checks the source AST itself, so direct
+lowering is validated the same way. Target capability analysis remains inside
+the renderer because it acts on `IRQiecModule`, not on the source.
 
 ## 2. The IR
 
@@ -70,7 +87,34 @@ is a `dx.Model` or
 structural: no target-language strings, no schema vertices, no
 panproto types.
 
-### 2.1 `Plate`: event versus batch axes
+### 2.1 Typed QIEC module
+
+`IRProgram.module` is the `IRQiecModule`, a lossless
+structural projection of the checked kernel module: every declaration, stable
+identifier, source origin, row and lacks constraint, value, equality witness,
+transport, computation node, handler clause, and resumption grade has its own
+`dx.Model` or `dx.TaggedUnion` representation. Thus the IR remains
+Didactic/Panproto-translatable without asking a renderer to parse a
+`qiec-json/v1` string.
+
+The host-language targets Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL,
+and Church consume this tree through corresponding implementations of the QIEC
+runtime ABI. These implementations provide free computations, lexical
+handlers, stable request addresses, constructors, indexed case dispatch,
+attachments, and resumption-grade checks. Conformance tests reparse every
+target's emitted source and exercise the host ABI where its runtime is
+available; this evidence does not establish that the runtimes are equivalent.
+
+Stan, BUGS, and JAGS emit the analyzer-approved static subset. Each computation
+must have a closed, empty effect row and an empty static telescope, return a
+scalar, and contain only scalar `Return` and `Bind` forms. These restrictions do
+not rule out ordinary value parameters: Stan admits named `Bool`, `Int`, and
+`Real` parameters. BUGS and JAGS require parameterless computations because
+their graph-level definitions have no callable parameter ABI. Other QIEC
+features receive precise capability diagnostics; no renderer may treat an
+executable term as ignorable metadata.
+
+### 2.2 `Plate`: event versus batch axes
 
 A draw's plate annotation decomposes into the event axes (the
 family's joint structure) and the batch axes (replication).
@@ -104,7 +148,7 @@ plate contexts (NumPyro / Pyro),
 `filldist` / `arraydist` wrappers
 (Turing.jl / Gen.jl) per its native idiom.
 
-### 2.2 Support classification
+### 2.3 Support classification
 
 `src/quivers/transpile/ir.py` exports a small set of predicates
 over
@@ -255,6 +299,22 @@ class IRMarginalize(IRNode):
     scope: tuple[IRNode, ...]
     kind: Literal["marginalize"] = "marginalize"
 
+class IRCall(IRNode):
+    """A call of a module computation the plan did not inline. The
+    dynamic targets render it against the callee's generated entry
+    point, with the program's `Random` and `Score` instances bound to
+    the host's own sample and factor primitives; Stan calls the
+    callee as a user-defined function when it can define one, and
+    BUGS and JAGS refuse it."""
+    name: str
+    callee: str
+    static_arguments: tuple[IRQiecStatic, ...]
+    arguments: tuple[IRExpr, ...]
+    random_instance: str
+    score_instance: str
+    plate: Plate
+    kind: Literal["call"] = "call"
+
 class IRReturn(IRNode):
     names: tuple[str, ...]
     kind: Literal["return"] = "return"
@@ -271,6 +331,8 @@ class IRProgram(dx.Model):
     name: str
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
+    module: IRQiecModule
+    cards: dict[str, int]
 ```
 
 ## 3. `FamilyMeta`: the registry for transpile-only facts
@@ -346,34 +408,50 @@ existing implementation. Adding a new family is one
 [`Conditional*`][quivers.continuous.families.ConditionalNormal]
 class plus one `FamilyMeta` entry; no renderer touches.
 
-## 4. `Lower`: Program → IR
+## 4. `Lower`: Module → IR
 
-`Lower` is a single class
-implementing `dx.Mapping[Program, IRProgram]`. Its `forward`:
+`Lower` is a single class in `src/quivers/transpile/plan.py`
+implementing `dx.Mapping[Module, IRProgram]`. Its `forward`:
 
-1. Runs
-   `expand_composite_lets`
-   on the program. Composite-let bindings (`let chain = prior >>
-   likelihood`) flatten into atomic sample chains so each
-   program-step the IR sees references a single morphism.
-2. Resolves every step's morphism slot to a `(family, args)`
-   pair via
-   `resolve_step_dist`.
-3. Looks up `meta = FAMILY_META[family]`.
-4. Reads `arg_constraints = meta.distribution_class.arg_constraints`
-   and resolves the output support, instantiating with sentinel
-   args when the support is parameter-dependent.
-5. Computes `Plate` from `(AxisSpec, step.index, cards)`. `over`
-   axes become `event_dims`; `iid_over` axes become `batch_dims`.
-6. Matches user args against `arg_constraints` positionally,
-   wrapping scalars in `IRArgBroadcast` when the constraint is
-   `IndependentConstraint(base, n>=1)` and the user supplied a
-   scalar. Wrapper-family arguments wrap in `IRArgFamilyRef` when
-   they reference a morphism with a `~ Family(...)` init clause.
-7. Discovers exogenous identifiers: free names in let / score
-   bodies, free names in bracket-indexed args, `via=`
-   fibrations, scalar program parameters. Each surfaces as
-   `IRDataInput` with a constraint derived from how it is used.
+1. Elaborates and checks the module (`checked_module`), so a direct
+   `Lower.forward()` call cannot bypass validation; a program the
+   elaboration has no computation for is refused under the kind the gap
+   names. A module without a program lowers to its `IRQiecModule` with an
+   empty plan.
+2. Runs `expand_composite_lets` on the program, so the site each step of
+   the plan corresponds to is one step of the expanded source, whose
+   morphism fixes a class-index draw's alphabet and a structured family's
+   wire form.
+3. Walks the program's computation. A `Random.sample` request becomes an
+   `IRSample` (the site label naming it); a `Score.add` of a density at an
+   observation becomes an `IRObserve`, with the fibration a
+   `SegmentSum` re-indexes the density by stated as `via`; a pure binding
+   becomes an `IRDeterministic`, absorbed into an `IRScore` when the next
+   request scores its value; a marginalization helper's call whose answer
+   is scored becomes an `IRMarginalize` whose scope is the helper's
+   collected body; the final `Return` becomes an `IRReturn`.
+4. Reads each construction's family, plate, and arguments off its
+   `DistributionValue`: a literal, a binding, an indexed binding, a list,
+   a matrix, a spread literal as `IRArgBroadcast`, a kernel matrix as
+   `IRArgKernel`, and a parameter map's head as a reference to the
+   `IRDeterministic` bindings that compute it. Arguments are ordered as the
+   torch constructor binds them, scalars are wrapped in `IRArgBroadcast`
+   where the constraint is `IndependentConstraint(base, n>=1)`, and the
+   support is resolved through `FAMILY_META`'s sentinel instances and
+   narrowed by the declared bounds of the site's axes.
+5. Reads pure values back as let expressions: primitives as the operators
+   and builtins they implement, gathers as subscripts, comprehensions as
+   factors, and a last-axis reduction as its builtin call.
+6. Derives the inputs from the entry point's parameters, typed by the
+   module and named by the axes the elaboration recorded, in the groups
+   the targets declare them: the program's domain, its scalars,
+   fibrations, observations, parameter maps, and data.
+7. Spells every name for the targets. A draw from a program runs the
+   program in place under names of the caller's own, a local `z` of a
+   program drawn under `theta` being the site `theta$z` on the reference
+   machine and the torch runtime; no target language admits `$` in an
+   identifier, so the plan spells such a name `theta__z` (`target_name`),
+   and the probe harness spells its points the same way.
 
 Lower is target-independent. It never imports any renderer or
 backend-specific module.
@@ -419,11 +497,10 @@ sample(observed=True)`, `IRDeterministic → declare + assignment`,
 `IRScore → declare scalar + log-density increment`, `IRMarginalize
 → marginalize`, `IRReturn → backend return idiom`), index-
 substitution helpers consumed by both `sample` and `marginalize`,
-and the explicit-latent rewrite helper shared by every backend
-whose `marginalize` lowers `IRMarginalize` to `IRSample` plus the
-scope inline.
+and the atom enumeration (`marginal_atoms`) every backend's
+`marginalize` scores one copy of the scope under.
 
-`declare` dispatches on the predicates of §2.2. The Stan
+`declare` dispatches on the predicates of §2.3. The Stan
 renderer's table:
 
 | predicate | event | batch | declaration |
@@ -476,14 +553,30 @@ The eleven backends fall into three idiomatic families:
   `FAMILY_META.arg_aliases["bugs"]` plus a renderer-internal
   arithmetic-transform table keyed on the alias target name.
 
+A `score` step, and a called helper's scored weight, is a term of
+the joint on every trace-based and graphical target: Stan's
+`target +=`, NumPyro's and Pyro's `factor`, PyMC's `Potential`,
+Turing's `@addlogprob!`, WebPPL's and Church's `factor`, and on
+Edward2 and Gen, which have no factor primitive of their own, a
+traced choice of a one-point distribution whose log density is the
+weight. Gen traces such choices under the `:qvr_factor` address
+namespace, and its marginalize emission is the Turing renderer's,
+writing into the Gen body with the reduced weight traced the same
+way; BUGS and JAGS write a score through the zeros trick.
+
 Each backend's renderer is roughly one file of 700 to 1400 lines.
-None imports from any other.
+The Gen renderer reuses the Turing renderer's marginalize emission,
+since both emit Julia over Distributions.jl; no other imports from
+another.
 
 ## 6. LDA end-to-end
 
 The canonical Latent Dirichlet Allocation source:
 
 ```qvr
+object Doc : FinSet 20
+object Topic : FinSet 3
+object Word : FinSet 200
 program lda(alpha : Real, beta : Real) : Word -> Word
     sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
     sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
@@ -492,7 +585,6 @@ program lda(alpha : Real, beta : Real) : Word -> Word
     return theta
 ```
 
-Cardinalities: Doc=20, Topic=3, Word=200.
 
 After `Lower`, the IR carries:
 
@@ -641,7 +733,7 @@ The architecture enforces five structural invariants:
    distribution name, argument aliases) lives in one place.
    Walkers query it; they never duplicate or override.
 2. **No `if family == "X"` in any renderer.** Renderer behaviour
-   dispatches on the support predicates of §2.2 and on
+   dispatches on the support predicates of §2.3 and on
    `FAMILY_META.target_names[backend]`.
 3. **No silent drops of AST fields.** Every `AxisSpec.over`,
    `AxisSpec.iid_over`, `ObserveStep.via`,

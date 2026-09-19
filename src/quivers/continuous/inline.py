@@ -94,15 +94,53 @@ class FixedDistribution(ContinuousMorphism):
         make_dist: Callable,
         discrete: bool = False,
         support: _constraints.Constraint | None = None,
+        *,
+        domain: AnySpace = Unit,
     ) -> None:
-        super().__init__(Unit, codomain)
+        super().__init__(domain, codomain)
         self._make_dist_fn = make_dist
         self._discrete = discrete
         self._support = support if support is not None else D.constraints.real
 
+    def with_domain(self, domain: AnySpace) -> FixedDistribution:
+        """Return the same fixed family on a declared input space.
+
+        Parameters
+        ----------
+        domain : AnySpace
+            Input space whose values select no family parameters.
+
+        Returns
+        -------
+        FixedDistribution
+            A fixed distribution that keeps the declared kernel domain.
+        """
+        return FixedDistribution(
+            self.codomain,
+            self._make_dist_fn,
+            discrete=self._discrete,
+            support=self._support,
+            domain=domain,
+        )
+
     @property
     def support(self) -> _constraints.Constraint:
         return self._support
+
+    def _get_dist(self, x: torch.Tensor) -> D.Distribution:
+        """Build the fixed distribution for an input's batch.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input, used only for its batch size and device.
+
+        Returns
+        -------
+        torch.distributions.Distribution
+            The distribution, with a batch shape of the input's rows.
+        """
+        return self._make_dist_fn(x.shape[0], x.device)
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
@@ -123,12 +161,25 @@ class FixedDistribution(ContinuousMorphism):
         """
         batch = x.shape[0]
         dist = self._make_dist_fn(batch, x.device)
+        shape = torch.Size(sample_shape)
+        if not dist.batch_shape and not dist.event_shape:
+            # A closed-form operator measure (the `Restrict` a
+            # desugared half-family produces, say) carries no batch of
+            # its own: one draw per row, and per coordinate of a
+            # continuous codomain, keeps the ``(batch, dim)`` contract
+            # of every other fixed distribution.
+            rows = (
+                torch.Size((batch,))
+                if self._discrete
+                else torch.Size((batch, int(getattr(self.codomain, "dim", 1))))
+            )
+            shape = shape + rows
         if self._discrete:
-            return dist.sample(sample_shape).long()
+            return dist.sample(shape).long()
         if getattr(dist, "has_rsample", True):
-            return dist.rsample(sample_shape)
+            return dist.rsample(shape)
         # Continuous but non-reparameterizable (e.g. VonMises).
-        return dist.sample(sample_shape)
+        return dist.sample(shape)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Log-probability under the fixed distribution.
@@ -309,6 +360,22 @@ class MixedInlineDistribution(ContinuousMorphism):
                 params.append(x[..., var_offset : var_offset + dim])
             var_offset += dim
         return params
+
+    def _get_dist(self, x: torch.Tensor) -> D.Distribution:
+        """Build the distribution at an input.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The stacked inline arguments.
+
+        Returns
+        -------
+        torch.distributions.Distribution
+            The distribution the builder makes of the resolved
+            parameters.
+        """
+        return self._dist_builder(self._resolve_params(x))
 
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()

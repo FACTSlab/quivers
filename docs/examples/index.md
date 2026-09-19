@@ -2,11 +2,44 @@
 
 `.qvr` programs spanning probabilistic regressions, latent-variable
 models, state-space models, language models, encoder-decoder networks,
-and weighted deductions. Most full pages include a `## Try it` section;
-CI executes runnable documentation blocks and skips blocks marked as
-illustrative. Pages with current model limitations identify them directly.
+weighted deductions, and QIEC computations. Most full pages include a
+`## Try it` section; CI executes runnable documentation blocks and skips blocks
+marked as illustrative. Pages with current model limitations identify them
+directly.
 
-All source files live under `docs/examples/source/`.
+The measured transpilation corpus lives under `docs/examples/source/`. Mixed
+QIEC case studies whose purpose is reference-machine execution live under
+`docs/examples/qiec/`, so adding one does not silently expand the promised
+backend matrix.
+
+## v0.19 feature map
+
+Use this table when you want an example of a language feature rather than a
+particular statistical family.
+
+| Feature | Primary example | What to inspect |
+| --- | --- | --- |
+| indexed families, authored handlers, computation calls, parser search, structural attachments, grouped marginalization | [Amortized Bayesian Semantics](amortized-bayesian-semantics.md) | mixed entry list, effect trace, target-capability diagnostics |
+| schema and bundle elaboration, generated search and weight effects | [Schema-Bundled Chart Parser](schema-chart-parser.md) | classic chart against `run_deduction` |
+| direct deduction, learned rule weights, program-to-deduction call | [PCFG](pcfg.md) and [CCG](ccg.md) | inside weights, parameter store, scored parser call |
+| structural signature, encoder, decoder, loss, typed PyTorch attachments | [Term Autoencoder](term-autoencoder.md) | `Program.run("reconstruct", term)` and autograd |
+| grouped and fibred exact marginalization | [Latent Dirichlet Allocation](lda.md) | `over`, `via`, and the per-group reduction |
+| program templates and subprogram calls | [Parametric Partial Pooling](parametric-pooling.md) | static object arguments, prefixed sites, labeled tuple return |
+| open sequence extent and recursive scan lowering | [Vanilla RNN LM](vanilla-rnn-lm.md) | generated scan step and trajectory site addresses |
+| network kernel computation | [Bayesian Neural Network](bnn.md) | MLP parameter source and reference-machine boundary |
+| measure-algebra families | [Amortized Bayesian Semantics](amortized-bayesian-semantics.md) | heterogeneous `Mixture` value used for scoring and prediction |
+
+The generated [transpilation support matrix](../transpile-support.md) records
+whether each measured source reaches each backend. A successful
+reference-machine run and a successful transpile are distinct claims; the
+examples state both where they differ.
+
+## Integrated QIEC case study
+
+- [Amortized Bayesian Semantics](amortized-bayesian-semantics.md): a learnable
+  categorial parser, structural logical-form autoencoder, indexed missing-data
+  computation with a contamination measure, authored robustification handler,
+  and hierarchical model with grouped exact marginalization.
 
 ## Regressions
 

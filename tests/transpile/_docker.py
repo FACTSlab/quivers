@@ -24,10 +24,32 @@ import pathlib
 import shutil
 import subprocess
 
+from quivers.transpile.plan import target_name
+
+
+#: Whether the daemon has answered once this process; a daemon that has
+#: answered is not asked again, so a slow `docker info` under the load of
+#: the probe containers cannot read as an absent daemon mid-session.
+_DAEMON_ANSWERED = False
+
+#: The image tags found present this process; an image does not vanish
+#: mid-session, so a slow `docker images` under load cannot read as an
+#: absent image once the image has been seen.
+_IMAGES_SEEN: set[str] = set()
+
 
 def docker_available() -> bool:
-    """True iff the `docker` CLI is on PATH and the daemon answers
-    `docker info` in under three seconds."""
+    """True iff the `docker` CLI is on PATH and the daemon answers `docker info`.
+
+    Returns
+    -------
+    bool
+        Whether the daemon is reachable; once it has answered, True for
+        the rest of the process.
+    """
+    global _DAEMON_ANSWERED
+    if _DAEMON_ANSWERED:
+        return True
     if shutil.which("docker") is None:
         return False
     try:
@@ -35,16 +57,16 @@ def docker_available() -> bool:
             ["docker", "info", "--format", "{{.ServerVersion}}"],
             capture_output=True,
             text=True,
-            timeout=3,
+            timeout=60,
         )
     except subprocess.TimeoutExpired, OSError:
         return False
-    return completed.returncode == 0
+    _DAEMON_ANSWERED = completed.returncode == 0
+    return _DAEMON_ANSWERED
 
 
 def image_available(tag: str) -> bool:
-    """True iff a Docker image matching ``tag`` is built or pulled
-    locally.
+    """True iff a Docker image matching ``tag`` is built or pulled locally.
 
     Uses ``docker images --filter reference=<tag>`` rather than
     ``docker image inspect`` because Docker Desktop 28+ has a daemon
@@ -53,24 +75,43 @@ def image_available(tag: str) -> bool:
     images`` lists the image. The filter-form query goes through a
     different daemon path and reliably returns the image when it
     exists.
+
+    Parameters
+    ----------
+    tag : str
+        The image tag.
+
+    Returns
+    -------
+    bool
+        Whether the image is present; once seen, True for the rest of
+        the process.
     """
+    if tag in _IMAGES_SEEN:
+        return True
     if not docker_available():
         return False
-    completed = subprocess.run(
-        [
-            "docker",
-            "images",
-            "--filter",
-            f"reference={tag}",
-            "--format",
-            "{{.ID}}",
-        ],
-        capture_output=True,
-        timeout=10,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "images",
+                "--filter",
+                f"reference={tag}",
+                "--format",
+                "{{.ID}}",
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired, OSError:
+        return False
     if completed.returncode != 0:
         return False
-    return bool(completed.stdout.strip())
+    present = bool(completed.stdout.strip())
+    if present:
+        _IMAGES_SEEN.add(tag)
+    return present
 
 
 #: Environment variable naming the directory that holds memoised probe
@@ -157,6 +198,47 @@ def _probe_cache_key(
     return digest.hexdigest()
 
 
+def spelled_keys[ValueT](table: dict[str, ValueT]) -> dict[str, ValueT]:
+    """A name-keyed table under the targets' spelling of each name.
+
+    Parameters
+    ----------
+    table : dict[str, ValueT]
+        The table, keyed by names as the reference machine labels them.
+
+    Returns
+    -------
+    dict[str, ValueT]
+        The same table keyed by
+        [`target_name`][quivers.transpile.plan.target_name] of each
+        name, so a site a program draw renamed (``theta$z``) reaches
+        the emitted program under the identifier it declares.
+    """
+    return {target_name(name): value for name, value in table.items()}
+
+
+def spelled_points(points: list[dict]) -> list[dict]:
+    """Points with their parameter and data names spelled for the targets.
+
+    Parameters
+    ----------
+    points : list[dict]
+        The points, each a ``params`` and a ``data`` table.
+
+    Returns
+    -------
+    list[dict]
+        The points with every name under the targets' spelling.
+    """
+    return [
+        {
+            key: spelled_keys(value) if key in ("params", "data") else value
+            for key, value in point.items()
+        }
+        for point in points
+    ]
+
+
 def run_probe(
     *,
     image: str,
@@ -197,11 +279,11 @@ def run_probe(
     scratch.mkdir(parents=True, exist_ok=True)
     source_path = scratch / f"source.{source_ext}"
     source_path.write_bytes(source)
-    (scratch / "points.json").write_text(json.dumps(points))
+    (scratch / "points.json").write_text(json.dumps(spelled_points(points)))
     if shapes is not None:
-        (scratch / "shapes.json").write_text(json.dumps(shapes))
+        (scratch / "shapes.json").write_text(json.dumps(spelled_keys(shapes)))
     if dtypes is not None:
-        (scratch / "dtypes.json").write_text(json.dumps(dtypes))
+        (scratch / "dtypes.json").write_text(json.dumps(spelled_keys(dtypes)))
     (scratch / "probe.py").write_bytes(script.read_bytes())
     # The per-backend probe scripts import a shared reshape helper that
     # sits beside them in `_scripts/`: Python probes do `from _reshape
@@ -302,3 +384,61 @@ __all__ = [
     "probe_cache_dir",
     "run_probe",
 ]
+
+
+def run_probe_script(
+    *,
+    image: str,
+    script: pathlib.Path,
+    scratch: pathlib.Path,
+    timeout: float = 900.0,
+) -> dict | list:
+    """Run one probe script against whatever the caller placed in ``scratch``.
+
+    The script is copied to ``/io/<name>`` beside the caller's inputs and
+    launched through the image's entrypoint; it writes ``/io/result.json``.
+
+    Parameters
+    ----------
+    image : str
+        The probe image tag.
+    script : pathlib.Path
+        The probe script; its language must match the image's entrypoint.
+    scratch : pathlib.Path
+        The bind-mounted directory holding the script's inputs.
+    timeout : float
+        Seconds before the container is killed.
+
+    Returns
+    -------
+    dict | list
+        The decoded ``result.json``.
+
+    Raises
+    ------
+    AssertionError
+        If the container exits nonzero, with the tail of its stderr.
+    """
+    scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / script.name).write_bytes(script.read_bytes())
+    result_path = scratch / "result.json"
+    if result_path.exists():
+        result_path.unlink()
+    completed = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{scratch.resolve()}:/io",
+            "-w",
+            "/io",
+            image,
+            f"/io/{script.name}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    assert completed.returncode == 0, completed.stderr[-4000:]
+    return json.loads(result_path.read_text())

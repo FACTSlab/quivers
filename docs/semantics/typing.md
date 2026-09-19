@@ -845,6 +845,51 @@ This follows from Soundness + Completeness + Type Uniqueness (§[9.3](#93-struct
 
 Two well-typed phrases $\phi_1, \phi_2$ at the same judgment are *denotationally equivalent*, written $\phi_1 \equiv \phi_2$, when $\llbracket \phi_1 \rrbracket = \llbracket \phi_2 \rrbracket$. The QVR type system is *conservative* in the following sense: for any judgment form $\mathcal{J}$, if $\phi_1$ and $\phi_2$ are $\mathcal{J}$-derivable and denotationally equal, the type system does not assign them distinguishable types (no judgment $\mathcal{J}'$ separates them). This conservativity is the categorical content of the "every well-typed phrase has a unique denotation" reading of [Adequacy](adequacy.md).
 
+### 9.6 QIEC indexed and effect typing
+
+The **QIEC judgment layer** is the layer the judgments above elaborate into:
+a program's steps, plates, and lets are checked as the computation they
+denote. The parser builds distinct indexed-family, effect, value, and
+computation nodes and the QIEC checker owns their rules; `ObjectEffectApply`
+and the structural-compression `ConstructorDecl` keep their own. In schematic
+form, its central computation judgment is
+
+$$
+\Delta;\Gamma \vdash c : A\;!\epsilon,
+$$
+
+where $\Delta$ is a heterogeneous static telescope, $\Gamma$ is a value
+context, and $\epsilon$ is an effect row over lexical instance identities. A
+request through instance $i$ adds $i$ to the row after substituting both the
+interface and operation telescopes. `Bind` checks the request result against
+the local binder and unions its row with that of the continuation.
+
+An indexed-family declaration separates parameters $\bar p$ from indices
+$\bar i$. Each constructor checks against an explicit result
+$F[\bar p](\bar t)$, and an indexed case supplies a motive over the family
+indices. Constructor matching introduces rigid branch skolems and local
+equalities between the scrutinee and constructor-result indices. Coverage may
+omit a constructor only when distinct closed index constructors establish
+that its refinement is impossible; unknown refinement remains an obligation.
+Branch-local skolems and their evidence cannot occur in the type or row that
+leaves the branch.
+
+Handling is instance-specific. A total handler removes the matched lexical
+instance, a partial handler retains it, and the handler's introduced row is
+combined with the residual computation row. Open row tails carry explicit
+`lacks` constraints, which prevent an instance from being silently reintroduced
+through the tail. Clause grades constrain dynamic resumption use at the runtime
+attachment boundary: `0`, `aff`, `1`, and `omega` mean zero, at most one,
+exactly one, and potentially many resumptions, respectively.
+
+The exact Didactic route from `qvr-source/v0.19` to
+`qiec-core/v1alpha1` first compiles the indexed-family signature through
+Didactic's public `GADT` API, then performs the QIEC-specific checks and
+returns stable diagnostic codes.
+This result is a checked `QiecModule`, not a proof that the probabilistic
+IR can encode the computation. See the
+[QIEC developer note](../developer/qiec.md) for that backend boundary.
+
 ## 10. Algorithmic typechecking
 
 The inference rules of §[3](#3-inference-rules-for-types-and-kinds)–§[7](#7-inference-rules-for-programs) are *declarative*: they specify which judgments are derivable, not how to derive them. The implementation in `src/quivers/dsl/compiler/` realizes a *bidirectional* algorithm with two modes:

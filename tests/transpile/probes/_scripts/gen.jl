@@ -6,8 +6,14 @@
 # `@trace ... (:NAME, m_AXIS...)` shapes the Gen renderer emits, then
 # builds a `Gen.choicemap` that constrains every `params` value and
 # every `data` value whose key matches a trace-site name (so
-# covariate-only function args are skipped), and asks `Gen.assess` for
-# the log-density at each test point.
+# covariate-only function args are skipped), generates a trace under
+# those constraints, and reads its score as the log-density at each
+# test point. A scored weight (a `score` step, or a helper's scored
+# weight) is traced as a factor choice under the `:qvr_factor`
+# address, a one-point distribution whose log density is the weight;
+# such a choice has nothing to pin, and it is the only choice the
+# probe leaves unconstrained: any other unconstrained address would
+# be a fresh draw, and the probe fails rather than score it.
 #
 # Every payload is reshaped to its declared shape first. The address
 # arity decides how far into that shape the constraint walk descends:
@@ -116,6 +122,20 @@ function _set_constraint!(constraints, name::Symbol, value, arity::Int)
     return _set_constraint_at!(constraints, name, (), value, arity)
 end
 
+# The top-level addresses of `choices` that `constraints` does not
+# pin, the factor namespace excepted.
+function _unclamped_addresses(choices, constraints)
+    unclamped = Any[]
+    for (address, _) in Gen.get_values_shallow(choices)
+        Gen.has_value(constraints, address) || push!(unclamped, address)
+    end
+    for (address, _) in Gen.get_submaps_shallow(choices)
+        address == :qvr_factor && continue
+        Gen.has_submap(constraints, address) || push!(unclamped, address)
+    end
+    return unclamped
+end
+
 function main()
     source = read("/io/source.jl", String)
     points = JSON3.read(read("/io/points.json", String))
@@ -159,9 +179,11 @@ function main()
         constraints = Gen.choicemap()
         for (k, v) in pairs(params)
             sym = Symbol(k)
-            haskey(arities, sym) && _set_constraint!(
-                constraints, sym, v, arities[sym],
-            )
+            # A site the model body traces carries the arity its
+            # address was scanned with; a helper's site is traced under
+            # its label alone, so a param the scan did not see is a
+            # scalar address.
+            _set_constraint!(constraints, sym, v, get(arities, sym, 0))
         end
         for (k, v) in pairs(data)
             sym = Symbol(k)
@@ -173,10 +195,19 @@ function main()
         # registered the model definition in a newer world age than
         # the one this main() began executing in; without it Julia
         # rejects the call with a "method too new" MethodError.
-        weight, returned = Base.invokelatest(
-            Gen.assess, Main.model, args, constraints,
+        trace, _ = Base.invokelatest(
+            Gen.generate, Main.model, args, constraints,
         )
-        push!(log_densities, Float64(weight))
+        unclamped = _unclamped_addresses(Gen.get_choices(trace), constraints)
+        if !isempty(unclamped)
+            error(
+                "gen probe: unclamped choice(s) $(unclamped); every " *
+                "traced address must be supplied through the point's " *
+                "params or data"
+            )
+        end
+        push!(log_densities, Float64(Gen.get_score(trace)))
+        returned = Gen.get_retval(trace)
         if !isempty(export_names)
             push!(exports, export_payload(export_names, returned))
         end

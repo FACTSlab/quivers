@@ -2,14 +2,16 @@
 
 Variables are declared by stochastic or deterministic relations, with
 batch axes emitted as nested loops. The renderer collapses supported
-categorical mixtures to ``dcat`` and uses an explicit latent for other
-marginalization scopes. Family names and argument conversions come
-from ``FAMILY_META``.
+categorical mixtures to ``dcat`` and refuses every other
+marginalization scope, since the language has no statement that adds
+a free log-density term to the joint. Family names and argument
+conversions come from ``FAMILY_META``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 from typing import Callable, Literal
 
 import panproto
@@ -23,7 +25,9 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
+    LetExprList,
     LetExprLiteral,
+    LetExprNode,
     LetExprUnaryOp,
     LetExprVar,
 )
@@ -44,6 +48,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -67,6 +72,12 @@ from quivers.transpile.renderers._base import (
     reorder_negbin_args,
     reorder_weibull_args,
 )
+from quivers.transpile.renderers._qiec import render_computations_static
+from quivers.transpile.renderers._python_helpers import (
+    marginal_support_size,
+    marginalize_body,
+    marginalize_fibration,
+)
 from quivers.transpile.renderers._bugs_helpers import (
     TRUNCATION_FINGERPRINT,
     CategoricalMixture,
@@ -75,6 +86,8 @@ from quivers.transpile.renderers._bugs_helpers import (
     factor_cells,
     half_support_truncation,
     index_letexpr_refs,
+    list_cells,
+    list_sizes,
     push_scalar_dets_into_loops,
     render_let_expr_bugs,
     reorder_binomial_dbin,
@@ -181,7 +194,6 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
-    "Horseshoe": {"scale": "tau"},
 }
 
 
@@ -194,7 +206,7 @@ _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
 #: The constant ``log(2)`` offset that distinguishes HalfNormal from
 #: the full Normal is absorbed by the constant-spread tolerance in
 #: [`assert_log_density_match`][tests.transpile._equivalence.assert_log_density_match].
-_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy", "Horseshoe"})
+_PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
 #: BUGS-side argument injection for QVR families that map to BUGS'
 #: ``dt(mu, tau, k)`` distribution. BUGS Student-t requires three
@@ -403,6 +415,7 @@ class BUGSRenderer(RendererBase):
         ctx.block_id = mb_id
         for node in ir.body:
             self._dispatch_bugs_node(ctx, node)
+        render_computations_static(sb, ir, target=self.target, destination=mb_id)
         return sb.build()
 
     def _populate_decl_plates(self, ir: IRProgram, ctx: _BugsCtx) -> None:
@@ -452,6 +465,10 @@ class BUGSRenderer(RendererBase):
             if isinstance(node.expr, LetExprFactor):
                 self._emit_factor_deterministic_node(ctx, node)
                 return
+            if isinstance(node.expr, LetExprList) and node.plate.batch_dims:
+                self._check_factor_plate(node, list_sizes(node.expr))
+                self._emit_cells(ctx, node, list_cells(node.expr, ()))
+                return
             self._emit_deterministic_node(ctx, node)
             return
         if isinstance(node, IRScore):
@@ -463,6 +480,13 @@ class BUGSRenderer(RendererBase):
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
             return
+        if isinstance(node, IRCall):
+            # A graph language relates variables; it has no statement
+            # that runs a computation, and the plan has already inlined
+            # every pure call it could.
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}", [f"call:graph:{node.callee}"]
+            )
         raise UnsupportedConstruct(
             f"qvr-{self.target}",
             [f"node:{type(node).__name__}"],
@@ -567,17 +591,17 @@ class BUGSRenderer(RendererBase):
     ) -> SchemaFragment:
         """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         as the collapsed `dcat` row its atoms sum to when the scope is
-        a categorical mixture, and as the explicit latent draw
-        otherwise.
+        a categorical mixture, and refuse it otherwise.
 
-        A program that declares the latent denotes a measure on the
-        product of the latent's support with the scope's, where QVR's
-        `marginalize` denotes the integral of that product over the
-        latent, so the collapse is preferred wherever the language
-        writes it. BUGS has no statement that adds a free log-density
-        term to the joint, which is what a general `logsumexp`
-        reduction would need, so the remaining scopes lower to the
-        native discrete draw BUGS does sample.
+        QVR's `marginalize` denotes the integral over the latent of
+        the measure the scope carries. A program that declares the
+        latent instead denotes a measure on the product of the
+        latent's support with the scope's, which differs from the
+        integral by an amount that moves with the data, so it is no
+        rendering of the block. BUGS has no statement that adds a
+        free log-density term to the joint, which is what a general
+        `logsumexp` reduction would need, so every scope the collapse
+        does not write is refused.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
         if not isinstance(ctx, _BugsCtx):
@@ -920,17 +944,62 @@ class BUGSRenderer(RendererBase):
     def _emit_marginalize_node(self, ctx: _BugsCtx, node: IRMarginalize) -> None:
         """Emit a BUGS marginalization.
 
-        A categorical mixture recognized by `categorical_mixture` is collapsed
-        to a `dcat` row. Other supported cases become an explicit latent draw
-        followed by the scope because BUGS cannot add a free log-density term
-        without a data-bound zeros-trick carrier.
+        A categorical mixture recognized by `categorical_mixture` is
+        collapsed to a `dcat` row, one per observed cell. A block whose
+        rows fibre into its groups keys its accumulator by group, which
+        the per-cell collapse does not write, and a scope that is no
+        categorical mixture has no collapse at all; both are refused,
+        because BUGS cannot add a free log-density term without a
+        data-bound zeros-trick carrier.
+
+        Parameters
+        ----------
+        ctx : _BugsCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the block's rows fibre into its groups under a shared
+            prior, or the scope is no categorical mixture.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
+        raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
+        atoms = self.marginal_atoms(
+            node,
+            support_size=marginal_support_size(node, name_plates=ctx.decl_plates),
+        )
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=ctx.decl_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            via, group = fibration
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"marginalize:grouped-fibration:{node.latent}: the rows "
+                    f"`{via}` sends to each `{group.name}` are summed before "
+                    f"the reduction over the atoms, and BUGS has no statement "
+                    f"that adds the per-group log-density to the joint"
+                ],
+            )
         mixture = categorical_mixture(node, ctx.decl_plates)
         if mixture is None:
-            for inner in self.explicit_latent_scope(node):
-                self._dispatch_bugs_node(ctx, inner)
-            return
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [
+                    f"marginalize:no-collapse:{node.latent}: the scope is no "
+                    f"categorical mixture, and BUGS has no statement that "
+                    f"adds its integrated log-density to the joint"
+                ],
+            )
         self._emit_collapsed_mixture(ctx, node, mixture)
 
     def _emit_collapsed_mixture(
@@ -1393,7 +1462,36 @@ class BUGSRenderer(RendererBase):
             self.target,
         )
         self._check_factor_plate(node, factor_axis_sizes(let_ctx, expr))
-        for indices, body in factor_cells(let_ctx, expr):
+        self._emit_cells(ctx, node, factor_cells(let_ctx, expr))
+
+    def _emit_cells(
+        self,
+        ctx: _BugsCtx,
+        node: IRDeterministic,
+        cells: Iterable[tuple[tuple[int, ...], LetExprNode]],
+    ) -> None:
+        """Emit one relation per enumerated cell of a tensor binding.
+
+        A plated list literal is written out the way a factor is:
+        `<name>[i_1, ..., i_n] <- <item>`, the nesting of the literal
+        supplying the coordinates.
+
+        Parameters
+        ----------
+        ctx : _BugsCtx
+            The render context.
+        node : IRDeterministic
+            The binding the cells belong to.
+        cells : Iterable[tuple[tuple[int, ...], LetExprNode]]
+            The cells' zero-based coordinates and scalar expressions.
+        """
+        let_ctx = _BugsLetCtx(
+            ctx.sb,
+            lambda p: self._fresh(ctx, p),
+            self._cards,
+            self.target,
+        )
+        for indices, body in cells:
             dr_id = self._fresh(ctx, "dr")
             ctx.sb.vertex(dr_id, "deterministic_relation")
             ctx.sb.edge(ctx.block_id, dr_id, "deterministic_relation")
@@ -1606,10 +1704,6 @@ class BUGSRenderer(RendererBase):
         helper prepends an ``IRArgNumber(0)`` plus the parallel
         ``"loc"`` arg-name entry so the alias-transform pipeline
         still rewrites the scale into ``tau = 1/(scale*scale)``.
-        ``Horseshoe(scale)`` denotes ``Normal(0, scale)`` and takes
-        the same treatment, without the one-sided truncation the two
-        half-support families also carry.
-
         ``Cauchy(loc, scale)`` and ``HalfCauchy(scale)`` map to BUGS'
         ``dt(mu, tau, k)`` (Student-t parameterised by precision and
         degrees of freedom); this helper appends ``IRArgNumber(1)``

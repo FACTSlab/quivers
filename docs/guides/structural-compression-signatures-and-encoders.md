@@ -317,6 +317,8 @@ algebra-homomorphism / Kleisli coalgebra pattern, no special-casing.
 - [Weighted Deduction Systems](deduction.md): the chart-parser
   substrate that an encoder can attach to, exposing
   `chart.embedding(item)` as a differentiable value.
+- [Structural autoencoders tutorial](../tutorials/qvr/12-structural-autoencoders.md):
+  checked entry invocation, autograd, and checkpoint registration.
 
 
 ## References

@@ -33,7 +33,12 @@ import re
 import shutil
 import subprocess
 
-from tests.transpile.probes._protocol import LogDensityProbe, Point, ProbeResult
+from tests.transpile.probes._protocol import (
+    LogDensityProbe,
+    Point,
+    ProbeResult,
+    spelled_point,
+)
 
 
 #: Scheme interpreter binaries that evaluate the grafted runtime. Each
@@ -87,6 +92,23 @@ def _scheme_value(value: float | int | list) -> str:
         return _scheme_literal(value)
     inner = " ".join(_scheme_value(v) for v in value)
     return f"(list {inner})"
+
+
+def _scheme_string(value: str) -> str:
+    """Render a Python string as a Scheme string literal.
+
+    Parameters
+    ----------
+    value : str
+        The text.
+
+    Returns
+    -------
+    str
+        The literal, with backslashes and quotes escaped.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _balanced_form(text: str, open_paren_idx: int) -> str:
@@ -217,6 +239,17 @@ _DRIVER_TEMPLATE = """
     (let* ((tmpl (dist-draw d)) (val (take-shaped tmpl)))
       (record-score! (dist-score d val))
       val)))
+;; A helper the model calls draws through `_qvr-qiec-draw` under a
+;; site name; those sites are clamped by name, the labelled table
+;; holding every param the model body's own sites do not consume.
+(define *labelled-clamps* (list {labelled}))
+(set! _qvr-qiec-draw
+  (lambda (label d)
+    (let ((entry (assoc label *labelled-clamps*)))
+      (if (not entry)
+          (error 'clamp "helper site has no clamp" label))
+      (record-score! (dist-score d (cdr entry)))
+      (cdr entry))))
 (model {args})
 (if (pair? *clamp-cursor*)
     (error 'clamp "cursor not exhausted: fewer sample leaves than clamps"))
@@ -266,10 +299,18 @@ class ChurchProbe:
         sites = _sample_sites(model_form)
 
         log_densities: list[float] = []
-        for i, pt in enumerate(points):
+        for i, point in enumerate(points):
+            pt = spelled_point(point)
             cursor = self._cursor_literals(pt, sites, fixture_name)
             args = self._call_args(pt, inputs, fixture_name)
-            driver = _DRIVER_TEMPLATE.format(cursor=" ".join(cursor), args=args)
+            labelled = " ".join(
+                f"(cons {_scheme_string(name)} {_scheme_value(value)})"
+                for name, value in pt.params.items()
+                if name not in sites
+            )
+            driver = _DRIVER_TEMPLATE.format(
+                cursor=" ".join(cursor), args=args, labelled=labelled
+            )
             program = _QMAP_PRELUDE + _MAP_CALL_RE.sub("(qmap", text) + driver
             scm_path = scratch / f"{fixture_name}.{i}.scm"
             scm_path.write_text(program)

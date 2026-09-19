@@ -1,41 +1,80 @@
-"""Replay handler: feed values from a captured trace.
+"""Replay handler: reinstall the values a trace recorded.
 
-`ReplayHandler` reproduces the sample values recorded by a prior
-`TraceHandler` run. It is the natural pair to `TraceHandler` for
-gradient-through-samples SVI: sample once, replay against a
-different program (or the same program with different parameters)
-to score under the current model without redrawing the noise (see
-[Pyro's `replay`](https://docs.pyro.ai/en/stable/poutine.html#pyro.poutine.handlers.replay)).
+`ReplayHandler` answers each site the trace holds with the recorded
+value and scores it under the site's current distribution, so replay
+fixes the values and not the densities: the joint of the replayed run is
+the model's density at the recorded values.
 """
 
 from __future__ import annotations
 
-from quivers.effects.base import EffectHandler, Message
+from quivers.effects.base import EffectHandler, Installation, RunContext
 from quivers.effects.trace_types import Trace
+from quivers.qiec.builtins import ExtraValuePolicy, ReplayPolicy, replay_handler
 
 
 class ReplayHandler(EffectHandler):
-    """Replace every sample site with the value recorded in ``trace``.
-
-    A site whose name appears in ``trace.sites`` receives that
-    site's ``value``; the interpreter then falls back to the
-    default log-prob computation, so replay does not fix the
-    site's density under the current model, only its value.
+    """Replay the values of a recorded trace.
 
     Parameters
     ----------
     trace : Trace
-        A trace whose site values will be replayed.
+        The trace whose site values are reinstalled.
     """
 
     def __init__(self, trace: Trace) -> None:
         self._trace = trace
 
-    def _pyro_sample(self, msg: Message) -> None:
-        if msg.name in self._trace.sites:
-            msg.value = self._trace.sites[msg.name].value
+    def install(self, run: RunContext) -> tuple[Installation, ...]:
+        """Install a scoring replay handler of the ``random`` instance.
+
+        Parameters
+        ----------
+        run : RunContext
+            The run being prepared.
+
+        Returns
+        -------
+        tuple[Installation, ...]
+            The replay handler, which forwards sites the trace lacks and
+            ignores recorded sites the program never samples.
+        """
+        kernel = run.kernel
+        values = {
+            name: site.value
+            for name, site in self._trace.sites.items()
+            if not site.is_deterministic or site.morphism is not None
+        }
+        return (
+            Installation(
+                kernel.random,
+                replay_handler(
+                    values,
+                    result_validator=run.validator,
+                    policy=ReplayPolicy.CLAMP_AND_SCORE,
+                    score_instance=kernel.score.entry.instance,
+                    extra=ExtraValuePolicy.IGNORE,
+                    answer_type=run.result_type,
+                    key=f"replay-{id(self):x}",
+                ),
+            ),
+        )
 
 
 def replay(trace: Trace) -> ReplayHandler:
-    """Return a `ReplayHandler` bound to the given `Trace`."""
+    """Return a `ReplayHandler` replaying the given trace.
+
+    Parameters
+    ----------
+    trace : Trace
+        The trace.
+
+    Returns
+    -------
+    ReplayHandler
+        The handler.
+    """
     return ReplayHandler(trace)
+
+
+__all__ = ["ReplayHandler", "replay"]

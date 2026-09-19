@@ -19,8 +19,9 @@ Covered defects:
   list by the enclosing row variable, not the whole list.
 * `sample-event-dims`: a scalar family stamped with event axes wraps
   an inner `map` so each draw is the declared vector.
-* `marginalize-over-batch-axis`: the marginalized latent's arguments
-  and the via-fibrated observe index by the per-row loop variable.
+* `marginalize-over-batch-axis`: the marginalized latent is integrated
+  out, its prior gathered through the via fibration and each atom's
+  observe indexed by the per-row loop variable.
 * `undefined-let-builtins`: `sigmoid` and `sum` are defined in the
   grafted runtime.
 * `nonexistent-church-distributions`: every emitted distribution name
@@ -35,21 +36,21 @@ Covered defects:
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
 
-import pytest
 
 from quivers.dsl.parser import parse
 from quivers.transpile import transpile
 from quivers.transpile._pipeline import parser_registry
 from tests.transpile import _equivalence, _gallery_data
 from tests.transpile.probes._protocol import Point
+from tests.transpile._tools import require_scheme
 from tests.transpile.probes.church import ChurchProbe
 from tests.transpile.probes.qvr import QvrProbe
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _FAMILIES = _REPO_ROOT / "tests" / "transpile" / "fixtures" / "families"
+_AUDIT = _REPO_ROOT / "tests" / "transpile" / "fixtures" / "audit"
 _GALLERY = _REPO_ROOT / "docs" / "examples" / "source"
 _RUNTIME = _REPO_ROOT / "src" / "quivers" / "transpile" / "runtime_church.scm"
 
@@ -79,18 +80,23 @@ def _nospace(text: str) -> str:
 _RUNTIME_TEXT = _RUNTIME.read_text()
 _RUNTIME_NS = _nospace(_RUNTIME_TEXT)
 
+
 #: Scheme interpreter binaries the runtime evaluates under; the same
 #: preference order the Church probe uses.
-_SCHEME_INTERPRETERS: tuple[str, ...] = ("chez", "scheme", "petite", "chezscheme")
+def _scheme_interpreter() -> str:
+    """The Scheme interpreter the audit runs the emitted programs through.
 
+    Returns
+    -------
+    str
+        The interpreter's path.
 
-def _scheme_interpreter() -> str | None:
-    """First reachable Scheme interpreter binary, or None."""
-    for name in _SCHEME_INTERPRETERS:
-        found = shutil.which(name)
-        if found is not None:
-            return found
-    return None
+    Raises
+    ------
+    RuntimeError
+        If no Chez Scheme interpreter is on ``PATH``.
+    """
+    return require_scheme()
 
 
 def _run_scheme(interpreter: str, program: str, scratch: pathlib.Path) -> str:
@@ -138,7 +144,7 @@ def test_halfcauchy_maps_to_cauchy_not_gaussian() -> None:
 def test_horseshoe_tau_lambda_inherit_half_cauchy() -> None:
     """The horseshoe's global and local scales are HalfCauchy draws, so
     they fold a cauchy; only the raw coefficient stays a gaussian."""
-    model = _nospace(_model(_church_file(_FAMILIES / "horseshoe.qvr")))
+    model = _nospace(_model(_church_file(_AUDIT / "horseshoe_decomposed.qvr")))
     assert "(definetau(sample(half(cauchy01))))" in model
     assert "(sample(half(cauchy01)))" in model
     assert "(sample(gaussian01))" in model
@@ -198,28 +204,40 @@ def test_intrinsic_vector_family_has_no_inner_event_map() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_marginalize_latent_indexes_group_plate() -> None:
-    """The marginalized categorical draws its per-document topic mixture
-    indexed by the document loop variable, not the whole list."""
+def test_marginalize_latent_reads_its_prior_through_the_fibration() -> None:
+    """The marginalized categorical declares no site: its per-document
+    topic mixture is gathered one row per token through the ``via``
+    fibration and read as the log-weight of each atom."""
     model = _nospace(_model(_church_file(_GALLERY / "lda.qvr")))
-    assert "(sample(categorical(list-refthetam_Doc)))" in model
+    assert "(sample(categorical" not in model
+    assert (
+        "(define__marg_z_w(broadcast1log(map(lambda(i)(list-refthetai))word_idx)))"
+        in model
+    )
+    assert "(define__marg_z_w_0(take-last__marg_z_w0))" in model
+    assert "(factor(sum-leaves__marg_z))" in model
 
 
 def test_via_fibration_threads_through_group_plate() -> None:
-    """The observed word indexes the per-topic word distribution through
-    the ``via`` fibration: `phi[z[word_idx[m_Token]]]`.
+    """Each atom scores the observed word against the per-topic word
+    distribution the atom pins: `phi[k]` for atom `k`.
 
     The observation plate is `Token`, the corpus-wide set of 200 word
     positions declared by `object Token : FinSet 200`, so the loop
     variable is `m_Token`. `word_idx` carries a token position to its
-    document, `z` reads the document's topic, and `phi` reads that
+    document, whose prior weights the atoms; `phi` reads the pinned
     topic's distribution over `Vocab`.
     """
     model = _nospace(_model(_church_file(_GALLERY / "lda.qvr")))
+    for atom in range(3):
+        assert (
+            f"(define(__marg_z_atom_{atom})(map(lambda(m_Token)(dist-score"
+            f"(categorical(list-refphi{atom}))(list-refwm_Token)))(iota200)))"
+        ) in model
     assert (
-        "(observe(categorical(list-refphi(list-refz(list-refword_idxm_Token))))"
-        "(list-refwm_Token))"
-    ) in model
+        "(define__marg_z(log-sum-exp(list__marg_z_t_0__marg_z_t_1__marg_z_t_2)))"
+        in model
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -371,8 +389,6 @@ def test_variadic_operators_execute_at_high_arity(tmp_path: pathlib.Path) -> Non
     arguments and `draw-gamma-unit` cubes via `(* t t t)`, which a
     strictly binary shadow would reject with an arity error."""
     interp = _scheme_interpreter()
-    if interp is None:
-        pytest.skip("no Scheme interpreter on PATH")
     program = _RUNTIME_TEXT + (
         "\n(display (* 2.0 3.0 4.0))(newline)"
         "\n(display (+ 1 2 3 4))(newline)"
@@ -394,7 +410,7 @@ def test_emitted_church_reparses_to_a_fixed_point() -> None:
     fixtures = (
         _FAMILIES / "halfnormal.qvr",
         _FAMILIES / "halfcauchy.qvr",
-        _FAMILIES / "horseshoe.qvr",
+        _AUDIT / "horseshoe_decomposed.qvr",
         _FAMILIES / "matrixnormal.qvr",
         _FAMILIES / "gp.qvr",
         _GALLERY / "bayesian_regression.qvr",
@@ -425,12 +441,6 @@ def test_emitted_church_reparses_to_a_fixed_point() -> None:
 # ---------------------------------------------------------------------------
 
 
-_HAS_SCHEME = ChurchProbe().available()
-_needs_scheme = pytest.mark.skipif(
-    not _HAS_SCHEME, reason="no Scheme interpreter on PATH"
-)
-
-
 def _church_qvr_diffs(
     fixture: pathlib.Path,
     points: list[Point],
@@ -449,7 +459,6 @@ def _church_qvr_diffs(
     return church.log_densities, qvr.log_densities
 
 
-@_needs_scheme
 def test_executed_halfnormal_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The HalfNormal emit runs in Scheme and its executed joint tracks
     the QVR reference at every clamped positive point, which checks the
@@ -464,7 +473,6 @@ def test_executed_halfnormal_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
 
 
-@_needs_scheme
 def test_executed_halfcauchy_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The HalfCauchy emit folds a `cauchy`, not a `gaussian`; its
     executed joint tracks the QVR reference."""
@@ -477,7 +485,6 @@ def test_executed_halfcauchy_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
 
 
-@_needs_scheme
 def test_executed_horseshoe_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The horseshoe couples a HalfCauchy global scale, per-coordinate
     HalfCauchy local scales, and standard-Normal raw coefficients
@@ -503,7 +510,7 @@ def test_executed_horseshoe_matches_qvr(tmp_path: pathlib.Path) -> None:
     )
     points = [Point(params=g, data={}) for g in grids]
     church_lps, qvr_lps = _church_qvr_diffs(
-        _FAMILIES / "horseshoe.qvr", points, tmp_path
+        _AUDIT / "horseshoe_decomposed.qvr", points, tmp_path
     )
     _equivalence.assert_log_density_match(
         qvr_lps, church_lps, atol=1e-4, context="church@horseshoe"
@@ -533,7 +540,6 @@ def _gallery_points(
     return dataset, [base, _scaled(0.7), _scaled(1.3)]
 
 
-@_needs_scheme
 def test_executed_beta_regression_matches_qvr(tmp_path: pathlib.Path) -> None:
     """The multi-output beta regression is the hierarchical witness: it
     threads per-output Normal / HalfCauchy priors through a

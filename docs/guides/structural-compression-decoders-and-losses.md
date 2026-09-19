@@ -134,3 +134,8 @@ coalgebra pattern, no special-casing.
   substrate that decoders couple to.
 - [Compositional Effects](effects.md): the algebraic-effects
   framework over which the decoder's stochasticity is realized.
+- [Structural autoencoders tutorial](../tutorials/qvr/12-structural-autoencoders.md):
+  invoking a reconstruction loss through `Program.run`, preserving autograd,
+  and inspecting registered checkpoint parameters.
+- [Generated computation graphs](../reference/qvr/generated-computations.md):
+  the typed `Compute` attachment and target-capability contract.

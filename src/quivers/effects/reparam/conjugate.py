@@ -1,78 +1,92 @@
-"""Analytical conjugate collapse as a reparameterisation.
-
-`ConjugateReparam` looks up the site's (parent-family, child-family)
-in the `quivers.effects.collapse` registry and installs the closed-
-form marginal in place of the sample-driven MC estimate. The
-result is a Rao-Blackwellised estimator with strictly lower
-variance for the site's contribution, matching Pyro's
-[`ConjugateReparam`](https://docs.pyro.ai/en/stable/infer.reparam.html#pyro.infer.reparam.conjugate.ConjugateReparam).
-
-The registry currently ships pending solvers for the standard
-Normal-Normal, Beta-Bernoulli, Gamma-Poisson, and Dirichlet-
-Categorical pairs (see `quivers.effects.collapse`). A caller that
-enables `ConjugateReparam` for a site whose analytic solver has not
-been supplied raises a `NotImplementedError` at apply time, per the
-no-fallbacks policy: silent MC estimation would defeat the point of
-requesting collapse.
-"""
+"""Analytic marginalisation of a conjugate pair as a reparameterisation."""
 
 from __future__ import annotations
 
-from quivers.effects.base import Message
-from quivers.effects.collapse import _CONJUGATE_REGISTRY
-from quivers.effects.reparam.base import Reparam, _default_log_prob
+import torch
+
+from quivers.effects.conjugate import conjugate_solver, family_of
+from quivers.effects.reparam.base import Reparam, SiteRequest
 
 
 class ConjugateReparam(Reparam):
-    """Rewrite a site's log-density via a registered conjugate marginal.
+    """Score a child site under the conjugate marginal of its parent.
+
+    Applied to the child site of a conjugate pair, the strategy answers
+    the site with the run's observation for it, or a draw from the
+    child's own sampleable when there is none, and scores it under the
+    closed-form marginal that integrates the parent out, read from the
+    parent's parameters as the orchestrator saw them. The parent's own
+    density is left in the joint; collapse the parent with
+    `quivers.effects.collapse` when the marginal joint is wanted.
 
     Parameters
     ----------
+    parent : str
+        The parent site's name.
     parent_family : str
-        Name of the parent (prior) family.
+        The parent's family.
     child_family : str
-        Name of the child (likelihood) family.
-    parent_msg : Message or None
-        The parent site's message. Passed through to the solver.
-        ``None`` when the caller supplies parent state through
-        another channel (e.g. by name lookup at solver time).
+        The child's family.
+
+    Raises
+    ------
+    KeyError
+        If the pair has no registered marginal.
     """
 
-    def __init__(
-        self,
-        parent_family: str,
-        child_family: str,
-        parent_msg: Message | None = None,
-    ) -> None:
+    def __init__(self, parent: str, parent_family: str, child_family: str) -> None:
+        self.parent = parent
         self.parent_family = parent_family
         self.child_family = child_family
-        self.parent_msg = parent_msg
+        self.solver = conjugate_solver(parent_family, child_family)
 
-    def apply(self, msg: Message) -> None:
-        key = (self.parent_family, self.child_family)
-        solver = _CONJUGATE_REGISTRY.get(key)
-        if solver is None:
+    def apply(self, site: SiteRequest) -> tuple[torch.Tensor, torch.Tensor]:
+        """Rewrite the child site.
+
+        Parameters
+        ----------
+        site : SiteRequest
+            The child site.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            The value and its marginal log density.
+
+        Raises
+        ------
+        KeyError
+            If the orchestrator has not seen the parent site.
+        ValueError
+            If the parent or the child is not of the declared family.
+        """
+        try:
+            parent = site.seen[self.parent]
+        except KeyError as error:
             raise KeyError(
-                f"ConjugateReparam: no analytic solver registered for "
-                f"({self.parent_family}, {self.child_family}); use "
-                f"`quivers.effects.collapse.register_conjugate_pair` to "
-                f"install one."
-            )
-        if msg.value is None:
-            morph = msg.morphism
-            assert morph is not None
-            assert msg.input is not None
-            msg.value = morph.rsample(msg.input)
-        parent = self.parent_msg if self.parent_msg is not None else msg
-        msg.log_prob = solver(parent, msg)
-        # Fall back to the direct score when the solver returned a
-        # tensor of a different shape than expected: the collapse
-        # contract requires (batch,)-shaped log-densities, and any
-        # mismatch signals a solver bug the user should see.
-        expected_shape = _default_log_prob(msg, msg.value).shape
-        if msg.log_prob.shape != expected_shape:
+                f"ConjugateReparam: parent site {self.parent!r} was not seen "
+                f"before child {site.name!r}"
+            ) from error
+        if family_of(parent) != self.parent_family:
             raise ValueError(
-                f"ConjugateReparam: solver for {key} returned log-prob of "
-                f"shape {tuple(msg.log_prob.shape)}; expected "
-                f"{tuple(expected_shape)}."
+                f"ConjugateReparam: parent {self.parent!r} draws from "
+                f"{family_of(parent)!r}, not {self.parent_family!r}"
             )
+        if family_of(site.sampleable) != self.child_family:
+            raise ValueError(
+                f"ConjugateReparam: child {site.name!r} draws from "
+                f"{family_of(site.sampleable)!r}, not {self.child_family!r}"
+            )
+        if site.given is not None:
+            value = site.given
+        elif site.observation is not None:
+            value = site.observation
+        else:
+            value = site.sampleable.rsample()
+        parent_value = site.sampleable.input
+        return value, self.solver(
+            parent.parameters(), parent_value, site.sampleable, value
+        )
+
+
+__all__ = ["ConjugateReparam"]

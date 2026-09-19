@@ -51,7 +51,7 @@ deduction QScope : Term -> Term [semiring=LogProb, start=S, depth=4, tolerance=1
     rule fwd_app_cont : span(I, K, Cont(Fwd(A, B))), span(K, J, Cont(B)) |- span(I, J, Cont(A)) #[learnable]
     rule pure_cont : span(I, J, A) |- span(I, J, Cont(A)) #[learnable, bounded]
     rule scope_take : span(I, K, Cont(A)), span(K, J, Bwd(B, A)) |- span(I, J, Cont(B)) #[learnable]
-    rule cont_elim : span(I, J, Cont(S)) |- span(I, J, S) #[learnable]
+    rule cont_elim : span(I, J, Cont(S)) |- span(I, J, S) #[learnable, bounded]
     lexicon
         "every" : Cont(Fwd(NP, N)) = every #[learnable]
         "dog"   : N                = dog   #[learnable]

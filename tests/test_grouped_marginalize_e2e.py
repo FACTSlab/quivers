@@ -58,7 +58,7 @@ def _two_class_mixture_model() -> str:
     program two_class_mix : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return mu_shift
     export two_class_mix
@@ -186,7 +186,7 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     program recovery : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return probs
     export recovery
@@ -250,9 +250,7 @@ def _two_task_mixture_model() -> str:
 
     program two_task_mix : Item -> Item
         sample probs : Class <- HalfNormal(1.0)
-        sample idx_a : RespA <- HalfNormal(1.0)
-        sample idx_b : RespB <- HalfNormal(1.0)
-        marginalize cls : Class <- Dirichlet(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs) [over=Item]
             observe r_a : RespA <- HalfNormal(1.0) [via=idx_a]
             observe r_b : RespB <- HalfNormal(1.0) [via=idx_b]
         return probs

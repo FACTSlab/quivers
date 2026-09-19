@@ -64,6 +64,57 @@ program deterministic : X -> X [effects=[Pure]]
 See the [compositional effects guide](effects.md) for the algebraic
 basis of the effect surface.
 
+### QIEC typed computations
+
+The **typed computation surface** is what a `program` block elaborates to; a
+`define` writes such a computation directly. Its header gives a value result
+and an instance row, while `perform` names an operation through a lexical
+effect instance:
+
+<!-- compile: qiec -->
+```qvr
+effect Tap
+    ping : Int -> Int
+
+instance tap : Tap
+
+define echo(value : Int) : Int !{tap} =
+    let answer <- perform tap.ping(value)
+    return answer
+```
+
+The stable computation terms are `return`, `let ... <- perform ...`, bare
+`perform` sequencing, a call of a named computation `let x <- f[statics](args)`,
+`handle ... with ... in`, `with instance x : E in` allocating a scoped
+instance, and indexed `case` with an explicit motive. Rows contain lexical
+instance names, as in `!{tap}`; an open row has the form
+`!{tap | rho lacks tap}`. The tail and each `lacks` constraint are checked
+rather than treated as comments.
+
+A call is checked against the callee's signature instantiated at the call's
+static arguments, and the module's call graph is checked one strongly
+connected component at a time, so mutually recursive computations need no
+forward declaration; a recursive computation must reach a `case` branch or an
+`if` arm that does not call again, which is what lets it stop. A scoped
+instance may not survive in its body's row: the checker reports
+`qiec-instance-escape` for a body that still performs on it. A handler's
+clauses may be authored in the source with `=>` bodies, each resuming as often
+as its grade admits (`0`, `aff`, `1`, or `omega`), and a foreign handler's
+clauses are process-local attachments. A `program` elaborates to such a
+computation; a program draws from another with `sample x <- sub(args)` (or
+`sample (a, b) <- sub` for a pair), which runs `sub`'s steps in place under
+names of its own (`sub`'s local `z` becomes `x$z`), and calls a computation
+with `let x <- f(args)`.
+
+Eight dynamic targets execute the full computation graph through generated
+target runtimes. Stan lowers closed monomorphic effect-free scalar computations
+as user-defined functions and refuses every other feature under
+`qiec:capability:<feature>:<name>`; BUGS and JAGS refuse a call under
+`call:graph:<name>`. A module with QIEC declarations but no computation the
+program reaches remains valid on every target. The complete surface appears in
+[QVR computation reference](../reference/qvr/computations.md) and
+[probabilistic-program reference](../reference/qvr/probabilistic-programs.md).
+
 ### Kleisli bind syntax
 
 The `sample` keyword introduces a draw, and `<-` separates its
@@ -266,7 +317,20 @@ event-rank table lives in
 `iid_over=<axes>` is an optional readability assertion naming the
 batch axes (the complement of `over`). Any axis not in `over` is
 batched by default, which categorically is a product of independent
-distributions on that axis.
+distributions on that axis. On a sample step, the `: A` annotation
+beside an `over` clause is the batch plate: `sample rows : Doc <-
+Dirichlet(1.0) [over=Topic]` draws one point of the `Topic`-simplex
+per document, while an annotation naming one of the `over` axes
+restates it. Without an `over`, the annotation on a vector family
+names the family's own axis when nothing else fixes it (`sample pi :
+K <- Dirichlet(1.0)` draws one `K`-simplex point) and the batch plate
+when the arguments fix the event otherwise (`sample pc : Item <-
+Dirichlet(1.0, 2.0, 3.0)` draws one three-simplex point per item).
+
+A vector family's single parameter may be written with its entries
+spread, `Dirichlet(1.0, 2.0, 3.0)`, or as one literal, `Dirichlet(1.0)`,
+the symmetric concentration at the dimension the step's plate, or
+else the program's declared codomain, fixes.
 
 **Axis names.** Names resolve against the named factors of the
 surrounding morphism's dom and cod (or the type annotation `: T`

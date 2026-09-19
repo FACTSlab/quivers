@@ -14,19 +14,15 @@ server's command/feature registry.
 
 from __future__ import annotations
 
-import pytest
 
+from lsprotocol import types as lsp
 
-pytest.importorskip("pygls")
-pytest.importorskip("lsprotocol")
-
-
-from lsprotocol import types as lsp  # noqa: E402
-
-from quivers.lsp import build_server  # noqa: E402
-from quivers.lsp.document import DocumentState  # noqa: E402
-from quivers.lsp.server import (  # noqa: E402
+from quivers.lsp import build_server
+from quivers.lsp.document import DocumentState
+from quivers.lsp.server import (
     _env_kinds_for,
+    _format_document,
+    _lsp_eof_position,
     _render_hover,
     _slice_source,
     _to_lsp_diag,
@@ -130,6 +126,21 @@ def test_to_lsp_diag_warning_severity() -> None:
     assert out.severity == lsp.DiagnosticSeverity.Warning
 
 
+def test_formatting_refuses_qiec_lowering_errors() -> None:
+    doc = _doc(source=("effect E\n    op : Unit -> Unit\n    op : Unit -> Unit\n"))
+    assert [diagnostic.code for diagnostic in doc.diagnostics] == ["qiec-handler"]
+    assert _format_document(doc) is None
+
+
+def test_formatting_range_ends_at_valid_trailing_newline_position() -> None:
+    doc = _doc(source="index Nat=Z\n")
+    edits = _format_document(doc)
+    assert edits is not None and len(edits) == 1
+    assert edits[0].range.end == lsp.Position(line=1, character=0)
+    assert edits[0].new_text == "index Nat = Z\n"
+    assert _lsp_eof_position("#! café 😀") == (0, 10)
+
+
 def test_build_server_advertises_features() -> None:
     server = build_server()
     methods = set(server.protocol.fm.features.keys())
@@ -147,6 +158,8 @@ def test_build_server_advertises_features() -> None:
         "textDocument/semanticTokens/full",
     }
     assert expected <= methods
+    completion_options = server.protocol.fm.feature_options["textDocument/completion"]
+    assert "." in completion_options.trigger_characters
 
 
 def test_document_find_decl() -> None:
@@ -212,3 +225,220 @@ def test_pretty_ast_handles_nested_tuple() -> None:
     # Components tuple expands across lines.
     assert "components=(" in out
     assert "TypeName(" in out
+
+
+# ---------------------------------------------------------------------------
+# Calls, handler clauses, rename, and retargeting
+# ---------------------------------------------------------------------------
+
+
+CALLS = """\
+object Obs : FinSet 4
+
+effect Echo
+    ping : Int -> Int
+
+instance echo : Echo
+instance random : Random
+instance score : Score
+
+define twice(x : Int) : Int !{} =
+    return x + x
+
+handler doubling for Echo : Int -> Int [coverage=total, implementation=authored]
+    ping(n : Int) resumes 1 =>
+        let d <- twice(n)
+        resume(d)
+    return v =>
+        return v
+
+define identity[A : Type](value : A) : A !{} =
+    return value
+
+define noisy(x : Real) : Real !{random, score} =
+    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))
+    perform score.add(weight(-0.25 * y * y))
+    return y
+
+define count(n : Int) : Int !{} =
+    if n == 0 then
+        return 0
+    else
+        let rest <- count(n - 1)
+        let v <- identity[Int](rest)
+        return v + 1
+
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let c <- noisy(a)
+    observe y : Obs <- Normal(c, 0.5)
+    return c
+export prog
+"""
+
+
+def _find(source: str, text: str, occurrence: int = 0) -> tuple[int, int]:
+    """The 0-based line and column of one occurrence of ``text``.
+
+    Parameters
+    ----------
+    source : str
+        The document text.
+    text : str
+        The text to find.
+    occurrence : int
+        Which occurrence, counting from zero.
+
+    Returns
+    -------
+    tuple[int, int]
+        The position.
+    """
+    seen = 0
+    for line, content in enumerate(source.splitlines()):
+        start = 0
+        while (col := content.find(text, start)) >= 0:
+            if seen == occurrence:
+                return line, col
+            seen += 1
+            start = col + 1
+    raise AssertionError(f"{text!r} occurrence {occurrence} not in source")
+
+
+def test_hover_at_a_call_renders_the_instantiated_signature_and_row() -> None:
+    doc = _doc(source=CALLS)
+    assert doc.diagnostics == []
+    line, col = _find(CALLS, "identity[Int](rest)")
+    hover = _render_hover(doc, "identity", line=line, col=col + 2)
+    assert hover is not None
+    assert "**Call**" in hover
+    assert "identity[Int](value : Int) : Int !{}" in hover
+    assert "**Inferred row**" in hover and "!{}" in hover
+    line, col = _find(CALLS, "noisy(a)")
+    hover = _render_hover(doc, "noisy", line=line, col=col + 1)
+    assert hover is not None
+    assert "noisy(x : Real) : Real !{random, score}" in hover
+    assert "!{random : Random, score : Score}" in hover
+    line, col = _find(CALLS, "count(n - 1)")
+    hover = _render_hover(doc, "count", line=line, col=col + 1)
+    assert hover is not None and "count(n : Int) : Int !{}" in hover
+
+
+def test_hover_at_a_request_renders_the_instance_and_interface_operation() -> None:
+    doc = _doc(source=CALLS)
+    line, col = _find(CALLS, "random.sample")
+    hover = _render_hover(doc, "sample", line=line, col=col + 8)
+    assert hover is not None
+    assert hover.startswith("**Operation**")
+    assert "random.sample[a : Type] : Site[a] * Sampleable[a] -> a" in hover
+    line, col = _find(CALLS, "score.add")
+    hover = _render_hover(doc, "add", line=line, col=col + 7)
+    assert hover is not None and "score.add : LogWeight -> Unit" in hover
+
+
+def test_document_symbols_nest_calls_locals_and_handler_clauses() -> None:
+    from quivers.lsp.server import _statement_symbols
+
+    doc = _doc(source=CALLS)
+    symbols = {
+        symbol.name: symbol for symbol in _statement_symbols(doc, doc.module.statements)
+    }
+    handler = symbols["doubling"]
+    assert [child.name for child in handler.children or []] == ["ping", "return"]
+    ping = (handler.children or [])[0]
+    assert [(child.name, child.detail) for child in ping.children or []] == [
+        ("n", "parameter"),
+        ("d", "local"),
+        ("twice", "call"),
+    ]
+    count = symbols["count"]
+    details = [(child.name, child.detail) for child in count.children or []]
+    assert ("count", "recursive call") in details
+    assert ("identity", "call") in details
+    assert ("rest", "local") in details
+    program = symbols["prog"]
+    assert [(child.name, child.detail) for child in program.children or []] == [
+        ("a", "sample"),
+        ("c", "call noisy"),
+        ("y", "observe"),
+    ]
+
+
+def test_rename_edits_every_reference_of_a_call_target() -> None:
+    from quivers.lsp.server import _find_references, _renameable_declaration
+
+    doc = _doc(source=CALLS)
+    line, col = _find(CALLS, "define twice")
+    position = lsp.Position(line=line, character=col + 8)
+    assert _renameable_declaration(doc, "twice", position) is not None
+    references = list(_find_references(doc, "twice", line=line, col=col + 8))
+    assert [(r.range.start.line, r.range.start.character) for r in references] == [
+        (line, col + 7),
+        _find(CALLS, "twice(n)"),
+    ]
+    assert (
+        _renameable_declaration(doc, "Random", lsp.Position(line=6, character=19))
+        is None
+    )
+    server = build_server()
+    methods = set(server.protocol.fm.features.keys())
+    assert {"textDocument/rename", "textDocument/prepareRename"} <= methods
+
+
+def test_retarget_recomputes_capabilities_without_reparsing() -> None:
+    doc = _doc(source=CALLS)
+    module = doc.module
+    checked = doc.qiec_module
+    doc.retarget("bugs")
+    assert doc.module is module and doc.qiec_module is checked
+    codes = {diagnostic.code for diagnostic in doc.diagnostics}
+    assert codes and all(code.startswith("qiec:capability") for code in codes)
+    doc.retarget(None)
+    assert doc.diagnostics == []
+    assert doc.registry() is doc.registry()
+
+
+SCOPED_BINDERS = """\
+effect Pair
+    left : Int -> Int
+    right : Int -> Int
+
+instance pair : Pair
+
+handler swap for Pair : Int -> Int [coverage=total, implementation=authored]
+    left(n : Int) resumes 1 =>
+        resume(n)
+    right(n : Int) resumes 1 =>
+        resume(n)
+
+define count(n : Int) : Int !{} =
+    if n == 0 then
+        return 0
+    else
+        let rest <- count(n - 1)
+        return rest + 1
+"""
+
+
+def test_references_and_definition_respect_clause_scopes() -> None:
+    from quivers.lsp.server import _find_references
+
+    doc = _doc(source=SCOPED_BINDERS)
+    assert doc.diagnostics == []
+    left_line, left_col = _find(SCOPED_BINDERS, "left(n : Int)")
+    references = list(_find_references(doc, "n", line=left_line, col=left_col + 5))
+    lines = sorted({r.range.start.line for r in references})
+    assert lines == [left_line, left_line + 1], "a clause's binder stays in its clause"
+    right_line, right_col = _find(SCOPED_BINDERS, "right(n : Int)")
+    references = list(_find_references(doc, "n", line=right_line, col=right_col + 6))
+    assert sorted({r.range.start.line for r in references}) == [
+        right_line,
+        right_line + 1,
+    ]
+    define_line, define_col = _find(SCOPED_BINDERS, "define count")
+    references = list(_find_references(doc, "n", line=define_line, col=define_col + 13))
+    assert all(r.range.start.line >= define_line for r in references)
+    assert len(references) == 3
+    call_line, call_col = _find(SCOPED_BINDERS, "count(n - 1)")
+    declaration = doc.find_decl("count", line=call_line, col=call_col + 1)
+    assert getattr(declaration, "line", 0) == define_line + 1

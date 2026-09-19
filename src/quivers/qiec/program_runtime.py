@@ -1,0 +1,1149 @@
+"""Running program entry points on the reference machine.
+
+An elaborated program is a named computation whose row names the module's
+canonical ``random`` and ``score`` instances. Running it means choosing
+handlers for the two: this module wraps the entry point in a scoring
+replay of ``Random`` and an accumulating ``Score``, so a program applied to
+data and to a value for each of its sites yields the value it returns and
+the log joint density the sites and observations accumulate. The wrapper is
+an ordinary computation added to a copy of the module, so the kernel checks
+it like any other before it runs.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
+
+from quivers.qiec.builtins import PARAM_GET, RANDOM_SAMPLE, SCORE_ADD
+from quivers.qiec.canonical import LOG_WEIGHT
+from quivers.qiec.effects import (
+    ComputationType,
+    EffectRow,
+    HandlerClauseDef,
+    HandlerDef,
+    ResumptionGrade,
+    RowEntry,
+)
+from quivers.qiec.execution import (
+    ExecutionResult,
+    RuntimeConfiguration,
+    RuntimeProvider,
+    RuntimeSelection,
+    TraceObserver,
+    run_named,
+)
+from quivers.qiec.evaluator import RuntimeConstructor
+from quivers.qiec.identifiers import ComputationId, HandlerId, SourceOrigin
+from quivers.qiec.module import NamedComputation, QiecModule
+from quivers.qiec.programs import ProgramEntry
+from quivers.qiec.kinds import IndexBinder
+from quivers.qiec.primitives import primitive
+from quivers.qiec.terms import (
+    Bind,
+    Call,
+    Computation,
+    Handle,
+    LiteralValue,
+    Local,
+    PrimitiveApplication,
+    Return,
+    TupleValue,
+    Var,
+)
+from quivers.qiec.types import (
+    REAL,
+    IndexLiteral,
+    IndexVariable,
+    ShapeIndex,
+    StaticArgument,
+    TypeApplication,
+    TypeExpr,
+    product_type,
+    render_static,
+)
+
+#: The names of the wrapper's handlers, which no source may declare.
+REPLAY_HANDLER = "__program_replay"
+CONDITION_HANDLER = "__program_condition"
+DRAW_HANDLER = "__program_draw"
+ACCUMULATE_HANDLER = "__program_accumulate"
+PARAMS_HANDLER = "__program_params"
+
+
+@dataclass(frozen=True, slots=True)
+class ProgramRun:
+    """What running a program on the reference machine produced.
+
+    Parameters
+    ----------
+    value
+        The value the program returned.
+    log_joint
+        The log joint density: every replayed site's log density under
+        its distribution plus every observation's and score's weight.
+    result
+        The underlying execution result, with its trace.
+    """
+
+    value: object
+    log_joint: float
+    result: ExecutionResult
+
+
+def program_entry(module: QiecModule, name: str) -> ProgramEntry:
+    """Find a program's entry point in a module.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    name : str
+        The program's name.
+
+    Returns
+    -------
+    ProgramEntry
+        The entry.
+
+    Raises
+    ------
+    KeyError
+        If the module has no program of that name.
+    """
+    for entry in module.entries:
+        if entry.name == name:
+            return entry
+    raise KeyError(f"module {module.module!r} has no program {name!r}")
+
+
+def _computation(module: QiecModule, identity: ComputationId) -> NamedComputation:
+    """Find a computation by identity.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    identity : ComputationId
+        The computation's identity.
+
+    Returns
+    -------
+    NamedComputation
+        The computation.
+
+    Raises
+    ------
+    KeyError
+        If no computation has the identity.
+    """
+    for computation in module.computations:
+        if computation.id == identity:
+            return computation
+    raise KeyError(f"module {module.module!r} has no computation {identity!r}")
+
+
+def _marginal_handler(name: str) -> tuple[bool, str] | None:
+    """Read a marginalization handler's kind off its name.
+
+    The elaborator names its enumeration handlers ``enumerate_marginal``
+    and ``enumerate_grouped_marginal``, with ``_sum`` or ``_mean``
+    appended for a reduction other than ``logsumexp``.
+
+    Parameters
+    ----------
+    name : str
+        The handler's name.
+
+    Returns
+    -------
+    tuple[bool, str] | None
+        Whether the handler answers per group position, and its
+        reduction; ``None`` for a handler of another kind.
+    """
+    for reduction in ("sum", "mean"):
+        suffix = f"_{reduction}"
+        if name.endswith(suffix):
+            base = _marginal_handler(name[: -len(suffix)])
+            return None if base is None else (base[0], reduction)
+    if name.endswith("enumerate_grouped_marginal"):
+        return (True, "logsumexp")
+    if name.endswith("enumerate_marginal"):
+        return (False, "logsumexp")
+    return None
+
+
+def joint_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
+    """Extend a module with a computation scoring one program's log joint.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper computation's name. The
+        wrapper takes the program's parameters, handles its ``score``
+        instance with an accumulating handler and its ``random``
+        instance with a replaying one, and returns the program's value
+        paired with the accumulated log weight.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program.
+    """
+    return _wrapped_module(module, name, sampling=False)
+
+
+def sample_module(module: QiecModule, name: str) -> tuple[QiecModule, str]:
+    """Extend a module with a computation running one program forward.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper computation's name. The
+        wrapper takes the program's parameters, handles its ``random``
+        instance with a conditioning replay of the given sites inside a
+        scoring draw of every other site, its ``score`` instance with an
+        accumulating handler, and returns the program's value paired
+        with the accumulated log weight: the log joint of the draws it
+        made and the sites it was given.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program.
+    """
+    return _wrapped_module(module, name, sampling=True)
+
+
+def _wrapped_module(
+    module: QiecModule, name: str, *, sampling: bool
+) -> tuple[QiecModule, str]:
+    """Extend a module with a wrapper handling one program's instances.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+    sampling : bool
+        Whether the wrapper draws the sites it is not given (a forward
+        run) or requires every site (a replay scoring the log joint).
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper computation's name.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program.
+    """
+    entry = program_entry(module, name)
+    computation = _computation(module, entry.computation)
+    answer: TypeExpr = computation.type.result
+    statics: tuple[StaticArgument, ...] = tuple(
+        IndexVariable(binder.name, binder.sort)
+        for binder in computation.telescope
+        if isinstance(binder, IndexBinder)
+    )
+    random = next(
+        instance
+        for instance in module.instances
+        if instance.entry.instance == entry.random_instance
+    )
+    score = next(
+        instance
+        for instance in module.instances
+        if instance.entry.instance == entry.score_instance
+    )
+    role = "sample" if sampling else "joint"
+
+    def random_handler(handler_name: str, total: bool) -> HandlerDef:
+        """A handler of the program's ``random`` instance.
+
+        Parameters
+        ----------
+        handler_name : str
+            The wrapper handler's name.
+        total : bool
+            Whether the handler answers every sample request.
+
+        Returns
+        -------
+        HandlerDef
+            The declaration, scoring into the ``score`` instance.
+        """
+        return HandlerDef(
+            HandlerId.derive(module.module, "handler", handler_name),
+            handler_name,
+            random.entry.effect,
+            (HandlerClauseDef(RANDOM_SAMPLE, ResumptionGrade.LINEAR),),
+            answer,
+            answer,
+            EffectRow((score.entry,)),
+            total=total,
+            implementation="foreign",
+            telescope=computation.telescope,
+        )
+
+    accumulate = HandlerDef(
+        HandlerId.derive(module.module, "handler", ACCUMULATE_HANDLER),
+        ACCUMULATE_HANDLER,
+        score.entry.effect,
+        (HandlerClauseDef(SCORE_ADD, ResumptionGrade.LINEAR),),
+        answer,
+        product_type(answer, LOG_WEIGHT),
+        EffectRow(),
+        total=True,
+        implementation="foreign",
+        telescope=computation.telescope,
+    )
+    result_type = answer
+    parameters = tuple(
+        Local(parameter.name, parameter.type) for parameter in computation.parameters
+    )
+    call = Call(
+        computation.id,
+        computation.name,
+        statics,
+        tuple(Var(parameter) for parameter in parameters),
+        result_type,
+        computation.type.effects,
+        SourceOrigin(
+            module.module,
+            ("programs", name, role, "call"),
+            "call",
+            module.source_protocol,
+        ),
+    )
+    performed = {entry.instance for entry in computation.type.effects.entries}
+    handlers: list[HandlerDef] = []
+    body: Computation = call
+    if random.entry.instance in performed:
+        # Replaying or drawing a site scores its density, so a program
+        # with a site always has scores to accumulate.
+        if sampling:
+            condition = random_handler(CONDITION_HANDLER, False)
+            draw = random_handler(DRAW_HANDLER, True)
+            body = Handle(random.entry.instance, condition.id, body, statics)
+            body = Handle(random.entry.instance, draw.id, body, statics)
+            handlers.extend((condition, draw))
+        else:
+            replay = random_handler(REPLAY_HANDLER, True)
+            body = Handle(random.entry.instance, replay.id, body, statics)
+            handlers.append(replay)
+    if random.entry.instance in performed or score.entry.instance in performed:
+        body = Handle(score.entry.instance, accumulate.id, body, statics)
+        handlers.append(accumulate)
+    else:
+        # A program scoring nothing has the zero log joint.
+        answered = Local("__answer", answer)
+        body = Bind(
+            answered,
+            body,
+            Return(
+                TupleValue(
+                    (
+                        Var(answered),
+                        PrimitiveApplication(
+                            primitive("as_weight").id,
+                            "as_weight",
+                            (LiteralValue(0.0, REAL),),
+                            LOG_WEIGHT,
+                            SourceOrigin(
+                                module.module,
+                                ("programs", name, role, "zero"),
+                                "primitive",
+                                module.source_protocol,
+                            ),
+                        ),
+                    ),
+                    product_type(answer, LOG_WEIGHT),
+                )
+            ),
+        )
+    params = _params_entry(module, computation.type.effects)
+    if params is not None:
+        # A program calling a deduction reads learned weights through
+        # the module's parameter store, which the wrapper serves.
+        store = HandlerDef(
+            HandlerId.derive(module.module, "handler", PARAMS_HANDLER),
+            PARAMS_HANDLER,
+            params.effect,
+            (HandlerClauseDef(PARAM_GET, ResumptionGrade.LINEAR),),
+            product_type(answer, LOG_WEIGHT),
+            product_type(answer, LOG_WEIGHT),
+            EffectRow(),
+            total=True,
+            implementation="foreign",
+            telescope=computation.telescope,
+        )
+        body = Handle(params.instance, store.id, body, statics)
+        handlers.append(store)
+    wrapper_name = f"__{role}_{name}"
+    wrapper = NamedComputation(
+        ComputationId.derive(module.module, "computation", wrapper_name),
+        wrapper_name,
+        computation.telescope,
+        parameters,
+        body,
+        ComputationType(EffectRow(), product_type(result_type, LOG_WEIGHT)),
+        SourceOrigin(
+            module.module,
+            ("programs", name, role),
+            "computation",
+            module.source_protocol,
+        ),
+    )
+    extended = replace(
+        module,
+        handlers=(*module.handlers, *handlers),
+        computations=(*module.computations, wrapper),
+    )
+    return extended, wrapper_name
+
+
+def _params_entry(module: QiecModule, row: EffectRow) -> RowEntry | None:
+    """The ``Param`` instance a computation's row names, if any.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    row : EffectRow
+        The computation's row.
+
+    Returns
+    -------
+    RowEntry | None
+        The entry of the module's ``Param`` instance in the row.
+    """
+    for entry in row.entries:
+        if entry.effect.name == "Param":
+            return entry
+    return None
+
+
+def _extent_of(value: object, depth: int) -> int:
+    """Read the extent of a nested host tensor at one axis.
+
+    Parameters
+    ----------
+    value : object
+        A host tensor: nested tuples or lists, or an object with a
+        ``shape``.
+    depth : int
+        The axis, outermost first.
+
+    Returns
+    -------
+    int
+        The extent.
+
+    Raises
+    ------
+    KeyError
+        If the value has no such axis.
+    """
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        try:
+            return int(shape[depth])
+        except IndexError as error:
+            raise KeyError(f"host value has no axis {depth}") from error
+    current = value
+    for _ in range(depth):
+        if not isinstance(current, (tuple, list)) or not current:
+            raise KeyError(f"host value has no axis {depth}")
+        current = current[0]
+    if not isinstance(current, (tuple, list)):
+        raise KeyError(f"host value has no axis {depth}")
+    return len(current)
+
+
+def static_arguments_for(
+    entry: ProgramEntry,
+    data: Mapping[str, object],
+    given: Sequence[StaticArgument] = (),
+) -> tuple[StaticArgument, ...]:
+    """Read a program's static extents off the data it is applied to.
+
+    Parameters
+    ----------
+    entry : ProgramEntry
+        The program's entry point, whose telescope names the extents.
+    data : Mapping[str, object]
+        The host value of each parameter, by name.
+    given : Sequence[StaticArgument]
+        Static arguments supplied explicitly, one per telescope binder
+        in telescope order, or none. A template's object parameter is
+        an extent no data fixes, so a run of the template supplies it;
+        a binder the data does fix must agree with what is supplied.
+
+    Returns
+    -------
+    tuple[StaticArgument, ...]
+        One index literal per telescope binder, in telescope order: the
+        length of the axis of the first parameter whose tensor type is
+        shaped by the binder, else the supplied argument.
+
+    Raises
+    ------
+    KeyError
+        If a binder shapes no parameter and none is supplied, or the
+        parameter is not given or has too few axes, or a supplied
+        argument disagrees with the data, or the supplied arguments do
+        not number the telescope.
+    """
+    if given and len(given) != len(entry.telescope):
+        raise KeyError(
+            f"program {entry.name!r} binds {len(entry.telescope)} extent(s); "
+            f"{len(given)} static argument(s) were given"
+        )
+    arguments: list[StaticArgument] = []
+    for position, binder in enumerate(entry.telescope):
+        supplied = given[position] if given else None
+        found: int | None = None
+        for parameter in entry.parameters:
+            type_ = parameter.type
+            if not isinstance(type_, TypeApplication) or len(type_.arguments) != 2:
+                continue
+            shape = type_.arguments[1]
+            if not isinstance(shape, ShapeIndex):
+                continue
+            for depth, dimension in enumerate(shape.dimensions):
+                if (
+                    isinstance(dimension, IndexVariable)
+                    and dimension.name == binder.name
+                ):
+                    try:
+                        found = _extent_of(data[parameter.name], depth)
+                    except KeyError as error:
+                        raise KeyError(
+                            f"parameter {parameter.name!r} of program "
+                            f"{entry.name!r} does not fix its extent "
+                            f"{binder.name!r}: {error.args[0]}"
+                        ) from error
+                    break
+            if found is not None:
+                break
+        if found is None:
+            if supplied is None:
+                raise KeyError(
+                    f"program {entry.name!r} has an extent {binder.name!r} that "
+                    "no parameter fixes; supply it as a static argument"
+                )
+            arguments.append(supplied)
+            continue
+        literal = IndexLiteral(found, binder.sort)  # type: ignore[arg-type]
+        if supplied is not None and supplied != literal:
+            raise KeyError(
+                f"static argument {binder.name!r} of program {entry.name!r} is "
+                f"given as {render_static(supplied)}, but its data fix it at "
+                f"{found}"
+            )
+        arguments.append(literal)
+    return tuple(arguments)
+
+
+def run_program(
+    module: QiecModule,
+    name: str,
+    *,
+    data: Mapping[str, object],
+    sites: Mapping[str, object],
+    parameters: Mapping[str, object] | None = None,
+    static_arguments: Sequence[StaticArgument] = (),
+    fuel: int | None = None,
+    observer: TraceObserver | None = None,
+    providers: tuple[RuntimeProvider, ...] = (),
+) -> ProgramRun:
+    """Run a program with every site replayed and score its log joint.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+    data : Mapping[str, object]
+        A host value for each of the program's parameters, by name:
+        its data, observations, fibrations, and map numbers.
+    sites : Mapping[str, object]
+        A host value for each sampled site, by label, or by label and
+        occurrence as ``"<label>@<n>"`` for a site a recurrence reaches
+        at every position. Every site the program reaches must be
+        given, and every given site reached.
+    parameters : Mapping[str, object] | None
+        The learned weights a deduction the program calls reads, by
+        name; an absent weight reads as zero.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents, one per telescope binder, for an
+        extent no data fixes (a template's object parameter); empty
+        when the data fix every extent.
+    fuel : int | None
+        A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
+
+    Returns
+    -------
+    ProgramRun
+        The returned value and the log joint.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program, a parameter is not given, or
+        an open extent cannot be read off the data.
+    ExecutionFailure
+        If the run fails, a site is missing, or a value does not inhabit
+        its type.
+    """
+    entry = program_entry(module, name)
+    extended, wrapper_name = joint_module(module, name)
+    configured: dict[str, object] = {
+        REPLAY_HANDLER: {
+            "kind": "replay",
+            "values": dict(sites),
+            "score_instance": entry.score_instance,
+        },
+        ACCUMULATE_HANDLER: {"kind": "score"},
+    }
+    return _run_wrapped(
+        module,
+        extended,
+        wrapper_name,
+        entry,
+        configured,
+        data=data,
+        parameters=parameters,
+        static_arguments=static_arguments,
+        fuel=fuel,
+        observer=observer,
+        providers=providers,
+    )
+
+
+def sample_program(
+    module: QiecModule,
+    name: str,
+    *,
+    data: Mapping[str, object],
+    sites: Mapping[str, object] | None = None,
+    parameters: Mapping[str, object] | None = None,
+    static_arguments: Sequence[StaticArgument] = (),
+    fuel: int | None = None,
+    observer: TraceObserver | None = None,
+    providers: tuple[RuntimeProvider, ...] = (),
+) -> ProgramRun:
+    """Run a program forward, drawing every site it is not given.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    name : str
+        The program's name.
+    data : Mapping[str, object]
+        A host value for each of the program's parameters, by name:
+        its data, observations, fibrations, and map numbers.
+    sites : Mapping[str, object] | None
+        A host value for each conditioned site, by label, or by label
+        and occurrence as ``"<label>@<n>"``; every other site is drawn
+        from its distribution. A given site the program never reaches
+        is an error.
+    parameters : Mapping[str, object] | None
+        The learned weights a deduction the program calls reads, by
+        name; an absent weight reads as zero.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents, one per telescope binder, for an
+        extent no data fixes; empty when the data fix every extent.
+    fuel : int | None
+        A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
+
+    Returns
+    -------
+    ProgramRun
+        The returned value and the log joint of the drawn and given
+        sites together with the program's observations and scores.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such program, a parameter is not given, or
+        an open extent cannot be read off the data.
+    ExecutionFailure
+        If the run fails or a value does not inhabit its type.
+    """
+    entry = program_entry(module, name)
+    extended, wrapper_name = sample_module(module, name)
+    configured: dict[str, object] = {
+        CONDITION_HANDLER: {
+            "kind": "replay",
+            "values": dict(sites or {}),
+            "score_instance": entry.score_instance,
+        },
+        DRAW_HANDLER: {"kind": "draw-scoring", "score_instance": entry.score_instance},
+        ACCUMULATE_HANDLER: {"kind": "score"},
+    }
+    return _run_wrapped(
+        module,
+        extended,
+        wrapper_name,
+        entry,
+        configured,
+        data=data,
+        parameters=parameters,
+        static_arguments=static_arguments,
+        fuel=fuel,
+        observer=observer,
+        providers=providers,
+    )
+
+
+def _run_wrapped(
+    module: QiecModule,
+    extended: QiecModule,
+    wrapper_name: str,
+    entry: ProgramEntry,
+    configured: dict[str, object],
+    *,
+    data: Mapping[str, object],
+    parameters: Mapping[str, object] | None,
+    static_arguments: Sequence[StaticArgument],
+    fuel: int | None,
+    observer: TraceObserver | None,
+    providers: tuple[RuntimeProvider, ...],
+) -> ProgramRun:
+    """Run a program's wrapper under the core provider.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the program.
+    extended : QiecModule
+        The module extended with the wrapper.
+    wrapper_name : str
+        The wrapper computation's name.
+    entry : ProgramEntry
+        The program's entry point.
+    configured : dict[str, object]
+        The core configuration of the wrapper's handlers, by name; a
+        handler the wrapper did not add is dropped.
+    data : Mapping[str, object]
+        A host value for each of the program's parameters, by name.
+    parameters : Mapping[str, object] | None
+        The learned weights the program's parameter store answers.
+    static_arguments : Sequence[StaticArgument]
+        The program's static extents supplied explicitly, one per
+        telescope binder, or none.
+    fuel : int | None
+        A step budget for the run.
+    observer : TraceObserver | None
+        A callback receiving every trace event as it is emitted.
+    providers : tuple[RuntimeProvider, ...]
+        Additional typed providers used by computations the program calls.
+
+    Returns
+    -------
+    ProgramRun
+        The returned value and the accumulated log weight.
+
+    Raises
+    ------
+    KeyError
+        If a parameter is not given or an open extent cannot be read
+        off the data.
+    ExecutionFailure
+        If the run fails.
+    """
+    arguments = tuple(data[parameter.name] for parameter in entry.parameters)
+    statics = static_arguments_for(entry, data, static_arguments)
+    configured = {
+        handler_name: options
+        for handler_name, options in configured.items()
+        if any(handler.name == handler_name for handler in extended.handlers)
+    }
+    if any(handler.name == PARAMS_HANDLER for handler in extended.handlers):
+        configured[PARAMS_HANDLER] = {"kind": "param", "values": dict(parameters or {})}
+    configured.update(foreign_handler_configuration(module))
+    runtime = RuntimeConfiguration(
+        (RuntimeSelection("core", {"handlers": configured}),),
+        providers,
+    )
+    result = run_named(
+        extended,
+        wrapper_name,
+        arguments,
+        static_arguments=statics,
+        runtime=runtime,
+        fuel=fuel,
+        observer=observer,
+    )
+    value, weight = result.value  # type: ignore[misc]
+    return ProgramRun(value, float(weight), result)  # type: ignore[arg-type]
+
+
+def foreign_handler_configuration(module: QiecModule) -> dict[str, object]:
+    """The runtime configuration of a module's elaborated foreign handlers.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+
+    Returns
+    -------
+    dict[str, object]
+        By handler name: the enumeration handlers of marginalization
+        blocks, the collecting handlers of those blocks and of
+        deductions, and the search handlers of deductions, each with
+        the options its name records.
+    """
+    configured: dict[str, object] = {}
+    for handler in module.handlers:
+        if handler.implementation != "foreign":
+            continue
+        marginal = _marginal_handler(handler.name)
+        deduction = _deduction_handler(handler.name)
+        if handler.effect.name == "Random" and marginal is not None:
+            grouped, reduction = marginal
+            configured[handler.name] = {
+                "kind": "enumerate",
+                "grouped": grouped,
+                "reduction": reduction,
+            }
+        elif handler.effect.name == "Weight" and handler.name.endswith(
+            "collect_marginal"
+        ):
+            configured[handler.name] = {"kind": "collect"}
+        elif deduction is not None:
+            kind, semiring = deduction
+            if kind == "search":
+                configured[handler.name] = {
+                    "kind": "search",
+                    "reduction": SEARCH_REDUCTION_OF[semiring],
+                }
+            else:
+                configured[handler.name] = {
+                    "kind": "collect",
+                    "combine": COLLECT_COMBINE_OF[semiring],
+                    "forkable": True,
+                }
+    return configured
+
+
+#: The search handler's reduction per deduction semiring.
+SEARCH_REDUCTION_OF: dict[str, str] = {
+    "logprob": "logsumexp",
+    "viterbi": "max",
+    "boolean": "or",
+    "counting": "sum",
+}
+#: The collecting handler's multiplication per deduction semiring.
+COLLECT_COMBINE_OF: dict[str, str] = {
+    "logprob": "add",
+    "viterbi": "add",
+    "boolean": "and",
+    "counting": "mul",
+}
+
+
+def _deduction_handler(name: str) -> tuple[str, str] | None:
+    """Read a deduction handler's kind and semiring off its name.
+
+    The elaborator names a deduction's handlers
+    ``<deduction>__search_<semiring>`` and
+    ``<deduction>__collect_<semiring>``.
+
+    Parameters
+    ----------
+    name : str
+        The handler's name.
+
+    Returns
+    -------
+    tuple[str, str] | None
+        ``("search", semiring)`` or ``("collect", semiring)``, or
+        ``None`` for a handler of another kind.
+    """
+    for kind in ("search", "collect"):
+        marker = f"__{kind}_"
+        if marker in name:
+            semiring = name.rsplit(marker, 1)[1]
+            if semiring in SEARCH_REDUCTION_OF:
+                return kind, semiring
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class DeductionRun:
+    """The outcome of running a deduction on the reference machine.
+
+    Parameters
+    ----------
+    weight
+        The inside weight of the goal in the deduction's semiring: a
+        log weight, a Boolean, or a count.
+    result
+        The machine's full result, with its trace.
+    """
+
+    weight: object
+    result: ExecutionResult
+
+
+def run_deduction(
+    module: QiecModule,
+    name: str,
+    *,
+    tokens: Sequence[str] | None = None,
+    axioms: Sequence[object] | None = None,
+    axiom_weights: Sequence[object] | None = None,
+    parameters: Mapping[str, object] | None = None,
+    fuel: int | None = None,
+) -> DeductionRun:
+    """Run a deduction's entry on the reference machine.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the deduction.
+    name : str
+        The deduction's name.
+    tokens : Sequence[str] | None
+        The sentence, for a deduction with a lexicon.
+    axioms : Sequence[object] | None
+        The axiom items, for a deduction without one; runtime
+        constructor values of its item family.
+    axiom_weights : Sequence[object] | None
+        One weight per axiom in the semiring's carrier.
+    parameters : Mapping[str, object] | None
+        The learned weights by name; an absent weight reads as zero.
+    fuel : int | None
+        A step budget for the run.
+
+    Returns
+    -------
+    DeductionRun
+        The goal's inside weight.
+
+    Raises
+    ------
+    KeyError
+        If the module has no such deduction.
+    ValueError
+        If the input does not fit the deduction: tokens for one that
+        takes axioms, or the reverse.
+    ExecutionFailure
+        If the run fails.
+    """
+    entry_name = f"{name}__derive"
+    if not any(item.name == entry_name for item in module.computations):
+        raise KeyError(f"module {module.module!r} has no deduction {name!r}")
+    computation = next(
+        item for item in module.computations if item.name == f"{name}__run"
+    )
+    takes_tokens = len(computation.parameters) == 1
+    if takes_tokens and (tokens is None or axioms is not None):
+        raise ValueError(f"deduction {name!r} takes a sentence of tokens")
+    if not takes_tokens and (
+        axioms is None or axiom_weights is None or tokens is not None
+    ):
+        raise ValueError(f"deduction {name!r} takes its axioms and their weights")
+    extended, wrapper_name = _deduction_wrapper(module, computation)
+    if takes_tokens:
+        assert tokens is not None
+        arguments: tuple[object, ...] = (tuple(tokens),)
+        extent = len(tokens)
+    else:
+        assert axioms is not None and axiom_weights is not None
+        arguments = (tuple(axioms), tuple(axiom_weights))
+        extent = len(axioms)
+    binder = computation.telescope[0]
+    assert isinstance(binder, IndexBinder)
+    configured: dict[str, object] = {}
+    if wrapper_name != computation.name:
+        configured[PARAMS_HANDLER] = {"kind": "param", "values": dict(parameters or {})}
+    configured.update(foreign_handler_configuration(module))
+    result = run_named(
+        extended,
+        wrapper_name,
+        arguments,
+        static_arguments=(IndexLiteral(extent, binder.sort),),  # type: ignore[arg-type]
+        runtime=RuntimeConfiguration(
+            (RuntimeSelection("core", {"handlers": configured}),)
+        ),
+        fuel=fuel,
+    )
+    return DeductionRun(result.value, result)
+
+
+def deduction_item(
+    module: QiecModule, name: str, symbol: str, *fields: object
+) -> RuntimeConstructor:
+    """Build an item of a deduction's family as a host value.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module holding the deduction.
+    name : str
+        The deduction's name.
+    symbol : str
+        The atom or constructor symbol, as the deduction spells it.
+    *fields : object
+        The constructor's fields: integers for position slots, items for
+        the rest.
+
+    Returns
+    -------
+    RuntimeConstructor
+        The item, which ``run_deduction`` takes among the axioms of a
+        deduction without a lexicon.
+
+    Raises
+    ------
+    KeyError
+        If the deduction declares no such symbol.
+    ValueError
+        If the field count differs from the constructor's arity.
+    """
+    constructor_name = f"{name}__{symbol}"
+    constructor = next(
+        (item for item in module.constructors if item.name == constructor_name), None
+    )
+    if constructor is None:
+        raise KeyError(f"deduction {name!r} declares no symbol {symbol!r}")
+    if len(fields) != len(constructor.fields):
+        raise ValueError(
+            f"{symbol!r} of deduction {name!r} takes {len(constructor.fields)} "
+            f"field(s), not {len(fields)}"
+        )
+    family = next(item for item in module.families if item.id == constructor.family)
+    return RuntimeConstructor(
+        constructor.id, (), tuple(fields), TypeApplication(family.type_constructor, ())
+    )
+
+
+def _deduction_wrapper(
+    module: QiecModule, computation: NamedComputation
+) -> tuple[QiecModule, str]:
+    """Extend a module with a computation serving a deduction's parameters.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The module.
+    computation : NamedComputation
+        The deduction's entry.
+
+    Returns
+    -------
+    tuple[QiecModule, str]
+        The extended module and the wrapper's name; the module itself
+        and the entry's name when the deduction reads no learned weight.
+    """
+    params = _params_entry(module, computation.type.effects)
+    statics: tuple[StaticArgument, ...] = tuple(
+        IndexVariable(binder.name, binder.sort)
+        for binder in computation.telescope
+        if isinstance(binder, IndexBinder)
+    )
+    if params is None:
+        return module, computation.name
+    store = HandlerDef(
+        HandlerId.derive(module.module, "handler", PARAMS_HANDLER),
+        PARAMS_HANDLER,
+        params.effect,
+        (HandlerClauseDef(PARAM_GET, ResumptionGrade.LINEAR),),
+        computation.type.result,
+        computation.type.result,
+        EffectRow(),
+        total=True,
+        implementation="foreign",
+        telescope=computation.telescope,
+    )
+    parameters = tuple(
+        Local(parameter.name, parameter.type) for parameter in computation.parameters
+    )
+    call = Call(
+        computation.id,
+        computation.name,
+        statics,
+        tuple(Var(parameter) for parameter in parameters),
+        computation.type.result,
+        computation.type.effects,
+        SourceOrigin(
+            module.module,
+            ("deductions", computation.name, "wrapper", "call"),
+            "call",
+            module.source_protocol,
+        ),
+    )
+    wrapper_name = f"__deduction_{computation.name}"
+    wrapper = NamedComputation(
+        ComputationId.derive(module.module, "computation", wrapper_name),
+        wrapper_name,
+        computation.telescope,
+        parameters,
+        Handle(params.instance, store.id, call, statics),
+        ComputationType(EffectRow(), computation.type.result),
+        SourceOrigin(
+            module.module,
+            ("deductions", computation.name, "wrapper"),
+            "computation",
+            module.source_protocol,
+        ),
+    )
+    extended = replace(
+        module,
+        handlers=(*module.handlers, store),
+        computations=(*module.computations, wrapper),
+    )
+    return extended, wrapper_name
+
+
+__all__ = [
+    "ACCUMULATE_HANDLER",
+    "COLLECT_COMBINE_OF",
+    "CONDITION_HANDLER",
+    "DRAW_HANDLER",
+    "PARAMS_HANDLER",
+    "REPLAY_HANDLER",
+    "SEARCH_REDUCTION_OF",
+    "DeductionRun",
+    "ProgramRun",
+    "deduction_item",
+    "foreign_handler_configuration",
+    "joint_module",
+    "program_entry",
+    "run_deduction",
+    "run_program",
+    "sample_module",
+    "sample_program",
+    "static_arguments_for",
+]

@@ -560,6 +560,14 @@ def render_page(cells: list[Cell]) -> str:
         "whether a feature of their own model is supported wants to "
         "match on.",
         "",
+        "QIEC uses the same measured renderer boundary as probabilistic programs. "
+        "Its complete checked module is retained as typed `IRQiecModule` nodes. "
+        "Pyro, NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church emit named "
+        "QIEC functions through a shared stable-ID runtime ABI. Stan, BUGS, and "
+        "JAGS emit the closed, monomorphic, effect-free scalar `Return`/`Bind` "
+        "fragment and report unsupported forms as "
+        "`qiec:capability:<feature>:<computation>`.",
+        "",
         "What this page does not cover is whether a rendered program's "
         "density agrees with QVR's own. That is the subject of the "
         "[transpilation-correctness contract]"

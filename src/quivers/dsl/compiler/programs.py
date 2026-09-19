@@ -20,10 +20,13 @@ from quivers.continuous.morphisms import (
     MarginalizedFactor,
 )
 from quivers.core.algebras import CompositionRule
-from quivers.core.morphisms import Morphism
+from quivers.core.morphisms import Morphism, ObservedMorphism
 
-from quivers.continuous.plate import marginalize_grouped
+from quivers.continuous.inline import get_inline_param_names, make_inline_distribution
+from quivers.continuous.plate import PlateDraw, VectorisedObserve, marginalize_grouped
+from quivers.continuous.program_steps import reading, reads_of
 from quivers.continuous.programs import MonadicProgram, _lookup_arg
+from quivers.effects.checked_program import CheckedProgram
 from quivers.continuous.spaces import (
     CholeskyFactor,
     ContinuousSpace,
@@ -54,6 +57,7 @@ from quivers.dsl.ast_nodes import (
     GroupedLatentInitStep,
     GroupedObserveEntry,
     LetExprBinOp,
+    LetExprBool,
     LetExprCall,
     LetExprIndex,
     LetExprLambda,
@@ -64,9 +68,12 @@ from quivers.dsl.ast_nodes import (
     LetExprMethodCall,
     LetExprNode,
     LetExprString,
+    LetExprTuple,
     LetExprUnaryOp,
+    LetExprUnit,
     LetExprVar,
     LetStep,
+    CallStep,
     ScoreStep,
     MarginalizeStep,
     GroupedMarginalizeStep,
@@ -92,6 +99,9 @@ from quivers.dsl.compiler._options import (
     get_program_effects,
     get_program_over_model,
 )
+from quivers.dsl.compiler.sugar import desugar_step
+from quivers.program import Program
+from quivers.stochastic.agenda import DeductionSystem
 from quivers.dsl.compiler._prelude import (
     CompileError,
     _CompiledContraction,
@@ -99,6 +109,108 @@ from quivers.dsl.compiler._prelude import (
     _get_family_registry,
     _numel_shape,
 )
+
+
+def _arg_names(args: tuple[DrawArgName | DrawArgIndex | str, ...]) -> tuple[str, ...]:
+    """The environment names a tuple of draw arguments reads.
+
+    Parameters
+    ----------
+    args : tuple[DrawArgName | DrawArgIndex | str, ...]
+        The arguments as the compiler carries them.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The referenced names, an indexed reference's indices included;
+        a scalar literal reads nothing.
+    """
+    names: list[str] = []
+    for arg in args:
+        if isinstance(arg, str):
+            names.append(arg)
+        elif isinstance(arg, DrawArgIndex):
+            names.append(arg.name)
+            names.extend(arg.indices)
+        elif isinstance(arg, DrawArgName):
+            names.append(arg.text)
+    return tuple(names)
+
+
+def _let_expr_reads(node: LetExprNode) -> frozenset[str]:
+    """The names a let expression reads from its environment.
+
+    Parameters
+    ----------
+    node : LetExprNode
+        The expression.
+
+    Returns
+    -------
+    frozenset[str]
+        Every variable the expression references outside a binder of
+        its own (a lambda's parameter, a factor's index variables). A
+        name that resolves elsewhere (a deduction, a built-in) may be
+        included; the encoding passes only the names bound in the
+        program.
+    """
+    names: set[str] = set()
+
+    def walk(item: LetExprNode, bound: frozenset[str]) -> None:
+        if isinstance(item, LetExprVar):
+            if item.name not in bound:
+                names.add(item.name)
+        elif isinstance(item, LetExprBinOp):
+            walk(item.left, bound)
+            walk(item.right, bound)
+        elif isinstance(item, LetExprUnaryOp):
+            walk(item.operand, bound)
+        elif isinstance(item, (LetExprTuple, LetExprList)):
+            for member in item.items:
+                walk(member, bound)
+        elif isinstance(item, LetExprCall):
+            for argument in item.args:
+                walk(argument, bound)
+        elif isinstance(item, LetExprLambda):
+            walk(item.body, bound | {item.param})
+        elif isinstance(item, LetExprMethodCall):
+            walk(item.receiver, bound)
+            for argument in item.args:
+                walk(argument, bound)
+        elif isinstance(item, LetExprIndex):
+            walk(item.array, bound)
+            for index in item.indices:
+                walk(index, bound)
+        elif isinstance(item, LetExprFactor):
+            inner = bound | {binder.var for binder in item.binders}
+            if item.body is not None:
+                walk(item.body, inner)
+            for case in item.cases:
+                walk(case.value, inner)
+
+    walk(node, frozenset())
+    return frozenset(names)
+
+
+def _calls_a_computation(steps: tuple[ProgramStep, ...]) -> bool:
+    """Whether a program body calls a named computation anywhere.
+
+    Parameters
+    ----------
+    steps : tuple[ProgramStep, ...]
+        The body, whose marginalization scopes are searched too.
+
+    Returns
+    -------
+    bool
+        ``True`` if a `CallStep` appears at any depth.
+    """
+    for step in steps:
+        if isinstance(step, CallStep):
+            return True
+        if isinstance(step, MarginalizeStep) and _calls_a_computation(step.scope):
+            return True
+    return False
 
 
 def _fibration_index(env: dict[str, torch.Tensor], name: str) -> torch.Tensor:
@@ -122,6 +234,65 @@ def _fibration_index(env: dict[str, torch.Tensor], name: str) -> torch.Tensor:
             0,
         )
     return idx
+
+
+def _project_nested_aggregates(
+    aggregates: torch.Tensor,
+    inner_sizes: tuple[int, ...],
+    kept_axes: tuple[int, ...],
+    slot: str,
+) -> torch.Tensor:
+    """Project an inner grouped block's per-position aggregates onto
+    the enclosing block's grouping plate.
+
+    The inner plate is a product whose factors include every factor
+    of the enclosing plate; the aggregates are summed along the
+    factors the enclosing plate lacks and laid out in the enclosing
+    plate's factor order, flat in row-major order.
+
+    Parameters
+    ----------
+    aggregates : torch.Tensor
+        The inner block's aggregates, flat over its product plate.
+    inner_sizes : tuple[int, ...]
+        The cardinality of each factor of the inner plate.
+    kept_axes : tuple[int, ...]
+        The position in ``inner_sizes`` of each factor of the
+        enclosing plate, in the enclosing plate's order.
+    slot : str
+        The environment slot the aggregates were read from, named in
+        the error.
+
+    Returns
+    -------
+    torch.Tensor
+        The aggregates over the enclosing plate, flat.
+
+    Raises
+    ------
+    ValueError
+        If the aggregates do not have one entry per inner position.
+    """
+    total = 1
+    for size in inner_sizes:
+        total *= size
+    if tuple(aggregates.shape) != (total,):
+        raise ValueError(
+            f"grouped marginalize: the nested block at slot {slot!r} must "
+            f"contribute one aggregate per position of its plate "
+            f"{inner_sizes}; got shape {tuple(aggregates.shape)}"
+        )
+    shaped = aggregates.reshape(inner_sizes)
+    summed_axes = tuple(
+        axis for axis in range(len(inner_sizes)) if axis not in kept_axes
+    )
+    if summed_axes:
+        shaped = shaped.sum(dim=summed_axes)
+        remaining = [axis for axis in range(len(inner_sizes)) if axis in kept_axes]
+        order = tuple(remaining.index(axis) for axis in kept_axes)
+    else:
+        order = kept_axes
+    return shaped.permute(order).reshape(-1)
 
 
 # Value carried by a let-binding at compile time.  The let
@@ -505,8 +676,14 @@ class _ProgramsMixin:
         [`desugar_step`][quivers.dsl.compiler.sugar.desugar_step], so
         downstream IR walks the single operator vocabulary.
         """
-        from quivers.dsl.compiler.sugar import desugar_step
-
+        if isinstance(step, CallStep):
+            raise CompileError(
+                f"`let {step.name} <- {step.call.callee}(...)` calls a named "
+                "computation, which only the QIEC route runs; execute the program "
+                "through its checked module rather than the runtime compiler",
+                step.line,
+                step.col,
+            )
         if isinstance(step, (SampleStep, ObserveStep)):
             step = desugar_step(step)
         if isinstance(step, SampleStep):
@@ -752,6 +929,7 @@ class _ProgramsMixin:
                     )
                 # Extract the categorical prior's `probs` argument.
                 probs_var: str | None = None
+                probs_indices: tuple[str, ...] = ()
                 if has_over:
                     if not step.args:
                         raise CompileError(
@@ -764,18 +942,23 @@ class _ProgramsMixin:
                     first = step.args[0]
                     # `first` is a `DrawArg` tagged variant on the
                     # widened AST. A `DrawArgName` carries the
-                    # identifier text; other variants (literal,
-                    # nested distribution call, list literal) are
-                    # not admissible as the probs argument.
+                    # identifier text and a `DrawArgIndex` a probs
+                    # tensor gathered by enclosing latents; other
+                    # variants (literal, nested distribution call,
+                    # list literal) are not admissible as the probs
+                    # argument.
                     if isinstance(first, DrawArgName):
                         probs_var = first.text
+                    elif isinstance(first, DrawArgIndex):
+                        probs_var = first.name
+                        probs_indices = tuple(first.indices)
                     elif isinstance(first, str):
                         probs_var = first
                     else:
                         raise CompileError(
                             "grouped marginalize: the categorical family's "
-                            "first argument must be a named probs tensor "
-                            f"(got literal {first!r})",
+                            "first argument must be a named probs tensor, "
+                            f"indexed or not (got literal {first!r})",
                             step.line,
                             step.col,
                         )
@@ -932,6 +1115,7 @@ class _ProgramsMixin:
                             var_name=inner_marg.var_name,
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
+                            probs_indices=inner_marg.probs_indices,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
                             body_ll_var=latent_name,
@@ -940,7 +1124,28 @@ class _ProgramsMixin:
                             line=inner_marg.line,
                             col=inner_marg.col,
                         )
-                        body_observes.append(GroupedObserveEntry(ll_slot=latent_name))
+                        inner_groups = (
+                            inner_marg.over_objs
+                            if inner_marg.over_objs is not None
+                            else (
+                                (inner_marg.over_obj,)
+                                if inner_marg.over_obj is not None
+                                else None
+                            )
+                        )
+                        if inner_groups is None:
+                            raise CompileError(
+                                "grouped marginalize: an inner marginalize "
+                                "block nested in a grouped block must carry "
+                                "its own grouping plate",
+                                inner_marg.line,
+                                inner_marg.col,
+                            )
+                        body_observes.append(
+                            GroupedObserveEntry(
+                                ll_slot=latent_name, inner_groups=inner_groups
+                            )
+                        )
                 out.extend(expanded_scope)
                 # Pushforward reduction. When grouped, the
                 # GroupedMarginalizeStep carries the list of per-observe
@@ -961,6 +1166,7 @@ class _ProgramsMixin:
                         var_name=step.vars[0],
                         class_size=class_size,
                         probs_var=probs_var,
+                        probs_indices=probs_indices,
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
@@ -1478,6 +1684,7 @@ class _ProgramsMixin:
                 var_name=rename.get(step.var_name, step.var_name),
                 class_size=step.class_size,
                 probs_var=renamed_probs,
+                probs_indices=tuple(rename.get(v, v) for v in step.probs_indices),
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
                 body_ll_var=renamed_body_ll,
@@ -1545,6 +1752,8 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprUnaryOp):
             return LetExprUnaryOp(
@@ -1553,6 +1762,18 @@ class _ProgramsMixin:
                     value_subst,
                     rename,
                 ),
+                op=expr.op,
+                line=expr.line,
+                col=expr.col,
+            )
+        if isinstance(expr, LetExprTuple):
+            return LetExprTuple(
+                items=tuple(
+                    self._rename_let_expr(item, value_subst, rename)
+                    for item in expr.items
+                ),
+                line=expr.line,
+                col=expr.col,
             )
         if isinstance(expr, LetExprCall):
             new_func = value_subst.get(expr.func, expr.func)
@@ -1624,8 +1845,6 @@ class _ProgramsMixin:
         `ObservedMorphism` with the contraction's declared
         domain and codomain.
         """
-        from quivers.core.morphisms import ObservedMorphism
-
         contraction = self._contractions.get(expr.callee)
         if contraction is None:
             # Fall through to parametric-program template
@@ -1694,13 +1913,11 @@ class _ProgramsMixin:
         ``prog.<name>(alpha=0.5, beta=0.1)`` to instantiate the
         template at concrete parameters.
         """
-        from quivers.program import Program as _Program
-
         tmpl = self._program_templates[name]
         type_params = tmpl.type_params or ()
         param_names = tuple(p.name for p in type_params)
 
-        def _invoke(*args, **kwargs) -> _Program:
+        def _invoke(*args, **kwargs) -> Program:
             if args and kwargs:
                 raise TypeError(
                     f"template {name!r}: pass either all positional or all "
@@ -1731,7 +1948,7 @@ class _ProgramsMixin:
                 col=tmpl.col,
             )
             morph = self._compile_program_template_call(call_expr)
-            return _Program(morph)
+            return Program(morph)
 
         _invoke.__name__ = name
         _invoke.__qualname__ = f"template:{name}"
@@ -2061,10 +2278,8 @@ class _ProgramsMixin:
             )
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
-        from quivers.continuous.spaces import ProductSpace as _PS
-
         if decl.params is not None:
-            if isinstance(domain, (ProductSet, _PS)):
+            if isinstance(domain, (ProductSet, ProductSpace)):
                 if len(decl.params) != len(domain.components):
                     raise CompileError(
                         f"program has {len(decl.params)} params but domain has {len(domain.components)} components",
@@ -2077,9 +2292,15 @@ class _ProgramsMixin:
                     decl.line,
                     decl.col,
                 )
+        if _calls_a_computation(decl.draws):
+            # A program calling a named computation runs as its checked
+            # computation: the callee's body is a term of the module,
+            # which only the reference machine runs.
+            self._bind_checked_program(decl, domain, codomain)
+            return
         bound_vars: dict[str, AnySpace | None] = {}
         if decl.params is not None:
-            if isinstance(domain, (ProductSet, _PS)):
+            if isinstance(domain, (ProductSet, ProductSpace)):
                 for pname, factor in zip(decl.params, domain.components):
                     bound_vars[pname] = factor
             else:
@@ -2109,9 +2330,6 @@ class _ProgramsMixin:
                 # Kern-morphism A → B; we realise it as a PlateDraw
                 # whose codomain is the flat product space of
                 # |A| copies of the per-row family's codomain.
-                from quivers.continuous.plate import PlateDraw as _PlateDraw
-                from quivers.continuous.spaces import Euclidean as _Euc
-
                 idx_space = self._resolve_plate_index(
                     step.index,
                     f"indexed sample {step.name!r}",
@@ -2127,7 +2345,7 @@ class _ProgramsMixin:
                     and step.codomain.name.isdigit()
                     and step.codomain.name not in self._objects
                 ):
-                    cod_space = _Euc(
+                    cod_space = Euclidean(
                         name=f"_plate_codom_{step.name}",
                         dim=int(step.codomain.name),
                     )
@@ -2187,7 +2405,7 @@ class _ProgramsMixin:
                     bound_vars[step.name] = family.codomain
                     steps.append(((step.name,), family, step_args, False))
                     continue
-                plate = _PlateDraw(idx_space.size, family, domain=family.domain)
+                plate = PlateDraw(idx_space.size, family, domain=family.domain)
                 bound_vars[step.name] = plate.codomain
                 steps.append(((step.name,), plate, step_args, False))
                 continue
@@ -2209,7 +2427,9 @@ class _ProgramsMixin:
                         step.col,
                     )
                 bound_vars[step.latent_name] = None
-                steps.append(((step.latent_name,), None, _grouped_latent_init))
+                steps.append(
+                    ((step.latent_name,), None, reading(_grouped_latent_init, ()))
+                )
                 continue
             if isinstance(step, GroupedBodyObserveStep):
                 # The captured observe inside a grouped marginalize
@@ -2314,6 +2534,28 @@ class _ProgramsMixin:
                                 resolved.append(p.expand(target))
                             except RuntimeError:
                                 resolved.append(p)
+                        # A family applied to literals beside variables
+                        # records the literals in its parameter spec;
+                        # they take their place among the broadcast
+                        # variable parts before the builder runs.
+                        spec = getattr(_family, "_param_spec", None)
+                        if spec is not None:
+                            full: list[torch.Tensor] = []
+                            variable_parts = iter(resolved)
+                            for kind, literal in spec:
+                                if kind == "lit":
+                                    full.append(
+                                        torch.full(
+                                            target,
+                                            float(literal),
+                                            dtype=resolved[0].dtype
+                                            if resolved
+                                            else torch.get_default_dtype(),
+                                        )
+                                    )
+                                else:
+                                    full.append(next(variable_parts))
+                            resolved = full
                         dist = _family._dist_builder(resolved)
                         resp_broadcast = response
                         # Add singleton dims to make response
@@ -2348,7 +2590,16 @@ class _ProgramsMixin:
                     return ll
 
                 bound_vars[ll_slot] = None
-                steps.append(((ll_slot,), None, _captured_observe))
+                steps.append(
+                    (
+                        (ll_slot,),
+                        None,
+                        reading(
+                            _captured_observe,
+                            (resp_var, "_x_input", *_arg_names(step_args or ())),
+                        ),
+                    )
+                )
                 continue
             if isinstance(step, VectorisedObserveStep):
                 # observe r[n] ~ Family(args) for n in N — the batched-
@@ -2358,10 +2609,6 @@ class _ProgramsMixin:
                 # threads through the existing _StepSpec(is_observed=True)
                 # path. The response buffer is supplied at runtime
                 # via the `observations` dict on the program.
-                from quivers.continuous.plate import (
-                    VectorisedObserve as _VectorisedObserve,
-                )
-
                 idx_space = self._resolve_plate_index(
                     step.index_set,
                     f"indexed observe {step.response_var!r}",
@@ -2390,10 +2637,8 @@ class _ProgramsMixin:
                 # the placeholder is (idx_size,); continuous
                 # codomains take the codomain's event shape after
                 # the row axis.
-                from quivers.core.objects import SetObject as _SetObject
-
                 resp_shape: tuple[int, ...]
-                if isinstance(family.codomain, _SetObject):
+                if isinstance(family.codomain, SetObject):
                     resp_shape = (idx_space.size,)
                 elif hasattr(family.codomain, "dim"):
                     d = int(family.codomain.dim)
@@ -2401,7 +2646,7 @@ class _ProgramsMixin:
                 else:
                     resp_shape = (idx_space.size,) + tuple(family.codomain.shape)
                 placeholder = torch.zeros(*resp_shape)
-                vec_obs = _VectorisedObserve(family, placeholder)
+                vec_obs = VectorisedObserve(family, placeholder)
                 # The step's response_var is the data column supplied
                 # at fit time. We expose it as the bound name so the
                 # runtime's observations[response_var] = data flow
@@ -2461,6 +2706,16 @@ class _ProgramsMixin:
                             step.line,
                             step.col,
                         )
+                    for index_name in step.probs_indices:
+                        if index_name not in bound_vars:
+                            raise CompileError(
+                                f"grouped marginalize: categorical prior "
+                                f"{step.probs_var!r} is indexed by "
+                                f"{index_name!r}, which is not bound in "
+                                "program scope",
+                                step.line,
+                                step.col,
+                            )
                     if not step.body_observes:
                         raise CompileError(
                             "grouped marginalize: the body must contain "
@@ -2475,16 +2730,61 @@ class _ProgramsMixin:
                     # single-fibration (``fibration_var`` set) or
                     # product-fibration (``fibration_axes`` set
                     # with length equal to ``len(over_tuple)``).
+                    nested_projections: dict[
+                        str, tuple[tuple[int, ...], tuple[int, ...]]
+                    ] = {}
                     for entry in step.body_observes:
                         slot = entry.ll_slot
                         fib_var = entry.fibration_var
                         fib_axes = entry.fibration_axes
                         if fib_var is None and fib_axes is None:
                             # Nested-marginalize entry: the inner
-                            # block has already performed its own
-                            # scatter; the outer block consumes its
-                            # already-(|G|, K)-shaped output
-                            # directly with no further fibration.
+                            # block contributes one aggregate per
+                            # position of its own grouping plate,
+                            # which must be this block's plate or a
+                            # product with it as a factor; the
+                            # aggregates are summed along the
+                            # projection onto this block's plate.
+                            inner_groups = entry.inner_groups
+                            if inner_groups is None:
+                                raise CompileError(
+                                    "grouped marginalize: nested block "
+                                    f"at slot {slot!r} has no grouping plate",
+                                    step.line,
+                                    step.col,
+                                )
+                            inner_sizes = tuple(
+                                int(self._objects[name].size) for name in inner_groups
+                            )
+                            if all(name in inner_groups for name in over_tuple):
+                                nested_projections[slot] = (
+                                    inner_sizes,
+                                    tuple(
+                                        inner_groups.index(name) for name in over_tuple
+                                    ),
+                                )
+                                continue
+                            inner_extent = 1
+                            for size in inner_sizes:
+                                inner_extent *= size
+                            outer_extent = 1
+                            for name in over_tuple:
+                                outer_extent *= int(self._objects[name].size)
+                            if inner_extent != outer_extent:
+                                raise CompileError(
+                                    "grouped marginalize: an inner block "
+                                    f"grouped over {inner_groups!r} (extent "
+                                    f"{inner_extent}) nests in a block grouped "
+                                    f"over {over_tuple!r} (extent "
+                                    f"{outer_extent}), but the inner plate must "
+                                    "be an axis of the outer plate's extent or "
+                                    "a product with the outer plate as a factor",
+                                    step.line,
+                                    step.col,
+                                )
+                            # An axis of the same extent, identified
+                            # with the outer plate position by position.
+                            nested_projections[slot] = ((inner_extent,), (0,))
                             continue
                         if is_product:
                             if fib_axes is None or len(fib_axes) != len(over_tuple):
@@ -2497,15 +2797,9 @@ class _ProgramsMixin:
                                     step.line,
                                     step.col,
                                 )
-                            for axis_name in fib_axes:
-                                if axis_name not in bound_vars:
-                                    raise CompileError(
-                                        f"grouped marginalize: per-observe "
-                                        f"`via` axis {axis_name!r} is not "
-                                        "bound in program scope",
-                                        step.line,
-                                        step.col,
-                                    )
+                            # Each axis, like a single ``via``, may name a
+                            # bound latent or host data supplied at
+                            # runtime through the observations dict.
                         else:
                             if fib_axes is not None:
                                 raise CompileError(
@@ -2526,10 +2820,16 @@ class _ProgramsMixin:
                     )
                     num_classes = step.class_size
                     probs_var = step.probs_var
+                    probs_indices = step.probs_indices
                     reduction = step.reduction or "logsumexp"
                     observe_specs = tuple(
                         (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
                         for entry in step.body_observes
+                    )
+
+                    is_nested_inner = (
+                        step.body_ll_var is not None
+                        and step.body_ll_var != step.var_name
                     )
 
                     def _marginalize_grouped_callable(
@@ -2537,11 +2837,16 @@ class _ProgramsMixin:
                         _specs: tuple[
                             tuple[str, str | None, tuple[str, ...] | None], ...
                         ] = observe_specs,
+                        _nested: dict[
+                            str, tuple[tuple[int, ...], tuple[int, ...]]
+                        ] = nested_projections,
                         _probs: str = probs_var,
+                        _probs_indices: tuple[str, ...] = probs_indices,
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
                         _product: bool = is_product,
+                        _per_group: bool = is_nested_inner,
                     ) -> torch.Tensor:
                         # Collect per-observe (ll, idx) pairs from
                         # env, with the shape contract that each
@@ -2550,6 +2855,18 @@ class _ProgramsMixin:
                         idx_list: list[torch.Tensor | tuple[torch.Tensor, ...]] = []
                         for slot, fib_var, fib_axes in _specs:
                             ll = env[slot]
+                            if slot in _nested:
+                                # The inner block's per-position
+                                # aggregates, summed along the
+                                # projection onto this block's plate
+                                # and shared across this block's
+                                # classes (the inner block has
+                                # already integrated its own latent).
+                                inner_sizes, kept_axes = _nested[slot]
+                                ll = _project_nested_aggregates(
+                                    ll, inner_sizes, kept_axes, slot
+                                )
+                                ll = ll.unsqueeze(-1).expand(-1, _k)
                             if ll.shape[-1] != _k:
                                 raise ValueError(
                                     f"grouped marginalize: per-row "
@@ -2574,18 +2891,23 @@ class _ProgramsMixin:
                                 idx_list.append(idx.to(torch.long))
                             else:
                                 # Nested-marginalize entry: the
-                                # inner block produced a
-                                # (|G|, K)-shaped tensor; bypass
-                                # scatter-add for this entry by
-                                # using an identity fibration.
-                                idx_list.append(
-                                    torch.arange(
-                                        int(ll.shape[0]),
-                                        dtype=torch.long,
-                                        device=ll.device,
-                                    )
+                                # aggregates already sit at this
+                                # block's positions, so the
+                                # fibration is the identity.
+                                positions = torch.arange(
+                                    int(ll.shape[0]),
+                                    dtype=torch.long,
+                                    device=ll.device,
                                 )
+                                if _product:
+                                    idx_list.append(
+                                        tuple(torch.unravel_index(positions, _sizes))
+                                    )
+                                else:
+                                    idx_list.append(positions)
                         probs = env[_probs]
+                        for index_name in _probs_indices:
+                            probs = probs[env[index_name].to(torch.long)]
                         log_prior = torch.log(probs.clamp_min(1e-38))
                         # A per-group prior (the categorical's ``probs``
                         # is indexed by the grouping plate, shape
@@ -2605,8 +2927,10 @@ class _ProgramsMixin:
                             and log_prior.shape[0] == _sizes[0]
                         )
                         if per_group_prior:
+                            per_group = log_prior.new_zeros((_sizes[0],))
                             total = log_prior.new_zeros(())
                             for ll, idx in zip(ll_list, idx_list):
+                                assert isinstance(idx, torch.Tensor)
                                 gathered = log_prior[idx]
                                 weighted = gathered + ll
                                 if _reduction == "logsumexp":
@@ -2615,7 +2939,14 @@ class _ProgramsMixin:
                                     per_row = weighted.sum(dim=-1)
                                 else:
                                     per_row = weighted.mean(dim=-1)
+                                per_group = per_group.index_add(0, idx, per_row)
                                 total = total + per_row.sum()
+                            if _per_group:
+                                return per_group
+                            # The block's total is the rows' own sum: the
+                            # per-group scatter is what an enclosing block
+                            # reads, and summing the rows directly keeps the
+                            # float32 accumulation in row order.
                             return total.reshape(1)
                         result = marginalize_grouped(
                             ll_list,
@@ -2623,10 +2954,13 @@ class _ProgramsMixin:
                             log_prior,
                             _sizes if _product else _sizes[0],
                             reduction=_reduction,
+                            per_group=_per_group,
                         )
-                        # Outermost block returns a scalar; we wrap
-                        # in length-1 so the surrounding joint
-                        # accumulator can broadcast cleanly.
+                        # An inner block hands its per-position
+                        # aggregates to the enclosing block; the
+                        # outermost block contributes a scalar,
+                        # wrapped in length 1 so the joint
+                        # accumulator broadcasts cleanly.
                         if result.dim() == 0:
                             return result.reshape(1)
                         return result
@@ -2643,21 +2977,24 @@ class _ProgramsMixin:
                     # re-points at the outer's expected slot): emit a
                     # let so the outer's callable reads the inner's
                     # reduction from env without double-scoring.
-                    is_nested_inner = (
-                        step.body_ll_var is not None
-                        and step.body_ll_var != step.var_name
-                    )
                     marg_name = (
                         step.body_ll_var
                         if is_nested_inner
                         else f"_marg_{step.var_name}"
                     )
                     bound_vars[marg_name] = None
+                    marginal_reads: list[str] = [probs_var, *probs_indices]
+                    for slot, fib_var, fib_axes in observe_specs:
+                        marginal_reads.append(slot)
+                        if fib_var is not None:
+                            marginal_reads.append(fib_var)
+                        if fib_axes is not None:
+                            marginal_reads.extend(fib_axes)
                     steps.append(
                         (
                             (marg_name,),
                             None,
-                            _marginalize_grouped_callable,
+                            reading(_marginalize_grouped_callable, marginal_reads),
                             not is_nested_inner,
                         )
                     )
@@ -2703,15 +3040,18 @@ class _ProgramsMixin:
                     self._validate_let_expr_vars(step.value, bound_vars, step)
                     deductions_globals = dict(getattr(self, "_deductions", {}))
                     deductions_globals["__index_size__"] = self._resolve_index_size
-                    compiled_fn = self._locate_let_failure(
-                        self._compile_let_expr(
-                            step.value,
-                            globals_=deductions_globals,
+                    compiled_fn = reading(
+                        self._locate_let_failure(
+                            self._compile_let_expr(
+                                step.value,
+                                globals_=deductions_globals,
+                            ),
+                            "let",
+                            step.name,
+                            step.line,
+                            step.col,
                         ),
-                        "let",
-                        step.name,
-                        step.line,
-                        step.col,
+                        _let_expr_reads(step.value),
                     )
                     bound_vars[step.name] = None
                     steps.append(((step.name,), None, compiled_fn))
@@ -2734,15 +3074,18 @@ class _ProgramsMixin:
                 self._validate_let_expr_vars(step.value, bound_vars, step)
                 deductions_globals = dict(getattr(self, "_deductions", {}))
                 deductions_globals["__index_size__"] = self._resolve_index_size
-                compiled_fn = self._locate_let_failure(
-                    self._compile_let_expr(
-                        step.value,
-                        globals_=deductions_globals,
+                compiled_fn = reading(
+                    self._locate_let_failure(
+                        self._compile_let_expr(
+                            step.value,
+                            globals_=deductions_globals,
+                        ),
+                        "score",
+                        step.name,
+                        step.line,
+                        step.col,
                     ),
-                    "score",
-                    step.name,
-                    step.line,
-                    step.col,
+                    _let_expr_reads(step.value),
                 )
                 bound_vars[step.name] = None
                 steps.append(((step.name,), None, compiled_fn, True))
@@ -2831,6 +3174,48 @@ class _ProgramsMixin:
         else:
             self._morphisms[decl.name] = prog
 
+    def _bind_checked_program(
+        self,
+        decl: ProgramDecl,
+        domain: AnySpace,
+        codomain: AnySpace,
+    ) -> None:
+        """Bind a program to its checked computation.
+
+        Parameters
+        ----------
+        decl : ProgramDecl
+            The program declaration.
+        domain : AnySpace
+            Its resolved domain.
+        codomain : AnySpace
+            Its resolved codomain.
+
+        Raises
+        ------
+        CompileError
+            If the module's checked projection has no entry for the
+            program, because its elaboration fell in a gap.
+        """
+        module = self.qiec_module
+        if module is None or module.gap:
+            gap = (
+                module.gap if module is not None else "the source has no checked module"
+            )
+            raise CompileError(
+                f"program {decl.name!r} calls a named computation and must run "
+                f"as its checked computation, which is unavailable: {gap}",
+                decl.line,
+                decl.col,
+            )
+        if all(entry.name != decl.name for entry in module.entries):
+            raise CompileError(
+                f"program {decl.name!r} has no entry point in the checked module",
+                decl.line,
+                decl.col,
+            )
+        self._morphisms[decl.name] = CheckedProgram(domain, codomain, module, decl.name)
+
     def _compile_ungrouped_marginalize(
         self,
         step: GroupedMarginalizeStep,
@@ -2878,7 +3263,10 @@ class _ProgramsMixin:
         observe_step: VectorisedObserveStep | DrawStep | None = None
         for bstep in body_steps:
             if isinstance(bstep, LetStep):
-                fn = self._compile_let_expr(bstep.value, globals_=deductions_globals)
+                fn = reading(
+                    self._compile_let_expr(bstep.value, globals_=deductions_globals),
+                    _let_expr_reads(bstep.value),
+                )
                 body_lets.append((bstep.name, fn))
                 local_bv[bstep.name] = None
             elif isinstance(bstep, VectorisedObserveStep):
@@ -3093,18 +3481,33 @@ class _ProgramsMixin:
             return _prior.rsample(_lookup_arg(env, _arg))
 
         bound_vars[latent_name] = None
-        steps.append(((latent_name,), None, _latent_prior_sample))
+        steps.append(
+            (
+                (latent_name,),
+                None,
+                reading(_latent_prior_sample, _arg_names((prior_arg,))),
+            )
+        )
+        marginal_reads: set[str] = {*_arg_names((prior_arg,)), "_x_input"}
         for name, fn in body_lets:
             bound_vars[name] = None
             steps.append(((name,), None, fn))
+            declared = reads_of(fn)
+            assert declared is not None
+            marginal_reads |= declared
         if obs_family is not None and response_var is not None:
             bound_vars[response_var] = None
             steps.append(
                 ((response_var,), MarginalizedFactor(obs_family), obs_args, True)
             )
+            marginal_reads.add(response_var)
+            if obs_args is not None:
+                marginal_reads |= set(_arg_names(obs_args))
         marg_name = f"_marg_{latent_name}"
         bound_vars[marg_name] = None
-        steps.append(((marg_name,), None, _ungrouped_marginal, True))
+        steps.append(
+            ((marg_name,), None, reading(_ungrouped_marginal, marginal_reads), True)
+        )
 
     def _resolve_draw_morphism(
         self,
@@ -3166,11 +3569,6 @@ class _ProgramsMixin:
                         converted.append(str(a))
                 step_args = tuple(converted)
             return (morph, step_args)
-        from quivers.continuous.inline import (
-            get_inline_param_names,
-            make_inline_distribution,
-        )
-
         param_names = get_inline_param_names(draw.morphism)
         if param_names is not None:
             if draw.args is None:
@@ -3619,6 +4017,9 @@ class _ProgramsMixin:
                 _walk(node.right, locals_set)
             elif isinstance(node, LetExprUnaryOp):
                 _walk(node.operand, locals_set)
+            elif isinstance(node, LetExprTuple):
+                for item in node.items:
+                    _walk(item, locals_set)
             elif isinstance(node, LetExprCall):
                 for arg in node.args:
                     _walk(arg, locals_set)
@@ -3694,6 +4095,29 @@ class _ProgramsMixin:
                 return val
 
             return _string
+        if isinstance(node, LetExprBool):
+            flag = node.value
+
+            def _bool(env: dict) -> torch.Tensor:
+                return torch.tensor(flag)
+
+            return _bool
+        if isinstance(node, LetExprUnit):
+
+            def _unit(env: dict) -> None:
+                return None
+
+            return _unit
+        if isinstance(node, LetExprTuple):
+            item_fns = [
+                _ProgramsMixin._compile_let_expr(item, globals_=globals_)
+                for item in node.items
+            ]
+
+            def _tuple(env: dict) -> tuple[object, ...]:
+                return tuple(fn(env) for fn in item_fns)
+
+            return _tuple
         if isinstance(node, LetExprVar):
             name = node.name
             globs = globals_ or {}
@@ -3759,11 +4183,38 @@ class _ProgramsMixin:
                     return l * r
                 elif op == "/":
                     return l / r
+                elif op == "%":
+                    return torch.fmod(l, r)
+                elif op == "==":
+                    return l == r
+                elif op == "!=":
+                    return l != r
+                elif op == "<":
+                    return l < r
+                elif op == "<=":
+                    return l <= r
+                elif op == ">":
+                    return l > r
+                elif op == ">=":
+                    return l >= r
+                elif op == "&&":
+                    return torch.logical_and(l, r)
+                elif op == "||":
+                    return torch.logical_or(l, r)
                 raise ValueError(f"unknown operator: {op}")
 
             return _binop
         if isinstance(node, LetExprUnaryOp):
             inner_fn = _ProgramsMixin._compile_let_expr(node.operand, globals_=globals_)
+            if node.op == "not":
+
+                def _not(env: dict):
+                    v = inner_fn(env)
+                    if isinstance(v, torch.Tensor):
+                        return torch.logical_not(v)
+                    return not v
+
+                return _not
 
             def _neg(env: dict):
                 v = inner_fn(env)
@@ -3980,8 +4431,6 @@ class _ProgramsMixin:
                             "compose() takes exactly two arguments: "
                             "deduction systems D1 and D2"
                         )
-                    from quivers.stochastic.agenda import DeductionSystem
-
                     d1 = arg_fns[0](env)
                     d2 = arg_fns[1](env)
                     if not (

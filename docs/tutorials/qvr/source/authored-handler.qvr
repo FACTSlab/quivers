@@ -1,0 +1,19 @@
+effect Robust
+    shrink : Real -> Real
+
+instance robust : Robust
+
+handler half_weight for Robust : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return x =>
+        return x
+    shrink(x : Real) resumes 1 =>
+        resume(0.5 * x)
+
+define robust_request(x : Real) : Real !{robust | rho lacks robust} =
+    let adjusted <- perform robust.shrink(x)
+    return adjusted
+
+define robustify(x : Real) : Real !{} =
+    handle robust with half_weight in
+        let adjusted <- perform robust.shrink(x)
+        return adjusted

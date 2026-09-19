@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quivers"
-version = "0.18.0"
+version = "0.19.0"
 description = "A functional probabilistic programming language that compiles to PyTorch."
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,9 +30,9 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.0",
-    "didactic>=0.7.1",
-    "panproto>=0.58.0",
-    "panproto-grammars-all>=0.58.0",
+    "didactic>=0.17.1",
+    "panproto>=0.74.4",
+    "panproto-grammars-all>=0.74.4",
     "pygments>=2.10",
     "tree-sitter>=0.21",
 ]
@@ -42,6 +42,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov",
     "pytest-xdist>=3.6",
+    "pytest-timeout",
     "pytest-split>=0.9",
     "ruff>=0.15,<0.16",
     "pyright",
@@ -85,6 +86,11 @@ lsp = [
     "pygls>=2.0",
     "lsprotocol>=2024.0.0",
 ]
+targets = [
+    "pyro-ppl>=1.9",
+    "pymc>=5.20",
+    "scipy>=1.14",
+]
 
 [project.urls]
 Homepage = "https://github.com/FACTSlab/quivers"
@@ -102,6 +108,14 @@ qvr-kernel = "quivers.kernel.install:_entry"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quivers"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.wheel.force-include]
+"grammars/qvr/src" = "quivers/dsl/_grammar_data/src"
+"grammars/qvr/queries/highlights.scm" = "quivers/dsl/_grammar_data/highlights.scm"
+"grammars/qvr/vcs/.panproto" = "quivers/cli/migrations/_grammar_vcs/.panproto"
 
 [tool.ruff.lint]
 ignore = ["E741"]

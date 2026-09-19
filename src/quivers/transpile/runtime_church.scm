@@ -299,6 +299,44 @@
   (record-score! s)
   s)
 
+;; ---- marginalize reductions ----
+;; A `marginalize` block scores one copy of its scope per atom of the
+;; latent's finite support and reduces across the atoms. The scored
+;; copies are per-row lists shaped like the scope's observation plate,
+;; so the reductions below walk nested lists.
+
+;; Sum of every leaf of a (possibly nested) list.
+(define (sum-leaves x)
+  (if (pair? x) (sum (map sum-leaves x)) x))
+
+;; Entry k of the innermost axis of a (possibly nested) list: a
+;; categorical atom set reads its log-weights off the class axis,
+;; which is the innermost axis however many grouping axes sit above.
+(define (take-last x k)
+  (if (and (pair? x) (pair? (car x)))
+      (map (lambda (row) (take-last row k)) x)
+      (list-ref x k)))
+
+;; Per-group sums of a per-row list through a fibration: entry g is
+;; the sum of the rows `via` sends to group g, over `extent` groups.
+(define (group-sums rows via extent)
+  (map (lambda (g)
+         (sum (map (lambda (r i) (if (= i g) r 0.0)) rows via)))
+       (iota extent)))
+
+;; Elementwise logsumexp across a list of same-shaped terms, one per
+;; atom. Shifting by the running maximum keeps the exponentials in
+;; range; an all `-inf` cell stays `-inf` rather than becoming `nan`.
+(define (log-sum-exp terms)
+  (cond ((null? terms) *neg-inf*)
+        ((pair? (car terms))
+         (apply map (lambda ts (log-sum-exp ts)) terms))
+        (else
+         (let ((m (apply max terms)))
+           (if (= m *neg-inf*)
+               *neg-inf*
+               (+ m (log (sum (map (lambda (t) (exp (- t m))) terms)))))))))
+
 ;; Restrict a distribution that is symmetric about zero to the
 ;; nonnegative reals, folding its mass by absolute value. The folded
 ;; density on x >= 0 is twice the base density, so `(half (gaussian 0
@@ -398,10 +436,16 @@
     (lambda (x)
       (+ (log alpha) (* alpha (log scale)) (* (- (+ alpha 1.0)) (log x))))))
 
+;; A zero rate is the point mass at zero: a marginalize atom that pins
+;; a zero-inflation indicator to 0 gates the rate to exactly that
+;; boundary, where the QVR reference scores the mass at zero.
 (define (poisson rate)
   (make-dist
     (lambda () (draw-poisson rate))
-    (lambda (x) (- (* x (log rate)) rate (log-factorial x)))))
+    (lambda (x)
+      (if (= rate 0)
+          (if (= x 0) 0.0 *neg-inf*)
+          (- (* x (log rate)) rate (log-factorial x))))))
 
 ;; Geometric(probs): torch's failures-before-success support.
 (define (geometric p)

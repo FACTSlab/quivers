@@ -1600,6 +1600,7 @@ def push_scalar_dets_into_loops(ir: IRProgram) -> IRProgram:
         name=ir.name,
         inputs=new_inputs,
         body=tuple(new_body),
+        module=ir.module,
         cards=ir.cards,
     )
 
@@ -2242,3 +2243,60 @@ def marginal_scope_density(
             f"for this family"
         ],
     )
+
+
+def list_cells(
+    expr: LetExprList, prefix: tuple[int, ...]
+) -> list[tuple[tuple[int, ...], LetExprNode]]:
+    """The scalar cells of a nested list literal with their coordinates.
+
+    Parameters
+    ----------
+    expr : LetExprList
+        The literal.
+    prefix : tuple[int, ...]
+        The coordinates of the enclosing literals.
+
+    Returns
+    -------
+    list[tuple[tuple[int, ...], LetExprNode]]
+        One `(indices, item)` pair per scalar cell, row-major, indices
+        counting from zero.
+    """
+    cells: list[tuple[tuple[int, ...], LetExprNode]] = []
+    for position, item in enumerate(expr.items):
+        if isinstance(item, LetExprList):
+            cells.extend(list_cells(item, (*prefix, position)))
+        else:
+            cells.append(((*prefix, position), item))
+    return cells
+
+
+def list_sizes(expr: LetExprList) -> tuple[int, ...]:
+    """The extent of each nesting level of a rectangular list literal.
+
+    Parameters
+    ----------
+    expr : LetExprList
+        The literal.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The literal's extent, then its first item's, and so on.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the rows of one level differ in extent.
+    """
+    sizes: list[int] = [len(expr.items)]
+    inner = tuple(item for item in expr.items if isinstance(item, LetExprList))
+    if not inner:
+        return tuple(sizes)
+    shapes = {list_sizes(item) for item in inner}
+    if len(inner) != len(expr.items) or len(shapes) != 1:
+        raise UnsupportedConstruct(
+            "qvr-bugs", ["let-expr:list:ragged: a plated list literal is rectangular"]
+        )
+    return (*sizes, *shapes.pop())

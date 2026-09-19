@@ -175,7 +175,7 @@ $$
      {\mathrm{Chart}[i, j] \ni (\alpha; \bar S \cdot U \cdot T)}\ \textsc{Swap}_{T \mid U}
 $$
 
-In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$ — every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
+In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by the cells' type coordinates (which must match $\pi_1$ and $\pi_2$ structurally); we elide its construction. $\textsc{Lift}_T$ requires only that $T$ inhabit $\mathbf{Applicative}$; every $\mathbf{Monad}$ extends $\mathbf{Applicative}$, so the rule covers monadic effects as a special case. $\textsc{Handle}_{T \to S}$ and $\textsc{Eliminate}_T$ are syntactic variants of the same handler firing, separated so each rule has a single conclusion shape.
 
 The denotation of every derivation built from these four rules is
 the corresponding composite natural transformation in
@@ -256,12 +256,13 @@ $$
 \mathrm{arrow\_monad} \;:\; \mathrm{ThArrowApply} \;\to\; \mathrm{ThMonad}
 $$
 
-with $\mathrm{arrow\_monad} \circ \mathrm{kleisli} \;\cong\; \mathrm{id}_{\mathrm{ThMonad}}$
+These functions implement the ArrowApply/Monad constructions described by
+[Hughes (2000)](https://doi.org/10.1016/S0167-6423(99)00023-4). In Quivers,
+$\mathrm{arrow\_monad} \circ \mathrm{kleisli} \;\cong\; \mathrm{id}_{\mathrm{ThMonad}}$
 and $\mathrm{kleisli} \circ \mathrm{arrow\_monad} \;\cong\; \mathrm{id}_{\mathrm{ThArrowApply}}$
-naturally isomorphic (not equal) via the canonical
+are naturally isomorphic (not equal) via the canonical
 $1 \otimes A \cong A$ unitor that absorbs the
-``ArrowMonad(a)(A) = a(1, A)`` boxing
-([Hughes 2000](https://doi.org/10.1016/S0167-6423(99)00023-4), Theorem 3.1). Consequently the
+``ArrowMonad(a)(A) = a(1, A)`` boxing. Consequently the
 arrow-side and monad-side presentations of any effect agree on
 denotation up to the canonical isomorphism. When the underlying
 monad is also a *monad-fix*, admitting a least-fixed-point
@@ -278,9 +279,67 @@ the inside score is the standard Lambek / CCG / multimodal-TLG
 chart-parser denotation. The effects framework is thus a strict
 extension over the bare grammar fragment.
 
+## 8. QIEC rows and lexical handlers
+
+QIEC is the explicitly typed account of effects every computation of a module
+is checked under, the elaborated `program` included. An applied
+interface $E[\bar a]$ describes an operation family, while a lexical instance
+$i:E[\bar a]$ supplies the identity that appears in a row. This distinction
+means that two state cells with the same value type need not collapse into one
+capability. A row has the schematic form
+$\{i_1,\ldots,i_n\mid\rho\;\mathsf{lacks}\;j_1,\ldots,j_m\}$; its tail supports
+effect polymorphism, and its lacks set records negative constraints needed by
+row extension and handler elimination.
+
+The reference evaluator gives QIEC computations a deep, lexical handler
+semantics. Resuming a captured continuation reinstalls the matched handler,
+while an effect performed by the clause body is offered to outer handlers.
+Dispatch compares the lexical instance, applied interface, and operation.
+Thus an unrelated instance of the same interface cannot be intercepted by
+accident. Dynamic grade checks enforce the declared number of resumptions, and
+multi-shot resumptions extend their trace address with a branch path.
+
+This **row bridge** unifies the source contracts of state, abort, random choice,
+scoring, nondeterministic choice, and weighted accumulation. A handler's
+clauses are authored in the source or remain process-local attachments. Pyro,
+NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church lower the same typed
+computation graph through corresponding implementations of the stable-ID
+runtime ABI. Conformance tests exercise these implementations in the target
+runtimes against the reference machine at clamped points, but do not prove
+them equivalent; each dispatches by stable instance and operation identifiers
+rather than by interface names. Stan lowers a computation with an empty closed
+effect row, an empty static telescope, and a scalar result as a user-defined
+function, conditionals, calls, and recursion included; BUGS and JAGS refuse
+every call. The static targets issue precise capability diagnostics for the
+rest. Establishing a backend-level adequacy proof between each generated
+runtime and the reference evaluator remains a live possibility. The
+[QIEC developer note](../developer/qiec.md) gives the executable boundary.
+
+The effect handlers of [`quivers.effects`](../api/effects/index.md) are
+lexical handlers of this calculus. A `MonadicProgram` runs on the reference
+machine as the kernel computation
+[`program_kernel`](../api/effects/program_module.md) encodes it to: each host
+step is an instance of the prelude's `Compute` interface performed on the
+environment of every value bound so far, each draw is the canonical
+`Random.sample` request on the program's `random` instance, and each site's
+density is a `Score.add` the answering handler emits on the program's `score`
+instance. A handler on the `with` stack installs a lexical handler of one of
+those instances; the run nests them in a fixed order, the score accumulator
+outermost, then every score transformer, then the scoring draw and the run's
+observations, then every handler of `random` in stack order, then the
+parameter store and the `param` handlers layered over it, then the host
+steps. Two consequences follow. An inner handler of `random` sees a site's
+request before any outer one and sees the outer answer flow back through its
+resumption, so a trace inside a clamp records the clamped value. A site's
+density is emitted outward by whichever handler answered it, so every score
+transformer reaches every site, and a trace reads each site's density from
+what reached the accumulator under the site's provenance, which the kernel
+carries on every derived request as the site's static identity and dynamic
+address.
+
 ## References
 
-- Bumford, D. and Charlow, S. (2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
-- Hughes, J. (2000). [*Generalizing monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
+- Bumford, D. and Charlow, S. (forthcoming, 2026). [*Effect-Driven Interpretation: Functors for Natural Language Composition*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4). Cambridge Elements in Semantics. Cambridge University Press. Online ISBN 9781009285377; preprint [arXiv:2504.00316](https://arxiv.org/abs/2504.00316), draft at [simoncharlow.com/papers/cup-effects.pdf](https://simoncharlow.com/papers/cup-effects.pdf).
+- Hughes, J. (2000). [*Generalising monads to arrows*](https://doi.org/10.1016/S0167-6423(99)00023-4). Science of Computer Programming, 37(1–3), 67–111.
 - Plotkin, G. and Power, J. (2003). [*Algebraic operations and generic effects*](https://doi.org/10.1023/A:1023064908962). Applied Categorical Structures, 11(1), 69–94.
 - Bauer, A. and Pretnar, M. (2015). [*Programming with algebraic effects and handlers*](https://doi.org/10.1016/j.jlamp.2014.02.001). Journal of Logical and Algebraic Methods in Programming, 84(1), 108–123.

@@ -43,9 +43,12 @@ const PREC = {
   object_slash: 2,
   object_product: 3,
   object_apply: 4,
-  let_add: 1,
-  let_mul: 2,
-  let_unary: 3,
+  let_or: 1,
+  let_and: 2,
+  let_compare: 3,
+  let_add: 4,
+  let_mul: 5,
+  let_unary: 6,
 };
 
 module.exports = grammar({
@@ -85,6 +88,12 @@ module.exports = grammar({
     _top: $ => choice($._statement, $._newline),
 
     _statement: $ => choice(
+      $.index_decl,
+      $.indexed_family_decl,
+      $.effect_decl,
+      $.effect_instance_decl,
+      $.handler_decl,
+      $.computation_decl,
       $.composition_decl,
       $.category_decl,
       $.rule_decl,
@@ -103,6 +112,706 @@ module.exports = grammar({
       $.loss_decl,
       $.pragma_outer,
       $.pragma_inner,
+    ),
+
+    // -----------------------------------------------------------------
+    // QIEC declarations
+    // -----------------------------------------------------------------
+
+    /* Closed user index sorts. Constructor arguments name their recursive
+     * index sorts, e.g. ``index Nat = Z | S(Nat)``. */
+    index_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'index',
+      field('name', $.identifier),
+      '=',
+      field('constructors', $.qiec_index_constructor),
+      repeat(seq('|', field('constructors', $.qiec_index_constructor))),
+      $._newline,
+    ),
+
+    qiec_index_constructor: $ => seq(
+      field('name', $.identifier),
+      optional(seq(
+        '(',
+        field('arguments', $.qiec_index_sort),
+        repeat(seq(',', field('arguments', $.qiec_index_sort))),
+        ')',
+      )),
+    ),
+
+    /* Family parameters and refinable indices deliberately use different
+     * delimiters. Static parameters live in ``[...]``; indices live in
+     * ``(...)`` and are marked refinable by the lowering boundary. */
+    indexed_family_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'family',
+      field('name', $.identifier),
+      optional(field('parameters', $.qiec_static_telescope)),
+      optional(field('indices', $.qiec_index_telescope)),
+      ':',
+      field('kind', $.qiec_type_kind),
+      $._newline,
+      $._indent,
+      repeat1(choice(field('constructors', $.qiec_constructor_decl), $._newline)),
+      $._dedent,
+    ),
+
+    qiec_constructor_decl: $ => seq(
+      'constructor',
+      field('name', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      ':',
+      choice(
+        seq(
+          field('arguments', $._qiec_value_type),
+          repeat(seq('*', field('arguments', $._qiec_value_type))),
+          '->',
+          field('result', $._qiec_type_expr),
+        ),
+        field('result', $._qiec_value_type),
+      ),
+      $._newline,
+    ),
+
+    effect_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'effect',
+      field('name', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      $._newline,
+      $._indent,
+      repeat1(choice(field('operations', $.qiec_operation_decl), $._newline)),
+      $._dedent,
+    ),
+
+    qiec_operation_decl: $ => seq(
+      field('name', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      ':',
+      choice(
+        seq(
+          field('arguments', $._qiec_value_type),
+          repeat(seq('*', field('arguments', $._qiec_value_type))),
+          '->',
+          field('result', $._qiec_type_expr),
+        ),
+        field('result', $._qiec_value_type),
+      ),
+      $._newline,
+    ),
+
+    effect_instance_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'instance',
+      field('name', $.identifier),
+      ':',
+      field('effect', $.qiec_effect_ref),
+      $._newline,
+    ),
+
+    /* Handler declarations expose only stable signatures and clause grades.
+     * Runtime clause bodies remain attachment-owned and are never serialized. */
+    handler_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'handler',
+      field('name', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      'for',
+      field('effect', $.qiec_effect_ref),
+      ':',
+      field('input', $._qiec_value_type),
+      '->',
+      choice(
+        prec(10, seq(
+          field('output', $._qiec_type_expr),
+          field('options', $.qiec_handler_options),
+        )),
+        field('output', $._qiec_type_expr),
+      ),
+      $._newline,
+      $._indent,
+      repeat1(choice(field('clauses', $._qiec_handler_clause), $._newline)),
+      $._dedent,
+    ),
+
+    qiec_handler_options: $ => seq(
+      field('entries', $.qiec_handler_first_option),
+      repeat(seq(',', field('entries', $.qiec_handler_option))),
+      optional(','),
+      ']',
+    ),
+
+    /* The opening bracket and first key form one lexical token. This keeps
+     * ``A [coverage=total]`` disjoint from the type application ``A[T]``
+     * without imposing whitespace-sensitive parsing. */
+    qiec_handler_first_option: $ => choice(
+      seq(
+        alias(token(/\[[ \t]*coverage/), $.qiec_handler_coverage_key),
+        '=',
+        field('coverage', choice('total', 'partial')),
+      ),
+      seq(
+        alias(token(/\[[ \t]*forwards/), $.qiec_handler_forwards_key),
+        '=',
+        field('forwards', choice('unknown', 'none')),
+      ),
+      seq(
+        alias(token(/\[[ \t]*introduces/), $.qiec_handler_introduces_key),
+        '=',
+        field('introduced', $.qiec_effect_row),
+      ),
+      seq(
+        alias(token(/\[[ \t]*implementation/), $.qiec_handler_implementation_key),
+        '=',
+        field('implementation', choice('authored', 'foreign')),
+      ),
+    ),
+
+    qiec_handler_option: $ => choice(
+      seq('coverage', '=', field('coverage', choice('total', 'partial'))),
+      seq('forwards', '=', field('forwards', choice('unknown', 'none'))),
+      seq('introduces', '=', field('introduced', $.qiec_effect_row)),
+      seq(
+        'implementation',
+        '=',
+        field('implementation', choice('authored', 'foreign')),
+      ),
+    ),
+
+    _qiec_handler_clause: $ => choice(
+      $.qiec_handler_return_clause,
+      $.qiec_handler_operation_clause,
+    ),
+
+    /* What the handler does with a value the handled computation returns.
+     * At most one per handler; the checker enforces that. */
+    qiec_handler_return_clause: $ => seq(
+      'return',
+      field('binder', $.qiec_local_binding),
+      '=>',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    /* One operation. The body form binds the operation's static and value
+     * arguments and may invoke ``resume``; the bodiless form is a signature
+     * for a handler whose implementation is supplied at runtime, which the
+     * declaration must mark ``implementation=foreign``. */
+    qiec_handler_operation_clause: $ => seq(
+      field('operation', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      optional(seq(
+        '(',
+        optional(seq(
+          field('parameters', $.qiec_local_binding),
+          repeat(seq(',', field('parameters', $.qiec_local_binding))),
+          optional(','),
+        )),
+        ')',
+      )),
+      'resumes',
+      field('grade', $.qiec_resumption_grade),
+      choice(
+        $._newline,
+        seq(
+          '=>',
+          $._newline,
+          $._indent,
+          field('body', $._qiec_computation),
+          $._dedent,
+        ),
+      ),
+    ),
+
+    qiec_resumption_grade: _ => choice('0', 'aff', '1', 'omega'),
+
+    /* ``define`` remains the language's binding keyword. The typed
+     * computation header makes this alternative disjoint from the existing
+     * morphism-expression ``define NAME = EXPR`` form. */
+    computation_decl: $ => seq(
+      optional(field('docs', $.doc_comment_group)),
+      'define',
+      field('name', $.identifier),
+      optional(field('binders', $.qiec_static_telescope)),
+      optional(seq(
+        '(',
+        optional(seq(
+          field('parameters', $.qiec_value_parameter),
+          repeat(seq(',', field('parameters', $.qiec_value_parameter))),
+          optional(','),
+        )),
+        ')',
+      )),
+      ':',
+      field('result', $._qiec_type_expr),
+      field('row', $.qiec_effect_row),
+      '=',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    qiec_value_parameter: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('type', $._qiec_type_expr),
+    ),
+
+    // -----------------------------------------------------------------
+    // QIEC static language
+    // -----------------------------------------------------------------
+
+    qiec_static_telescope: $ => seq(
+      '[',
+      field('binders', $._qiec_static_binder),
+      repeat(seq(',', field('binders', $._qiec_static_binder))),
+      optional(','),
+      ']',
+    ),
+
+    _qiec_static_binder: $ => choice(
+      $.qiec_type_binder,
+      $.qiec_index_binder,
+      $.qiec_effect_binder,
+    ),
+
+    qiec_type_binder: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('kind', $.qiec_type_kind),
+    ),
+
+    qiec_effect_binder: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('kind', $.qiec_effect_kind),
+    ),
+
+    qiec_index_binder: $ => seq(
+      field('name', $.identifier),
+      ':',
+      field('sort', $.qiec_index_sort),
+    ),
+
+    qiec_index_telescope: $ => seq(
+      '(',
+      field('binders', $.qiec_index_binder),
+      repeat(seq(',', field('binders', $.qiec_index_binder))),
+      optional(','),
+      ')',
+    ),
+
+    qiec_type_kind: _ => 'Type',
+    qiec_effect_kind: _ => 'Effect',
+
+    qiec_index_sort: $ => choice(
+      alias('Nat', $.qiec_nat_sort),
+      seq(
+        alias('Shape', $.qiec_shape_sort),
+        optional(seq('[', field('rank', $.integer), ']')),
+      ),
+      seq(
+        alias('Context', $.qiec_context_sort),
+        '[',
+        field('signature', $.identifier),
+        ']',
+      ),
+      $.qiec_user_index_sort,
+    ),
+
+    qiec_user_index_sort: $ => field('name', $.identifier),
+
+    _qiec_type_expr: $ => choice(
+      $.qiec_function_type,
+      $.qiec_product_type,
+      $.qiec_type_application,
+      $.qiec_type_name,
+      $.qiec_type_paren,
+    ),
+
+    /* A non-arrow, non-product type factor. Declaration signatures use this
+     * rule on the left of their own ``*`` / ``->`` separators so Panproto's
+     * named ``arguments`` and ``result`` fields cannot be swallowed by a
+     * nested expression node. Parentheses remain available when a genuinely
+     * higher-order argument type is needed. */
+    _qiec_value_type: $ => choice(
+      $.qiec_type_application,
+      $.qiec_type_name,
+      $.qiec_type_paren,
+    ),
+
+    qiec_function_type: $ => prec.right(1, seq(
+      field('parameter', $._qiec_type_expr),
+      '->',
+      field('result', $._qiec_type_expr),
+    )),
+
+    qiec_product_type: $ => prec.left(2, seq(
+      field('left', $._qiec_type_expr),
+      '*',
+      field('right', $._qiec_type_expr),
+    )),
+
+    qiec_type_application: $ => prec(4, seq(
+      field('constructor', $.identifier),
+      choice(
+        seq(
+          '[',
+          field('arguments', $.qiec_static_argument),
+          repeat(seq(',', field('arguments', $.qiec_static_argument))),
+          optional(','),
+          ']',
+          optional(seq(
+            '(',
+            field('indices', $._qiec_index_term),
+            repeat(seq(',', field('indices', $._qiec_index_term))),
+            optional(','),
+            ')',
+          )),
+        ),
+        seq(
+          '(',
+          field('indices', $._qiec_index_term),
+          repeat(seq(',', field('indices', $._qiec_index_term))),
+          optional(','),
+          ')',
+        ),
+      ),
+    )),
+
+    /* A static argument is a type, an effect, or an index. Types and
+     * effects share the type syntax and are told apart by the binder they
+     * fill; a bare integer is an index literal, so a computation with a
+     * ``Nat`` binder can be applied to a literal extent. */
+    qiec_static_argument: $ => field('value', choice(
+      $._qiec_type_expr,
+      $.qiec_index_literal,
+    )),
+    qiec_type_name: $ => field('name', $.identifier),
+    qiec_type_paren: $ => seq('(', field('type', $._qiec_type_expr), ')'),
+
+    _qiec_index_term: $ => choice(
+      $.qiec_index_application,
+      $.qiec_index_name,
+      $.qiec_index_literal,
+      $.qiec_shape_index,
+    ),
+
+    qiec_index_application: $ => seq(
+      field('constructor', $.identifier),
+      '(',
+      field('arguments', $._qiec_index_term),
+      repeat(seq(',', field('arguments', $._qiec_index_term))),
+      optional(','),
+      ')',
+    ),
+
+    qiec_index_name: $ => field('name', $.identifier),
+    qiec_index_literal: $ => field('value', $.integer),
+    qiec_shape_index: $ => seq(
+      '[',
+      optional(seq(
+        field('dimensions', $._qiec_index_term),
+        repeat(seq(',', field('dimensions', $._qiec_index_term))),
+        optional(','),
+      )),
+      ']',
+    ),
+
+    qiec_effect_ref: $ => seq(
+      field('name', $.identifier),
+      optional(seq(
+        '[',
+        field('arguments', $.qiec_static_argument),
+        repeat(seq(',', field('arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+    ),
+
+    qiec_effect_row: $ => seq('!', field('row', $.qiec_effect_row_literal)),
+
+    qiec_effect_row_literal: $ => seq(
+      '{',
+      optional(choice(
+        seq(
+          field('entries', $.qiec_row_entry),
+          repeat(seq(',', field('entries', $.qiec_row_entry))),
+          optional($._qiec_row_tail),
+        ),
+        $._qiec_row_tail,
+      )),
+      '}',
+    ),
+
+    _qiec_row_tail: $ => seq(
+      '|',
+      field('tail', $.identifier),
+      optional(seq(
+        'lacks',
+        field('lacks', $.identifier),
+        repeat(seq(',', field('lacks', $.identifier))),
+      )),
+    ),
+
+    qiec_row_entry: $ => field('name', $.identifier),
+
+    // -----------------------------------------------------------------
+    // QIEC value and computation terms
+    // -----------------------------------------------------------------
+
+    _qiec_computation: $ => choice(
+      $.qiec_bind_computation,
+      $.qiec_pure_binding,
+      $.qiec_sequence_computation,
+      $.qiec_return_computation,
+      $.qiec_handle_computation,
+      $.qiec_instance_computation,
+      $.qiec_case_computation,
+      $.qiec_if_computation,
+      $.qiec_perform_computation,
+      $.qiec_call_computation,
+      $.qiec_resume_computation,
+    ),
+
+    /* A pure binding names a serializable expression; the monadic form
+     * below names a computation's result. They are separate nodes because
+     * they have separate typing rules, and one spelling each. */
+    qiec_pure_binding: $ => seq(
+      'let',
+      field('binder', $.qiec_local_binding),
+      '=',
+      field('value', $._qiec_value),
+      $._newline,
+      field('then', $._qiec_computation),
+    ),
+
+    qiec_bind_computation: $ => seq(
+      'let',
+      field('binder', $.qiec_local_binding),
+      '<-',
+      field('first', $._qiec_inline_computation),
+      field('then', $._qiec_computation),
+    ),
+
+    qiec_sequence_computation: $ => seq(
+      field('first', $._qiec_inline_computation),
+      field('then', $._qiec_computation),
+    ),
+
+    qiec_return_computation: $ => seq(
+      'return',
+      field('value', $._qiec_value),
+      $._newline,
+    ),
+
+    _qiec_inline_computation: $ => choice(
+      $.qiec_perform_computation,
+      $.qiec_call_computation,
+      $.qiec_resume_computation,
+    ),
+
+    /* Ordinary application is the one call syntax. It is disjoint from an
+     * effect request, which is qualified by an instance, and from a
+     * constructor value, which is introduced by ``construct``. The value
+     * parentheses are required even when empty, so a nullary call is not
+     * read as a bare variable. */
+    qiec_call_computation: $ => seq(
+      field('callee', $.identifier),
+      optional(seq(
+        '[',
+        field('static_arguments', $.qiec_static_argument),
+        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+      '(',
+      optional(seq(
+        field('arguments', $._qiec_value),
+        repeat(seq(',', field('arguments', $._qiec_value))),
+        optional(','),
+      )),
+      ')',
+      $._newline,
+    ),
+
+    /* Invoking the continuation of the enclosing handler clause. The
+     * resumption is not a named local, so there is one way to invoke it and
+     * no second call syntax to keep in step. */
+    qiec_resume_computation: $ => seq(
+      'resume',
+      '(',
+      optional(field('value', $._qiec_value)),
+      ')',
+      $._newline,
+    ),
+
+    qiec_perform_computation: $ => seq(
+      'perform',
+      field('request', $.qiec_effect_request),
+      $._newline,
+    ),
+
+    qiec_effect_request: $ => seq(
+      field('instance', $.identifier),
+      '.',
+      field('operation', $.identifier),
+      optional(seq(
+        '[',
+        field('static_arguments', $.qiec_static_argument),
+        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+      '(',
+      optional(seq(
+        field('arguments', $._qiec_value),
+        repeat(seq(',', field('arguments', $._qiec_value))),
+        optional(','),
+      )),
+      ')',
+    ),
+
+    qiec_handle_computation: $ => seq(
+      'handle',
+      field('instance', $.identifier),
+      'with',
+      field('handler', $.qiec_handler_application),
+      'in',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    /* Lexically scoped allocation. The binder is live only in the body,
+     * which is what keeps the instance and any row mentioning it from
+     * escaping. */
+    qiec_instance_computation: $ => seq(
+      'with',
+      'instance',
+      field('name', $.identifier),
+      ':',
+      field('effect', $.qiec_effect_ref),
+      'in',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    qiec_handler_application: $ => seq(
+      field('name', $.identifier),
+      optional(seq(
+        '[',
+        field('arguments', $.qiec_static_argument),
+        repeat(seq(',', field('arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+    ),
+
+    /* Branch on a Boolean value. Both branches are computations, so a
+     * recursive computation can stop: the untaken branch is never
+     * entered, which a value-level select could not promise. */
+    qiec_if_computation: $ => seq(
+      'if',
+      field('condition', $._let_arith),
+      'then',
+      $._newline,
+      $._indent,
+      field('then', $._qiec_computation),
+      $._dedent,
+      'else',
+      $._newline,
+      $._indent,
+      field('otherwise', $._qiec_computation),
+      $._dedent,
+    ),
+
+    qiec_case_computation: $ => seq(
+      'case',
+      field('scrutinee', $._qiec_value),
+      field('motive', $.qiec_case_motive),
+      $._newline,
+      $._indent,
+      repeat1(choice(field('branches', $.qiec_case_branch), $._newline)),
+      $._dedent,
+    ),
+
+    qiec_case_motive: $ => seq(
+      'motive',
+      optional(field('indices', $.qiec_index_telescope)),
+      '=>',
+      field('result', $._qiec_type_expr),
+    ),
+
+    qiec_case_branch: $ => seq(
+      field('constructor', $.identifier),
+      optional(seq(
+        '[',
+        field('binders', $.qiec_case_static_binder),
+        repeat(seq(',', field('binders', $.qiec_case_static_binder))),
+        optional(','),
+        ']',
+      )),
+      optional(seq(
+        '(',
+        optional(seq(
+          field('fields', $.qiec_local_binding),
+          repeat(seq(',', field('fields', $.qiec_local_binding))),
+          optional(','),
+        )),
+        ')',
+      )),
+      '=>',
+      $._newline,
+      $._indent,
+      field('body', $._qiec_computation),
+      $._dedent,
+    ),
+
+    /* Constructor-local variables are patterns, not static applications.
+     * The lowerer resolves these authored names to canonical branch skolems. */
+    qiec_case_static_binder: $ => field('name', $.identifier),
+
+    qiec_local_binding: $ => seq(
+      field('name', $.identifier),
+      optional(seq(':', field('type', $._qiec_type_expr))),
+    ),
+
+    /* A QIEC value is the shared pure-expression sublanguage plus
+     * constructor application. Variables, literals, operators, tuples,
+     * and builtin applications are the same nodes a ``program`` let step
+     * uses, so there is one expression tree for both surfaces. */
+    _qiec_value: $ => choice(
+      $.qiec_constructor_value,
+      $._let_arith,
+    ),
+
+    qiec_constructor_value: $ => seq(
+      'construct',
+      field('constructor', $.identifier),
+      optional(seq(
+        '[',
+        field('static_arguments', $.qiec_static_argument),
+        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
+        optional(','),
+        ']',
+      )),
+      '(',
+      optional(seq(
+        field('fields', $._qiec_value),
+        repeat(seq(',', field('fields', $._qiec_value))),
+        optional(','),
+      )),
+      ')',
+      'as',
+      field('result', $._qiec_type_expr),
     ),
 
     // -----------------------------------------------------------------
@@ -859,6 +1568,7 @@ module.exports = grammar({
       $.observe_step,
       $.marginalize_step,
       $.let_step,
+      $.call_step,
       $.score_step,
     ),
 
@@ -904,6 +1614,16 @@ module.exports = grammar({
       '=',
       field('value', $._let_arith),
       $._newline,
+    ),
+
+    // Call step: ``let NAME <- COMPUTATION(args)``. The bound name takes
+    // the result of a named computation; the callee's effects join the
+    // program's row.
+    call_step: $ => seq(
+      'let',
+      field('name', $.identifier),
+      '<-',
+      field('call', $.qiec_call_computation),
     ),
 
     // Score / factor step: ``score NAME = EXPR``. The value of
@@ -1290,6 +2010,7 @@ module.exports = grammar({
 
     _let_atom: $ => choice(
       $.let_paren,
+      $.let_tuple,
       $.let_method_call,
       $.let_call,
       $.let_index,
@@ -1297,9 +2018,26 @@ module.exports = grammar({
       $.let_factor,
       $.let_lambda,
       $.let_string,
+      $.let_bool,
+      $.let_unit,
       $.let_var,
       $.let_literal,
     ),
+
+    /* ``(a, b)`` builds a finite product; a parenthesized single
+     * expression is grouping, not a one-tuple. A component is selected
+     * by position with the indexing form, ``t[0]``. */
+    let_tuple: $ => seq(
+      '(',
+      field('items', $._let_arith),
+      ',',
+      commaSep1(field('items', $._let_arith)),
+      optional(','),
+      ')',
+    ),
+
+    let_bool: _ => choice('true', 'false'),
+    let_unit: _ => 'unit',
 
     let_factor: $ => prec.right(seq(
       'factor',
@@ -1362,11 +2100,26 @@ module.exports = grammar({
     )),
 
     let_unary: $ => prec(PREC.let_unary, seq(
-      '-',
+      field('op', choice('-', 'not')),
       field('operand', $._let_atom),
     )),
 
     let_binop: $ => choice(
+      prec.left(PREC.let_or, seq(
+        field('left', $._let_arith),
+        field('op', '||'),
+        field('right', $._let_arith),
+      )),
+      prec.left(PREC.let_and, seq(
+        field('left', $._let_arith),
+        field('op', '&&'),
+        field('right', $._let_arith),
+      )),
+      prec.left(PREC.let_compare, seq(
+        field('left', $._let_arith),
+        field('op', choice('==', '!=', '<', '<=', '>', '>=')),
+        field('right', $._let_arith),
+      )),
       prec.left(PREC.let_add, seq(
         field('left', $._let_arith),
         field('op', choice('+', '-')),
@@ -1374,7 +2127,7 @@ module.exports = grammar({
       )),
       prec.left(PREC.let_mul, seq(
         field('left', $._let_arith),
-        field('op', choice('*', '/')),
+        field('op', choice('*', '/', '%')),
         field('right', $._let_arith),
       )),
     ),

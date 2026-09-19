@@ -15,14 +15,11 @@ import panproto
 
 from quivers.dsl.ast_nodes import (
     Expr,
-    Module,
     MorphismDecl,
 )
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import (
-    SchemaTransform,
     parser_registry,
-    realize,
     target_protocol,
 )
 from quivers.transpile.renderers._python_helpers import (
@@ -39,6 +36,7 @@ from quivers.transpile.renderers._python_helpers import (
     marginal_support_size,
     marginal_weight_probs,
     marginalize_body,
+    marginalize_fibration,
     name_event_rank_map,
     name_plate_map,
     number_literal,
@@ -51,10 +49,6 @@ from quivers.transpile.renderers._python_helpers import (
     render_let_expr_python,
     string_literal,
     with_statement,
-)
-from quivers.transpile._resolve import (
-    build_let_table,
-    build_morphism_table,
 )
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
 from quivers.transpile.ir import (
@@ -78,10 +72,10 @@ from quivers.transpile.ir import (
     IRProgram,
     IRReturn,
     IRSample,
+    IRCall,
     IRScore,
     Plate,
 )
-from quivers.transpile.lower import Lower
 from quivers.transpile.renderers._base import (
     refuse_ungrouped_row_marginalize,
     BlockKind,
@@ -92,6 +86,12 @@ from quivers.transpile.renderers._base import (
     _RenderCtx,
     assert_no_dropped_param_map,
     assert_no_dangling_refs,
+)
+from quivers.transpile.renderers._qiec import (
+    emit_call_python,
+    graft_python_statements,
+    qiec_helper_families_used,
+    render_computations_dynamic,
 )
 
 
@@ -174,6 +174,9 @@ class PyMCRenderer(RendererBase):
 
         # Walk the body, dispatching each node into the with-body block.
         bag.with_body = with_body
+        if not ir.body:
+            noop = py.v(py.fresh("pass"), "pass_statement")
+            py.e(with_body, noop, "child_of")
         for node in ir.body:
             self._dispatch_pymc(bag, node)
 
@@ -181,7 +184,7 @@ class PyMCRenderer(RendererBase):
         # as top-level definitions preceding `build_model`.
         if any(
             _ir_uses_family(ir.body, family) for family in _PYMC_RUNTIME_HELPER_FAMILIES
-        ):
+        ) or qiec_helper_families_used(ir, self.target):
             _graft_runtime_pymc_helpers(py)
 
         # Trailing `return model` inside the function body (outside
@@ -201,6 +204,7 @@ class PyMCRenderer(RendererBase):
         )
         py.e("mod", fn, "child_of")
 
+        render_computations_dynamic(sb, ir, target=self.target, root="mod")
         return sb.build()
 
     # ----- coord dict construction -----
@@ -287,6 +291,11 @@ class PyMCRenderer(RendererBase):
             return
         if isinstance(node, IRMarginalize):
             self._emit_marginalize(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            emit_call_python(
+                ctx.py, ctx.with_body, node, ctx.ir.module, ctx.operations_bound
+            )
             return
         if isinstance(node, IRReturn):
             self._emit_export(ctx, node.names)
@@ -842,6 +851,17 @@ class PyMCRenderer(RendererBase):
             support_size=marginal_support_size(node, name_plates=py.name_plates),
         )
         prefix = f"__marg_{node.latent}"
+        fibration = marginalize_fibration(
+            node,
+            raw.observe,
+            atoms[0].weight_args,
+            atoms[0].weight_arg_names,
+            name_plates=py.name_plates,
+            target=self.target,
+        )
+        if fibration is not None:
+            self._emit_grouped_marginalize(ctx, node, raw, atoms, fibration)
+            return
         component_names: list[str] = []
         for position, atom in enumerate(atoms):
             scored = marginalize_body(
@@ -879,6 +899,90 @@ class PyMCRenderer(RendererBase):
         stmt = py.v(py.fresh("es"), "expression_statement")
         py.e(stmt, mixture, "child_of")
         py.e(ctx.with_body, stmt, "child_of")
+
+    def _emit_grouped_marginalize(
+        self,
+        ctx: _PyMCCtx,
+        node: IRMarginalize,
+        raw: MarginalizeBody,
+        atoms: tuple[IRMarginalAtom, ...],
+        fibration: tuple[str, Dim],
+    ) -> None:
+        """Integrate a grouped block's latent out as a potential.
+
+        A block whose rows are fibred into fewer groups than rows, under
+        a prior shared across the groups, keys its accumulator by group
+        (`docs/semantics/programs.md` §2.7): each atom's per-row
+        log-density is scattered into a ``(|G|, K)`` accumulator through
+        the fibration, the log prior is added, and the reduction over
+        the atoms is summed over the groups into a
+        [`pymc.Potential`][pymc.Potential]. A mixture is a per-row
+        integral, which is a different measure here.
+
+        Parameters
+        ----------
+        ctx : _PyMCCtx
+            The render context.
+        node : IRMarginalize
+            The block.
+        raw : MarginalizeBody
+            The block's scope, split into its bindings and its observe.
+        atoms : tuple[IRMarginalAtom, ...]
+            The block's atoms.
+        fibration : tuple[str, Dim]
+            The fibration's name and the grouping plate's axis.
+        """
+        py = ctx.py
+        prefix = f"__marg_{node.latent}"
+        term_names: list[str] = []
+        for position, atom in enumerate(atoms):
+            scored = marginalize_body(
+                atom.scope, latent=node.latent, target=self.target
+            )
+            for det in scored.deterministics:
+                self._emit_deterministic(ctx, det)
+            term = f"{prefix}_{position}"
+            py.e(
+                ctx.with_body,
+                assignment(
+                    py,
+                    lhs_name=term,
+                    rhs=call(
+                        py,
+                        attribute(py, ("pymc", "logp")),
+                        positional=(
+                            self._component_dist(ctx, scored.observe),
+                            identifier(py, scored.observe.name),
+                        ),
+                    ),
+                ),
+                "child_of",
+            )
+            term_names.append(term)
+        via, group = fibration
+        extent = str(group.size) if isinstance(group, DimStatic) else group.size_name
+        weights = self._marginal_weights(ctx, node, raw, atoms)
+        py.e(
+            ctx.with_body,
+            assignment(
+                py,
+                lhs_name=f"{prefix}_w",
+                rhs=call(
+                    py, attribute(py, ("pymc", "math", "log")), positional=(weights,)
+                ),
+            ),
+            "child_of",
+        )
+        stacked = ", ".join(term_names)
+        graft_python_statements(
+            py.builder,
+            f"{prefix} = pymc.math.stack([{stacked}], axis=-1)\n"
+            f"{prefix} = pymc.math.dot(pymc.math.eye({extent})[{via}].T, {prefix})\n"
+            f'pymc.Potential("{node.latent}", pymc.math.sum('
+            f"pymc.math.logsumexp({prefix}_w + {prefix}, axis=-1)))\n",
+            ctx.with_body,
+            f"marg_{node.latent}_group",
+        )
 
     def _component_dist(self, ctx: _PyMCCtx, observe: IRObserve) -> str:
         """Build the unregistered ``pymc.<Family>.dist(**args)`` an
@@ -1233,6 +1337,7 @@ class _PyMCCtx:
         self.py = py
         self.ir = ir
         self.with_body: str = ""
+        self.operations_bound: set[str] = set()
 
 
 def _dim_name(dim: Dim) -> str:
@@ -1427,31 +1532,4 @@ def _graft_runtime_pymc_helpers(py: PyCtx) -> None:
         py.e("mod", id_map[root], "child_of")
 
 
-# ---------------------------------------------------------------------------
-# `Mapping[Module, bytes]` adapter for the legacy `realize(...)` pipeline.
-# ---------------------------------------------------------------------------
-
-
-class _PyMCWalker(SchemaTransform):
-    """SchemaTransform shim: lower the `Module` to IR, then run the
-    `PyMCRenderer` to a panproto schema."""
-
-    def forward(self, module: Module) -> panproto.Schema:
-        ir = Lower().forward(module)
-        renderer = PyMCRenderer()
-        morphisms = build_morphism_table(module)
-        lets = build_let_table(module)
-        return renderer.render_with_tables(
-            ir,
-            morphisms=morphisms,
-            lets=lets,
-        )
-
-
-def render_module_bytes(module: Module) -> bytes:
-    """Convenience: parse `module` through Lower + PyMCRenderer +
-    `emit_pretty` and return the emitted Python source bytes."""
-    return realize(module, grammar="python", transform=_PyMCWalker())
-
-
-__all__ = ["PyMCRenderer", "render_module_bytes"]
+__all__ = ["PyMCRenderer"]

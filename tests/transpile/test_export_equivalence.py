@@ -245,11 +245,9 @@ def _scorable_examples() -> list[pathlib.Path]:
 # so it is not reachable through the test package's import path. It is
 # plain stdlib, though, and the arity guard in its `export_payload` is
 # the code that catches a renderer dropping *part* of a multi-name
-# `return` clause. Every gallery example exports a single name, and
-# the one that exports two (`parametric_pooling`) raises on all ten
-# targets before it reaches a container, so no live cell exercises
-# that guard. Loading the module here is what keeps it from being
-# untested code standing in for a check.
+# `return` clause. Loading the module here tests that guard directly,
+# beside the one gallery example that exports two names
+# (`parametric_pooling`).
 # ---------------------------------------------------------------------
 
 _RESHAPE_PATH = pathlib.Path(__file__).parent / "probes" / "_scripts" / "_reshape.py"
@@ -693,8 +691,33 @@ def test_export_reference_varies_across_points(
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("example", _gallery_examples(), ids=lambda p: p.stem)
-@pytest.mark.parametrize("backend", sorted(_BACKENDS))
+def _export_cells() -> list[tuple[pathlib.Path, str]]:
+    """Every ``(example, backend)`` cell the export comparison is a test
+    case for: the cells the gallery tier scores and the cells whose
+    transpile is a pinned refusal. A cell the gallery tier does not
+    score, or one in ``_SKIP_EXPORT_INCOMPATIBLE``, is not a test case;
+    the registry tests keep those registries honest.
+    """
+    cells: list[tuple[pathlib.Path, str]] = []
+    for example in _gallery_examples():
+        for backend in sorted(_BACKENDS):
+            cell = (backend, example.stem)
+            if cell in _gallery_tier._EXPECTED_TRANSPILE_RAISES:
+                cells.append((example, backend))
+                continue
+            if _cell_skip_reason(backend, example.stem) is not None:
+                continue
+            if cell in _SKIP_EXPORT_INCOMPATIBLE:
+                continue
+            cells.append((example, backend))
+    return cells
+
+
+@pytest.mark.parametrize(
+    ("example", "backend"),
+    _export_cells(),
+    ids=lambda value: value.stem if isinstance(value, pathlib.Path) else value,
+)
 def test_gallery_backend_export_matches_qvr(
     example: pathlib.Path, backend: str
 ) -> None:
@@ -721,16 +744,6 @@ def test_gallery_backend_export_matches_qvr(
             f"`_EXPECTED_TRANSPILE_RAISES`, or find the gap that fired."
         )
         return
-    skip_reason = _cell_skip_reason(backend, stem)
-    if skip_reason is not None:
-        pytest.skip(f"{backend!r} on {stem!r}: {skip_reason}.")
-    export_skip = _SKIP_EXPORT_INCOMPATIBLE.get((backend, stem))
-    if export_skip is not None:
-        pytest.skip(
-            f"{backend!r} on {stem!r}: {export_skip}; populate / drop "
-            f"from `_SKIP_EXPORT_INCOMPATIBLE`."
-        )
-
     dataset = _gallery_data.load_gallery_data(example)
     assert dataset is not None, (
         f"{stem!r}: `load_gallery_data` returned None even though the "

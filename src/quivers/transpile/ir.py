@@ -44,6 +44,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic, IRQiecValue
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,19 @@ from quivers.dsl.ast_nodes.let_expressions import (
 #: wrapping. `IRDeterministic.expr` and `IRScore.expr` carry the
 #: existing `LetExprNode` tree unchanged.
 IRExpr = LetExprNode
+
+
+class IRQiecValueExpr(LetExprNode):
+    """A checked kernel value in a program body, as a call argument.
+
+    A constructor value built in a program step, such as the
+    ``Measurement`` a helper case-analyzes, has no tensor expression
+    form; a renderer spells it through the target's QIEC runtime, under
+    the value encoding the callee reads.
+    """
+
+    value: IRQiecValue
+    kind: Literal["qiec_value"] = "qiec_value"
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +857,25 @@ class IRMarginalize(IRNode):
     kind: Literal["marginalize"] = "marginalize"
 
 
+class IRCall(IRNode):
+    """A call of one of the module's computations, bound to a name.
+
+    The callee is rendered from the module as a host function; the
+    call runs it under the target's own draw and score primitives for
+    the program's `random` and `score` instances, whose stable
+    identities the node carries so the renderer can attach them.
+    """
+
+    name: str
+    callee: str
+    static_arguments: tuple[IRQiecStatic, ...]
+    arguments: tuple[IRExpr, ...]
+    random_instance: str
+    score_instance: str
+    plate: Plate
+    kind: Literal["call"] = "call"
+
+
 class IRReturn(IRNode):
     """The program's terminal return clause."""
 
@@ -856,7 +889,13 @@ class IRReturn(IRNode):
 
 
 class IRProgram(dx.Model):
-    """A lowered program: inputs plus body.
+    """One lowered root: the checked module and a program's plan.
+
+    `module` is the checked kernel module every target renders from,
+    as structural IR; `body` is the plan of the entry point named
+    `name`, derived from its computation, and `inputs` are the entry
+    point's parameters. A module with no program has an empty plan
+    and renders its computations alone.
 
     `cards` carries the static cardinalities of every QVR object
     used in the program, keyed by object name. Renderers consult
@@ -868,6 +907,7 @@ class IRProgram(dx.Model):
     name: str
     inputs: tuple[IRDataInput, ...]
     body: tuple[IRNode, ...]
+    module: IRQiecModule
     cards: dict[str, int] = dx.Field(default_factory=dict)
 
 
@@ -907,6 +947,7 @@ __all__ = [
     "IRNode",
     "IRObserve",
     "IRProgram",
+    "IRCall",
     "IRReturn",
     "IRSample",
     "IRScore",

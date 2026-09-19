@@ -9,6 +9,10 @@ import didactic.api as dx
 # ---------------------------------------------------------------------------
 
 
+class Statement(dx.TaggedUnion, discriminator="kind"):
+    """Sum of top-level statement kinds."""
+
+
 class AxisSpec(dx.Model):
     """Axis-role specification on a distribution clause.
 
@@ -132,6 +136,7 @@ class OptionEntry(dx.Model):
 
 
 __all__ = [
+    "Statement",
     "AxisSpec",
     "CompositionLevel",
     "OptionCall",

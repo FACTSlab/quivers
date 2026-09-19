@@ -210,7 +210,7 @@ def test_doubly_nested_marginalize():
             sample psi : Topic <- Dirichlet(1.0) [over=Sense, iid_over=Topic]
 
             marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-                marginalize s : Sense <- Categorical(psi) [over=Doc, reduction=logsumexp]
+                marginalize s : Sense <- Categorical(psi[z]) [over=Doc, reduction=logsumexp]
                     observe w : Word <- Categorical(phi[z]) [via=word_idx]
 
             return theta

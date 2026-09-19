@@ -29,6 +29,10 @@ from quivers.dsl.ast_nodes import (
     SignatureDecl,
 )
 from quivers.program import Program
+from quivers.qiec import QiecModule, dumps, loads as load_qiec
+from quivers.qiec.execution import ExecutionFailure
+from quivers.qiec.module import validate_module
+from quivers.qiec.structural_runtime import run_structural
 from quivers.structural import Term, bound_var, make_term
 from quivers.structural.decoder import Decoder
 from quivers.structural.encoder import Encoder
@@ -120,6 +124,27 @@ def test_doc_comments_attach_to_every_declaration() -> None:
         assert decl.docs, f"{decl.kind} carries no #! doc comment"
 
 
+def test_structural_declarations_lower_to_a_checked_qiec_graph(
+    program: Program,
+) -> None:
+    module = program.qiec
+    assert isinstance(module, QiecModule)
+    validate_module(module)
+    assert load_qiec(dumps(module)) == module
+    assert [(sort.name, sort.constructors) for sort in module.index_sorts] == [
+        ("STLC__Sort", ("Term", "Type", "Name"))
+    ]
+    assert [(family.name, family.closed) for family in module.families] == [
+        ("STLC__Term", False)
+    ]
+    assert [computation.name for computation in module.computations] == [
+        "Enc",
+        "Dec",
+        "Dec__nll",
+        "reconstruct",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Encoder / decoder round trip
 # ---------------------------------------------------------------------------
@@ -199,6 +224,61 @@ def test_loss_evaluates_reconstruction_nll(program: Program) -> None:
     attached = losses.evaluate_on("decoder", "Dec", _loss_env(term))
     torch.testing.assert_close(attached, expected)
     total.backward()
+
+
+def test_qiec_loss_matches_classic_and_preserves_autograd(program: Program) -> None:
+    enc, dec, losses = _artifacts(program)
+    term = _example_term()
+    for parameter in (*enc.parameters(), *dec.parameters()):
+        parameter.grad = None
+
+    expected = losses.evaluate(_loss_env(term))
+    module = program.qiec
+    assert isinstance(module, QiecModule)
+    run = run_structural(module, program, "reconstruct", (term,))
+    assert isinstance(run.value, torch.Tensor)
+    torch.testing.assert_close(run.value, expected)
+    assert [event.event for event in run.trace].count("operation.handled") == 2
+
+    run.value.backward()
+    parameters = (*enc.parameters(), *dec.parameters())
+    assert any(parameter.grad is not None for parameter in parameters)
+
+
+def test_standard_program_entry_runs_the_structural_loss(program: Program) -> None:
+    """Structural entries use the same public invocation API as QIEC entries."""
+
+    term = _example_term()
+    expected = program.losses.evaluate(_loss_env(term))
+    run = program.run("reconstruct", term)
+    assert isinstance(run.value, torch.Tensor)
+    torch.testing.assert_close(run.value, expected)
+    assert run.result.runtime == "core+structural"
+
+
+def test_program_registers_structural_parameters(program: Program) -> None:
+    """Optimizers and checkpoints see every attached neural parameter."""
+
+    names = dict(program.named_parameters())
+    assert any(name.startswith("_qvr_encoder_Enc.") for name in names)
+    assert any(name.startswith("_qvr_decoder_Dec.") for name in names)
+    assert set(names) <= set(program.state_dict())
+
+
+def test_structural_attachment_result_is_runtime_checked() -> None:
+    """A provider cannot return a code with the wrong checked width."""
+
+    class WrongWidth(torch.nn.Module):
+        def forward(self, _term: object) -> torch.Tensor:
+            return torch.zeros(3)
+
+    compiled = load(_EXAMPLE)
+    compiled.encoders["Enc"] = WrongWidth()
+    with pytest.raises(ExecutionFailure) as caught:
+        compiled.run("reconstruct", _example_term())
+    assert caught.value.diagnostic.code == "qiec-run-evaluation"
+    assert "does not inhabit the checked type" in str(caught.value)
+    assert "name='Tensor'" in str(caught.value)
 
 
 # ---------------------------------------------------------------------------

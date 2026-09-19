@@ -22,14 +22,22 @@ the panproto VCS diff.
 
 from __future__ import annotations
 
+from quivers.cli.migrations._common import parse_validated_source
+
+
+_SOURCE_REV = "v0.11.0"
+_TARGET_REV = "v0.14.0"
+
 
 def migrate(source: bytes) -> bytes:
-    """Byte-identity migrator.
+    """Validated byte-identity migrator.
 
     Every draw-arg shape that parses under v0.11.0 also parses
     under v0.14.0 because the two new `_draw_arg` alternatives
     (`family_call_arg`, `list_arg`) are strict grammar extensions.
     """
+    parse_validated_source(_SOURCE_REV, source)
+    parse_validated_source(_TARGET_REV, source, role="identity target")
     return source
 
 

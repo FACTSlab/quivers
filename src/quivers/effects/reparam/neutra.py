@@ -1,25 +1,15 @@
-"""NeuTra: warp HMC geometry via a trained autoguide.
+"""NeuTra reparameterisation through a trained normalizing-flow guide.
 
-`NeuTraReparam` uses a trained normalizing-flow autoguide (typically
-`AutoIAFGuide`) as a change-of-variables to reshape the geometry
-HMC and NUTS see. Sampling in the *base* space of the flow
-turns the posterior into a near-isotropic Gaussian, and the
-sampler's Riemannian metric becomes trivial. The construction is
-[Hoffman et al. (2019)](https://arxiv.org/abs/1903.03704).
-
-The handler is site-local at the interface: given a site name it
-draws a base value from the flow's variational family, transforms
-it back to the model space, and scores it under the model's
-original site distribution. Under NUTS this yields the
-model-space log-density that the sampler needs to accept /
-reject; the flow only reshapes the proposal geometry.
+`NeuTraReparam` warps the geometry a sampler sees through a trained
+autoguide, after [Hoffman et al. (2019)](https://arxiv.org/abs/1903.03704).
 """
 
 from __future__ import annotations
 
-from quivers.effects.base import Message
-from quivers.effects.reparam.base import Reparam, _default_log_prob
-from quivers.inference.guides import Guide
+import torch
+
+from quivers.effects.reparam.base import Reparam, SiteRequest
+from quivers.inference.guides.base import Guide
 
 
 class NeuTraReparam(Reparam):
@@ -28,40 +18,51 @@ class NeuTraReparam(Reparam):
     Parameters
     ----------
     autoguide : Guide
-        A trained `AutoIAFGuide` (or any `Guide` that exposes a
-        sample method returning per-site values). At apply time
-        the guide is expected to produce a fresh draw whose
-        support matches the model's site.
+        A trained `AutoIAFGuide`, or any `Guide` whose ``sample`` returns
+        per-site values, whose draw at apply time has the site's
+        support.
     """
 
     def __init__(self, autoguide: Guide) -> None:
         self.autoguide = autoguide
 
-    def apply(self, msg: Message) -> None:
-        morph = msg.morphism
-        assert morph is not None
-        assert msg.input is not None
+    def apply(self, site: SiteRequest) -> tuple[torch.Tensor, torch.Tensor]:
+        """Rewrite one site.
 
-        # Fall through to the model's own sampling path when the
-        # guide does not cover the site: NeuTra only reshapes sites
-        # the flow was trained on. Scoring uses the original
-        # morphism throughout, so a partially-covered NeuTra still
-        # produces a well-defined joint density.
+        Parameters
+        ----------
+        site : SiteRequest
+            The site.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            The guide's draw for the site, or the site's own draw when
+            the guide does not cover it, and its log density under the
+            site's sampleable; scoring uses the original sampleable
+            throughout, so a partially covered NeuTra still yields a
+            well-defined joint.
+
+        Raises
+        ------
+        KeyError
+            If the guide covers the site but its draw does not carry it.
+        """
         registry = getattr(self.autoguide, "registry", None)
-        site_names = set(registry.names()) if registry is not None else set()
-        if msg.name not in site_names:
-            if msg.value is None:
-                msg.value = morph.rsample(msg.input)
-            msg.log_prob = _default_log_prob(msg, msg.value)
-            return
+        names = set(registry.names()) if registry is not None else set()
+        if site.given is not None:
+            y = site.given
+        elif site.name not in names:
+            y = site.sampleable.rsample()
+        else:
+            samples = self.autoguide.sample(site.sampleable.input)
+            if site.name not in samples:
+                raise KeyError(
+                    f"NeuTraReparam: autoguide sample did not contain site "
+                    f"'{site.name}'."
+                )
+            y = samples[site.name]
+        return y, site.sampleable.log_prob(y)
 
-        # Draw a single joint sample from the guide, then read the
-        # site's slice out of the returned dict.
-        samples = self.autoguide.sample(msg.input)
-        if msg.name not in samples:
-            raise KeyError(
-                f"NeuTraReparam: autoguide sample did not contain site '{msg.name}'."
-            )
-        y = samples[msg.name]
-        msg.value = y
-        msg.log_prob = _default_log_prob(msg, y)
+
+__all__ = ["NeuTraReparam"]

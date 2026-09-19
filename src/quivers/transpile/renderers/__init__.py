@@ -4,10 +4,10 @@ Each backend implements a [`Renderer`][quivers.transpile.renderers._base.Rendere
 class with one public method `render(ir: IRProgram) -> panproto.Schema`
 plus four private dispatch points (`declare`, `sample`, `marginalize`,
 `broadcast`). The IR-walk dispatch, index-substitution helpers, the
-explicit-latent rewrite helper for marginalize, and the structural
+atom enumeration a marginalize block is scored under, and the structural
 invariants (`assert_no_dangling_refs`, `assert_no_dropped_param_map`,
 `assert_no_lists`) live on
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase].
+[`RendererBase`][quivers.transpile.renderers.RendererBase].
 """
 
 from __future__ import annotations

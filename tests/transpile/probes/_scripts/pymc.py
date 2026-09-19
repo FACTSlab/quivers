@@ -81,7 +81,8 @@ def _joint_logp_constrained(
     model: pymc.Model,
     params: dict,
 ) -> float:
-    """Sum ``pymc.logp(rv, value)`` over every free and observed RV.
+    """Sum ``pymc.logp(rv, value)`` over every free and observed RV,
+    plus every potential.
 
     Free RVs receive their constrained-space value from ``params``;
     observed RVs use their attached observation tensor. Free-RV
@@ -117,6 +118,11 @@ def _joint_logp_constrained(
     for rv in model.observed_RVs:
         obs_value = model.rvs_to_values[rv]
         logp_terms.append(pymc.logp(rv, obs_value).sum())
+
+    # A `score` step and a helper's scored weight enter the model as
+    # potentials, terms of the joint in their own right.
+    for potential in model.potentials:
+        logp_terms.append(potential.sum())
 
     total = logp_terms[0]
     for term in logp_terms[1:]:

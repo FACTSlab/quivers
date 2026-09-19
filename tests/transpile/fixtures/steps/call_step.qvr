@@ -1,0 +1,23 @@
+# Exercises CallStep: a program calling a module computation that draws
+# under a site name and scores a weight, so the callee's draw is a
+# site of the model and its weight a term of the joint.
+object Obs : FinSet 4
+
+define shift(x : Real, k : Real) : Real !{} =
+    return x + k
+
+define noisy(x : Real) : Real !{random, score} =
+    let y <- perform random.sample[Real](site("noise"), Normal(x, 0.1))
+    perform score.add(weight(-0.25 * y * y))
+    return y
+
+instance random : Random
+instance score : Score
+
+program prog : Obs -> Obs
+    sample a <- Normal(0.0, 1.0)
+    let b <- shift(a, 2.0)
+    let c <- noisy(b)
+    observe y : Obs <- Normal(c, 0.5)
+    return c
+export prog

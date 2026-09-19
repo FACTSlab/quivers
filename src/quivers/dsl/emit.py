@@ -101,6 +101,9 @@ from quivers.dsl.ast_nodes.expressions import (
 )
 from quivers.dsl.ast_nodes.let_expressions import (
     LetExprBinOp,
+    LetExprBool,
+    LetExprTuple,
+    LetExprUnit,
     LetExprCall,
     LetExprFactor,
     LetExprIndex,
@@ -136,6 +139,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
     GroupedMarginalizeStep,
+    CallStep,
     LetStep,
     MarginalizeStep,
     ObserveStep,
@@ -145,6 +149,59 @@ from quivers.dsl.ast_nodes.program_steps import (
     SampleStep,
     ScoreStep,
     VectorisedObserveStep,
+)
+from quivers.dsl.ast_nodes.qiec import (
+    QiecBindComputation,
+    QiecBinder,
+    QiecCaseBranch,
+    QiecCaseComputation,
+    QiecIfComputation,
+    QiecComputation,
+    QiecComputationDecl,
+    QiecConstructorValue,
+    QiecContextSort,
+    QiecEffectBinder,
+    QiecEffectDecl,
+    QiecEffectInstanceDecl,
+    QiecEffectRef,
+    QiecEffectRequest,
+    QiecEffectRow,
+    QiecFamilyConstructor,
+    QiecFamilyDecl,
+    QiecFunctionType,
+    QiecHandleComputation,
+    QiecHandlerClause,
+    QiecCallComputation,
+    QiecHandlerOperationClause,
+    QiecHandlerReturnClause,
+    QiecInstanceComputation,
+    QiecPureBinding,
+    QiecResumeComputation,
+    QiecHandlerApplication,
+    QiecHandlerDecl,
+    QiecIndexApplication,
+    QiecIndexBinder,
+    QiecIndexConstructor,
+    QiecIndexDecl,
+    QiecIndexExpr,
+    QiecIndexLiteral,
+    QiecIndexName,
+    QiecIndexSort,
+    QiecNatSort,
+    QiecPerformComputation,
+    QiecProductType,
+    QiecReturnComputation,
+    QiecSequenceComputation,
+    QiecShapeIndex,
+    QiecShapeSort,
+    QiecTypeApplication,
+    QiecTypeBinder,
+    QiecStaticArgument,
+    QiecTypeExpr,
+    QiecTypeKind,
+    QiecTypeName,
+    QiecUserIndexSort,
+    QiecValue,
 )
 from quivers.dsl.ast_nodes.structural import (
     BinderDecl,
@@ -490,19 +547,53 @@ def _emit_chart_fold_expr(e: ExprChartFold) -> str:
 
 
 def _emit_let_expr(e: LetExprNode) -> str:
+    """Emit a pure expression in canonical form.
+
+    Every binary operation is parenthesized, so the emitted text never
+    depends on operator precedence to re-parse as the same tree.
+
+    Parameters
+    ----------
+    e : LetExprNode
+        The expression node.
+
+    Returns
+    -------
+    str
+        Canonical source for the expression.
+
+    Raises
+    ------
+    EmitError
+        If the node is of an unknown kind, or a receiver position holds
+        something other than a variable.
+    """
+    if isinstance(e, QiecConstructorValue):
+        return _emit_qiec_value(e)
     if isinstance(e, LetExprVar):
         return e.name
     if isinstance(e, LetExprLiteral):
+        if e.integral and e.value == int(e.value):
+            return str(int(e.value))
         return _emit_number(e.value)
+    if isinstance(e, LetExprBool):
+        return "true" if e.value else "false"
+    if isinstance(e, LetExprUnit):
+        return "unit"
+    if isinstance(e, LetExprTuple):
+        return "(" + ", ".join(_emit_let_expr(item) for item in e.items) + ")"
     if isinstance(e, LetExprString):
         return _emit_string(e.value)
     if isinstance(e, LetExprList):
         return "[" + ", ".join(_emit_let_expr(item) for item in e.items) + "]"
     if isinstance(e, LetExprBinOp):
-        left = _emit_let_operand(e.left)
-        right = _emit_let_operand(e.right)
-        return f"({left} {e.op} {right})"
+        precedence = _OPERATOR_PRECEDENCE[e.op]
+        left = _emit_let_operand(e.left, precedence, right_side=False)
+        right = _emit_let_operand(e.right, precedence, right_side=True)
+        return f"{left} {e.op} {right}"
     if isinstance(e, LetExprUnaryOp):
+        if e.op == "not":
+            return f"not {_emit_let_atom(e.operand)}"
         return f"-{_emit_let_atom(e.operand)}"
     if isinstance(e, LetExprCall):
         return f"{e.func}(" + ", ".join(_emit_let_expr(a) for a in e.args) + ")"
@@ -520,20 +611,61 @@ def _emit_let_expr(e: LetExprNode) -> str:
     raise EmitError(f"emit: unknown LetExprNode kind {type(e).__name__!r}")
 
 
-def _emit_let_operand(e: LetExprNode) -> str:
-    """Emit a binary-operator operand, parenthesizing the low-binding
-    prefix forms (lambda, factor) whose bodies would otherwise absorb
-    the operator."""
+#: Binding strength of each binary operator, as the grammar ranks them.
+_OPERATOR_PRECEDENCE: dict[str, int] = {
+    "||": 1,
+    "&&": 2,
+    "==": 3,
+    "!=": 3,
+    "<": 3,
+    "<=": 3,
+    ">": 3,
+    ">=": 3,
+    "+": 4,
+    "-": 4,
+    "*": 5,
+    "/": 5,
+    "%": 5,
+}
+
+
+def _emit_let_operand(e: LetExprNode, precedence: int, *, right_side: bool) -> str:
+    """Emit a binary-operator operand with the parentheses it needs.
+
+    A nested operation is parenthesized when it binds more loosely than
+    the enclosing operator, or equally on the right of a left-associative
+    operator; the low-binding prefix forms (lambda, factor) are always
+    wrapped, since their bodies would otherwise absorb the operator.
+
+    Parameters
+    ----------
+    e : LetExprNode
+        The operand.
+    precedence : int
+        The enclosing operator's binding strength.
+    right_side : bool
+        Whether the operand is the right one, where equal precedence
+        needs parentheses to keep the authored association.
+
+    Returns
+    -------
+    str
+        The operand's source, parenthesized only when the tree requires.
+    """
     text = _emit_let_expr(e)
     if isinstance(e, (LetExprLambda, LetExprFactor)):
         return f"({text})"
+    if isinstance(e, LetExprBinOp):
+        inner = _OPERATOR_PRECEDENCE[e.op]
+        if inner < precedence or (inner == precedence and right_side):
+            return f"({text})"
     return text
 
 
 def _emit_let_atom(e: LetExprNode) -> str:
     """Emit in an atom-only position (the operand of unary minus)."""
     text = _emit_let_expr(e)
-    if isinstance(e, LetExprUnaryOp):
+    if isinstance(e, LetExprUnaryOp | LetExprBinOp | LetExprLambda | LetExprFactor):
         return f"({text})"
     if isinstance(e, LetExprLiteral) and text.startswith("-"):
         return f"({text})"
@@ -684,6 +816,10 @@ def _emit_program_step(step: ProgramStep, indent: int) -> list[str]:
         return lines
     if isinstance(step, LetStep):
         return [f"{_pad(indent)}let {step.name} = {_emit_let_expr(step.value)}"]
+    if isinstance(step, CallStep):
+        return [
+            f"{_pad(indent)}let {step.name} <- {_emit_qiec_inline_computation(step.call)}"
+        ]
     if isinstance(step, ScoreStep):
         return [f"{_pad(indent)}score {step.name} = {_emit_let_expr(step.value)}"]
     if isinstance(step, ReturnStep):
@@ -799,6 +935,18 @@ def _emit_bind_step(step: BindStep, indent: int) -> list[str]:
 
 
 def _emit_statement(stmt: Statement, indent: int) -> str:
+    if isinstance(stmt, QiecIndexDecl):
+        return _emit_qiec_index_decl(stmt, indent)
+    if isinstance(stmt, QiecFamilyDecl):
+        return _emit_qiec_family_decl(stmt, indent)
+    if isinstance(stmt, QiecEffectDecl):
+        return _emit_qiec_effect_decl(stmt, indent)
+    if isinstance(stmt, QiecEffectInstanceDecl):
+        return _emit_qiec_effect_instance_decl(stmt, indent)
+    if isinstance(stmt, QiecHandlerDecl):
+        return _emit_qiec_handler_decl(stmt, indent)
+    if isinstance(stmt, QiecComputationDecl):
+        return _emit_qiec_computation_decl(stmt, indent)
     if isinstance(stmt, CompositionDecl):
         return _emit_composition(stmt, indent)
     if isinstance(stmt, CategoryDecl):
@@ -834,6 +982,547 @@ def _emit_statement(stmt: Statement, indent: int) -> str:
     if isinstance(stmt, ProgramDecl):
         return _emit_program(stmt, indent)
     raise EmitError(f"emit: unknown Statement kind {type(stmt).__name__!r}")
+
+
+# ---------------------------------------------------------------------------
+# QIEC declarations and terms
+# ---------------------------------------------------------------------------
+
+
+def _emit_qiec_index_sort(sort: QiecIndexSort) -> str:
+    if isinstance(sort, QiecNatSort):
+        return "Nat"
+    if isinstance(sort, QiecShapeSort):
+        return "Shape" if sort.rank is None else f"Shape[{sort.rank}]"
+    if isinstance(sort, QiecContextSort):
+        return f"Context[{sort.signature}]"
+    if isinstance(sort, QiecUserIndexSort):
+        return sort.name
+    raise EmitError(f"emit: unknown QIEC index sort {type(sort).__name__!r}")
+
+
+def _emit_qiec_kind(kind) -> str:
+    if isinstance(kind, QiecTypeKind):
+        return "Type"
+    raise EmitError(f"emit: QIEC kind {type(kind).__name__!r} has no surface form")
+
+
+def _emit_qiec_binder(binder: QiecBinder) -> str:
+    if isinstance(binder, QiecTypeBinder):
+        return f"{binder.name} : {_emit_qiec_kind(binder.binder_kind)}"
+    if isinstance(binder, QiecIndexBinder):
+        return f"{binder.name} : {_emit_qiec_index_sort(binder.sort)}"
+    if isinstance(binder, QiecEffectBinder):
+        return f"{binder.name} : Effect"
+    raise EmitError(f"emit: unknown QIEC binder {type(binder).__name__!r}")
+
+
+def _emit_qiec_telescope(binders: tuple[QiecBinder, ...]) -> str:
+    if not binders:
+        return ""
+    return "[" + ", ".join(_emit_qiec_binder(binder) for binder in binders) + "]"
+
+
+def _emit_qiec_index_telescope(binders: tuple[QiecIndexBinder, ...]) -> str:
+    if not binders:
+        return ""
+    return "(" + ", ".join(_emit_qiec_binder(binder) for binder in binders) + ")"
+
+
+def _emit_qiec_index(index: QiecIndexExpr) -> str:
+    if isinstance(index, QiecIndexName):
+        return index.name
+    if isinstance(index, QiecIndexLiteral):
+        return str(index.value)
+    if isinstance(index, QiecIndexApplication):
+        if not index.arguments:
+            raise EmitError(
+                f"emit: QIEC index application {index.constructor!r} has no arguments"
+            )
+        arguments = ", ".join(_emit_qiec_index(arg) for arg in index.arguments)
+        return f"{index.constructor}({arguments})"
+    if isinstance(index, QiecShapeIndex):
+        return "[" + ", ".join(_emit_qiec_index(dim) for dim in index.dimensions) + "]"
+    raise EmitError(f"emit: unknown QIEC index term {type(index).__name__!r}")
+
+
+_QIEC_TYPE_PREC_FUNCTION = 1
+_QIEC_TYPE_PREC_PRODUCT = 2
+_QIEC_TYPE_PREC_ATOM = 3
+
+
+def _qiec_type_prec(type_expr: QiecTypeExpr) -> int:
+    if isinstance(type_expr, QiecFunctionType):
+        return _QIEC_TYPE_PREC_FUNCTION
+    if isinstance(type_expr, QiecProductType):
+        return _QIEC_TYPE_PREC_PRODUCT
+    return _QIEC_TYPE_PREC_ATOM
+
+
+def _emit_qiec_type_child(type_expr: QiecTypeExpr, minimum: int) -> str:
+    text = _emit_qiec_type(type_expr)
+    return f"({text})" if _qiec_type_prec(type_expr) < minimum else text
+
+
+def _emit_qiec_type(type_expr: QiecTypeExpr) -> str:
+    if isinstance(type_expr, QiecTypeName):
+        return type_expr.name
+    if isinstance(type_expr, QiecTypeApplication):
+        if not type_expr.static_arguments and not type_expr.indices:
+            raise EmitError(
+                f"emit: QIEC type application {type_expr.constructor!r} "
+                "requires a static argument or index"
+            )
+        head = type_expr.constructor
+        if type_expr.static_arguments:
+            arguments = ", ".join(
+                _emit_qiec_static_argument(argument)
+                for argument in type_expr.static_arguments
+            )
+            head += f"[{arguments}]"
+        if type_expr.indices:
+            indices = ", ".join(_emit_qiec_index(index) for index in type_expr.indices)
+            head += f"({indices})"
+        return head
+    if isinstance(type_expr, QiecProductType):
+        if len(type_expr.components) < 2:
+            raise EmitError("emit: QIEC product type requires at least two components")
+        return " * ".join(
+            _emit_qiec_type_child(component, _QIEC_TYPE_PREC_PRODUCT)
+            for component in type_expr.components
+        )
+    if isinstance(type_expr, QiecFunctionType):
+        parameter = _emit_qiec_type_child(
+            type_expr.parameter, _QIEC_TYPE_PREC_FUNCTION + 1
+        )
+        result = _emit_qiec_type_child(type_expr.result, _QIEC_TYPE_PREC_FUNCTION)
+        return f"{parameter} -> {result}"
+    raise EmitError(f"emit: unknown QIEC type {type(type_expr).__name__!r}")
+
+
+def _emit_qiec_effect_ref(effect: QiecEffectRef) -> str:
+    if not effect.arguments:
+        return effect.name
+    arguments = ", ".join(
+        _emit_qiec_static_argument(argument) for argument in effect.arguments
+    )
+    return f"{effect.name}[{arguments}]"
+
+
+def static_argument_to_source(argument: QiecStaticArgument) -> str:
+    """Emit one static argument of an effect or type application.
+
+    Parameters
+    ----------
+    argument : QiecStaticArgument
+        A type, an effect written as type syntax, or an index literal.
+
+    Returns
+    -------
+    str
+        The argument's source form, as the module emitter writes it.
+    """
+    return _emit_qiec_static_argument(argument)
+
+
+def _emit_qiec_static_argument(argument: QiecStaticArgument) -> str:
+    """Emit one static argument.
+
+    Parameters
+    ----------
+    argument : QiecStaticArgument
+        A type, an effect written as type syntax, or an index literal.
+
+    Returns
+    -------
+    str
+        The argument's source form.
+    """
+    if isinstance(argument, QiecIndexLiteral):
+        return _emit_qiec_index(argument)
+    return _emit_qiec_type(argument)
+
+
+def _emit_qiec_static_arguments(arguments: tuple[QiecStaticArgument, ...]) -> str:
+    """Emit a bracketed static argument list, or nothing when empty.
+
+    Parameters
+    ----------
+    arguments : tuple[QiecStaticArgument, ...]
+        The static arguments.
+
+    Returns
+    -------
+    str
+        ``[a, b]`` for a non-empty list, and the empty string otherwise,
+        so a caller can concatenate it unconditionally.
+    """
+    if not arguments:
+        return ""
+    return (
+        "["
+        + ", ".join(_emit_qiec_static_argument(argument) for argument in arguments)
+        + "]"
+    )
+
+
+def _emit_qiec_row(row: QiecEffectRow) -> str:
+    entries = ", ".join(entry.instance for entry in row.entries)
+    if row.tail is None:
+        if row.lacks:
+            raise EmitError("emit: QIEC row lacks constraints require an open tail")
+        return f"!{{{entries}}}"
+    tail = row.tail
+    if row.lacks:
+        tail += " lacks " + ", ".join(row.lacks)
+    separator = " | " if entries else "| "
+    return f"!{{{entries}{separator}{tail}}}"
+
+
+def _emit_qiec_index_constructor(constructor: QiecIndexConstructor) -> str:
+    if not constructor.arguments:
+        return constructor.name
+    arguments = ", ".join(
+        _emit_qiec_index_sort(argument) for argument in constructor.arguments
+    )
+    return f"{constructor.name}({arguments})"
+
+
+def _emit_qiec_index_decl(decl: QiecIndexDecl, indent: int) -> str:
+    if not decl.constructors:
+        raise EmitError(f"emit: index {decl.name!r} has no constructors")
+    constructors = " | ".join(
+        _emit_qiec_index_constructor(constructor) for constructor in decl.constructors
+    )
+    return _with_docs(decl.docs, indent, f"index {decl.name} = {constructors}")
+
+
+def _emit_qiec_family_constructor(
+    constructor: QiecFamilyConstructor, indent: int
+) -> str:
+    head = f"{_pad(indent)}constructor {constructor.name}"
+    head += _emit_qiec_telescope(constructor.binders)
+    head += " : "
+    if constructor.arguments:
+        head += " * ".join(
+            _emit_qiec_type_child(argument, _QIEC_TYPE_PREC_PRODUCT + 1)
+            for argument in constructor.arguments
+        )
+        head += " -> "
+    return head + _emit_qiec_type(constructor.result)
+
+
+def _emit_qiec_family_decl(decl: QiecFamilyDecl, indent: int) -> str:
+    if not decl.constructors:
+        raise EmitError(f"emit: family {decl.name!r} has no constructors")
+    lines = _doc_lines(decl.docs, indent)
+    head = f"family {decl.name}{_emit_qiec_telescope(decl.parameters)}"
+    head += _emit_qiec_index_telescope(decl.indices)
+    head += f" : {_emit_qiec_kind(decl.result_kind)}"
+    lines.append(f"{_pad(indent)}{head}")
+    lines.extend(
+        _emit_qiec_family_constructor(constructor, indent + 1)
+        for constructor in decl.constructors
+    )
+    return "\n".join(lines)
+
+
+def _emit_qiec_operation(operation, indent: int) -> str:
+    head = f"{_pad(indent)}{operation.name}"
+    head += _emit_qiec_telescope(operation.binders)
+    head += " : "
+    if operation.arguments:
+        head += " * ".join(
+            _emit_qiec_type_child(argument, _QIEC_TYPE_PREC_PRODUCT + 1)
+            for argument in operation.arguments
+        )
+        head += " -> "
+    return head + _emit_qiec_type(operation.result)
+
+
+def _emit_qiec_effect_decl(decl: QiecEffectDecl, indent: int) -> str:
+    if not decl.operations:
+        raise EmitError(f"emit: effect {decl.name!r} has no operations")
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(
+        f"{_pad(indent)}effect {decl.name}{_emit_qiec_telescope(decl.binders)}"
+    )
+    lines.extend(
+        _emit_qiec_operation(operation, indent + 1) for operation in decl.operations
+    )
+    return "\n".join(lines)
+
+
+def _emit_qiec_effect_instance_decl(decl: QiecEffectInstanceDecl, indent: int) -> str:
+    text = f"instance {decl.name} : {_emit_qiec_effect_ref(decl.effect)}"
+    return _with_docs(decl.docs, indent, text)
+
+
+def _emit_qiec_handler_decl(decl: QiecHandlerDecl, indent: int) -> str:
+    if not decl.clauses:
+        raise EmitError(f"emit: handler {decl.name!r} has no clauses")
+    options = [f"coverage={decl.coverage}"]
+    options.append(f"forwards={'unknown' if decl.forwards_unknown else 'none'}")
+    if decl.introduced.entries or decl.introduced.tail is not None:
+        options.append(f"introduces={_emit_qiec_row(decl.introduced)}")
+    options.append(f"implementation={decl.implementation}")
+    head = f"handler {decl.name}{_emit_qiec_telescope(decl.binders)}"
+    head += f" for {_emit_qiec_effect_ref(decl.effect)}"
+    head += f" : {_emit_qiec_type(decl.input_type)}"
+    head += f" -> {_emit_qiec_type(decl.output_type)}"
+    head += " [" + ", ".join(options) + "]"
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(f"{_pad(indent)}{head}")
+    for clause in decl.clauses:
+        lines.extend(_emit_qiec_handler_clause(clause, indent + 1))
+    return "\n".join(lines)
+
+
+def _emit_qiec_handler_clause(clause: QiecHandlerClause, indent: int) -> list[str]:
+    """Emit one handler clause, of either shape.
+
+    Parameters
+    ----------
+    clause : QiecHandlerClause
+        The return clause or operation clause to emit.
+    indent : int
+        Indentation level of the clause header. A body, where present,
+        is emitted one level deeper.
+
+    Returns
+    -------
+    list[str]
+        The clause's lines. An operation clause without a body is one
+        line; every other form opens an indented block.
+
+    Raises
+    ------
+    EmitError
+        If the clause is of an unknown class.
+    """
+    pad = _pad(indent)
+    if isinstance(clause, QiecHandlerReturnClause):
+        binding = clause.binder.name
+        if clause.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(clause.binder.type_expr)}"
+        return [
+            f"{pad}return {binding} =>",
+            *_emit_qiec_computation(clause.body, indent + 1),
+        ]
+    if not isinstance(clause, QiecHandlerOperationClause):
+        raise EmitError(f"emit: unknown QIEC handler clause {type(clause).__name__!r}")
+    header = f"{pad}{clause.operation}{_emit_qiec_telescope(clause.binders)}"
+    if clause.parameters:
+        parameters = ", ".join(
+            parameter.name
+            if parameter.type_expr is None
+            else f"{parameter.name} : {_emit_qiec_type(parameter.type_expr)}"
+            for parameter in clause.parameters
+        )
+        header += f"({parameters})"
+    header += f" resumes {clause.grade}"
+    if clause.body is None:
+        return [header]
+    return [f"{header} =>", *_emit_qiec_computation(clause.body, indent + 1)]
+
+
+def _emit_qiec_value(value: QiecValue) -> str:
+    """Emit a QIEC value: a constructor application or a pure expression.
+
+    Parameters
+    ----------
+    value : QiecValue
+        The value node.
+
+    Returns
+    -------
+    str
+        Canonical source for the value.
+
+    Raises
+    ------
+    EmitError
+        If the node is not a value form.
+    """
+    if isinstance(value, QiecConstructorValue):
+        static = ""
+        if value.static_arguments:
+            static = (
+                "["
+                + ", ".join(
+                    _emit_qiec_static_argument(argument)
+                    for argument in value.static_arguments
+                )
+                + "]"
+            )
+        fields = ", ".join(_emit_qiec_value(field) for field in value.fields)
+        return (
+            f"construct {value.constructor}{static}({fields}) as "
+            f"{_emit_qiec_type(value.result_type)}"
+        )
+    return _emit_let_expr(value)
+
+
+def _emit_qiec_request(request: QiecEffectRequest) -> str:
+    static = ""
+    if request.static_arguments:
+        static = (
+            "["
+            + ", ".join(
+                _emit_qiec_static_argument(argument)
+                for argument in request.static_arguments
+            )
+            + "]"
+        )
+    arguments = ", ".join(_emit_qiec_value(arg) for arg in request.arguments)
+    return f"{request.instance}.{request.operation}{static}({arguments})"
+
+
+def _emit_qiec_handler_application(handler: QiecHandlerApplication) -> str:
+    if not handler.static_arguments:
+        return handler.name
+    arguments = ", ".join(
+        _emit_qiec_static_argument(argument) for argument in handler.static_arguments
+    )
+    return f"{handler.name}[{arguments}]"
+
+
+def _emit_qiec_computation(computation: QiecComputation, indent: int) -> list[str]:
+    pad = _pad(indent)
+    if isinstance(computation, QiecReturnComputation):
+        return [f"{pad}return {_emit_qiec_value(computation.value)}"]
+    if isinstance(computation, QiecPerformComputation):
+        return [f"{pad}perform {_emit_qiec_request(computation.request)}"]
+    if isinstance(computation, QiecBindComputation):
+        binding = computation.binder.name
+        if computation.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(computation.binder.type_expr)}"
+        first = _emit_qiec_inline_computation(computation.first)
+        return [
+            f"{pad}let {binding} <- {first}",
+            *_emit_qiec_computation(computation.then, indent),
+        ]
+    if isinstance(computation, QiecSequenceComputation):
+        first = _emit_qiec_inline_computation(computation.first)
+        return [f"{pad}{first}", *_emit_qiec_computation(computation.then, indent)]
+    if isinstance(computation, QiecHandleComputation):
+        head = _emit_qiec_handler_application(computation.handler)
+        return [
+            f"{pad}handle {computation.instance} with {head} in",
+            *_emit_qiec_computation(computation.body, indent + 1),
+        ]
+    if isinstance(computation, QiecPureBinding):
+        binding = computation.binder.name
+        if computation.binder.type_expr is not None:
+            binding += f" : {_emit_qiec_type(computation.binder.type_expr)}"
+        value = _emit_qiec_value(computation.value)
+        return [
+            f"{pad}let {binding} = {value}",
+            *_emit_qiec_computation(computation.then, indent),
+        ]
+    if isinstance(computation, QiecCallComputation | QiecResumeComputation):
+        return [f"{pad}{_emit_qiec_inline_computation(computation)}"]
+    if isinstance(computation, QiecInstanceComputation):
+        effect = _emit_qiec_effect_ref(computation.effect)
+        return [
+            f"{pad}with instance {computation.name} : {effect} in",
+            *_emit_qiec_computation(computation.body, indent + 1),
+        ]
+    if isinstance(computation, QiecIfComputation):
+        return [
+            f"{pad}if {_emit_qiec_value(computation.condition)} then",
+            *_emit_qiec_computation(computation.then, indent + 1),
+            f"{pad}else",
+            *_emit_qiec_computation(computation.otherwise, indent + 1),
+        ]
+    if isinstance(computation, QiecCaseComputation):
+        motive = "motive"
+        if computation.motive.indices:
+            motive += " " + _emit_qiec_index_telescope(computation.motive.indices)
+        motive += f" => {_emit_qiec_type(computation.motive.result_type)}"
+        lines = [f"{pad}case {_emit_qiec_value(computation.scrutinee)} {motive}"]
+        for branch in computation.branches:
+            lines.extend(_emit_qiec_case_branch(branch, indent + 1))
+        return lines
+    raise EmitError(f"emit: unknown QIEC computation {type(computation).__name__!r}")
+
+
+def _emit_qiec_inline_computation(computation: QiecComputation) -> str:
+    """Emit a one-line computation.
+
+    Parameters
+    ----------
+    computation : QiecComputation
+        The computation to emit. Only the inline forms are legal here:
+        an effect request, a call, or a resumption.
+
+    Returns
+    -------
+    str
+        The emitted line, without indentation.
+
+    Raises
+    ------
+    EmitError
+        If the computation is a block form. A `handle`, `case`, `with
+        instance`, or binding opens an indented body and cannot sit on
+        the right of a `let ... <-` or at the head of a sequence.
+    """
+    if isinstance(computation, QiecPerformComputation):
+        return f"perform {_emit_qiec_request(computation.request)}"
+    if isinstance(computation, QiecCallComputation):
+        static = _emit_qiec_static_arguments(computation.static_arguments)
+        arguments = ", ".join(
+            _emit_qiec_value(argument) for argument in computation.arguments
+        )
+        return f"{computation.callee}{static}({arguments})"
+    if isinstance(computation, QiecResumeComputation):
+        value = "" if computation.value is None else _emit_qiec_value(computation.value)
+        return f"resume({value})"
+    raise EmitError(
+        f"emit: {type(computation).__name__!r} is a block computation and "
+        f"cannot appear inline; only a request, a call, or a resumption can"
+    )
+
+
+def _emit_qiec_case_branch(branch: QiecCaseBranch, indent: int) -> list[str]:
+    static = ""
+    if branch.static_arguments:
+        static = (
+            "["
+            + ", ".join(
+                _emit_qiec_static_argument(argument)
+                for argument in branch.static_arguments
+            )
+            + "]"
+        )
+    fields = ""
+    if branch.fields:
+        items: list[str] = []
+        for field in branch.fields:
+            item = field.name
+            if field.type_expr is not None:
+                item += f" : {_emit_qiec_type(field.type_expr)}"
+            items.append(item)
+        fields = "(" + ", ".join(items) + ")"
+    return [
+        f"{_pad(indent)}{branch.constructor}{static}{fields} =>",
+        *_emit_qiec_computation(branch.body, indent + 1),
+    ]
+
+
+def _emit_qiec_computation_decl(decl: QiecComputationDecl, indent: int) -> str:
+    parameters = ", ".join(
+        f"{parameter.name} : {_emit_qiec_type(parameter.type_expr)}"
+        for parameter in decl.parameters
+    )
+    head = f"define {decl.name}{_emit_qiec_telescope(decl.binders)}"
+    head += f"({parameters}) : {_emit_qiec_type(decl.result_type)}"
+    head += f" {_emit_qiec_row(decl.effects)} ="
+    lines = _doc_lines(decl.docs, indent)
+    lines.append(f"{_pad(indent)}{head}")
+    lines.extend(_emit_qiec_computation(decl.body, indent + 1))
+    return "\n".join(lines)
 
 
 def _with_docs(docs: tuple[str, ...], indent: int, text: str) -> str:
@@ -1243,4 +1932,4 @@ def _emit_program_param(param: ProgramParam) -> str:
     raise EmitError(f"emit: unknown ProgramParam kind {type(param).__name__!r}")
 
 
-__all__ = ["EmitError", "module_to_source"]
+__all__ = ["EmitError", "module_to_source", "static_argument_to_source"]

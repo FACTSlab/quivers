@@ -70,6 +70,7 @@ from quivers.dsl.ast_nodes import (
     MorphismDecl,
 )
 from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprCall,
     LetExprFactor,
     LetExprIndex,
     LetExprList,
@@ -87,6 +88,7 @@ from quivers.transpile.family_meta import (
     FamilyMeta,
 )
 from quivers.transpile.ir import (
+    CSReal,
     ConstraintSpec,
     LetExprAffineMap,
     Dim,
@@ -100,6 +102,7 @@ from quivers.transpile.ir import (
     IRArgMatrix,
     IRArgNumber,
     IRArgRef,
+    IRCall,
     IRDataInput,
     IRDeterministic,
     IRMarginalize,
@@ -134,6 +137,12 @@ from quivers.transpile.renderers._base import (
     assert_no_dropped_param_map,
     mixture_component_count,
     mixture_normal_components,
+)
+from quivers.transpile.renderers._qiec import (
+    refuse_static_gaps,
+    render_computations_static,
+    carried_computations,
+    has_runtime_computations,
 )
 from quivers.transpile.renderers._stan_helpers import (
     _substitute_let_expr,
@@ -365,8 +374,14 @@ class StanRenderer(RendererBase):
         self._vector_promotions_state.update(self._compute_vector_promotions(ir))
         self._class_index_widths_state.clear()
         self._class_index_widths_state.update(self._compute_class_index_widths(ir))
+        # A needed computation the static subset lacks is refused before
+        # the body is walked, so its call site is never rendered.
+        if has_runtime_computations(ir):
+            refuse_static_gaps(ir, self.target)
         # Program root.
         ctx.sb.vertex("prog", "program")
+        if carried_computations(ir, self.target):
+            self._ensure_block(ctx, "function_body")
         # Stan ships `normal`, `beta`, `gamma`, ... as built-in
         # densities but lacks `kumaraswamy`. When the IR samples or
         # observes from a family whose Stan emit relies on a user-
@@ -400,6 +415,13 @@ class StanRenderer(RendererBase):
         # Walk the body.
         for node in ir.body:
             self._dispatch_node(ctx, node)
+        if has_runtime_computations(ir):
+            render_computations_static(
+                ctx.sb,
+                ir,
+                target=self.target,
+                destination=self._blocks.get("function_body", "prog"),
+            )
         return ctx.sb.build()
 
     @property
@@ -647,7 +669,7 @@ class StanRenderer(RendererBase):
             needed.add("model")
         elif isinstance(node, IRDataInput):
             needed.add("data")
-        elif isinstance(node, IRDeterministic):
+        elif isinstance(node, (IRDeterministic, IRCall)):
             needed.add("transformed_parameters")
         elif isinstance(node, IRScore):
             needed.add("model")
@@ -1645,10 +1667,9 @@ class StanRenderer(RendererBase):
           [`indexed_expression`][quivers.transpile.renderers._stan_helpers]
           emit takes them verbatim.
 
-        This is what
-        [`_propagate_let_plates`][quivers.transpile.lower._propagate_let_plates]
-        relies on: it promotes a let-bound `mu` from scalar to
-        `array[Obs] real`, and this hook makes the surrounding
+        This is what the plan's typed plates rely on: a let-bound
+        `mu` over `Obs` is declared `array[Obs] real`, and this hook
+        makes the surrounding
         `observe y : Obs <- Normal(mu, ...)` index `mu` per-element
         rather than reading the whole array into the scalar Normal
         slot (which Stan rejects with a dimension mismatch at runtime
@@ -3221,6 +3242,23 @@ class StanRenderer(RendererBase):
             return
         if isinstance(node, IRDeterministic):
             self._emit_deterministic(ctx, node)
+            return
+        if isinstance(node, IRCall):
+            # The callee is a user-defined function in the `functions`
+            # block, so the call binds like a deterministic; whether
+            # Stan can define the callee is settled when the block is
+            # rendered, which refuses an effectful one.
+            self._emit_deterministic(
+                ctx,
+                IRDeterministic(
+                    name=node.name,
+                    expr=LetExprCall(
+                        func=f"qiec_{node.callee}", args=tuple(node.arguments)
+                    ),
+                    constraint=CSReal(),
+                    plate=node.plate,
+                ),
+            )
             return
         if isinstance(node, IRScore):
             self._emit_score(ctx, node)

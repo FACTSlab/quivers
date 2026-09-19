@@ -8,12 +8,14 @@ Each fenced ```qvr block under ``docs/`` (and ``README.md``) is treated
 as a test case. The block's *compile mode* is chosen by an HTML comment
 on the line immediately preceding the opening fence:
 
-* ``<!-- compile: false -->``      — skip; the block is illustrative
-  prose (e.g. a bind step shown outside any program body).
+* ``<!-- compile: false -->``      — not a test case; the block is
+  illustrative prose (e.g. a bind step shown outside any program body).
 * ``<!-- compile: cumulative -->`` — concatenate this block with every
   prior cumulative block in the same file before compiling. Use when a
   guide walks the reader through one model in incrementally-elaborated
   fragments.
+* ``<!-- compile: qiec -->``       — parse and lower the block through the
+  exact QVR to QIEC route beside the categorical Program compiler.
 * (no marker)                      — ``standalone``: the block must
   compile on its own.
 
@@ -27,7 +29,7 @@ reader copies the chapter into a REPL). The block's mode is chosen by
 the same HTML-comment surface, scoped to a separate marker so QVR and
 Python markers don't collide:
 
-* ``<!-- python: skip -->`` — skip this block. Use for blocks that
+* ``<!-- python: skip -->`` — not a test case. Use for blocks that
   reference on-disk files (``open("foo.qvr")``), shell commands, or
   illustrative fragments that aren't meant to run.
 * (no marker)                — run; failures fail the test.
@@ -79,7 +81,9 @@ def _dedent_fence_body(indent: str, body: str) -> str:
     return "".join(out_lines)
 
 
-_QVR_MARKER_RE = re.compile(r"<!--\s*compile:\s*(false|standalone|cumulative)\s*-->")
+_QVR_MARKER_RE = re.compile(
+    r"<!--\s*compile:\s*(false|standalone|cumulative|qiec)\s*-->"
+)
 _PY_MARKER_RE = re.compile(r"<!--\s*python:\s*(skip|run)\s*-->")
 
 
@@ -118,6 +122,8 @@ def _collect_qvr_blocks() -> list[tuple[str, int, str, str]]:
             indent, body = m.group(1), m.group(2)
             body = _dedent_fence_body(indent, body)
             mode = _qvr_marker_before(text, m.start())
+            if mode == "false":
+                continue
             if mode == "cumulative":
                 source = cumulative_prefix + body
                 cumulative_prefix = source + "\n"
@@ -139,6 +145,8 @@ def _collect_py_blocks() -> list[tuple[str, int, str, str]]:
             indent, body = m.group(1), m.group(2)
             body = _dedent_fence_body(indent, body)
             mode = _py_marker_before(text, m.start())
+            if mode == "skip":
+                continue
             out.append((rel, idx, mode, body))
     return out
 
@@ -153,9 +161,13 @@ _PY_BLOCKS = _collect_py_blocks()
     ids=[f"{p}:blk{i}:{m}" for p, i, m, _ in _QVR_BLOCKS],
 )
 def test_qvr_doc_block(path: str, index: int, mode: str, source: str) -> None:
-    del path, index  # carried only for readable test ids
-    if mode == "false":
-        pytest.skip("block marked compile: false (illustrative fragment)")
+    del path  # carried only for readable test ids
+    if mode == "qiec":
+        from quivers.dsl.parser import parse
+        from quivers.dsl.qiec_lowering import lower_qvr_to_qiec
+
+        lower_qvr_to_qiec(parse(source), module_name=f"docs.block.{index}")
+        return
     loads(source)
 
 
@@ -169,8 +181,7 @@ _PY_NAMESPACES: dict[str, dict] = {}
     ids=[f"{p}:pyblk{i}:{m}" for p, i, m, _ in _PY_BLOCKS],
 )
 def test_python_doc_block(path: str, index: int, mode: str, source: str) -> None:
-    if mode == "skip":
-        pytest.skip("block marked python: skip")
+    del mode  # every collected block runs
     ns = _PY_NAMESPACES.setdefault(path, {"__name__": "__doc_block__"})
     try:
         exec(compile(source, f"{path}:pyblk{index}", "exec"), ns)
