@@ -1,0 +1,126 @@
+# Amortized Bayesian Semantics
+#
+# A joint psycholinguistic model with four computational views of one
+# experiment:
+#
+#   1. a learnable categorial grammar sums over sentence derivations;
+#   2. a structural autoencoder learns continuous logical-form codes;
+#   3. an indexed computation separates observed and missing measurements;
+#   4. a hierarchical response-time model integrates item-level analyses.
+
+object Atoms : {N, NP, S}
+object Cat : FreeResiduated(Atoms)
+object Token : {every, some, linguist, model, predicts, surprises}
+
+schema fwd_app (X, Y : Cat) : (X / Y) * Y -> X
+schema bwd_app (X, Y : Cat) : Y * (X \ Y) -> X
+schema harmonic (X, Y : Cat) : X / Y -> X \ Y
+
+bundle semantic_rules : [fwd_app, bwd_app, harmonic]
+
+define semantic_parser = parser(rules=[semantic_rules], terminal=Token, start=S, depth=1)
+
+signature Semantics
+    sorts
+        Formula : object
+        Entity  : data [dim=32, vocab=["linguist", "model"]]
+        Pred    : data [dim=32, vocab=["predict", "surprise"]]
+    constructors
+        Name  : Entity -> Formula
+        Apply : Pred, Formula -> Formula
+        And   : Formula, Formula -> Formula
+    binders
+        Exists : binds (x : Formula) in (body : Formula) -> Formula
+
+encoder Enc : Semantics
+    dim Formula = 32
+    op Apply(pred, arg) |-> tanh(pred + arg)
+    op And(left, right) |-> tanh(left + right)
+
+decoder Dec : Semantics [depth=7]
+    dim Formula = 32
+    body |-> recursive
+
+loss reconstruct [weight=0.25, on=decoder(Dec)]
+    -Dec.log_prob(term, Enc(term))
+
+index Availability = Observed | Missing
+
+family Measurement(s : Availability) : Type
+    constructor Present : Real -> Measurement(Observed)
+    constructor Absent : Measurement(Missing)
+
+instance random : Random
+instance score : Score
+
+define contamination(location : Real, scale : Real) : Sampleable[Real] !{} =
+    return Mixture([0.95, 0.05], [Normal(location, scale), StudentT(3.0, location, scale)])
+
+define complete[s : Availability](measurement : Measurement(s), location : Real, scale : Real) : Real !{random, score} =
+    let likelihood <- contamination(location, scale)
+    case measurement motive (t : Availability) => Real
+        Present(value) =>
+            perform score.add(log_prob(likelihood, value))
+            return value
+        Absent =>
+            let value <- perform random.sample[Real](site("held_out_reading_time"), likelihood)
+            return value
+
+effect Robust
+    shrink : Real -> Real
+
+instance robust : Robust
+
+handler half_weight for Robust : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return x =>
+        return x
+    shrink(x : Real) resumes 1 =>
+        resume(0.5 * x)
+
+define robust_request(x : Real) : Real !{robust | rho lacks robust} =
+    let adjusted <- perform robust.shrink(x)
+    return adjusted
+
+define robustify(x : Real) : Real !{} =
+    handle robust with half_weight in
+        let adjusted <- perform robust.shrink(x)
+        return adjusted
+
+composition log_prob [level=algebra]
+
+object Participant : FinSet 40
+object Item : FinSet 64
+object Trial : FinSet 640
+object Analysis : FinSet 2
+object ReadingTime : Real 1
+
+morphism standard_effect : Participant -> ReadingTime ~ Normal(0.0, 1.0)
+
+program reading_times(concentration : Real) : Trial -> ReadingTime
+    let chart = parse(semantic_parser, sentence)
+    score syntactic_evidence = chart.goal_weight()
+
+    sample participant_scale <- HalfStudentT(3.0, 0.5)
+    sample item_scale <- HalfStudentT(3.0, 0.5)
+    sample residual_scale <- HalfStudentT(4.0, 0.25)
+
+    sample participant_raw : Participant <- Normal(0.0, 1.0)
+    sample item_raw : Item <- Normal(0.0, 1.0)
+    sample analysis_shift : Analysis <- Normal(0.0, 0.5)
+    sample analysis_prob : Item <- Dirichlet(concentration) [over=Analysis, iid_over=Item]
+
+    let participant_effect = participant_scale * participant_raw[participant_idx]
+    let item_effect = item_scale * item_raw[item_idx]
+    let robust_intercept <- robustify(grand_mean)
+    let mean_log_rt = robust_intercept + participant_effect + item_effect
+
+    observe log_rt : Trial <- Normal(mean_log_rt, residual_scale)
+
+    marginalize analysis : Analysis <- Categorical(analysis_prob) [over=Item, reduction=logsumexp]
+        observe ambiguity_rating : Trial <- Normal(analysis_shift[analysis], residual_scale) [via=item_idx]
+
+    let held_out <- complete[Missing](construct Absent() as Measurement(Missing), robust_intercept, residual_scale)
+    return held_out
+
+export semantic_parser
+export reading_times

@@ -116,6 +116,14 @@ nav:
     - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
     - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
     - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
+  - QVR Language Reference:
+    - Overview: reference/qvr/index.md
+    - Types and Indexed Families: reference/qvr/types-and-indexed-families.md
+    - Effects and Handlers: reference/qvr/effects-and-handlers.md
+    - Computations: reference/qvr/computations.md
+    - Probabilistic Programs: reference/qvr/probabilistic-programs.md
+    - Generated Computation Graphs: reference/qvr/generated-computations.md
+    - Execution and Tooling: reference/qvr/execution-and-tooling.md
   - Transpilation Support: transpile-support.md
   - Denotational Semantics:
     - Overview: semantics/index.md
@@ -136,6 +144,7 @@ nav:
     - Transpilation correctness: semantics/transpile-correctness/index.md
   - Examples Gallery:
     - Overview: examples/index.md
+    - Amortized Bayesian Semantics: examples/amortized-bayesian-semantics.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
     - Beta Regression: examples/beta-regression.md
     - Gamma Regression: examples/gamma-regression.md
@@ -193,6 +202,11 @@ nav:
     - 6. Choosing an inference algorithm: tutorials/qvr/06-inference-zoo.md
     - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
     - 8. Diagnostics and model comparison: tutorials/qvr/08-diagnostics-and-comparison.md
+    - 9. Indexed data and total functions: tutorials/qvr/09-indexed-data.md
+    - 10. Effects and handlers: tutorials/qvr/10-effects-and-handlers.md
+    - 11. Parsing as an effectful computation: tutorials/qvr/11-parsing-and-search.md
+    - 12. Structural autoencoders: tutorials/qvr/12-structural-autoencoders.md
+    - 13. Check, inspect, and transpile: tutorials/qvr/13-release-workflow.md
   - Python API tutorials:
     - 1. Your first quiver: tutorials/python/01-first-quiver.md
     - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md
@@ -373,6 +387,5 @@ nav:
   - Developer Guide:
     - Overview: developer/contributing.md
     - Indexed effects and GADTs: developer/qiec.md
-    - QIEC integration handoff: developer/qiec-handoff.md
     - Changelog: developer/changelog.md
     - Inference benchmarks: developer/inference-benchmarks.md

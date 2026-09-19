@@ -159,6 +159,10 @@ term = make_term(
 )
 
 loss0 = prog.losses.evaluate({"term": term})
+checked0 = prog.run("reconstruct", term)
+torch.testing.assert_close(checked0.value, loss0)
+assert checked0.result.runtime == "core+structural"
+
 params = list(enc.parameters()) + list(dec.parameters())
 opt = torch.optim.Adam(params, lr=1e-2)
 for _ in range(20):
@@ -170,6 +174,11 @@ print(f"reconstruction loss: {float(loss0.detach()):.2f} -> {float(loss.detach()
 ```
 
 Note that the encoder's data-leaf embedding tables allocate parameters lazily on first lookup, so the initial `evaluate` call precedes the optimizer's parameter collection.
+
+The `Program.run` call traverses the checked `reconstruct -> Enc -> Dec__nll`
+graph rather than the classic loss registry. The equality assertion tests the
+typed attachment path, while the `core+structural` runtime label records the
+two providers that served the invocation.
 
 ## Categorical perspective
 

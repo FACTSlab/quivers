@@ -61,11 +61,12 @@ print(fit.__name__)
 
 - **[Installation](getting-started/installation.md)** for setup.
 - **[Quickstart](getting-started/quickstart.md)** for a working model in five minutes.
-- **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: seven chapters from linear regression through hierarchical models, sequence models, and inference-algorithm choice, with Pyro / NumPyro / Stan equivalents side-by-side.
-- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: seven chapters covering the typed categorical API.
-- **[Examples gallery](examples/index.md)**: 46 end-to-end models grouped by family.
+- **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: thirteen chapters from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks.
+- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: nine chapters covering the typed categorical API.
+- **[QVR language reference](reference/qvr/index.md)** for v0.19 syntax, type-and-effect rules, program elaboration, entry execution, runtime providers, LSP behavior, and grammar ownership.
+- **[Examples gallery](examples/index.md)** for end-to-end models grouped by statistical family and language feature, including the integrated [Amortized Bayesian Semantics](examples/amortized-bayesian-semantics.md) case study.
 - **[Conceptual guides](guides/index.md)** for feature-area deep dives.
-- **[Quivers Indexed Effect Core](developer/qiec.md)** for the indexed-family, effect-row, handler, and program contract.
+- **[Quivers Indexed Effect Core](developer/qiec.md)** for kernel internals, serialization, and the target runtime ABI.
 - **[API reference](api/index.md)** for the typed Python API.
 - **[Denotational semantics](semantics/index.md)** for the formal meaning of every well-typed program.
 

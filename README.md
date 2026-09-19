@@ -79,8 +79,9 @@ The full walkthrough is in the [tutorial](https://FACTSlab.github.io/quivers/tut
 
 ## Documentation
 
-- [**Tutorial**](https://FACTSlab.github.io/quivers/tutorials/): the QVR DSL tutorial walks probabilistic-programming users from linear regression to inference-algorithm choice with PyMC, NumPyro, and Stan equivalents shown side-by-side, while the Python API tutorial covers the typed categorical surface.
-- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 46 end-to-end models covering regression, latent-variable, state-space, language models, seq2seq, and formal grammars.
+- [**Tutorial**](https://FACTSlab.github.io/quivers/tutorials/): the QVR DSL tutorial walks from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks, while the Python API tutorial covers the typed categorical surface.
+- [**QVR language reference**](https://FACTSlab.github.io/quivers/reference/qvr/): v0.19 syntax, type-and-effect rules, generated computation graphs, entry execution, tooling, and grammar ownership.
+- [**Examples gallery**](https://FACTSlab.github.io/quivers/examples/): 46 transpilation-measured programs plus an integrated QIEC case study, covering regression, latent-variable, state-space, language, structural, and formal-grammar models.
 - [**Conceptual guides**](https://FACTSlab.github.io/quivers/guides/): feature-area deep dives.
 - [**API reference**](https://FACTSlab.github.io/quivers/api/): the typed Python surface.
 - [**Denotational semantics**](https://FACTSlab.github.io/quivers/semantics/): the meaning of every well-typed program in a $\mathcal{V}$-enriched symmetric monoidal closed category.

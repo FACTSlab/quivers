@@ -16,8 +16,13 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over eleven concrete guide classes, seven objectives, two MCMC kernels, and two hybrid approaches. Which combination matches which model shape.
 7. **[The categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* Algebras as enrichment algebras, `>>` as enriched composition, and change-of-base as a functor. This chapter supplies the background needed to extend the library or interpret its algebra type errors.
 8. **[Diagnostics and model comparison](qvr/08-diagnostics-and-comparison.md)**. ArviZ end-to-end: `to_datatree`, convergence diagnostics, posterior-predictive checks, PSIS-LOO model comparison.
+9. **[Indexed data and total functions](qvr/09-indexed-data.md)**. Closed index sorts, indexed families, constructor refinement, recursive case analysis, and direct entry execution.
+10. **[Effects and handlers](qvr/10-effects-and-handlers.md)**. Lexical instances, open rows, authored handlers, resumption grades, and stable execution traces.
+11. **[Parsing as an effectful computation](qvr/11-parsing-and-search.md)**. Schema-backed parsers, generated search and weight effects, reference inside scores, and parser calls from probabilistic programs.
+12. **[Structural autoencoders](qvr/12-structural-autoencoders.md)**. Signatures, encoder and decoder attachments, checked loss invocation, autograd, and checkpoint registration.
+13. **[Check, inspect, and transpile](qvr/13-release-workflow.md)**. Target-aware checking, entry inspection, runtime traces, LSP configuration, grammar provenance, and release automation.
 
-You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand.
+You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand. Chapters 9–13 form the v0.19 language track: they move from indexed types through effects, generated search and neural computation graphs, and the release boundary.
 
 ## Python API track
 
@@ -39,6 +44,7 @@ For the QVR track:
 
 - Python 3.14+, PyTorch 2.0+, quivers installed ([Installation](../getting-started/installation.md)).
 - Comfort with one of the popular probabilistic-programming languages (Pyro, NumPyro, Stan, PyMC). You don't need to know category theory.
+- For chapters 9–13, use an editable checkout or a v0.19 package so the bundled QVR grammar, reference machine, and language server agree.
 
 For the Python API track:
 

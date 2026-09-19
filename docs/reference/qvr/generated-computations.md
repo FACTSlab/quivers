@@ -1,0 +1,159 @@
+# Generated computation graphs
+
+Several high-level QVR declarations generate checked QIEC definitions. Their
+surface remains the convenient way to write the model, while the generated
+graph supplies one execution, inspection, and diagnostic boundary. This is
+the **generated-core contract (GCC)**: elaboration may add families,
+instances, handlers, and helper computations, but every generated node is
+typed and remains visible to tooling.
+
+## What each declaration generates
+
+| Source declaration | Principal QIEC graph | Runtime requirement |
+| --- | --- | --- |
+| `program` | one computation over canonical `random` and `score`; helpers for marginalization and scans | core reference handlers; optional model attachments |
+| `deduction` | closed item family, recursive derivation, `Search`, `Weight[K]`, `Param`, collecting handlers, run entry | core search, semiring, and parameter providers |
+| `define p = parser(...)` | finite item family and a goal-directed deduction instantiated from schemas and bundles | same search runtime as a deduction |
+| `signature` | opaque term family indexed by declared sorts | structural term values at the host boundary |
+| `encoder` | typed `Compute[Term, Code]` request and named computation | attached PyTorch encoder |
+| `decoder` | typed `Compute[Code, Term]` and negative-log-likelihood computations | attached PyTorch decoder |
+| `loss` | named computation calling its encoder/decoder dependencies | attachments reachable from the loss |
+
+`Program.entry_points()` lists the public computations a compiled module can
+invoke. Generated implementation helpers may also be inspectable in the
+checked module; callers should select the documented entry rather than depend
+on a helper's generated name.
+
+## Deduction declarations
+
+A weighted deduction system becomes a search computation whose weights are
+interpreted in the declared semiring. For a span grammar, elaboration creates:
+
+1. an item family with constructors for atoms, applied symbols, and positions;
+2. a recursive derive computation that chooses axioms or applicable rules;
+3. structural equality and display computations for items;
+4. a `Search` instance for alternatives;
+5. a `Weight[K]` instance for rule and lexical contributions;
+6. a `Param` instance for learned weights; and
+7. a run computation that handles search and accumulation.
+
+Shared pattern variables are checked by structural equality after recursive
+premises return. Failed matches perform an empty choice. A learned lexical or
+rule weight is fetched from `Param` under the same stable name used by the
+agenda engine, so the classic chart and reference computation can share a
+parameter store.
+
+For `LogProb`, the result is a `LogWeight`; for `Boolean`, it is a `Bool`; for
+`Counting`, it is an `Int`. `run_deduction` returns the goal's inside value and
+may accept tokens, explicit axioms, axiom weights, and parameter values,
+depending on the deduction's shape.
+
+See the [weighted deduction guide](../../guides/deduction.md) and the
+[parsing tutorial](../../tutorials/qvr/11-parsing-and-search.md).
+
+## Schema-backed parsers
+
+`parser(rules=[...], terminal=Token, start=S, depth=n)` first instantiates
+pattern-polymorphic schemas over the finite category inventory induced by the
+declared free residuated object. It then lowers that concrete rule system to
+the same search-and-weight graph as a deduction.
+
+The classic `ChartParser` and the QIEC entry share lexical and rule weights and
+compute the same bounded inside score. This dual view is useful during model
+development: the classic object exposes batched PyTorch fitting, while the
+checked computation exposes effect handling, entry-point execution, stable
+serialization, and target diagnostics.
+
+A target that lacks the search runtime reports
+`qiec:capability:search:<entry>`. The parser is not dropped when another
+program in the module calls it; the reachable call graph determines whether a
+target can emit the model.
+
+## Structural signatures and autoencoders
+
+A `signature` defines typed host values, including data leaves, recursive
+constructors, binders, and de Bruijn variables. It lowers to an opaque family
+because the stable kernel tracks the term's sort but does not serialize the
+process-local Python object.
+
+An encoder or decoder then becomes a `Compute` instance and a named
+computation. For the shipped term autoencoder:
+
+```text
+reconstruct(term)
+  -> Enc.apply(term)
+  -> Dec__nll.apply((term, code))
+  -> LogWeight
+```
+
+`Program.run("reconstruct", term)` attaches the compiled `torch.nn.Module`
+objects, validates the host values against the checked input and output types,
+and preserves the autograd graph. The encoder and decoder are registered under
+stable source-derived module names, so `parameters()`, `named_parameters()`,
+and `state_dict()` include them.
+
+The stable serialized module contains attachment descriptors, not PyTorch
+modules or callables. A process that deserializes it must attach compatible
+providers before invoking the affected entry. A transpile target without such
+a provider refuses it under `qiec:capability:neural-attachment:<entry>`.
+
+See the [structural autoencoder tutorial](../../tutorials/qvr/12-structural-autoencoders.md)
+and the [Term Autoencoder](../../examples/term-autoencoder.md) example.
+
+## Programs that call generated entries
+
+The surfaces compose through ordinary calls. A program can call a deduction:
+
+<!-- compile: qiec -->
+```qvr
+object Term : FinSet 16
+object Weight : Real 1
+
+deduction AB : Term -> Term [semiring=LogProb, start=S, depth=6]
+    atoms S, NP, N, Fwd, Bwd, span, the, dog, runs
+    rule fwd_app : span(I, K, Fwd(X, Y)), span(K, J, Y) |- span(I, J, X) #[learnable]
+    rule bwd_app : span(I, K, Y), span(K, J, Bwd(X, Y)) |- span(I, J, X) #[learnable]
+    lexicon
+        "the" : Fwd(NP, N) = the #[learnable]
+        "dog" : N = dog #[learnable]
+        "runs" : Bwd(S, NP) = runs #[learnable]
+
+program fit : Term -> Weight
+    let chart = parse(AB, sentence)
+    score evidence = chart.goal_weight()
+    return evidence
+
+export fit
+```
+
+The parser result is a source convenience. Elaboration replaces the
+`goal_weight()` access with a call to the deduction's checked run computation
+and a score request. The program's target-capability set thus includes search,
+weight accumulation, parameter lookup when weights are learned, and the
+ordinary probabilistic effects of its other steps.
+
+## Inspect the generated graph
+
+Use these surfaces at increasing levels of detail:
+
+```bash
+qvr run model.qvr --list
+qvr repl model.qvr
+# then: :info entry
+#       :effects entry
+#       :dump entry --json
+#       :graph program --mermaid
+```
+
+In Python, `program.entry_points()` gives the public invocation surface and
+`program.qiec` gives the checked module. The latter is a stable typed model,
+not a promise that generated helper names will remain a hand-authored API.
+
+## Capability failures are part of the contract
+
+A generated computation can introduce a requirement not apparent from one
+surface line. For instance, `parser(...)` introduces search, and a loss over a
+decoder introduces neural attachments. Quivers attributes the diagnostic to
+the reachable computation and preserves its source range. Use
+`qvr check --target TARGET` or set the LSP target while editing, so these
+requirements appear before transpilation.

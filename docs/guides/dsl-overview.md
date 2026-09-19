@@ -123,7 +123,7 @@ program = compiler.compile()
 ### One checked core
 
 Every executable declaration of a module elaborates to a computation of the
-[Quivers Indexed Effect Core](../developer/qiec.md): `index`, `family`,
+[QVR language reference](../reference/qvr/index.md): `index`, `family`,
 `effect`, `instance`, `handler`, and typed `define` declarations are its
 surface directly, and a `program` is domain-specific notation for a named
 computation over the module's canonical `random` and `score` instances, whose
@@ -148,8 +148,9 @@ NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church execute the complete
 computation graph through generated host runtimes. Stan, BUGS, and JAGS accept
 a checked, effect-free scalar subset and report a feature-specific capability
 diagnostic for other computations. See
-[Quivers Indexed Effect Core](../developer/qiec.md) for the complete surface
-and target boundary.
+[QVR language reference](../reference/qvr/index.md) for the complete user
+surface and target boundary, and the [QIEC developer note](../developer/qiec.md)
+for the kernel and runtime ABI.
 
 ### Programs as panproto schemas
 

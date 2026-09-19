@@ -164,9 +164,10 @@ points; this test evidence is not an equivalence proof. Stan lowers a
 computation with a closed empty effect row, an empty static telescope, and a
 scalar result as a user-defined function; BUGS and JAGS refuse every call.
 These targets reject unsupported control or value features explicitly, under
-`qiec:capability:<feature>:<name>` and `call:graph:<name>`. The
-[QIEC developer note](../developer/qiec.md) specifies the source forms,
-checker, serialization boundary, evaluator, and transpiler contracts.
+`qiec:capability:<feature>:<name>` and `call:graph:<name>`. The [effects and
+handlers reference](../reference/qvr/effects-and-handlers.md) specifies the
+source and operational contract. The [QIEC developer note](../developer/qiec.md)
+specifies the checker, serialization boundary, evaluator, and transpiler ABI.
 
 ## Bridges between the two towers
 

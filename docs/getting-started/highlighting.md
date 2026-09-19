@@ -211,7 +211,7 @@ Registering QVR upstream with Linguist is tracked at [panproto/panproto#84](http
 
 ## Verifying your setup
 
-A short check that exercises every distinguishing surface feature:
+A baseline probabilistic-program check is:
 
 <!-- compile: false -->
 ```qvr
@@ -231,5 +231,38 @@ When the highlighting is wired up, keywords (`object`, `program`,
 `sample`, `let`, `observe`, `return`, `export`), the `effects` option,
 the `<-` bind punctuation, family identifiers (`HalfNormal`, `Normal`),
 and comments carry distinct colors.
+
+Use this second block to verify the v0.19 indexed-effect tokens:
+
+<!-- compile: qiec -->
+```qvr
+index Availability = Observed | Missing
+
+family Measurement(s : Availability) : Type
+    constructor Present : Real -> Measurement(Observed)
+    constructor Absent : Measurement(Missing)
+
+effect Robust
+    shrink : Real -> Real
+
+instance robust : Robust
+
+handler half_weight for Robust : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return x =>
+        return x
+    shrink(x : Real) resumes 1 =>
+        resume(0.5 * x)
+
+define robustify(x : Real) : Real !{} =
+    handle robust with half_weight in
+        let adjusted <- perform robust.shrink(x)
+        return adjusted
+```
+
+The additional keywords (`index`, `family`, `constructor`, `effect`,
+`instance`, `handler`, `resumes`, `define`, `handle`, `perform`) and handler
+option keys should receive their semantic classes once the LSP attaches. The
+[QVR language reference](../reference/qvr/index.md) contains tested blocks for
+the remaining computation and program forms.
 
 If a token is unhighlighted (rendered as default-foreground text), the corresponding rule in the editor's highlight query is the place to look; the canonical reference is [`grammars/qvr/queries/highlights.scm`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/queries/highlights.scm).

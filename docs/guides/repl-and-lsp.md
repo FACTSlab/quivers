@@ -1,17 +1,18 @@
 # Interactive surface: REPL, kernel, language server
 
 quivers ships an interactive type-explorer and a matching language
-server. Both share the same parser
-([panproto](https://github.com/panproto/panproto) tree-sitter), the
-same elaborator
+server. Both share the same bundled QVR tree-sitter parser, installed into
+[Panproto](https://github.com/panproto/panproto)'s registry, the same elaborator
 ([`quivers.dsl.Compiler`](../api/dsl/compiler.md)), and the same highlight
 table, so the colour you see in the TUI matches the colour your
 editor shows over LSP, which matches what gets emitted as Jupyter
 output. The REPL, plain prompt, kernel, and language server use these
 shared components.
 
-This page is the full reference. For a one-paragraph
-overview see [Quickstart](../getting-started/quickstart.md).
+This page is the full interactive-command reference. For a one-paragraph
+overview see [Quickstart](../getting-started/quickstart.md); for the shorter
+entry, provider, LSP, and grammar-ownership contract, see [QVR execution and
+tooling](../reference/qvr/execution-and-tooling.md).
 
 ## Installation
 

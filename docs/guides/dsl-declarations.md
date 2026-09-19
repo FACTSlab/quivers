@@ -690,7 +690,10 @@ captured context is duplicable. A handler's signature is stable data; its
 clause bodies are authored in the source (`[implementation=authored]`, each
 clause a `=>` body that may `resume`) or supplied as process-local runtime
 attachments (`[implementation=foreign]`). See
-[Quivers Indexed Effect Core](../developer/qiec.md) for the full contract.
+[QVR types](../reference/qvr/types-and-indexed-families.md), [effects and
+handlers](../reference/qvr/effects-and-handlers.md), and
+[computations](../reference/qvr/computations.md) for the user contract; the
+[QIEC developer note](../developer/qiec.md) specifies the kernel ABI.
 
 ## Structural compression: `signature`, `encoder`, `decoder`, `loss`
 

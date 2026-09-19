@@ -62,8 +62,10 @@ The QIEC lowering instantiates that same finite rule system as a deduction. Its 
 ## Try it
 
 ```python
+import math
 import torch
 from quivers.dsl import load
+from quivers.qiec.program_runtime import run_deduction
 
 torch.manual_seed(0)
 prog = load("docs/examples/source/schema_chart_parser.qvr")
@@ -74,6 +76,27 @@ print(parser.n_rules, "binary rules;", parser.n_unary_rules, "unary rules")
 # token indices: the=0, dog=1, cat=2, sleeps=3
 corpus = torch.tensor([[0, 1, 3], [0, 2, 3]])  # the dog sleeps / the cat sleeps
 print("initial scores:", parser(corpus))
+
+# Give the checked search computation and classic chart the same explicit
+# uniform lexical table, then compare their inside scores.
+with torch.no_grad():
+    parser.axiom.lexicon_logits.zero_()
+n_categories = parser.rule_system.n_categories
+n_terminals = parser.axiom.lexicon_logits.shape[0]
+uniform = -math.log(n_categories)
+parameters = {
+    f"lp_parser.lex.{index}": uniform
+    for index in range(n_categories * n_terminals)
+}
+checked = run_deduction(
+    prog.qiec,
+    "lp_parser",
+    tokens=["dog", "sleeps"],
+    parameters=parameters,
+    fuel=1_000_000,
+)
+classic = float(parser(torch.tensor([1, 3])).detach())
+assert abs(checked.weight - classic) < 1e-6
 
 # LP's permutation is a structural postulate rather than a fitted
 # preference, so the corpus adjusts the lexical table and the two
@@ -93,6 +116,12 @@ print("fitted scores:", parser(corpus))
 ```
 
 The parser is callable on integer token tensors, `(seq_len,)` for one sentence or `(batch, seq_len)` for a batch, and returns the inside log-weight of the `S`-rooted span covering the whole input. The score is differentiable in the lexical table and the per-rule weights, so fitting the grammar to a corpus is ordinary gradient ascent on the summed scores.
+
+`run_deduction` exercises the QIEC view of the same parser. It handles the
+generated search and weight effects on the reference machine and returns the
+goal's inside weight. Pass an explicit parameter store when comparing after an
+optimizer step; the call above deliberately compares the shared initial
+weights before fitting mutates the classic module.
 
 ## The chart_fold primitive
 

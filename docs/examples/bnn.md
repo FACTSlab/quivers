@@ -67,6 +67,15 @@ Its 4418 weights are the network's parameters. `hidden_dim` sets the width and `
 
 `program bnn : Resp -> Target` then does the only thing left. `observe y : Resp <- net(x)` applies the kernel to the per-row input and scores the observed response under the resulting Normal, accumulating over the `Resp` plate. `x` is a free variable: it never appears in a `sample` or `let`, so it is supplied as host data through the observations dict alongside `y`, exactly as a covariate would be in a regression.
 
+The v0.19 elaboration makes the network computation explicit: each affine
+weight and bias is a typed program input, and the QIEC body applies the layers
+under `tanh` before constructing the Normal family. The reference machine runs
+that graph with the compiled PyTorch modules. Transpile targets refuse
+`param-source:mlp`, however, because these model-internal weights are neither
+declared sample sites nor portable data from which a host program could
+reconstruct the network. This distinction is reported in the [measured support
+matrix](../transpile-support.md), not hidden by emitting a linear substitute.
+
 ## Try it
 
 > The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.

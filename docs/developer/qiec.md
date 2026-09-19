@@ -1,5 +1,12 @@
 # Quivers Indexed Effect Core
 
+!!! tip "Looking for the language reference?"
+
+    This page documents kernel internals, serialization, and the target runtime
+    ABI. For source syntax, typing rules, execution commands, tutorials, and
+    user-facing failure modes, start with the [QVR language
+    reference](../reference/qvr/index.md).
+
 The Quivers Indexed Effect Core (QIEC) is the typed core every executable
 declaration of a QVR module elaborates to. Indexed families, effect
 interfaces, instances, handlers, and typed computations are its surface

@@ -7,6 +7,11 @@ it alongside the material. For a more discursive treatment, see
 the [tutorial](../tutorials/index.md); for the formal denotational
 semantics, see [Semantics](../semantics/index.md).
 
+For declaration-by-declaration syntax and operational behavior, use the
+[QVR language reference](../reference/qvr/index.md). The guides explain why a
+feature exists and how it relates to the rest of Quivers; the reference states
+what source forms are accepted and how they run.
+
 The guides are organized in seven thematic sections; each
 section's pages stand alone, but reading them in order gives the
 clearest picture of how the pieces fit together.
@@ -143,6 +148,7 @@ Workflow surface around inference.
 - **Building models declaratively.** [DSL Overview](dsl-overview.md),
   [DSL Declarations](dsl-declarations.md),
   [DSL Programs](dsl-programs-and-lets.md),
+  [QVR Language Reference](../reference/qvr/index.md),
   [Transformations](transformations.md),
   [Inference](inference-foundations.md).
 - **Category-theoretic extension.**

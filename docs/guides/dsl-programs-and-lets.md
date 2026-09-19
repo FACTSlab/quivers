@@ -112,7 +112,8 @@ as user-defined functions and refuses every other feature under
 `qiec:capability:<feature>:<name>`; BUGS and JAGS refuse a call under
 `call:graph:<name>`. A module with QIEC declarations but no computation the
 program reaches remains valid on every target. The complete surface appears in
-[Quivers Indexed Effect Core](../developer/qiec.md).
+[QVR computation reference](../reference/qvr/computations.md) and
+[probabilistic-program reference](../reference/qvr/probabilistic-programs.md).
 
 ### Kleisli bind syntax
 

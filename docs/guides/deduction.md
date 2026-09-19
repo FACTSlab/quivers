@@ -136,6 +136,13 @@ agree on every system whose derivations of the goal fit the declared
 `params` instance under the names the engine keys its parameters by, so
 a run may be given a parameter store built from a fitted system.
 
+For a worked comparison between the batched chart and the generated search
+computation, see [Parsing as an effectful
+computation](../tutorials/qvr/11-parsing-and-search.md). The
+[generated-computation reference](../reference/qvr/generated-computations.md)
+lists the families, effects, handlers, and entries a deduction or
+schema-backed parser adds.
+
 ## References
 
 - Dan Klein and Christopher D. Manning. 2001. Parsing and hypergraphs. In *Proceedings of the Seventh International Workshop on Parsing Technologies (IWPT)*, pages 123–134.
