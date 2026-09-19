@@ -5,7 +5,7 @@ grammar. It contains the hand-authored tree-sitter grammar, generated parser
 sources, node metadata, corpus tests, and the canonical highlighting query
 for `.qvr` files.
 
-QVR v0.19 covers four connected surfaces:
+The grammar covers four connected surfaces:
 
 - categorical objects, morphisms, algebras, compositions, and contractions;
 - probabilistic programs with samples, observations, scoring,
@@ -110,7 +110,6 @@ the gates above.
 
 [`vcs/`](vcs/README.md) records the grammar as a panproto schema chain. Parser
 snapshots are immutable by release; `vcs/parsers/HEAD/` mirrors the current
-generated sources. QVR v0.19 adds a validating, byte-preserving migration from
-v0.18 because its grammar extension is additive. Future non-additive changes
-must provide an explicit source transformation rather than declaring an
-identity edge.
+generated sources. Additive grammar changes may use a validating,
+byte-preserving migration. Non-additive changes must provide an explicit
+source transformation rather than declaring an identity edge.

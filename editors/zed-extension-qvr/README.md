@@ -1,8 +1,8 @@
 # QVR for Zed
 
-This [Zed](https://zed.dev) extension provides QVR v0.19 parsing, syntax
-highlighting, bracket/comment behavior, and language-server integration for
-`.qvr` files. The parser recognizes categorical and probabilistic
+This [Zed](https://zed.dev) extension provides QVR parsing, syntax highlighting,
+bracket/comment behavior, and language-server integration for `.qvr` files.
+The parser recognizes categorical and probabilistic
 declarations, indexed families, constructors and cases, computations, lexical
 effect instances, open rows, handlers, and graded resumptions.
 
@@ -57,7 +57,7 @@ both copies. Tests fail if the pin is mutable, if either query drifts, or if
 the QIEC vocabulary diverges across tree-sitter, TextMate, Pygments, the REPL,
 and LSP semantic tokens.
 
-## Verify the v0.19 surface
+## Verify the language surface
 
 Open
 [`docs/tutorials/qvr/source/authored-handler.qvr`](../../docs/tutorials/qvr/source/authored-handler.qvr).

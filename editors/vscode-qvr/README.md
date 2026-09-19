@@ -1,8 +1,8 @@
 # QVR for VS Code and Cursor
 
-The first-party QVR extension provides QVR v0.19 language support for Visual
-Studio Code and Cursor. It combines a TextMate grammar for immediate
-colorization with `qvr-lsp` for typed language features.
+The first-party QVR extension provides language support for Visual Studio Code
+and Cursor. It combines a TextMate grammar for immediate colorization with
+`qvr-lsp` for typed language features.
 
 The extension recognizes the complete current surface: categorical and
 probabilistic declarations, indexed families, constructors and motive-checked
@@ -19,8 +19,8 @@ pip install 'quivers[lsp]'
 qvr-lsp --help
 ```
 
-Then install `vscode-qvr-0.6.0.vsix`, which is attached to the Quivers v0.19
-GitHub release:
+Then install `vscode-qvr-0.6.0.vsix` from the corresponding Quivers GitHub
+release:
 
 ```sh
 code --install-extension vscode-qvr-0.6.0.vsix
@@ -76,7 +76,7 @@ computation can lower to Pyro:
 }
 ```
 
-## Verify the v0.19 surface
+## Verify the language surface
 
 Open
 [`docs/tutorials/qvr/source/authored-handler.qvr`](https://github.com/FACTSlab/quivers/blob/main/docs/tutorials/qvr/source/authored-handler.qvr).
