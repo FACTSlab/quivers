@@ -11,6 +11,8 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "editors" / "vscode-qvr"
 PARITY_FILES = (
+    "LICENSE",
+    "README.md",
     "package.json",
     "language-configuration.json",
     "syntaxes/qvr.tmLanguage.json",
@@ -41,7 +43,12 @@ def main(*, full: bool = False) -> int:
                 if name.startswith("extension/node_modules/") and not name.endswith("/")
             )
         for relative in parity_files:
-            archived = archive.read(f"extension/{relative}")
+            # vsce normalizes conventional metadata filenames in the archive.
+            archived_name = {
+                "LICENSE": "LICENSE.txt",
+                "README.md": "readme.md",
+            }.get(relative, relative)
+            archived = archive.read(f"extension/{archived_name}")
             current_path = EXTENSION / relative
             if not current_path.is_file():
                 failures.append(f"{relative} (missing)")
