@@ -4,7 +4,7 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.19.0] - Unreleased
+## [0.19.0] - 2026-09-19
 
 ### Added
 
