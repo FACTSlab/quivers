@@ -40,6 +40,15 @@ Thumbs.db
 
 # Local development notes (not committed)
 notes/
+.agent/
+.agents/
+.claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+AGENTS.md
+CLAUDE.md
 .gitignore
 
 # node
