@@ -1,6 +1,6 @@
 # Docker images for the transpile numeric-equivalence tier
 
-QVR v0.19 has eleven named transpilation targets: Pyro, NumPyro, PyMC,
+QVR has eleven named transpilation targets: Pyro, NumPyro, PyMC,
 Edward2, Turing, Gen, WebPPL, Church, Stan, BUGS, and JAGS. These images test
 the part of each target's declared capability boundary that can be executed in
 CI. They do not widen that boundary: `qvr check --target TARGET` remains the

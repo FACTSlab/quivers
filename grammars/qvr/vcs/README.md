@@ -18,7 +18,7 @@ grammars/qvr/vcs/
       grammar.json
       node-types.json
     HEAD/source/src/
-      # current v0.19 parser sources and metadata
+      # current parser sources and metadata
   build_schemas.py  # append/tag distinct authored grammar revisions
   build_parsers.py  # materialize parser snapshots from git tags
   README.md         # this file
@@ -49,11 +49,10 @@ freezes that revision under its git tag. The complete workflow is:
 5. Run the batch migration over `.qvr` sources:
    `qvr migrate --from <prior-tag> --to HEAD <paths>`. The CLI
    composes the registered one-hop panproto migrations. The chain
-   names v0.15.0 through v0.18.0 separately even though those releases
-   share an authored grammar. The v0.18.0 to `HEAD` hop is a validated,
-   byte-preserving additive migration for the v0.19 indexed-family and
-   effect surface; it is intentionally not declared as an identity edge.
-   The chain always ends in an explicit `HEAD`.
+   may name multiple releases separately even when they share an authored
+   grammar. An additive hop may be byte-preserving, but it is still validated
+   and is not declared as an identity edge. The chain always ends in an
+   explicit `HEAD`.
 
 The tagged snapshot produced in steps 3–4 is normally committed as preparation
 for the next Quivers release. The release being tagged already contains the

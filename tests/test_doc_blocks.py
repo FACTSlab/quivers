@@ -5,8 +5,10 @@ QVR blocks
 ----------
 
 Each fenced ```qvr block under ``docs/`` (and ``README.md``) is treated
-as a test case. The block's *compile mode* is chosen by an HTML comment
-on the line immediately preceding the opening fence:
+as a test case. An uppercase ```R fence is treated the same way; the root
+README uses GitHub's R lexer as the closest available syntax-highlighting
+fallback for QVR. The block's *compile mode* is chosen by an HTML comment on
+the line immediately preceding the opening fence:
 
 * ``<!-- compile: false -->``      — not a test case; the block is
   illustrative prose (e.g. a bind step shown outside any program body).
@@ -55,7 +57,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DOC_ROOTS = (_REPO_ROOT / "docs", _REPO_ROOT / "README.md")
 _TUTORIAL_ROOT = _REPO_ROOT / "docs" / "tutorials"
 
-_QVR_FENCE_RE = re.compile(r"^([ \t]*)```qvr\n(.*?)^\1```", re.M | re.S)
+_QVR_FENCE_RE = re.compile(r"^([ \t]*)```(?:qvr|R)\n(.*?)^\1```", re.M | re.S)
 _PY_FENCE_RE = re.compile(r"^([ \t]*)```python\n(.*?)^\1```", re.M | re.S)
 
 

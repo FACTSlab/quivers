@@ -161,3 +161,19 @@ def test_simplex_literal_valid_no_warning():
     assert all(
         d.code != "family-arg-shape" or d.severity != "warning" for d in diags
     ), f"unexpected warning: {diags!r}"
+
+
+def test_param_source_model_does_not_abort_source_shape_validation():
+    """A transpiler refusal is not a source-language validation failure."""
+    src = """
+        object Feature : Real 2
+        object Target : Real 1
+        object Resp : FinSet 6
+        morphism net : Feature -> Target [param_source=mlp(5, 3)] ~ Normal
+        program prog : Resp -> Target
+            observe y : Resp <- net(x)
+            return y
+        export prog
+    """
+    module = _parse(src)
+    assert validate_family_arg_shapes(module) == []
