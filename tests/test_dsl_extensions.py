@@ -236,6 +236,28 @@ class TestQvrCheckCli:
         codes = {d.code for d in diags}
         assert "bundle_unknown_member" in codes
 
+    def test_neural_parameter_source_is_valid_qvr(self, tmp_qvr):
+        f = tmp_qvr(
+            "neural.qvr",
+            """
+            object Feature : Real 2
+            object Target : Real 1
+            object Resp : FinSet 6
+            morphism net : Feature -> Target [param_source=mlp(5, 3)] ~ Normal
+            program prog : Resp -> Target
+                observe y : Resp <- net(x)
+                return y
+            export prog
+            """,
+        )
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = check_main([str(f)], json_output=False)
+        assert rc == 0
+        assert "OK" in out.getvalue()
+        assert err.getvalue() == ""
+
 
 # ---------------------------------------------------------------------------
 # Highlight queries cover every new production

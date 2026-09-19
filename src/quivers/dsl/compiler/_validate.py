@@ -47,7 +47,7 @@ from quivers.dsl.step_resolution import (
     ResolvedDist,
     StepResolutionError,
     build_let_table,
-    build_morphism_table,
+    morphism_table,
     resolve_step_dist,
 )
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
@@ -64,7 +64,11 @@ def validate_family_arg_shapes(module: Module) -> list[Violation]:
     backend transpile or compile.
     """
     out: list[Violation] = []
-    morphisms = build_morphism_table(module)
+    # Argument-shape validation is a source-language pass.  Use the unchecked
+    # declaration table here: ``build_morphism_table`` additionally enforces a
+    # transpiler boundary for model-internal parameter networks, which must not
+    # make ordinary ``qvr check`` fail (or crash) for an executable QVR model.
+    morphisms = morphism_table(module)
     lets = build_let_table(module)
     family_set = frozenset(FAMILY_META)
 
