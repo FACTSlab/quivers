@@ -24,24 +24,29 @@ grammars/qvr/vcs/
   README.md         # this file
 ```
 
-## Workflow
+## Release workflow
 
-Every grammar release follows three steps:
+Grammar work is prepared under the explicit `HEAD` revision. A release then
+freezes that revision under its git tag. The complete workflow is:
 
-1. After tagging the git release, run `python
-   grammars/qvr/vcs/build_schemas.py`. The script tags an existing
-   untagged content commit when the release freezes the prior `HEAD`,
-   appends only genuinely new authored grammars, and is idempotent.
-   History is keyed by `grammar.js`; regenerated `grammar.json`
-   serialization alone does not constitute a language revision.
-2. Run `python grammars/qvr/vcs/build_parsers.py --revision <tag>`.
+1. While developing, regenerate the current parser with `python
+   grammars/qvr/vcs/build_parsers.py --revision HEAD --force`. Update the
+   migration manifest and test the previous release to `HEAD` path.
+2. Tag the git release only after the `HEAD` source, parser snapshot,
+   migrations, editor assets, and package tests are green.
+3. Run `python grammars/qvr/vcs/build_schemas.py`. The script tags an existing
+   untagged content commit when the release freezes the prior `HEAD`, appends
+   only genuinely new authored grammars, and is idempotent. History is keyed
+   by `grammar.js`; regenerated `grammar.json` serialization alone does not
+   constitute a language revision.
+4. Run `python grammars/qvr/vcs/build_parsers.py --revision <tag>`.
    The generated C source, grammar metadata, and node types form the
    platform-neutral immutable snapshot. Platform wheels carry a matching
    native library and a manifest bound to these source bytes. An installed
    package requires that verified trio and fails closed if any part is absent
    or inconsistent. A source checkout may compile the snapshot into its local
    cache for development.
-3. Run the batch migration over `.qvr` sources:
+5. Run the batch migration over `.qvr` sources:
    `qvr migrate --from <prior-tag> --to HEAD <paths>`. The CLI
    composes the registered one-hop panproto migrations. The chain
    names v0.15.0 through v0.18.0 separately even though those releases
@@ -49,6 +54,11 @@ Every grammar release follows three steps:
    byte-preserving additive migration for the v0.19 indexed-family and
    effect surface; it is intentionally not declared as an identity edge.
    The chain always ends in an explicit `HEAD`.
+
+The tagged snapshot produced in steps 3–4 is normally committed as preparation
+for the next Quivers release. The release being tagged already contains the
+tested `HEAD` snapshot, so this bookkeeping does not make runtime parsing
+depend on a post-tag commit.
 
 ## Why a VCS instead of hand-editing files
 

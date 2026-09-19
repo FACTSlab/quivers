@@ -1,15 +1,25 @@
 # tree-sitter-qvr
 
-Tree-sitter grammar for [Quivers](../../) DSL files (`.qvr`).
+This directory is the source of truth for the [Quivers](../../) QVR language
+grammar. It contains the hand-authored tree-sitter grammar, generated parser
+sources, node metadata, corpus tests, and the canonical highlighting query
+for `.qvr` files.
 
-QVR is a small typed probabilistic programming language. Each `.qvr` file
-declares some types (finite sets and continuous spaces), some morphisms
-(parameters, Markov kernels, observations), and one or more `program`
-blocks that draw, observe, and return values. Compilation produces a
-trainable PyTorch module suitable for SVI or HMC. The surface looks like
-Pyro or NumPyro at the program-block level; the type-and-effect annotations
-above and the categorical machinery underneath are extras for users who
-want them.
+QVR v0.19 covers four connected surfaces:
+
+- categorical objects, morphisms, algebras, compositions, and contractions;
+- probabilistic programs with samples, observations, scoring,
+  marginalization, grouping, and scans;
+- indexed families and QIEC computations with constructors, motive-checked
+  cases, lexical effect instances, open rows, handlers, and graded
+  resumptions; and
+- generated computations from deduction systems, schema parsers, structural
+  signatures, encoders, decoders, and losses.
+
+Every executable declaration elaborates to the Quivers Indexed Effect Core
+(QIEC). The grammar recognizes source forms; the Python compiler resolves and
+checks them. See the [QVR reference](../../docs/reference/qvr/index.md) for
+their typing and operational behavior.
 
 ## Layout
 
@@ -25,26 +35,62 @@ grammars/qvr/
 │   ├── node-types.json
 │   └── tree_sitter/parser.h
 ├── test/corpus/            grammar corpus tests
-├── queries/highlights.scm  syntax highlighting queries
+├── queries/
+│   ├── _generate.py        deterministic query generator
+│   └── highlights.scm      canonical syntax highlighting query
+├── vcs/                    panproto schema history and parser snapshots
 └── LICENSE                 MIT
 ```
 
-## Build and test
+The current generated parser is also copied into
+`src/quivers/dsl/_grammar_data/` for wheels. The build hook compiles a native
+parser and writes a manifest binding that library to the generated
+parser-source bytes. Installed packages fail closed when those assets
+disagree.
+
+## Regenerate and test
+
+Run these commands after changing `grammar.js`:
 
 ```sh
 cd grammars/qvr
-tree-sitter generate    # regenerate src/ from grammar.js
-tree-sitter test        # run corpus tests
-tree-sitter parse FILE  # parse a single .qvr file
+tree-sitter generate
+python queries/_generate.py
+tree-sitter test
+cd ../..
+python tools/sync_grammar_data.py
+python grammars/qvr/vcs/build_parsers.py --revision HEAD --force
+pytest tests/dsl/test_qiec_grammar_assets.py tests/dsl/test_qiec_surface.py
 ```
 
-The 46 example programs currently in `../../docs/examples/source/` parse cleanly
-(no `ERROR` nodes).
+`queries/_generate.py` updates both the canonical query and Zed's packaged
+copy. Tests check that the generated grammar, wheel copy, `HEAD` parser
+snapshot, Zed query, TextMate grammar, Pygments lexer, REPL highlighter, and
+LSP semantic-token vocabulary remain aligned. The documentation test suite
+also parses and compiles every applicable fenced QVR block and gallery source.
 
-## Use as a panproto-registered grammar
+To inspect one file directly:
 
-Once registered in panproto's `grammars.toml`, this grammar is consumed via
-the `directory =` field rather than as a standalone repo:
+```sh
+cd grammars/qvr
+tree-sitter parse ../../docs/examples/qiec/amortized-bayesian-semantics.qvr
+```
+
+## Runtime ownership
+
+Quivers owns current QVR parsing. At process start it loads the manifest-bound
+parser shipped in the Quivers wheel and registers that parser with Panproto.
+Panproto then supplies the generic tree carrier, schema-diff and migration
+machinery, and the non-QVR grammars used by transpilation.
+
+This split matters when the QVR grammar changes: `panproto-grammars-all` may
+temporarily contain an older QVR parser without changing how Quivers parses a
+`.qvr` file. Editors and downstream tools that need the current language
+should build from this directory or use a first-party Quivers extension.
+
+## Panproto vendoring
+
+Panproto can revendor QVR from this repository using a `directory` entry:
 
 ```toml
 [qvr]
@@ -53,6 +99,18 @@ extensions = ["qvr"]
 directory = "grammars/qvr"
 ```
 
-panproto's `tools/fetch-grammars.py` then vendors `src/parser.c`,
-`src/node-types.json`, `src/tree_sitter/parser.h`, and `LICENSE` into its
-own `grammars/qvr/` tree.
+Its fetcher copies `src/parser.c`, `src/scanner.c`, `src/node-types.json`, the
+tree-sitter headers, and `LICENSE` into Panproto's aggregate grammar bundle.
+That revendor is needed for Panproto consumers outside Quivers, but it is not a
+prerequisite for a Quivers release. When Panproto catches up, it should pin a
+Quivers commit whose generated `src/` tree and highlighting query have passed
+the gates above.
+
+## Source compatibility and migrations
+
+[`vcs/`](vcs/README.md) records the grammar as a panproto schema chain. Parser
+snapshots are immutable by release; `vcs/parsers/HEAD/` mirrors the current
+generated sources. QVR v0.19 adds a validating, byte-preserving migration from
+v0.18 because its grammar extension is additive. Future non-additive changes
+must provide an explicit source transformation rather than declaring an
+identity edge.
