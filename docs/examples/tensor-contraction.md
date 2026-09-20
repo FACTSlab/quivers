@@ -13,6 +13,30 @@ In quivers this three-way join is a single `contraction` declaration: an [operad
 ## QVR source
 
 ```qvr
+# Bilinear Tensor Contraction
+#
+# A bilinear plausibility scorer over predicate-argument pairs.
+# Every item (a predicate-argument pair) carries two low-rank
+# embeddings: one describing its predicate and one describing its
+# argument. A third-order interaction tensor combines the two
+# embeddings into a score for each point on a judgment scale.
+#
+# Structural form:
+#
+#   pred_embed  : Item -> PredDim               predicate embedding
+#   arg_embed   : Item -> ArgDim                argument embedding
+#   interaction : PredDim * ArgDim -> Judgment  bilinear form
+#
+# The contraction joins the three arrows in one operadic step:
+# the (i, s) entry of the resulting tensor is
+#
+#   sum_b sum_c pred_embed[i, b] * arg_embed[i, c] * interaction[b, c, s],
+#
+# the classic bilinear (neural-tensor-layer) score. The wiring is
+# inferred from the typed signature: PredDim and ArgDim appear in
+# two inputs each but not in the output, so both are contracted;
+# Item and Judgment appear in the output, so both propagate.
+
 composition real [level=algebra]
 
 object Item : FinSet 4

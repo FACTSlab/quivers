@@ -22,7 +22,7 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 12. **[Structural autoencoders](qvr/12-structural-autoencoders.md)**. Signatures, encoder and decoder attachments, checked loss invocation, autograd, and checkpoint registration.
 13. **[Check, inspect, and transpile](qvr/13-release-workflow.md)**. Target-aware checking, entry inspection, runtime traces, LSP configuration, grammar provenance, and release automation.
 
-You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand. Chapters 9–13 form the v0.19 language track: they move from indexed types through effects, generated search and neural computation graphs, and the release boundary.
+You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand. Chapters 9–13 cover indexed types, effects, generated search and neural computation graphs, and the release boundary.
 
 ## Python API track
 
@@ -44,7 +44,7 @@ For the QVR track:
 
 - Python 3.14+, PyTorch 2.0+, quivers installed ([Installation](../getting-started/installation.md)).
 - Comfort with one of the popular probabilistic-programming languages (Pyro, NumPyro, Stan, PyMC). You don't need to know category theory.
-- For chapters 9–13, use an editable checkout or a v0.19 package so the bundled QVR grammar, reference machine, and language server agree.
+- For chapters 9–13, install Quivers from one source and keep the package, QVR grammar, reference machine, and language server at the same release.
 
 For the Python API track:
 

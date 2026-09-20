@@ -155,5 +155,6 @@ A generated computation can introduce a requirement not apparent from one
 surface line. For instance, `parser(...)` introduces search, and a loss over a
 decoder introduces neural attachments. Quivers attributes the diagnostic to
 the reachable computation and preserves its source range. Use
-`qvr check --target TARGET` or set the LSP target while editing, so these
-requirements appear before transpilation.
+`qvr check --target TARGET` or set the LSP target while editing, so core QIEC
+requirements appear early. Then run the actual transpiler: the target check is
+a capability analysis and does not exercise every renderer-specific refusal.

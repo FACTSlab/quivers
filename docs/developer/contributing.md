@@ -41,15 +41,18 @@ python -m pytest tests/path/to/test_file.py # run specific file
 
 ### Test tiers
 
-The suite splits in two, along the line that governs its runtime. Most
-tests read and write text and finish in microseconds. A few thousand
-drive a real probabilistic programming language inside a Docker
-container to compare its log density against the reference, and those
-carry nearly all of the wall clock. The latter are marked `probe`:
+Two independent markers govern runtime. Tests marked `probe` drive a real
+probabilistic programming language inside a Docker container to compare its
+log density against the reference. Recovery and benchmark tests are marked
+`slow` and are deselected by the default `pyproject.toml` configuration.
+
+Use these commands for the common tiers:
 
 ```bash
-python -m pytest tests/ -m "not probe"   # everything cheap
-python -m pytest tests/ -m probe         # the container-backed cells
+python -m pytest tests/ -m "not slow and not probe"  # fast, no Docker
+python -m pytest tests/ -m "not slow and probe"      # container probes
+python -m pytest tests/ -m slow                       # recovery + benchmarks
+python -m pytest tests/ --runslow                     # the complete suite
 ```
 
 The marker is applied by module, from the registry in
@@ -61,7 +64,7 @@ the cheap tier by omission.
 Probe cells need Docker. The session fixture starts the daemon and
 builds any missing images rather than skipping, since a skipped check
 is a silent gap. Set `QUIVERS_SKIP_DOCKER=1` to opt out, which is
-appropriate when running only `-m "not probe"`.
+appropriate when running only `-m "not slow and not probe"`.
 
 ### Running tests in parallel
 
@@ -70,8 +73,8 @@ call, containers are anonymous, and the image build is serialised
 across workers by a file lock.
 
 ```bash
-python -m pytest tests/ -m "not probe" -n auto --dist loadfile
-python -m pytest tests/ -m probe -n auto
+python -m pytest tests/ -m "not slow and not probe" -n auto --dist loadfile
+python -m pytest tests/ -m "not slow and probe" -n auto
 ```
 
 `--dist loadfile` is the right mode for the cheap tier. Its tests are
@@ -81,7 +84,7 @@ distributing whole files wins where distributing single tests loses.
 To divide the probe tier across machines, `pytest-split` takes a share:
 
 ```bash
-python -m pytest tests/ -m probe --splits 4 --group 1
+python -m pytest tests/ -m "not slow and probe" --splits 4 --group 1
 ```
 
 ### Caching probe measurements
@@ -93,7 +96,7 @@ the same density and then assert different things about it. Point
 `QUIVERS_PROBE_CACHE` at a directory to memoise those measurements:
 
 ```bash
-QUIVERS_PROBE_CACHE=.probe-cache python -m pytest tests/ -m probe
+QUIVERS_PROBE_CACHE=.probe-cache python -m pytest tests/ -m "not slow and probe"
 ```
 
 The key covers the image ID, the emitted source, the points, the shape
@@ -118,15 +121,19 @@ quivers/
 │   └── tutorials/                 # Tutorials
 ├── grammars/qvr/                  # Tree-sitter grammar for the QVR DSL
 │   ├── grammar.js                 # Grammar source of truth
-│   ├── grammar.json               # Generated; vendored by panproto
+│   ├── grammar.json               # Generated from grammar.js
 │   ├── src/                       # Generated parser.c + node-types.json
 │   ├── test/corpus/               # Tree-sitter fixtures
 │   └── queries/                   # Editor highlight queries
 ├── src/quivers/                   # Main package
 │   ├── __init__.py
+│   ├── analysis/                  # Static program and plate analysis
+│   ├── arrows/                    # Hughes-style arrow hierarchy
 │   ├── categorical/               # Categorical algebra
 │   ├── continuous/                # Continuous distributions (more than 40 families)
 │   ├── core/                      # Core types (didactic Models)
+│   ├── data/                      # Data-frame schemas and encoders
+│   ├── diagnostics/               # ArviZ-compatible diagnostics
 │   ├── dsl/                       # QVR DSL pipeline
 │   │   ├── parser/                # panproto-driven parser walker
 │   │   ├── ast_nodes/             # didactic Model AST nodes
@@ -136,11 +143,15 @@ quivers/
 │   │   ├── pygments_lexer.py      # Pygments lexer for docs highlighting
 │   ├── effects/                   # Algebraic effect handlers
 │   ├── enriched/                  # Enriched categories
+│   ├── formulas/                  # Formula parsing and model construction
 │   ├── inference/                 # Variational inference
+│   ├── kernel/                    # Jupyter kernel
+│   ├── lsp/                       # Language Server Protocol implementation
 │   ├── monadic/                   # Monadic programs (draw, observe, return)
+│   ├── qiec/                      # Typed indexed-effect core and evaluator
 │   ├── stochastic/                # Stochastic morphisms
-│   ├── transpile/                 # Cross-language PPL emitters
-│   └── ...
+│   ├── structural/                # Structural encoders, decoders, and losses
+│   └── transpile/                 # Cross-language PPL emitters
 ├── tests/                         # Test suite (mirrors src structure)
 ├── pyproject.toml                 # Package metadata
 └── mkdocs.yml                     # Documentation config

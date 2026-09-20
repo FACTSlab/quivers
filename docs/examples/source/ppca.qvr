@@ -7,15 +7,15 @@
 # Structural form:
 #
 #   Z     : Item      -> LatentDim       per-item latent code
-#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   W     : LatentDim -> ObsDim          learned loadings
 #   ppca  = Z >> W                       low-rank linear mean
 #
-# The loading matrix carries a matrix-normal prior whose
-# Kronecker covariance V (x) U expresses independent row and
-# column correlation. The model is identifiable up to a K x K
-# orthogonal rotation of W; the maximum-likelihood W recovers
-# the leading-K principal components scaled by sqrt(lambda_k -
-# sigma^2).
+# The structural W arrow has no family declaration. The exported
+# program below supplies independent Normal priors for its loading
+# entries, the identity-covariance special case of a matrix-Normal
+# prior. The model is identifiable up to a K x K orthogonal
+# rotation of W; the maximum-likelihood W recovers the leading-K
+# principal components scaled by sqrt(lambda_k - sigma^2).
 #
 # Reference: [Tipping and Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
 

@@ -1,6 +1,6 @@
 # QVR language reference
 
-This section is the user reference for QVR v0.19. It specifies the source
+This section is the user reference for QVR. It specifies the source
 forms you can write, the checked computations they create, and the boundaries
 between the reference machine, attached PyTorch modules, and transpile
 targets. The [QIEC developer note](../../developer/qiec.md) instead documents
@@ -93,7 +93,7 @@ flowchart LR
     T --> H[11 host-language targets]
 ```
 
-Quivers owns and vendors the v0.19 QVR grammar used by this path. It installs
+Quivers owns and vendors the QVR grammar used by this path. It installs
 that native parser into Panproto's registry at process start; Panproto supplies
 the generic parse-tree carrier, migration protocol, and non-QVR target
 grammars. Thus a Panproto bundle may carry the stable QIEC envelope without
@@ -137,4 +137,5 @@ then continue through [Effects and handlers](../../tutorials/qvr/10-effects-and-
 [Parsing as an effectful computation](../../tutorials/qvr/11-parsing-and-search.md),
 and [Structural autoencoders](../../tutorials/qvr/12-structural-autoencoders.md).
 The [Amortized Bayesian Semantics](../../examples/amortized-bayesian-semantics.md)
-example combines the principal v0.19 features in one statistical model.
+example combines indexed data, effects, probabilistic programs, and structural
+attachments in one statistical model.

@@ -7,24 +7,26 @@ The exported `hmm` is a finite-state path-composition example inspired by a disc
 ## QVR source
 
 ```qvr
-# Discrete Hidden Markov Model
+# Finite-State Path Composition
 #
-# A classic K-state HMM as a V-enriched categorical network over
-# finite sets. The composed pipeline runs an initial-state
-# distribution into a runtime-variable number of transition
-# steps and a final emission row, so the same model computes
-# n-step marginals for any horizon.
+# A finite-state path-composition example inspired by a K-state
+# hidden Markov model. The top-level arrows live in the
+# product-fuzzy algebra: their entries are sigmoid-constrained,
+# but their rows are not normalized probability distributions.
+# The composed path thus demonstrates runtime-variable
+# powering, not the sum-product HMM forward algorithm.
 #
 # Structural form:
 #
-#   initial    : State -> State          initial-state row
-#   transition : State -> State          row-stochastic kernel
-#   emission   : State -> Obs            row-stochastic emission
+#   initial    : State -> State          fuzzy initial relation
+#   transition : State -> State          fuzzy transition relation
+#   emission   : State -> Obs            fuzzy emission relation
 #   hmm        = initial >> repeat(transition) >> emission
 #
-# Each row of every row-stochastic matrix carries a Dirichlet
-# prior via the axis-role surface (over cod iid over dom), the
-# standard conjugate prior for a discrete Markov chain.
+# The separate hmm_program below demonstrates Dirichlet rows and
+# exact marginalization for a single shared emission state. Its
+# transition_rows draw is present for parameter-shape comparison
+# but does not enter that likelihood; it is not a multi-step HMM.
 
 composition product_fuzzy [level=algebra]
 
@@ -39,15 +41,13 @@ morphism emission : State -> Obs [role=latent]
 define n_step = repeat(transition) >> emission
 define hmm = initial >> n_step
 
-# Probabilistic surface for transpile: every row of every
-# row-stochastic matrix carries a Dirichlet(1) prior (the
-# uniform conjugate prior the header describes; equivalently the
-# Bayesian-Laplace add-one prior of Manning and Schuetze 1999,
-# section 6.2). The initial-state vector is one Dirichlet draw
-# on the State simplex, so it carries no plate annotation; the
-# transition kernel allocates one Dirichlet row per source state
-# (iid over the State axis); the emission kernel allocates one
-# Dirichlet row per latent state over the Obs simplex.
+# Probabilistic surface for transpile: the initial, transition,
+# and emission parameter blocks are row-stochastic Dirichlet
+# draws. The initial-state vector is one draw on the State
+# simplex; transition_rows allocates one State-simplex row per
+# source state; emission_rows allocates one Obs-simplex row per
+# latent state. The marginalized body below uses initial_row and
+# emission_rows only, so transition_rows remains prior-only.
 #
 # Step is the plate the emitted sequence is observed over and
 # Obs is the alphabet each emission takes its value in, so the
@@ -116,7 +116,7 @@ x_in = torch.zeros(n_step, 1)
 
 ### SVI fit
 
-Re-initialise the raw relation logits and recover the n-step joint that produced the synthetic histogram by minimising the cross-entropy between the normalised `prog(n_steps=n_steps)` and the observed counts. The optimiser walks the sigmoid-constrained entries of the product-fuzzy algebra directly.
+Reinitialize the raw relation logits and recover the n-step joint that produced the synthetic histogram by minimizing the cross-entropy between the normalized `prog(n_steps=n_steps)` and the observed counts. The optimizer walks the sigmoid-constrained entries of the product-fuzzy algebra directly.
 
 ```python
 import torch
@@ -156,7 +156,7 @@ print(f"final loss:   {losses[-1]:.2f}")
 
 ### NUTS posterior
 
-The exported `hmm` composition has no `sample` priors of its own; its `initial`, `transition`, and `emission` latents are plain algebra parameters with sigmoid-constrained entries. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each `nn.Parameter` into a Normal-prior sample site so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the observed histogram against the normalised n-step joint emitted by `prog(n_steps=K)`.
+The exported `hmm` composition has no `sample` priors of its own; its `initial`, `transition`, and `emission` latents are plain algebra parameters with sigmoid-constrained entries. [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each `nn.Parameter` into a Normal-prior sample site so [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel) has a continuous unconstrained state space. The likelihood scores the observed histogram against the normalized n-step joint emitted by `prog(n_steps=K)`.
 
 ```python
 import torch
@@ -200,8 +200,3 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 ## Categorical perspective
 
 HMM forward and Viterbi recurrences can be expressed as matrix products over sum-product and max-plus semirings. The current example instead demonstrates runtime-variable powering under Quivers' product-fuzzy rule. A normalized HMM needs different parameter constraints and aggregation.
-
-
-## References
-
-- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

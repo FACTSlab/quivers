@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Bayesian regression for non-negative component totals, fit with a [Gamma](https://en.wikipedia.org/wiki/Gamma_distribution) likelihood and a per-category log-shape predictor. The model uses K = 3 categories: each category's log-shape is a linear function of the predictor, and the response is the raw per-cell Gamma tally rather than its simplex projection. This is the unnormalized layer of a Dirichlet regression ([Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg)): independent Gamma draws with shapes `(alpha_1, ..., alpha_K)` and unit rate normalize to a sample on the [K-simplex](https://en.wikipedia.org/wiki/Simplex) via the [Gamma / Dirichlet relationship](https://en.wikipedia.org/wiki/Dirichlet_distribution#Gamma_distribution), but here the program observes the Gamma layer directly and leaves the deterministic normalization to downstream code.
+A Bayesian regression for non-negative component totals, fit with a [Gamma](https://en.wikipedia.org/wiki/Gamma_distribution) likelihood and a per-category log-shape predictor. The model uses K = 3 categories: each category's log-shape is a linear function of the predictor, and the response is the raw per-cell Gamma tally rather than its simplex projection. This is the unnormalized layer of a Dirichlet regression ([Maier 2014](https://epub.wu.ac.at/4077/)): independent Gamma draws with shapes `(alpha_1, ..., alpha_K)` and unit rate normalize to a sample on the [K-simplex](https://en.wikipedia.org/wiki/Simplex) via the [Gamma / Dirichlet relationship](https://en.wikipedia.org/wiki/Dirichlet_distribution#Gamma_distribution), but here the program observes the Gamma layer directly and leaves the deterministic normalization to downstream code.
 
 ## QVR source
 
@@ -10,7 +10,7 @@ A Bayesian regression for non-negative component totals, fit with a [Gamma](http
 # Gamma Regression for Component Totals
 #
 # A Bayesian regression for non-negative component totals, fit
-# with a Gamma likelihood and a per-category log-rate predictor.
+# with a Gamma likelihood and a per-category log-shape predictor.
 # This is the unnormalized layer of a Dirichlet regression:
 # independent Gamma draws with shapes (alpha_1, ..., alpha_K)
 # and unit rate normalize to a sample on the K-simplex, but the
@@ -28,7 +28,7 @@ A Bayesian regression for non-negative component totals, fit with a [Gamma](http
 # post-composition handled downstream when the user wants a
 # Dirichlet response.
 #
-# Reference: [Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg).
+# Reference: [Maier 2014](https://epub.wu.ac.at/4077/).
 
 object Item : FinSet 21
 object Cat : FinSet 3
@@ -141,4 +141,4 @@ The model factors as a K-fold tensor product of [`Gamma(alpha_k, 1)`](https://en
 
 ## References
 
-- [Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg).
+- Marco J. Maier. 2014. [*DirichletReg: Dirichlet Regression for Compositional Data in R*](https://epub.wu.ac.at/4077/). Research Report Series 125, Department of Statistics and Mathematics, WU Vienna University of Economics and Business.

@@ -112,6 +112,37 @@ posterior-predictive sampling.
 - **Predictive**: Predictive inference and sampling
 - **MCMC**: HMC and NUTS kernels plus the multi-chain runner
 
+## Data, Diagnostics, and Formulas
+
+These packages connect model definitions to tabular data and Bayesian analysis.
+
+- **Data**: data-frame schemas and column encoders
+- **Diagnostics**: ArviZ-compatible trace conversion, model comparison, and posterior-predictive checks
+- **Formulas**: R-style formula parsing, QVR generation, and the `fit` entry point
+
+## Analysis Package
+
+The `analysis` package derives metadata from checked programs without changing
+them.
+
+- **Chain shapes**: source-aware step shapes and intermediate dimensions
+- **Initialization**: algebra-specific initialization recipes
+- **Saturation diagnostics**: warnings tied to source locations
+- **Program inspection**: plate graphs, renderers, and lexical scope queries
+
+## Structural and Effects Packages
+
+The `structural` package defines signatures, encoders, decoders, and attached
+losses. The `effects` package supplies checked handler stacks for conditioning,
+intervention, reweighting, tracing, replay, and reparameterization.
+
+## Transpilation and QIEC
+
+The `transpile` package lowers checked programs through a target-independent IR
+and renders eleven probabilistic-programming languages. The `qiec` package is
+the typed indexed-effect core used by program elaboration, execution, tooling,
+and host-backed structural computations.
+
 ## Root Module
 
 - **Program**: Top-level probabilistic program definitions

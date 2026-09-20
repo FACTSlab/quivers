@@ -2,9 +2,9 @@
 #
 # A standard vanilla RNN used as a causal language model. The
 # recurrent cell is written as a program so every step of the
-# recurrence is a declared site: scan threads hidden state across
-# the input sequence, and the per-position hidden state is
-# projected onto the Token vocabulary by a Categorical lm_head.
+# recurrence is a declared site. scan threads hidden state across
+# each input sequence and returns its terminal state, which a
+# Categorical lm_head projects onto the Token vocabulary.
 #
 # Generative structure:
 #

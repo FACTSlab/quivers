@@ -15,9 +15,9 @@ The nonlinearity lives in the morphism's parameter network. A morphism declared 
 ## QVR source
 
 ```qvr
-# Bayesian Neural Network for Nonlinear Regression
+# Conditional MLP Kernel for Bayesian Nonlinear Regression
 #
-# A Bayesian multi-layer perceptron. The response is Normal about a
+# A multi-layer perceptron kernel. The response is Normal about a
 # nonlinear function of the input, and that function is a
 # two-hidden-layer tanh MLP carried inside the morphism's parameter
 # network. The network emits both the mean and the log-scale, so the
@@ -67,7 +67,7 @@ Its 4418 weights are the network's parameters. `hidden_dim` sets the width and `
 
 `program bnn : Resp -> Target` then does the only thing left. `observe y : Resp <- net(x)` applies the kernel to the per-row input and scores the observed response under the resulting Normal, accumulating over the `Resp` plate. `x` is a free variable: it never appears in a `sample` or `let`, so it is supplied as host data through the observations dict alongside `y`, exactly as a covariate would be in a regression.
 
-The v0.19 elaboration makes the network computation explicit: each affine
+The checked elaboration makes the network computation explicit: each affine
 weight and bias is a typed program input, and the QIEC body applies the layers
 under `tanh` before constructing the Normal family. The reference machine runs
 that graph with the compiled PyTorch modules. Transpile targets refuse

@@ -1,8 +1,8 @@
-# Multi-output continuous-gate Poisson regression
+# Multi-output zero-inflated Poisson regression
 
 ## Overview
 
-This program is a continuous relaxation inspired by zero-inflated Poisson regression ([Lambert, 1992](https://doi.org/10.2307/1269547)). Each output dimension carries logits for a Poisson-active gate and coefficients for the Poisson rate. Unlike an exact zero-inflated Poisson mixture, the latent `z` is `ContinuousBernoulli` on `(0, 1)`, so the likelihood contains intermediate rates `z * rate` rather than only a point mass at zero and a full-rate Poisson component.
+This program implements zero-inflated Poisson regression ([Lambert, 1992](https://doi.org/10.2307/1269547)). Each output dimension carries logits for a Poisson-active gate and coefficients for the Poisson rate. At a `marginalize` head, the reference compiler enumerates the two endpoints of a Bernoulli-family prior, so `ContinuousBernoulli(pi_z)` contributes weights `(1 - pi_z, pi_z)` for the `Poisson(0)` and `Poisson(rate)` branches. The per-row likelihood is thus the exact two-component ZIP marginal.
 
 ## QVR source
 
@@ -22,16 +22,15 @@ This program is a continuous relaxation inspired by zero-inflated Poisson regres
 #   alpha_rate_d, beta_rate_d ~ Normal(0, 5)
 #   pi_{n, d}                  = sigmoid(alpha_zero_d + beta_zero_d * x_n)
 #   rate_{n, d}                = exp(alpha_rate_d + beta_rate_d * x_n)
-#   z_{n, d}                   ~ ContinuousBernoulli(pi_{n, d})
+#   z_{n, d}                   in {0, 1}, weights (1-pi, pi)
 #   y_{n, d}                   ~ Poisson(z_{n, d} * rate_{n, d})
 #
-# The zero-inflation indicator z multiplicatively gates the
-# Poisson rate. z near 0 yields Poisson(0) (the zero point
-# mass); z near 1 recovers Poisson(rate). The enclosing
-# `marginalize z` block integrates z out under the
-# ContinuousBernoulli relaxation; the canonical hard form is a
-# discrete Bernoulli with logsumexp reduction, recovered as the
-# relaxation temperature tightens.
+# At an ungrouped marginalize head, the QVR reference compiler
+# interprets Bernoulli-family priors, including
+# ContinuousBernoulli, on the finite endpoints {0, 1}. It scores
+# both gated Poisson branches and combines them by logsumexp.
+# Thus the block denotes the exact ZIP likelihood even though a
+# forward trace may draw a continuous relaxation value for z.
 #
 # Reference: [Lambert 1992](https://doi.org/10.2307/1269547).
 
@@ -64,7 +63,7 @@ export zip_regression
 
 ## Walkthrough
 
-Per-output coefficient plates `alpha_zero`, `beta_zero` carry the [logit](https://en.wikipedia.org/wiki/Logit)-link Poisson-active probability `pi_{n,d}`, while `alpha_rate`, `beta_rate` carry the log-link rate. The `ContinuousBernoulli` family has no temperature parameter here, so this source does not approach an exact two-state mixture by "tightening" a temperature. The exact ZIP oracle in the runnable block is thus a comparison distribution, not the likelihood implemented by the QVR program.
+Per-output coefficient plates `alpha_zero`, `beta_zero` carry the [logit](https://en.wikipedia.org/wiki/Logit)-link Poisson-active probability `pi_{n,d}`, while `alpha_rate`, `beta_rate` carry the log-link rate. The `marginalize z : Resp` annotation gives each response row its own gate. The body is evaluated at `z = 0` and `z = 1`, then reduced by log-sum-exp with log weights `log(1 - pi_z)` and `log(pi_z)`. A forward trace may still record a relaxed draw for `z`, but that draw is score-suppressed; the integrated factor carries the joint density.
 
 The program returns `beta_rate`, an `Out`-indexed plate of real scalars, so the declared codomain is `Val : Real 1`: the per-row value space of the returned coefficients. `Resp` names the flattened `(Item, Out)` plate extent and appears in the signature only as the domain.
 
@@ -143,7 +142,7 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 ## Categorical perspective
 
-The model combines a per-cell `ContinuousBernoulli(pi)` kernel on the unit interval with a `Poisson(z * rate)` kernel on the non-negative integers. Because the latent support is continuous rather than binary, it should not be described as a coproduct over two indicator states or as the exact ZIP marginal.
+The marginalized gate is a two-object coproduct: one branch maps to `Poisson(0)`, the other to `Poisson(rate)`, and log-sum-exp computes their weighted pushforward to the count space. The `ContinuousBernoulli` name controls the live forward draw, while the marginalization contract fixes the scored support to the two endpoints.
 
 
 ## References

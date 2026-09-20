@@ -1,9 +1,10 @@
-# Bayesian LSTM Language Model
+# LSTM-Shaped Stochastic Language Model
 #
-# A canonical LSTM cell wrapped in scan and used as a causal
-# language model. All four gates and the cell candidate are
-# Bayesian Kleisli morphisms with stochastic weights; tanh is
-# realised from sigmoid via the identity 2*sigmoid(2x) - 1.
+# A gated stochastic recurrence wrapped in scan and used as a
+# causal language model. It borrows three LSTM gates and a cell
+# candidate, but scan threads only h_t: the local update uses
+# h_{t-1} where a canonical LSTM carries a separate c_{t-1}.
+# The tanh readout is realized through sigmoid.
 #
 # Generative structure:
 #
@@ -11,7 +12,7 @@
 #   f_t      ~ LogitNormal(gate_f(x_t, h_{t-1}))  forget gate
 #   o_t      ~ LogitNormal(gate_o(x_t, h_{t-1}))  output gate
 #   g_t      ~ Normal(cell_cand(x_t, h_{t-1}))    cell candidate
-#   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t)
+#   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t) folded-state update
 #   next_t   ~ Categorical(lm_head(h_t))          next-token target
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
@@ -19,10 +20,9 @@
 # is the value space of what lm_head draws and of what the program
 # returns.
 #
-# In the canonical LSTM the cell state c_t is a separate channel
-# from h_t, but scan threads a single hidden codomain, so this
-# presentation folds the c-channel into h-and-readout: c_new is
-# computed locally inside the cell and used to form h_new.
+# The intermediate c_new is local to one call and is not carried
+# to the next position. This is thus an LSTM-shaped example,
+# not an implementation of the canonical architecture.
 #
 # Reference: [Hochreiter and Schmidhuber 1997](https://doi.org/10.1162/neco.1997.9.8.1735).
 

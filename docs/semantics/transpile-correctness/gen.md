@@ -30,7 +30,7 @@ $\pi_{F, \mathsf{Gen}} = \mathrm{id}$ and $c_{F, \mathsf{Gen}} = 0$.
 Wrapped families (`Truncated`, `Mixture`) use Gen's
 [Distributions.jl composition primitives](https://juliastats.org/Distributions.jl/stable/truncate/)
 via a per-renderer `_WRAPPER_BUILDERS` dispatch table; cf.
-[Architecture §10.10](../transpile-architecture.md).
+[Architecture §5.1](../transpile-architecture.md#51-backend-idioms).
 
 ## Per-construct emit
 

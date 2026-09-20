@@ -1,21 +1,19 @@
 # Continuous State-Space Model
 #
-# A continuous-state hidden Markov model expressed as a scan
-# over a recurrent inference cell, the continuous analog of the
-# discrete HMM. The example exhibits both directions of the
-# model: a monadic generative program over (state, observation),
-# and a scan-based inference cell that filters observations.
+# A continuous state-space wiring example with a one-step
+# generative program and a separate recurrent recognition path.
+# The learned recognition cell resembles a filter, but it is not
+# the Bayesian inverse of the transition and emission kernels.
 #
 # Generative structure:
 #
 #   s_t  ~ transition(s_{t-1})                    State -> State kernel
 #   o_t  ~ emission(s_t)                          State -> Obs kernel
-#   h_t  ~ inference_cell(o_t, h_{t-1})           filtered belief
+#   h_t  ~ inference_cell(o_t, h_{t-1})           learned summary
 #
-# scan threads the belief state across the observation
-# sequence, implementing Bayesian filtering; the
-# filter_and_reconstruct path decodes the final belief back to
-# observation space to check reconstruction quality.
+# scan threads the learned state across the observation sequence;
+# filter_and_reconstruct decodes its terminal summary back to
+# observation space.
 
 object State : Real 16
 object Obs : Real 8

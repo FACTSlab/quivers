@@ -358,9 +358,9 @@ class MyGuide(Guide):
 
 - Conor Durkan, Artur Bekasov, Iain Murray, and George Papamakarios. 2019. Neural spline flows. arXiv preprint arXiv:1906.04032.
 - Geoffrey Roeder, Yuhuai Wu, and David Duvenaud. 2017. Sticking the landing: Simple, lower-variance gradient estimators for variational inference. arXiv preprint arXiv:1703.09194.
-- George Tucker, Dieterich Lawson, Shixiang Gu, and Chris J. Maddison. 2019. Doubly reparameterized gradient estimators for Monte Carlo objectives. arXiv preprint arXiv:1810.04152.
-- Kamélia Daudel, Joe Benton, Yuyang Shi, and Arnaud Doucet. 2023. Alpha-divergence variational inference meets importance weighted auto-encoders: Methodology and asymptotics. arXiv preprint arXiv:2210.06226.
-- Adji B. Dieng, Dustin Tran, Rajesh Ranganath, John Paisley, and David M. Blei. 2017. Variational inference via chi upper bound minimization. arXiv preprint arXiv:1611.00328.
-- Jörg Bornschein and Yoshua Bengio. 2015. Reweighted wake-sleep. arXiv preprint arXiv:1406.2751.
+- George Tucker, Dieterich Lawson, Shixiang Gu, and Chris J. Maddison. 2018. Doubly reparameterized gradient estimators for Monte Carlo objectives. arXiv preprint arXiv:1810.04152.
+- Kamélia Daudel, Joe Benton, Yuyang Shi, and Arnaud Doucet. 2022. Alpha-divergence variational inference meets importance weighted auto-encoders: Methodology and asymptotics. arXiv preprint arXiv:2210.06226.
+- Adji B. Dieng, Dustin Tran, Rajesh Ranganath, John Paisley, and David M. Blei. 2016. Variational inference via chi upper bound minimization. arXiv preprint arXiv:1611.00328.
+- Jörg Bornschein and Yoshua Bengio. 2014. Reweighted wake-sleep. arXiv preprint arXiv:1406.2751.
 - Yingzhen Li and Richard E. Turner. 2016. Rényi divergence variational inference. arXiv preprint arXiv:1602.02311.
-- Yuri Burda, Roger Grosse, and Ruslan Salakhutdinov. 2016. Importance weighted autoencoders. arXiv preprint arXiv:1509.00519.
+- Yuri Burda, Roger Grosse, and Ruslan Salakhutdinov. 2015. Importance weighted autoencoders. arXiv preprint arXiv:1509.00519.

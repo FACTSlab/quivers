@@ -41,7 +41,7 @@ the substitution via the
 `FAMILY_META` argument aliases
 table (`{"scale": "tau"}`) plus a per-alias arithmetic transform
 that wraps the scale arg in `1/(<scale>*<scale>)`. Cf.
-[Architecture §10.4](../transpile-architecture.md).
+[Architecture §5.1](../transpile-architecture.md#51-backend-idioms).
 
 Other parameterization differences:
 

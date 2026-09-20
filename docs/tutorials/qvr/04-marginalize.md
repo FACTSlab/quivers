@@ -2,7 +2,14 @@
 
 When a model has a discrete latent variable, you can sample it, which incurs score-function variance when pathwise gradients are unavailable, or marginalize it over its finite support. Marginalization produces a deterministic contribution from that latent and often improves gradients, but its cost grows with the support and the body of the block.
 
-QVR makes marginalization a first-class block. The body of the block runs *once per value* the discrete latent can take; the runtime collects per-value log-likelihoods and combines them under the prior with a `logsumexp`. Mathematically this is an exact integration over the discrete latent; computationally it's the categorical-prior version of the Rao-Blackwellised gradient ([Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81)). The same syntax handles flat mixtures, hierarchical mixtures with grouping, and HMM-shaped models with a per-row latent.
+QVR makes finite marginalization a first-class block. The body runs once per
+value in an enumerable support; the runtime combines the resulting scope
+weights with the prior by `logsumexp`. This operation exactly sums out a
+finite discrete latent and is the categorical-prior form of
+Rao–Blackwellization ([Casella & Robert, 1996](https://doi.org/10.1093/biomet/83.1.81)).
+It does not numerically integrate a continuous latent: a `marginalize` whose
+family has no finite support follows the ordinary sampling path, and an
+explicit reduction on such a family is rejected.
 
 ## A two-component Gaussian mixture
 
@@ -10,17 +17,18 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
 
 === "QVR"
 
-    ```text
+    ```qvr
     object Item : FinSet 500
-    object K : FinSet 2
-    program gmm : Item -> Item [effects=[Sample, Score, Marginal]]
-        sample probs : K <- HalfNormal(1.0)
-        sample mu_k  : K <- Normal(0.0, 5.0)
-        sample sd_k  : K <- HalfNormal(1.0)
+    object Component : FinSet 2
+    object Weights : Real 2
+    program gmm : Item -> Weights [effects=[Sample, Score, Marginal]]
+        sample probs <- Dirichlet(1.0) [over=Component]
+        sample mu_k : Component <- Normal(0.0, 5.0)
+        sample sd_k : Component <- HalfNormal(1.0)
 
-        marginalize z : K <- Categorical(probs)
-            observe y : Item <- Normal(mu_k[z], sd_k[z])
-        return y
+        marginalize z : Component <- Categorical(probs) [over=Item]
+            observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
+        return probs
 
     export gmm
     ```
@@ -63,11 +71,20 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
     }
     ```
 
-The `marginalize z : K <- Categorical(probs)` block, with its body of observe steps indented underneath, is exactly the Stan `log_sum_exp` pattern, expressed once and instantiated for every row of the response. The `effects=[Marginal]` entry in the option block makes the marginalization visible at the program signature.
+`probs` is one point on the component simplex; the annotation on `mu_k` and
+`sd_k` instead draws one scalar for each component. The
+`marginalize ... [over=Item]` block gives each row its own latent assignment;
+the host supplies `item_idx = arange(500)`, the identity fibration from rows to
+those groups. This implements the Stan `log_sum_exp` pattern. The `Marginal`
+entry in the optional effect summary records the finite reduction.
 
 ## Fitting the mixture
 
-(See [`docs/examples/source/mixture_model.qvr`](../../examples/source/mixture_model.qvr) for the full end-to-end version with grouped marginalisation and the `factor` patterns needed to drive the body. The snippet below shows the shape of the fit; for a running version copy from the example.)
+The gallery's
+[`mixture_model.qvr`](../../examples/source/mixture_model.qvr) uses the
+closed-form `MixtureNormal` family instead. The code below shows the explicit
+finite-marginalization form so that the latent support and grouping rule remain
+visible.
 
 <!-- python: skip -->
 ```python
@@ -77,16 +94,17 @@ from quivers.inference import AutoNormalGuide, ELBO, SVI
 
 GMM_SRC = """
 object Item : FinSet 500
-object K    : FinSet 2
+object Component : FinSet 2
+object Weights : Real 2
 
-program gmm : Item -> Item
-    sample probs : K <- HalfNormal(1.0)
-    sample mu_k  : K <- Normal(0.0, 5.0)
-    sample sd_k  : K <- HalfNormal(1.0)
+program gmm : Item -> Weights
+    sample probs <- Dirichlet(1.0) [over=Component]
+    sample mu_k : Component <- Normal(0.0, 5.0)
+    sample sd_k : Component <- HalfNormal(1.0)
 
-    marginalize z : K <- Categorical(probs)
-        observe y : Item <- Normal(mu_k[z], sd_k[z])
-    return y
+    marginalize z : Component <- Categorical(probs) [over=Item]
+        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
+    return probs
 
 export gmm
 """
@@ -100,14 +118,17 @@ true_sd = torch.tensor([0.5, 0.7])
 z_true  = torch.bernoulli(torch.full((500,), 0.6)).long()
 y_data  = (torch.randn(500) * true_sd[z_true] + true_mu[z_true]).unsqueeze(0)
 
-guide = AutoNormalGuide(model, observed_names={"y"})
+guide = AutoNormalGuide(model, observed_names={"y", "item_idx"})
 elbo  = ELBO(num_particles=1)
 optimizer = torch.optim.Adam(
     list(model.parameters()) + list(guide.parameters()), lr=1e-2,
 )
 svi = SVI(model, guide, optimizer, elbo)
 x_tensor = torch.zeros(1, 1)
-observations = {"y": y_data}
+observations = {
+    "y": y_data,
+    "item_idx": torch.arange(500, dtype=torch.long),
+}
 for _ in range(20):                            # bump to ~3000 for real fits
     svi.step(x_tensor, observations)
 ```
@@ -118,27 +139,30 @@ The `marginalize` block is integrated out exactly at every SVI step, so the grad
 
 Suppose each observation belongs to one of `G` groups, and the categorical mixture proportions vary by group. The marginalization has to respect group membership: the log-likelihood over the discrete latent gets aggregated *per group*, not per row. The `marginalize` header declares the grouping plate (`over G`); each observe inside the body carries its own `via <idx>` clause naming the fibration from its response plate into the grouping plate.
 
-```text
+```qvr
 object Item : FinSet 1000
-object G : FinSet 20
-object K : FinSet 3
-program grouped_mixture : Item -> Item [effects=[Sample, Score, Marginal]]
-    sample group : Item <- HalfNormal(1.0)
-    sample probs : G    <- HalfNormal(1.0)
-    sample mu_k  : K    <- Normal(0.0, 5.0)
-    sample sd_k  : K    <- HalfNormal(1.0)
+object Group : FinSet 20
+object Component : FinSet 3
+object Weights : Real 3
+program grouped_mixture : Item -> Weights [effects=[Sample, Score, Marginal]]
+    sample probs : Group <- Dirichlet(1.0) [over=Component, iid_over=Group]
+    sample mu_k : Component <- Normal(0.0, 5.0)
+    sample sd_k : Component <- HalfNormal(1.0)
 
-    marginalize z : K <- Categorical(probs) [over=G]
-        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=group]
-    return y
+    marginalize z : Component <- Categorical(probs) [over=Group]
+        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=group_idx]
+    return probs
 
 export grouped_mixture
 ```
 
-The `[over=G]` entry on the marginalize step's option block declares the grouping plate; the `[via=group]` entry on each observe says "every row of `y` is fibred over `G` by `group`, and the marginalization is per group, not per row." The `group : Item <- HalfNormal(1.0)` line names a per-row fibration into `G`: today the DSL doesn't have a dedicated fibration declaration, so the canonical idiom is to declare it as if it were a per-row latent and then supply the integer indices through the observations dict at fit time (cf. `docs/examples/source/mixture_model.qvr`). The block contributes
+The `[over=Group]` entry declares the grouping plate. The free host-data name
+`group_idx` is the integer-valued fibration from observation rows into that
+plate; `[via=group_idx]` gathers each row into its group before the reduction.
+It is data, not a sampled `HalfNormal` latent. The block contributes
 
 $$
-\sum_{g \in G}\ \log\!\sum_{k=1}^{K}\exp\!\left[\log \pi_{g,k} + \sum_{n:\ \mathrm{group}(n)=g}\ \log f(y_n \mid \mu_k, \sigma_k)\right]
+\sum_{g \in G}\ \log\!\sum_{k=1}^{K}\exp\!\left[\log \pi_{g,k} + \sum_{n:\ \mathrm{group\_idx}(n)=g}\ \log f(y_n \mid \mu_k, \sigma_k)\right]
 $$
 
 to the log-density, which is the right Kan extension along the fibration `Item -> G` and matches Stan's `target += log_mix(probs[g], ll_item[i])` accumulation. A grouped block can contain multiple observes, each with its own `[via=<idx>]` entry, when several heterogeneous response axes share the same per-group class indicator; the per-axis log-likelihoods scatter-sum into the same `(|G|, K)` accumulator before the log-sum-exp.
@@ -169,7 +193,11 @@ flowchart LR
 
 ## Try this
 
-- Initialise the GMM with `K = 4` and watch what happens to the recovered `mu_k`. (Hint: mixture models have a label-switching identifiability problem, [Stephens, 2000](https://doi.org/10.1111/1467-9868.00265); the standard fix is `ordered[K] mu_k` in Stan; in QVR you'd add a `let mu_k_sorted = sort(mu_k)` constraint or use an ordered prior.)
+- Change the model to four components and inspect the recovered means.
+  Mixture models have a label-switching symmetry
+  ([Stephens, 2000](https://doi.org/10.1111/1467-9868.00265)); sorting draws
+  after inference can summarize exchangeable components, but a deterministic
+  `sort(mu_k)` inside the likelihood is not the same as an ordered prior.
 - Convert the grouped mixture to a `marginalize` without the `over` / `via` clauses and observe the difference: per-row marginalization versus per-group.
 - Combine with chapter 3's plate-draws: a hierarchical mixture where each group has its own `mu_k` drawn from a hyperprior.
 

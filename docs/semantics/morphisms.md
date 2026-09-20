@@ -1,6 +1,6 @@
 # Morphisms
 
-This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md). The corresponding typing judgments and inference rules for morphism expressions ($\Gamma; \Phi \vdash e : A \rightsquigarrow B$) live in [Typing §5](typing.md#5-inference-rules-for-morphism-expressions).
+This page assigns denotations to the three QVR morphism strata (discrete $\mathcal{V}$-enriched, stochastic, and continuous) and to the structural transitions between them. Throughout, we fix an algebra $\mathcal{V}$ as in [Setting and notation](setting.md). The implementation checks these classic morphism expressions during source compilation; the separate QIEC judgment and its guarantees are summarized in [Typing and checking](typing.md#10-guarantees-and-limits).
 
 ## 0. The unified `morphism` declaration
 

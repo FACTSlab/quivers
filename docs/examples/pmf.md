@@ -13,6 +13,27 @@ In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \math
 ## QVR source
 
 ```qvr
+# Probabilistic Matrix Factorization
+#
+# A user-item latent-factor recommender model. Every user and
+# every item carries a K-dimensional latent vector, and the
+# expected rating is their inner product. In categorical form,
+# the two factor matrices are morphisms and the bilinear score
+# is the composite User -> Movie obtained by transposing U and
+# contracting along LatentDim.
+#
+# Structural form:
+#
+#   U     : LatentDim -> User            user latent factors
+#   V     : LatentDim -> Movie           movie latent factors
+#   pmf   = U.dagger >> V                bilinear rating score
+#
+# The (u, m) entry of the resulting tensor is sum_k U[k, u] *
+# V[k, m], the canonical PMF rating mean. The `[role=latent]`
+# declarations create learned factor tensors but do not declare
+# probability distributions; the runnable fit on the page adds
+# Normal priors and a Normal observation model in Python.
+
 composition real [level=algebra]
 
 object LatentDim : FinSet 2
@@ -196,5 +217,5 @@ in the real algebra, whose tensor is the dense score matrix $U^\top V$. The load
 
 ## See also
 
-- [Factor Analysis](factor-analysis.md) for a single-side morphism-valued loading.
+- [Isotropic Bayesian Factor Model](factor-analysis.md) for a single-side morphism-valued loading.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface and the [`.dagger`](../api/core/morphisms.md) transpose.

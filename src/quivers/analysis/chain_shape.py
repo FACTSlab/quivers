@@ -21,7 +21,7 @@ AST once and records, for every ``let`` / ``latent`` / ``observe`` /
 
 The result is purely metadata; ChainShape never rewrites or
 recompiles the program. The fields are what downstream tooling
-(saturation-free init, saturation warnings, hook-based telemetry)
+(algebra-specific initialization, saturation warnings, hook-based telemetry)
 reads.
 """
 

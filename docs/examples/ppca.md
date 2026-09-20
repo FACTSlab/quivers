@@ -8,7 +8,7 @@ $$
 z_i \sim \mathcal{N}(0, I_K), \quad y_i \mid z_i \sim \mathcal{N}(W z_i, \sigma^2 I_D).
 $$
 
-The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$, where $\lambda_k$ are the data covariance eigenvalues. PPCA differs from [factor analysis](factor-analysis.md) only in the observation noise: PPCA uses a single isotropic scalar $\sigma$, factor analysis a free diagonal $\psi$.
+The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$, where $\lambda_k$ are the data covariance eigenvalues. In general, PPCA differs from classical factor analysis in the observation noise: PPCA uses a single isotropic scalar $\sigma$, while classical factor analysis uses a free diagonal $\psi$. The gallery's [isotropic factor-model page](factor-analysis.md) intentionally has the same noise structure as this program and emphasizes the shared low-rank composition instead.
 
 In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ and the per-item code is $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W`. The exported program below supplies explicit Normal priors through `Z_mat` and `W_mat`; the top-level morphisms themselves have no family declaration.
 
@@ -24,15 +24,15 @@ In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md)
 # Structural form:
 #
 #   Z     : Item      -> LatentDim       per-item latent code
-#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   W     : LatentDim -> ObsDim          learned loadings
 #   ppca  = Z >> W                       low-rank linear mean
 #
-# The loading matrix carries a matrix-normal prior whose
-# Kronecker covariance V (x) U expresses independent row and
-# column correlation. The model is identifiable up to a K x K
-# orthogonal rotation of W; the maximum-likelihood W recovers
-# the leading-K principal components scaled by sqrt(lambda_k -
-# sigma^2).
+# The structural W arrow has no family declaration. The exported
+# program below supplies independent Normal priors for its loading
+# entries, the identity-covariance special case of a matrix-Normal
+# prior. The model is identifiable up to a K x K orthogonal
+# rotation of W; the maximum-likelihood W recovers the leading-K
+# principal components scaled by sqrt(lambda_k - sigma^2).
 #
 # Reference: [Tipping and Bishop 1999](https://doi.org/10.1111/1467-9868.00196).
 
@@ -162,11 +162,11 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 
 PPCA is a pair of arrows in a real-algebra category: the per-item code $Z : \mathsf{Item} \to \mathsf{LatentDim}$ and the loading $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$. Their composition $Z \mathbin{>>} W$ is the [`LatentMorphism`](../api/core/morphisms.md) $\mathsf{Item} \to \mathsf{ObsDim}$ whose tensor is the model mean. Marginalising the latent factor under an isotropic noise kernel recovers the closed-form covariance $W^\top W + \sigma^2 I$ on the observation side.
 
-The morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on $W$ is a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$, treating the loading as a first-class arrow rather than a flat vector of entries.
+The optional morphism-valued [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) declaration shown above would place a measure on the hom-object $\mathbf{Kern}(\mathsf{LatentDim}, \mathsf{ObsDim})$. The loaded program instead uses indexed independent-Normal draws for the loading entries.
 
 ## See also
 
-- [Factor Analysis](factor-analysis.md), the free-diagonal generalisation.
+- [Isotropic Bayesian Factor Model](factor-analysis.md), the same low-rank mean and shared-noise structure presented as a factor model.
 - [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface.
 
 

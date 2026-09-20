@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalized quantifiers are typed as continuations `Cont(X) = S/(S/X)`. A reference for the broader approach is [Bumford and Charlow (2026)](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4), *Effect-Driven Interpretation*.
+Quantifier-scope ambiguity, treated as the choice of which scope-taking lift to apply during composition. Generalized quantifiers are typed as continuations `Cont(X) = S/(S/X)`. A reference for the broader approach is Bumford and Charlow's forthcoming [*Effect-Driven Interpretation*](https://www.cambridge.org/core/elements/abs/effectdriven-interpretation/56671E539160AAA1DACF8555B82A2FE4).
 
 ## QVR source
 
@@ -127,6 +127,6 @@ x_in = torch.zeros(N_RULES, 1)
 The fragment composes directly with [type-logical](type-logical.md) and [multimodal](multimodal-tlg.md) grammars: replacing `Cont` with a controlled modality `Dia` yields a modal scope fragment in which structural rules are licensed only inside the scope-taker.
 
 
-## References
+## Further reading
 
-- Dylan Bumford and Simon Charlow. 2026. *Effect-Driven Interpretation: Functors for Natural Language Composition*. Cambridge Elements in Semantics. Cambridge University Press.
+- Dylan Bumford and Simon Charlow. Forthcoming. *Effect-Driven Interpretation: Functors for Natural Language Composition*. Cambridge Elements in Semantics. Cambridge University Press.

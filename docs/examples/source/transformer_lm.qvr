@@ -1,22 +1,24 @@
-# Multi-Layer Bayesian Transformer Language Model
+# Stacked Parallel-Branch Token Model
 #
-# A multi-layer Bayesian transformer used as a causal language
-# model. Token indices are embedded into a Latent
-# representation, passed through two independent attention plus
-# feed-forward layers via stack(layer, 2), and projected back
-# onto the Token vocabulary via a Categorical lm_head.
+# A token model that borrows the parallel-head and stacked-block
+# shape of a Transformer. Its heads are independent MLP-Normal
+# kernels. There are no query-key products, softmax over
+# positions, causal mask, layer normalization, or additive
+# residual connections, so this is a wiring example rather than
+# a Transformer implementation.
 #
 # Generative structure:
 #
-#   h_attn   ~ fan(head)(h) >> attn_proj           four-head attention
-#   h_res    ~ residual_attn(h_attn)               attention residual
+#   h_heads  ~ fan(head)(h) >> attn_proj           four parallel branches
+#   h_res    ~ residual_attn(h_heads)              learned stochastic map
 #   h_ff     ~ ff_up(h_res) >> ff_down             feed-forward block
 #   h        ~ residual_ff(h_ff)                   feed-forward residual
 #   next_t   ~ Categorical(lm_head(h))             next-token target
 #
-# stack(layer, 2) composes two independent copies of the
-# attention plus feed-forward block, each carrying its own
-# Normal-prior weights drawn from the morphism declarations.
+# stack(layer, 2) composes two independently parameterized copies
+# of the branch plus feed-forward block. The morphism weights are
+# ordinary learned parameters unless an inference lift supplies
+# priors over them.
 #
 # Resp is the plate: it indexes the 32 scored rows, one
 # next-token target per context. Token is the vocabulary, so it

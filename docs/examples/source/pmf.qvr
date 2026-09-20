@@ -14,9 +14,10 @@
 #   pmf   = U.dagger >> V                bilinear rating score
 #
 # The (u, m) entry of the resulting tensor is sum_k U[k, u] *
-# V[k, m], the canonical PMF rating mean. Each factor matrix
-# carries a matrix-normal prior with row covariance on LatentDim
-# and column covariance on the user or movie plate.
+# V[k, m], the canonical PMF rating mean. The `[role=latent]`
+# declarations create learned factor tensors but do not declare
+# probability distributions; the runnable fit on the page adds
+# Normal priors and a Normal observation model in Python.
 
 composition real [level=algebra]
 

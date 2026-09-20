@@ -1,6 +1,6 @@
 # Check, inspect, and transpile a module
 
-This tutorial turns the v0.19 tooling into a short pre-release workflow. The
+This tutorial turns the QVR tooling into a short pre-release workflow. The
 goal is a **checked deployment claim (CDC)**: every public entry is exercised
 on the reference machine, and every advertised target is checked against the
 reachable computation graph before artifacts are emitted.
@@ -18,8 +18,10 @@ qvr check --target pyro docs/tutorials/qvr/source/authored-handler.qvr
 
 The first command establishes that parsing, surface resolution, elaboration,
 QIEC typing, handler coverage, and module validation succeed. The second adds
-the Pyro capability pass. Repeat the target check for every backend named in
-your release notes or package metadata.
+the Pyro QIEC-capability pass. Repeat the target check for every backend named
+in your release notes or package metadata. Then run `qvr transpile` for each
+promised target: the capability pass does not exercise every
+surface-to-target renderer path.
 
 ## 2. Inspect the public boundary
 
@@ -87,16 +89,17 @@ the parser at `grammars/qvr/`, not at a possibly older aggregate Panproto
 grammar package. `qvr-lsp` then supplies semantic tokens from the same typed
 source model used by `qvr check`.
 
-Panproto remains part of the migration and generic-tree path. Test a migration
-on a copy when the release promises compatibility with v0.18:
+Panproto remains part of the migration and generic-tree path. When a release
+promises compatibility with an earlier source version, test the corresponding
+migration on a copy. For instance:
 
 ```bash
 qvr migrate --from 0.18.0 --to HEAD old-model.qvr
 qvr check old-model.qvr
 ```
 
-The v0.18-to-v0.19 hop is validating and byte-preserving because the new
-grammar is additive.
+The v0.18-to-current hop is validating and byte-preserving because that
+grammar extension was additive.
 
 ## 7. Automate the CDC
 

@@ -2,19 +2,19 @@
 
 ## Overview
 
-The canonical log-volatility return model of [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050). The latent log-volatility follows an [AR(1)](https://en.wikipedia.org/wiki/Autoregressive_model) chain centered on a mean `mu` with autoregressive coefficient `phi`, and the observed return is mean-zero Normal with time-varying scale `exp(h_t / 2)`. The exponential link makes the volatility positive by construction.
+This program factors the one-step conditionals of the log-volatility return model of [Kim, Shephard, and Chib (1998)](https://doi.org/10.1111/1467-937X.00050). Each latent `h_t` is Normal around an [AR(1)](https://en.wikipedia.org/wiki/Autoregressive_model) mean, and each return is mean-zero Normal with scale `exp(h_t / 2)`. The lagged value `h_prev` is supplied as host data rather than connected to the preceding sampled `h`, so the program conditions on a trajectory of lags; it does not infer one recursively coupled latent chain.
 
 ## QVR source
 
 ```qvr
-# Stochastic Volatility Model
+# Conditionally Factorized Stochastic Volatility
 #
-# The canonical log-volatility model: returns are mean-zero
-# Normal with a time-varying scale set by a latent log-volatility
-# that itself follows an AR(1) chain. The runtime conditions on
-# the observed return series indexed by Step and recovers a
-# posterior over (mu, phi, sigma_h) along with the latent
-# volatility plate.
+# A one-step-factorized version of the canonical log-volatility
+# model. Returns are mean-zero Normal with scale exp(h_t / 2),
+# while each h_t is conditioned on a lag h_prev supplied through
+# host data. Because the lag is external rather than the previous
+# sampled h, this program does not infer one recursively coupled
+# latent trajectory.
 #
 # Generative structure:
 #
@@ -48,9 +48,9 @@ export stochastic_volatility
 
 ## Walkthrough
 
-`mu`, `phi`, and `sigma_h` are the AR(1) hyperparameters of the log-volatility chain; `phi` is constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)`. The identifier `h_prev` is exogenous host-data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time, where the caller supplies the lagged latent log-volatility. The current-step `h` is a latent draw with mean `mu + phi * (h_prev - mu)` realising the AR(1) recursion, and `exp(0.5 * h)` is the standard SV link to the per-step return scale. The observed returns are mean-zero Normal scaled by the time-varying volatility.
+`mu`, `phi`, and `sigma_h` parameterize the AR(1) conditional for log volatility; `phi` is constrained to the [stationarity interval](https://en.wikipedia.org/wiki/Stationary_process) `(-1, 1)`. The identifier `h_prev` is exogenous host data: it is never declared inside the program, so the runtime resolves it from the observations dict at trace time. Conditional on that supplied lag vector, the `h` plate contains independent draws with mean `mu + phi * (h_prev - mu)`. The link `exp(0.5 * h)` then gives the per-step return scale.
 
-The program returns `phi`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Step` names the plate extent of both the latent volatility chain and the observed returns, and appears in the signature only as the domain.
+The program returns `phi`, a scalar real, so the declared codomain is `Val : Real 1`: the value space of what comes back. `Step` names the plate extent of both the conditionally independent `h` draws and the observed returns, and appears in the signature only as the domain.
 
 ## Try it
 
@@ -59,7 +59,7 @@ The program returns `phi`, a scalar real, so the declared codomain is `Val : Rea
 
 ### Generating synthetic data
 
-Pick ground-truth log-volatility dynamics, simulate the AR(1) chain `h_t`, then draw mean-zero Normal returns whose scale is `exp(h_t / 2)`. The lagged log-volatility `h_prev` is the host-data the program reads from the observations dict.
+Pick ground-truth log-volatility dynamics, simulate an AR(1) chain `h_t`, then draw mean-zero Normal returns whose scale is `exp(h_t / 2)`. The fit conditions on the simulated lag vector `h_prev`; it does not reconstruct those lags recursively.
 
 ```python
 import torch
@@ -83,7 +83,7 @@ observations = {"r": returns, "h_prev": h_prev}
 
 ### SVI fit
 
-Re-initialise the program and fit the AR(1) hyperparameters by maximising the ELBO. The negative ELBO drops over the run; the oracle log-likelihood at the true `(mu, phi, sigma_h, h)` is reported for reference.
+Reinitialize the program and fit the AR(1) conditional parameters by maximizing the ELBO. The negative ELBO drops over the run; the reported oracle is the return likelihood at the simulated `h`, not the full latent-state joint.
 
 ```python
 import torch.distributions as D
@@ -133,9 +133,9 @@ print(f"sigma_h posterior mean: {result.samples['sigma_h'].mean().item():.3f}")
 
 ## Categorical perspective
 
-The model is a Kleisli morphism over the latent log-volatility plate, composed with a per-step Normal observation kernel whose scale depends on the latent. In the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, the chain `h_prev -> h -> r` is associative Kleisli composition; the SVI guide approximates the joint posterior $p(\mu, \phi, \sigma_h, h \mid r)$.
+The model is a Kleisli morphism over the latent log-volatility plate, composed with a per-step Normal observation kernel whose scale depends on the latent. In the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category, `h_prev -> h -> r` is associative Kleisli composition at each row; the SVI guide approximates $p(\mu, \phi, \sigma_h, h \mid r, h_{\mathrm{prev}})$.
 
 
-## References
+## Model reference
 
 - Sangjoon Kim, Neil Shephard, and Siddhartha Chib. 1998. Stochastic volatility: Likelihood inference and comparison with ARCH models. *The Review of Economic Studies*, 65(3):361–393.

@@ -19,7 +19,7 @@ Quivers ships a Pygments lexer registered as an entry point. After
 pip install quivers
 ```
 
-every Pygments-based tool finds `.qvr` files automatically. No further configuration is needed for mkdocs, Sphinx, `pygmentize`, IPython / Jupyter cell magic (`%%highlight qvr`), GitHub Gists rendered via Pygments locally, or any other consumer that asks Pygments to choose a lexer by filename or by `name="qvr"`.
+every Pygments-based tool finds `.qvr` files automatically. No further configuration is needed for mkdocs, Sphinx, `pygmentize`, IPython / Jupyter cell magic (`%%highlight qvr`), or any other consumer that asks Pygments to choose a lexer by filename or by `name="qvr"`.
 
 To confirm the lexer is visible:
 
@@ -202,10 +202,14 @@ the [Interactive guide](../guides/repl-and-lsp.md#vs-code-cursor).
 GitHub's syntax highlighting on `.qvr` files in repository source view and gists is driven by [github-linguist](https://github.com/github-linguist/linguist). QVR is not yet upstream; until the language is registered, repositories can override locally with a `.gitattributes` entry pointing at the closest existing language for at least *some* color:
 
 ```gitattributes
-*.qvr linguist-language=Haskell
+*.qvr linguist-language=R
+*.qvr linguist-detectable=true
 ```
 
-Haskell is the closest match for `<-`, `let`, `>>=`, the offside-rule program-block bodies, and the `|`-separated rule head / body shape; it is not perfect (the categorial slash, the `~ Family` clause, and the axis-role surface get no special treatment), but is the closest readily-available approximation.
+This repository uses R as the temporary stand-in, which highlights common
+declaration names, calls, numbers, strings, and comments. It is not a QVR
+grammar: effect rows, categorial slashes, the `~ Family` clause, and axis roles
+remain approximate until Linguist has a native QVR entry.
 
 Registering QVR upstream with Linguist is tracked at [panproto/panproto#84](https://github.com/panproto/panproto/issues/84); upvoting helps prioritize it.
 
@@ -232,7 +236,7 @@ When the highlighting is wired up, keywords (`object`, `program`,
 the `<-` bind punctuation, family identifiers (`HalfNormal`, `Normal`),
 and comments carry distinct colors.
 
-Use this second block to verify the v0.19 indexed-effect tokens:
+Use this second block to verify the indexed-effect tokens:
 
 <!-- compile: qiec -->
 ```qvr

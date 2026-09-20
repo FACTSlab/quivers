@@ -144,7 +144,7 @@ is fully detailed alongside the program-step bind and observe forms.
 ### Init recipes (`[init=auto]`)
 
 The `[init=auto]` option overrides the default `randn * scale` init
-with the active algebra's saturation-free recipe, derived from
+with the active algebra's initialization recipe, derived from
 [`Algebra.init_spec(depth, intermediate_size)`](../api/core/algebras.md).
 For ProductFuzzy, Boolean, Gödel, Łukasiewicz, and Probability the
 recipe is applied through
@@ -480,6 +480,7 @@ define n_step = repeat(transition) >> emission
 export n_step
 ```
 
+<!-- python: skip -->
 ```python
 prog = load("hmm.qvr")
 obs_3 = prog(n_steps=3)    # T^3 >> E

@@ -1,9 +1,8 @@
 """Structural compression: signatures, encoders, decoders, losses.
 
-Runtime substrate for the structural-compression surface described
-in ``notes/structural-compression.md``: a uniform algebraic interface
-for compressing arbitrary structured objects to fixed-length vectors
-and decoding them back under a learned distribution.
+Runtime substrate for QVR signatures, encoders, decoders, and attached losses:
+a uniform algebraic interface for compressing structured objects to
+fixed-length vectors and decoding them under a learned distribution.
 """
 
 from .encoder import Encoder

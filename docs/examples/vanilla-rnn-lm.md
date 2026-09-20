@@ -11,9 +11,9 @@ This recurrent language model uses a [`rnn_cell`](../guides/dsl-programs-and-let
 #
 # A standard vanilla RNN used as a causal language model. The
 # recurrent cell is written as a program so every step of the
-# recurrence is a declared site: scan threads hidden state across
-# the input sequence, and the per-position hidden state is
-# projected onto the Token vocabulary by a Categorical lm_head.
+# recurrence is a declared site. scan threads hidden state across
+# each input sequence and returns its terminal state, which a
+# Categorical lm_head projects onto the Token vocabulary.
 #
 # Generative structure:
 #
@@ -69,7 +69,7 @@ Tokens are embedded into the 64-dimensional `Embedded` space, after which `scan(
 
 The two `FinSet` objects play different roles, and the positions they appear in are what fix them. `Resp : FinSet 32` sits in the observe step's index slot, so it is the plate: 32 scored rows, one next-token target per context. `Token : FinSet 256` sits in `lm_head`'s codomain and in the program's own codomain, so it is the value space: the 256 outcomes a draw ranges over, and the space the returned `next_token` lives in.
 
-Under v0.19, `scan(rnn_cell)` elaborates to a one-position step computation
+`scan(rnn_cell)` elaborates to a one-position step computation
 and a recursive helper over the input's open sequence extent. Repeated sites
 receive stable trajectory addresses such as `s@0`, `s@1`, and so on, which the
 reference machine can replay and score. Current transpile targets refuse the
@@ -93,7 +93,7 @@ flowchart LR
 
 ### Generating synthetic data
 
-Fix the model's stochastic-weight parameters under a chosen seed (they stand in for the ground-truth generative weights), then run one forward [`trace`](../api/inference/trace.md) so the latent hidden state `h` and the next-token target generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The corpus is a `(rows, seq_len)` int64 prompt tensor paired with a `(rows,)` next-token target, one row per element of the `Resp` plate.
+Trace the fixed vanilla recurrence once to obtain its terminal `h` and target. Reuse `true_h` in `observations` so later likelihood evaluations score that same realization; otherwise each evaluation resamples `h`. Each `Resp` row contains an int64 prompt of length `seq_len` and one next-token label.
 
 ```python
 import torch
@@ -104,7 +104,7 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/vanilla_rnn_lm.qvr")
 model = prog.morphism
 
-# Fix the model's stochastic weights to a chosen draw, then run one
+# Fix the model's kernel parameters to chosen values, then run one
 # forward trace so the captured hidden state and the next-token target it
 # generated are jointly consistent under the same weights.
 for _, p in model.named_parameters():
@@ -126,7 +126,7 @@ print("next_token:", next_token.shape, next_token.dtype)
 
 ### SVI fit
 
-Re-initialise the parameters and recover next-token weights from the synthetic corpus with [`AutoNormalGuide`](../api/inference/guide.md) + [`ELBO`](../api/inference/elbo.md) + [`SVI`](../api/inference/svi.md). The loss is the negative ELBO under a Categorical likelihood on the `next_token` site.
+Reinitialize `tok_embed`, the recurrent `cell`, and `lm_head`, then fit their latent parameters with an [`AutoNormalGuide`](../api/inference/guide.md) and [`SVI`](../api/inference/svi.md). The [`ELBO`](../api/inference/elbo.md) scores the Categorical `next_token` site for each prompt.
 
 ```python
 import torch

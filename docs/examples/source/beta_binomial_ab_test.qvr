@@ -13,10 +13,10 @@
 #   y_n     ~ BetaBinomial(n_trials, conc1_{j(n)}, conc0_{j(n)})
 #
 # The Beta-Binomial marginalises the latent conversion rate
-# analytically: each arm's posterior on the rate is conjugate-Beta,
+# analytically. Each batch has an implicit Beta-distributed rate,
 # so the observed counts carry direct evidence about the arm's
-# concentration parameters without introducing an intermediate
-# rate variable.
+# concentration parameters without introducing that intermediate
+# rate as a sample site.
 #
 # Arm is the plate the concentrations are allocated over and Batch
 # is the plate the counts are observed over; the per-row arm

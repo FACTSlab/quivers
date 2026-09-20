@@ -14,8 +14,10 @@ Flags:
 - `--json`: emit a single JSON document on stdout containing the
   full diagnostic list, as expected by CI and pre-commit hooks.
 - `--target TARGET`: compare every checked QIEC computation with the selected
-  transpiler's capabilities. Unsupported features are errors, so this mode is
-  suitable for a target-specific release gate.
+  transpiler's advertised capabilities. Unsupported features are errors, so
+  this mode is useful as an early target-specific release gate. It does not
+  render the target program; run `qvr transpile --to TARGET FILE` before
+  release to validate the complete lowering and rendering path.
 
 Diagnostic codes:
 

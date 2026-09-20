@@ -12,7 +12,7 @@ QIEC case studies whose purpose is reference-machine execution live under
 `docs/examples/qiec/`, so adding one does not silently expand the promised
 backend matrix.
 
-## v0.19 feature map
+## Language feature map
 
 Use this table when you want an example of a language feature rather than a
 particular statistical family.
@@ -54,8 +54,8 @@ examples state both where they differ.
 
 ## Latent-variable models
 
-- [Factor Analysis](factor-analysis.md): current isotropic-noise factor model, equivalent in noise structure to PPCA.
-- [Probabilistic PCA](ppca.md): isotropic-noise special case of factor analysis.
+- [Isotropic Bayesian Factor Model](factor-analysis.md): low-rank factors and loadings with one shared observation scale.
+- [Probabilistic PCA](ppca.md): the isotropic factor model interpreted through its principal-component solution.
 - [Latent Dirichlet Allocation](lda.md): topic model with Dirichlet priors on per-document and per-topic distributions.
 - [Gaussian Mixture Model](mixture-model.md): finite mixture with grouped marginalization over the cluster label.
 - [Latent Decoder and Encoder Paths](vae.md): prior-decoder program plus a separately exported encoder-decoder path; the current SVI block does not use the encoder as its guide.
@@ -68,7 +68,7 @@ examples state both where they differ.
 
 - [AR(1)](ar1.md): first-order autoregressive Normal scalar series.
 - [Changepoint Model](changepoint.md): piecewise-constant means with a sampled change point.
-- [Stochastic Volatility](stochastic-volatility.md): AR(1) log-variance driving Normal returns.
+- [Conditionally Factorized Stochastic Volatility](stochastic-volatility.md): AR(1) log-volatility conditionals with externally supplied lag values.
 - [Gaussian-Kernel SSM](linear-gaussian-ssm.md): learned transition, emission, and filtering kernels; not a closed-form Kalman filter.
 - [Finite-State Path Composition](hmm.md): product-fuzzy transition and emission relations, plus a partial discrete-program sketch.
 - [Continuous-State Sequence Model](continuous-hmm.md): Gaussian transition, emission, and separately learned recognition kernels.

@@ -1,6 +1,6 @@
 # Architecture
 
-The quivers library is organized into nineteen subpackages plus two
+The quivers library is organized into twenty subpackages plus two
 top-level modules. The categorical core (`core/`, `categorical/`,
 `monadic/`, `arrows/`, `enriched/`, `stochastic/`, `continuous/`) is
 surrounded by a DSL layer (`dsl/`), an inference layer (`inference/`),

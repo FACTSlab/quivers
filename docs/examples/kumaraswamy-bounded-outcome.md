@@ -30,8 +30,9 @@ The Kumaraswamy density is $f(y; a, b) = a b\, y^{a - 1} (1 - y^a)^{b - 1}$ on $
 # inference. The first shape parameter carries the linear
 # predictor through a log link, so a covariate moves the response
 # without ever leaving the unit interval; the second shape
-# parameter is global and carries a HalfNormal prior that
-# concentrates on near-uniform shapes.
+# parameter is global and carries a weakly informative
+# HalfNormal prior. Uniformity occurs only at a = b = 1; the
+# prior does not itself concentrate the likelihood there.
 #
 # Generative structure:
 #

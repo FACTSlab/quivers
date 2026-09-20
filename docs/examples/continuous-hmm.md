@@ -9,22 +9,20 @@ A continuous state-space model extends an HMM-style sequence to continuous laten
 ```qvr
 # Continuous State-Space Model
 #
-# A continuous-state hidden Markov model expressed as a scan
-# over a recurrent inference cell, the continuous analog of the
-# discrete HMM. The example exhibits both directions of the
-# model: a monadic generative program over (state, observation),
-# and a scan-based inference cell that filters observations.
+# A continuous state-space wiring example with a one-step
+# generative program and a separate recurrent recognition path.
+# The learned recognition cell resembles a filter, but it is not
+# the Bayesian inverse of the transition and emission kernels.
 #
 # Generative structure:
 #
 #   s_t  ~ transition(s_{t-1})                    State -> State kernel
 #   o_t  ~ emission(s_t)                          State -> Obs kernel
-#   h_t  ~ inference_cell(o_t, h_{t-1})           filtered belief
+#   h_t  ~ inference_cell(o_t, h_{t-1})           learned summary
 #
-# scan threads the belief state across the observation
-# sequence, implementing Bayesian filtering; the
-# filter_and_reconstruct path decodes the final belief back to
-# observation space to check reconstruction quality.
+# scan threads the learned state across the observation sequence;
+# filter_and_reconstruct decodes its terminal summary back to
+# observation space.
 
 object State : Real 16
 object Obs : Real 8
@@ -56,7 +54,7 @@ export filter_and_reconstruct
 
 `morphism transition : State -> State ~ Normal` evolves the latent state by one time step under a Normal kernel whose mean and scale are both produced from the previous state by the kernel's [`ParamSource`](../api/continuous/param_source.md#quivers.continuous.param_source.ParamSource). `morphism emission : State -> Obs ~ Normal` projects a state to an observation under the same kernel family.
 
-`program generative_step : State -> State` is a one-step monadic program: `sample s_new <- transition` draws the new latent state from the transition kernel, `observe o <- emission(s_new)` scores an observation against the emission kernel, and `return s_new` projects the program's joint kernel onto the new state. To unroll over time, this single-step program is composed with itself via `repeat` or threaded through `scan`.
+`program generative_step : State -> State` is a one-step monadic program: `sample s_new <- transition` draws the new latent state from the transition kernel, `observe o <- emission(s_new)` scores an observation against the emission kernel, and `return s_new` projects the program's joint kernel onto the new state. `repeat(generative_step, n)` can compose this endomorphism a fixed number of times. A `scan` cell instead needs a product domain `Input * State -> State`, as the separate `inference_cell` declaration shows.
 
 `morphism inference_cell : Obs * State -> State ~ Normal` is a learned recurrent cell that incorporates a new observation into a state representation. `define filter = scan(inference_cell)` threads it across a sequence; calling this path a filter describes its intended role, not an exact Bayesian filtering guarantee.
 
@@ -146,6 +144,6 @@ print("divergences:", int(result.divergence_counts.sum()))
 
 ## Categorical perspective
 
-The `scan` combinator implements [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) threaded through time. Given a step morphism $f : S \to S$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category) (where $S$ carries both state and noise), `scan` produces the $n$-fold composition $f^n$ while collecting all intermediate results. Because Kleisli composition is associative, the computation decomposes into local single-step updates, which is why online/streaming inference works: each filtering step depends only on the previous belief and the current observation, not on the full history.
+The `scan` combinator implements [Kleisli composition](https://en.wikipedia.org/wiki/Kleisli_category) threaded through time. Given a cell $f : O \times S \to S$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s [Kleisli category](https://ncatlab.org/nlab/show/Kleisli+category), it consumes an observation sequence, threads the sampled state, and returns the terminal state. The current `inference_cell` is learned directly; the categorical construction alone does not make it the exact filtering posterior.
 
 The generative program uses `transition` and `emission`; the recognition path uses distinct `inference_cell` and `decoder` morphisms. The source does not tie their parameters or call `bayes_invert`, so the two paths are not the same kernels run in opposite directions.

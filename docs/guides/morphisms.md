@@ -2,7 +2,7 @@
 
 ## What is a Morphism?
 
-A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the enriching algebra. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` and values in the lattice $\mathcal{L}$ of $\mathcal{V}$.
+A morphism from domain $A$ to codomain $B$ in a $\mathcal{V}$-enriched category is a tensor $M \in \mathcal{V}^{|A| \times |B|}$, where $\mathcal{V}$ is the selected composition algebra. Concretely, it is a multi-dimensional tensor with shape `(*A.shape, *B.shape)` whose entries combine through that algebra's operations.
 
 For a simple `FinSet` morphism $f: X \to Y$ with $|X| = m$ and $|Y| = n$, the tensor is an $m \times n$ matrix.
 
@@ -140,7 +140,6 @@ except TypeError as e:
 
 The tensor (or parallel) product $f \otimes g$ combines two morphisms $f: A \to B$ and $g: C \to D$ into a morphism $f \otimes g: A \times C \to B \times D$. The tensor is the outer product via the algebra's $\otimes$:
 
-<!-- python: skip -->
 ```python
 A = FinSet(name="A", cardinality=2)
 B = FinSet(name="B", cardinality=3)

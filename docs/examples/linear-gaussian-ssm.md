@@ -16,26 +16,24 @@ The QVR source below uses learned conditional-Normal kernels. Their means and di
 ## QVR source
 
 ```qvr
-# Linear-Gaussian State-Space Model
+# Learned Gaussian State-Space Cells
 #
-# The canonical linear-Gaussian state-space model whose forward
-# filter is the Kalman filter. The transition and emission are
-# Kleisli morphisms with Normal output families, and scan over
-# the input sequence assembles the per-step filtered state.
+# Conditional-Normal transition, emission, and recognition cells
+# with the wiring of a state-space model. The parameter maps may
+# make both the means and diagonal scales depend on their inputs,
+# so this source is more general than a classical linear-Gaussian
+# model and does not implement an analytic Kalman update.
 #
 # Generative structure:
 #
 #   s_t  ~ Normal(transition_cell(driver, s_{t-1}), Q)
 #   o_t  ~ Normal(emission(s_t), R)
-#   s_t  ~ Normal(filter_cell(o_t, s_{t-1}), R)
+#   h_t  ~ Normal(filter_cell(o_t, h_{t-1}))       learned summary
 #
-# Because both the prior and the likelihood are Gaussian, the
-# filter and the smoother are closed-form (Kalman /
-# Rauch-Tung-Striebel) and the marginal data likelihood is
-# itself Gaussian; the runtime can either condition on the
-# observed series and back-prop through the per-step scan, or
-# use the closed-form filter via a downstream bayes_invert
-# step.
+# `scan` iterates each cell across runtime sequence data. The
+# separately declared filter_cell is a learned recognition
+# kernel, not a derived Bayesian inverse of transition_cell and
+# emission.
 #
 # Reference: [Kalman 1960](https://doi.org/10.1115/1.3662552).
 
@@ -50,12 +48,11 @@ morphism filter_cell : Obs * State -> State ~ Normal
 define generate = scan(transition_cell) >> emission
 define filter = scan(filter_cell)
 
-# Probabilistic surface: the per-step generative kernel takes
-# the previous (driver, state) pair and produces a new state by
-# applying the linear-Gaussian transition, then scores the
-# observation o under the emission kernel. scan threads this
-# step across the input sequence so trace clamps the full
-# (s_new, o) trajectory once per call.
+# Probabilistic surface: the exported one-step kernel takes the
+# previous (driver, state) pair, draws a new state, and scores one
+# observation under the emission kernel. The separate `generate`
+# composition scans transition_cell and emits once from the
+# terminal state; it does not call this program at every position.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 
@@ -69,7 +66,7 @@ export generative_step
 
 `Driver`, `State`, and `Obs` are Euclidean spaces; `Driver` carries an exogenous input concatenated with the previous state at each step. The transition and emission are conditional-Normal kernels with learned input-dependent means and diagonal scales.
 
-`scan(transition_cell)` threads the latent state forward across a sequence; composing with `emission` produces the generative pipeline. `scan(filter_cell)` is a separately learned recognition path. Nothing in the declaration constrains `filter_cell` to equal the closed-form posterior update.
+`scan(transition_cell)` threads the latent state forward across a driver sequence and returns the terminal state; composing with `emission` draws one observation from that terminal state. `scan(filter_cell)` is a separately learned recognition path. Nothing in the declaration constrains `filter_cell` to equal the closed-form posterior update.
 
 A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role surface applies once the state factorizes into named components.
 
@@ -183,5 +180,4 @@ flowchart LR
 ## References
 
 - Herbert E. Rauch, F. Tung, and Charles T. Striebel. 1965. Maximum likelihood estimates of linear dynamic systems. *AIAA Journal*, 3(8):1445–1450.
-- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
 - Rudolf E. Kalman. 1960. A new approach to linear filtering and prediction problems. *Journal of Basic Engineering*, 82(1):35–45.

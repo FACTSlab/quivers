@@ -1,23 +1,21 @@
-# Linear-Gaussian State-Space Model
+# Learned Gaussian State-Space Cells
 #
-# The canonical linear-Gaussian state-space model whose forward
-# filter is the Kalman filter. The transition and emission are
-# Kleisli morphisms with Normal output families, and scan over
-# the input sequence assembles the per-step filtered state.
+# Conditional-Normal transition, emission, and recognition cells
+# with the wiring of a state-space model. The parameter maps may
+# make both the means and diagonal scales depend on their inputs,
+# so this source is more general than a classical linear-Gaussian
+# model and does not implement an analytic Kalman update.
 #
 # Generative structure:
 #
 #   s_t  ~ Normal(transition_cell(driver, s_{t-1}), Q)
 #   o_t  ~ Normal(emission(s_t), R)
-#   s_t  ~ Normal(filter_cell(o_t, s_{t-1}), R)
+#   h_t  ~ Normal(filter_cell(o_t, h_{t-1}))       learned summary
 #
-# Because both the prior and the likelihood are Gaussian, the
-# filter and the smoother are closed-form (Kalman /
-# Rauch-Tung-Striebel) and the marginal data likelihood is
-# itself Gaussian; the runtime can either condition on the
-# observed series and back-prop through the per-step scan, or
-# use the closed-form filter via a downstream bayes_invert
-# step.
+# `scan` iterates each cell across runtime sequence data. The
+# separately declared filter_cell is a learned recognition
+# kernel, not a derived Bayesian inverse of transition_cell and
+# emission.
 #
 # Reference: [Kalman 1960](https://doi.org/10.1115/1.3662552).
 
@@ -32,12 +30,11 @@ morphism filter_cell : Obs * State -> State ~ Normal
 define generate = scan(transition_cell) >> emission
 define filter = scan(filter_cell)
 
-# Probabilistic surface: the per-step generative kernel takes
-# the previous (driver, state) pair and produces a new state by
-# applying the linear-Gaussian transition, then scores the
-# observation o under the emission kernel. scan threads this
-# step across the input sequence so trace clamps the full
-# (s_new, o) trajectory once per call.
+# Probabilistic surface: the exported one-step kernel takes the
+# previous (driver, state) pair, draws a new state, and scores one
+# observation under the emission kernel. The separate `generate`
+# composition scans transition_cell and emits once from the
+# terminal state; it does not call this program at every position.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 

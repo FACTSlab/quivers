@@ -1,15 +1,15 @@
-# Bayesian Sequence-to-Sequence Model
+# Dual-Branch Encoder-Decoder Model
 #
-# A transformer-style encoder-decoder model with separate
-# source-side and target-side vocabularies. Both halves are
-# stacked self-attention plus feed-forward backbones; a cross
-# morphism merges the two Latent streams; the Categorical
-# lm_head scores the next target token.
+# Separate source-side and target-side branches combine parallel
+# MLP-Normal kernels with feed-forward stages. A cross morphism
+# merges their representations, and a Categorical lm_head scores
+# the next target token. The source contains no query-key
+# attention, cross-attention, positional encoding, or causal mask.
 #
 # Generative structure:
 #
-#   h_enc    ~ encoder(source)                    non-autoregressive enc
-#   h_dec    ~ decoder(target)                    autoregressive dec
+#   h_enc    ~ encoder(source)                    source branch
+#   h_dec    ~ decoder(target)                    target branch
 #   h        ~ cross(h_enc, h_dec)                merged representation
 #   next_t   ~ Categorical(lm_head(h))            next-token target
 #
@@ -23,8 +23,8 @@
 # the target-side vocabulary, so it is the value space of what
 # lm_head draws and of what the program returns.
 #
-# Reference: [Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215).
-# Reference: [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
+# The wiring is inspired by encoder-decoder models, but the
+# branch operations should not be read as a full sequence model.
 
 object Source, Target : FinSet 32
 object Resp : FinSet 32

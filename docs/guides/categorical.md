@@ -139,6 +139,7 @@ assoc = monoidal.associator(X, Y, X)        # (X×Y)×X → X×(Y×X)
 
 Morphism-level tensor product is provided directly on `Morphism` via the `@` operator:
 
+<!-- python: skip -->
 ```python
 f = morphism(X, Y)
 g = morphism(X, Y)

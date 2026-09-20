@@ -7,18 +7,18 @@ This example combines source and target branches in an encoder-decoder-shaped mo
 ## QVR source
 
 ```qvr
-# Bayesian Sequence-to-Sequence Model
+# Dual-Branch Encoder-Decoder Model
 #
-# A transformer-style encoder-decoder model with separate
-# source-side and target-side vocabularies. Both halves are
-# stacked self-attention plus feed-forward backbones; a cross
-# morphism merges the two Latent streams; the Categorical
-# lm_head scores the next target token.
+# Separate source-side and target-side branches combine parallel
+# MLP-Normal kernels with feed-forward stages. A cross morphism
+# merges their representations, and a Categorical lm_head scores
+# the next target token. The source contains no query-key
+# attention, cross-attention, positional encoding, or causal mask.
 #
 # Generative structure:
 #
-#   h_enc    ~ encoder(source)                    non-autoregressive enc
-#   h_dec    ~ decoder(target)                    autoregressive dec
+#   h_enc    ~ encoder(source)                    source branch
+#   h_dec    ~ decoder(target)                    target branch
 #   h        ~ cross(h_enc, h_dec)                merged representation
 #   next_t   ~ Categorical(lm_head(h))            next-token target
 #
@@ -32,8 +32,8 @@ This example combines source and target branches in an encoder-decoder-shaped mo
 # the target-side vocabulary, so it is the value space of what
 # lm_head draws and of what the program returns.
 #
-# Reference: [Sutskever, Vinyals, and Le 2014](https://doi.org/10.48550/arXiv.1409.3215).
-# Reference: [Vaswani et al. 2017](https://doi.org/10.48550/arXiv.1706.03762).
+# The wiring is inspired by encoder-decoder models, but the
+# branch operations should not be read as a full sequence model.
 
 object Source, Target : FinSet 32
 object Resp : FinSet 32
@@ -143,7 +143,7 @@ print("next_token:", tuple(next_token.shape))
 
 ### SVI fit
 
-Re-initialise the encoder + decoder kernel parameters, then minimise the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the next-token observations using an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) and [`SVI`](../api/inference/svi.md#svi). The continuous latent `h` is left unobserved, so the guide carries a Normal posterior over it and the loss is the per-row target negative log-likelihood plus the usual variational gap.
+Reinitialize the encoder and decoder kernel parameters, then minimize the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the next-token observations using an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) and [`SVI`](../api/inference/svi.md#svi). The continuous latent `h` is left unobserved, so the guide carries a Normal posterior over it and the loss is the per-row target negative log-likelihood plus the usual variational gap.
 
 ```python
 import torch
@@ -220,7 +220,6 @@ print("divergences:", int(result.divergence_counts.sum()))
 The seq2seq model denotes a Kleisli morphism $\mathrm{Source} \times \mathrm{Target} \to \mathcal{G}(\mathrm{Target})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category. The encoder and decoder are independent Kleisli morphisms over distinct objects; the [tensor product](https://ncatlab.org/nlab/show/tensor+product) `@` is their strong-monoidal product, and `cross` is the merge that closes the bilinear pairing into a single combined latent. The Categorical head puts a finite-set codomain on the composite, and `observe` is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) closing the LM likelihood.
 
 
-## References
+## Model reference
 
-- Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. arXiv preprint arXiv:1706.03762.
 - Ilya Sutskever, Oriol Vinyals, and Quoc V. Le. 2014. Sequence to sequence learning with neural networks. arXiv preprint arXiv:1409.3215.

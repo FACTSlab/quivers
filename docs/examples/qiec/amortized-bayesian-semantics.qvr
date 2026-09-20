@@ -94,8 +94,6 @@ object Trial : FinSet 640
 object Analysis : FinSet 2
 object ReadingTime : Real 1
 
-morphism standard_effect : Participant -> ReadingTime ~ Normal(0.0, 1.0)
-
 program reading_times(concentration : Real) : Trial -> ReadingTime
     let chart = parse(semantic_parser, sentence)
     score syntactic_evidence = chart.goal_weight()

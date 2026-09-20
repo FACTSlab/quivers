@@ -36,6 +36,7 @@ The unified option block carries the deduction-level configuration (semiring, st
 
 Running a deduction yields a `ChartView`, a $K$-presheaf value with surface methods for querying:
 
+<!-- python: skip -->
 ```python
 view = CG([
     (("span", "NP", 0, 1), torch.tensor(-0.3, requires_grad=True)),
@@ -149,7 +150,7 @@ schema-backed parser adds.
 - David McAllester. 2002. On the complexity analysis of static analyses. *Journal of the ACM*, 49(4):512–537.
 - Eisner & Blatz (2007). [*Program transformations for optimization of parsing algorithms and other weighted logic programs*](https://www.cs.jhu.edu/~jason/papers/eisner+blatz.fg06.pdf). In Proceedings of the 11th Conference on Formal Grammar.
 - Fernando C. N. Pereira and David H. D. Warren. 1983. Parsing as deduction. In *Proceedings of the 21st Annual Meeting of the Association for Computational Linguistics (ACL)*, pages 137–144.
-- Joshua Goodman. 1999. Semiring parsing. *Computational Linguistics*, 25(4):573–605.
+- Joshua Goodman. 1999. Semiring parsing. *Computational Linguistics*, 25(4):573–606.
 - Knuth (1977). [*A generalization of Dijkstra's algorithm*](https://doi.org/10.1016/0020-0190(77)90002-3). Information Processing Letters 6(1):1–5.
 - Liang Huang and David Chiang. 2005. Better k-best parsing. In *Proceedings of the Ninth International Workshop on Parsing Technologies (IWPT)*, pages 53–64.
 - Mark-Jan Nederhof. 2003. Weighted deductive parsing and Knuth's algorithm. *Computational Linguistics*, 29(1):135–143.
