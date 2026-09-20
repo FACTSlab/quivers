@@ -346,7 +346,7 @@ through the deduction's learnable parameters (lexicon log-weights
 and the rule-weight side-table from [§2.1](#21-learnable-rule-weights-learnable)).
 
 The natural lift into the program's log-joint is via a
-[`score` step](programs.md#27a-score-factor):
+[`score` step](programs.md#210-score-factor):
 
 ```
 let chart = parse(D, sentence)
@@ -699,10 +699,10 @@ complete grammar, worked examples, and implementation limits appear in the
 ## References
 
 - Shieber, Schabes & Pereira (1995). [*Principles and implementation of deductive parsing*](https://doi.org/10.1016/0743-1066(95)00035-I). Journal of Logic Programming 24(1–2):3–36.
-- Goodman (1999). [*Semiring parsing*](https://aclanthology.org/J99-4004/). Computational Linguistics 25(4):573–605.
+- Goodman (1999). [*Semiring parsing*](https://aclanthology.org/J99-4004/). Computational Linguistics 25(4):573–606.
 - Pereira & Warren (1983). [*Parsing as deduction*](https://doi.org/10.3115/981311.981338). In Proceedings of the 21st Annual Meeting of the Association for Computational Linguistics, pp. 137–144.
-- Klein & Manning (2001). [*Parsing and hypergraphs*](https://doi.org/10.1007/1-4020-2295-6_18). In Proceedings of the Seventh International Workshop on Parsing Technologies (IWPT), pp. 123–134.
+- Klein & Manning (2001). [*Parsing and hypergraphs*](https://aclanthology.org/W01-1812/). In Proceedings of the Seventh International Workshop on Parsing Technologies (IWPT), pp. 123–134.
 - Knuth (1977). [*A generalization of Dijkstra's algorithm*](https://doi.org/10.1016/0020-0190(77)90002-3). Information Processing Letters 6(1):1–5.
 - Nederhof (2003). [*Weighted deductive parsing and Knuth's algorithm*](https://doi.org/10.1162/089120103321337467). Computational Linguistics 29(1):135–143.
 - Eisner, Goldlust & Smith (2005). [*Compiling Comp Ling: Practical weighted dynamic programming and the Dyna language*](https://aclanthology.org/H05-1036/). In Proceedings of HLT-EMNLP, pp. 281–290.
-- McAllester (2002). [*On the complexity analysis of static analyzes*](https://doi.org/10.1145/581771.581774). Journal of the ACM 49(4):512–537.
+- McAllester (2002). [*On the complexity analysis of static analyses*](https://doi.org/10.1145/581771.581774). Journal of the ACM 49(4):512–537.

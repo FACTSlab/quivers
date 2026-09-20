@@ -1,6 +1,6 @@
 # Deep Markov Model
 #
-# A state-space model with nonlinear, neural-network-parameterised
+# A state-space model with nonlinear, neural-network-parameterized
 # transition and emission kernels. The combinator surface mirrors the
 # linear-Gaussian SSM and replaces its linear maps with kernels whose
 # parameters come from an MLP.
@@ -16,10 +16,10 @@
 # it a kernel's parameters are linear in its input, and composing two
 # of them stays linear: the depth would buy nothing but a rank bound.
 #
-# The inference cell q_phi(o_t, s_{t-1}) -> s_t carries the
-# variational recognition network; scan threads it across the
-# observation sequence to recover an amortised posterior over
-# the latent state trajectory.
+# The inference cell q_phi(o_t, s_{t-1}) -> s_t has the shape of a
+# recognition network. Its scan is declared separately; the exported
+# generative_step does not call it, and this file does not train an
+# amortized posterior over the latent trajectory.
 #
 # Reference: [Krishnan, Shalit, and Sontag 2017](https://doi.org/10.1609/aaai.v31i1.10779).
 
@@ -39,13 +39,12 @@ define emission = emit_mlp_1 >> emit_mlp_2
 define generate = scan(transition_cell) >> emission
 define recognize = scan(infer_cell)
 
-# Probabilistic surface: the per-step generative kernel pushes
-# the previous (driver, state) pair through the two-layer
-# transition MLP and scores the new state, then pushes the new
-# state through the two-layer emission MLP and scores the
-# observation. scan threads this per-step program across the
-# input sequence so trace clamps the full (s_new, o) trajectory
-# once per call.
+# Probabilistic surface: the exported one-step kernel pushes the
+# previous (driver, state) pair through the two-layer transition
+# MLP, then scores one observation under the emission MLP. The
+# separate `generate` composition scans transition_cell and
+# applies emission to the terminal state; it does not call this
+# program or score an observation at every scan position.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 

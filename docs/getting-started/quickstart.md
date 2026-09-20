@@ -4,7 +4,9 @@ This guide walks through the core concepts of quivers with concrete examples: cr
 
 ## 1. Basic Morphisms
 
-A **morphism** is a $\mathcal{V}$-enriched relation: a function from a pair of objects to an algebra (lattice of truth values). In quivers, morphisms are tensors.
+A **morphism** is a $\mathcal{V}$-enriched relation represented by a tensor.
+The selected composition algebra determines how its entries combine and how a
+shared axis is reduced.
 
 Create finite sets:
 
@@ -108,7 +110,7 @@ X = FinSet(name="context", cardinality=3)
 R = Euclidean(name="response", dim=2)
 
 # Conditional normal family: each input x ∈ X yields a 2D normal on R.
-family = ConditionalNormal(X, R, hidden_dim=16)
+family = ConditionalNormal(X, R)
 
 # A one-step program: bind y ∼ family(x), return y.
 program = MonadicProgram(

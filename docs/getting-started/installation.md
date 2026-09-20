@@ -11,8 +11,10 @@
 
 The didactic, panproto, panproto-grammars-all, Pygments, and
 tree-sitter packages are pulled in automatically by
-`pip install quivers`. Supported platform wheels include the native QVR
-parsers and do not require a C compiler at installation time or first parse.
+`pip install quivers`. Release wheels for CPython 3.14 on manylinux x86-64,
+macOS ARM64, and Windows AMD64 include the native QVR parsers and do not
+require a C compiler at installation time or first parse. Other platforms
+install from the source distribution and need a C compiler.
 
 ## From PyPI
 

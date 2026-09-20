@@ -1,11 +1,11 @@
-# Stochastic Volatility Model
+# Conditionally Factorized Stochastic Volatility
 #
-# The canonical log-volatility model: returns are mean-zero
-# Normal with a time-varying scale set by a latent log-volatility
-# that itself follows an AR(1) chain. The runtime conditions on
-# the observed return series indexed by Step and recovers a
-# posterior over (mu, phi, sigma_h) along with the latent
-# volatility plate.
+# A one-step-factorized version of the canonical log-volatility
+# model. Returns are mean-zero Normal with scale exp(h_t / 2),
+# while each h_t is conditioned on a lag h_prev supplied through
+# host data. Because the lag is external rather than the previous
+# sampled h, this program does not infer one recursively coupled
+# latent trajectory.
 #
 # Generative structure:
 #

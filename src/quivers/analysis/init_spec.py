@@ -1,22 +1,20 @@
-"""Saturation-free init recipes per algebra.
+"""Algebra-specific initialization recipes.
 
 The `Algebra`'s tensor / join operations determine where in
 its value space a ``k``-step composition lands when entries are
 i.i.d. and roughly mean-zero. For each built-in algebra we record
 the parameters of a one-dimensional initial distribution that
-places the ``k``-step output at the algebra's mid-saturation point,
-which is the regime where gradients are largest and training is
-healthiest. The recipes are drawn from the table in
-``notes/algebra-guided-training-tooling.md``:
+places the ``k``-step output in a reference region where the closed-form
+approximation predicts larger gradients. The shipped recipes are:
 
 * `ProductFuzzyAlgebra` — noisy-OR over ``k`` cells lands at
-  ½ when each cell is initialised at ``p ≈ ln 2 / k``.
-* `LogProbAlgebra` — log-domain; centred at ``-ln k`` so the
+  ½ when each cell is initialized at ``p ≈ ln 2 / k``.
+* `LogProbAlgebra` — log-domain; centered at ``-ln k`` so the
   exponentiated value is ``1 / k``.
-* `MarkovAlgebra` — row logits centred at 0 (uniform
+* `MarkovAlgebra` — row logits centered at 0 (uniform
   prior over the row simplex).
 * `MaxPlusAlgebra` / `TropicalAlgebra` — additive
-  semiring on the (extended) reals; centred at 0 with spread
+  semiring on the (extended) reals; centered at 0 with spread
   ``1 / sqrt(k)``.
 * `LukasiewiczAlgebra` — bounded-sum t-conorm hits ½ at
   roughly ``k`` terms of ``p ≈ 1 / k``.
@@ -24,7 +22,7 @@ healthiest. The recipes are drawn from the table in
   init at the algebra's mid-point ``0.5``.
 * `RealAlgebra`, `ProbabilityAlgebra`,
   `CountingAlgebra` — sum-product semirings; we recommend
-  unit-variance Normal init centred at 0 (real) or saturation-free
+  unit-variance Normal init centered at 0 (real) or an algebra-specific
   ``1 / k`` (probability / counting). These pieces are conservative
   defaults pending a fuller writeup of the semiring case.
 
@@ -95,11 +93,11 @@ class InitSpec(dx.Model):
 def _algebra_init_spec(
     algebra: Algebra, depth: int, intermediate_size: int
 ) -> InitSpec:
-    """Saturation-free `InitSpec` for the given algebra
+    """Algebra-specific `InitSpec` for the given algebra
     at the given chain depth and per-step intermediate size.
 
     ``depth`` is the number of stochastic composition steps the
-    initialised tensor will flow through before the observation
+    initialized tensor will flow through before the observation
     step. ``intermediate_size`` is the cardinality of the shared
     axis being contracted at each step (e.g. ``|B|`` in
     ``f : A -> B`` followed by ``g : B -> C``); it controls how
@@ -155,7 +153,7 @@ def _algebra_init_spec(
             lower=float("-inf"),
             upper=0.0,
             rationale=(
-                f"log-prob centred at -ln(k) = {loc:.4g} for k={effective} steps"
+                f"log-prob centered at -ln(k) = {loc:.4g} for k={effective} steps"
             ),
         )
     if isinstance(algebra, MarkovAlgebra):
@@ -165,7 +163,7 @@ def _algebra_init_spec(
             std=1.0,
             rationale=(
                 "Markov row logits at zero (uniform row simplex) before "
-                "softmax-normalisation"
+                "softmax normalization"
             ),
         )
     if isinstance(algebra, (MaxPlusAlgebra, TropicalAlgebra)):
@@ -175,7 +173,7 @@ def _algebra_init_spec(
             mean=0.0,
             std=spread,
             rationale=(
-                f"{type(algebra).__name__} additive semiring: centred at 0, "
+                f"{type(algebra).__name__} additive semiring: centered at 0, "
                 f"spread 1/sqrt(k) = {spread:.4g}"
             ),
         )
@@ -186,7 +184,7 @@ def _algebra_init_spec(
             mean=0.0,
             std=spread,
             rationale=(
-                f"real sum-product semiring: centred at 0, spread "
+                f"real sum-product semiring: centered at 0, spread "
                 f"1/sqrt(k) = {spread:.4g}"
             ),
         )
@@ -219,7 +217,7 @@ def _algebra_init_spec(
 
 
 def recommend_init(module: Module) -> dict[str, InitSpec]:
-    """Per-latent saturation-free init recipe.
+    """Per-latent algebra-specific initialization recipe.
 
     Walks the program's `ChainShape`, looks up the governing
     algebra, and returns a mapping from latent variable name to the
@@ -240,7 +238,7 @@ def recommend_init(module: Module) -> dict[str, InitSpec]:
 
 
 def apply_init_spec(parameter: nn.Parameter | torch.Tensor, spec: InitSpec) -> None:
-    """Materialise an `InitSpec` onto a learnable tensor.
+    """Materialize an `InitSpec` onto a learnable tensor.
 
     Delegates to ``torch.nn.init`` for ``normal`` / ``uniform`` and
     to a plain ``fill_`` for ``constant``. The tensor's shape is
@@ -263,7 +261,7 @@ def apply_init_spec(parameter: nn.Parameter | torch.Tensor, spec: InitSpec) -> N
 def _init_spec_method(
     self: Algebra, depth: int, intermediate_size: int = 1
 ) -> InitSpec:
-    """Saturation-free `InitSpec` for ``self`` at the given
+    """Algebra-specific `InitSpec` for ``self`` at the given
     chain depth and intermediate axis size.
 
     See [`quivers.analysis.init_spec.recommend_init`][quivers.analysis.init_spec.recommend_init] for the

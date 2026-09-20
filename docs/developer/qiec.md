@@ -533,8 +533,9 @@ factorization, and elaborates to it. Its items become a closed family
 per applied symbol the rules and lexicon mention, a slot typed `Int` where
 the system uses it as a position and `<name>__Item` otherwise; a lexicon's
 logical forms number their bound variables canonically, so alpha-equivalent
-forms are one item. The module gains a `Search` effect, `choose[a : Type, n
-: Nat] : Tensor[a]([n]) -> a`, a `<name>__choice` instance of it, a
+forms are one item. The module gains a `Search` effect, the operation
+`choose[a : Type, n : Nat] : Tensor[a]([n]) -> a`, a `<name>__choice`
+instance of it, a
 `<name>__weight` instance of `Weight[K]` for the carrier `K` of the declared
 semiring (`LogWeight` for `LogProb` and `Viterbi`, `Bool` for `Boolean`,
 `Int` for `Counting`), and a `params` instance of `Param` through which

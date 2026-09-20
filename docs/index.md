@@ -6,15 +6,15 @@ Quivers is a functional probabilistic programming language for PyTorch. The synt
 
 - **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`Sample`, `Score`, `Marginal`, `Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ...` followed by an indented body.
 - **Shared substrate for inference, deduction, and structural compression.** A CKY parser written as a `deduction` block, a transformer-as-encoder over a `signature` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can thus compose with each other.
-- **Indexed families and algebraic effects have a typed core.** QVR has GADT-style indexed constructors, lexical effect instances, row-polymorphic computations, handlers, and resumption grades, and every executable declaration, a probabilistic `program` included, checks and lowers to the stable [Quivers Indexed Effect Core](developer/qiec.md). Eight host-language transpilers emit the complete computation graph through a common runtime ABI; Stan, BUGS, and JAGS accept the closed pure scalar fragment and report precise capability diagnostics for other forms.
+- **Indexed families and algebraic effects have a typed core.** QVR has GADT-style indexed constructors, lexical effect instances, row-polymorphic computations, handlers, and resumption grades, and every executable declaration, a probabilistic `program` included, checks and lowers to the stable [Quivers Indexed Effect Core](developer/qiec.md). Each transpiler either emits the reachable computation graph or reports the unsupported QIEC capabilities. Stan, BUGS, and JAGS accept the closed pure scalar fragment and report precise capability diagnostics for other forms.
 - **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values along which models can be transported. The compiler checks their source and target types; the algebraic laws remain assumptions of each instance.
 
 The probabilistic-programming surface also includes:
 
 - **An inference toolkit.** More than forty distribution families. SVI with automatic guides from mean-field and full-rank multivariate normals through low-rank, mixture, structured, IAF, neural-spline flow, and AutoDAIS guides; seven objectives (ELBO, IWAE, Renyi, VR-IWAE, ChiVI, RWS, and DReGs); and reparameterized, score-function, sticking-the-landing, and DReG gradient estimators. NUTS and HMC use dual-averaging step-size adaptation and Welford mass-matrix adaptation.
-- **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-aware, saturation-free initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization would saturate the active algebra.
+- **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-specific initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization differs materially from the recommended recipe.
 - **Diagnostics and model comparison.** ArviZ ecosystem integration: posteriors from any inference method (NUTS, HMC, or SVI) export to ArviZ for trace plots, rank plots, ESS, and $\hat R$. PSIS-LOO (Pareto-smoothed importance-sampling leave-one-out cross-validation) for ranking competing models; posterior-predictive checks against user-defined test statistics; LOO-PIT for calibration.
-- **A mixed-effect model API.** A [brms-style formula frontend](https://FACTSlab.github.io/quivers/guides/analysis) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, taking pandas / polars dataframes as input and using R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
+- **A mixed-effect model API.** A [brms-style formula frontend](guides/analysis-data-and-formulas.md) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, taking pandas / polars dataframes as input and using R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
 - **Interactive tooling.** [`qvr repl`](guides/repl-and-lsp.md) is a GHCi-style four-pane Textual TUI with live syntax highlighting, an environment browser, file-watcher reloads, a command palette, and meta-commands (`:type`, `:info`, `:browse`, `:edit`, `:save`, `:watch`, …). [`qvr-lsp`](guides/repl-and-lsp.md) implements LSP 3.17 features including hover, definition, references, document symbols, semantic tokens, completion, formatting, and live diagnostics for VS Code, Cursor, Zed, and Neovim. A Jupyter kernel (`qvr-kernel install`) drives the same elaborator from notebooks.
 
 ## Quick start
@@ -63,7 +63,7 @@ print(fit.__name__)
 - **[Quickstart](getting-started/quickstart.md)** for a working model in five minutes.
 - **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: thirteen chapters from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks.
 - **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: nine chapters covering the typed categorical API.
-- **[QVR language reference](reference/qvr/index.md)** for v0.19 syntax, type-and-effect rules, program elaboration, entry execution, runtime providers, LSP behavior, and grammar ownership.
+- **[QVR language reference](reference/qvr/index.md)** for the current syntax, type-and-effect rules, program elaboration, entry execution, runtime providers, LSP behavior, and grammar ownership.
 - **[Examples gallery](examples/index.md)** for end-to-end models grouped by statistical family and language feature, including the integrated [Amortized Bayesian Semantics](examples/amortized-bayesian-semantics.md) case study.
 - **[Conceptual guides](guides/index.md)** for feature-area deep dives.
 - **[Quivers Indexed Effect Core](developer/qiec.md)** for kernel internals, serialization, and the target runtime ABI.
@@ -89,7 +89,15 @@ flowchart TB
     L8 --> L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
 ```
 
-The central abstraction is a morphism between finite sets, parameterized by an algebra (a complete lattice with a monoidal product distributing over joins). A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in the algebra; composition `f >> g` contracts along the shared dimension under the algebra's tensor product and join. Different algebras give different composition semantics: Boolean composes by AND / OR (relational composition), ProductFuzzy by multiplication / noisy-OR, Real by sum-product, Markov by row-stochastic kernel composition, and so on.
+The central abstraction is a morphism between finite sets, parameterized by a
+composition algebra. A morphism `f : A -> B` is a PyTorch tensor of shape
+`(|A|, |B|)` whose entries take values in that algebra; composition `f >> g`
+contracts along the shared dimension under the algebra's tensor and join
+operations. Different instances impose different laws: Boolean composes by
+AND / OR (relational composition), ProductFuzzy by multiplication / noisy-OR,
+Real by sum-product, and Markov by row-stochastic kernel composition. The
+runtime `Algebra` interface does not claim that every built-in instance is a
+strict quantale.
 
 The [denotational semantics](semantics/index.md) gives every well-typed QVR phrase a formal meaning in a $\mathcal{V}$-enriched symmetric monoidal closed category. The implementation rests on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and the SVI / HMC inference substrate ([Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
 

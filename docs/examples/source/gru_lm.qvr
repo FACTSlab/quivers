@@ -1,21 +1,22 @@
-# Bayesian GRU Language Model
+# GRU-Shaped Stochastic Language Model
 #
-# A standard GRU cell wrapped in scan for temporal recurrence
-# and used as a causal language model. Gate activations are
-# drawn from LogitNormal priors; the candidate is drawn from a
-# Normal centred on the reset-gated previous state.
+# A stochastic gated recurrence wrapped in scan and used as a
+# causal language model. It borrows the update and reset gates
+# of a GRU, but its candidate is centred directly on the
+# reset-gated previous state rather than on a learned transform
+# of (x_t, r_t * h_{t-1}).
 #
 # Generative structure:
 #
 #   z_t      ~ LogitNormal(gate_z(x_t, h_{t-1}))  update gate
 #   r_t      ~ LogitNormal(gate_r(x_t, h_{t-1}))  reset gate
-#   h_cand   ~ Normal(r_t * h_{t-1}, 0.5)         candidate state
-#   h_t      = (1 - z_t) * h_{t-1} + z_t * h_cand GRU update
+#   h_cand   ~ Normal(r_t * h_{t-1}, 0.5)         simplified candidate
+#   h_t      = (1 - z_t) * h_{t-1} + z_t * h_cand gated update
 #   next_t   ~ Categorical(lm_head(h_t))          next-token target
 #
-# scan threads hidden state across the sequence; the
-# per-position hidden state is projected onto the Token
-# vocabulary by a Categorical lm_head.
+# scan threads hidden state across each sequence and returns its
+# terminal state; a Categorical lm_head projects that summary
+# onto the Token vocabulary.
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
 # one next-token target per context. Token is the vocabulary, so it

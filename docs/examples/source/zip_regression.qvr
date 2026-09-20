@@ -13,16 +13,15 @@
 #   alpha_rate_d, beta_rate_d ~ Normal(0, 5)
 #   pi_{n, d}                  = sigmoid(alpha_zero_d + beta_zero_d * x_n)
 #   rate_{n, d}                = exp(alpha_rate_d + beta_rate_d * x_n)
-#   z_{n, d}                   ~ ContinuousBernoulli(pi_{n, d})
+#   z_{n, d}                   in {0, 1}, weights (1-pi, pi)
 #   y_{n, d}                   ~ Poisson(z_{n, d} * rate_{n, d})
 #
-# The zero-inflation indicator z multiplicatively gates the
-# Poisson rate. z near 0 yields Poisson(0) (the zero point
-# mass); z near 1 recovers Poisson(rate). The enclosing
-# `marginalize z` block integrates z out under the
-# ContinuousBernoulli relaxation; the canonical hard form is a
-# discrete Bernoulli with logsumexp reduction, recovered as the
-# relaxation temperature tightens.
+# At an ungrouped marginalize head, the QVR reference compiler
+# interprets Bernoulli-family priors, including
+# ContinuousBernoulli, on the finite endpoints {0, 1}. It scores
+# both gated Poisson branches and combines them by logsumexp.
+# Thus the block denotes the exact ZIP likelihood even though a
+# forward trace may draw a continuous relaxation value for z.
 #
 # Reference: [Lambert 1992](https://doi.org/10.2307/1269547).
 

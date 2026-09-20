@@ -16,9 +16,12 @@ qvr check --target stan model.qvr
 ```
 
 Without `--target`, checking reports parser, constraint, compiler, and QIEC
-diagnostics. With a target, it also analyzes the reachable computation graph
-and reports unsupported features as `qiec:capability:*` or a more specific
-lowering code. This pass does not emit or execute target code.
+diagnostics. With a target, it also analyzes the reachable QIEC computation
+graph and reports unsupported core capabilities as `qiec:capability:*` or a
+more specific QIEC code. This pass does not run the complete renderer, emit
+target source, or execute a target toolchain. A successful target check is
+thus an early diagnostic, not a guarantee that `qvr transpile` will
+accept every surface construct in the module.
 
 Use the same target in the language server:
 
@@ -189,8 +192,8 @@ for method-level details.
 ## Transpilation
 
 List the exact CLI surface with `qvr transpile --help`, then emit a target with
-the target and output options shown there. The important release rule is to
-check the target first:
+the target and output options shown there. Check the target first, then run
+the transpiler itself:
 
 ```bash
 qvr check --target pyro model.qvr
@@ -232,13 +235,14 @@ Quivers is the source of truth for the current QVR grammar:
 `panproto-grammars-all` supplies the other language grammars used by the eleven
 transpile targets. Its vendored QVR grammar may lag the Quivers release without
 changing how Quivers parses `.qvr` files. Panproto still carries the generic
-tree and composes the versioned migration chain; QVR v0.19 adds a validating,
-byte-preserving hop from v0.18 because the grammar extension is additive.
+tree and composes the versioned migration chain. The migration from v0.18 to
+the current source protocol is validating and byte-preserving because that
+grammar extension was additive.
 
 For editor highlighting, build against the Quivers `grammars/qvr/` directory
 or install a first-party extension. Pointing an editor directly at
 Panproto's aggregate grammar package may select an older QVR grammar and omit
-v0.19 tokens.
+current tokens.
 
 ## Release checklist
 

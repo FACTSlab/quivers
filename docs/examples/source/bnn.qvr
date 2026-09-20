@@ -1,6 +1,6 @@
-# Bayesian Neural Network for Nonlinear Regression
+# Conditional MLP Kernel for Bayesian Nonlinear Regression
 #
-# A Bayesian multi-layer perceptron. The response is Normal about a
+# A multi-layer perceptron kernel. The response is Normal about a
 # nonlinear function of the input, and that function is a
 # two-hidden-layer tanh MLP carried inside the morphism's parameter
 # network. The network emits both the mean and the log-scale, so the

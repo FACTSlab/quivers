@@ -16,8 +16,7 @@ includes the loop index so Gen sees a distinct address per iteration:
 end
 ```
 
-The renderer follows the contract spelled out in `notes/transpile-redesign.md`
-sections 5, 6, and 10.10. It inherits the IR-walk dispatch from
+The renderer inherits the target-independent IR walk from
 [`RendererBase`][quivers.transpile.renderers._base.RendererBase] and
 implements `declare`, `sample`, `marginalize`, and `broadcast` per the
 Gen.jl idiom. `marginalize` lowers
@@ -483,8 +482,7 @@ def _element_type_for(spec: ConstraintSpec, plate: Plate) -> str:
     """Return the Julia element-type string for one draw of the family.
 
     Used as the `T` in `Vector{T}(undef, B)` when batch_dims is
-    non-empty. Dispatches on the support predicates of
-    `notes/transpile-redesign.md` section 2.2.
+    non-empty. Dispatches on the renderer's shared support predicates.
     """
     del plate
     c = spec.to_constraint()

@@ -24,10 +24,10 @@ The Logistic density is $f(y; \mu, s) = \frac{e^{-(y - \mu)/s}}{s \bigl(1 + e^{-
 #
 # A linear regression whose additive observation noise follows the
 # Logistic distribution rather than the conventional Normal. The
-# Logistic distribution has sub-Gaussian tails (kurtosis 1.2 vs
-# Normal's 0) but heavier shoulders, making the model a smoother
-# alternative when the response distribution has a touch more
-# excess mass than Gaussian errors would imply.
+# Logistic distribution is symmetric and unimodal with
+# exponential tails, which are heavier than Gaussian tails. It
+# is thus a simple robust alternative when the response has
+# more tail mass than a Normal error model allows.
 #
 # Generative structure:
 #
@@ -145,4 +145,4 @@ Approximation to Normal regression when the analyst suspects modest excess mass 
 
 ## References
 
-- N. Balakrishnan. 1991. *Handbook of the Logistic Distribution*. CRC Press.
+- N. Balakrishnan, editor. 1992. *Handbook of the Logistic Distribution*. Marcel Dekker.

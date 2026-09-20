@@ -9,15 +9,13 @@ This example demonstrates both forms of the [`factor`](../guides/dsl-programs-an
 ## QVR source
 
 ```qvr
-# Tree-Structured Categorical Prior
+# Tree-Structured Score Tensor
 #
-# A finite-class model whose K-way class-probability vector is
-# assembled from a binary decision tree rather than drawn from a
-# flat Dirichlet. Each leaf class is a structurally different
-# product of internal-node Bernoulli probabilities, and the
-# per-verb / per-class score table is a rank-2 tensor built by a
-# multi-binder factor body over the Cartesian product Verb x
-# Class.
+# A factor-expression example that assembles log weights for the
+# leaves of a binary tree and then combines them with per-verb and
+# per-class effects. The observation uses only cell_score[0, 0]
+# under a Normal likelihood; the source does not define a
+# Categorical outcome over the four leaves.
 #
 # Generative structure:
 #
@@ -153,7 +151,7 @@ print("y batch shape:", tuple(y.shape))
 
 ### SVI fit
 
-Re-initialise from the prior, then maximise the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the synthetic responses with an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) on the latent sites and [`SVI`](../api/inference/svi.md#svi) over [`Adam`](https://pytorch.org/docs/stable/generated/torch.optim.Adam.html). Print the initial and final loss to confirm the guide is moving toward the posterior.
+Reinitialize from the prior, then maximize the [`ELBO`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) against the synthetic responses with an [`AutoNormalGuide`](../api/inference/guide.md#quivers.inference.guides.AutoNormalGuide) on the latent sites and [`SVI`](../api/inference/svi.md#svi) over [`Adam`](https://pytorch.org/docs/stable/generated/torch.optim.Adam.html). Print the initial and final loss to confirm the guide is moving toward the posterior.
 
 ```python
 import math

@@ -53,7 +53,9 @@ Program statements preserve their leading-keyword distinction:
 - `observe` adds a family log density at supplied data;
 - `let` binds deterministic tensor arithmetic;
 - `score` adds an explicitly computed scalar to the log joint;
-- `marginalize` introduces a scoped latent and removes it from the outer scope;
+- finite-support `marginalize` enumerates a scoped latent and removes it from
+  the outer scope; a non-enumerable family currently follows the ordinary
+  single-sample path rather than computing a continuous integral;
 - `return` selects the program result.
 
 `from_data("key")` is resolved through data bound to the compiler before expression compilation. It should not be described as a learnable value or as an unbound runtime lookup.

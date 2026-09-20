@@ -66,7 +66,8 @@ the shared grouping plate. The body's per-axis per-row per-class
 log-likelihoods are scatter-summed into a single $(|G|, K)$
 accumulator before the log-sum-exp over the class axis:
 
-```
+<!-- compile: false -->
+```qvr
 marginalize class : K <- Categorical(probs) [over=G]
     observe r_a : Resp_a <- F_a(...) [via=idx_a]
     observe r_b : Resp_b <- F_b(...) [via=idx_b]

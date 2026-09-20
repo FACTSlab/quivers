@@ -7,18 +7,19 @@ Two independently parameterized recurrent cells scan the same token sequence, an
 ## QVR source
 
 ```qvr
-# Bayesian Bidirectional RNN Masked Language Model
+# Dual-RNN Masked-Token Model
 #
-# A bidirectional RNN used as a masked language model. Two
-# independently-parameterised cells each scan the token
-# sequence left to right; a combine morphism merges the two
-# streams, and a Categorical lm_head over Token scores the
-# masked-token target.
+# Two independently parameterized cells scan the same token
+# sequence from left to right. A combine morphism merges their
+# summaries, and a Categorical lm_head over Token scores a
+# masked-token target. The second path is named backward_path
+# for contrast, but the source does not reverse its input; a
+# caller must supply a reversed branch to obtain right context.
 #
 # Generative structure:
 #
 #   h_fwd    ~ scan(fwd_cell)(tok_embed(x))    forward hidden states
-#   h_bwd    ~ scan(bwd_cell)(tok_embed(x))    backward hidden states
+#   h_alt    ~ scan(bwd_cell)(tok_embed(x))    second left-to-right summary
 #   h        ~ combine(h_fwd, h_bwd)           merged representation
 #   masked_t ~ Categorical(lm_head(h))         observed masked token
 #
@@ -30,11 +31,7 @@ Two independently parameterized recurrent cells scan the same token sequence, an
 # The fan-out fan(forward_path, backward_path) runs the two
 # paths in parallel over the same token sequence in the
 # Kleisli category; the backbone is
-# fan(forward_path, backward_path) >> combine. Because each
-# masked position is conditioned on both left and right context,
-# this is a bidirectional encoder rather than a causal LM.
-#
-# Reference: [Devlin et al. 2019](https://doi.org/10.18653/v1/N19-1423).
+# fan(forward_path, backward_path) >> combine.
 
 object Token : FinSet 256
 object Resp : FinSet 32
@@ -94,7 +91,7 @@ flowchart LR
 
 ### Generating synthetic data
 
-Fix the model's stochastic-weight parameters under a chosen seed (they stand in for the ground-truth generative weights), then run one forward [`trace`](../api/inference/trace.md) so the latent hidden state `h` and the masked-token target generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The corpus is a `(rows, seq_len)` int64 context tensor paired with a `(rows,)` masked-token target, one row per element of the `Resp` plate.
+Trace the two fixed left-to-right branches once to obtain their merged `h` and target. Reuse `true_h` in `observations` so later likelihood evaluations score that same realization; otherwise each evaluation resamples `h`. Each `Resp` row contains an int64 context of length `seq_len` and one masked-token label.
 
 ```python
 import torch
@@ -105,7 +102,7 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/bidirectional_rnn_lm.qvr")
 model = prog.morphism
 
-# Fix the model's stochastic weights to a chosen draw, then run one
+# Fix the model's kernel parameters to chosen values, then run one
 # forward trace so the captured hidden state and the masked-token target it
 # generated are jointly consistent under the same weights.
 for _, p in model.named_parameters():
@@ -127,7 +124,7 @@ print("masked_token:", masked_token.shape, masked_token.dtype)
 
 ### SVI fit
 
-Re-initialise the parameters and recover the masked-token weights from the synthetic corpus with [`AutoNormalGuide`](../api/inference/guide.md) + [`ELBO`](../api/inference/elbo.md) + [`SVI`](../api/inference/svi.md). The loss is the negative ELBO under a Categorical likelihood on the `masked_token` site.
+Reinitialize `tok_embed`, `fwd_cell`, `bwd_cell`, `combine`, and `lm_head`, then fit their latent parameters with an [`AutoNormalGuide`](../api/inference/guide.md) and [`SVI`](../api/inference/svi.md). The [`ELBO`](../api/inference/elbo.md) scores the Categorical `masked_token` site for each context.
 
 ```python
 import torch
@@ -204,5 +201,4 @@ The model denotes a Kleisli morphism $\mathrm{Token} \to \mathcal{G}(\mathrm{Tok
 
 ## References
 
-- Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of deep bidirectional transformers for language understanding. In *Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT)*, pages 4171–4186. ACL.
 - Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.

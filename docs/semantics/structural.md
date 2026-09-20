@@ -305,6 +305,4 @@ The total loss is the objective passed to the optimizer by the inference driver.
 ## 5. References
 
 - Lambek, J. (1968). *A fixpoint theorem for complete categories*. Mathematische Zeitschrift 103(2), 151–161.
-- Cartmell, J. (1986). [*Generalised algebraic theories and contextual categories*](https://doi.org/10.1016/0168-0072(86)90053-9). Annals of Pure and Applied Logic 32, 209–243.
 - Battaglia, P. W. et al. (2018). [*Relational inductive biases, deep learning, and graph networks*](https://arxiv.org/abs/1806.01261). arXiv:1806.01261.
-- Hutton, G. (1999). [*A tutorial on the universality and expressiveness of fold*](https://doi.org/10.1017/S0956796899003500). Journal of Functional Programming 9(4), 355–372.

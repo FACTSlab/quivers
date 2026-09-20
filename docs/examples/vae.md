@@ -2,17 +2,19 @@
 
 ## Overview
 
-A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencoder) ([Kingma & Welling, 2014](https://arxiv.org/abs/1312.6114)) trains a decoder with an observation-dependent encoder used as the variational guide. This source declares both an encoder-decoder composition and a prior-decoder composition, but exports only `vae_program`, whose latent `z` is sampled from `prior`. The runnable SVI block uses `AutoNormalGuide`; it does not use the declared `encoder` as an amortized guide. Thus this page demonstrates the two paths needed for a VAE without implementing joint VAE training.
+A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencoder) ([Kingma & Welling, 2013](https://arxiv.org/abs/1312.6114)) trains a decoder with an observation-dependent encoder used as the variational guide. This source declares both an encoder-decoder composition and a prior-decoder composition, but exports only `vae_program`, whose latent `z` is sampled from `prior`. The runnable SVI block uses `AutoNormalGuide`; it does not use the declared `encoder` as an amortized guide. Thus this page demonstrates the two paths needed for a VAE without implementing joint VAE training.
 
 ## QVR source
 
 ```qvr
-# Variational Autoencoder
+# Latent Decoder with Encoder and Decoder Paths
 #
-# A VAE with multi-layer encoder and decoder networks, expressed
-# as a morphism network using stack for deep layers and explicit
-# Kleisli composition (>>) to wire encoder and decoder into
-# generative and reconstruction paths.
+# The two network paths needed by a variational autoencoder,
+# expressed with stack and explicit Kleisli composition. The
+# exported program samples z from the prior and runs only the
+# decoder. The declared encoder is not connected to the
+# AutoNormalGuide used on the page, so this source does not train
+# an amortized VAE end to end.
 #
 # Structural form:
 #
@@ -21,14 +23,12 @@ A [variational autoencoder](https://en.wikipedia.org/wiki/Variational_autoencode
 #   generative  = prior   >> decoder              ancestral sampling
 #   reconstruct = encoder >> decoder              posterior predictive
 #
-# The encoder is a Kleisli morphism for the Giry monad mapping
-# observations to a distribution over latent codes; the decoder
-# is the Kleisli morphism from the latent space back to
-# observation space. The ELBO decomposes categorically into a
-# reconstruction term (faithfulness of encoder >> decoder) and a
-# KL term (distance from the prior in the enriched hom-space).
+# The encoder maps observations to a distribution over latent
+# codes; the decoder maps latent codes back to observation space.
+# A complete VAE must use the encoder as an observation-dependent
+# guide and add the corresponding KL term.
 #
-# Reference: [Kingma and Welling 2014](https://doi.org/10.48550/arXiv.1312.6114).
+# Reference: [Kingma and Welling 2013](https://doi.org/10.48550/arXiv.1312.6114).
 
 object Pixel : FinSet 8
 object Latent : Real 4

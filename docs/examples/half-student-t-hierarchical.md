@@ -26,8 +26,8 @@ $$
 # half-Student-t priors on both scale parameters. HalfStudentT(df,
 # scale) is the standard weakly-informative prior for hierarchical
 # variance parameters: it concentrates mass near zero (favouring
-# pooling) while admitting heavy upper tails for groups whose
-# data demand a sharper-peaked likelihood.
+# pooling) while admitting heavy upper tails when the data
+# support substantial residual or between-group variation.
 #
 # Generative structure:
 #

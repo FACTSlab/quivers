@@ -1,7 +1,7 @@
 # Gamma Regression for Component Totals
 #
 # A Bayesian regression for non-negative component totals, fit
-# with a Gamma likelihood and a per-category log-rate predictor.
+# with a Gamma likelihood and a per-category log-shape predictor.
 # This is the unnormalized layer of a Dirichlet regression:
 # independent Gamma draws with shapes (alpha_1, ..., alpha_K)
 # and unit rate normalize to a sample on the K-simplex, but the
@@ -19,7 +19,7 @@
 # post-composition handled downstream when the user wants a
 # Dirichlet response.
 #
-# Reference: [Maier 2014](https://doi.org/10.32614/CRAN.package.DirichletReg).
+# Reference: [Maier 2014](https://epub.wu.ac.at/4077/).
 
 object Item : FinSet 21
 object Cat : FinSet 3

@@ -2,18 +2,19 @@
 
 ## Overview
 
-A multiple regression with the horseshoe prior ([Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017)). The horseshoe is a [global-local scale mixture of Normals](https://en.wikipedia.org/wiki/Sparsity-inducing_prior): a single global scale `tau` and per-coordinate local scales `lambda_p` jointly define the coefficient prior, inducing a spike-near-zero / heavy-tail mixture that adaptively shrinks small effects toward zero while leaving large effects nearly unbiased.
+A coefficient-indexed regression with the horseshoe prior ([Carvalho, Polson, and Scott 2010](https://doi.org/10.1093/biomet/asq017)). The horseshoe is a [global-local scale mixture of Normals](https://en.wikipedia.org/wiki/Sparsity-inducing_prior): a single global scale `tau` and per-coordinate local scales `lambda_p` jointly define the coefficient prior, inducing a spike-near-zero / heavy-tail mixture that adaptively shrinks small effects toward zero while leaving large effects nearly unbiased. Each response row selects one coefficient through `coef_idx`; this program does not sum a full predictor vector against all coefficients.
 
 ## QVR source
 
 ```qvr
 # Multi-Coefficient Horseshoe Regression
 #
-# A multiple regression with the horseshoe prior: a global-local
-# scale mixture of Normals in which a single global scale tau
-# and per-coordinate local scales jointly define the coefficient
-# prior. The per-coefficient Coef plate is sized at compile
-# time.
+# A coefficient-indexed regression with a horseshoe prior: a
+# global-local scale mixture of Normals in which one global scale
+# tau and per-coordinate local scales jointly define the
+# coefficient prior. Each response row selects one coefficient
+# through coef_idx; this is not a dense multiple-regression
+# design that sums over all predictors in each row.
 #
 # Generative structure:
 #
@@ -22,7 +23,7 @@ A multiple regression with the horseshoe prior ([Carvalho, Polson, and Scott 201
 #   z_p        ~ Normal(0, 1)                     standard-Normal raw
 #   alpha      ~ Normal(0, 5)                     intercept
 #   sigma      ~ HalfCauchy(2)                    noise scale
-#   y_n        ~ Normal(alpha + (tau * lambda * z) * x_n, sigma)
+#   y_n        ~ Normal(alpha + beta_{p(n)} * x_n, sigma)
 #
 # The horseshoe has no closed-form marginal density: the right
 # idiom is the explicit tau * lambda * z decomposition built
@@ -155,6 +156,6 @@ print(f"divergences: {int(result.divergence_counts.sum())}")
 The model factors as the Kleisli composite of a global-local hyperprior kernel, a deterministic Hadamard product `tau * lambda * z` lifted into the [Giry monad](https://doi.org/10.1007/BFb0092872)'s Kleisli category as a Dirac kernel, and the per-row Normal likelihood. The plate-draws `lambda_local` and `z_raw` are Kleisli sections of the `Coef`-indexed plate, and `lambda_local[coef_idx]` is the [Kleisli pullback](https://ncatlab.org/nlab/show/Kleisli+category) along the fibration `Resp -> Coef` carried by the runtime index.
 
 
-## References
+## Model reference
 
 - Carlos M. Carvalho, Nicholas G. Polson, and James G. Scott. 2010. The horseshoe estimator for sparse signals. *Biometrika*, 97(2):465–480.

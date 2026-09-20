@@ -33,6 +33,7 @@ frozen [`dx.Model`](https://didactic.dev/api/Model), with
 [`Guide`](../api/inference/guide.md)), and `.observations` (the
 inference-time observations dict).
 
+<!-- python: skip -->
 ```python
 print(result.qvr_source)                    # canonical .qvr source
 result.dump_qvr("acceptability.qvr")        # write to disk
@@ -40,6 +41,7 @@ result.dump_qvr("acceptability.qvr")        # write to disk
 
 ### Prior overrides
 
+<!-- python: skip -->
 ```python
 result = fit(
     "y ~ x + (1 | g)",
@@ -158,13 +160,12 @@ for step in shape.steps:
           f"depth={step.depth} dim={step.intermediate_size}")
 ```
 
-This is the foundation downstream tooling reads off: init-recipe
-selection, saturation diagnostics, and layer-width sanity checks
-all consume `ChainShape`.
+This metadata supplies init-recipe selection, saturation diagnostics, and
+layer-width checks through `ChainShape`.
 
 ### Algebra.init_spec
 
-Each algebra exposes a saturation-free init recipe via
+Each algebra exposes an algebra-specific init recipe via
 [`Algebra.init_spec(depth, intermediate_size) -> InitSpec`](../api/core/algebras.md).
 The recipes target the algebra's neutral element: a `K`-way product
 under `ProductFuzzy` should start near $p \approx \ln(2) / k$ so
@@ -252,10 +253,9 @@ to be saturated under its default init.
 [`module_to_source`](../api/dsl/emit.md) walks a
 [`Module`](../api/dsl/ast_nodes.md) AST and produces canonical
 `.qvr` source for every current statement, program-step, and
-expression variant. The emit is one-way and semantic: the emitted
-source, re-parsed by
-[`quivers.dsl.loads`](../api/dsl/parser.md), produces a `Module`
-that compiles to the same program as the original AST.
+expression variant. The emit is one-way and semantic: passing the
+emitted source to [`quivers.dsl.loads`](../api/dsl/parser.md) compiles a
+program with the same declarations as the original AST.
 
 ## Autograd-safe morphism transforms
 

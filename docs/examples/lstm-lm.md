@@ -7,12 +7,13 @@ This stochastic recurrent cell borrows the gates of an [LSTM](https://doi.org/10
 ## QVR source
 
 ```qvr
-# Bayesian LSTM Language Model
+# LSTM-Shaped Stochastic Language Model
 #
-# A canonical LSTM cell wrapped in scan and used as a causal
-# language model. All four gates and the cell candidate are
-# Bayesian Kleisli morphisms with stochastic weights; tanh is
-# realised from sigmoid via the identity 2*sigmoid(2x) - 1.
+# A gated stochastic recurrence wrapped in scan and used as a
+# causal language model. It borrows three LSTM gates and a cell
+# candidate, but scan threads only h_t: the local update uses
+# h_{t-1} where a canonical LSTM carries a separate c_{t-1}.
+# The tanh readout is realized through sigmoid.
 #
 # Generative structure:
 #
@@ -20,7 +21,7 @@ This stochastic recurrent cell borrows the gates of an [LSTM](https://doi.org/10
 #   f_t      ~ LogitNormal(gate_f(x_t, h_{t-1}))  forget gate
 #   o_t      ~ LogitNormal(gate_o(x_t, h_{t-1}))  output gate
 #   g_t      ~ Normal(cell_cand(x_t, h_{t-1}))    cell candidate
-#   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t)
+#   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t) folded-state update
 #   next_t   ~ Categorical(lm_head(h_t))          next-token target
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
@@ -28,10 +29,9 @@ This stochastic recurrent cell borrows the gates of an [LSTM](https://doi.org/10
 # is the value space of what lm_head draws and of what the program
 # returns.
 #
-# In the canonical LSTM the cell state c_t is a separate channel
-# from h_t, but scan threads a single hidden codomain, so this
-# presentation folds the c-channel into h-and-readout: c_new is
-# computed locally inside the cell and used to form h_new.
+# The intermediate c_new is local to one call and is not carried
+# to the next position. This is thus an LSTM-shaped example,
+# not an implementation of the canonical architecture.
 #
 # Reference: [Hochreiter and Schmidhuber 1997](https://doi.org/10.1162/neco.1997.9.8.1735).
 
@@ -118,7 +118,7 @@ flowchart LR
 
 ### Generating synthetic data
 
-Fix the model's stochastic-weight parameters under a chosen seed (they stand in for the ground-truth generative weights), then run one forward [`trace`](../api/inference/trace.md) so the latent hidden state `h` and the next-token target generated from it are jointly consistent. `true_h` names the ground truth for the latent `h` site, and shipping it in the observations dict is what clamps it: an unclamped `h` is redrawn on every call, which leaves any reference joint non-deterministic. The corpus is a `(rows, seq_len)` int64 prompt tensor paired with a `(rows,)` next-token target, one row per element of the `Resp` plate.
+Trace the fixed LSTM-shaped recurrence once to obtain its terminal `h` and target. Reuse `true_h` in `observations` so later likelihood evaluations score that same realization; otherwise each evaluation resamples `h`. Each `Resp` row contains an int64 prompt of length `seq_len` and one next-token label.
 
 ```python
 import torch
@@ -129,7 +129,7 @@ torch.manual_seed(0)
 prog = load("docs/examples/source/lstm_lm.qvr")
 model = prog.morphism
 
-# Fix the model's stochastic weights to a chosen draw, then run one
+# Fix the model's kernel parameters to chosen values, then run one
 # forward trace so the captured hidden state and the next-token target it
 # generated are jointly consistent under the same weights.
 for _, p in model.named_parameters():
@@ -151,7 +151,7 @@ print("next_token:", next_token.shape, next_token.dtype)
 
 ### SVI fit
 
-Re-initialise the parameters and recover next-token weights from the synthetic corpus with [`AutoNormalGuide`](../api/inference/guide.md) + [`ELBO`](../api/inference/elbo.md) + [`SVI`](../api/inference/svi.md). The loss is the negative ELBO under a Categorical likelihood on the `next_token` site.
+Reinitialize `tok_embed`, the three gate morphisms, `cell_cand`, and `lm_head`, then fit their latent parameters with an [`AutoNormalGuide`](../api/inference/guide.md) and [`SVI`](../api/inference/svi.md). The [`ELBO`](../api/inference/elbo.md) scores the Categorical `next_token` site for each prompt.
 
 ```python
 import torch

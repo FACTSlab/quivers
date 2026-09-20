@@ -138,5 +138,4 @@ samples = predictive(x_new)
 
 ## References
 
-- [split R̂ and effective sample size (Vehtari et al.
-2021)](https://doi.org/10.1214/20-BA1221).
+- Aki Vehtari, Andrew Gelman, Daniel Simpson, Bob Carpenter, and Paul-Christian Bürkner. 2021. [Rank-normalization, folding, and localization: An improved R̂ for assessing convergence of MCMC](https://doi.org/10.1214/20-BA1221). *Bayesian Analysis*, 16(2):667–718.

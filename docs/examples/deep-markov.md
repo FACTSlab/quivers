@@ -11,14 +11,14 @@ $$
 o_t = g_\phi(s_t) + \eta_t, \quad \eta_t \sim \mathcal{N}(0, \sigma_o^2 I)
 $$
 
-The transition and emission means are MLPs; per-step Normal noise gives a tractable density. The companion recognition network `q_\phi(o_t, s_{t-1}) -> s_t` carries the variational posterior and is threaded across the sequence by `scan` to amortize the posterior over the latent trajectory. The combinator surface mirrors the [linear-Gaussian SSM](linear-gaussian-ssm.md): only the per-step cells change.
+The transition and emission means are MLPs; per-step Normal noise gives a tractable density. A separate `scan(infer_cell)` declaration has the shape of a recognition recurrence, but it is not connected to the exported `generative_step` or used by the fitted guide below. The combinator surface mirrors the [linear-Gaussian SSM](linear-gaussian-ssm.md): only the per-step cells change.
 
 ## QVR source
 
 ```qvr
 # Deep Markov Model
 #
-# A state-space model with nonlinear, neural-network-parameterised
+# A state-space model with nonlinear, neural-network-parameterized
 # transition and emission kernels. The combinator surface mirrors the
 # linear-Gaussian SSM and replaces its linear maps with kernels whose
 # parameters come from an MLP.
@@ -34,10 +34,10 @@ The transition and emission means are MLPs; per-step Normal noise gives a tracta
 # it a kernel's parameters are linear in its input, and composing two
 # of them stays linear: the depth would buy nothing but a rank bound.
 #
-# The inference cell q_phi(o_t, s_{t-1}) -> s_t carries the
-# variational recognition network; scan threads it across the
-# observation sequence to recover an amortised posterior over
-# the latent state trajectory.
+# The inference cell q_phi(o_t, s_{t-1}) -> s_t has the shape of a
+# recognition network. Its scan is declared separately; the exported
+# generative_step does not call it, and this file does not train an
+# amortized posterior over the latent trajectory.
 #
 # Reference: [Krishnan, Shalit, and Sontag 2017](https://doi.org/10.1609/aaai.v31i1.10779).
 
@@ -57,13 +57,12 @@ define emission = emit_mlp_1 >> emit_mlp_2
 define generate = scan(transition_cell) >> emission
 define recognize = scan(infer_cell)
 
-# Probabilistic surface: the per-step generative kernel pushes
-# the previous (driver, state) pair through the two-layer
-# transition MLP and scores the new state, then pushes the new
-# state through the two-layer emission MLP and scores the
-# observation. scan threads this per-step program across the
-# input sequence so trace clamps the full (s_new, o) trajectory
-# once per call.
+# Probabilistic surface: the exported one-step kernel pushes the
+# previous (driver, state) pair through the two-layer transition
+# MLP, then scores one observation under the emission MLP. The
+# separate `generate` composition scans transition_cell and
+# applies emission to the terminal state; it does not call this
+# program or score an observation at every scan position.
 program generative_step : Driver * State -> State
     sample s_new <- transition_cell
 
@@ -77,7 +76,7 @@ export generative_step
 
 The transition stack `trans_mlp_1 >> trans_mlp_2` maps `(u_t, s_{t-1})` through a hidden width of 32 to the 8-dimensional state; the emission stack returns to the 4-dimensional observation. Both stacks compose Gaussian kernels through sampled intermediate values. They support reparameterized draws, but the marginal composite is not generally Gaussian and does not provide the invertible density transformation required of a normalizing flow.
 
-`scan(transition_cell) >> emission` is the generative pipeline; `scan(infer_cell)` is the [variational autoencoder](https://doi.org/10.48550/arXiv.1312.6114)-style recognition network that threads the previous belief and the new observation through `infer_cell` to produce the next belief. The choice of `Driver` width controls the exogenous input; a non-driven model declares `object Driver : Real 1` and feeds a zero vector.
+`scan(transition_cell) >> emission` is the generative pipeline. The separate `scan(infer_cell)` declaration is a [variational autoencoder](https://doi.org/10.48550/arXiv.1312.6114)-style, recognition-shaped recurrence that threads the previous state and a new observation through `infer_cell`. It is not an implemented posterior until a guide connects it to the exported model and trains it against the full latent trajectory. The choice of `Driver` width controls the exogenous input; a non-driven model declares `object Driver : Real 1` and feeds a zero vector.
 
 ## Try it
 
@@ -167,7 +166,7 @@ print("divergences:", int(result.divergence_counts.sum()))
 
 ## Categorical perspective
 
-The transition stack is the Kleisli composition of two Gaussian kernels; the second kernel's mean depends on the sample from the first, so the joint per-step kernel is no longer Gaussian, only a reparameterisable density. `scan` realizes the iterated Kleisli composition over the time index, so the full trajectory kernel is the right Kan extension of the per-step cell along the time projection.
+The transition stack is the Kleisli composition of two Gaussian kernels; the second kernel's mean depends on the sample from the first, so the joint per-step kernel is no longer Gaussian, only a reparameterizable density. `scan` realizes the iterated Kleisli composition over the time index and returns the terminal latent state. The declared `generate` path then emits one observation from that terminal state.
 
 The separately declared recognizer has the shape of an amortized inference network. The exported `generative_step` and the `AutoNormalGuide` fit on this page do not call `recognize`, however. Joint training would require using that network as, or inside, the variational guide.
 

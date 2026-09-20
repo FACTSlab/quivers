@@ -1,4 +1,4 @@
-# Factor Analysis
+# Isotropic Bayesian Factor Model
 
 ## Overview
 
@@ -13,28 +13,24 @@ The runnable QVR program below uses one scalar `sigma`, not a free diagonal $\ps
 ## QVR source
 
 ```qvr
-# Factor Analysis
+# Isotropic Bayesian Factor Model
 #
-# Classical factor analysis decomposes a D-dimensional
-# observation as a linear-Gaussian transformation of a
-# K-dimensional latent factor. The model mean factors through a
-# learnable loading matrix and a per-item latent code, expressed
-# here as a morphism composition under the real algebra.
+# This low-rank Gaussian factor model decomposes each observation
+# through a K-dimensional latent code and a shared loading matrix.
+# Its observation noise uses one scalar sigma, so the runnable
+# program has the isotropic noise structure of probabilistic PCA,
+# not the free diagonal uniquenesses of classical factor analysis.
 #
 # Structural form:
 #
 #   Z     : Item      -> LatentDim       per-item latent code
-#   W     : LatentDim -> ObsDim          matrix-normal loadings
+#   W     : LatentDim -> ObsDim          learned loadings
 #   model = Z >> W                       linear-Gaussian mean
 #
-# The loading matrix carries a matrix-normal prior whose
-# Kronecker covariance V (x) U expresses independent row and
-# column correlation, the natural prior for a low-rank factor
-# decomposition. Factor analysis pairs Z >> W with a free
-# diagonal noise (one psi per ObsDim coordinate), whereas PPCA
-# collapses that diagonal to a single isotropic scalar; both
-# choices are downstream observation kernels rather than
-# features of the matrix-valued mean expressed here.
+# The structural arrows are learned tensors without family
+# declarations. The exported program supplies independent
+# Normal priors for the code and loading entries and a
+# HalfCauchy prior for the shared observation scale.
 
 composition real [level=algebra]
 
@@ -88,7 +84,7 @@ morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) ove
 
 It would place a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The actual `factor_analysis_program` instead samples `W_mat` through an indexed Normal plate.
 
-To implement classical factor analysis, replace scalar `sigma` with a positive `ObsDim`-indexed noise vector and gather the appropriate element for each response row.
+A free-diagonal variant would replace scalar `sigma` with a positive `ObsDim`-indexed noise vector and gather the appropriate element for each response row.
 
 ## Try it
 

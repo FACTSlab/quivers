@@ -1,16 +1,10 @@
 """Compile-time saturation warnings.
 
-Source-keyed warnings flagged at the user's latents when the
-``ChainShape`` shows the step would land at the saturation boundary
-of its governing algebra under any reasonable random init. The
-diagnoses are surfaced as `SaturationWarning` objects with
-`source_line` / `source_col` so the user can locate the
-problem in their ``.qvr`` source.
-
-The check is conservative: it flags *only* configurations that are
-known-bad from the per-algebra closed-form analysis in
-``notes/algebra-guided-training-tooling.md``. The two failure modes
-it catches today:
+Source-keyed warnings for latent steps whose algebra-specific initialization
+recipe differs materially from the default ``Normal(0, 1)`` initialization.
+The check implements the two closed-form conditions documented in the public
+analysis guide and returns `SaturationWarning` objects with `source_line` and
+`source_col` coordinates. It currently diagnoses:
 
 1. **Deep chains in a bounded algebra with no user-set init.**
    ``ProductFuzzyAlgebra`` over a depth-10 chain with a default
@@ -52,7 +46,7 @@ class SaturationWarning(dx.Model):
     intermediate_size : int | None
         Inferred plate / shared-axis size.
     init_spec : InitSpec
-        The recommended saturation-free init for this latent.
+        The recommended algebra-specific initialization for this latent.
     """
 
     name: str
@@ -86,7 +80,7 @@ def saturation_warnings(module: Module) -> tuple[SaturationWarning, ...]:
 
     Returns a warning for every ``latent`` step in the program at
     depth ≥ 2 or with intermediate size > 1 under an algebra whose
-    saturation-free recipe differs materially from a default
+    algebra-specific recipe differs materially from a default
     ``Normal(0, 1)`` init. The threshold for "differs materially"
     is the absolute distance between the recipe's mean and 0
     (Normal default) plus the relative distance between its std

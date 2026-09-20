@@ -11,37 +11,61 @@ program P (params) : τ₁ -> τ₂
     return e
 ```
 
-denotes a Markov kernel (the typing rules for statements and the program declaration live in [Typing §6–§7](typing.md#6-inference-rules-for-statements))
+denotes an unnormalized weighted kernel (the typing rules for program steps and
+their QIEC elaboration live in [Typing §3](typing.md#3-program-contexts) and
+[§8](typing.md#8-program-elaboration))
 
 $$
-\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}\bigl(\llbracket \tau_2 \rrbracket\bigr),
+\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{M}_+\bigl(\llbracket \tau_2 \rrbracket\bigr),
 $$
 
-equivalently a morphism in $\mathbf{Kern}$ when $\tau_2$ is continuous, or in $\mathbf{Stoch}$ when both $\tau_1$ and $\tau_2$ are discrete. Here $\mathcal{G}$ denotes the (continuous or discrete) Giry monad as appropriate.
+where $\mathcal M_+$ records the nonnegative weight contributed by
+observations and explicit scores. If the body contains neither operation, the
+denotation factors through the probability-measure subspace $\mathcal G$ and
+is a Markov kernel. A scored program becomes a probability kernel only after
+normalization, when its total mass is finite and nonzero.
 
-The block body is a sequence of statements interpreted in the *Kleisli* category of $\mathcal{G}$, with `let` and `return` providing the monad's internal language.
+The block body is a sequence of weighted-kernel operations. `sample`, `let`,
+and `return` enter through the probability-kernel embedding; `observe` and
+`score` multiply the current measure by a nonnegative factor; and finite
+`marginalize` pushes that measure forward along a projection.
 
 ## 1. The Giry monad as semantic substrate
 
 Let $\mathcal{G}$ denote the Giry monad on $\mathbf{SBor}$, with unit $\eta_S : S \to \mathcal{G}(S)$ given by $s \mapsto \delta_s$ (Dirac at $s$) and multiplication $\mu_S : \mathcal{G}(\mathcal{G}(S)) \to \mathcal{G}(S)$ given by integration. The Kleisli category $\mathbf{Kern}$ of $\mathcal{G}$ has the same objects as $\mathbf{SBor}$ and morphisms $S \to T$ given by Markov kernels $S \to \mathcal{G}(T)$.
 
-A QVR program is denoted by a single morphism in $\mathbf{Kern}$, built compositionally by interpreting each statement as a *Kleisli arrow* and composing them via Kleisli composition $\diamond$. For $k_1 : S \to \mathcal{G}(T)$ and $k_2 : T \to \mathcal{G}(U)$:
+Sampling stays in $\mathcal G$. Observation and explicit scoring instead use
+the finite nonnegative-measure monad $\mathcal M_+$, under the implementation's
+finite-log-weight contract. This larger space is necessary because a
+continuous density, or an explicit factor $\exp(w)$, may exceed one. Calling
+the scored result a sub-probability measure would thus be incorrect.
+Probability kernels embed into $\mathcal M_+$, and normalization remains an
+inference-layer operation.
+
+A QVR program without scoring is a morphism in $\mathbf{Kern}$, built
+compositionally by interpreting each statement as a *Kleisli arrow* and
+composing via Kleisli composition $\diamond$. For $k_1 : S \to
+\mathcal{G}(T)$ and $k_2 : T \to \mathcal{G}(U)$:
 
 $$
 (k_1 \diamond k_2)(s, C) \;=\; \mu_U \bigl( \mathcal{G}(k_2)(k_1(s)) \bigr)(C)
 \;=\; \int_T k_2(t, C) \, k_1(s, \mathrm{d}t).
 $$
 
-We extend a program-body environment to track *random variables*: for a pre-fixed program domain $\Gamma$ and a current statement-context $\Phi = (X_1, \dots, X_k)$, every random variable bound earlier in the body has a Kleisli arrow
+The same composition formula applies to weighted kernels whenever the
+resulting integrals are defined. We extend a program-body environment to track
+*random variables*: for a pre-fixed program domain $\Gamma$ and a current
+statement-context $\Phi = (X_1, \dots, X_k)$, every random variable bound
+earlier in the body has a weighted kernel
 
 $$
-\rho_{\mathrm{rv}}(v) : \Gamma \to \mathcal{G}(\Phi).
+\rho_{\mathrm{rv}}(v) : \Gamma \to \mathcal{M}_+(\Phi).
 $$
 
 The body-level denotation function is
 
 $$
-\mathcal{B}\llbracket s_1 \,;\, \cdots \,;\, s_n \,;\, \mathsf{return}\ e \rrbracket : \Gamma \to \mathcal{G}(\llbracket \tau_2 \rrbracket).
+\mathcal{B}\llbracket s_1 \,;\, \cdots \,;\, s_n \,;\, \mathsf{return}\ e \rrbracket : \Gamma \to \mathcal{M}_+(\llbracket \tau_2 \rrbracket).
 $$
 
 ## 2. Statements
@@ -53,7 +77,10 @@ $$
 \;=\; \mathcal{S}\llbracket s_1 \rrbracket \diamond \mathcal{S}\llbracket s_2 \rrbracket \diamond \cdots \diamond \mathcal{S}\llbracket s_n \rrbracket \diamond \mathsf{ret}_e,
 $$
 
-where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to \mathcal{G}(\Phi_i)$ is the Kleisli arrow assigned to statement $s_i$ (with $\Phi_0 = \Gamma$), and $\mathsf{ret}_e : \Phi_n \to \mathcal{G}(\llbracket \tau_2 \rrbracket)$ is the deterministic Kleisli arrow $\eta \circ \pi_e$ projecting onto the components named by the `return` clause.
+where each $\mathcal{S}\llbracket s_i \rrbracket : \Phi_{i-1} \to
+\mathcal{M}_+(\Phi_i)$ is the weighted arrow assigned to statement $s_i$
+(with $\Phi_0 = \Gamma$), and $\mathsf{ret}_e$ is the deterministic Dirac
+arrow projecting onto the components named by the `return` clause.
 
 ### 2.1 Bind
 
@@ -97,15 +124,18 @@ An observe statement
 observe v <- F(args)
 ```
 
-denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the *unnormalized* Giry monad $\mathcal{G}_{\le 1}$ (sub-probability measures),
+denotes a *score* update against an externally-supplied observed value $v_{\mathrm{obs}}$. As a Kleisli arrow in the finite nonnegative-measure monad $\mathcal{M}_+$,
 
 $$
-\mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{M}_+(\Phi),
 \qquad
 \mathcal{S}\llbracket \mathsf{observe}\ v \leftarrow F(\bar a) \rrbracket(\phi,\, B) \;=\; \mathbf{1}_B(\phi) \cdot p_F\bigl( v_{\mathrm{obs}} \,;\, \theta_F(\bar a, \phi)\bigr).
 $$
 
-The trace context is preserved, but the total mass of the resulting measure is the likelihood of $v_{\mathrm{obs}}$ at $\phi$. Normalization and posterior inference are deferred to the inference layer (see [`quivers.inference`](../api/inference/svi.md)). The categorical setting is the *Markov category with conditioning* of [Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488) and [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239).
+The trace context is preserved, but the measure is multiplied by the density
+or mass of $v_{\mathrm{obs}}$ at $\phi$. That factor need not be bounded by
+one. Normalization and posterior inference are deferred to the inference
+layer (see [`quivers.inference`](../api/inference/svi.md)).
 
 ### 2.3 Let
 
@@ -228,15 +258,15 @@ An indexed-observe statement
 observe r : N <- F(args) [via = idx]
 ```
 
-denotes a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
+denotes a weighted Kleisli arrow in $\mathcal{M}_+$,
 
 $$
-\mathcal{S}\llbracket \mathsf{observe}\ r : N \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi),
+\mathcal{S}\llbracket \mathsf{observe}\ r : N \leftarrow F(\bar a) \rrbracket : \Phi \to \mathcal{M}_+(\Phi),
 \qquad
 \phi \;\longmapsto\; \mathbf{1}_{(\cdot)}(\phi) \cdot \prod_{n \in N} p_F\bigl( r_{\mathrm{obs}}(n) \,;\, \theta_F(\bar a, n, \phi) \bigr).
 $$
 
-Bracket-indexed family arguments `theta[N]` in $\bar a$ pick out the $N$-section of a previously-bound plate variable. The response buffer $r_{\mathrm{obs}} : N \to \llbracket \mathsf{cod}(F) \rrbracket$ is supplied externally by the inference layer; the trace context is preserved and the total mass of the resulting measure is the batched likelihood.
+Bracket-indexed family arguments `theta[N]` in $\bar a$ pick out the $N$-section of a previously-bound plate variable. The response buffer $r_{\mathrm{obs}} : N \to \llbracket \mathsf{cod}(F) \rrbracket$ is supplied externally by the inference layer; the trace context is preserved and the measure is multiplied by the batched likelihood factor.
 
 The optional `via = idx` entry in the unified option block names a fibration into a grouping plate ([§2.7](#27-grouped-marginalize-with-multi-observe-fibration)); the bare-statement form omits it.
 
@@ -252,17 +282,26 @@ marginalize c : A <- F(args)
     sₖ
 ```
 
-introduces the coordinate $c$ bound to $F(\bar a)$, optionally $A$-indexed, with $s_1; \ldots; s_k$ as its integration scope. After interpreting the scope body, the accumulated (sub-)probability measure on $\Phi \times C$ is pushed forward through the projection $\pi_{\Phi} : \Phi \times C \to \Phi$:
+introduces the coordinate $c$ bound to $F(\bar a)$, optionally $A$-indexed,
+with $s_1; \ldots; s_k$ as its scope. For a finite-support latent, the
+accumulated weighted measure on $\Phi \times C$ is pushed forward through the
+projection $\pi_{\Phi} : \Phi \times C \to \Phi$:
 
 $$
-\mathcal{S}\llbracket \mathsf{marginalize}\ c \rrbracket : \mathcal{G}_{\le 1}(\Phi \times C) \to \mathcal{G}_{\le 1}(\Phi),
+\mathcal{S}\llbracket \mathsf{marginalize}\ c \rrbracket : \mathcal{M}_+(\Phi \times C) \to \mathcal{M}_+(\Phi),
 \qquad
 \nu \;\longmapsto\; \pi_{\Phi *} \nu.
 $$
 
-The denotation is the pushforward $\pi_{\Phi *}$ in both the discrete and continuous cases. Operationally, the implementation realizes the pushforward by log-sum-exp on the accumulated log-likelihood when $C$ is a finite-set latent, and by fibrewise integration (e.g. by sampling, when the family admits a reparameterised draw) when $C$ is a continuous space. After the scope closes, $c$ falls out of scope.
+Operationally, QVR implements this pushforward exactly for enumerable families
+such as `Categorical` and Bernoulli-family supports. It combines prior and
+scope weights across the support with the requested reduction. For a family
+without finite support, the current elaborator samples once and runs the
+scope with that value; this is ordinary Monte Carlo sampling, not continuous
+marginal integration. Such a block may not specify `logsumexp`, `sum`, or
+`mean`. After the scope closes, $c$ falls out of scope in either path.
 
-The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the full-probability/sub-probability distinction.
+The four bind variants, scalar, indexed, scored, marginalized, are uniformly a single underlying step with a `mode ∈ {sample, score, marginal}` tag and an optional index `A`. The scalar/plate axis is orthogonal to the probability/weighted-measure distinction.
 
 ### 2.7 Grouped marginalize with multi-observe fibration
 
@@ -308,14 +347,24 @@ Each statement form contributes an effect:
 | `sample v : A <- F(args)` | $\mathsf{Sample}$ |
 | `observe v <- F(args)` | $\mathsf{Score}$ |
 | `observe r : N <- F(args)` | $\mathsf{Score}$ |
-| `marginalize c <- F(args) [over = G, reduction = R]` (with indented scope body) | $\mathsf{Marginal}$ (plus the effects of the scope body) |
-| `let v = expr` | $\mathsf{Pure}$ |
+| `marginalize c <- F(args) [over = G, reduction = R]` (with indented scope body) | $\mathsf{Marginal}$ |
+| `let v = expr` | no capability |
 | `score v = expr` | $\mathsf{Score}$ |
-| `return e` | $\mathsf{Pure}$ |
+| `return e` | no capability |
 
-The compiler computes the *actual* effect set $\mathcal{E}(P)$ of the body and verifies $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$. The signature $\{\mathsf{Pure}\}$ in particular rejects any sample / score / marginal statement, restricting the body to `let` (and a `marginalize` whose own scope is itself pure).
+The compiler computes the *actual* capability set $\mathcal{E}(P)$ of the
+lowered body and verifies $\mathcal{E}(P) \subseteq
+\mathcal{E}_{\mathrm{decl}}$. `Pure` is a declaration sentinel rather than an
+effect contributed by `let` or `return`; it requires the actual set to be
+empty and thus rejects every `sample`, `observe`, `score`, or
+`marginalize` step.
 
-Categorically, effects index the codomain monad of the program's denotation: $\mathsf{Pure}$ programs denote ordinary measurable maps $\tau_1 \to \tau_2$; $\mathsf{Sample}$ programs denote Kleisli arrows in $\mathcal{G}$; $\mathsf{Score}$ programs land in $\mathcal{G}_{\le 1}$; $\mathsf{Marginal}$ programs commute with right Kan extensions along discrete fibrations. The effect-set inclusion is thus a soundness condition on the monad: the actual codomain monad must be a sub-monad of the declared one.
+Categorically, the summary distinguishes deterministic maps, probability
+kernels, weighted kernels in $\mathcal M_+$, and finite-support pushforwards.
+The elaborated QIEC row is the precise effect type: it records the lexical
+`Random` and `Score` instances and any effects of reachable calls. The
+four-name surface summary is a checked convenience, not a replacement for
+that row.
 
 The `over = <model>` entry in a program's option block marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).
 
@@ -335,7 +384,7 @@ $$
 \delta_{(\phi,\, \phi.\mathit{arr}[\phi.\mathit{idx}])}.
 $$
 
-### 2.7a Score (factor)
+### 2.10 Score (factor)
 
 A score statement
 
@@ -343,21 +392,24 @@ A score statement
 score v = expr
 ```
 
-denotes a Kleisli arrow that simultaneously (i) binds the value of `expr` to a fresh name `v` in the program trace, and (ii) adds that value to the program's running log-joint. As a sub-probabilistic Kleisli arrow in $\mathcal{G}_{\le 1}$,
+denotes a Kleisli arrow that simultaneously (i) binds the value of `expr` to a fresh name `v` in the program trace, and (ii) adds that value to the program's running log-joint. As a weighted Kleisli arrow in $\mathcal{M}_+$,
 
 $$
-\mathcal{S}\llbracket \mathsf{score}\ v = \mathit{expr} \rrbracket : \Phi \to \mathcal{G}_{\le 1}(\Phi \times T),
+\mathcal{S}\llbracket \mathsf{score}\ v = \mathit{expr} \rrbracket : \Phi \to \mathcal{M}_+(\Phi \times T),
 \qquad
 \mathcal{S}\llbracket \mathsf{score}\ v = \mathit{expr} \rrbracket(\phi,\, B \times C) \;=\; \mathbf{1}_B(\phi) \cdot \mathbf{1}_C\bigl(h(\phi)\bigr) \cdot \exp\bigl(h(\phi)\bigr),
 $$
 
-where $h : \Phi \to \mathbb{R}$ is the measurable map denoted by `expr` (which must denote a scalar log-density). The trace context is extended with the named coordinate, and the total mass of the resulting sub-probability measure is multiplied by $\exp(h(\phi))$.
+where $h : \Phi \to \mathbb{R}$ is the measurable map denoted by `expr`
+(which must denote a scalar log weight). The trace context is extended with
+the named coordinate, and the resulting finite measure is multiplied by
+$\exp(h(\phi))$, a factor that may exceed one.
 
 Score is the Kleisli pendant of [observe](#22-observe), with the log-density supplied directly by an expression rather than via a family's `log_prob` against an externally-supplied observed value. The canonical use is to lift an arbitrary differentiable tensor expression (typically a deduction's chart goal weight, see [Weighted Deduction Fragment §9](grammar.md#9-chart-access-from-program-bodies)) into the program's log-joint. In particular, with $\mathit{expr} = \mathit{chart}.\mathsf{goal\_weight}()$ the program's log-joint matches the sentence's inside log-marginal under the referenced deduction.
 
 The effect contributed by a score step is $\mathsf{Score}$ (the same as `observe`), and the soundness condition $\mathcal{E}(P) \subseteq \mathcal{E}_{\mathrm{decl}}$ in [§2.8](#28-effect-signatures) applies unchanged.
 
-### 2.10 Return
+### 2.11 Return
 
 A return statement
 
@@ -373,7 +425,9 @@ $$
 \mathsf{ret}_e(\phi) \;=\; \delta_{\pi_{v_1, \dots, v_m}(\phi)},
 $$
 
-where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$ projects the trace onto the named coordinates. Composing with the body chain marginalizes the joint (sub-)probability measure onto those coordinates.
+where $\pi_{v_1, \dots, v_m} : \Phi_n \to \llbracket \tau_2 \rrbracket$
+projects the trace onto the named coordinates. Composing with the body chain
+pushes the joint weighted measure onto those coordinates.
 
 A bare-tuple return `return (x, y)` projects the trace onto the named coordinates; the resulting product space's components are ordered by tuple position.
 
@@ -389,10 +443,12 @@ program P (q₁, …, qₖ) : τ₁ -> τ₂
 names the components of the domain $\tau_1$: when $\tau_1 = \sigma_1 \times \cdots \times \sigma_k$ is a $k$-fold product, each $q_i$ binds to the projection $\pi_i$ of the input. The denotation is unchanged from the unparameterised form,
 
 $$
-\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{G}(\llbracket \tau_2 \rrbracket),
+\llbracket P \rrbracket : \llbracket \tau_1 \rrbracket \to \mathcal{M}_+(\llbracket \tau_2 \rrbracket),
 $$
 
-i.e.\ a single morphism in $\mathbf{Kern}$; the $q_i$ are syntactic conveniences in the body, not additional dependent parameters. Typed parameters, covered in §3a below, extend this to dependent kernel families.
+that is, a single weighted kernel; the $q_i$ are syntactic conveniences in
+the body, not additional dependent parameters. Typed parameters, covered in
+§3a below, extend this to dependent kernel families.
 
 ## 3a. Parametric programs
 
@@ -443,7 +499,7 @@ $$
 a tuple of compiled morphisms / posteriors / deductions. The expression $E_i$ may be any value-level expression: a top-level morphism name, a program name, a deduction name, an encoder / decoder name, or a `define`-bound composite. The denotation of each export is the denotation of the underlying expression; `export` itself is a marker for the module-output protocol, not a categorical operation.
 
 
-## 5. Soundness of monadic semantics
+## 5. Algebraic laws and their scope
 
 The interpretations above satisfy the standard monadic equations:
 
@@ -454,9 +510,18 @@ The interpretations above satisfy the standard monadic equations:
 | Associativity | $(k_1 \diamond k_2) \diamond k_3 = k_1 \diamond (k_2 \diamond k_3)$ |
 | Strength coherence | $\mathrm{str} \circ \mathcal{G}(\sigma) = \sigma' \circ \mathrm{str}$ |
 
-These are valid statements about denotations of QVR programs; in particular, the order in which independent draws are listed in the body is irrelevant to the denotation, by the symmetry of the product measure.
+These equations apply directly to the unscored fragment interpreted in
+$\mathcal G$. The corresponding equations for scored programs apply to
+well-defined weighted-kernel composites. They do not assert that every score
+is normalizable or that every program has finite evidence. In particular, the
+order of independent draws is irrelevant to the denotation by symmetry of the
+product measure; dependent statements and effectful calls remain ordered.
 
-**Theorem (Monad laws for QVR programs).** *The Kleisli composition $\diamond$ of [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels) on the kernels produced by the bind / observe / let / score / marginalize / return clauses of §[2](#2-statements) satisfies the four equations above.*
+**Theorem (Monad laws for the generative fragment).** *The Kleisli
+composition $\diamond$ of [Setting §3](setting.md#3-standard-borel-spaces-and-markov-kernels)
+on the probability kernels produced by `sample`, `let`, and `return` satisfies
+the four equations above. Finite marginalization is ordinary pushforward and
+thus respects equality of measures.*
 
 **Proof.** The four equations are the standard monad laws for the Giry monad $\mathcal{G}$, established by [Giry 1982, Theorem 5](https://doi.org/10.1007/BFb0092872): $\mathcal{G}$ is a monad on $\mathbf{SBor}$ with unit $\eta_S(s) = \delta_s$ (the Dirac at $s$) and multiplication $\mu_S(M)(B) = \int_{\mathcal{G}(S)} m(B)\, M(\mathrm{d}m)$ (integration of measures over measures). Kleisli composition $k_1 \diamond k_2 = \mu \circ \mathcal{G}(k_2) \circ k_1$ inherits the monad's universal property. Concretely:
 
@@ -473,25 +538,33 @@ $$
 
 — is what licenses reordering of independent draws in a QVR program body without changing the denotation. For $\mathcal{G}$ on $\mathbf{SBor}$, $\mathrm{dst}_1 = \mathrm{dst}_2$ reduces exactly to Fubini–Tonelli on the product $\sigma$-algebra ([Kock 1972](https://doi.org/10.1007/BF01304852)).
 
-By Soundness of typing (Theorem [Typing §9.1](typing.md#91-soundness)), every well-typed QVR program denotes a morphism in $\mathbf{Kern}$ built by these Kleisli operations; the monad laws lift from $\mathbf{Kern}$ to QVR programs because the body's denotation function $\mathcal{B}\llbracket \cdot \rrbracket$ is compositional in the Kleisli composite. $\square$
+The QIEC checker establishes kind, type, row, and handler consistency. It does
+not prove normalization or integrability of arbitrary user scores. Thus the
+theorem applies to the generative fragment, and to a scored program only under
+the stated weighted-kernel side conditions. $\square$
 
 ## 6. Inference and conditioning
 
-The denotation of a program is a *kernel*, not yet a posterior. Conditioning on observed data, normalization, and approximate posterior inference are *external* operations on the denotation, supplied by the [`quivers.inference`](../api/inference/svi.md) module. The categorical apparatus is that of *Markov categories with conditionals* ([Cho & Jacobs 2019](https://doi.org/10.1017/S0960129518000488); [Fritz 2020](https://doi.org/10.1016/j.aim.2020.107239)); the implementation realizes trace-based conditioning and stochastic variational inference as concrete instances of that theory.
+The denotation of a scored program is a *weighted kernel*, not yet a
+posterior. Conditioning on observed data, normalization, and approximate
+posterior inference are external operations supplied by the
+[`quivers.inference`](../api/inference/svi.md) module. The implementation uses
+trace-based scoring and stochastic inference; it does not construct a
+symbolic disintegration of an arbitrary program.
 
 ## 7. Bayesian lifts
 
 A `program` whose body lacks explicit `sample` priors on its
-learnable parameters still has a well-defined kernel denotation
-(it is a parameterized Kleisli arrow, with the parameters held
+learnable parameters still has a well-defined weighted-kernel denotation
+(it is a parameterized arrow, with the parameters held
 fixed). To pass such a program to the SVI / NUTS layer, which
 operates on programs with explicit priors, the
 [`quivers.inference.lifts`](../api/inference/lifts.md) module exposes four lifts. Each lifts a
-parameter-bearing artefact into a [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram) of the standard
+parameter-bearing artifact into a [`MonadicProgram`](../api/continuous/programs.md#quivers.continuous.programs.MonadicProgram) of the standard
 sample-then-score shape and admits a precise semantic statement.
 
 Throughout this section let
-$\theta \in \mathbb{R}^{D}$ denote the inner artefact's
+$\theta \in \mathbb{R}^{D}$ denote the inner artifact's
 learnable parameters (the flattened, concatenated tensor running
 over [`nn.Parameter`](https://docs.pytorch.org/docs/stable/generated/torch.nn.Parameter.html) leaves), let $\sigma_{\theta} > 0$ be a fixed
 prior scale, and let $\mathbf{z}$ name an optional collection of
@@ -687,7 +760,7 @@ of the marginal log-likelihood.
 random variable $p_{\mathrm{inner}}(y \mid \mathbf{z}, x, \theta)$ under $q$:
 $\log \mathbb{E}_{\mathbf{z}}[p(y \mid \mathbf{z})] \ge \mathbb{E}_{\mathbf{z}}[\log p(y \mid \mathbf{z})]$. $\square$
 
-**Soundness for SVI; unsoundness for NUTS.** The reparameterised
+**Soundness for SVI; unsoundness for NUTS.** The reparameterized
 families ([`Normal`](https://docs.pytorch.org/docs/stable/distributions.html#normal), [`MultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#multivariatenormal),
 [`LowRankMultivariateNormal`](https://docs.pytorch.org/docs/stable/distributions.html#lowrankmultivariatenormal), etc.) yield a pathwise-
 differentiable $\mathbf{z}_{*}(\xi; x, \theta)$ in an auxiliary
@@ -731,49 +804,31 @@ sentence's inside log-partition under $D$). Whether this joint
 *is* the Bayesian posterior $p(\mathbf{w} \mid \{s_{n}\})$
 depends on the modeling reading:
 
-* **Undirected / globally normalized** (CRF / log-linear /
-  energy-based [Lafferty et al. 2001](https://repository.upenn.edu/cis_papers/159/)). Here
-  $p(s_{n} \mid \mathbf{w}) = Z(s_{n}; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$, and the sentence-level normalizer
-  $\sum_{s'} Z(s'; \mathbf{w})$ is a constant in $\mathbf{w}$
-  only when the deduction is a [partition function](https://en.wikipedia.org/wiki/Partition_function_(mathematics))
-  closed under the
-  algebra's join. In the undirected setting that $\mathbf{w}$-
-  dependent normalizer is precisely what $\sum_{n} \log Z$
-  captures; $\pi(\mathbf{w})$ is then the posterior up to a
-  $\mathbf{w}$-independent constant.
+* **Unnormalized log-linear reading.** If $Z(s;\mathbf w)$ is an
+  unnormalized sentence potential, a likelihood also contains the global
+  partition term $-N\log\sum_{s'}Z(s';\mathbf w)$. The lift does not compute
+  that term. Thus, it targets a weighted pseudo-posterior unless the
+  omitted normalizer is independent of $\mathbf w$ or the caller adds it as a
+  score.
 
-* **Directed / locally normalized PCFG** ([Booth & Thompson 1973](https://doi.org/10.1109/TC.1973.223746)).
-  The per-rule weights are constrained to a local simplex
-  (each non-terminal's expansions sum to $1$), and the true
-  per-sentence likelihood is
-  $Z(s; \mathbf{w}) / \sum_{s'} Z(s'; \mathbf{w})$ with the
-  global normalizer intractable. Treating $\mathbf{w}$ as a
-  free unconstrained vector and adding $\sum_{n} \log Z(s_{n}; \mathbf{w})$ to a Gaussian prior produces a
-  *pseudo-posterior* (a [composite likelihood](https://en.wikipedia.org/wiki/Composite_likelihood) in the sense
-  of [Varin, Reid & Firth 2011](https://www.jstor.org/stable/24309261)) that differs
-  from the true posterior by a factor of
-  $\bigl(\sum_{s'} Z(s'; \mathbf{w})\bigr)^{-N}$ that the lift
-  does not include. The pseudo-posterior is consistent with
-  the score function's gradient direction but has wider
-  posterior credible regions than the true posterior. Users
-  committed to the directed reading should constrain the rule
-  weights to local simplices via a [Dirichlet](https://en.wikipedia.org/wiki/Dirichlet_distribution) +
-  [softmax](https://en.wikipedia.org/wiki/Softmax_function) surface (written explicitly in a
-  `program` block) instead of using the free-parameter Normal
-  lift this function provides.
+* **Locally normalized generative reading.** For a proper, terminating PCFG
+  whose expansion probabilities lie on local simplexes,
+  $Z(s;\mathbf w)$ is the sentence probability obtained by summing its
+  derivations; no second sentence-level normalizer is needed. The lift samples
+  unconstrained Gaussian rule weights, however, and does not impose those
+  simplex constraints. A caller that needs this reading must parameterize the
+  local rule probabilities explicitly, for instance with Dirichlet draws or a
+  softmax, and score the resulting normalized grammar.
 
 The denotational claim of §7.1 (that the lifted program's
 log-density equals the parameter prior plus the wrapped
 log-joint, pointwise and with exact placeholder cancellation)
 applies unchanged to [`nuts_program_from_deduction`](../api/stochastic/deduction/bayes.md#quivers.stochastic.deduction.bayes.nuts_program_from_deduction);
 the choice of reading enters only when interpreting that
-log-density as a posterior.
+log-density as a posterior. The implementation guarantees the stated target
+log density, not the normalization assumptions of a particular grammar.
 
 ## References
-
-Taylor L. Booth and Richard A. Thompson. 1973. [Applying probability measures to abstract languages](https://doi.org/10.1109/TC.1973.223746). *IEEE Transactions on Computers*, C-22(5):442–450.
-
-Kenta Cho and Bart Jacobs. 2019. [Disintegration and Bayesian inversion via string diagrams](https://doi.org/10.1017/S0960129518000488). *Mathematical Structures in Computer Science*, 29(7):938–971.
 
 Tobias Fritz. 2020. [A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics](https://doi.org/10.1016/j.aim.2020.107239). *Advances in Mathematics*, 370:107239.
 
@@ -783,8 +838,4 @@ Diederik P. Kingma and Max Welling. 2013. [Auto-Encoding Variational Bayes](http
 
 Anders Kock. 1972. [Strong functors and monoidal monads](https://doi.org/10.1007/BF01304852). *Archiv der Mathematik*, 23(1):113–120.
 
-John D. Lafferty, Andrew McCallum, and Fernando C. N. Pereira. 2001. [Conditional random fields: Probabilistic models for segmenting and labeling sequence data](https://repository.upenn.edu/cis_papers/159/). In *Proceedings of the Eighteenth International Conference on Machine Learning (ICML 2001)*, pages 282–289, San Francisco, CA, USA. Morgan Kaufmann.
-
 Herbert Robbins and Sutton Monro. 1951. [A stochastic approximation method](https://doi.org/10.1214/aoms/1177729586). *The Annals of Mathematical Statistics*, 22(3):400–407.
-
-Cristiano Varin, Nancy Reid, and David Firth. 2011. [An overview of composite likelihood methods](https://www.jstor.org/stable/24309261). *Statistica Sinica*, 21(1):5–42.

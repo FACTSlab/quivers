@@ -112,7 +112,8 @@ The callee's residual effects join the program's. Dynamic transpile targets
 emit reachable calls through the common runtime ABI. Stan accepts a closed,
 monomorphic, effect-free scalar callee as a user-defined function. BUGS and
 JAGS refuse program-to-computation calls. Use `qvr check --target TARGET` to
-test the particular call graph.
+analyze the QIEC call graph, then run the transpiler to exercise the selected
+renderer and toolchain.
 
 A program may also draw from another program with `sample x <- sub(...)` or
 destructure a pair as `sample (a, b) <- sub(...)`. The callee's local sites are

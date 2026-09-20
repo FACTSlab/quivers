@@ -14,7 +14,8 @@ composition](https://ncatlab.org/nlab/show/Kleisli+category)
 The program syntax mirrors probabilistic programming languages
 (Pyro, NumPyro, Stan):
 
-```
+<!-- compile: false -->
+```qvr
 program name : domain -> codomain
     sample x_1 <- morphism_1
     sample x_2 <- morphism_2(x_1)
@@ -77,19 +78,22 @@ optionally conditioned on previous variables.
 
 Single bind:
 
-```
+<!-- compile: false -->
+```qvr
 sample x <- prior_f
 ```
 
 Conditioned bind:
 
-```
+<!-- compile: false -->
+```qvr
 sample y <- likelihood_f(x)
 ```
 
 Destructuring tuple bind (stacked along feature dimension):
 
-```
+<!-- compile: false -->
+```qvr
 sample (x, y) <- joint_f(z, w)
 ```
 
@@ -101,7 +105,8 @@ $A$-indexed plate of independent draws.
 
 Deterministic binding:
 
-```
+<!-- compile: false -->
+```qvr
 let x = y + z
 let weight = 0.5
 ```
@@ -115,7 +120,8 @@ for the full primitive list.
 
 Condition the program on an observation:
 
-```
+<!-- compile: false -->
+```qvr
 observe y <- likelihood(x)
 ```
 
@@ -129,11 +135,13 @@ runtime `observations` dict.
 
 Specify the program output. Single or tuple:
 
-```
+<!-- compile: false -->
+```qvr
 return x
 ```
 
-```
+<!-- compile: false -->
+```qvr
 return (x, y, z)
 ```
 
@@ -162,9 +170,9 @@ Two key operations on a compiled program:
 Generate samples by executing the program:
 
 ```python
-x = torch.randn(5)
+x = torch.zeros(5, dtype=torch.long)
 samples = program.rsample(x, sample_shape=torch.Size([1000]))
-# shape: (1000, codomain_dim)
+# shape: (1000, 5, codomain_dim)
 ```
 
 Sequential ancestral sampling: each draw step samples, previous
@@ -177,6 +185,7 @@ runtime data.
 Compute $\log p(z_1, \ldots, z_k \mid x) = \sum_i \log p(z_i \mid
 \mathrm{pa}(z_i))$ given all bound-variable values:
 
+<!-- python: skip -->
 ```python
 x = torch.randn(5)
 intermediates = {"z": z_value, "y": y_value}  # every bound variable
@@ -201,6 +210,7 @@ and as the final positional argument to
 [`ELBO.forward`](../api/inference/elbo.md#quivers.inference.objectives.ELBO) /
 [`SVI.step`](../api/inference/svi.md#quivers.inference.svi.SVI.step):
 
+<!-- python: skip -->
 ```python
 observations = {
     "cloze_resp": cloze_tensor,    # shape (n_cloze_resp,)
@@ -220,6 +230,7 @@ identifiers declared in the program body.
 If the domain is a product, name the components via the `params`
 argument so steps can reference them by name:
 
+<!-- python: skip -->
 ```python
 A = FinSet(name="A", cardinality=3)
 B = FinSet(name="B", cardinality=4)
@@ -242,6 +253,7 @@ runtime and binds each slice to the corresponding name in `params`.
 ## Example: a simple model
 
 ```python
+import torch
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.families import (
     ConditionalNormal,
@@ -277,7 +289,8 @@ optimizer = torch.optim.Adam(program.parameters())
 
 Extract multiple values from a tuple-returning sub-program:
 
-```
+<!-- compile: false -->
+```qvr
 program sub : X -> Y * Y
     sample (a, b) <- some_morphism
     return (a, b)
@@ -305,6 +318,7 @@ observed_y = torch.tensor([1.0, -0.5, 2.0])
 conditioned = condition(program, {"y": observed_y})
 
 # Trace under the conditioning: observed sites are clamped to the data
+x = torch.zeros(3, dtype=torch.long)
 tr = conditioned.trace(x)
 ```
 
@@ -312,7 +326,8 @@ tr = conditioned.trace(x)
 
 For multiple domain inputs, stack along the feature dimension:
 
-```
+<!-- compile: false -->
+```qvr
 program f(x_val, y_val) : (X * Y) -> Z
     sample z <- g(x_val, y_val)
     return z

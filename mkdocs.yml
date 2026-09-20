@@ -1,7 +1,7 @@
 site_name: Quivers
 site_description: V-enriched categorical relations as differentiable PyTorch tensors
 site_author: Aaron Steven White
-site_url: https://factslab.io/quivers/
+site_url: https://factslab.github.io/quivers/
 
 theme:
   name: terminal
@@ -139,9 +139,22 @@ nav:
     - Structural Compression: semantics/structural.md
     - Compositional Effects: semantics/effects.md
     - The Program Theory: semantics/program-theory.md
+    - Type Theory: semantics/typing.md
     - Adequacy: semantics/adequacy.md
     - Transpilation architecture: semantics/transpile-architecture.md
-    - Transpilation correctness: semantics/transpile-correctness/index.md
+    - Transpilation correctness:
+      - Contract and evidence: semantics/transpile-correctness/index.md
+      - BUGS: semantics/transpile-correctness/bugs.md
+      - Church: semantics/transpile-correctness/church.md
+      - Edward2: semantics/transpile-correctness/edward2.md
+      - Gen: semantics/transpile-correctness/gen.md
+      - JAGS: semantics/transpile-correctness/jags.md
+      - NumPyro: semantics/transpile-correctness/numpyro.md
+      - PyMC: semantics/transpile-correctness/pymc.md
+      - Pyro: semantics/transpile-correctness/pyro.md
+      - Stan: semantics/transpile-correctness/stan.md
+      - Turing: semantics/transpile-correctness/turing.md
+      - WebPPL: semantics/transpile-correctness/webppl.md
   - Examples Gallery:
     - Overview: examples/index.md
     - Amortized Bayesian Semantics: examples/amortized-bayesian-semantics.md
@@ -334,6 +347,14 @@ nav:
       - Formula → Module Lens: api/formulas/compile.md
       - Families & Links: api/formulas/family.md
       - Fit Entry Point: api/formulas/fit.md
+    - Analysis:
+      - Overview: api/analysis/index.md
+      - Chain Shapes: api/analysis/chain_shape.md
+      - Initialization Recipes: api/analysis/init_spec.md
+      - Saturation Diagnostics: api/analysis/saturation.md
+      - Plate Graphs: api/analysis/plate_graph.md
+      - Plate Renderers: api/analysis/plate_render.md
+      - Scope Inspection: api/analysis/scope.md
     - Program: api/program.md
     - Effects:
       - Overview: api/effects/index.md
@@ -383,6 +404,7 @@ nav:
       - Execution: api/qiec/execution.md
       - Programs: api/qiec/programs.md
       - Program runtime: api/qiec/program_runtime.md
+      - Structural runtime: api/qiec/structural_runtime.md
       - Entry points: api/qiec/entries.md
   - Developer Guide:
     - Overview: developer/contributing.md

@@ -1,15 +1,16 @@
-# Bayesian Bidirectional RNN Masked Language Model
+# Dual-RNN Masked-Token Model
 #
-# A bidirectional RNN used as a masked language model. Two
-# independently-parameterised cells each scan the token
-# sequence left to right; a combine morphism merges the two
-# streams, and a Categorical lm_head over Token scores the
-# masked-token target.
+# Two independently parameterized cells scan the same token
+# sequence from left to right. A combine morphism merges their
+# summaries, and a Categorical lm_head over Token scores a
+# masked-token target. The second path is named backward_path
+# for contrast, but the source does not reverse its input; a
+# caller must supply a reversed branch to obtain right context.
 #
 # Generative structure:
 #
 #   h_fwd    ~ scan(fwd_cell)(tok_embed(x))    forward hidden states
-#   h_bwd    ~ scan(bwd_cell)(tok_embed(x))    backward hidden states
+#   h_alt    ~ scan(bwd_cell)(tok_embed(x))    second left-to-right summary
 #   h        ~ combine(h_fwd, h_bwd)           merged representation
 #   masked_t ~ Categorical(lm_head(h))         observed masked token
 #
@@ -21,11 +22,7 @@
 # The fan-out fan(forward_path, backward_path) runs the two
 # paths in parallel over the same token sequence in the
 # Kleisli category; the backbone is
-# fan(forward_path, backward_path) >> combine. Because each
-# masked position is conditioned on both left and right context,
-# this is a bidirectional encoder rather than a causal LM.
-#
-# Reference: [Devlin et al. 2019](https://doi.org/10.18653/v1/N19-1423).
+# fan(forward_path, backward_path) >> combine.
 
 object Token : FinSet 256
 object Resp : FinSet 32

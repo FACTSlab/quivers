@@ -177,7 +177,10 @@ Whenever you're unsure which guide handles a model shape, look at
 
 ## Next
 
-[Chapter 7](07-categorical.md) (optional reading) describes the categorical machinery behind algebras, change-of-base, and enriched composition. It supplies the background needed to extend the library or interpret its algebra type errors. The DSL track otherwise ends here.
+[Chapter 7](07-categorical.md) describes the categorical machinery behind
+algebras, change-of-base, and enriched composition. Chapters 9–12 then build
+indexed families, authored handlers, checked search, and structural
+attachments; chapter 13 collects the release checks for a QVR module.
 
 
 ## References

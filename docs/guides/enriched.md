@@ -56,12 +56,14 @@ fa = yoneda_lemma(presheaf=F, obj_index=0, hom_tensors=hom_tensors)
 
 The [Yoneda embedding](../api/enriched/yoneda.md) $y : \mathcal{C} \to [\mathcal{C}^{\mathrm{op}}, \mathcal{V}]$ sends a morphism $f : A \to B$ to the profunctor view $y(f)$. [`yoneda_embedding`](../api/enriched/yoneda.md) takes a `Morphism` and returns a [`Profunctor`](../api/enriched/profunctors.md):
 
+<!-- python: skip -->
 ```python
 y_f = yoneda_embedding(f)  # f : Morphism
 ```
 
 [`verify_yoneda_fully_faithful`](../api/enriched/yoneda.md) checks that the embedding preserves composition by comparing $y(g) \circ y(f)$ to $y(g \circ f)$ pointwise:
 
+<!-- python: skip -->
 ```python
 is_ff = verify_yoneda_fully_faithful(f, g, atol=1e-5)
 ```

@@ -21,7 +21,7 @@ The eight $\theta_j$ are a per-group random effect over the group object `School
 
 === "QVR"
 
-    ```text
+    ```qvr
     object School : FinSet 8
     program eight_schools_centred : School -> School [effects=[Sample, Score]]
         sample mu  <- Normal(0.0, 5.0)
@@ -50,7 +50,12 @@ The compiler synthesizes a `PlateDraw` morphism whose codomain is the product sp
 
 ## Centered parameterization and mean-field VI
 
-The centered parameterization puts `theta_j` *inside* the prior for `mu` and `tau`, which creates a funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461), §8). Mean-field VI doesn't see the funnel and collapses to a tight Gaussian around `tau ≈ 0`. To confirm:
+The centered parameterization draws each `theta_j` directly around `mu` with
+scale `tau`. When `tau` approaches zero, the conditional distribution of the
+group effects becomes narrow, coupling `theta`, `mu`, and `tau` into a
+funnel-shaped posterior ([Neal, 2003](https://doi.org/10.1214/aos/1056562461),
+§8). A diagonal variational family cannot represent that dependence and may
+put too much mass near `tau = 0`:
 
 ```python
 import torch

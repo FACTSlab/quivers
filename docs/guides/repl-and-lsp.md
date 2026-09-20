@@ -70,7 +70,7 @@ mermaid.live.
 ### Verifying the install
 
 ```bash
-qvr --version
+python -c "import quivers; print(quivers.__version__)"
 qvr check docs/examples/source/lda.qvr      # batch-validate one or more files
 qvr run --help                              # inspect entry-point execution
 qvr repl --help                              # confirm the TUI is reachable

@@ -8,7 +8,8 @@ This is optional reading. Skip it if the DSL is doing what you need.
 
 A typed signature like `program f : A -> B` exists so the compiler can reject programs that don't make sense before they hit a tensor. Two examples:
 
-```text
+<!-- compile: false -->
+```qvr
 # A program declared with effects=[Pure], but the body contains `observe`:
 program p : Item -> Item [effects=[Pure]]
     observe y : Item <- Normal(0, 1)
@@ -17,7 +18,8 @@ program p : Item -> Item [effects=[Pure]]
 #               but uses Score effect on `observe y`
 ```
 
-```text
+<!-- compile: false -->
+```qvr
 # An algebra mismatch under composition:
 composition product_fuzzy [level=algebra]
 define pipeline = f >> g    # f is ProductFuzzy, g was change_based to Markov
@@ -92,21 +94,35 @@ define g = f.change_base(pipeline)
 
 `softmax(B)` builds a `MorphismTransformation` with `source = ProductFuzzyAlgebra, target = Markov`; `expectation` is a `AlgebraHomomorphism` with `source = Markov, target = ProductFuzzyAlgebra`. The composition `s >>> expectation` round-trips back to ProductFuzzyAlgebra and gives you a morphism whose rows are normalized on the way out.
 
-## The monadic programs
+## Probabilistic programs
 
-A `program` block compiles to a `MonadicProgram` morphism in the [Kleisli category](https://en.wikipedia.org/wiki/Kleisli_category) of the (discrete or continuous) [Giry monad](https://ncatlab.org/nlab/show/Giry+monad) ([Giry, 1982](https://doi.org/10.1007/BFb0092872)); see [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239) for the more recent synthetic theory of [Markov categories](https://ncatlab.org/nlab/show/Markov+category). Each statement is a Kleisli arrow:
+An unscored `program` has the usual [Giry
+monad](https://ncatlab.org/nlab/show/Giry+monad) interpretation as a Markov
+kernel. `observe` and `score` extend this to an unnormalized nonnegative
+measure because a density or explicit factor may exceed one. The operational
+forms are:
 
-- `v <- F(args)` is monadic bind: sample from `F(args)` and extend the joint kernel.
-- `observe v <- F(args)` is conditioning: clamp `v` to the observed value and score the likelihood.
-- `let v = expr` is a pure morphism: a deterministic computation extending the joint kernel by a delta mass.
-- `marginalize v : A <- F(args)` followed by an indented body is the [right Kan extension](https://ncatlab.org/nlab/show/Kan+extension) along the projection that integrates `v` out of the body's joint.
-- `return v` is the unit-of-monad-projection: project the joint kernel onto `v`'s coordinate.
+- `sample v <- F(args)` draws from `F(args)` and extends the trace;
+- `observe v <- F(args)` preserves the trace and adds the observed value's log
+  density;
+- `score v = expr` adds an explicit scalar log weight;
+- `let v = expr` is a deterministic trace extension;
+- finite-support `marginalize v : A <- F(args)` enumerates `v` within its
+  indented scope and reduces the resulting weights; a non-enumerable family is
+  sampled once rather than integrated continuously; and
+- `return v` projects the weighted trace onto `v`.
 
-This is the same Kleisli structure that Pyro, NumPyro, and Church use; the difference is that QVR's effects (`Sample`, `Score`, `Marginal`, `Pure`) are tracked as a static side-channel and checked at compile time.
+The surface summaries `Sample`, `Score`, `Marginal`, and `Pure` are checked
+against the body. The elaborated QIEC computation carries the more precise row
+of lexical `Random` and `Score` instances.
 
 ## A worked example: regression as enriched morphism
 
-The chapter-1 regression compiles to a Kern morphism $\mathbf{1} \to \mathcal{G}(\mathbb{R}^{|\text{Item}|})$ in the continuous Kleisli category, parameterized by the latents `beta_0, beta_1, sigma`. SVI replaces the integral over latents with a tractable lower bound; NUTS samples it directly. The categorical surface is the same in both cases: you've defined a morphism in $\mathbf{Kern}$; the inference algorithms are different ways to compute its expectations.
+The chapter-1 regression compiles to a weighted kernel whose trace contains
+`beta_0`, `beta_1`, and `sigma`, and whose weight includes the observation
+density. SVI optimizes a variational objective for its normalized posterior;
+NUTS samples that posterior through the program's log joint. Neither algorithm
+changes the checked program that defines the model.
 
 ## Further reading
 
@@ -125,11 +141,10 @@ need to. Chapters 8–13 continue with diagnostics, indexed data, effects,
 generated computation graphs, and release checks. Suggested next stops:
 
 - The [examples gallery](../../examples/index.md) for end-to-end model code (Bayesian regression, mixture models, VAE, transformer, vanilla RNN).
-- The [QVR language reference](../../reference/qvr/index.md) for the complete v0.19 source and execution surface.
+- The [QVR language reference](../../reference/qvr/index.md) for the current source and execution surface.
 - The [inference benchmark report](../../developer/inference-benchmarks.md) for the empirical truth-table of which algorithm fits which problem.
 
 
 ## References
 
 - Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
-- Tobias Fritz. 2020. A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics. *Advances in Mathematics*, 370:107239.

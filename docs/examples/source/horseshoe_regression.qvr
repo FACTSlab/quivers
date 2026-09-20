@@ -1,10 +1,11 @@
 # Multi-Coefficient Horseshoe Regression
 #
-# A multiple regression with the horseshoe prior: a global-local
-# scale mixture of Normals in which a single global scale tau
-# and per-coordinate local scales jointly define the coefficient
-# prior. The per-coefficient Coef plate is sized at compile
-# time.
+# A coefficient-indexed regression with a horseshoe prior: a
+# global-local scale mixture of Normals in which one global scale
+# tau and per-coordinate local scales jointly define the
+# coefficient prior. Each response row selects one coefficient
+# through coef_idx; this is not a dense multiple-regression
+# design that sums over all predictors in each row.
 #
 # Generative structure:
 #
@@ -13,7 +14,7 @@
 #   z_p        ~ Normal(0, 1)                     standard-Normal raw
 #   alpha      ~ Normal(0, 5)                     intercept
 #   sigma      ~ HalfCauchy(2)                    noise scale
-#   y_n        ~ Normal(alpha + (tau * lambda * z) * x_n, sigma)
+#   y_n        ~ Normal(alpha + beta_{p(n)} * x_n, sigma)
 #
 # The horseshoe has no closed-form marginal density: the right
 # idiom is the explicit tau * lambda * z decomposition built

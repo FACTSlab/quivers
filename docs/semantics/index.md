@@ -10,9 +10,9 @@ The development is organized as follows.
 4. **[Types and spaces](types-and-spaces.md).** The denotation of `ObjectExpr` and `SpaceExpr` syntactic categories as objects in $\mathbf{FinSet}$ and $\mathbf{SBor}$ respectively.
 5. **[Morphisms](morphisms.md).** $\mathcal{V}$-relations, stochastic kernels, and continuous conditional families as the three morphism strata; their composition, tensor product, marginalization, and trace.
 6. **[Expressions](expressions.md).** Compositional semantics of expression-level combinators: `>>`, `>>>`, `@`, `.marginalize`, `.change_base`, `fan`, `repeat`, `stack`, `scan`, and the parser combinators.
-7. **[Programs](programs.md).** Monadic semantics of `program` blocks in the (discrete or continuous) Giry monad; the denotation of bind (`<-`), `observe`, `let`, `score`, `marginalize`, and `return`; effect signatures via the option-block `[effects = [Sample, Score, Marginal, Pure]]`; grouped marginalization with multi-observe fibration; parametric program templates and their instantiation.
-8. **[Typing](typing.md).** The type system as a proof calculus: kinds, types, families, contexts ($\Gamma$, $\Delta$, $\Phi$), judgments ($\Gamma \vdash \tau : \kappa$, $\Gamma; \Phi \vdash e : A \rightsquigarrow B$, $\Gamma; \Phi \vdash s \dashv \Phi'$, $\Gamma \vdash p : (\Delta) \Rightarrow A \rightsquigarrow B$), the full inference-rule set, the soundness theorem against the denotation, subject reduction for parametric instantiation, and the bidirectional algorithm underlying the compiler's typechecker.
-9. **[Weighted deduction fragment](grammar.md).** Item algebras, rule systems as hyperedges in a multicategory, semiring-weighted chart enumeration, axiom injectors, strategy independence, and differentiable charts. Includes learnable per-rule and bindings-keyed weights, hierarchical (`parent=`) and bounded (`bounded`) rule parameterisations, alpha-renamed binder blocks, convergent-cycle (`tolerance=`) chart evaluation, and the chart-access surface (`parse(D, x)`, `compose(D_1, D_2)`, `subst(t, v, w)`) that lifts a chart's goal weight into a `program`'s log-joint via a [`score`](programs.md#27a-score-factor) step.
+7. **[Programs](programs.md).** Probability- and weighted-kernel semantics of `program` blocks; the denotation of bind (`<-`), `observe`, `let`, `score`, finite `marginalize`, and `return`; grouped marginalization with multi-observe fibrations; and the boundary between exact finite enumeration and ordinary sampling.
+8. **[Typing and checking](typing.md).** The current two-layer checker: surface objects, spaces, axes, and family shapes; QIEC kinds, indexed families, computations, lexical effect rows, handlers, and program elaboration; plus the guarantees and dynamic limits of that implementation.
+9. **[Weighted deduction fragment](grammar.md).** Item algebras, rule systems as hyperedges in a multicategory, semiring-weighted chart enumeration, axiom injectors, strategy independence, and differentiable charts. Includes learnable per-rule and bindings-keyed weights, hierarchical (`parent=`) and bounded (`bounded`) rule parameterizations, alpha-renamed binder blocks, convergent-cycle (`tolerance=`) chart evaluation, and the chart-access surface (`parse(D, x)`, `compose(D_1, D_2)`, `subst(t, v, w)`) that lifts a chart's goal weight into a `program`'s log-joint via a [`score`](programs.md#210-score-factor) step.
 10. **[Schemas, rules, categories, bundles](schemas.md).** Category atoms; rule declarations as universally-quantified hyperedges; pattern-polymorphic schema declarations; bundles as first-class rule sets; the residuated type formers $/$, $\backslash$, $T(\cdot)$; free residuated category universes; object- and space-level aliases.
 11. **[Structural compression](structural.md).** Signatures as generalized algebraic theories; encoders as initial-algebra catamorphisms into a vector carrier; decoders as Kleisli coalgebras of the Giry monad; losses as attached scalar functionals on training-site traces.
 12. **[Compositional effects](effects.md).** Typeclass + algebraic-effects framework over a residuated category universe; class-driven schema lifting; joint type-and-effect dispatch in the chart parser; conservativity over the bare deduction fragment.
@@ -21,21 +21,29 @@ The development is organized as follows.
 15. **[Transpilation architecture](transpile-architecture.md).** The `Module -> IRProgram -> panproto.Schema -> bytes` pipeline, its shared family metadata, and backend renderers.
 16. **[Transpilation correctness](transpile-correctness/index.md).** Structural, re-emission, external-syntax, and numeric-equivalence evidence, with per-target support notes: [Stan](transpile-correctness/stan.md), [NumPyro](transpile-correctness/numpyro.md), [Pyro](transpile-correctness/pyro.md), [PyMC](transpile-correctness/pymc.md), [Edward2](transpile-correctness/edward2.md), [Turing.jl](transpile-correctness/turing.md), [Gen.jl](transpile-correctness/gen.md), [Church](transpile-correctness/church.md), [WebPPL](transpile-correctness/webppl.md), [BUGS](transpile-correctness/bugs.md), and [JAGS](transpile-correctness/jags.md).
 
-## The unified declaration surface
+## Declaration surfaces
 
-Every QVR declaration shares the same skeleton:
+The categorical and probabilistic declarations use a shared option-block and
+initializer vocabulary. Their common schematic shape is:
 
 ```
 KIND NAME : SIGNATURE [k = v, ...] [~ INIT] [BODY]
 ```
 
-where:
+This is not a production for every declaration. QIEC declarations have their
+own checked forms: `index`, `family` and `constructor`, `effect` and
+operations, `instance`, `handler`, and computation-valued `define`. Their
+static telescopes, runtime telescopes, indexed results, and effect rows are
+described in [Typing and checking](typing.md) and summarized in the
+[grammar](grammar.md#11-qiec-fragment).
 
-* `KIND` is one of `composition`, `category`, `object`, `morphism`, `bundle`, `program`, `contraction`, `define`, `export`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `schema`, or `rule`. `let` is reserved for deterministic bindings inside program bodies.
+For the categorical/probabilistic shape above:
+
+* `KIND` is one of `composition`, `category`, `object`, `morphism`, `bundle`, `program`, `contraction`, `export`, `deduction`, `signature`, `encoder`, `decoder`, `loss`, `schema`, or `rule`. A `define` may instead introduce a QIEC computation or one of the established expression aliases such as a parser or composed morphism. `let` is reserved for deterministic bindings inside computations and program bodies.
 * `SIGNATURE` is a colon-prefixed phrase (an object value for `object`, a `dom -> cod` arrow for everything that denotes a morphism, an `inputs / codomain` shape for `contraction`, etc.).
-* `[k = v, ...]` is the *unified option block*: a single bracketed key-value list that drives every per-declaration knob (`role`, `scale`, `init`, `axes`, `effects`, `over`, `replicate`, `semiring`, `start`, `depth`, `tolerance`, `max_iterations`, `bins`, `path`, `weight`, `parent`, …). Every parser walker reads the same `OptionEntry` tree; every compiler reads the same `get_option_{flag,name,int,int_list,float,string,name_list,call,call_text}` accessors, and each declaration checks its keys against the set its resolved role reads, so a key the chosen lowering would ignore is rejected instead. The block is denotationally inert at the categorical level: it selects which functor / kernel / parametric family the declaration denotes, never how composition fires.
+* `[k = v, ...]` is the shared option block. Each declaration or step accepts a closed set of keys and rejects ignored or misspelled entries. Options select a role, shape, family, reduction, or elaboration policy; they are not an untyped metadata bag.
 * `~ INIT` is the optional *initializer*: either a `Family(args)` clause (sampled stochastic kernel, evaluated through the family registry) or an arbitrary `expr` (deterministic morphism, evaluated through the expression denotation). On a `morphism` declaration the initializer interacts with `role` in the option block: `role=latent` admits only `~ Family(...)`; `role=let` / `role=observed` admits only `~ expr`; `role=kernel` admits both.
-* `[BODY]` is an optional indented block: rule list for `composition` / `deduction` / `signature`, statement list for `program`, etc.
+* `[BODY]` is an optional indented block: a rule list for `composition`, `deduction`, or `signature`; a step list for `program`; or the declaration-specific body defined by the grammar.
 
 Pragmas are top-level *attribute* statements that decorate the *next* declaration (outer form `#[k = v, ...]`) or the *enclosing module* (inner form `#![k = v, ...]`). They carry the same `pragma_entry` shape as the unified option block; the compiler attaches the entries to the decorated declaration or module-level environment.
 
@@ -60,7 +68,12 @@ Throughout, we use the following conventions.
 | $\Gamma \vdash \phi : \tau$ | $\phi$ is well-typed of type $\tau$ under environment $\Gamma$. |
 | $\rho$ | A semantic environment (assignment of denotations to free names). |
 
-A *type* in the QVR sense is a finite-set object; a *space* is a standard Borel object. We write $|X|$ for the cardinality of a finite set $X$, and $\dim(S)$ for the dimension of a continuous space $S$.
+In the classic categorical surface, a *type* is a finite-set object and a
+*space* is a standard Borel object. QIEC additionally has a `Type` kind for
+primitive, product, distribution, and indexed-family types; [Typing and
+checking](typing.md#4-qiec-kinds-and-types) keeps those two uses separate. We
+write $|X|$ for the cardinality of a finite set $X$, and $\dim(S)$ for the
+dimension of a continuous space $S$.
 
 ## Audience
 

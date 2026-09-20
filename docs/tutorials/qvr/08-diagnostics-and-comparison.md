@@ -122,10 +122,12 @@ print(table)
 
 [`compare`](../../api/diagnostics/index.md) delegates to [`arviz.compare`](https://python.arviz.org/en/stable/api/generated/arviz.compare.html), which runs PSIS-LOO ([Vehtari, Gelman & Gabry, 2017](https://doi.org/10.1007/s11222-016-9696-4)) on each fit and ranks them by expected log-pointwise predictive density (`elpd_loo`). The `dse` column gives the standard error of the difference relative to the top model. Quivers uses ArviZ's default stacking method unless `method=` selects another weighting scheme.
 
-A few warning signs to watch for in `compare`'s output:
-
-- `p_loo` (the effective number of parameters) bigger than $N/5$ for $N$ observations: PSIS-LOO is unreliable.
-- `k > 0.7` for any observation in the Pareto-k diagnostic ([Vehtari, Simpson, Gelman, Yao & Gabry, 2024](https://doi.org/10.48550/arXiv.1507.02646)): the importance-sampling reweighting is unstable. Re-fit with the observation held out, or use exact LOO.
+Inspect `p_loo` as an estimate of effective model complexity, but do not apply a
+fixed `p_loo / N` cutoff: its interpretation depends on the model and data.
+The actionable PSIS diagnostic is the observation-level Pareto shape. A
+reported `k > 0.7` indicates that the importance-sampling approximation needs
+attention ([Vehtari, Simpson, Gelman, Yao & Gabry, 2024](https://doi.org/10.48550/arXiv.1507.02646)); follow ArviZ's warning and consider a moment-matching,
+K-fold, or exact leave-one-out analysis.
 
 ## Try this
 

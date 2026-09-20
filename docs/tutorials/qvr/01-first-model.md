@@ -90,7 +90,7 @@ Reading the QVR line by line:
 | `object Item : FinSet 100` | Declare a finite-set index `Item` of size 100: the row dimension of the data. Domain and codomain are typed objects rather than implicit. |
 | `program regression : Item -> Item` | A `program` block is the unit of compilation. The effect set is inferred from the body; you can pin it explicitly with `[effects=[Sample, Score]]` if you want a static check that the body uses only those effects. |
 | `sample sigma <- HalfNormal(1.0)` | Draw a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
-| `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The let-arithmetic supports `+ - * /`, indexing, broadcasts, and a small standard library (`sum`, `prod`, `cumsum`, `logsumexp`, ...). The free name `x_design` is supplied at fit time via the observations dict (declared by `observed_names` on the guide). |
+| `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The compiler records the free name `x_design` as a host-data parameter; the inference call supplies it in the observations mapping. |
 | `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
 If you're coming from Pyro/NumPyro/Stan, the only feature without a direct analogue is the optional `[effects=[...]]` clause: an *effect signature*. By default the compiler infers which effects (`Sample`, `Score`, `Marginal`) the body uses. Pinning the set explicitly turns it into a static promise. If you write `[effects=[Pure]]` and the body contains a `sample` step, the compiler rejects the program at `loads` time.
@@ -115,7 +115,11 @@ Notice the free name `x_design` on line 27: it isn't declared anywhere in the mo
 1. The guide needs to know which names will be *supplied externally* (not sampled), via [`AutoNormalGuide`](../../api/inference/guide.md)'s `observed_names` argument. Both observed responses (`y`) and host-data covariates (`x_design`) go here.
 2. Every SVI step and every MCMC run takes an `observations` dict that supplies tensors for exactly those names.
 
-If `observed_names` is missing a name the body references, the compiler reports an unbound free name. If the `observations` dict at runtime is missing a name from `observed_names`, the runtime raises a `KeyError` at the first step. Both errors point at the offending site and stop the run before any gradient is computed.
+`loads` records a free host-data name rather than rejecting it: source
+compilation cannot know which inference call will supply the data. Guide
+construction and execution enforce the next boundary. A mismatch in
+`observed_names`, or a missing value in `observations`, thus fails before
+the model can use that value, but it is not a source-compiler diagnostic.
 
 ## Compile and fit
 
@@ -165,7 +169,7 @@ for step in range(50):                        # bump to ~2000 for real fits
 
 The pattern is identical to Pyro: a [`Guide`](../../api/inference/guide.md) carries the variational family, an [`Objective`](../../api/inference/elbo.md) is the loss, an [`SVI`](../../api/inference/svi.md) driver runs the loop.
 
-The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaussian variational posterior trained by a pathwise gradient estimator ([Kingma & Welling, 2014](https://doi.org/10.48550/arXiv.1312.6114)). Minibatching is available when the model and call site supply batches.
+The default [`AutoNormalGuide`](../../api/inference/guide.md) is a diagonal-Gaussian variational posterior trained by a pathwise gradient estimator ([Kingma & Welling, 2013](https://doi.org/10.48550/arXiv.1312.6114)). Minibatching is available when the model and call site supply batches.
 
 ## Inspect the posterior
 
@@ -189,7 +193,7 @@ Prefer this over a `for _ in range(N): guide.rsample(...)` loop. `Predictive` ba
 Three things:
 
 1. **Types on the outside, names on the inside.** Every program has a typed signature `dom -> cod`; latents in the body are scoped to that signature. In Pyro/NumPyro, names live in a global trace and types are implicit.
-2. **Compile, then fit.** `loads` runs the QVR compiler before training: malformed models, type mismatches, undefined references, or shape inconsistencies surface as `CompileError` with line/column information *before* any tensor evaluation runs. Pyro/NumPyro discover most of these only when you call the model.
+2. **Compile, then fit.** `loads` runs the QVR compiler before training: malformed models, source-level type mismatches, and undefined QVR declarations surface before tensor evaluation. Shapes that depend on host data are checked when those tensors cross the runtime boundary.
 3. **Effects in the option block.** The `effects = [Sample, Score, Marginal, Pure]` entry on a program declaration is a static promise about what the body does. It's optional but lets the compiler reject programs that, say, try to `observe` inside a `Pure` block.
 
 ## Try this

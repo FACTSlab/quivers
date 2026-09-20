@@ -16,7 +16,7 @@ Binary response, sigmoid link, Bernoulli likelihood.
 
 === "QVR"
 
-    ```text
+    ```qvr
     object Item : FinSet 200
     program logistic : Item -> Item [effects=[Sample, Score]]
         sample beta_0 <- Normal(0.0, 5.0)
@@ -161,7 +161,7 @@ The fit code is identical to the logistic case; only the model file changes. The
 
 Most "why does this fail at runtime" questions trace to one of three slips:
 
-1. **`observed_names` mismatch.** If the body references `x_design` but you pass `observed_names={"y"}`, the guide's trace has an unbound free name. The compiler reports it as a free-name error at `loads` time only when the name is also free in the program signature. Otherwise the failure is delayed to the first `svi.step`. Rule of thumb: every name that appears in the body but isn't introduced by `<-`, `let`, or `marginalize` belongs in `observed_names`.
+1. **`observed_names` mismatch.** If the body references `x_design` but you pass `observed_names={"y"}`, the inference boundary lacks a host-data value. `loads` records such free names as program inputs; guide construction or the first execution, rather than source compilation, diagnoses a missing runtime value. Rule of thumb: every name that appears in the body but is not introduced by `<-`, `let`, or `marginalize` belongs in `observed_names`.
 2. **Shape mismatch in host data.** If `x_design` has shape `(200,)` but the object `Item` was declared `: 100`, the per-row broadcast over `Item` fails with a torch shape error. The compiler doesn't know `x_design`'s runtime shape, so this one surfaces at the first forward pass. Sanity-check tensor lengths against object cardinalities.
 3. **Re-using an `<-` name on the LHS of `let`.** Once a name is bound by a sample step, you can't reassign it. To name a deterministic transform, pick a fresh name (`let mu = beta_0 + beta_1 * x`, not `let beta_0 = beta_0 + 1`).
 
@@ -171,7 +171,10 @@ Three observations from this chapter you may have already noticed:
 
 1. **No `pyro.plate` / `numpyro.plate` wrapping.** Plates are inferred from object cardinalities and the domain/codomain typing. If you need an explicit indexed family (say a per-group intercept), chapter 3 introduces the plate-draw syntax (`v : G <- Normal(0, sigma)`).
 2. **`let` is not sampling.** PyMC `pm.Deterministic`, NumPyro `numpyro.deterministic`, Pyro `pyro.deterministic`: every PPL has a different name for "this is a function of random variables, not itself random." QVR uses `let`. The compiler tracks the dependency for autograd.
-3. **One module, one program.** Each `.qvr` file declares zero or more objects, optional `algebra`, and zero or more programs. To fit several models, write several files (or several program blocks in one file; `loads` returns the one tagged with `export`).
+3. **Several entries, one module.** A `.qvr` file may declare several
+   programs and computations. `Program.entry_points()` lists the checked
+   execution surface; `export` selects the classic compiled morphism exposed
+   as `program.morphism`.
 
 ## Try this
 
