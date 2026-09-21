@@ -44,6 +44,8 @@ from quivers.transpile.ir import (
     LetAffineSource,
     LetExprAffineMap,
     IRArg,
+    IRArgBroadcast,
+    IRArgList,
     IRArgRef,
     IRDeterministic,
     IRMarginalize,
@@ -1535,10 +1537,14 @@ def marginal_support_size(
     """Class count of a `class_index` atom set, or `None` when the
     call site does not pin it.
 
-    The count is the trailing event extent of the family's probability
+    The count is the trailing declared extent of the family's probability
     argument: `Categorical(theta)` over a `theta` declared
-    ``[over=Topic]`` enumerates ``|Topic|`` atoms. A `binary` atom set
-    carries its own size and ignores this.
+    ``[over=Topic]`` enumerates ``|Topic|`` atoms. Checked computation and
+    factor results carry tensor axes as batch dimensions, while a sampled
+    simplex carries its class axis as an event dimension, so both halves of
+    the plate participate. Inline and broadcast probability vectors state
+    the same extent directly. A `binary` atom set carries its own size and
+    ignores this.
     """
     meta = FAMILY_META.get(node.family)
     if meta is None:
@@ -1547,16 +1553,18 @@ def marginal_support_size(
     if support is None or support.size is not None:
         return None
     probs = _named_arg(node.args, node.arg_names, support.weight_arg)
-    if not isinstance(probs, IRArgRef):
-        return None
-    plate = name_plates.get(probs.name)
-    if plate is None:
-        return None
-    residual = plate.event_dims[len(probs.indices) :]
-    if not residual:
-        return None
-    trailing = residual[-1]
-    return trailing.size if isinstance(trailing, DimStatic) else None
+    if isinstance(probs, IRArgRef):
+        plate = name_plates.get(probs.name)
+        if plate is not None:
+            dimensions = (*plate.batch_dims, *plate.event_dims)
+            residual = dimensions[len(probs.indices) :]
+            if residual and isinstance(residual[-1], DimStatic):
+                return residual[-1].size
+    elif isinstance(probs, IRArgList):
+        return len(probs.elements)
+    elif isinstance(probs, IRArgBroadcast) and probs.target_shape:
+        return probs.target_shape[-1]
+    return None
 
 
 def marginal_weight_probs(
