@@ -381,11 +381,11 @@ morphism T : Real K -> Real K [role=latent, over=cod, iid_over=dom]
 observe y : N <- MultivariateNormal(mu_hat, scale_tril) [over=cod]
 ```
 
-## Let expressions (arithmetic and primitives)
+## Let expressions (arithmetic, primitives, and collections)
 
-Inside a `program` block, `let` bindings support full arithmetic
-with standard operator precedence, unary negation, and a fixed pool
-of built-in tensor primitives:
+Inside a `program` block or a `define` computation, `let` bindings support
+arithmetic with standard operator precedence, unary negation, checked tensor
+primitives, and finite collection operations:
 
 <!-- compile: false -->
 ```qvr
@@ -402,49 +402,61 @@ let log_rate = log(rate)
 let magnitude = abs(x - 0.5)
 let monotone = cumsum(increments)
 let weights = softmax(logits)
-let regularized = dropout(layer_norm(features))
+let centered = map(xs, x -> x - mean)
 ```
 
 Each `let`-builtin denotes a deterministic measurable map, lifted
 into the Kleisli category as a [Dirac
 kernel](https://en.wikipedia.org/wiki/Dirac_delta_function).
 
-### Primitive reference
+### Checked primitive reference
 
-Reductions and shape-preserving operations on the last axis default
-to `dim=-1`, the convention for per-row operations in `V-Cat`
-morphisms; for contractions over a specific named axis, use the
-typed [contraction declaration](dsl-contractions.md).
+The checked registry is the portable QIEC surface. Operators and calls are
+resolved by argument type before execution or transpilation. Reductions act on
+the entire supplied tensor; rowwise operations act on its last axis. For a
+contraction over a named axis, use a typed
+[contraction declaration](dsl-contractions.md).
 
-**Activations** (`torch.nn.functional` surface): `relu`, `relu6`,
-`leaky_relu`, `prelu`, `rrelu`, `elu`, `selu`, `celu`, `gelu`,
-`silu` (alias `swish`), `mish`, `hardtanh`, `hardshrink`,
-`hardsigmoid`, `hardswish`, `softplus`, `softshrink`, `softsign`,
-`tanh`, `tanhshrink`, `sigmoid`, `logsigmoid`, `threshold`, `glu`.
+**Conversions and weights**: `real`, `int`, `weight`, `weight_value`.
 
-**Simplex / normalization maps**: `softmax`, `log_softmax`,
-`softmin`, `normalize`.
+**Arithmetic and comparisons**: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`,
+`<=`, `>`, `>=`, `&&`, `||`; and the call forms `pow`, `abs`, `min`, and
+`max`.
 
 **Pointwise transcendentals**: `exp`, `expm1`, `log`, `log1p`,
-`log2`, `log10`, `sqrt`, `rsqrt`, `square`, `abs`, `neg`, `sign`,
-`reciprocal`, `clamp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
+`log2`, `log10`, `sqrt`, `rsqrt`, `square`, `abs`, `sign`,
+`reciprocal`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
 `sinh`, `cosh`, `asinh`, `acosh`, `atanh`, `floor`, `ceil`, `round`,
 `trunc`, `erf`, `erfc`, `erfinv`, `lgamma`, `digamma`.
 
-**Last-axis reductions**: `sum`, `mean`, `var`, `std`, `min`, `max`,
-`argmin`, `argmax`, `prod`, `amax`, `amin`, `logsumexp`, `norm`.
+**Activations**: `relu`, `relu6`, `elu`, `selu`, `gelu`, `silu`, `mish`,
+`softplus`, `logsigmoid`, `softsign`, `sigmoid`, and `tanh`.
 
-**Last-axis shape-preserving**: `cumsum`, `cumprod`, `cummax`,
-`cummin`, `flip`, `sort`.
+**Tensor reductions**: `sum`, `mean`, `min`, `max`, `prod`, `logsumexp`.
 
-**Training-mode primitives**: `dropout`, `alpha_dropout`,
-`layer_norm`, `rms_norm`.
+**Last-axis operations**: `softmax`, `log_softmax`, `cumsum`, `sort`,
+`normalize`.
 
-The compiled implementation is `_LET_EXPR_BUILTINS` in
-[`quivers.dsl.compiler.programs`](../api/dsl/compiler.md). Function
-calls inside a let body resolve against this builtin table first,
-then against module-scope callables (programs, morphisms,
-encoders, decoders, deductions); arity is checked at compile time.
+**Finite collections**: `map`, `fold`, `length`, and `logsumexp_over` are pure.
+`traverse` sequences a named computation and therefore appears on the right
+side of `<-`. See the [collection reference](../reference/qvr/collection-expressions.md)
+for their typing and shape rules.
+
+The eager PyTorch compiler also exposes the native-only operations `alpha_dropout`,
+`amax`, `amin`, `argmax`, `argmin`, `celu`, `clamp`, `cummax`, `cummin`,
+`cumprod`, `dropout`, `flip`, `glu`, `hardshrink`, `hardsigmoid`, `hardswish`,
+`hardtanh`, `layer_norm`, `leaky_relu`, `neg`, `norm`, `prelu`, `rms_norm`,
+`rrelu`, `softmin`, `softshrink`, `std`, `swish`, `tanhshrink`, `threshold`,
+and `var`. These are an attachment boundary, not portable QIEC primitives. If
+a program uses one, `qvr check` reports `qiec-builtin:host-only` rather than
+silently omitting the program from the checked module. Use
+`qvr check --target TARGET` before relying on a transpiler.
+
+The capability registry lives in `quivers.dsl.pure_builtins`. Each entry records
+its eager implementation and arities, purity, shape action, checked QIEC form,
+and supported execution routes; eager dispatch and checked name resolution are
+derived from it. Calls resolve against this registry before module-scope
+callables. User-defined callable arity is checked at compile time.
 
 ### Factor expressions: assembling indexed tensors
 

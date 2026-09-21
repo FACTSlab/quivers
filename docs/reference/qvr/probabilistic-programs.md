@@ -38,6 +38,7 @@ does not replace the QIEC row.
 | `score name = expression` | add an explicit `LogWeight` |
 | `let x = expression` | pure binding |
 | `let x <- computation(args)` | bind a named computation or program call |
+| `let xs <- traverse(values, x -> computation(x))` | call a computation once per value, in order |
 | `marginalize z : K <- FAMILY(...)` | enumerate a finite latent and reduce the scope |
 | `return expression` | answer the program's value |
 
@@ -45,6 +46,12 @@ A program body is sequential. A name becomes available to later steps after
 its binding, and host data may supply free names used by expressions. The
 compiler records those names as input parameters rather than treating them as
 globals.
+
+Pure collection expressions such as `map` stay on the right of `=`. An
+effect-aware `traverse` is computation syntax and stays on the right of `<-`;
+the called computation's effects join the program row. See
+[Finite collection expressions](collection-expressions.md) for the fixed-shape
+contract.
 
 ## Fixed and conditional families
 

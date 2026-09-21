@@ -74,6 +74,16 @@ _CASES: dict[str, tuple[str, str]] = {
         "define two() : Int !{} =\n    one()\n",
         "qiec-call-arity",
     ),
+    "a filter with data-dependent output shape": (
+        "define positives() : Tensor[Real]([2]) !{} =\n"
+        "    return filter([-1.0, 1.0], x -> x > 0.0)\n",
+        "qiec-collection:filter:dynamic-shape",
+    ),
+    "an eager-only builtin": (
+        "define normalized(x : Tensor[Real]([2])) : Tensor[Real]([2]) !{} =\n"
+        "    return layer_norm(x)\n",
+        "qiec-builtin:host-only",
+    ),
 }
 
 

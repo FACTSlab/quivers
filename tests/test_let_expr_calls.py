@@ -91,6 +91,7 @@ class TestBuiltinPrimitives:
                 "dropout",
                 "alpha_dropout",
                 "norm",
+                "pow",
             }
         ),
     )
@@ -103,8 +104,21 @@ class TestBuiltinPrimitives:
         # the call doesn't crash and returns a tensor.
         assert isinstance(out, torch.Tensor)
 
-    def test_all_86_primitives_present(self):
-        assert len(_LET_EXPR_BUILTINS) == 86
+    def test_all_91_primitives_present(self):
+        assert len(_LET_EXPR_BUILTINS) == 91
+
+    def test_binary_pow_uses_both_arguments(self):
+        fn = _compile(_call("pow", _var("x"), _lit(2.0)))
+        torch.testing.assert_close(
+            fn({"x": torch.tensor([2.0, 3.0])}), torch.tensor([4.0, 9.0])
+        )
+
+    def test_binary_min_is_elementwise(self):
+        fn = _compile(_call("min", _var("x"), _var("y")))
+        torch.testing.assert_close(
+            fn({"x": torch.tensor([1.0, 4.0]), "y": torch.tensor([2.0, 3.0])}),
+            torch.tensor([1.0, 3.0]),
+        )
 
     def test_relu_pointwise(self):
         x = torch.tensor([-1.0, 0.0, 2.0])

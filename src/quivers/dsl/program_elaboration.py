@@ -38,14 +38,11 @@ from quivers.dsl.ast_nodes import (
     DrawArgName,
     DrawArgScalar,
     ExprIdent,
-    LetExprBinOp,
     LetExprCall,
     LetExprIndex,
     LetExprLambda,
-    LetExprList,
     LetExprMethodCall,
     LetExprNode,
-    LetExprUnaryOp,
     LetExprVar,
     LetStep,
     MarginalizeStep,
@@ -72,9 +69,6 @@ from quivers.dsl.ast_nodes import (
     TypeEnumSet,
     TypeFromExpr,
     TypeName,
-)
-from quivers.dsl.ast_nodes.let_expressions import (
-    LetExprTuple,
 )
 from quivers.qiec.canonical import (
     LOG_WEIGHT,
@@ -170,13 +164,14 @@ from quivers.qiec.types import (
     render_static,
 )
 from quivers.dsl.composite_lets import expand_composite_lets
+from quivers.dsl.let_expr_traversal import free_let_names, walk_let_expr
 from quivers.dsl.deduction_elaboration import PARAMS_INSTANCE
 from quivers.dsl.program_templates import (
     TemplateError,
     instantiate_program,
     template_bindings,
 )
-from quivers.dsl.pure_builtins import PURE_BUILTINS
+from quivers.dsl.pure_builtins import HOST_ONLY_BUILTINS, PURE_BUILTINS
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
 from quivers.dsl.step_resolution import (
     ResolvedDist,
@@ -754,37 +749,7 @@ def _free_let_names(
     list[str]
         Free variable names, without repeats.
     """
-    found: list[str] = []
-
-    def visit(node: LetExprNode) -> None:
-        """Record the variables one node reads.
-
-        Parameters
-        ----------
-        node : LetExprNode
-            The node.
-        """
-        if isinstance(node, LetExprVar):
-            if node.name not in bound and node.name not in found:
-                found.append(node.name)
-        elif isinstance(node, LetExprBinOp):
-            visit(node.left)
-            visit(node.right)
-        elif isinstance(node, LetExprUnaryOp):
-            visit(node.operand)
-        elif isinstance(node, LetExprCall):
-            for argument in node.args:
-                visit(argument)
-        elif isinstance(node, LetExprIndex):
-            visit(node.array)
-            for index in node.indices:
-                visit(index)
-        elif isinstance(node, LetExprList | LetExprTuple):
-            for item in node.items:
-                visit(item)
-
-    visit(expr)
-    return found
+    return list(free_let_names(expr, bound=bound))
 
 
 def _is_gap(kinds: Sequence[str]) -> bool:
@@ -821,38 +786,17 @@ def _unknown_call(expr: LetExprNode, macros: Mapping[str, object]) -> str | None
         The called name, or ``None`` when every call is a builtin, a
         reduction, a last-axis operation, a family, or a macro.
     """
-    if isinstance(expr, LetExprCall):
+    for node in walk_let_expr(expr):
+        if not isinstance(node, LetExprCall):
+            continue
         if (
-            expr.func not in PURE_BUILTINS
-            and expr.func not in FAMILIES
-            and expr.func not in macros
-            and expr.func not in _CHART_BUILTINS
-            and expr.func not in ("site", "log_prob")
+            node.func not in PURE_BUILTINS
+            and node.func not in FAMILIES
+            and node.func not in macros
+            and node.func not in _CHART_BUILTINS
+            and node.func not in ("site", "log_prob")
         ):
-            return expr.func
-        for argument in expr.args:
-            found = _unknown_call(argument, macros)
-            if found is not None:
-                return found
-        return None
-    if isinstance(expr, LetExprBinOp):
-        return _unknown_call(expr.left, macros) or _unknown_call(expr.right, macros)
-    if isinstance(expr, LetExprUnaryOp):
-        return _unknown_call(expr.operand, macros)
-    if isinstance(expr, LetExprIndex):
-        found = _unknown_call(expr.array, macros)
-        if found is not None:
-            return found
-        for index in expr.indices:
-            found = _unknown_call(index, macros)
-            if found is not None:
-                return found
-        return None
-    if isinstance(expr, LetExprList | LetExprTuple):
-        for item in expr.items:
-            found = _unknown_call(item, macros)
-            if found is not None:
-                return found
+            return node.func
     return None
 
 
@@ -870,31 +814,11 @@ def _chart_construct(expr: LetExprNode) -> str | None:
         A description of the first method call or chart builtin found,
         or ``None``.
     """
-    if isinstance(expr, LetExprMethodCall):
-        if expr.method == "goal_weight":
-            # A chart's goal weight lowers to a real; only the receiver
-            # could hide another chart construct.
-            return _chart_construct(expr.receiver)
-        return f"the method call `.{expr.method}(...)`"
-    if isinstance(expr, LetExprCall):
-        if expr.func in _CHART_BUILTINS:
-            return f"the builtin `{expr.func}(...)`"
-        for argument in expr.args:
-            found = _chart_construct(argument)
-            if found is not None:
-                return found
-        return None
-    if isinstance(expr, LetExprBinOp):
-        return _chart_construct(expr.left) or _chart_construct(expr.right)
-    if isinstance(expr, LetExprUnaryOp):
-        return _chart_construct(expr.operand)
-    if isinstance(expr, LetExprIndex):
-        return _chart_construct(expr.array)
-    if isinstance(expr, LetExprList | LetExprTuple):
-        for item in expr.items:
-            found = _chart_construct(item)
-            if found is not None:
-                return found
+    for node in walk_let_expr(expr):
+        if isinstance(node, LetExprMethodCall) and node.method != "goal_weight":
+            return f"the method call `.{node.method}(...)`"
+        if isinstance(node, LetExprCall) and node.func in _CHART_BUILTINS:
+            return f"the builtin `{node.func}(...)`"
     return None
 
 
@@ -912,36 +836,12 @@ def _index_names(expr: LetExprNode) -> list[str]:
         Names appearing directly as an index, in order.
     """
     found: list[str] = []
-
-    def visit(node: LetExprNode) -> None:
-        """Record index variables under one node.
-
-        Parameters
-        ----------
-        node : LetExprNode
-            The node.
-        """
-        if isinstance(node, LetExprIndex):
-            visit(node.array)
-            for index in node.indices:
-                if isinstance(index, LetExprVar):
-                    if index.name not in found:
-                        found.append(index.name)
-                else:
-                    visit(index)
-        elif isinstance(node, LetExprBinOp):
-            visit(node.left)
-            visit(node.right)
-        elif isinstance(node, LetExprUnaryOp):
-            visit(node.operand)
-        elif isinstance(node, LetExprCall):
-            for argument in node.args:
-                visit(argument)
-        elif isinstance(node, LetExprList | LetExprTuple):
-            for item in node.items:
-                visit(item)
-
-    visit(expr)
+    for node in walk_let_expr(expr):
+        if not isinstance(node, LetExprIndex):
+            continue
+        for index in node.indices:
+            if isinstance(index, LetExprVar) and index.name not in found:
+                found.append(index.name)
     return found
 
 
@@ -2618,8 +2518,12 @@ class _ProgramElaboration:
             call = self._call_with_inferred_extents(step, signature, scope, path)
         else:
             call = self._lower_call(step.call, (), scope.context(), path, None)
+        try:
+            call_type = infer_computation(call, self.registry, scope.context())
+        except (KernelError, TypeError, ValueError) as error:
+            self._fail_kernel(step.call, error)
         params = self.instances.get(PARAMS_INSTANCE)
-        for entry in call.effects.entries:
+        for entry in call_type.effects.entries:
             if entry.instance == state.random.entry.instance:
                 state.uses_random = True
             elif entry.instance == state.score.entry.instance:
@@ -2633,7 +2537,7 @@ class _ProgramElaboration:
                     f"{entry.instance!r}, which the program's row cannot carry",
                     code="qiec-program",
                 )
-        self._bind_step(scope, step.name, call.result_type, call, step)
+        self._bind_step(scope, step.name, call_type.result, call, step)
 
     def _with_passed_inputs(
         self: _Elaborator,
@@ -2900,6 +2804,22 @@ class _ProgramElaboration:
                 f"{chart} has no elaboration yet; deduction charts are a "
                 "logic-programming construct outside the program calculus",
                 code=GAP_CODE,
+            )
+        host_only = next(
+            (
+                candidate.func
+                for candidate in walk_let_expr(expr)
+                if isinstance(candidate, LetExprCall)
+                and candidate.func in HOST_ONLY_BUILTINS
+            ),
+            None,
+        )
+        if host_only is not None:
+            self._fail(
+                node,
+                f"builtin {host_only!r} is available only to native eager "
+                "execution and has no checked QIEC lowering",
+                code="qiec-builtin:host-only",
             )
         unknown = _unknown_call(expr, self._lambda_macros)
         if unknown is not None:

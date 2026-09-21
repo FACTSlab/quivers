@@ -3922,10 +3922,6 @@
         "required": false,
         "types": [
           {
-            "type": ",",
-            "named": false
-          },
-          {
             "type": "let_binop",
             "named": true
           },
@@ -4489,10 +4485,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "let_binop",
             "named": true

@@ -65,6 +65,12 @@ There is no implicit coercion from a call to a value expression. If `helper`
 is declared with `define`, write `let result <- helper(args)`, even when its
 row is empty.
 
+The same distinction governs collections. `map(xs, x -> value)` is pure and
+uses `=`, while `traverse(xs, x -> helper(x))` sequences computation calls and
+uses `<-`. The latter joins `helper`'s effects into the caller's row. See
+[Finite collection expressions](collection-expressions.md) for folds,
+normalization, and shape restrictions.
+
 ## Calls and row propagation
 
 One call syntax covers ordinary application and recursion:

@@ -113,7 +113,7 @@ let weight = 0.5
 
 Supports literals, variable references, arithmetic, and the
 let-expression primitive surface; see
-[DSL Programs and Let-Expressions](dsl-programs-and-lets.md#let-expressions-arithmetic-and-primitives)
+[DSL Programs and Let-Expressions](dsl-programs-and-lets.md#let-expressions-arithmetic-primitives-and-collections)
 for the full primitive list.
 
 ## Observe keyword

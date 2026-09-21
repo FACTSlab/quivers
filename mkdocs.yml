@@ -121,6 +121,7 @@ nav:
     - Types and Indexed Families: reference/qvr/types-and-indexed-families.md
     - Effects and Handlers: reference/qvr/effects-and-handlers.md
     - Computations: reference/qvr/computations.md
+    - Finite Collection Expressions: reference/qvr/collection-expressions.md
     - Probabilistic Programs: reference/qvr/probabilistic-programs.md
     - Generated Computation Graphs: reference/qvr/generated-computations.md
     - Execution and Tooling: reference/qvr/execution-and-tooling.md
@@ -220,6 +221,7 @@ nav:
     - 11. Parsing as an effectful computation: tutorials/qvr/11-parsing-and-search.md
     - 12. Structural autoencoders: tutorials/qvr/12-structural-autoencoders.md
     - 13. Check, inspect, and transpile: tutorials/qvr/13-release-workflow.md
+    - 14. Exact Bayes with finite collections: tutorials/qvr/14-collection-programs.md
   - Python API tutorials:
     - 1. Your first quiver: tutorials/python/01-first-quiver.md
     - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md

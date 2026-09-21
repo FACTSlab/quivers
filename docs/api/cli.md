@@ -34,7 +34,7 @@ Diagnostic codes:
   arguments or incompatible argument shapes.
 - `implicit-family-defaults`: a distribution call relies on deprecated
   implicit defaults. This diagnostic is a warning.
-- `qiec-route`: the exact `qvr-source/v0.19` to `qiec-core/v1alpha1`
+- `qiec-route`: the exact `qvr-source/v0.20` to `qiec-core/v1alpha1`
   Didactic route is unavailable or mismatched.
 - `qiec-kind`: a static argument or binder has the wrong kind.
 - `qiec-index`: an index expression has the wrong sort or constructor shape.

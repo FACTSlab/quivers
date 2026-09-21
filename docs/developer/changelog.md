@@ -4,6 +4,22 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] - 2026-09-21
+
+### Added
+
+- **Checked finite collection expressions.** `map`, `fold`, `length`, and `logsumexp_over` now lower from the shared pure-expression surface to typed QIEC terms. `traverse` sequences a named computation across a tensor with a fixed leading extent, preserves source order and call provenance, and joins the callee's effects into the enclosing row. A local pure binding may name a lambda reused by these operations. `filter` remains available to the eager PyTorch evaluator and is rejected under `qiec-collection:filter:dynamic-shape` because its value-dependent result length is not a fixed QIEC tensor shape.
+- **Collection documentation and executable examples.** The QVR reference, program guide, formal semantics, and a finite-grid Bayesian tutorial state the pure/effectful distinction, shape rules, diagnostic boundary, and backend support. The tutorial source is checked and runnable through the reference machine.
+
+### Changed
+
+- **Multiline delimiters use a hanging-indent form.** Nonempty parenthesized, square-bracketed, and brace-delimited lists may place one trailing-comma-terminated item per indented line. Calls, QIEC static applications and requests, constructor values, list literals, and indices share this grammar. The source protocol advances to `qvr-source/v0.20`; the QIEC and JSON ABIs remain `qiec-core/v1alpha1` and `qiec-json/v1`.
+- **Let-expression analysis is exhaustive and binder-aware.** Free-name collection, recursive walks, and capture-avoiding substitution share one implementation across program elaboration, native compilation, QIEC lowering, and dependency resolution. Newly introduced AST variants therefore fail explicitly instead of disappearing from one of those passes.
+- **Incomplete program elaboration is an error.** `qvr check`, the LSP, and entry lookup report `qiec-program-gap` when a source program cannot enter the checked module. Native-only builtins no longer make the checked path appear successful.
+- **Builtin capabilities have one registry.** Eager implementations and arities, purity, shape action, checked QIEC form, and execution routes are recorded together. Native-only calls report `qiec-builtin:host-only`; eager execution no longer drops additional call arguments.
+- **Collection calls highlight consistently.** Pygments, the REPL/TUI, tree-sitter queries, and the packaged VS Code grammar classify the checked collection operations as builtins.
+- **The v0.19 grammar is frozen in the migration chain.** Its released parser and schema identity now sit between v0.18 and `HEAD`; the new hanging-delimiter grammar has its own verified `HEAD` snapshot and a validating, byte-preserving v0.19 migration hop.
+
 ## [0.19.0] - 2026-09-19
 
 ### Added

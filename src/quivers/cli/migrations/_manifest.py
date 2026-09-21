@@ -82,11 +82,17 @@ GRAMMAR_ASSETS: dict[str, GrammarAsset] = {
         "814b5b2dc75fbd7ade46fa02e5772299f51ecfa76a9cfc3e93cc0efc68771eba",
         "ffae70e999fecc8ed33058ac2d680bc6d71c8bf7888bd8db0a33404693f4386b",
     ),
-    "HEAD": GrammarAsset(
+    "v0.19.0": GrammarAsset(
         "7a2463bb21935f683d7f977ec23ac91f5b84eda13826cc95c4e90bb76a32afa9",
         "62f396e779b6ff7b19a51d17a20ce71886580defbdf5be87cd7c77b9bd831f84",
         "48aaab9589adb57c8c1c517adfa4eeb206ac2192b795e92825ea36209d412e20",
         "7c273ca205f8e27dc55ce5167f2f3e2ece947753fef9a52a7b02257eb23733bc",
+    ),
+    "HEAD": GrammarAsset(
+        "59c35f0f947f849c45badae44cd4fd85a493ce1cacaa4473846189863d1dc503",
+        "bb6e3e0a94d6d862f90d3b9a7cf4d4bc62c5fff06ab65b3a9f1b15dd4dcb5965",
+        "51f0178d34280980b2d188b9e25ff303daa18138502d6c145c0629ce0e3d27e0",
+        "c9dacb6e7651a2cfe83c32e4701b8bd1d7a641edbfac10fa57e30ef245bbf28c",
     ),
 }
 
@@ -106,6 +112,7 @@ REVISION_SNAPSHOTS: dict[str, str] = {
     "v0.16.0": "v0.15.0",
     "v0.17.0": "v0.15.0",
     "v0.18.0": "v0.15.0",
+    "v0.19.0": "v0.19.0",
     "HEAD": "HEAD",
 }
 
@@ -125,6 +132,7 @@ SCHEMA_COMMITS: dict[str, str] = {
     "v0.16.0": "56fde386d73bc4667726dc29f4a17ceeae070ed2a3effd10695a69c41c0a3079",
     "v0.17.0": "56fde386d73bc4667726dc29f4a17ceeae070ed2a3effd10695a69c41c0a3079",
     "v0.18.0": "56fde386d73bc4667726dc29f4a17ceeae070ed2a3effd10695a69c41c0a3079",
+    "v0.19.0": "b4b20dd709fb0466384f12e5c9fbfaf959013a426bbb82ba0806a8d75ac2877e",
     "HEAD": "b4b20dd709fb0466384f12e5c9fbfaf959013a426bbb82ba0806a8d75ac2877e",
 }
 

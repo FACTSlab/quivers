@@ -1,0 +1,31 @@
+# Exact inference on a finite grid of candidate locations.
+
+define point_log_likelihood(theta : Real, observation : Real, sigma : Real) : Real !{} =
+    return weight_value(log_prob(Normal(theta, sigma), observation))
+
+define dataset_log_likelihood(theta : Real, observations : Tensor[Real]([4]), sigma : Real) : Real !{} =
+    let contributions <- traverse(
+        observations,
+        (observation -> point_log_likelihood(theta, observation, sigma)),
+    )
+    return sum(contributions)
+
+define grid_posterior(observations : Tensor[Real]([4]), sigma : Real) : Tensor[Real]([3]) !{} =
+    let candidates = [-1.0, 0.0, 1.0]
+    let log_likelihoods <- traverse(
+        candidates,
+        (theta -> dataset_log_likelihood(theta, observations, sigma)),
+    )
+    let log_prior = log(1.0 / 3.0)
+    let log_joint = map(log_likelihoods, likelihood -> likelihood + log_prior)
+    let log_evidence = logsumexp_over(log_joint, score -> score)
+    return map(log_joint, score -> exp(score - log_evidence))
+
+object Analysis : FinSet 1
+object Posterior : Real 3
+
+program finite_grid_bayes : Analysis -> Posterior
+    let posterior <- grid_posterior(observations, observation_sigma)
+    return posterior
+
+export finite_grid_bayes

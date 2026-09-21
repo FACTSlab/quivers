@@ -77,6 +77,10 @@ class Compiler(
     ----------
     module : Module
         The parsed AST.
+    lower_qiec : bool
+        Whether to lower the checked QIEC projection. Tooling sets this to
+        ``False`` only for its classic-compiler recovery pass after QIEC has
+        already produced a diagnostic.
     """
 
     def __init__(
@@ -85,6 +89,7 @@ class Compiler(
         *,
         module_name: str | None = None,
         file_path: str = "<source>",
+        lower_qiec: bool = True,
     ) -> None:
         self._qiec_module: QiecModule | None = None
         # The QIEC projection is lowered on first use, after the
@@ -93,7 +98,7 @@ class Compiler(
         self._qiec_source: Module | None = None
         self._qiec_module_name = module_name
         self._qiec_file_path = file_path
-        if has_qiec_surface(module):
+        if lower_qiec and has_qiec_surface(module):
             self._qiec_source = module
             module = non_qiec_projection(module)
         self._module = module
@@ -272,6 +277,14 @@ class Compiler(
                 ExecutionDiagnostic(
                     "qiec-run-module",
                     "the source has no checked module and no entry points",
+                    name,
+                )
+            )
+        if module.gap and not any(point.name == name for point in entry_points(module)):
+            raise ExecutionFailure(
+                ExecutionDiagnostic(
+                    "qiec-program-gap",
+                    f"entry point {name!r} was not lowered: {module.gap}",
                     name,
                 )
             )

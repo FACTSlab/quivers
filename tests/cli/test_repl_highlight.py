@@ -118,6 +118,22 @@ def test_effect_request_distinguishes_instance_from_operation() -> None:
     assert any(token in Name.Function and text == "get" for _, token, text in pygments)
 
 
+def test_collection_operations_highlight_as_functions() -> None:
+    source = """define twice(x : Real) : Real !{} =
+    return x * 2.0
+
+define mapped() : Tensor[Real]([2]) !{} =
+    let xs = map([1.0, 2.0], x -> x * 2.0)
+    let ys <- traverse(xs, x -> twice(x))
+    return ys
+"""
+    pygments = list(QvrLexer().get_tokens_unprocessed(source))
+    assert any(token in Name.Builtin and text == "map" for _, token, text in pygments)
+    assert any(
+        token in Name.Builtin and text == "traverse" for _, token, text in pygments
+    )
+
+
 def test_unicode_offsets_match_pygments_and_lsp_coordinate_systems() -> None:
     source = "#! café 😀\nindex Nat = Z\n"
     pygments = list(QvrLexer().get_tokens_unprocessed(source))

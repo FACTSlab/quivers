@@ -24,18 +24,20 @@ from quivers.cli.migrations import (
 )
 from quivers.cli.migrations import _assets, _grammar, _identity, _manifest
 from quivers.cli.migrations import v0_14_0_to_v0_15_0 as hop_14_15
-from quivers.cli.migrations import v0_18_0_to_head as hop_18_head
+from quivers.cli.migrations import v0_18_0_to_v0_19_0 as hop_18_19
+from quivers.cli.migrations import v0_19_0_to_head as hop_19_head
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_chain_has_every_release_and_explicit_head_terminus() -> None:
-    assert CHAIN[-5:] == (
+    assert CHAIN[-6:] == (
         "v0.15.0",
         "v0.16.0",
         "v0.17.0",
         "v0.18.0",
+        "v0.19.0",
         "HEAD",
     )
     pairs = set(zip(CHAIN, CHAIN[1:]))
@@ -44,7 +46,7 @@ def test_chain_has_every_release_and_explicit_head_terminus() -> None:
 
 
 def test_released_identity_segment_shares_one_grammar_commit() -> None:
-    commits = {commit_id(ref) for ref in CHAIN[-5:-1]}
+    commits = {commit_id(ref) for ref in CHAIN[-6:-2]}
     assert len(commits) == 1
     assert "" not in commits
 
@@ -65,6 +67,11 @@ def test_v015_to_v018_aliases_use_one_canonical_regenerated_snapshot() -> None:
         _manifest.GRAMMAR_ASSETS["v0.15.0"]
     }
     assert _grammar.grammar_identity("HEAD") != _manifest.GRAMMAR_ASSETS["v0.15.0"]
+
+
+def test_v019_has_the_parser_that_was_head_at_release() -> None:
+    assert _manifest.snapshot_for("v0.19.0") == "v0.19.0"
+    assert _grammar.grammar_identity("v0.19.0") != _grammar.grammar_identity("HEAD")
 
 
 def test_hop_composition_is_coherent_across_identity_releases() -> None:
@@ -96,17 +103,23 @@ def test_vcs_coverage_spans_every_chain_edge() -> None:
     assert all(not report.removed_rules for report in identity_reports)
 
     head_report = reports[-1]
-    assert (head_report.from_ref, head_report.to_ref) == ("v0.18.0", "HEAD")
-    assert head_report.added_rules
+    assert (head_report.from_ref, head_report.to_ref) == ("v0.19.0", "HEAD")
     assert not head_report.removed_rules
-    assert ("v0.18.0", "HEAD") not in IDENTITY_PAIRS
+    assert ("v0.19.0", "HEAD") not in IDENTITY_PAIRS
 
 
-def test_v018_to_head_additive_hop_is_byte_preserving_and_validated() -> None:
+def test_v018_to_v019_additive_hop_is_byte_preserving_and_validated() -> None:
     source = b"bundle demo : [first, second]\n"
-    assert hop_18_head.migrate(source) == source
+    assert hop_18_19.migrate(source) == source
     with pytest.raises(MigrationError, match="does not parse"):
-        hop_18_head.migrate(b"\x00\x00\x00")
+        hop_18_19.migrate(b"\x00\x00\x00")
+
+
+def test_v019_to_head_layout_hop_is_byte_preserving_and_validated() -> None:
+    source = b"define f(x : Real) : Real !{} =\n    return exp(x)\n"
+    assert hop_19_head.migrate(source) == source
+    with pytest.raises(MigrationError, match="does not parse"):
+        hop_19_head.migrate(b"\x00\x00\x00")
 
 
 def test_manifest_identity_drift_is_checked_for_v09_alias(

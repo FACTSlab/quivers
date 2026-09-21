@@ -14,7 +14,7 @@ directly; a probabilistic `program` is domain-specific notation for a named
 computation over the module's canonical `random` and `score` instances. The
 parser reads the whole surface into one source AST, Quivers projects the
 indexed declarations through Didactic's public `GADT` API, and the module
-lowers through the exact `qvr-source/v0.19` to `qiec-core/v1alpha1` route,
+lowers through the exact `qvr-source/v0.20` to `qiec-core/v1alpha1` route,
 checked against both Didactic's compiled first-order theory and the Python
 reference kernel's deterministic serialization contract.
 

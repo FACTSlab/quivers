@@ -44,6 +44,7 @@ from quivers.dsl._grammar_introspection import (
     KEYWORDS as _GRAMMAR_KEYWORDS,
     OPERATORS as _GRAMMAR_OPERATORS,
 )
+from quivers.dsl.pure_builtins import PURE_BUILTINS
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +87,9 @@ _COMPOSITION_LEVEL_NAMES = frozenset(
 )
 
 _KEYWORD_TOKENS = _GRAMMAR_KEYWORDS
-_BUILTIN_FUNCTION_TOKENS = _GRAMMAR_BUILTIN_FUNCTIONS
+_BUILTIN_FUNCTION_TOKENS = frozenset(
+    (*_GRAMMAR_BUILTIN_FUNCTIONS, *PURE_BUILTINS, "traverse")
+)
 _BUILTIN_TYPE_TOKENS = _GRAMMAR_BUILTIN_TYPES
 _OPERATOR_TOKENS = _GRAMMAR_OPERATORS
 
@@ -126,7 +129,9 @@ def _node_kind_to_pygments_token(
         if parent_kind == "qiec_handler_operation_clause" and field_name == "operation":
             return Name.Function
         if parent_kind == "qiec_call_computation" and field_name == "callee":
-            return Name.Function
+            return Name.Builtin if text == "traverse" else Name.Function
+        if parent_kind == "let_call" and field_name == "func":
+            return Name.Builtin if text in PURE_BUILTINS else Name.Function
         if text in _BUILTIN_FUNCTION_TOKENS:
             return Name.Builtin
         if text in _BUILTIN_TYPE_TOKENS:

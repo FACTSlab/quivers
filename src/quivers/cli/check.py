@@ -122,7 +122,18 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
             module_name=qiec_module_name(path),
             file_path=str(path),
         )
-        compiler.qiec_module
+        qiec_module = compiler.qiec_module
+        if qiec_module is not None and qiec_module.gap:
+            diags.append(
+                Diagnostic(
+                    file=str(path),
+                    line=0,
+                    col=0,
+                    severity="error",
+                    code="qiec-program-gap",
+                    message=qiec_module.gap,
+                )
+            )
     except Exception as error:
         if not has_qiec_surface(module):
             raise
@@ -137,7 +148,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
                 message=diagnostic.message,
             )
         )
-        compiler = Compiler(compiler_module)
+        compiler = Compiler(compiler_module, lower_qiec=False)
 
     # Constraint solver runs before compile so users see structural
     # diagnostics even when compilation would also fail.

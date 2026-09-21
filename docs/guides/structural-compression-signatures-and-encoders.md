@@ -145,7 +145,7 @@ Rule bodies are let-expressions over the same fixed primitive pool
 the rest of the DSL uses (every `torch.nn.functional` activation,
 the simplex maps, pointwise transcendentals, `dim=-1` reductions,
 layer-norm, dropout; see the
-[let-expression primitive reference](dsl-programs-and-lets.md#primitive-reference))
+[let-expression primitive reference](dsl-programs-and-lets.md#checked-primitive-reference))
 plus any callable declared at the module level.
 
 **Module-scope callables resolve by name.** Top-level `morphism`,

@@ -24,7 +24,7 @@ class QuiversKernel(Kernel):
     implementation = "quivers"
     implementation_version = "0.1.0"
     language = "qvr"
-    language_version = "0.19"
+    language_version = "0.20"
     language_info = {
         "name": "qvr",
         "mimetype": "text/x-qvr",
