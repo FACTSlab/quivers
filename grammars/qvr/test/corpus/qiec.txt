@@ -669,3 +669,48 @@ define triangle(n : Int) : Int !{} =
                 (identifier))
               (let_var
                 (identifier)))))))))
+
+==================
+QIEC hanging collection call and list
+==================
+
+define hanging() : Tensor[Real]([2]) !{} =
+    return map(
+        [
+            1.0,
+            2.0,
+        ],
+        (x -> x * 2.0),
+    )
+
+---
+
+(source_file
+  (computation_decl
+    (identifier)
+    (qiec_type_application
+      (identifier)
+      (qiec_static_argument
+        (qiec_type_name
+          (identifier)))
+      (qiec_shape_index
+        (qiec_index_literal
+          (integer))))
+    (qiec_effect_row
+      (qiec_effect_row_literal))
+    (qiec_return_computation
+      (let_call
+        (identifier)
+        (let_list
+          (let_literal
+            (float))
+          (let_literal
+            (float)))
+        (let_paren
+          (let_lambda
+            (identifier)
+            (let_binop
+              (let_var
+                (identifier))
+              (let_literal
+                (float)))))))))

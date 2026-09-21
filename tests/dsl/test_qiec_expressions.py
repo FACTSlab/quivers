@@ -8,8 +8,19 @@ import pytest
 
 from quivers.dsl import parse
 from quivers.dsl.emit import module_to_source
+from quivers.dsl.pure_builtins import (
+    BUILTIN_REGISTRY,
+    EAGER_BUILTIN_NAMES,
+    HOST_ONLY_BUILTINS,
+    PURE_BUILTINS,
+    _BUILTIN_PRIMITIVES,
+    _COLLECTION_BUILTINS,
+    _REDUCTIONS,
+    _ROWWISE,
+)
 from quivers.dsl.qiec_lowering import QiecDiagnosticError, lower_qvr_to_qiec
 from quivers.qiec import (
+    BOOL,
     dumps,
     INT,
     REAL,
@@ -22,6 +33,15 @@ from quivers.qiec import (
     run_named,
 )
 from quivers.qiec.types import product_type
+
+
+def _source_value(type_) -> str:
+    return {
+        INT: "2",
+        REAL: "1.5",
+        BOOL: "true",
+        STRING: '"x"',
+    }.get(type_, "weight(0.0)")
 
 
 def _lower(body: str, signature: str = "() : Int !{}"):
@@ -136,6 +156,43 @@ def test_builtins_resolve_by_argument_types() -> None:
     assert run_named(module, "probe", (-7,)).value == pytest.approx(
         (max(-7 / 4.0, 0.5)) ** 0.5 + 1.0
     )
+
+
+@pytest.mark.parametrize(
+    ("name", "signature"),
+    [
+        (name, signature)
+        for name, overloads in _BUILTIN_PRIMITIVES.items()
+        for signature in overloads
+    ],
+)
+def test_every_checked_primitive_overload_has_a_typed_lowering(
+    name: str, signature: tuple
+) -> None:
+    arguments = ", ".join(_source_value(type_) for type_ in signature)
+    _lower(f"    let value = {name}({arguments})\n    return 0\n")
+
+
+@pytest.mark.parametrize("name", sorted({*_REDUCTIONS, *_ROWWISE}))
+def test_every_checked_tensor_builtin_has_a_typed_lowering(name: str) -> None:
+    _lower(f"    let value = {name}([1.0, 2.0])\n    return 0\n")
+
+
+@pytest.mark.parametrize("name", sorted(PURE_BUILTINS))
+def test_every_checked_builtin_rejects_the_wrong_arity(name: str) -> None:
+    with pytest.raises(QiecDiagnosticError):
+        _lower(f"    let value = {name}()\n    return 0\n")
+
+
+def test_builtin_registry_is_the_complete_capability_inventory() -> None:
+    assert frozenset(BUILTIN_REGISTRY) == EAGER_BUILTIN_NAMES | _COLLECTION_BUILTINS
+    assert PURE_BUILTINS | HOST_ONLY_BUILTINS == frozenset(BUILTIN_REGISTRY)
+    assert not (PURE_BUILTINS & HOST_ONLY_BUILTINS)
+    assert all(
+        BUILTIN_REGISTRY[name].targets == {"eager"} for name in HOST_ONLY_BUILTINS
+    )
+    assert all(BUILTIN_REGISTRY[name].eager is not None for name in EAGER_BUILTIN_NAMES)
+    assert BUILTIN_REGISTRY["filter"].qiec_form == "unsupported"
 
 
 @pytest.mark.parametrize(

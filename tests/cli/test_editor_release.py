@@ -87,6 +87,10 @@ _CORPUS = (
     "define twice(x : Int) : Int !{} =\n"
     "    let y <- twice(x)\n"
     "    return y\n\n"
+    "define mapped(xs : Tensor[Real]([2])) : Tensor[Real]([2]) !{} =\n"
+    "    let doubled = map(xs, x -> x * 2.0)\n"
+    "    let checked <- traverse(doubled, x -> twice(x))\n"
+    "    return checked\n\n"
     "handler doubling for Echo : Int -> Int [coverage=total, implementation=authored]\n"
     "    ping(n : Int) resumes 1 =>\n"
     "        resume(n)\n"
@@ -99,14 +103,16 @@ _EXPECTED: dict[tuple[int, str], str] = {
     (1, "ping"): "function",
     (3, "twice"): "function",
     (4, "twice"): "function",
-    (7, "handler"): "keyword",
-    (7, "[coverage"): "keyword",
-    (7, "total"): "keyword",
-    (7, "implementation"): "keyword",
-    (8, "ping"): "function",
-    (8, "resumes"): "keyword",
-    (8, "1"): "number",
-    (9, "resume"): "keyword",
+    (8, "map"): "function",
+    (9, "traverse"): "function",
+    (12, "handler"): "keyword",
+    (12, "[coverage"): "keyword",
+    (12, "total"): "keyword",
+    (12, "implementation"): "keyword",
+    (13, "ping"): "function",
+    (13, "resumes"): "keyword",
+    (13, "1"): "number",
+    (14, "resume"): "keyword",
     (1, "Int"): "type",
 }
 
@@ -114,7 +120,12 @@ _EXPECTED: dict[tuple[int, str], str] = {
 #: for each class.
 _TREE_SITTER_CLASSES = {
     "keyword": {"keyword"},
-    "function": {"function", "function.call", "function.method"},
+    "function": {
+        "function",
+        "function.builtin",
+        "function.call",
+        "function.method",
+    },
     "number": {"constant.builtin", "number"},
     "type": {"type", "type.builtin"},
 }
@@ -139,6 +150,7 @@ def _pygments_classes() -> dict[tuple[int, str], str]:
         (Keyword, "keyword"),
         (Number, "number"),
         (Name.Class, "type"),
+        (Name.Builtin, "function"),
         (Name.Function, "function"),
     )
     out: dict[tuple[int, str], str] = {}

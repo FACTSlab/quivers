@@ -1,7 +1,7 @@
-"""One-hop migrator from the released v0.18 surface to QVR HEAD.
+"""One-hop migrator from the released v0.18 surface to QVR v0.19.
 
-QVR HEAD adds the v0.19 indexed-family and algebraic-effect surface. Every
-v0.18 production remains accepted without reinterpretation, so migration is
+QVR v0.19 added the indexed-family and algebraic-effect surface. Every v0.18
+production remains accepted without reinterpretation, so migration is
 byte-preserving. This is not an identity edge: both revisions are parsed and
 validated explicitly, and Panproto reports the added target rules through the
 coverage gate.
@@ -13,7 +13,7 @@ from quivers.cli.migrations._common import parse_validated_source
 
 
 _SOURCE_REV = "v0.18.0"
-_TARGET_REV = "HEAD"
+_TARGET_REV = "v0.19.0"
 
 
 def migrate(source: bytes) -> bytes:

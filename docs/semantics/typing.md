@@ -305,7 +305,7 @@ would denote a different stochastic program for each support value.
 
 ## 9. Implementation correspondence
 
-The source protocol `qvr-source/v0.19` lowers to `qiec-core/v1alpha1`. These
+The source protocol `qvr-source/v0.20` lowers to `qiec-core/v1alpha1`. These
 are protocol identifiers, not documentation release labels. The principal
 implementation boundaries are:
 

@@ -182,7 +182,7 @@ delegated to Panproto after Quivers installs its packaged current `qvr`
 tree-sitter grammar; Quivers does not run a hand-written lexer. The AST
 carries distinct QIEC nodes, and `qiec_lowering.py` constructs Didactic's
 public GADT representation before completing the exact route from
-`qvr-source/v0.19` to `qiec-core/v1alpha1`. The reference `.qvr`
+`qvr-source/v0.20` to `qiec-core/v1alpha1`. The reference `.qvr`
 programs that drive the test suite and the tree-sitter grammar fixtures live at
 `docs/examples/source/`, not under the package itself.
 

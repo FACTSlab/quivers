@@ -7,7 +7,7 @@ compilation.
 
 from __future__ import annotations
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
 from typing import cast
@@ -100,6 +100,8 @@ from quivers.dsl.compiler._options import (
     get_program_over_model,
 )
 from quivers.dsl.compiler.sugar import desugar_step
+from quivers.dsl.let_expr_traversal import free_let_names
+from quivers.dsl.pure_builtins import EAGER_BUILTINS
 from quivers.program import Program
 from quivers.stochastic.agenda import DeductionSystem
 from quivers.dsl.compiler._prelude import (
@@ -154,42 +156,7 @@ def _let_expr_reads(node: LetExprNode) -> frozenset[str]:
         included; the encoding passes only the names bound in the
         program.
     """
-    names: set[str] = set()
-
-    def walk(item: LetExprNode, bound: frozenset[str]) -> None:
-        if isinstance(item, LetExprVar):
-            if item.name not in bound:
-                names.add(item.name)
-        elif isinstance(item, LetExprBinOp):
-            walk(item.left, bound)
-            walk(item.right, bound)
-        elif isinstance(item, LetExprUnaryOp):
-            walk(item.operand, bound)
-        elif isinstance(item, (LetExprTuple, LetExprList)):
-            for member in item.items:
-                walk(member, bound)
-        elif isinstance(item, LetExprCall):
-            for argument in item.args:
-                walk(argument, bound)
-        elif isinstance(item, LetExprLambda):
-            walk(item.body, bound | {item.param})
-        elif isinstance(item, LetExprMethodCall):
-            walk(item.receiver, bound)
-            for argument in item.args:
-                walk(argument, bound)
-        elif isinstance(item, LetExprIndex):
-            walk(item.array, bound)
-            for index in item.indices:
-                walk(index, bound)
-        elif isinstance(item, LetExprFactor):
-            inner = bound | {binder.var for binder in item.binders}
-            if item.body is not None:
-                walk(item.body, inner)
-            for case in item.cases:
-                walk(case.value, inner)
-
-    walk(node, frozenset())
-    return frozenset(names)
+    return frozenset(free_let_names(node))
 
 
 def _calls_a_computation(steps: tuple[ProgramStep, ...]) -> bool:
@@ -336,104 +303,7 @@ type LetValue = (
 # keyword we default to ``dim=-1`` (the natural choice for per-row
 # operations in V-Cat morphisms); users wanting a different axis
 # write the contraction via the typed ``contraction`` declaration.
-_F = torch.nn.functional
-_LET_EXPR_BUILTINS: dict[str, Callable] = {
-    # torch.nn.functional activations.  The list mirrors the public
-    # surface of ``torch.nn.functional`` as of PyTorch 2.x.
-    "relu": lambda a: _F.relu(a),
-    "relu6": lambda a: _F.relu6(a),
-    "leaky_relu": lambda a, slope=0.01: _F.leaky_relu(a, negative_slope=slope),
-    "prelu": lambda a, w: _F.prelu(a, w),
-    "rrelu": lambda a, lower=1 / 8, upper=1 / 3: _F.rrelu(a, lower=lower, upper=upper),
-    "elu": lambda a, alpha=1.0: _F.elu(a, alpha=alpha),
-    "selu": lambda a: _F.selu(a),
-    "celu": lambda a, alpha=1.0: _F.celu(a, alpha=alpha),
-    "gelu": lambda a: _F.gelu(a),
-    "silu": lambda a: _F.silu(a),
-    "swish": lambda a: _F.silu(a),  # alias
-    "mish": lambda a: _F.mish(a),
-    "hardtanh": lambda a, lo=-1.0, hi=1.0: _F.hardtanh(a, min_val=lo, max_val=hi),
-    "hardshrink": lambda a, lam=0.5: _F.hardshrink(a, lambd=lam),
-    "hardsigmoid": lambda a: _F.hardsigmoid(a),
-    "hardswish": lambda a: _F.hardswish(a),
-    "softplus": lambda a, beta=1.0: _F.softplus(a, beta=beta),
-    "softshrink": lambda a, lam=0.5: _F.softshrink(a, lambd=lam),
-    "softsign": lambda a: _F.softsign(a),
-    "softmax": lambda a: _F.softmax(a, dim=-1),
-    "log_softmax": lambda a: _F.log_softmax(a, dim=-1),
-    "softmin": lambda a: _F.softmin(a, dim=-1),
-    "tanh": lambda a: torch.tanh(a),
-    "tanhshrink": lambda a: _F.tanhshrink(a),
-    "sigmoid": lambda a: torch.sigmoid(a),
-    "logsigmoid": lambda a: _F.logsigmoid(a),
-    "threshold": lambda a, t, v: _F.threshold(a, t, v),
-    "glu": lambda a: _F.glu(a, dim=-1),
-    "normalize": lambda a, p=2.0: _F.normalize(a, p=p, dim=-1),
-    # Pointwise transcendental / arithmetic operations.
-    "exp": lambda a: torch.exp(a),
-    "expm1": lambda a: torch.expm1(a),
-    "log": lambda a: torch.log(a),
-    "log1p": lambda a: torch.log1p(a),
-    "log2": lambda a: torch.log2(a),
-    "log10": lambda a: torch.log10(a),
-    "sqrt": lambda a: torch.sqrt(a),
-    "rsqrt": lambda a: torch.rsqrt(a),
-    "square": lambda a: torch.square(a),
-    "abs": lambda a: torch.abs(a),
-    "neg": lambda a: -a,
-    "sign": lambda a: torch.sign(a),
-    "reciprocal": lambda a: torch.reciprocal(a),
-    "clamp": lambda a, lo, hi: torch.clamp(a, min=lo, max=hi),
-    "sin": lambda a: torch.sin(a),
-    "cos": lambda a: torch.cos(a),
-    "tan": lambda a: torch.tan(a),
-    "asin": lambda a: torch.asin(a),
-    "acos": lambda a: torch.acos(a),
-    "atan": lambda a: torch.atan(a),
-    "sinh": lambda a: torch.sinh(a),
-    "cosh": lambda a: torch.cosh(a),
-    "asinh": lambda a: torch.asinh(a),
-    "acosh": lambda a: torch.acosh(a),
-    "atanh": lambda a: torch.atanh(a),
-    "floor": lambda a: torch.floor(a),
-    "ceil": lambda a: torch.ceil(a),
-    "round": lambda a: torch.round(a),
-    "trunc": lambda a: torch.trunc(a),
-    "erf": lambda a: torch.erf(a),
-    "erfc": lambda a: torch.erfc(a),
-    "erfinv": lambda a: torch.erfinv(a),
-    "lgamma": lambda a: torch.lgamma(a),
-    "digamma": lambda a: torch.digamma(a),
-    # Reductions along the last axis (``dim=-1``).  Reductions over a
-    # specific named axis go through the contraction surface.
-    "sum": lambda a: torch.sum(a, dim=-1),
-    "mean": lambda a: torch.mean(a, dim=-1),
-    "var": lambda a: torch.var(a, dim=-1),
-    "std": lambda a: torch.std(a, dim=-1),
-    "min": lambda a: torch.min(a, dim=-1).values,
-    "max": lambda a: torch.max(a, dim=-1).values,
-    "argmin": lambda a: torch.argmin(a, dim=-1),
-    "argmax": lambda a: torch.argmax(a, dim=-1),
-    "prod": lambda a: torch.prod(a, dim=-1),
-    "amax": lambda a: torch.amax(a, dim=-1),
-    "amin": lambda a: torch.amin(a, dim=-1),
-    "logsumexp": lambda a: torch.logsumexp(a, dim=-1),
-    "norm": lambda a, p=2.0: torch.linalg.vector_norm(a, ord=p, dim=-1),
-    # Shape-preserving but global operations on the last axis.
-    "cumsum": lambda a: torch.cumsum(a, dim=-1),
-    "cumprod": lambda a: torch.cumprod(a, dim=-1),
-    "cummax": lambda a: torch.cummax(a, dim=-1).values,
-    "cummin": lambda a: torch.cummin(a, dim=-1).values,
-    "flip": lambda a: torch.flip(a, dims=(-1,)),
-    "sort": lambda a: torch.sort(a, dim=-1).values,
-    # Stochastic / training-mode primitives.  Dropout is a no-op
-    # outside training; layer_norm needs the per-feature shape passed
-    # explicitly.
-    "dropout": lambda a, p=0.5: _F.dropout(a, p=p, training=True),
-    "alpha_dropout": lambda a, p=0.5: _F.alpha_dropout(a, p=p, training=True),
-    "layer_norm": lambda a: _F.layer_norm(a, normalized_shape=(a.shape[-1],)),
-    "rms_norm": lambda a: a * torch.rsqrt(a.pow(2).mean(dim=-1, keepdim=True) + 1e-6),
-}
+_LET_EXPR_BUILTINS: Mapping[str, Callable] = EAGER_BUILTINS
 
 
 def _expected_call_arity(target: object) -> int | None:
@@ -4297,11 +4167,11 @@ class _ProgramsMixin:
                 if func_name == "length":
                     val = arg_fns[0](env)
                     if isinstance(val, list):
-                        return float(len(val))
+                        return len(val)
                     if isinstance(val, torch.Tensor):
-                        return float(val.shape[0])
+                        return val.shape[0]
                     if isinstance(val, tuple):
-                        return float(len(val))
+                        return len(val)
                     raise CompileError(
                         f"length() does not support {type(val).__name__}"
                     )
@@ -4348,7 +4218,7 @@ class _ProgramsMixin:
                             w = torch.tensor(float(w))
                         weights.append(w)
                     return torch.logsumexp(torch.stack(weights), dim=0)
-                if func_name == "logsumexp":
+                if func_name == "logsumexp" and len(arg_fns) > 1:
                     # logsumexp(a, b, ...) over an explicit list of args
                     coll = [fn(env) for fn in arg_fns]
                     coll = [
@@ -4469,7 +4339,13 @@ class _ProgramsMixin:
                 # Standard scalar / tensor builtins.
                 if func_name in _TENSOR_BUILTINS:
                     args = [fn(env) for fn in arg_fns]
-                    return _TENSOR_BUILTINS[func_name](args[0])
+                    try:
+                        return _TENSOR_BUILTINS[func_name](*args)
+                    except TypeError as error:
+                        raise CompileError(
+                            f"builtin {func_name!r} does not accept "
+                            f"{len(args)} argument(s): {error}"
+                        ) from error
                 if func_name == "cholesky_quad_form":
                     args = [fn(env) for fn in arg_fns]
                     # cholesky_quad_form is a tensor builtin; its

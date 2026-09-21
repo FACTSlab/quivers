@@ -166,21 +166,25 @@ The arithmetic sublanguage is interpreted standardly: $\mathbb{R}$-valued and $\
 
 #### 2.3.1 Built-in primitives
 
-The let-expression call form `f(arg, ...)` resolves first against a fixed table of tensor primitives drawn from `torch.nn.functional` and `torch`. The table is exported as [`_LET_EXPR_BUILTINS`](../api/dsl/compiler.md) for introspection. Each primitive denotes the total measurable map of the same name; reductions take `dim=-1` by convention (reductions over a *named* axis go through the typed [`contraction`](../api/dsl/compiler.md) surface instead).
+The let-expression call form `f(arg, ...)` resolves first against the closed
+QIEC primitive registry. Each application is selected by argument type; a
+name without a matching signature is a static error. Reductions consume the
+supplied tensor, while rowwise operations act on its final axis. Reductions
+over a *named* axis go through the typed
+[`contraction`](../api/dsl/compiler.md) surface.
 
 | Category | Primitives |
 | --- | --- |
-| ReLU family | `relu`, `relu6`, `leaky_relu`, `prelu`, `rrelu`, `elu`, `selu`, `celu`, `gelu` |
-| Smooth gates | `silu` (alias `swish`), `mish`, `hardsigmoid`, `hardswish`, `hardtanh`, `hardshrink`, `softplus`, `softshrink`, `softsign` |
-| Sigmoidal | `sigmoid`, `logsigmoid`, `tanh`, `tanhshrink`, `threshold`, `glu` |
-| Probability-simplex | `softmax`, `log_softmax`, `softmin`, `normalize` |
-| Transcendentals | `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, `sqrt`, `rsqrt`, `square`, `abs`, `neg`, `sign`, `reciprocal`, `clamp` |
+| Conversions | `real`, `int`, `weight`, `weight_value` |
+| Arithmetic calls | `pow`, `abs`, `min`, `max` |
+| Activations | `relu`, `relu6`, `elu`, `selu`, `gelu`, `silu`, `mish`, `softplus`, `logsigmoid`, `softsign`, `sigmoid`, `tanh` |
+| Probability-simplex | `softmax`, `log_softmax`, `normalize` |
+| Transcendentals | `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, `sqrt`, `rsqrt`, `square`, `sign`, `reciprocal` |
 | Trigonometric / hyperbolic | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh` |
 | Rounding | `floor`, `ceil`, `round`, `trunc` |
 | Special functions | `erf`, `erfc`, `erfinv`, `lgamma`, `digamma` |
-| Reductions (`dim=-1`) | `sum`, `mean`, `var`, `std`, `min`, `max`, `argmin`, `argmax`, `prod`, `amax`, `amin`, `logsumexp`, `norm` |
-| Cumulative / ordering | `cumsum`, `cumprod`, `cummax`, `cummin`, `flip`, `sort` |
-| Training-mode | `dropout`, `alpha_dropout`, `layer_norm`, `rms_norm` |
+| Reductions | `sum`, `mean`, `min`, `max`, `prod`, `logsumexp` |
+| Rowwise | `cumsum`, `sort` |
 
 <!-- compile: false -->
 ```qvr
@@ -191,7 +195,46 @@ gelu(x)            # smooth gate
 sum(x)             # dim=-1 reduction
 ```
 
-Two names overload between the table and the higher-order combinator pool: `logsumexp(a, b, c, ...)` reduces over an explicit stack of scalar/tensor arguments rather than along `dim=-1`; the variadic form wins on dispatch.
+The eager PyTorch compiler has a larger native table for attachment-backed
+workflows. It does not widen the checked semantics: a native-only call makes
+QIEC elaboration fail with `qiec-program-gap`. The exact split is listed in
+the [let-expression guide](../guides/dsl-programs-and-lets.md#checked-primitive-reference).
+
+#### 2.3.1.1 Finite collection expressions
+
+Let $x = (x_0, \ldots, x_{n-1})$ be a tensor with statically known leading
+extent $n$. The pure collection operations have the following denotations:
+
+$$
+\begin{aligned}
+\llbracket \mathsf{map}(x, f) \rrbracket
+  &= (\llbracket f \rrbracket(x_0), \ldots, \llbracket f \rrbracket(x_{n-1})), \\
+\llbracket \mathsf{fold}(x, z, f) \rrbracket
+  &= f(\cdots f(f(z, x_0), x_1) \cdots, x_{n-1}), \\
+\llbracket \mathsf{length}(x) \rrbracket &= n, \\
+\llbracket \mathsf{logsumexp\_over}(x, f) \rrbracket
+  &= \log \sum_{i=0}^{n-1} \exp(\llbracket f \rrbracket(x_i)).
+\end{aligned}
+$$
+
+`map` lowers to a typed QIEC comprehension. `fold` is a left fold, written
+`fold(xs, init, acc -> item -> body)`, and is elaborated at its fixed extent.
+`filter` remains available to the eager evaluator but has no checked
+denotation because its result length depends on values.
+
+If $k : A \to \mathcal M_+(B)$ is the computation named by a `traverse`
+lambda, then
+
+$$
+\llbracket \mathsf{traverse}(x, k) \rrbracket
+  = k(x_0) \mathbin{\diamond} \cdots \mathbin{\diamond} k(x_{n-1})
+    \mathbin{\diamond} \eta_{B^n}\langle b_0, \ldots, b_{n-1}\rangle.
+$$
+
+The elaborator expands this expression into ordinary calls and binds in source
+order. Thus the callee's effects join the enclosing row, and every call keeps
+a distinct structural path. The [collection reference](../reference/qvr/collection-expressions.md)
+states the surface restrictions and backend boundary.
 
 #### 2.3.2 User-defined callables
 

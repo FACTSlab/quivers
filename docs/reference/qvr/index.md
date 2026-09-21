@@ -22,6 +22,7 @@ and diagnostic codes.
 | declare closed indices, indexed families, constructors, or case analyses | [Types and indexed families](types-and-indexed-families.md) |
 | declare an effect, create lexical instances, write rows, or handle requests | [Effects and handlers](effects-and-handlers.md) |
 | write `define`, call a computation, recurse, branch, or distinguish pure and effectful binding | [Computations](computations.md) |
+| map, traverse, fold, or normalize a fixed tensor | [Finite collection expressions](collection-expressions.md) |
 | write a model with samples, observations, calls, marginalization, groups, or scans | [Probabilistic programs](probabilistic-programs.md) |
 | understand what parsers, deductions, and structural models generate | [Generated computation graphs](generated-computations.md) |
 | list and run entries, attach providers, inspect traces, use the LSP, or check a target | [Execution and tooling](execution-and-tooling.md) |
@@ -107,7 +108,7 @@ Three version identifiers describe different boundaries:
 
 | Identifier | Boundary |
 | --- | --- |
-| `qvr-source/v0.19` | source grammar and elaboration route |
+| `qvr-source/v0.20` | source grammar and elaboration route |
 | `qiec-core/v1alpha1` | typed kernel ABI |
 | `qiec-json/v1` | deterministic serialized envelope |
 

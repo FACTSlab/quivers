@@ -73,6 +73,16 @@ define label() : String !{} =
 
 DECLARATION_ONLY = "index Nat = Z | S(Nat)\n"
 
+COLLECTIONS = """\
+define twice(value : Real) : Real !{} =
+    return value * 2.0
+
+define collection_result() : Tensor[Real]([3]) !{} =
+    let incremented = map([1.0, 2.0, 3.0], value -> value + 1.0)
+    let doubled <- traverse(incremented, value -> twice(value))
+    return doubled
+"""
+
 EFFECTFUL = """\
 effect Ask
     get : Unit -> Int
@@ -313,6 +323,21 @@ def test_mixed_module_preserves_model_abi_and_named_qiec_entrypoint(
     assert b"model" in output
 
 
+@pytest.mark.parametrize("target", DYNAMIC_TARGETS)
+def test_dynamic_targets_emit_checked_collection_programs(target: str) -> None:
+    output = transpile(parse(COLLECTIONS), target=target)
+
+    assert b"qiec_collection_result" in output
+
+
+@pytest.mark.parametrize("target", STATIC_TARGETS)
+def test_static_targets_refuse_collection_capabilities(target: str) -> None:
+    with pytest.raises(UnsupportedConstruct) as captured:
+        transpile(parse(COLLECTIONS), target=target)
+
+    assert any("comprehension" in kind for kind in captured.value.kinds)
+
+
 @pytest.mark.parametrize("target", ("bugs", "jags"))
 def test_dataflow_targets_emit_valid_declaration_only_noop(target: str) -> None:
     output = transpile(parse(DECLARATION_ONLY), target=target)
@@ -436,6 +461,13 @@ def test_generated_python_qiec_functions_execute(target: str) -> None:
 
     assert namespace["qiec_answer"]() == 42  # type: ignore[operator]
     assert namespace["qiec_identity"](17) == 17  # type: ignore[operator]
+
+
+def test_generated_pyro_collection_program_executes() -> None:
+    namespace: dict[str, object] = {}
+    exec(transpile(parse(COLLECTIONS), target="pyro"), namespace)
+
+    assert namespace["qiec_collection_result"]() == (4.0, 6.0, 8.0)  # type: ignore[operator]
 
 
 def test_generated_python_operation_and_handler_abis_use_stable_ids() -> None:

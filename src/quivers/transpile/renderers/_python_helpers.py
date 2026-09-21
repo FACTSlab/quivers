@@ -36,6 +36,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.ast_nodes.let_expressions import LetFactorBinder
 from quivers.dsl.ast_nodes.objects import TypeName
+from quivers.dsl.pure_builtins import EAGER_BUILTIN_NAMES
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.family_meta import FAMILY_META, marginalize_support
 from quivers.transpile.ir import (
@@ -654,101 +655,8 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
 }
 
 
-#: Names of the tensor primitives a let-expression body may call, mirrored
-#: from ``quivers.dsl.compiler.programs._LET_EXPR_BUILTINS`` (the native
-#: torch dispatch table). Kept as a literal so this schema-building helper
-#: stays decoupled from the torch execution path; a drift guard in the test
-#: suite asserts it matches the compiler's table.
-_MATH_BUILTIN_NAMES: frozenset[str] = frozenset(
-    {
-        "relu",
-        "relu6",
-        "leaky_relu",
-        "prelu",
-        "rrelu",
-        "elu",
-        "selu",
-        "celu",
-        "gelu",
-        "silu",
-        "swish",
-        "mish",
-        "hardtanh",
-        "hardshrink",
-        "hardsigmoid",
-        "hardswish",
-        "softplus",
-        "softshrink",
-        "softsign",
-        "softmax",
-        "log_softmax",
-        "softmin",
-        "tanh",
-        "tanhshrink",
-        "sigmoid",
-        "logsigmoid",
-        "threshold",
-        "glu",
-        "normalize",
-        "exp",
-        "expm1",
-        "log",
-        "log1p",
-        "log2",
-        "log10",
-        "sqrt",
-        "rsqrt",
-        "square",
-        "abs",
-        "neg",
-        "sign",
-        "reciprocal",
-        "clamp",
-        "sin",
-        "cos",
-        "tan",
-        "asin",
-        "acos",
-        "atan",
-        "sinh",
-        "cosh",
-        "asinh",
-        "acosh",
-        "atanh",
-        "floor",
-        "ceil",
-        "round",
-        "trunc",
-        "erf",
-        "erfc",
-        "erfinv",
-        "lgamma",
-        "digamma",
-        "sum",
-        "mean",
-        "var",
-        "std",
-        "min",
-        "max",
-        "argmin",
-        "argmax",
-        "prod",
-        "amax",
-        "amin",
-        "logsumexp",
-        "norm",
-        "cumsum",
-        "cumprod",
-        "cummax",
-        "cummin",
-        "flip",
-        "sort",
-        "dropout",
-        "alpha_dropout",
-        "layer_norm",
-        "rms_norm",
-    }
-)
+#: Eager builtin names come from the same capability registry as the compiler.
+_MATH_BUILTIN_NAMES = EAGER_BUILTIN_NAMES
 
 
 def _resolve_python_call(ctx: PyCtx, func: str) -> str:

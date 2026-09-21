@@ -149,18 +149,19 @@ as the tuple `CHAIN`:
 | `v0.15.0 → v0.16.0` | manifest-verified identity |
 | `v0.16.0 → v0.17.0` | manifest-verified identity |
 | `v0.17.0 → v0.18.0` | manifest-verified identity |
-| `v0.18.0 → HEAD` | additive QIEC hop; validates both revisions and preserves source bytes |
+| `v0.18.0 → v0.19.0` | additive QIEC hop; validates both revisions and preserves source bytes |
+| `v0.19.0 → HEAD` | additive layout hop; validates both revisions and preserves source bytes |
 
 The v0.5.0 → v0.6.0 and v0.7.0 → v0.9.0 modules have empty converter
 tables. Every other non-identity structural hop declares the source rules it
 converts through
 [`SOURCE_RULE_COVERAGE`](#-check-mode-coverage-against-the-vcs).
 
-The final hop adds the indexed-family and algebraic-effect grammar without
-removing any production of the previous release. Thus migration does not invent indices, effect
-rows, or handlers in v0.18 input. It validates the input with the pinned
-v0.18 parser, validates the unchanged bytes again with the current parser, and
-leaves deliberate QIEC adoption to the author.
+The v0.18 to v0.19 hop adds the indexed-family and algebraic-effect grammar
+without removing a previous production. Thus migration does not invent
+indices, effect rows, or handlers in v0.18 input. The final hop accepts
+hanging-indented delimiters while retaining every v0.19 layout. Both hops
+validate unchanged bytes with their pinned source and target parsers.
 
 ## `--check` mode: coverage against the VCS
 

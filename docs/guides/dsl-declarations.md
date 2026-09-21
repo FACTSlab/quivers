@@ -632,7 +632,7 @@ define composed = f >> g >> h
 
 For arithmetic and family-argument `let` expressions inside a
 `program` block, see
-[Programs and Let-Expressions](dsl-programs-and-lets.md#let-expressions-arithmetic-and-primitives).
+[Programs and Let-Expressions](dsl-programs-and-lets.md#let-expressions-arithmetic-primitives-and-collections).
 
 ### `where` clauses
 

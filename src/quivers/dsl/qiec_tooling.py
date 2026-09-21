@@ -79,11 +79,14 @@ QIEC_DIAGNOSTIC_CODES = frozenset(
         "qiec-handler-body",
         "qiec-unhandled-effect",
         "qiec-backend",
+        "qiec-builtin:host-only",
         "qiec-call",
         "qiec-call-arity",
+        "qiec-collection:filter:dynamic-shape",
         "qiec-recursion",
         "qiec-resumption",
         "qiec-instance-escape",
+        "qiec-program-gap",
     }
 )
 
@@ -269,11 +272,18 @@ def analyze_module(
             file_path=file_path or "<source>",
         )
         qiec_module = compiler.qiec_module
+        if qiec_module is not None and qiec_module.gap:
+            qiec_diags.append(
+                QiecToolingDiagnostic(
+                    message=qiec_module.gap,
+                    code="qiec-program-gap",
+                )
+            )
     except Exception as error:
         if not has_qiec_surface(module):
             raise
         qiec_diags.append(qiec_diagnostic(error))
-        compiler = Compiler(non_qiec_module)
+        compiler = Compiler(non_qiec_module, lower_qiec=False)
     compile_error: CompileError | None = None
     try:
         env = compiler.compile_env()

@@ -41,9 +41,12 @@ from quivers.qiec.programs import ProgramEntry
 from quivers.qiec.effects import render_row
 from quivers.qiec.types import render_static
 from quivers.dsl.qiec_diagnostics import QiecDiagnosticError
+from quivers.dsl.let_expr_traversal import substitute_let_expr
 from quivers.dsl.pure_builtins import (
+    HOST_ONLY_BUILTINS,
     _BINARY_PRIMITIVES,
     _BUILTIN_PRIMITIVES,
+    _COLLECTION_BUILTINS,
     _REDUCTIONS,
     _ROWWISE,
 )
@@ -172,7 +175,7 @@ from quivers.qiec import (
 )
 
 
-QVR_SOURCE_VERSION = "qvr-source/v0.19"
+QVR_SOURCE_VERSION = "qvr-source/v0.20"
 
 QIEC_STATEMENT_TYPES = (
     surface.QiecIndexDecl,
@@ -360,42 +363,7 @@ def _substitute_let(
         The expression with every free occurrence replaced; a lambda or
         factor binder shadows the substitution inside its body.
     """
-    if isinstance(expr, surface.LetExprVar):
-        return substitution.get(expr.name, expr)
-    if isinstance(expr, surface.LetExprBinOp):
-        return expr.with_(
-            left=_substitute_let(expr.left, substitution),
-            right=_substitute_let(expr.right, substitution),
-        )
-    if isinstance(expr, surface.LetExprUnaryOp):
-        return expr.with_(operand=_substitute_let(expr.operand, substitution))
-    if isinstance(expr, surface.LetExprCall):
-        return expr.with_(
-            args=tuple(_substitute_let(item, substitution) for item in expr.args)
-        )
-    if isinstance(expr, surface.LetExprIndex):
-        return expr.with_(
-            array=_substitute_let(expr.array, substitution),
-            indices=tuple(_substitute_let(item, substitution) for item in expr.indices),
-        )
-    if isinstance(expr, surface.LetExprList | surface.LetExprTuple):
-        return expr.with_(
-            items=tuple(_substitute_let(item, substitution) for item in expr.items)
-        )
-    if isinstance(expr, surface.LetExprLambda):
-        inner = {k: v for k, v in substitution.items() if k != expr.param}
-        return expr.with_(body=_substitute_let(expr.body, inner))
-    if isinstance(expr, surface.LetExprFactor):
-        bound = {binder.var for binder in expr.binders}
-        inner = {k: v for k, v in substitution.items() if k not in bound}
-        return expr.with_(
-            body=None if expr.body is None else _substitute_let(expr.body, inner),
-            cases=tuple(
-                case.with_(value=_substitute_let(case.value, inner))
-                for case in expr.cases
-            ),
-        )
-    return expr
+    return substitute_let_expr(expr, substitution)
 
 
 _EXPRESSION_FORMS = {
@@ -2794,6 +2762,15 @@ class _Elaborator(
                     path,
                     expected,
                 )
+            if authored.func in _COLLECTION_BUILTINS:
+                return self._lower_collection_value(
+                    authored,
+                    scope,
+                    context,
+                    static_bindings,
+                    path,
+                    expected,
+                )
             arguments = tuple(
                 self._lower_value(
                     argument, scope, context, static_bindings, (*path, position)
@@ -2858,6 +2835,252 @@ class _Elaborator(
                 code="qiec-primitive",
             )
         self._fail(authored, "unknown QIEC value")
+
+    def _collection_lambda(
+        self,
+        authored: surface.LetExprCall,
+        position: int,
+    ) -> surface.LetExprLambda:
+        """Resolve one inline or locally named lambda argument."""
+        if position >= len(authored.args):
+            self._fail(
+                authored,
+                f"{authored.func} expects a lambda at argument {position + 1}",
+                code="qiec-primitive",
+            )
+        argument = authored.args[position]
+        if isinstance(argument, surface.LetExprLambda):
+            return argument
+        if isinstance(argument, surface.LetExprVar):
+            macro = self._lambda_macros.get(argument.name)
+            if macro is not None:
+                return macro
+        self._fail(
+            argument,
+            f"argument {position + 1} of {authored.func!r} must be a lambda",
+            code="qiec-primitive",
+        )
+
+    def _indexed_collection_item(
+        self,
+        source: surface.LetExprNode,
+        index: surface.LetExprNode,
+    ) -> surface.LetExprIndex:
+        """Build the source expression selecting one leading-axis item."""
+        return surface.LetExprIndex(
+            array=source,
+            indices=(index,),
+            line=getattr(source, "line", 0),
+            col=getattr(source, "col", 0),
+        )
+
+    def _fresh_collection_index(
+        self,
+        context: CheckContext,
+        path: tuple[str | int, ...],
+    ) -> str:
+        """Choose a deterministic comprehension index absent from ``context``."""
+        stem = "_".join(str(item) for item in path if isinstance(item, str))
+        base = f"__{stem or 'collection'}_index"
+        occupied = {local.name for local in context.locals}
+        name = base
+        suffix = 0
+        while name in occupied:
+            suffix += 1
+            name = f"{base}_{suffix}"
+        return name
+
+    def _lower_map(
+        self,
+        authored: surface.LetExprCall,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+    ) -> Comprehension:
+        """Lower a pure leading-axis ``map`` to a QIEC comprehension."""
+        if len(authored.args) != 2:
+            self._fail(
+                authored,
+                f"map takes 2 arguments, got {len(authored.args)}",
+                code="qiec-primitive",
+            )
+        source_expr = authored.args[0]
+        source = self._lower_value(
+            source_expr, scope, context, static_bindings, (*path, "source")
+        )
+        source_type = self._value_type(source, context, source_expr)
+        source_shape = tensor_shape(source_type)
+        if source_shape is None or not source_shape[1]:
+            self._fail(
+                source_expr,
+                f"map expects a non-scalar tensor, got {self._render(source_type)}",
+                code="qiec-primitive",
+            )
+        function = self._collection_lambda(authored, 1)
+        index = Local(self._fresh_collection_index(context, path), INT)
+        indexed = self._indexed_collection_item(
+            source_expr,
+            surface.LetExprVar(
+                name=index.name,
+                line=authored.line,
+                col=authored.col,
+            ),
+        )
+        body_expr = substitute_let_expr(function.body, {function.param: indexed})
+        body_context = context.extend(index)
+        body = self._lower_value(
+            body_expr,
+            scope,
+            body_context,
+            static_bindings,
+            (*path, "body"),
+        )
+        body_type = self._value_type(body, body_context, body_expr)
+        inner = tensor_shape(body_type)
+        result = (
+            tensor_type(body_type, (source_shape[1][0],))
+            if inner is None
+            else tensor_type(inner[0], (source_shape[1][0], *inner[1]))
+        )
+        return Comprehension(index, source_shape[1][0], body, result)
+
+    def _lower_collection_value(
+        self,
+        authored: surface.LetExprCall,
+        scope: Telescope,
+        context: CheckContext,
+        static_bindings: Mapping[str, StaticArgument] | None,
+        path: tuple[str | int, ...],
+        expected: TypeExpr | None,
+    ) -> Value:
+        """Lower the checked pure collection operations."""
+        if authored.func == "map":
+            return self._lower_map(authored, scope, context, static_bindings, path)
+        if authored.func == "length":
+            if len(authored.args) != 1:
+                self._fail(
+                    authored,
+                    f"length takes 1 argument, got {len(authored.args)}",
+                    code="qiec-primitive",
+                )
+            source = self._lower_value(
+                authored.args[0],
+                scope,
+                context,
+                static_bindings,
+                (*path, "source"),
+            )
+            source_type = self._value_type(source, context, authored.args[0])
+            shape = tensor_shape(source_type)
+            if shape is None or not shape[1]:
+                self._fail(
+                    authored.args[0],
+                    f"length expects a non-scalar tensor, got "
+                    f"{self._render(source_type)}",
+                    code="qiec-primitive",
+                )
+            extent = shape[1][0]
+            if not isinstance(extent, IndexLiteral):
+                self._fail(
+                    authored,
+                    "length of a statically polymorphic tensor is an index term, "
+                    "not an Int value; specialize the extent before using length",
+                    code="qiec-primitive",
+                )
+            return LiteralValue(int(extent.value), INT)
+        if authored.func == "fold":
+            if len(authored.args) != 3:
+                self._fail(
+                    authored,
+                    f"fold takes 3 arguments, got {len(authored.args)}",
+                    code="qiec-primitive",
+                )
+            source_expr, current, _function = authored.args
+            source = self._lower_value(
+                source_expr,
+                scope,
+                context,
+                static_bindings,
+                (*path, "source"),
+            )
+            source_type = self._value_type(source, context, source_expr)
+            shape = tensor_shape(source_type)
+            if shape is None or not shape[1]:
+                self._fail(
+                    source_expr,
+                    f"fold expects a non-scalar tensor, got "
+                    f"{self._render(source_type)}",
+                    code="qiec-primitive",
+                )
+            extent = shape[1][0]
+            if not isinstance(extent, IndexLiteral):
+                self._fail(
+                    authored,
+                    "fold requires a statically known leading extent",
+                    code="qiec-primitive",
+                )
+            accumulator = self._collection_lambda(authored, 2)
+            if not isinstance(accumulator.body, surface.LetExprLambda):
+                self._fail(
+                    accumulator.body,
+                    "fold's lambda is curried as `acc -> item -> body`",
+                    code="qiec-primitive",
+                )
+            item_lambda = accumulator.body
+            for position in range(int(extent.value)):
+                item = self._indexed_collection_item(
+                    source_expr,
+                    surface.LetExprLiteral(
+                        value=float(position),
+                        integral=True,
+                        line=authored.line,
+                        col=authored.col,
+                    ),
+                )
+                current = substitute_let_expr(
+                    item_lambda.body,
+                    {accumulator.param: current, item_lambda.param: item},
+                )
+            return self._lower_value(
+                current,
+                scope,
+                context,
+                static_bindings,
+                (*path, "result"),
+                expected,
+            )
+        if authored.func == "logsumexp_over":
+            if len(authored.args) != 2:
+                self._fail(
+                    authored,
+                    f"logsumexp_over takes 2 arguments, got {len(authored.args)}",
+                    code="qiec-primitive",
+                )
+            mapped = self._lower_map(
+                authored.with_(func="map"),
+                scope,
+                context,
+                static_bindings,
+                (*path, "map"),
+            )
+            mapped_type = self._value_type(mapped, context, authored)
+            shape = tensor_shape(mapped_type)
+            if shape is None or len(shape[1]) != 1 or shape[0] != REAL:
+                self._fail(
+                    authored,
+                    "logsumexp_over's lambda must return one Real per item",
+                    code="qiec-primitive",
+                )
+            return Reduction("logsumexp", mapped, REAL)
+        if authored.func == "filter":
+            self._fail(
+                authored,
+                "filter has data-dependent output length, which fixed-shape QIEC "
+                "tensors cannot represent; use a Boolean mask and a reduction",
+                code="qiec-collection:filter:dynamic-shape",
+            )
+        self._fail(authored, f"unknown collection builtin {authored.func!r}")
 
     def _goal_weight_value(
         self,
@@ -3435,6 +3658,13 @@ class _Elaborator(
         """
         overloads = _BUILTIN_PRIMITIVES.get(authored.func)
         if overloads is None:
+            if authored.func in HOST_ONLY_BUILTINS:
+                self._fail(
+                    authored,
+                    f"builtin {authored.func!r} is available only to native eager "
+                    "execution and has no checked QIEC lowering",
+                    code="qiec-builtin:host-only",
+                )
             if authored.func in self.computation_signatures:
                 self._fail(
                     authored,
@@ -4123,6 +4353,28 @@ class _Elaborator(
                 )
             return If(condition, then, otherwise)
         if isinstance(authored, surface.QiecPureBinding):
+            if isinstance(authored.value, surface.LetExprLambda):
+                if authored.binder.type_expr is not None:
+                    self._fail(
+                        authored.binder,
+                        "a lambda macro cannot carry a first-order value type",
+                        code="qiec-primitive",
+                    )
+                previous = self._lambda_macros.get(authored.binder.name)
+                self._lambda_macros[authored.binder.name] = authored.value
+                try:
+                    return self._lower_computation(
+                        authored.then,
+                        scope,
+                        context,
+                        (*path, "then"),
+                        static_bindings,
+                    )
+                finally:
+                    if previous is None:
+                        del self._lambda_macros[authored.binder.name]
+                    else:
+                        self._lambda_macros[authored.binder.name] = previous
             # A pure binding is a bind of a returned value. The core has
             # one sequencing form, and keeping it that way means every
             # later pass sees one shape rather than two that behave the
@@ -4271,7 +4523,7 @@ class _Elaborator(
         context: CheckContext,
         path: tuple[str | int, ...],
         static_bindings: Mapping[str, StaticArgument] | None,
-    ) -> Call:
+    ) -> Computation:
         """Lower an application of a named computation.
 
         The callee is resolved against the signature table, which is
@@ -4304,6 +4556,8 @@ class _Elaborator(
             If the callee is undeclared, or the static arguments do not
             instantiate its telescope.
         """
+        if authored.callee == "traverse":
+            return self._lower_traverse(authored, scope, context, path, static_bindings)
         signature = self.computation_signatures.get(authored.callee)
         if signature is None:
             self._fail(
@@ -4343,6 +4597,147 @@ class _Elaborator(
             substitute_row(signature.effects, substitution),
             self._origin(authored, path, "call"),
         )
+
+    def _lower_traverse(
+        self,
+        authored: surface.QiecCallComputation,
+        scope: Telescope,
+        context: CheckContext,
+        path: tuple[str | int, ...],
+        static_bindings: Mapping[str, StaticArgument] | None,
+    ) -> Computation:
+        """Sequence one computation call per item of a fixed tensor.
+
+        ``traverse(xs, x -> f(x, ...))`` is computation syntax, unlike
+        pure ``map``.  Its finite leading extent is expanded into ordinary
+        QIEC calls and binds, so effect rows, site provenance, interpreters,
+        and every transpiler continue to consume the existing checked core.
+        """
+        if authored.static_arguments:
+            self._fail(
+                authored,
+                "traverse takes no static arguments",
+                code="qiec-kind",
+            )
+        if len(authored.arguments) != 2:
+            self._fail(
+                authored,
+                f"traverse takes 2 arguments, got {len(authored.arguments)}",
+                code="qiec-primitive",
+            )
+        source_expr = authored.arguments[0]
+        source = self._lower_value(
+            source_expr, scope, context, static_bindings, (*path, "source")
+        )
+        source_type = self._value_type(source, context, source_expr)
+        shape = tensor_shape(source_type)
+        if shape is None or not shape[1]:
+            self._fail(
+                source_expr,
+                f"traverse expects a non-scalar tensor, got "
+                f"{self._render(source_type)}",
+                code="qiec-primitive",
+            )
+        extent = shape[1][0]
+        if not isinstance(extent, IndexLiteral):
+            self._fail(
+                authored,
+                "traverse requires a statically known leading extent",
+                code="qiec-primitive",
+            )
+        count = int(extent.value)
+        if count == 0:
+            self._fail(
+                authored,
+                "traverse cannot infer the result type of an empty tensor",
+                code="qiec-primitive",
+            )
+        function_arg = authored.arguments[1]
+        if isinstance(function_arg, surface.LetExprLambda):
+            function = function_arg
+        elif isinstance(function_arg, surface.LetExprVar):
+            function = self._lambda_macros.get(function_arg.name)
+            if function is None:
+                self._fail(
+                    function_arg,
+                    f"unknown lambda macro {function_arg.name!r}",
+                    code="qiec-primitive",
+                )
+        else:
+            self._fail(
+                function_arg,
+                "traverse's second argument must be a lambda",
+                code="qiec-primitive",
+            )
+        if not isinstance(function.body, surface.LetExprCall):
+            self._fail(
+                function.body,
+                "traverse's lambda body must call a named computation",
+                code="qiec-primitive",
+            )
+
+        calls: list[tuple[Local, Computation]] = []
+        result_type: TypeExpr | None = None
+        occupied = {local.name for local in context.locals}
+        for position in range(count):
+            item = self._indexed_collection_item(
+                source_expr,
+                surface.LetExprLiteral(
+                    value=float(position),
+                    integral=True,
+                    line=authored.line,
+                    col=authored.col,
+                ),
+            )
+            applied = substitute_let_expr(function.body, {function.param: item})
+            assert isinstance(applied, surface.LetExprCall)
+            call_surface = surface.QiecCallComputation(
+                callee=applied.func,
+                arguments=applied.args,
+                line=applied.line,
+                col=applied.col,
+            )
+            call = self._lower_call(
+                call_surface,
+                scope,
+                context,
+                (*path, "items", position),
+                static_bindings,
+            )
+            try:
+                inferred = infer_computation(call, self.registry, context)
+            except (KernelError, TypeError, ValueError) as error:
+                self._fail_kernel(applied, error)
+            if result_type is None:
+                result_type = inferred.result
+            elif inferred.result != result_type:
+                self._fail(
+                    applied,
+                    "traverse calls return inconsistent types",
+                    code="qiec-primitive",
+                )
+            base = f"__traverse_{position}"
+            name = base
+            suffix = 0
+            while name in occupied:
+                suffix += 1
+                name = f"{base}_{suffix}"
+            occupied.add(name)
+            calls.append((Local(name, inferred.result), call))
+
+        assert result_type is not None
+        inner = tensor_shape(result_type)
+        tensor_result = (
+            tensor_type(result_type, (extent,))
+            if inner is None
+            else tensor_type(inner[0], (extent, *inner[1]))
+        )
+        body: Computation = Return(
+            TensorValue(tuple(Var(local) for local, _call in calls), tensor_result)
+        )
+        for local, call in reversed(calls):
+            body = Bind(local, call, body)
+        return body
 
     def _lower_case(
         self,

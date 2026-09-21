@@ -45,7 +45,8 @@ from quivers.cli.migrations import v0_7_0_to_v0_9_0 as _hop_7_9
 from quivers.cli.migrations import v0_10_0_to_v0_11_0 as _hop_10_11
 from quivers.cli.migrations import v0_11_0_to_v0_14_0 as _hop_11_14
 from quivers.cli.migrations import v0_14_0_to_v0_15_0 as _hop_14_15
-from quivers.cli.migrations import v0_18_0_to_head as _hop_18_head
+from quivers.cli.migrations import v0_18_0_to_v0_19_0 as _hop_18_19
+from quivers.cli.migrations import v0_19_0_to_head as _hop_19_head
 from quivers.cli.migrations import _identity
 from quivers.cli.migrations._common import MigrationError
 from quivers.cli.migrations._manifest import SCHEMA_COMMITS, revisions_are_identical
@@ -93,6 +94,7 @@ CHAIN: tuple[str, ...] = (
     "v0.16.0",
     "v0.17.0",
     "v0.18.0",
+    "v0.19.0",
     "HEAD",
 )
 
@@ -111,7 +113,8 @@ MIGRATORS: dict[tuple[str, str], _Migrator] = {
     ("v0.15.0", "v0.16.0"): _identity.migrator("v0.15.0", "v0.16.0"),
     ("v0.16.0", "v0.17.0"): _identity.migrator("v0.16.0", "v0.17.0"),
     ("v0.17.0", "v0.18.0"): _identity.migrator("v0.17.0", "v0.18.0"),
-    ("v0.18.0", "HEAD"): _hop_18_head.migrate,
+    ("v0.18.0", "v0.19.0"): _hop_18_19.migrate,
+    ("v0.19.0", "HEAD"): _hop_19_head.migrate,
 }
 
 # Per-hop coverage declarations: source-side rule names each hop's
@@ -132,7 +135,8 @@ COVERAGE: dict[tuple[str, str], frozenset[str]] = {
     ("v0.15.0", "v0.16.0"): _identity.SOURCE_RULE_COVERAGE,
     ("v0.16.0", "v0.17.0"): _identity.SOURCE_RULE_COVERAGE,
     ("v0.17.0", "v0.18.0"): _identity.SOURCE_RULE_COVERAGE,
-    ("v0.18.0", "HEAD"): _hop_18_head.SOURCE_RULE_COVERAGE,
+    ("v0.18.0", "v0.19.0"): _hop_18_19.SOURCE_RULE_COVERAGE,
+    ("v0.19.0", "HEAD"): _hop_19_head.SOURCE_RULE_COVERAGE,
 }
 
 

@@ -70,6 +70,53 @@ def test_check_exposes_stable_qiec_diagnostic_code(tmp_path: Path) -> None:
     ]
 
 
+def test_host_only_builtin_is_visible_to_cli_and_lsp(tmp_path: Path) -> None:
+    source = """object X : Real 1
+
+program native_only : X -> X
+    let y = dropout(x)
+    return y
+
+export native_only
+"""
+    path = tmp_path / "native-only.qvr"
+    path.write_text(source)
+
+    diagnostics = _check_one(path)
+    assert "qiec-builtin:host-only" in {diagnostic.code for diagnostic in diagnostics}
+
+    document = DocumentState(uri=path.as_uri())
+    document.update(source=source, version=1)
+    assert "qiec-builtin:host-only" in {
+        diagnostic.code for diagnostic in document.diagnostics
+    }
+    assert document.qiec_module is None
+
+
+def test_program_elaboration_gap_is_visible_to_cli_and_lsp(tmp_path: Path) -> None:
+    source = """object X : Real 1
+
+program omitted : X -> X
+    let y = external_helper(x)
+    return y
+
+export omitted
+"""
+    path = tmp_path / "program-gap.qvr"
+    path.write_text(source)
+
+    diagnostics = _check_one(path)
+    assert "qiec-program-gap" in {diagnostic.code for diagnostic in diagnostics}
+
+    document = DocumentState(uri=path.as_uri())
+    document.update(source=source, version=1)
+    assert "qiec-program-gap" in {
+        diagnostic.code for diagnostic in document.diagnostics
+    }
+    assert document.qiec_module is not None
+    assert document.qiec_module.gap
+
+
 def test_cli_and_repl_keep_parse_error_locations(tmp_path: Path) -> None:
     """One malformed source, one location, reported the same way twice.
 
@@ -144,6 +191,12 @@ def test_completion_omits_ambiguous_bare_qiec_members() -> None:
     names = {item.text for item in all_completions(session, "")}
     assert {"Reader.get", "Writer.get"} <= names
     assert "get" not in names
+
+
+def test_completion_includes_collection_operations() -> None:
+    session = ReplSession()
+    assert "map" in {item.text for item in all_completions(session, "ma")}
+    assert "traverse" in {item.text for item in all_completions(session, "tra")}
 
 
 def test_document_state_retains_checked_qiec_and_nested_declarations() -> None:

@@ -2,7 +2,7 @@
   "name": "vscode-qvr",
   "displayName": "QVR Language Support",
   "description": "Syntax highlighting and LSP support for the Quivers QVR probabilistic programming language",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "quivers",
   "repository": {
     "type": "git",
@@ -63,7 +63,20 @@
         "qvr.transpileTarget": {
           "type": "string",
           "default": "",
-          "enum": ["", "bugs", "church", "edward2", "gen", "jags", "numpyro", "pymc", "pyro", "stan", "turing", "webppl"],
+          "enum": [
+            "",
+            "bugs",
+            "church",
+            "edward2",
+            "gen",
+            "jags",
+            "numpyro",
+            "pymc",
+            "pyro",
+            "stan",
+            "turing",
+            "webppl"
+          ],
           "description": "Selected transpile target for live QIEC capability diagnostics."
         }
       }

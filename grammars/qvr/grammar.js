@@ -622,20 +622,10 @@ module.exports = grammar({
      * read as a bare variable. */
     qiec_call_computation: $ => seq(
       field('callee', $.identifier),
-      optional(seq(
-        '[',
-        field('static_arguments', $.qiec_static_argument),
-        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
-        optional(','),
-        ']',
+      optional(bracketedList(
+        $, '[', field('static_arguments', $.qiec_static_argument), ']',
       )),
-      '(',
-      optional(seq(
-        field('arguments', $._qiec_value),
-        repeat(seq(',', field('arguments', $._qiec_value))),
-        optional(','),
-      )),
-      ')',
+      parenthesizedList($, field('arguments', $._qiec_value)),
       $._newline,
     ),
 
@@ -660,20 +650,10 @@ module.exports = grammar({
       field('instance', $.identifier),
       '.',
       field('operation', $.identifier),
-      optional(seq(
-        '[',
-        field('static_arguments', $.qiec_static_argument),
-        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
-        optional(','),
-        ']',
+      optional(bracketedList(
+        $, '[', field('static_arguments', $.qiec_static_argument), ']',
       )),
-      '(',
-      optional(seq(
-        field('arguments', $._qiec_value),
-        repeat(seq(',', field('arguments', $._qiec_value))),
-        optional(','),
-      )),
-      ')',
+      parenthesizedList($, field('arguments', $._qiec_value)),
     ),
 
     qiec_handle_computation: $ => seq(
@@ -796,20 +776,10 @@ module.exports = grammar({
     qiec_constructor_value: $ => seq(
       'construct',
       field('constructor', $.identifier),
-      optional(seq(
-        '[',
-        field('static_arguments', $.qiec_static_argument),
-        repeat(seq(',', field('static_arguments', $.qiec_static_argument))),
-        optional(','),
-        ']',
+      optional(bracketedList(
+        $, '[', field('static_arguments', $.qiec_static_argument), ']',
       )),
-      '(',
-      optional(seq(
-        field('fields', $._qiec_value),
-        repeat(seq(',', field('fields', $._qiec_value))),
-        optional(','),
-      )),
-      ')',
+      parenthesizedList($, field('fields', $._qiec_value)),
       'as',
       field('result', $._qiec_type_expr),
     ),
@@ -2078,9 +2048,7 @@ module.exports = grammar({
       field('receiver', $.let_var),
       '.',
       field('method', $.identifier),
-      '(',
-      optional(field('args', commaSep1($._let_arith))),
-      ')',
+      parenthesizedList($, field('args', $._let_arith)),
     )),
 
     let_index: $ => prec.left(seq(
@@ -2094,9 +2062,7 @@ module.exports = grammar({
 
     let_call: $ => prec(1, seq(
       field('func', $.identifier),
-      '(',
-      optional(field('args', commaSep1($._let_arith))),
-      ')',
+      parenthesizedList($, field('args', $._let_arith)),
     )),
 
     let_unary: $ => prec(PREC.let_unary, seq(
@@ -2244,6 +2210,14 @@ function bracketedList($, open, item, close) {
     seq(
       open,
       $._newline,
+      $._indent,
+      repeat1(seq(item, ',', $._newline)),
+      $._dedent,
+      close,
+    ),
+    seq(
+      open,
+      $._newline,
       repeat($._newline),
       item,
       repeat(seq(',', repeat1($._newline), item)),
@@ -2251,4 +2225,10 @@ function bracketedList($, open, item, close) {
       close,
     ),
   );
+}
+
+/* A possibly empty argument list. Non-empty lists inherit the same hanging
+ * layout as square- and brace-delimited lists. */
+function parenthesizedList($, item) {
+  return choice(seq('(', ')'), bracketedList($, '(', item, ')'));
 }

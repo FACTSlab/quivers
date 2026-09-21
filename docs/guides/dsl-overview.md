@@ -132,7 +132,7 @@ plates are typed tensor shapes, and whose `marginalize` blocks are helper
 computations enumerated under the prelude's enumeration handler. Quivers
 constructs the module's first-order projection through Didactic's `GADT` API,
 which checks indexed-family declarations and constructor refinements through
-Panproto; Didactic then negotiates the exact route `qvr-source/v0.19` to
+Panproto; Didactic then negotiates the exact route `qvr-source/v0.20` to
 `qiec-core/v1alpha1`, and the QIEC checker validates effect rows, handler
 coverage, call graphs, and branch-local evidence over the whole module at
 once.

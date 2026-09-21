@@ -18,6 +18,8 @@ the line immediately preceding the opening fence:
   fragments.
 * ``<!-- compile: qiec -->``       — parse and lower the block through the
   exact QVR to QIEC route beside the categorical Program compiler.
+* ``<!-- compile: qiec-cumulative -->`` — concatenate successive blocks and
+  lower each accumulated source through QIEC.
 * (no marker)                      — ``standalone``: the block must
   compile on its own.
 
@@ -84,7 +86,8 @@ def _dedent_fence_body(indent: str, body: str) -> str:
 
 
 _QVR_MARKER_RE = re.compile(
-    r"<!--\s*compile:\s*(false|standalone|cumulative|qiec)\s*-->"
+    r"<!--\s*compile:\s*"
+    r"(false|standalone|cumulative|qiec|qiec-cumulative)\s*-->"
 )
 _PY_MARKER_RE = re.compile(r"<!--\s*python:\s*(skip|run)\s*-->")
 
@@ -126,7 +129,7 @@ def _collect_qvr_blocks() -> list[tuple[str, int, str, str]]:
             mode = _qvr_marker_before(text, m.start())
             if mode == "false":
                 continue
-            if mode == "cumulative":
+            if mode in ("cumulative", "qiec-cumulative"):
                 source = cumulative_prefix + body
                 cumulative_prefix = source + "\n"
             else:
@@ -164,7 +167,7 @@ _PY_BLOCKS = _collect_py_blocks()
 )
 def test_qvr_doc_block(path: str, index: int, mode: str, source: str) -> None:
     del path  # carried only for readable test ids
-    if mode == "qiec":
+    if mode in ("qiec", "qiec-cumulative"):
         from quivers.dsl.parser import parse
         from quivers.dsl.qiec_lowering import lower_qvr_to_qiec
 

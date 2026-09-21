@@ -21,8 +21,9 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 11. **[Parsing as an effectful computation](qvr/11-parsing-and-search.md)**. Schema-backed parsers, generated search and weight effects, reference inside scores, and parser calls from probabilistic programs.
 12. **[Structural autoencoders](qvr/12-structural-autoencoders.md)**. Signatures, encoder and decoder attachments, checked loss invocation, autograd, and checkpoint registration.
 13. **[Check, inspect, and transpile](qvr/13-release-workflow.md)**. Target-aware checking, entry inspection, runtime traces, LSP configuration, grammar provenance, and release automation.
+14. **[Exact Bayes with finite collection expressions](qvr/14-collection-programs.md)**. Pure `map`, effect-aware `traverse`, finite folds, and stable log-space normalization in a grid posterior.
 
-You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand. Chapters 9–13 cover indexed types, effects, generated search and neural computation graphs, and the release boundary.
+You can read the first six chapters without touching category theory. Chapter 7 is the bridge to the Python API track; chapter 8 covers the Bayesian-analysis workflow once a fit is in hand. Chapters 9–14 cover indexed types, effects, generated search and neural computation graphs, the release boundary, and finite collection programs.
 
 ## Python API track
 

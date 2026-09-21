@@ -132,7 +132,9 @@ The omitted branch is thus impossible, rather than a partial match.
 
 ## Pure expressions
 
-Computation values and `program` expressions use one primitive registry.
+Computation values and `program` expressions use the same checked primitive
+registry. The eager PyTorch compiler has an explicit native-only extension;
+those names do not silently enter QIEC.
 Operators associate left within each precedence level:
 
 | Precedence, low to high | Forms |
@@ -144,11 +146,16 @@ Operators associate left within each precedence level:
 | multiplicative | `*`, `/`, `%` |
 | unary | `-`, `not` |
 
-The built-in calls are `real`, `int`, `exp`, `log`, `sqrt`, `pow`, `abs`,
-`min`, and `max`. Integer division and remainder truncate toward zero on every
-target. Mixed integer-real arithmetic inserts an explicit conversion when the
-surrounding form permits it. Write a comparison with a negative literal as
-`x < (-1)` because `<-` is the effectful binding token.
+The registry includes typed scalar primitives, tensor reductions, rowwise
+operations, and the fixed-shape collection forms `map`, `fold`, `length`, and
+`logsumexp_over`. `traverse` is effectful computation syntax rather than a
+pure value. The complete inventory and type restrictions are in
+[Finite collection expressions](collection-expressions.md) and the
+[let-expression guide](../../guides/dsl-programs-and-lets.md#checked-primitive-reference).
+Integer division and remainder truncate toward zero on every target. Mixed
+integer-real arithmetic inserts an explicit conversion when the surrounding
+form permits it. Write a comparison with a negative literal as `x < (-1)`
+because `<-` is the effectful binding token.
 
 List literals build tensors. `[1, 2, 3]` has integer elements;
 `[1.0, 2.0, 3.0]` has real elements; nested lists add dimensions. Distribution

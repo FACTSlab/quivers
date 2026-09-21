@@ -50,18 +50,7 @@ from quivers.dsl.ast_nodes import (
     GroupedBodyObserveStep,
     GroupedLatentInitStep,
     GroupedMarginalizeStep,
-    LetExprBinOp,
-    LetExprCall,
-    LetExprFactor,
-    LetExprIndex,
-    LetExprLambda,
-    LetExprList,
-    LetExprLiteral,
-    LetExprMethodCall,
     LetExprNode,
-    LetExprString,
-    LetExprUnaryOp,
-    LetExprVar,
     LetStep,
     MarginalizeStep,
     Module,
@@ -76,7 +65,7 @@ from quivers.dsl.ast_nodes import (
     ScoreStep,
     VectorisedObserveStep,
 )
-from quivers.dsl.ast_nodes.qiec import QiecConstructorValue
+from quivers.dsl.let_expr_traversal import free_let_names
 from quivers.dsl.ast_nodes._shared import (
     OptionCall,
     OptionEntry,
@@ -241,64 +230,9 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
     binder's index variable shadow anything declared outside, so a
     morphism whose name they reuse is not read at that occurrence.
     """
-    if isinstance(expr, LetExprVar):
-        return frozenset({expr.name})
-    if isinstance(expr, (LetExprLiteral, LetExprString)):
-        return frozenset()
-    if isinstance(expr, LetExprUnaryOp):
-        return _let_expr_value_names(expr.operand)
-    if isinstance(expr, LetExprBinOp):
-        return _let_expr_value_names(expr.left) | _let_expr_value_names(expr.right)
-    if isinstance(expr, LetExprCall):
-        # The callee is read as a value too: a morphism with no
-        # `~ Family` init lowers to `f(prev)` with `f` a free
-        # identifier the host wires.
-        return frozenset({expr.func}).union(
-            *(_let_expr_value_names(a) for a in expr.args),
-            frozenset(),
-        )
-    if isinstance(expr, LetExprMethodCall):
-        # The method name belongs to the receiver's interface, not to
-        # the module's namespace, so only the receiver and the
-        # arguments contribute.
-        return _let_expr_value_names(expr.receiver).union(
-            *(_let_expr_value_names(a) for a in expr.args),
-            frozenset(),
-        )
-    if isinstance(expr, LetExprIndex):
-        return _let_expr_value_names(expr.array).union(
-            *(_let_expr_value_names(i) for i in expr.indices),
-            frozenset(),
-        )
-    if isinstance(expr, LetExprList):
-        return frozenset().union(
-            *(_let_expr_value_names(i) for i in expr.items),
-            frozenset(),
-        )
-    if isinstance(expr, LetExprLambda):
-        return _let_expr_value_names(expr.body) - {expr.param}
-    if isinstance(expr, LetExprFactor):
-        bound = {binder.var for binder in expr.binders}
-        inner = frozenset().union(
-            *(_let_expr_value_names(case.value) for case in expr.cases),
-            (
-                _let_expr_value_names(expr.body)
-                if expr.body is not None
-                else frozenset()
-            ),
-        )
-        return inner - bound
-    if isinstance(expr, QiecConstructorValue):
-        # The constructor and its static arguments are declaration names;
-        # only the fields carry values.
-        return frozenset().union(
-            *(_let_expr_value_names(field) for field in expr.fields),
-            frozenset(),
-        )
-    raise TypeError(
-        f"_let_expr_value_names: unsupported let-expression variant "
-        f"{type(expr).__name__}"
-    )
+    # A callee is a value in this native-resolution pass: a morphism
+    # without a distribution initializer is wired under that name.
+    return frozenset(free_let_names(expr, include_callees=True))
 
 
 def _draw_arg_value_names(arg: DrawArg) -> frozenset[str]:
