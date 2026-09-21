@@ -17,10 +17,10 @@
 #   1 = "some" means some-but-not-all
 #   2 = "some" means all
 #
-# The source mirrors the RSA recursion: pragmatic_speaker calls
-# literal_listener for each alternative, and lexical_listener calls
-# the speaker under each possible lexicon. False cells use
-# the paper's 10^-6 numerical relaxation (section 4.3).
+# The source mirrors the RSA recursion: pragmatic_speaker traverses the
+# alternatives to call literal_listener, and lexical_speakers traverses the
+# possible lexica to call pragmatic_speaker. False cells use the paper's
+# 10^-6 numerical relaxation (section 4.3).
 
 index Evidence = Answered | Predict
 
@@ -42,54 +42,65 @@ define interpret[e : Evidence](response : Interpretation(e), p_all : Real, p_not
             return world
 
 define literal_listener(meaning : Tensor[Real]([2]), world_prior : Tensor[Real]([2])) : Tensor[Real]([2]) !{} =
-    let mass_all = meaning[0] * world_prior[0]
-    let mass_not_all = meaning[1] * world_prior[1]
-    let normalizer = mass_all + mass_not_all
-    return [mass_all / normalizer, mass_not_all / normalizer]
+    let masses = map([0, 1], world -> meaning[world] * world_prior[world])
+    let normalizer = fold(masses, 0.0, total -> mass -> total + mass)
+    return map(masses, mass -> mass / normalizer)
+
+define utterance_utility(listeners : Tensor[Real]([3, 2]), costs : Tensor[Real]([3]), world : Int, utterance : Int, alpha : Real) : Real !{} =
+    let listener = listeners[utterance]
+    return alpha * (log(listener[world]) - costs[utterance])
+
+define speaker_at_world(listeners : Tensor[Real]([3, 2]), costs : Tensor[Real]([3]), world : Int, alpha : Real) : Tensor[Real]([3]) !{} =
+    let utilities <- traverse(
+        [0, 1, 2],
+        utterance -> utterance_utility(listeners, costs, world, utterance, alpha),
+    )
+    let log_normalizer = logsumexp_over(utilities, utility -> utility)
+    return map(utilities, utility -> exp(utility - log_normalizer))
 
 define pragmatic_speaker(some_meaning : Tensor[Real]([2]), all_meaning : Tensor[Real]([2]), world_prior : Tensor[Real]([2]), alpha : Real) : Tensor[Real]([2, 3]) !{} =
-    let null_meaning = [1.0, 1.0]
-    let l0_some <- literal_listener(some_meaning, world_prior)
-    let l0_all <- literal_listener(all_meaning, world_prior)
-    let l0_null <- literal_listener(null_meaning, world_prior)
-    let some_all = exp(alpha * (log(l0_some[0]) - 1.0))
-    let all_all = exp(alpha * (log(l0_all[0]) - 1.0))
-    let null_all = exp(alpha * (log(l0_null[0]) - 5.0))
-    let z_all = some_all + all_all + null_all
-    let some_not_all = exp(alpha * (log(l0_some[1]) - 1.0))
-    let all_not_all = exp(alpha * (log(l0_all[1]) - 1.0))
-    let null_not_all = exp(alpha * (log(l0_null[1]) - 5.0))
-    let z_not_all = some_not_all + all_not_all + null_not_all
-    return [[some_all / z_all, all_all / z_all, null_all / z_all], [some_not_all / z_not_all, all_not_all / z_not_all, null_not_all / z_not_all]]
+    let meanings = [some_meaning, all_meaning, [1.0, 1.0]]
+    let costs = [1.0, 1.0, 5.0]
+    let listeners <- traverse(meanings, meaning -> literal_listener(meaning, world_prior))
+    let speaker <- traverse([0, 1], world -> speaker_at_world(listeners, costs, world, alpha))
+    return speaker
+
+define some_probability(speaker : Tensor[Real]([2, 3]), world : Int) : Real !{} =
+    let utterance_distribution = speaker[world]
+    return utterance_distribution[0]
+
+define some_probabilities(speaker : Tensor[Real]([2, 3])) : Tensor[Real]([2]) !{} =
+    let probabilities <- traverse([0, 1], world -> some_probability(speaker, world))
+    return probabilities
 
 define lexical_speakers(alpha : Real, epsilon : Real) : Tensor[Real]([3, 2]) !{} =
     let world_prior = [0.5, 0.5]
     let all_meaning = [1.0, epsilon]
-    let broad_some = [1.0, 1.0]
-    let lower_some = [epsilon, 1.0]
-    let upper_some = [1.0, epsilon]
-    let broad <- pragmatic_speaker(broad_some, all_meaning, world_prior, alpha)
-    let lower <- pragmatic_speaker(lower_some, all_meaning, world_prior, alpha)
-    let upper <- pragmatic_speaker(upper_some, all_meaning, world_prior, alpha)
-    let broad_all = broad[0]
-    let broad_not_all = broad[1]
-    let lower_all = lower[0]
-    let lower_not_all = lower[1]
-    let upper_all = upper[0]
-    let upper_not_all = upper[1]
-    return [[broad_all[0], broad_not_all[0]], [lower_all[0], lower_not_all[0]], [upper_all[0], upper_not_all[0]]]
+    let some_meanings = [[1.0, 1.0], [epsilon, 1.0], [1.0, epsilon]]
+    let speakers <- traverse(
+        some_meanings,
+        some_meaning -> pragmatic_speaker(some_meaning, all_meaning, world_prior, alpha),
+    )
+    let probabilities <- traverse(speakers, speaker -> some_probabilities(speaker))
+    return probabilities
 
 define lexical_listener(alpha : Real, epsilon : Real) : Tensor[Real]([2]) !{} =
     let speakers <- lexical_speakers(alpha, epsilon)
-    let broad = speakers[0]
-    let lower = speakers[1]
-    let upper = speakers[2]
-    let likelihood_all = (broad[0] + lower[0] + upper[0]) / 3.0
-    let likelihood_not_all = (broad[1] + lower[1] + upper[1]) / 3.0
-    let mass_all = 0.5 * likelihood_all
-    let mass_not_all = 0.5 * likelihood_not_all
-    let normalizer = mass_all + mass_not_all
-    return [mass_all / normalizer, mass_not_all / normalizer]
+    let likelihoods = map(
+        [0, 1],
+        world -> fold(
+            speakers,
+            0.0,
+            total -> speaker -> total + speaker[world],
+        ) / real(length(speakers)),
+    )
+    let masses = map(likelihoods, likelihood -> 0.5 * likelihood)
+    let normalizer = fold(masses, 0.0, total -> mass -> total + mass)
+    return map(masses, mass -> mass / normalizer)
+
+define state_likelihood(speakers : Tensor[Real]([3, 2]), lexicon_index : Tensor[Int]([6]), world_index : Tensor[Int]([6]), state : Int) : Real !{} =
+    let speaker = speakers[lexicon_index[state]]
+    return speaker[world_index[state]]
 
 object CommunicationState : FinSet 6
 object Event : FinSet 1
@@ -103,20 +114,20 @@ program lexical_uncertainty_rsa : Event -> Posterior
     let p_all = posterior[0]
     let p_not_all = posterior[1]
     let choice = int(listener_choice)
-    let response <- interpret[Answered](construct Chose(choice) as Interpretation(Answered), p_all, p_not_all)
+    let response <- interpret[Answered](
+        construct Chose(choice) as Interpretation(Answered),
+        p_all,
+        p_not_all,
+    )
     let speakers <- lexical_speakers(alpha, epsilon)
-    let broad = speakers[0]
-    let lower = speakers[1]
-    let upper = speakers[2]
-    let speaker_some = factor state : CommunicationState in {
-        0 -> broad[0],
-        1 -> broad[1],
-        2 -> lower[0],
-        3 -> lower[1],
-        4 -> upper[0],
-        5 -> upper[1],
-    }
-    let state_prior = factor state : CommunicationState in 0.1666666667
+    let states = [0, 1, 2, 3, 4, 5]
+    let lexicon_index = [0, 0, 1, 1, 2, 2]
+    let world_index = [0, 1, 0, 1, 0, 1]
+    let speaker_some <- traverse(
+        states,
+        state -> state_likelihood(speakers, lexicon_index, world_index, state),
+    )
+    let state_prior = map(states, state -> 1.0 / real(length(states)))
 
     marginalize state : CommunicationState <- Categorical(state_prior) [reduction=logsumexp]
         let p_some = speaker_some[state]
