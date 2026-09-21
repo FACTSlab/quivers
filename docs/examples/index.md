@@ -28,6 +28,7 @@ particular statistical family.
 | open sequence extent and recursive scan lowering | [Vanilla RNN LM](vanilla-rnn-lm.md) | generated scan step and trajectory site addresses |
 | network kernel computation | [Bayesian Neural Network](bnn.md) | MLP parameter source and reference-machine boundary |
 | measure-algebra families | [Amortized Bayesian Semantics](amortized-bayesian-semantics.md) | heterogeneous `Mixture` value used for scoring and prediction |
+| indexed effects, nested computation calls, finite lexical uncertainty | [Lexical-Uncertainty RSA](qiec/lexical-uncertainty-rsa.qvr) | literal listener, pragmatic speaker, lexical marginalization, observed-or-predicted interpretation |
 
 The generated [transpilation support matrix](../transpile-support.md) records
 whether each measured source reaches each backend. A successful
@@ -40,6 +41,10 @@ examples state both where they differ.
   categorial parser, structural logical-form autoencoder, indexed missing-data
   computation with a contamination measure, authored robustification handler,
   and hierarchical model with grouped exact marginalization.
+- [Lexical-Uncertainty RSA](qiec/lexical-uncertainty-rsa.qvr): the specificity
+  model of [Bergen, Levy, and Goodman (2016)](https://doi.org/10.3765/sp.9.20),
+  with a literal listener nested inside a pragmatic speaker and a listener
+  that marginalizes over three lexica.
 
 ## Regressions
 
