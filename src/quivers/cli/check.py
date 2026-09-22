@@ -203,9 +203,12 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
         )
 
     if target is not None and compiler.qiec_module is not None:
+        from quivers.transpile import UnsupportedConstruct
+        from quivers.transpile.plan import checked_program_plan
         from quivers.transpile.qiec_ir import analyze_qiec_capabilities
 
-        for capability in analyze_qiec_capabilities(compiler.qiec_module, target):
+        capabilities = analyze_qiec_capabilities(compiler.qiec_module, target)
+        for capability in capabilities:
             origin = capability.origin
             diags.append(
                 Diagnostic(
@@ -217,6 +220,21 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
                     message=capability.message,
                 )
             )
+        if not capabilities:
+            try:
+                checked_program_plan(compiler.qiec_module, module, target)
+            except UnsupportedConstruct as error:
+                diags.extend(
+                    Diagnostic(
+                        file=str(path),
+                        line=0,
+                        col=0,
+                        severity="error",
+                        code=kind,
+                        message=str(error),
+                    )
+                    for kind in error.kinds
+                )
 
     return diags
 

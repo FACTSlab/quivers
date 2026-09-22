@@ -4,6 +4,14 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.20.1] - 2026-09-22
+
+### Fixed
+
+- **Finite traversals cross the probabilistic target boundary.** The program-plan walker reassociates the nested QIEC binds produced by a fixed `traverse`, so sequenced collection calls inside `program` bodies transpile to all eight dynamic targets. The lexical-uncertainty RSA example now transpiles completely to Pyro and NumPyro rather than stopping at its state-likelihood traversal.
+- **Checked integer values retain their target type.** `int(real_value)` renders as a real-to-integer cast on Pyro, NumPyro, PyMC, and Edward2 instead of failing during Python target emission, and integer-typed QIEC literals render as integer tokens rather than floating-point tokens. Tensor indices produced by finite traversal therefore remain valid target-language indices.
+- **Target-aware tooling validates the executable plan.** `qvr check --target`, the REPL, and the LSP now derive the probabilistic plan after QIEC capability analysis and report plan-level refusals such as a non-log-sum-exp marginalization before `qvr transpile` is run.
+
 ## [0.20.0] - 2026-09-21
 
 ### Added

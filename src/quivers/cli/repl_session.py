@@ -390,9 +390,10 @@ class ReplSession:
                 )
             )
         if self.options.target and analysis.qiec_module is not None:
-            for capability in analyze_qiec_capabilities(
+            capabilities = analyze_qiec_capabilities(
                 analysis.qiec_module, self.options.target
-            ):
+            )
+            for capability in capabilities:
                 origin = capability.origin
                 diags.append(
                     Diagnostic(
@@ -403,6 +404,25 @@ class ReplSession:
                         code=capability.kind,
                     )
                 )
+            if not capabilities:
+                from quivers.transpile import UnsupportedConstruct
+                from quivers.transpile.plan import checked_program_plan
+
+                try:
+                    checked_program_plan(
+                        analysis.qiec_module, module, self.options.target
+                    )
+                except UnsupportedConstruct as error:
+                    diags.extend(
+                        Diagnostic(
+                            message=str(error),
+                            severity="error",
+                            line=0,
+                            col=0,
+                            code=kind,
+                        )
+                        for kind in error.kinds
+                    )
         self._module = module
         self._compiler = analysis.compiler
         self._qiec_module = analysis.qiec_module

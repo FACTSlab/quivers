@@ -379,6 +379,20 @@ class _ProgramWalk:
         emitted: list[IRNode] = []
         while isinstance(node, Bind):
             first = node.first
+            if isinstance(first, Bind):
+                # ``traverse`` and other finite sequencing forms elaborate to
+                # a computation in the first position of the source binding.
+                # Associate that nested bind into the surrounding chain before
+                # recognizing target statements. This is the monad
+                # associativity law; the inner local cannot occur in the
+                # outer continuation, so extending its lexical scope here is
+                # capture-free.
+                node = Bind(
+                    first.binder,
+                    first.first,
+                    Bind(node.binder, first.then, node.then),
+                )
+                continue
             binder = node.binder
             self.local_types[binder.name] = binder.type
             if isinstance(first, Perform):
@@ -897,6 +911,13 @@ class _ProgramWalk:
         emitted: list[IRNode] = []
         while isinstance(node, Bind):
             first = node.first
+            if isinstance(first, Bind):
+                node = Bind(
+                    first.binder,
+                    first.first,
+                    Bind(node.binder, first.then, node.then),
+                )
+                continue
             self.local_types[node.binder.name] = node.binder.type
             if isinstance(first, Perform):
                 if first.request.effect.name == "Random":
@@ -2376,15 +2397,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
             return IRProgram(
                 name=qiec_ir.module, inputs=(), body=(), module=qiec_ir, cards={}
             )
-        expanded = expand_composite_lets(module, target="stan")
-        program = pick_program(expanded)
         if qiec_module.gap:
-            # The program falls in a gap of the elaboration: it has no
-            # computation to derive a plan from, and the gap names the
-            # construct by a kind the diagnostics explain.
             kind = qiec_module.gap.partition("; ")[0]
             raise UnsupportedConstruct(f"qvr-{target}", [kind])
         if not optimize:
+            expanded = expand_composite_lets(module, target="stan")
+            program = pick_program(expanded)
             return IRProgram(
                 name=program.name,
                 inputs=(),
@@ -2392,7 +2410,9 @@ class Lower(dx.Mapping[Module, IRProgram]):
                 module=lower_qiec_ir(qiec_module),
                 cards={},
             )
-        return program_plan(qiec_module, expanded, program, target)
+        plan = checked_program_plan(qiec_module, module, target)
+        assert plan is not None
+        return plan
 
 
 #: How a target spells the ``$`` of a name a program draw renamed:
@@ -2484,9 +2504,49 @@ def program_plan(
     return _Planner(module, source, target).plan(program)
 
 
+def checked_program_plan(
+    module: QiecModule, source: Module, target: str
+) -> IRProgram | None:
+    """Derive a target plan from an existing checked module.
+
+    This is the target-planning half of [`Lower.forward`][quivers.transpile.plan.Lower.forward]
+    for callers such as the CLI and language server that already hold the checked
+    QIEC module. Reusing it avoids parsing and elaborating the source a second time.
+
+    Parameters
+    ----------
+    module : QiecModule
+        The checked module.
+    source : Module
+        The parsed source module.
+    target : str
+        The transpile target.
+
+    Returns
+    -------
+    IRProgram | None
+        The target plan, or ``None`` when the source declares no program.
+
+    Raises
+    ------
+    UnsupportedConstruct
+        If the program falls in an elaboration gap or its checked computation
+        cannot be represented by the target plan.
+    """
+    if not any(isinstance(statement, ProgramDecl) for statement in source.statements):
+        return None
+    expanded = expand_composite_lets(source, target="stan")
+    program = pick_program(expanded)
+    if module.gap:
+        kind = module.gap.partition("; ")[0]
+        raise UnsupportedConstruct(f"qvr-{target}", [kind])
+    return program_plan(module, expanded, program, target)
+
+
 __all__ = [
     "Lower",
     "TARGET_NAME_SEPARATOR",
+    "checked_program_plan",
     "checked_module",
     "program_plan",
     "target_name",
