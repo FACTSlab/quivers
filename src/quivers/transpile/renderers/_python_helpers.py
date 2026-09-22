@@ -759,7 +759,11 @@ def render_let_expr_python(
             v = ctx.v(ctx.fresh("lit"), "integer")
             ctx.literal(v, str(int(expr.value)))
             return v
-        v = ctx.v(ctx.fresh("lit"), "float" if "." in repr(expr.value) else "integer")
+        if expr.integral:
+            v = ctx.v(ctx.fresh("lit"), "integer")
+            ctx.literal(v, str(int(expr.value)))
+            return v
+        v = ctx.v(ctx.fresh("lit"), "float")
         ctx.literal(v, str(expr.value))
         return v
     if isinstance(expr, LetExprVar):
@@ -803,6 +807,33 @@ def render_let_expr_python(
         )
         return u
     if isinstance(expr, LetExprCall):
+        if expr.func == "int" and len(expr.args) == 1:
+            argument = render_let_expr_python(ctx, expr.args[0])
+            if ctx.target == "pyro":
+                tensor = call(
+                    ctx,
+                    attribute(ctx, ("torch", "as_tensor")),
+                    positional=(argument,),
+                )
+                return python_method_call(ctx, tensor, "long", ())
+            if ctx.target == "numpyro":
+                return call(
+                    ctx,
+                    attribute(ctx, ("jnp", "int32")),
+                    positional=(argument,),
+                )
+            if ctx.target == "pymc":
+                return call(
+                    ctx,
+                    attribute(ctx, ("pymc", "pytensorf", "pt", "cast")),
+                    positional=(argument, string_literal(ctx, "int64")),
+                )
+            if ctx.target == "edward2":
+                return call(
+                    ctx,
+                    attribute(ctx, ("tf", "cast")),
+                    positional=(argument, attribute(ctx, ("tf", "int32"))),
+                )
         fn = _resolve_python_call(ctx, expr.func)
         c = ctx.v(ctx.fresh("call"), "call")
         ctx.e(c, fn, "function")

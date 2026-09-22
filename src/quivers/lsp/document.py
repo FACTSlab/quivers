@@ -196,7 +196,8 @@ class DocumentState:
         self.diagnostics = list(self._base_diagnostics)
         if target is None or self.qiec_module is None:
             return
-        for diagnostic in analyze_qiec_capabilities(self.qiec_module, target):
+        capabilities = analyze_qiec_capabilities(self.qiec_module, target)
+        for diagnostic in capabilities:
             origin = diagnostic.origin
             self.diagnostics.append(
                 Diagnostic(
@@ -207,6 +208,23 @@ class DocumentState:
                     code=diagnostic.kind,
                 )
             )
+        if not capabilities:
+            from quivers.transpile import UnsupportedConstruct
+            from quivers.transpile.plan import checked_program_plan
+
+            try:
+                checked_program_plan(self.qiec_module, self.module, target)
+            except UnsupportedConstruct as error:
+                self.diagnostics.extend(
+                    Diagnostic(
+                        message=str(error),
+                        severity="error",
+                        line=0,
+                        col=0,
+                        code=kind,
+                    )
+                    for kind in error.kinds
+                )
 
     def find_decl(
         self,

@@ -587,6 +587,41 @@ def test_check_and_repl_report_the_same_target_capability(tmp_path: Path) -> Non
     assert session.load_file(path).diagnostics == ()
 
 
+def test_target_checks_include_program_plan_refusals(tmp_path: Path) -> None:
+    """Target tooling must reject a checked construct the PPL plan cannot emit."""
+    source = """\
+object Item : FinSet 3
+object Resp : FinSet 6
+object Class : FinSet 4
+
+program demo : Resp -> Resp
+    sample probs : Class <- HalfNormal(1.0)
+    marginalize cls : Class <- Categorical(probs) [over=Item, reduction=sum]
+        observe r : Resp <- HalfNormal(1.0) [via=idx]
+    return probs
+
+export demo
+"""
+    path = tmp_path / "sum-marginal.qvr"
+    path.write_text(source)
+
+    checked = _check_one(path, target="pyro")
+    assert {diagnostic.code for diagnostic in checked} == {"marginalize:reduction:sum"}
+
+    document = DocumentState(uri=path.as_uri(), target="pyro")
+    document.update(source=source, version=1)
+    assert {diagnostic.code for diagnostic in document.diagnostics} == {
+        "marginalize:reduction:sum"
+    }
+
+    session = ReplSession()
+    assert session.set_option("target=pyro").ok
+    response = session.load_file(path)
+    assert {diagnostic.code for diagnostic in response.diagnostics} == {
+        "marginalize:reduction:sum"
+    }
+
+
 def test_status_line_shows_program_entries_and_failures(tmp_path: Path) -> None:
     from quivers.cli.repl_tui import _runtime_status
 
