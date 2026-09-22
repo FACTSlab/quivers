@@ -607,6 +607,23 @@ class TestDispatchOrdering:
         assert out[0] == "MyCtor"
         assert len(out) == 3
 
+    @pytest.mark.parametrize("node", [_var("Constant"), _call("Constant")])
+    def test_nullary_constructor_uses_atom_leaf(self, node):
+        compiled = _compile(
+            node, globals_={"__constructors__": frozenset({"Constant"})}
+        )
+        assert compiled({}) == ("atom", "Constant")
+
+    def test_bound_name_uses_variable_leaf(self):
+        compiled = _compile(
+            _var("x"),
+            globals_={
+                "__constructors__": frozenset({"x"}),
+                "__bound_vars__": frozenset({"x"}),
+            },
+        )
+        assert compiled({}) == ("var", "x")
+
 
 # ===========================================================================
 # Section 7: stress tests — deep nesting, many primitives, broadcasting.

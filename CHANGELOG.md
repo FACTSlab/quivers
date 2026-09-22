@@ -4,6 +4,18 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] - 2026-09-22
+
+### Fixed
+
+- **Nullary logical-form constants match deduction patterns.** Inline and TSV-backed lexicons now encode a declared nullary constant as `("atom", name)`, the same representation the rule compiler emits. A rule such as `span(I, J, QNP, App(every_q, P))` therefore matches an LF constructed from the lexical constant `every_q`.
+- **Complex TSV logical forms parse through the current grammar.** File-backed lexicons use a valid synthetic QVR module before applying the same constant tagging, binder alpha-renaming, and scope validation as inline lexicons.
+
+### Changed
+
+- **Deduction terms use discriminated public leaves.** A bound LF variable is now `("var", canonical_name)` rather than `(canonical_name,)`; a nullary LF constant is `("atom", name)` rather than `(name,)`; and applications remain `(constructor, *arguments)`. Consumers that inspect chart tuples should migrate one-tuple leaf checks to the corresponding tag. `atom` and `var` are reserved in deduction `atoms` declarations.
+- **The Montague NLI example factors syntax from quantificational force.** `every` and `some` share one `Det` category and one determiner-composition rule; sentence rules distinguish them by matching their nullary LF constants.
+
 ## [0.20.1] - 2026-09-22
 
 ### Fixed

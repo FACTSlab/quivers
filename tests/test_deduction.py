@@ -15,11 +15,12 @@ acceptance and no divergences.
 from __future__ import annotations
 import textwrap
 
+import pytest
 import torch
 
 from quivers.continuous.program_steps import _ScoreSpec
+from quivers.dsl.compiler import CompileError, Compiler
 from quivers.dsl.parser import parse
-from quivers.dsl.compiler import Compiler
 from quivers.stochastic.deduction import (
     DeductionSystem,
     adam_fit_deduction,
@@ -184,9 +185,11 @@ def test_binders_alpha_rename_lexicon_lfs():
     # canonical name despite both using ``x`` in source.
     canon_per_lex = []
     for lf in lfs:
-        # lf is ("Lam", (canon,), ("App", ..., ("Var", (canon,))))
+        # lf is ("Lam", ("var", canon),
+        #        ("App", ..., ("Var", ("var", canon))))
         assert lf[0] == "Lam"
-        canon_per_lex.append(lf[1][0])
+        assert lf[1][0] == "var"
+        canon_per_lex.append(lf[1][1])
     assert canon_per_lex[0] != canon_per_lex[1], (
         f"binders failed to alpha-rename: both entries got {canon_per_lex[0]!r}"
     )
@@ -255,10 +258,81 @@ def test_subst_capture_avoiding():
         ),
     )
     fn = _ProgramsMixin._compile_let_expr(
-        expr, globals_={"__constructors__": frozenset({"App", "Var", "f", "x", "arg"})}
+        expr,
+        globals_={
+            "__constructors__": frozenset({"App", "Var", "f", "arg"}),
+            "__bound_vars__": frozenset({"x"}),
+        },
     )
     out = fn({})
-    assert out == ("App", ("f",), ("Var", ("arg",))), f"subst gave {out!r}"
+    assert out == (
+        "App",
+        ("atom", "f"),
+        ("Var", ("atom", "arg")),
+    ), f"subst gave {out!r}"
+
+
+def test_rule_pattern_matches_nullary_lf_constant():
+    """A declared constant has one encoding in lexicon LFs and rules."""
+    src = """
+    object Term : FinSet 8
+
+    deduction NullaryLF : Term -> Term [semiring=Boolean, start=Accepted]
+        atoms S, Accepted, span, Claim, forall_t, App, Var, dog_p
+        binders Lam
+        rule accept : span(I, J, S, Claim(forall_t, P)) |- Accepted
+        lexicon
+            "every-dog" : S = Claim(forall_t, Lam(x, App(dog_p, Var(x))))
+    """
+    prog = Compiler(parse(textwrap.dedent(src))).compile()
+    ded = prog.deductions["NullaryLF"]
+
+    axioms = list(ded.axiom_injector(["every-dog"]))
+    assert len(axioms) == 1
+    lf = axioms[0][0][4]
+    assert lf[1] == ("atom", "forall_t")
+    assert lf[2][1][0] == "var"
+    assert lf[2][2] == (
+        "App",
+        ("atom", "dog_p"),
+        ("Var", lf[2][1]),
+    )
+
+    goals = list(ded(["every-dog"]).goal_items)
+    assert [item for item, _weight in goals] == [("atom", "Accepted")]
+
+
+@pytest.mark.parametrize(
+    ("block", "tag"),
+    [
+        ("atoms S, atom", "atom"),
+        ("atoms S, var", "var"),
+    ],
+)
+def test_deduction_term_tags_are_reserved(block: str, tag: str):
+    """Users cannot declare constructors that collide with leaf tags."""
+    src = f"""
+    object Term : FinSet 4
+    deduction Reserved : Term -> Term [semiring=Boolean, start=S]
+        {block}
+    """
+    with pytest.raises(CompileError, match=rf"{tag!r}.*reserved"):
+        Compiler(parse(textwrap.dedent(src))).compile()
+
+
+def test_lexicon_rejects_out_of_scope_bound_name():
+    """A binder name used outside its lexical scope is not a constant."""
+    src = """
+    object Term : FinSet 4
+    deduction Scope : Term -> Term [semiring=Boolean, start=S]
+        atoms S, span, App, Var, dog_p
+        binders Lam
+        lexicon
+            "scoped"   : S = Lam(x, App(dog_p, Var(x)))
+            "unscoped" : S = App(dog_p, Var(x))
+    """
+    with pytest.raises(CompileError, match="unbound variable 'x'"):
+        Compiler(parse(textwrap.dedent(src))).compile()
 
 
 def test_montague_nli_lambda_lfs_load():
@@ -275,7 +349,8 @@ def test_montague_nli_lambda_lfs_load():
     assert "Montague" in prog.deductions
     ded = prog.deductions["Montague"]
     chart = ded(["every", "dog", "barks"])
-    # The full sentence should parse to span(0, 3, S, App(App(every, dog), barks)).
+    # Matching the lexical ``every_q`` constant should select an
+    # ``Every`` sentence LF rather than the parallel ``Some`` rule.
     s_items = [
         (it, w)
         for it, w in chart.chart.items()
@@ -285,6 +360,18 @@ def test_montague_nli_lambda_lfs_load():
         and it[3] == ("atom", "S")
     ]
     assert s_items, "Montague: 'every dog barks' did not derive S at span(0, 3)"
+    assert {item[4][0] for item, _weight in s_items} == {"Every"}
+
+    some_chart = ded(["some", "dog", "barks"])
+    some_lfs = {
+        item[4][0]
+        for item, _weight in some_chart.chart.items()
+        if isinstance(item, tuple)
+        and item[:2] == ("span", 0)
+        and len(item) >= 5
+        and item[3] == ("atom", "S")
+    }
+    assert some_lfs == {"Some"}
 
 
 def test_nuts_runs_and_log_density_does_not_collapse():
@@ -341,9 +428,10 @@ def test_lambda_body_occurrence_matches_its_binder():
 
     assert lf[0] == "Lam", f"expected a Lam-headed LF, got {lf!r}"
     bound = lf[1]
-    assert isinstance(bound, tuple) and len(bound) == 1, (
+    assert isinstance(bound, tuple) and len(bound) == 2 and bound[0] == "var", (
         f"binder should carry one canonical symbol, got {bound!r}"
     )
+    assert lf[2][1] == ("atom", "dog_p")
 
     def _occurrences(term) -> list:
         if not isinstance(term, tuple):

@@ -85,6 +85,39 @@ def test_lexicon_from_file_compiles_and_parses_toy_string() -> None:
     assert list(ded(["dog", "the"]).goal_items) == []
 
 
+def test_file_lexicon_normalizes_constants_and_binders(tmp_path: Path) -> None:
+    """TSV logical forms use the same term algebra as inline entries."""
+    lexicon = tmp_path / "logical_forms.tsv"
+    lexicon.write_text(
+        "every-dog\tS\tClaim(forall_t, Lam(x, App(dog_p, Var(x))))\n",
+        encoding="utf-8",
+    )
+    src = f"""
+    object Term : FinSet 8
+
+    deduction FileLF : Term -> Term [semiring=Boolean, start=Accepted]
+        atoms S, Accepted, span, Claim, forall_t, App, Var, dog_p
+        binders Lam
+        rule accept : span(I, J, S, Claim(forall_t, P)) |- Accepted
+        lexicon from "{lexicon}"
+    """
+    prog = Compiler(parse(textwrap.dedent(src))).compile()
+    ded = _deduction(prog, "FileLF")
+
+    axioms = list(ded.axiom_injector(["every-dog"]))
+    lf = axioms[0][0][4]
+    assert lf[1] == ("atom", "forall_t")
+    assert lf[2][1][0] == "var"
+    assert lf[2][2] == (
+        "App",
+        ("atom", "dog_p"),
+        ("Var", lf[2][1]),
+    )
+    assert [item for item, _weight in ded(["every-dog"]).goal_items] == [
+        ("atom", "Accepted")
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Plural lexicon entries
 # ---------------------------------------------------------------------------

@@ -44,6 +44,16 @@ from quivers.dsl.compiler._options import (
     get_option_int,
     get_option_name,
 )
+from quivers.dsl.compiler._deduction_terms import (
+    LET_BOUND_VARIABLES_KEY,
+    LET_CONSTRUCTORS_KEY,
+    RESERVED_TERM_TAGS,
+    TERM_ATOM_TAG,
+    TERM_LEAF_TAGS,
+    atom_term,
+    variable_name,
+    variable_term,
+)
 from quivers.dsl.compiler._prelude import CompileError
 from quivers.dsl.compiler.programs import _ProgramsMixin
 from quivers.dsl.parser import parse as _parse_qvr
@@ -152,9 +162,9 @@ def _candidate_atoms(
 def _category_depth(value) -> int:
     """Constructor-tree depth of a chart category or item.
 
-    Atoms count as depth 0; the tagged pair ``("atom", "S")``
-    counts as depth 0 (a leaf category); a wrapping tuple
-    ``(<ctor>, <args>...)`` whose head is a non-``"atom"``,
+    Atoms and bound variables count as depth 0; the tagged pairs
+    ``("atom", "S")`` and ``("var", "#v1")`` are leaves. A wrapping
+    tuple ``(<ctor>, <args>...)`` whose head is a non-tag,
     non-``"span"`` constructor counts as
     :math:`1 + \\max_i \\text{depth}(\\text{args}_i)`. Used to gate
     rules that would otherwise rewrite ``A`` into ``Dia(A)`` or
@@ -165,7 +175,7 @@ def _category_depth(value) -> int:
     if not value:
         return 0
     head = value[0]
-    if head == "atom":
+    if head in TERM_LEAF_TAGS:
         return 0
     if head == "span":
         # span(I, J, C, ...): depth of the surrounding span is the
@@ -265,20 +275,20 @@ def load_lexicon_tsv(
                 rows.append((word, category, LetExprVar(name=lf_text)))
                 continue
             syn_src = (
-                "object _DummyObj : 1\n"
-                "morphism _f : _DummyObj -> _DummyObj "
+                "object LexTerm : FinSet 1\n"
+                "morphism lex_source : LexTerm -> LexTerm "
                 "[role=latent]\n"
-                "program _dummy_prog : _DummyObj -> _DummyObj\n"
-                "    sample _x : _DummyObj <- _f\n"
-                f"    let _lex_lf = {lf_text}\n"
-                "    return _x\n"
+                "program lex_program : LexTerm -> LexTerm\n"
+                "    sample lex_value : LexTerm <- lex_source\n"
+                f"    let lex_lf = {lf_text}\n"
+                "    return lex_value\n"
             )
             syn_mod = _parse_qvr(syn_src.encode(), "<lex-lf>")
             prog = next(
                 (
                     s
                     for s in syn_mod.statements
-                    if isinstance(s, ProgramDecl) and s.name == "_dummy_prog"
+                    if isinstance(s, ProgramDecl) and s.name == "lex_program"
                 ),
                 None,
             )
@@ -501,9 +511,9 @@ class _DeductionsMixin:
         # symbols form the user-controlled free term algebra used
         # by lexicon LF expressions, rule weights, and any other
         # let-expressions evaluated inside this deduction's scope.
-        # No constructor symbol is privileged by the compiler — the
-        # user states the entire algebra explicitly.
-        globals_["__constructors__"] = frozenset(decl.atoms)
+        # ``atom`` and ``var`` are the reserved leaf tags; every other
+        # constructor symbol remains under the user's control.
+        globals_[LET_CONSTRUCTORS_KEY] = frozenset(decl.atoms)
 
         if decl.name in self._deductions or decl.name in self._morphisms:
             raise CompileError(
@@ -529,11 +539,25 @@ class _DeductionsMixin:
         # ground; undeclared identifiers in patterns are variables).
         atoms_set = set(decl.atoms)
 
+        reserved_clash = sorted((atoms_set | set(decl.binders)) & RESERVED_TERM_TAGS)
+        if reserved_clash:
+            names = ", ".join(repr(name) for name in reserved_clash)
+            noun = "tag" if len(reserved_clash) == 1 else "tags"
+            verb = "is" if len(reserved_clash) == 1 else "are"
+            raise CompileError(
+                f"deduction {decl.name!r}: {names} {verb} reserved "
+                f"as term-algebra {noun}; nullary constants use "
+                f"{atom_term('<name>')!r} and bound variables use "
+                f"{variable_term('<name>')!r}",
+                decl.line,
+                decl.col,
+            )
+
         def _convert_pattern(texpr):
             if isinstance(texpr, TypeName):
                 name = texpr.name
                 if name in atoms_set:
-                    return ("atom", name)
+                    return atom_term(name)
                 # Variable convention: any identifier not in the
                 # atoms list (and not a numeric literal) is a
                 # wildcard. This permits arbitrary metavariable
@@ -562,7 +586,7 @@ class _DeductionsMixin:
                 args = tuple(_convert_pattern(a) for a in texpr.args)
                 return (texpr.effect, *args)
             # Fallback: a structural-equality probe.
-            return ("atom", repr(texpr))
+            return atom_term(repr(texpr))
 
         # Detect whether this deduction's item algebra carries an
         # LF slot. The signal: any rule pattern of the form
@@ -756,6 +780,16 @@ class _DeductionsMixin:
             # these per-atom weights at fit time.
             entries: list[LexiconEntry] = []
             binders_set = frozenset(decl.binders)
+            file_rows: tuple[tuple[str, TypeName, LetExprNode], ...] = ()
+            if decl.lexicon_from_file is not None:
+                check_option_keys(
+                    decl.lexicon_from_file_options,
+                    _LEXICON_ENTRY_OPTION_KEYS,
+                    owner=f"deduction {decl.name!r}: lexicon from file",
+                    line=decl.line,
+                    col=decl.col,
+                )
+                file_rows = tuple(load_lexicon_tsv(decl.lexicon_from_file, decl))
 
             # Pre-pass: walk every lexicon entry's LF AST and collect
             # the names of variables bound by any declared binder
@@ -799,6 +833,18 @@ class _DeductionsMixin:
             bound_var_names: set[str] = set()
             for entry in decl.lexicon:
                 _collect_bound_vars(entry.lf, bound_var_names)
+            for _word, _category, form in file_rows:
+                _collect_bound_vars(form, bound_var_names)
+            # A file-backed lexicon historically allowed a bare LF symbol
+            # that was not repeated in the deduction's ``atoms`` list. Keep
+            # accepting that spelling, but give it the same tagged constant
+            # representation as every declared atom.
+            file_constant_names = {
+                form.name
+                for _word, _category, form in file_rows
+                if isinstance(form, _LetVar)
+            }
+            lf_atom_names = atoms_set | file_constant_names
             # Extend the constructor set so the LF compiler accepts
             # binder constructors AND references to bound variables.
             # Binder constructors are first-class data constructors
@@ -807,11 +853,13 @@ class _DeductionsMixin:
             # scope, but at compile time we expand the set
             # uniformly and rely on the alpha-renaming pass to
             # disambiguate scopes.
-            globals_["__constructors__"] = (
+            globals_[LET_CONSTRUCTORS_KEY] = (
                 frozenset(decl.atoms)
                 | frozenset(decl.binders)
                 | frozenset(bound_var_names)
+                | frozenset(file_constant_names)
             )
+            globals_[LET_BOUND_VARIABLES_KEY] = frozenset(bound_var_names)
             # The LF compiler treats binder-applied terms specially:
             # the first argument of any constructor listed in
             # ``binders`` is the bound variable. We alpha-rename it
@@ -828,27 +876,34 @@ class _DeductionsMixin:
 
             def _normalise_binders(term, env: dict):
                 # Apply alpha-renaming of bound variables to fresh
-                # canonical symbols. ``env`` maps original
-                # variable names to their canonical replacements;
-                # references to bound variables are substituted.
+                # canonical symbols. ``env`` maps original variable
+                # names to their canonical replacements; tagged
+                # variable references are substituted. Tagged
+                # constants are never rewritten.
                 if isinstance(term, tuple) and term:
                     head = term[0]
                     if head in binders_set and len(term) >= 3:
                         var_term = term[1]
-                        if not (isinstance(var_term, tuple) and var_term):
+                        var_name = variable_name(var_term)
+                        if var_name is None:
                             # Malformed binder; pass through.
                             return tuple(_normalise_binders(x, env) for x in term)
-                        var_name = var_term[0]
                         canonical = _fresh()
                         new_env = dict(env)
                         new_env[var_name] = canonical
                         body_norm = tuple(
                             _normalise_binders(x, new_env) for x in term[2:]
                         )
-                        return (head, (canonical,), *body_norm)
-                    # Reference to a bound variable: substitute.
-                    if len(term) == 1 and isinstance(head, str) and head in env:
-                        return (env[head],)
+                        return (head, variable_term(canonical), *body_norm)
+                    name = variable_name(term)
+                    if name is not None:
+                        if name in env:
+                            return variable_term(env[name])
+                        if name in lf_atom_names:
+                            return atom_term(name)
+                        raise CompileError(
+                            f"logical form has unbound variable {name!r}"
+                        )
                     return tuple(_normalise_binders(x, env) for x in term)
                 return term
 
@@ -916,29 +971,36 @@ class _DeductionsMixin:
                             entries.append(
                                 (
                                     word,
-                                    ("atom", atom),
+                                    atom_term(atom),
                                     lf_value,
                                     True,
                                 )
                             )
             # File-loaded lexicon: TSV with `word\tcategory\tlf` rows.
-            if decl.lexicon_from_file is not None:
-                check_option_keys(
+            if file_rows:
+                file_globals = self._lex_globals_for_structural()
+                file_globals.update(globals_)
+                file_learnable = get_option_flag(
                     decl.lexicon_from_file_options,
-                    _LEXICON_ENTRY_OPTION_KEYS,
-                    owner=f"deduction {decl.name!r}: lexicon from file",
-                    line=decl.line,
-                    col=decl.col,
+                    "learnable",
                 )
-                file_entries = self._load_lexicon_tsv(
-                    decl.lexicon_from_file,
-                    get_option_flag(
-                        decl.lexicon_from_file_options,
-                        "learnable",
-                    ),
-                    decl,
-                )
-                entries.extend(file_entries)
+                for word, category, form in file_rows:
+                    try:
+                        raw_lf_value = _ProgramsMixin._compile_let_expr(
+                            form, globals_=file_globals
+                        )({})
+                        lf_value = _normalise_binders(raw_lf_value, {})
+                    except CompileError as error:
+                        raise CompileError(
+                            f"deduction {decl.name!r}: lexicon file "
+                            f"{decl.lexicon_from_file!r} entry for {word!r} "
+                            f"has unresolved variable: {error}",
+                            decl.line,
+                            decl.col,
+                        ) from error
+                    entries.append(
+                        (word, atom_term(category.name), lf_value, file_learnable)
+                    )
             # Allocate one learnable Parameter per learnable entry.
             # We keep the Parameter list on a small nn.Module so it
             # participates in `.parameters()` of any Program that
@@ -1030,7 +1092,7 @@ class _DeductionsMixin:
             # underlying DeductionSystem).
             head = item[0]
             # 1. Bare atom: ("atom", "S").
-            if head == "atom" and len(item) == 2 and item[1] == start:
+            if head == TERM_ATOM_TAG and len(item) == 2 and item[1] == start:
                 return True
             # 2. Head-keyed (Datalog-style): ("reach", ...).
             if isinstance(head, str) and head == start:
@@ -1041,7 +1103,7 @@ class _DeductionsMixin:
                 if (
                     isinstance(cat, tuple)
                     and len(cat) == 2
-                    and cat[0] == "atom"
+                    and cat[0] == TERM_ATOM_TAG
                     and cat[1] == start
                 ):
                     return True
@@ -1179,54 +1241,3 @@ class _DeductionsMixin:
                 )
             system._item_encoder = comps[item_encoder]  # type: ignore[attr-defined]
         self._deductions[decl.name] = system
-
-    def _load_lexicon_tsv(
-        self,
-        path: str,
-        learnable: bool,
-        decl: "DeductionDecl",
-    ) -> list[LexiconEntry]:
-        """Load a lexicon from a TSV file at compile time.
-
-        Format: each row has three tab-separated columns:
-        ``word``, ``category``, ``lf_template``. The category is
-        parsed as a type expression; the LF template is parsed as
-        a let-arithmetic expression. Multiple rows per word are
-        allowed (latent disjunction).
-
-        Resolved relative to the working directory; paths starting
-        with ``/`` are absolute.
-
-        Parameters
-        ----------
-        path : str
-            The file.
-        learnable : bool
-            Whether every entry reads a learned weight.
-        decl : DeductionDecl
-            The declaring deduction, for diagnostics.
-
-        Returns
-        -------
-        list[LexiconEntry]
-            One ``(word, category pattern, logical form, learnable)``
-            row per entry, the logical form evaluated to its value.
-
-        Raises
-        ------
-        CompileError
-            If the file is missing or malformed, or a logical form
-            does not evaluate.
-        """
-        out: list[LexiconEntry] = []
-        for word, category, form in load_lexicon_tsv(path, decl):
-            cat_pattern = ("atom", category.name)
-            if isinstance(form, LetExprVar):
-                lf_value = form.name
-            else:
-                lex_globals = self._lex_globals_for_structural()
-                lf_value = _ProgramsMixin._compile_let_expr(form, globals_=lex_globals)(
-                    {}
-                )
-            out.append((word, cat_pattern, lf_value, learnable))
-        return out
