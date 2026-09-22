@@ -44,11 +44,11 @@ The two halves share one term language, so the prover's items are literally the 
 # [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139):
 # a determiner denotes a relation between two sets, written here
 # as the binary constructors ``Every(P, Q)`` and ``Some(P, Q)``.
-# The determiner's quantificational force rides on its category
-# (``DetEvery`` / ``DetSome``), and the sentence rule that consumes
-# that category builds the matching constructor. Restrictor and
-# scope stay genuine lambda terms, so the ``binders`` machinery is
-# doing real work at the predicate level.
+# A determiner contributes a nullary LF constant (``every_q`` or
+# ``some_q``); sentence rules inspect that constant to build the
+# matching constructor. Restrictor and scope stay genuine lambda
+# terms, so the ``binders`` machinery is doing real work at the
+# predicate level.
 #
 # Reference: [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10).
 
@@ -64,22 +64,20 @@ deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=12]
     # Categories, the chart-item constructor ``span``, the LF
     # constructors (``App``, ``Var``, ``Every``, ``Some``), and the
     # predicate constants all live in ``atoms``.
-    atoms S, N, VP, Nom, Art, Cop, DetEvery, DetSome, QEvery, QSome, span, App, Var, Every, Some, dog_p, cat_p, animal_p, bark_p, walk_p, every_q, some_q, an_q, is_q
+    atoms S, N, VP, Nom, Art, Cop, Det, QNP, span, App, Var, Every, Some, dog_p, cat_p, animal_p, bark_p, walk_p, every_q, some_q, an_q, is_q
     # ``Lam`` is the binder constructor: ``Lam(x, body)``. The
     # compiler alpha-renames ``x`` to a fresh canonical symbol per
     # lexicon entry, so the predicate a word denotes is one
     # canonical term wherever that word occurs.
     binders Lam
-    # Determiner + common noun. The quantified-NP span carries the
-    # restrictor predicate as its LF; the determiner's category
-    # records which quantifier is coming.
-    rule every_np : span(I, K, DetEvery, D), span(K, J, N, P) |- span(I, J, QEvery, P) #[learnable]
-    rule some_np : span(I, K, DetSome, D), span(K, J, N, P) |- span(I, J, QSome, P) #[learnable]
-    # Quantified NP + verb phrase. This is where the
-    # generalised-quantifier relation is built, already in normal
-    # form: no redex, nothing left to reduce.
-    rule every_s : span(I, K, QEvery, P), span(K, J, VP, Q) |- span(I, J, S, Every(P, Q)) #[learnable]
-    rule some_s : span(I, K, QSome, P), span(K, J, VP, Q) |- span(I, J, S, Some(P, Q)) #[learnable]
+    # Determiner + common noun. One syntactic rule packages the
+    # determiner's LF constant together with the restrictor.
+    rule det_np : span(I, K, Det, D), span(K, J, N, P) |- span(I, J, QNP, App(D, P)) #[learnable]
+    # Quantified NP + verb phrase. Matching ``every_q`` and
+    # ``some_q`` inside the LF selects the force of the resulting
+    # generalised quantifier, already in normal form.
+    rule every_s : span(I, K, QNP, App(every_q, P)), span(K, J, VP, Q) |- span(I, J, S, Every(P, Q)) #[learnable]
+    rule some_s : span(I, K, QNP, App(some_q, P)), span(K, J, VP, Q) |- span(I, J, S, Some(P, Q)) #[learnable]
     # Predicative "is an N": the article and the copula are
     # semantically vacuous, so both rules pass the noun's predicate
     # through unchanged.
@@ -93,12 +91,11 @@ deduction Montague : Term -> Term [semiring=LogProb, start=S, depth=12]
         # Intransitive verbs are unary predicates over individuals.
         "barks"  : VP = Lam(x, App(bark_p, Var(x)))     #[learnable]
         "walks"  : VP = Lam(x, App(walk_p, Var(x)))     #[learnable]
-        # The determiners, the article, and the copula contribute no
-        # LF of their own: their category is what drives the rules,
-        # exactly as in the CCG example's lexicon. Each entry names
-        # itself with a constant so its log-weight is still learnable.
-        "every"  : DetEvery = every_q #[learnable]
-        "some"   : DetSome  = some_q  #[learnable]
+        # Determiners contribute their force as an LF constant;
+        # the semantically vacuous article and copula are consumed
+        # by rules that ignore their constants.
+        "every"  : Det = every_q #[learnable]
+        "some"   : Det = some_q  #[learnable]
         "an"     : Art      = an_q    #[learnable]
         "is"     : Cop      = is_q    #[learnable]
 
@@ -154,7 +151,7 @@ export fit_grammar
 
 ## Walkthrough
 
-The grammar half declares the categories (`S`, `N`, `VP`, `Nom`, and the closed-class categories `Art`, `Cop`, `DetEvery`, `DetSome`), the chart-item constructor `span(I, J, X, F)` that packages a derivation covering tokens `[I, J)` of category `X` with logical form `F`, the logical-form constructors `App`, `Var`, `Every`, and `Some`, and the predicate constants `dog_p`, `cat_p`, `animal_p`, `bark_p`, `walk_p`. The `binders Lam` block tells the compiler that `Lam`'s first argument is a binding site, so every bound variable is alpha-renamed to a fresh canonical symbol per lexicon entry and structural equality on the chart is [alpha-equivalence](https://en.wikipedia.org/wiki/Lambda_calculus#Alpha_equivalence) on the surface. This matters for the prover: because "dog" is compiled once, the predicate it denotes is one canonical term, and the prover's pattern variables bind it by structural equality wherever it occurs.
+The grammar half declares the categories (`S`, `N`, `VP`, `Nom`, `QNP`, and the closed-class categories `Art`, `Cop`, `Det`), the chart-item constructor `span(I, J, X, F)` that packages a derivation covering tokens `[I, J)` of category `X` with logical form `F`, the logical-form constructors `App`, `Var`, `Every`, and `Some`, and the predicate constants `dog_p`, `cat_p`, `animal_p`, `bark_p`, `walk_p`. The `binders Lam` block tells the compiler that `Lam`'s first argument is a binding site, so every bound variable is alpha-renamed to a fresh canonical symbol per lexicon entry and structural equality on the chart is [alpha-equivalence](https://en.wikipedia.org/wiki/Lambda_calculus#Alpha_equivalence) on the surface. This matters for the prover: because "dog" is compiled once, the predicate it denotes is one canonical term, and the prover's pattern variables bind it by structural equality wherever it occurs.
 
 ### Why the sentence LF is built in normal form
 
@@ -162,9 +159,9 @@ One constraint on the surface drives the whole design, so it is worth stating pr
 
 Thus a determiner cannot denote a continuation-form lambda term such as `Lam(P, Lam(Q, App(forall_t, ...)))` and rely on later beta-reduction against its arguments. Nothing would reduce the redex; the chart would carry `App(App(Lam(...), dog_LF), bark_LF)` forever, and no prover rule could pattern-match through the unreduced application to find the quantifier.
 
-The grammar thus builds the sentence logical form in normal form directly, in the [generalized quantifier](https://en.wikipedia.org/wiki/Generalized_quantifier) style of [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139): a determiner denotes a relation between two sets, written here as the binary constructors `Every(P, Q)` and `Some(P, Q)`. The determiner's quantificational force rides on its category, and the sentence rule that consumes that category (`every_s` or `some_s`) builds the matching constructor. The restrictor and the scope remain genuine lambda terms, so the binder machinery does real work at the predicate level, where it is what makes `Lam(x, App(dog_p, Var(x)))` a single canonical object rather than a name-dependent one. See [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10) for the type-driven compositionality this fragment instantiates.
+The grammar thus builds the sentence logical form in normal form directly, in the [generalized quantifier](https://en.wikipedia.org/wiki/Generalized_quantifier) style of [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139): a determiner denotes a relation between two sets, written here as the binary constructors `Every(P, Q)` and `Some(P, Q)`. Both determiners have category `Det`; their lexical constants distinguish their force. The shared `det_np` rule retains that constant in `App(D, P)`, and the `every_s` and `some_s` rules select the appropriate constructor by matching `every_q` or `some_q` inside that logical form. The restrictor and the scope remain genuine lambda terms, so the binder machinery does real work at the predicate level, where it is what makes `Lam(x, App(dog_p, Var(x)))` a single canonical object rather than a name-dependent one. See [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10) for the type-driven compositionality this fragment instantiates.
 
-Two consequences follow, and both are visible in the source. First, the closed-class words carry no logical form of their own: `every`, `some`, `an`, and `is` name themselves with a constant (`every_q` and friends) so that their log-weights stay learnable, while their category is what drives the rules. This is the same convention the [CCG example](ccg.md) uses. Second, the article and the copula are semantically vacuous, so `art_n` and `cop_nom` pass the noun's predicate through unchanged, which is what makes `every dog is an animal` and `every animal barks` come out as `Every(DOG, ANIMAL)` and `Every(ANIMAL, BARK)` over the *same* `ANIMAL` term.
+Two consequences follow, and both are visible in the source. First, `every` and `some` make a semantic contribution through `every_q` and `some_q`; unlike a category split, this factorization keeps their shared syntax in one rule. Second, the article and the copula are semantically vacuous, so `art_n` and `cop_nom` pass the noun's predicate through unchanged, which is what makes `every dog is an animal` and `every animal barks` come out as `Every(DOG, ANIMAL)` and `Every(ANIMAL, BARK)` over the *same* `ANIMAL` term.
 
 ### The prover
 
@@ -376,11 +373,7 @@ The two deductions are chained by hand rather than by a `compose(...)` step, and
 
 ## Limitations
 
-The fragment is deliberately small, and two limits are structural rather than incidental.
-
-First, there is no beta-reduction on the deduction surface, so the grammar cannot use continuation-form determiner denotations and recover a readable logical form; it builds the normal form directly instead. A grammar that genuinely needed higher-order denotations (quantifier raising, for instance, or the scope ambiguities the [quantifier-scope example](quantifier-scope.md) encodes in its categories) would have to encode the reduction in its rules or its categories, not rely on the runtime to normalise.
-
-Second, a rule pattern cannot mention a nullary constant inside a logical form. Rule patterns compile atoms to a tagged `("atom", name)` pair while the lexicon's logical-form evaluator emits a bare `(name,)` tuple, so a pattern like `Claim(Quant(every_t, P, Q))` never matches a chart item. That is why quantificational force is carried by the determiner's category here rather than by a constant in the logical form. The workaround costs one category per determiner, which is why the fragment has `DetEvery` and `DetSome` instead of a single `Det`.
+The fragment is deliberately small, and one limit is structural rather than incidental. There is no beta-reduction on the deduction surface, so the grammar cannot use continuation-form determiner denotations and recover a readable logical form; it builds the normal form directly instead. A grammar that genuinely needed higher-order denotations (quantifier raising, for instance, or the scope ambiguities the [quantifier-scope example](quantifier-scope.md) encodes in its categories) would have to encode the reduction in its rules or its categories, not rely on the runtime to normalise.
 
 ## References
 

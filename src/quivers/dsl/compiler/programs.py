@@ -99,6 +99,13 @@ from quivers.dsl.compiler._options import (
     get_program_effects,
     get_program_over_model,
 )
+from quivers.dsl.compiler._deduction_terms import (
+    LET_BOUND_VARIABLES_KEY,
+    LET_CONSTRUCTORS_KEY,
+    LET_INTERNAL_KEYS,
+    atom_term,
+    variable_term,
+)
 from quivers.dsl.compiler.sugar import desugar_step
 from quivers.dsl.let_expr_traversal import free_let_names
 from quivers.dsl.pure_builtins import EAGER_BUILTINS
@@ -3991,14 +3998,17 @@ class _ProgramsMixin:
         if isinstance(node, LetExprVar):
             name = node.name
             globs = globals_ or {}
-            constructors = globs.get("__constructors__", frozenset())
+            constructors = globs.get(LET_CONSTRUCTORS_KEY, frozenset())
+            bound_variables = globs.get(LET_BOUND_VARIABLES_KEY, frozenset())
 
             def _var(env: dict):
                 if name in env:
                     return env[name]
+                if name in bound_variables:
+                    return variable_term(name)
                 if name in constructors:
-                    return (name,)
-                if name in globs and name != "__constructors__":
+                    return atom_term(name)
+                if name in globs and name not in LET_INTERNAL_KEYS:
                     return globs[name]
                 raise CompileError(
                     f"undefined variable {name!r}: it is neither bound "
@@ -4145,11 +4155,11 @@ class _ProgramsMixin:
             }
             if (
                 func_name in _globs_for_check
-                and func_name != "__constructors__"
+                and func_name not in LET_INTERNAL_KEYS
                 and func_name not in _TENSOR_BUILTINS
                 and func_name not in _higher_order_or_special
                 and func_name
-                not in _globs_for_check.get("__constructors__", frozenset())
+                not in _globs_for_check.get(LET_CONSTRUCTORS_KEY, frozenset())
             ):
                 _target_for_check = _globs_for_check[func_name]
                 if callable(_target_for_check):
@@ -4250,18 +4260,14 @@ class _ProgramsMixin:
                 if func_name == "subst":
                     # subst(term, var, value) — capture-avoiding
                     # substitution on a structural LF term. Walks the
-                    # term tree, replacing every occurrence of the
-                    # ``(var,)`` 1-tuple with ``value``. Bound
-                    # variables (subterms whose head was listed in a
-                    # ``binders`` block, recognisable by their fresh
-                    # ``#vN`` canonical names) are passed through;
-                    # under-binders that shadow ``var`` halt the
-                    # descent. Because the lexicon LF compiler has
-                    # already alpha-renamed every bound variable to
-                    # a unique canonical symbol, no further capture
-                    # is possible: alpha-equivalence is structural
-                    # at this point and ``subst`` is a single
-                    # recursive pass.
+                    # term tree, replacing every subterm equal to
+                    # ``var`` with ``value``. Bound variables are
+                    # tagged ``("var", name)`` with a fresh ``#vN``
+                    # canonical name after lexicon alpha-renaming;
+                    # nullary constants are tagged ``("atom", name)``.
+                    # Because every binder has already been
+                    # alpha-renamed to a unique canonical symbol,
+                    # structural substitution is capture-avoiding.
                     if len(arg_fns) != 3:
                         raise CompileError(
                             "subst() takes exactly three arguments: term, var, value"
@@ -4274,14 +4280,14 @@ class _ProgramsMixin:
                     # ``var`` argument is matched against every
                     # subterm by ``==``; matching subterms are
                     # replaced wholesale by ``value``. This handles
-                    # both bare-variable patterns ``(x,)`` and
-                    # wrapped variable patterns ``Var(x)`` /
-                    # ``(\"Var\", (\"x\",))`` uniformly. Capture
-                    # avoidance is automatic because the lexicon-LF
-                    # compiler has already alpha-renamed every
-                    # binder's bound variable to a fresh canonical
-                    # symbol, so no two distinct variables share a
-                    # name.
+                    # tagged variables ``("var", name)``, tagged
+                    # constants ``("atom", name)``, and wrapped
+                    # forms ``("Var", ("var", name))`` uniformly.
+                    # Capture avoidance is automatic because the
+                    # lexicon-LF compiler has already alpha-renamed
+                    # every binder's bound variable to a fresh
+                    # canonical symbol, so no two distinct variables
+                    # share a name.
                     def _subst(t, _v=var, _r=value):
                         if t == _v:
                             return _r
@@ -4370,7 +4376,7 @@ class _ProgramsMixin:
                 # into Kleisli(Giry); calling it from an encoder body
                 # composes the two Smooth pieces and stays in Smooth.
                 globs_dict = globals_ or {}
-                if func_name in globs_dict and func_name != "__constructors__":
+                if func_name in globs_dict and func_name not in LET_INTERNAL_KEYS:
                     target = globs_dict[func_name]
                     if callable(target):
                         args = [fn(env) for fn in arg_fns]
@@ -4391,13 +4397,16 @@ class _ProgramsMixin:
                             ) from exc
                 # Constructor mode: build a tuple ``(func_name, *args)``
                 # only when ``func_name`` is in the user-declared
-                # constructor set (passed via ``globals_["__constructors__"]``).
+                # constructor set (passed via the deduction compiler's
+                # internal let-expression environment).
                 # The free term algebra over named constructor symbols
                 # is thus fully under the user's control: no identifier
                 # is silently treated as a constructor.
-                constructors = globs_dict.get("__constructors__", frozenset())
+                constructors = globs_dict.get(LET_CONSTRUCTORS_KEY, frozenset())
                 if func_name in constructors:
                     args = [fn(env) for fn in arg_fns]
+                    if not args:
+                        return atom_term(func_name)
                     return (func_name, *args)
                 raise CompileError(
                     f"unknown function {func_name!r} in let expression; "

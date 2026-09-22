@@ -181,7 +181,23 @@ appearing in any lexicon LF and extends the constructor set
 $\mathsf{atoms}(D)$ with those names for the duration of LF
 compilation, so the user need not duplicate them in `atoms`.
 References to a bound name inside a binder body resolve through
-the alpha-renamed canonical symbol.
+the alpha-renamed canonical symbol. An occurrence outside the
+binder's scope is rejected unless the same spelling is also a
+declared nullary constant.
+
+The public chart representation distinguishes the two kinds of
+leaf explicitly:
+
+| Surface term | Runtime term |
+|--------------|--------------|
+| nullary constant `dog_p` or `dog_p()` | `("atom", "dog_p")` |
+| bound variable `x` | `("var", "#v1")` after alpha-renaming |
+| application `App(f, x)` | `("App", f_term, x_term)` |
+
+Thus a rule pattern that mentions `dog_p` has exactly the same
+runtime shape as `dog_p` in an inline or TSV-backed lexicon LF.
+The names `atom` and `var` are reserved term-algebra tags and
+cannot be declared in `atoms`.
 
 The compiler exposes capture-avoiding substitution as a
 [`let`-expression builtin](#93-let-expression-builtins) `subst(t,
@@ -219,7 +235,8 @@ input. The block admits three surface forms:
 - `lexicon` block with `"word" : Cat = lf #[learnable]` entries: label-indexed
   lookup table inline.
 - `lexicon from "path.tsv" with learnable`: same shape loaded
-  from a TSV.
+  from a TSV; its logical forms use the same constant tagging,
+  binder normalization, and scope checks as inline entries.
 - `axioms = some_kernel_morphism`: a declared Kleisli morphism
   `Input → List(I × K)`.
 
