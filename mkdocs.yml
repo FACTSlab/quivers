@@ -125,7 +125,7 @@ nav:
     - Probabilistic Programs: reference/qvr/probabilistic-programs.md
     - Generated Computation Graphs: reference/qvr/generated-computations.md
     - Execution and Tooling: reference/qvr/execution-and-tooling.md
-  - Transpilation Support: transpile-support.md
+    - Transpilation Support: transpile-support.md
   - Denotational Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
