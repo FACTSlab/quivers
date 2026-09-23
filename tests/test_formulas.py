@@ -34,6 +34,8 @@ Surface coverage:
 """
 
 from __future__ import annotations
+
+import ast
 import textwrap
 
 import numpy as np
@@ -44,7 +46,7 @@ import torch
 
 import pytest
 
-from quivers.dsl import Compiler, loads
+from quivers.dsl import Compiler, loads, parse
 from quivers.dsl.ast_nodes import Module
 from quivers.dsl.emit import module_to_source
 from quivers.formulas import (
@@ -54,6 +56,7 @@ from quivers.formulas import (
     formula_from_data,
     formula_to_qvr,
 )
+from quivers.transpile import transpile
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +114,30 @@ def gamma_df(base_df):
     out = base_df.copy()
     out["y"] = rng.gamma(shape=2.0, scale=1.5, size=len(out))
     return out
+
+
+@pytest.fixture
+def categorical_df():
+    return pd.DataFrame(
+        {
+            "y": np.tile([0, 1, 2], 8),
+            "x": np.linspace(-1.0, 1.0, 24),
+            "g": np.repeat(["a", "b", "c"], 8),
+        }
+    )
+
+
+@pytest.fixture
+def mixture_df():
+    return pd.DataFrame(
+        {
+            "y": np.concatenate(
+                [np.linspace(-3.0, -2.0, 12), np.linspace(2.0, 3.0, 12)]
+            ),
+            "x": np.linspace(-1.0, 1.0, 24),
+            "g": np.repeat(["a", "b", "c"], 8),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1030,6 +1057,100 @@ class TestFamilyLinkDefaults:
         with pytest.raises(ValueError, match="contiguous category labels"):
             formula_to_qvr("y ~ x", data=df, family="cumulative")
 
+    def test_categorical_builds_identified_multinomial_mixed_model(
+        self, categorical_df
+    ):
+        src = formula_to_qvr(
+            "y ~ x + (1 + x | g)", data=categorical_df, family="categorical"
+        )
+        assert "object FormulaCategory : FinSet 3" in src
+        assert "object FormulaCategoryLogit : FinSet 2" in src
+        assert "sample intercept : FormulaCategoryLogit" in src
+        assert "sample sigma_g_Intercept : FormulaCategoryLogit" in src
+        assert "0 -> categorical_zero_logit" in src
+        assert "let mu = softmax(eta)" in src
+        assert "Categorical(mu)" in src
+        loads(src)
+
+    def test_categorical_lens_round_trip_preserves_random_structure(
+        self, categorical_df
+    ):
+        parsed = formula_from_data("y ~ x + (1 + x | g)", categorical_df)
+        lens = FormulaToQVRModule(families["categorical"])
+        module, complement = lens.forward(parsed)
+        assert lens.backward(module, complement) == parsed
+
+    def test_categorical_rejects_noncontiguous_categories(self):
+        df = pd.DataFrame({"y": [0, 2, 0, 2], "x": np.arange(4.0)})
+        with pytest.raises(ValueError, match="contiguous category labels"):
+            formula_to_qvr("y ~ x", data=df, family="categorical")
+
+    def test_categorical_centered_random_effects_are_rejected(self, categorical_df):
+        with pytest.raises(ValueError, match="require reparameterize='noncentered'"):
+            formula_to_qvr(
+                "y ~ x + (1 | g)",
+                data=categorical_df,
+                family="categorical",
+                reparameterize="centered",
+            )
+
+    def test_mixture_builds_configurable_component_model(self, mixture_df):
+        src = formula_to_qvr(
+            "y ~ x + (1 | g)",
+            data=mixture_df,
+            family="mixture",
+            mixture_components=3,
+            priors={
+                "mixture_logit": "Normal(0.0, 0.5)",
+                "mixture_offset": "Normal(0.0, 2.0)",
+                "mixture_scale": "HalfNormal(1.0)",
+            },
+        )
+        assert "object FormulaComponent : FinSet 3" in src
+        assert "object FormulaComponentContrast : FinSet 2" in src
+        assert "mixture_logit : FormulaComponentContrast <- Normal(0.0, 0.5)" in src
+        assert "mixture_offset : FormulaComponentContrast <- Normal(0.0, 2.0)" in src
+        assert "mixture_scale : FormulaComponent <- HalfNormal(1.0)" in src
+        assert "mixture_weights = softmax(mixture_logits)" in src
+        assert "mixture_offsets = factor component : FormulaComponent" in src
+        assert "MixtureNormal(mixture_weights, mixture_locations, mixture_scale)" in src
+        loads(src)
+
+    def test_mixture_requires_at_least_two_components(self, mixture_df):
+        with pytest.raises(ValueError, match="integer of at least two"):
+            formula_to_qvr(
+                "y ~ x",
+                data=mixture_df,
+                family="mixture",
+                mixture_components=1,
+            )
+
+    @pytest.mark.parametrize("components", [2, 4, 7])
+    def test_mixture_accepts_arbitrary_finite_component_count(
+        self, mixture_df, components
+    ):
+        src = formula_to_qvr(
+            "y ~ x",
+            data=mixture_df,
+            family="mixture",
+            mixture_components=components,
+        )
+        assert f"object FormulaComponent : FinSet {components}" in src
+        loads(src)
+
+    @pytest.mark.parametrize("components", [2, 4, 7])
+    def test_mixture_contrast_is_orthonormal_and_sum_zero(self, components):
+        from quivers.formulas.compile import _helmert_contrast
+
+        contrast = _helmert_contrast(components)
+        assert contrast.shape == (components, components - 1)
+        assert np.allclose(contrast.T @ contrast, np.eye(components - 1))
+        assert np.allclose(contrast.sum(axis=0), 0.0)
+        expected_projection = (
+            np.eye(components) - np.ones((components, components)) / components
+        )
+        assert np.allclose(contrast @ contrast.T, expected_projection)
+
     def test_thresholds_by_rejects_noncumulative_family(self, base_df):
         with pytest.raises(ValueError, match="only valid for the cumulative family"):
             formula_to_qvr(
@@ -1037,6 +1158,14 @@ class TestFamilyLinkDefaults:
                 data=base_df,
                 family="gaussian",
                 thresholds_by="g",
+            )
+
+    def test_family_specific_options_reject_unrelated_families(self, base_df):
+        with pytest.raises(ValueError, match="binomial_trials is only valid"):
+            formula_to_qvr("y ~ x", data=base_df, family="gaussian", binomial_trials=4)
+        with pytest.raises(ValueError, match="mixture_components is only valid"):
+            formula_to_qvr(
+                "y ~ x", data=base_df, family="gaussian", mixture_components=4
             )
 
     def test_binomial_rejects_noninteger_response(self, binary_df):
@@ -1097,6 +1226,109 @@ class TestOrdinalMixedNeuralModel:
                 num_warmup=1,
                 num_samples=1,
             )
+
+
+class TestCategoricalAndMixtureInference:
+    @pytest.mark.parametrize("target", ["pyro", "numpyro"])
+    def test_categorical_formula_transpiles_to_python_targets(
+        self, categorical_df, target
+    ):
+        src = formula_to_qvr(
+            "y ~ x + (1 | g)", data=categorical_df, family="categorical"
+        )
+        rendered = transpile(parse(src), target=target).decode()
+        ast.parse(rendered)
+        assert "softmax" in rendered
+
+    @pytest.mark.parametrize("target", ["pyro", "numpyro"])
+    def test_mixture_formula_transpiles_to_python_targets(self, mixture_df, target):
+        src = formula_to_qvr(
+            "y ~ x + (1 | g)",
+            data=mixture_df,
+            family="mixture",
+            mixture_components=4,
+        )
+        rendered = transpile(parse(src), target=target).decode()
+        ast.parse(rendered)
+        assert "Mixture" in rendered
+
+    def test_categorical_random_effects_execute_under_svi(self, categorical_df):
+        result = fit(
+            "y ~ x + (1 | g)",
+            data=categorical_df,
+            family="categorical",
+            method="svi",
+            num_samples=2,
+            seed=0,
+        )
+        assert "Categorical(mu)" in result.qvr_source
+        assert result.observations["y"].shape == (len(categorical_df),)
+
+    def test_categorical_predictor_accepts_full_logits(self, categorical_df):
+        predictor = torch.nn.Linear(1, 3)
+        initial = predictor.weight.detach().clone()
+        result = fit(
+            "y ~ 1",
+            data=categorical_df,
+            family="categorical",
+            predictor=predictor,
+            predictor_data=torch.linspace(-1.0, 1.0, len(categorical_df)).reshape(
+                -1, 1
+            ),
+            method="svi",
+            num_samples=2,
+            seed=0,
+        )
+        assert not torch.equal(initial, predictor.weight.detach())
+        assert result.observations["neural_eta"].shape == (len(categorical_df) * 2,)
+        assert "neural_eta[response * 2 + category_logit]" in result.qvr_source
+
+    def test_categorical_predictor_rejects_wrong_width(self, categorical_df):
+        with pytest.raises(ValueError, match=r"expected \(24, 2\) or \(24, 3\)"):
+            fit(
+                "y ~ 1",
+                data=categorical_df,
+                family="categorical",
+                predictor=torch.nn.Linear(1, 4),
+                predictor_data=torch.ones(len(categorical_df), 1),
+                method="svi",
+                num_samples=1,
+            )
+
+    @pytest.mark.parametrize("components", [2, 3, 7])
+    def test_arbitrary_component_mixture_executes_under_svi(
+        self, mixture_df, components
+    ):
+        result = fit(
+            "y ~ x + (1 | g)",
+            data=mixture_df,
+            family="mixture",
+            mixture_components=components,
+            method="svi",
+            num_samples=2,
+            seed=0,
+        )
+        assert f"object FormulaComponent : FinSet {components}" in result.qvr_source
+        assert "MixtureNormal(mixture_weights, mixture_locations, mixture_scale)" in (
+            result.qvr_source
+        )
+
+    def test_fitted_source_preserves_requested_priors(self, mixture_df):
+        result = fit(
+            "y ~ x",
+            data=mixture_df,
+            family="mixture",
+            mixture_components=3,
+            fixed_prior="Normal(0.0, 3.0)",
+            priors={"mixture_scale": "HalfNormal(0.75)"},
+            method="svi",
+            num_samples=1,
+            seed=0,
+        )
+        assert "intercept <- Normal(0.0, 3.0)" in result.qvr_source
+        assert "mixture_scale : FormulaComponent <- HalfNormal(0.75)" in (
+            result.qvr_source
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -157,7 +157,7 @@ value. The built-in families:
 | `gaussian` | identity | `sigma ~ HalfCauchy(2.0)` |
 | `bernoulli` | logit (sigmoid) | – |
 | `binomial` | logit (sigmoid) | known trial count |
-| `categorical` | softmax | – |
+| `categorical` | reference-category multinomial logit | one coefficient and random effect per non-reference category |
 | `poisson` | log (exp) | – |
 | `negative_binomial` | log (exp) | `disp ~ Gamma(2.0, 2.0)` |
 | `gamma` | log (exp) | `shape ~ Gamma(2.0, 2.0)` |
@@ -166,7 +166,7 @@ value. The built-in families:
 | `cumulative` | identity | learned ordered cutpoints |
 | `zero_inflated_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
 | `hurdle_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
-| `mixture` | identity | `loc ~ Normal(0.0, 5.0)`, `scale ~ HalfCauchy(2.0)` |
+| `mixture` | identity | component logits, centered location offsets, and positive scales |
 
 Custom families are pluggable: subclass
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family)
@@ -199,6 +199,70 @@ Beta uses mean `mu` and precision `phi`, then emits
 `sigma` to QVR's `(df, loc, scale)` order. Zero-inflated and hurdle
 Poisson models interpret `zi` as the structural-zero probability and
 `mu` as the Poisson rate.
+
+### Unordered categorical mixed models
+
+The categorical family infers `K` from contiguous integer labels
+`0, ..., K-1` and uses category zero as the reference. Every fixed-effect
+coefficient and random effect is therefore a vector of `K - 1` logits.
+The compiler prepends the reference logit of zero and applies softmax to
+the resulting per-row `K`-vector. This parameterization removes the
+unidentified common shift in an unconstrained set of `K` logits.
+
+<!-- python: skip -->
+```python
+choice_fit = fit(
+    "choice ~ surprisal + condition + (1 + surprisal | participant)",
+    data=choices,
+    family="categorical",
+    method="nuts",
+)
+```
+
+Categorical responses must contain every label between zero and `K - 1`.
+Class-specific random effects currently use the default non-centered
+parameterization; `reparameterize="centered"` is rejected when a
+categorical formula contains random effects.
+
+An external categorical predictor may return either the `K - 1`
+non-reference logits with shape `(N, K - 1)` or a full `(N, K)` logit
+matrix. In the latter case, `fit` subtracts the reference-category logit
+before combining the predictor with formula terms. A binary categorical
+predictor may also return shape `(N,)`.
+
+### Gaussian mixture regressions
+
+The mixture family represents each response as a finite Gaussian mixture.
+`mixture_components` sets the number of components, while the formula's
+linear predictor shifts every component location for a row. Component
+weights are shared across rows, location offsets are centered to separate
+them from the formula intercept, and every component has its own positive
+scale. The `K - 1` free logits and offsets are projected through an
+orthonormal Helmert basis. Thus the default isotropic Normal priors induce
+permutation-symmetric distributions on the sum-zero `K`-vectors without a
+redundant common direction:
+
+<!-- python: skip -->
+```python
+mixture_fit = fit(
+    "reaction_time ~ condition + (1 | participant)",
+    data=trials,
+    family="mixture",
+    mixture_components=3,
+    priors={
+        "mixture_logit": "Normal(0.0, 0.5)",
+        "mixture_offset": "Normal(0.0, 2.0)",
+        "mixture_scale": "HalfNormal(1.0)",
+    },
+    method="nuts",
+)
+```
+
+The likelihood integrates component assignments with `MixtureNormal`; it
+does not add a discrete latent site. Centering distinguishes the shared
+regression location from component offsets, but it does not label the
+components. Posterior summaries must still account for the usual
+label-switching symmetry of finite mixtures.
 
 ### Ordinal mixed models and neural predictors
 
@@ -252,7 +316,8 @@ parameters have been frozen.
 Every [`ParamSource`](../api/continuous/param_source.md) is an
 `nn.Module`, so `LinearSource`, `MLPSource`, and `FunctionSource` can be
 passed as `predictor` directly. The predictor must return one location
-value per response row, with shape `(N,)` or `(N, 1)`.
+value per response row, with shape `(N,)` or `(N, 1)`, except for the
+categorical shapes described above.
 
 An arbitrary Python module is a runtime attachment and cannot be encoded
 inside portable QVR source. `joint_fit.qvr_source` therefore names the

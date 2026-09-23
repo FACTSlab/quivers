@@ -47,6 +47,12 @@ Emitted structure (one named scalar coefficient per design-matrix
 * One ``observe`` step closes the program with the family's
   observation kernel applied to the inverse-link of the linear
   predictor.
+* Categorical responses use category zero as an identified reference
+  and lift every fixed and random term over the remaining ``K - 1``
+  logits before applying softmax.
+* Gaussian mixtures use a configurable component axis, shared softmax
+  weights, centered component offsets around the formula predictor,
+  and one positive scale per component.
 
 GetPut holds for every `Formula` ``f``: ``backward(*forward(f)) == f``.
 """
@@ -238,6 +244,22 @@ def _factor(
     )
 
 
+def _helmert_contrast(cardinality: int) -> np.ndarray:
+    """Return an orthonormal sum-zero basis for ``cardinality`` cells.
+
+    Isotropic Normal coefficients in this basis induce the permutation-
+    symmetric Gaussian on the sum-zero subspace. The formula mixture uses
+    the same basis for logits and location offsets, removing their common
+    direction without singling out one component in the default prior.
+    """
+    basis = np.zeros((cardinality, cardinality - 1), dtype=np.float64)
+    for column in range(cardinality - 1):
+        scale = np.sqrt((column + 1) * (column + 2))
+        basis[: column + 1, column] = 1.0 / scale
+        basis[column + 1, column] = -(column + 1) / scale
+    return basis
+
+
 def _apply_link(eta: LetExprNode, link_name: str) -> LetExprNode:
     if link_name == "identity":
         return eta
@@ -386,6 +408,21 @@ def _decode_module(module: Module) -> dict:
             if not isinstance(step.index, TypeName):
                 continue
             qgroup = step.index.name
+            if qgroup == "FormulaCategoryLogit":
+                if var == "intercept":
+                    fixed_qvr_names.append(("", True))
+                elif var.startswith("beta_"):
+                    fixed_qvr_names.append((var.removeprefix("beta_"), False))
+                continue
+            if qgroup.startswith("FormulaRandomCell_") and var.startswith("z_"):
+                for source_group in sorted(group_cardinalities, key=len, reverse=True):
+                    prefix = f"z_{source_group}_"
+                    if not var.startswith(prefix):
+                        continue
+                    slope_qvr = var.removeprefix(prefix)
+                    random_terms_qvr.append((source_group, slope_qvr))
+                    break
+                continue
             if var.startswith("alpha_"):
                 random_terms_qvr.append((qgroup, "Intercept"))
             elif var.startswith("beta_"):
@@ -441,6 +478,18 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
     user_priors : Mapping[str, str]
         Per-name prior overrides keyed by the latent's variable
         name in the emitted module.
+    reparameterize : {"centered", "noncentered"}
+        Random-effect parameterization. Categorical random effects use the
+        non-centered form.
+    binomial_trials : int or str
+        Common trial count or the name of a per-row trial-count column.
+    thresholds_by : str or None
+        Grouping factor whose levels receive partially pooled ordinal
+        cutpoint spacings.
+    mixture_components : int
+        Number of components for ``family="mixture"``; must be at least two.
+    predictor_name : str or None
+        Host-data name for an external differentiable predictor.
 
     Notes
     -----
@@ -460,6 +509,7 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         reparameterize: Literal["centered", "noncentered"] = "noncentered",
         binomial_trials: int | str = 1,
         thresholds_by: str | None = None,
+        mixture_components: int = 2,
         predictor_name: str | None = None,
     ) -> None:
         self._family = family
@@ -471,10 +521,37 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
                 "FormulaToQVRModule: thresholds_by is only valid for the "
                 "cumulative family"
             )
+        if family.name != "binomial" and binomial_trials != 1:
+            raise ValueError(
+                "FormulaToQVRModule: binomial_trials is only valid for the "
+                "binomial family"
+            )
+        if not isinstance(binomial_trials, (int, str)) or isinstance(
+            binomial_trials, bool
+        ):
+            raise ValueError(
+                "FormulaToQVRModule: binomial_trials must be a positive integer "
+                "or a data-column name"
+            )
         if isinstance(binomial_trials, int) and binomial_trials < 1:
             raise ValueError("FormulaToQVRModule: binomial_trials must be at least one")
+        if (
+            not isinstance(mixture_components, int)
+            or isinstance(mixture_components, bool)
+            or mixture_components < 2
+        ):
+            raise ValueError(
+                "FormulaToQVRModule: mixture_components must be an integer "
+                "of at least two"
+            )
+        if family.name != "mixture" and mixture_components != 2:
+            raise ValueError(
+                "FormulaToQVRModule: mixture_components is only valid for the "
+                "mixture family"
+            )
         self._binomial_trials = binomial_trials
         self._thresholds_by = thresholds_by
+        self._mixture_components = mixture_components
         self._predictor_name = (
             _qvr_name(predictor_name) if predictor_name is not None else None
         )
@@ -581,21 +658,25 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
 
     @staticmethod
     def _ordinal_category_count(formula: Formula) -> int:
+        return FormulaToQVRModule._category_count(formula, family="cumulative")
+
+    @staticmethod
+    def _category_count(formula: Formula, *, family: str) -> int:
         values = np.asarray(formula.response_values, dtype=np.float64).reshape(-1)
         if values.size == 0 or not np.isfinite(values).all():
-            raise ValueError("cumulative family requires a nonempty, finite response")
+            raise ValueError(f"{family} family requires a nonempty, finite response")
         integers = values.astype(np.int64)
         if not np.equal(values, integers).all():
-            raise ValueError("cumulative family requires integer category labels")
+            raise ValueError(f"{family} family requires integer category labels")
         levels = np.unique(integers)
         expected = np.arange(int(levels[-1]) + 1)
         if not np.array_equal(levels, expected):
             raise ValueError(
-                "cumulative family requires contiguous category labels "
+                f"{family} family requires contiguous category labels "
                 f"0..K-1; got {levels.tolist()!r}"
             )
         if levels.size < 2:
-            raise ValueError("cumulative family requires at least two categories")
+            raise ValueError(f"{family} family requires at least two categories")
         return int(levels.size)
 
     @staticmethod
@@ -843,6 +924,288 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         )
         return "row_cutpoints"
 
+    def _append_categorical_predictor(
+        self,
+        formula: Formula,
+        statements: list[Statement],
+        program_steps: list[ProgramStep],
+    ) -> None:
+        """Emit an identified multinomial-logit predictor.
+
+        Category zero is the reference class. Every fixed coefficient and
+        random effect therefore has ``K - 1`` entries, and the compiler
+        prepends a zero logit before applying softmax. This removes the common
+        additive direction that an unconstrained ``K``-logit parameterization
+        would leave unidentified.
+        """
+        n_categories = self._category_count(formula, family="categorical")
+        n_logits = n_categories - 1
+        category_index = "FormulaCategory"
+        logit_index = "FormulaCategoryLogit"
+        self._append_finite_object(statements, category_index, n_categories)
+        self._append_finite_object(statements, logit_index, n_logits)
+
+        cell_terms: list[LetExprNode] = []
+        response_var = _var("response")
+        logit_var = _var("category_logit")
+
+        for col in formula.fixed_columns:
+            beta_name = "intercept" if col.is_intercept else f"beta_{col.qvr_name}"
+            override = self._user_priors.get(beta_name)
+            prior_text = override if override is not None else self._fixed_prior
+            family_name, args = _parse_prior_call(prior_text)
+            if override is None and not col.is_intercept:
+                args = _autoscaled_prior_args(family_name, args, col.data)
+            program_steps.append(
+                _draw(beta_name, family_name, args, index=TypeName(name=logit_index))
+            )
+            coefficient = _index(beta_name, logit_var)
+            if col.is_intercept:
+                cell_terms.append(coefficient)
+            else:
+                cell_terms.append(_mul(coefficient, _index(col.qvr_name, response_var)))
+
+        if self._predictor_name is not None:
+            predictor_index = _add(
+                _mul(
+                    response_var,
+                    LetExprLiteral(value=float(n_logits), integral=True),
+                ),
+                logit_var,
+            )
+            cell_terms.append(_index(self._predictor_name, predictor_index))
+
+        if self._reparameterize == "centered" and formula.random_terms:
+            raise ValueError(
+                "categorical random effects currently require "
+                "reparameterize='noncentered'"
+            )
+
+        for term in formula.random_terms:
+            group = term.group
+            qgroup = _qvr_name(group)
+            slope = term.slope
+            qslope = _qvr_name(slope)
+            sigma_var = f"sigma_{qgroup}_{qslope}"
+            sigma_prior_text = self._user_priors.get(
+                sigma_var, self._random_scale_prior
+            )
+            sf_family, sf_args = _parse_prior_call(sigma_prior_text)
+            program_steps.append(
+                _draw(
+                    sigma_var,
+                    sf_family,
+                    sf_args,
+                    index=TypeName(name=logit_index),
+                )
+            )
+
+            n_groups = len(formula.group_levels[group])
+            cell_index = f"FormulaRandomCell_{qgroup}_{qslope}"
+            self._append_finite_object(statements, cell_index, n_groups * n_logits)
+            z_var = f"z_{qgroup}_{qslope}"
+            z_matrix = f"{z_var}_matrix"
+            program_steps.append(
+                _draw(
+                    z_var,
+                    "Normal",
+                    (0.0, 1.0),
+                    index=TypeName(name=cell_index),
+                )
+            )
+            flat_index = _add(
+                _mul(
+                    _var("random_group"),
+                    LetExprLiteral(value=float(n_logits), integral=True),
+                ),
+                logit_var,
+            )
+            program_steps.append(
+                _let(
+                    z_matrix,
+                    _factor(
+                        (("category_logit", logit_index), ("random_group", qgroup)),
+                        body=_index(z_var, flat_index),
+                    ),
+                )
+            )
+            contribution_name = f"{z_var}_contribution"
+            contribution = _mul(
+                _index(sigma_var, logit_var),
+                _index(z_matrix, logit_var, _var(f"{qgroup}_idx")),
+            )
+            if slope != "Intercept":
+                contribution = _mul(contribution, _var(qslope))
+            program_steps.append(
+                _let(
+                    contribution_name,
+                    _factor(
+                        (("category_logit", logit_index),),
+                        body=contribution,
+                    ),
+                )
+            )
+            cell_terms.append(_index(contribution_name, logit_var, response_var))
+
+        program_steps.append(
+            _let(
+                "eta_nonbaseline",
+                _factor(
+                    (("response", "Resp"), ("category_logit", logit_index)),
+                    body=_add(*cell_terms),
+                ),
+            )
+        )
+        program_steps.append(
+            _let(
+                "categorical_zero_logit",
+                _factor(
+                    (("response", "Resp"),),
+                    body=LetExprLiteral(value=0.0),
+                ),
+            )
+        )
+        category_cases: tuple[tuple[int, LetExprNode], ...] = (
+            (0, _var("categorical_zero_logit")),
+        ) + tuple(
+            (
+                category,
+                _factor(
+                    (("response", "Resp"),),
+                    body=_index(
+                        "eta_nonbaseline",
+                        response_var,
+                        LetExprLiteral(value=float(category - 1), integral=True),
+                    ),
+                ),
+            )
+            for category in range(1, n_categories)
+        )
+        program_steps.append(
+            _let(
+                "categorical_logits_by_category",
+                _factor((("category", category_index),), cases=category_cases),
+            )
+        )
+        program_steps.append(
+            _let(
+                "eta",
+                _factor(
+                    (("response", "Resp"), ("category", category_index)),
+                    body=_index(
+                        "categorical_logits_by_category",
+                        _var("category"),
+                        response_var,
+                    ),
+                ),
+            )
+        )
+        program_steps.append(_let("mu", _call("softmax", _var("eta"))))
+
+    def _append_mixture_parameters(
+        self,
+        formula: Formula,
+        statements: list[Statement],
+        program_steps: list[ProgramStep],
+    ) -> tuple[str, str, str]:
+        """Emit identified weights, sum-zero offsets, and component scales."""
+        component_index = "FormulaComponent"
+        contrast_index = "FormulaComponentContrast"
+        self._append_finite_object(
+            statements, component_index, self._mixture_components
+        )
+        self._append_finite_object(
+            statements, contrast_index, self._mixture_components - 1
+        )
+        prior_specs = (
+            (
+                "mixture_logit",
+                "mixture_logit",
+                "Normal(0.0, 1.0)",
+                contrast_index,
+            ),
+            (
+                "mixture_offset",
+                "mixture_offset",
+                "Normal(0.0, 5.0)",
+                contrast_index,
+            ),
+            (
+                "mixture_scale",
+                "mixture_scale",
+                "HalfCauchy(2.0)",
+                component_index,
+            ),
+        )
+        for prior_name, draw_name, default, index_name in prior_specs:
+            family_name, args = _parse_prior_call(
+                self._user_priors.get(prior_name, default)
+            )
+            program_steps.append(
+                _draw(
+                    draw_name,
+                    family_name,
+                    args,
+                    index=TypeName(name=index_name),
+                )
+            )
+        contrast = _helmert_contrast(self._mixture_components)
+
+        def projected_cases(name: str) -> tuple[tuple[int, LetExprNode], ...]:
+            cases: list[tuple[int, LetExprNode]] = []
+            for component, row in enumerate(contrast):
+                terms = tuple(
+                    _mul(
+                        LetExprLiteral(value=float(weight)),
+                        _index(
+                            name,
+                            LetExprLiteral(value=float(column), integral=True),
+                        ),
+                    )
+                    for column, weight in enumerate(row)
+                    if weight != 0.0
+                )
+                cases.append((component, _add(*terms)))
+            return tuple(cases)
+
+        logit_cases = projected_cases("mixture_logit")
+        offset_cases = projected_cases("mixture_offset")
+        program_steps.extend(
+            [
+                _let(
+                    "mixture_logits",
+                    _factor((("component", component_index),), cases=logit_cases),
+                ),
+                _let(
+                    "mixture_weights",
+                    _call("softmax", _var("mixture_logits")),
+                ),
+                _let(
+                    "mixture_offsets",
+                    _factor((("component", component_index),), cases=offset_cases),
+                ),
+            ]
+        )
+        row_varying = (
+            self._predictor_name is not None
+            or any(not col.is_intercept for col in formula.fixed_columns)
+            or bool(formula.random_terms)
+        )
+        row_eta = _index("eta", _var("response")) if row_varying else _var("eta")
+        program_steps.append(
+            _let(
+                "mixture_locations",
+                _factor(
+                    (("response", "Resp"), ("component", component_index)),
+                    body=_add(
+                        row_eta,
+                        _index("mixture_offsets", _var("component")),
+                    ),
+                ),
+            )
+        )
+        return "mixture_weights", "mixture_locations", "mixture_scale"
+
     def _build_module(self, formula: Formula) -> Module:
         statements: list[Statement] = []
         n_obs = formula.response_values.shape[0]
@@ -878,6 +1241,30 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             )
 
         program_steps: list[ProgramStep] = []
+        if self._family.name == "categorical":
+            self._append_categorical_predictor(formula, statements, program_steps)
+            program_steps.append(
+                _draw(
+                    _qvr_name(formula.response_name),
+                    "Categorical",
+                    ("mu",),
+                    index=TypeName(name="Resp"),
+                    mode="score",
+                )
+            )
+            statements.append(
+                ProgramDecl(
+                    name="model",
+                    params=None,
+                    domain=TypeName(name="Resp"),
+                    codomain=TypeName(name="Resp"),
+                    draws=tuple(program_steps),
+                    return_vars=(_qvr_name(formula.response_name),),
+                )
+            )
+            statements.append(ExportDecl(expr=ExprIdent(name="model")))
+            return Module(statements=tuple(statements))
+
         linear_terms: list[LetExprNode] = []
 
         # Fixed effects: one scalar latent per design-matrix column.
@@ -1067,6 +1454,10 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             else:
                 trials = float(self._binomial_trials)
             obs_args = (trials, "mu")
+        elif self._family.name == "mixture":
+            obs_args = self._append_mixture_parameters(
+                formula, statements, program_steps
+            )
         else:
             obs_args = ("mu",) + tuple(self._family.extra_observe_args)
         program_steps.append(

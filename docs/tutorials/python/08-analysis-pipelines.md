@@ -255,6 +255,107 @@ host input `neural_eta`; the Python module itself remains a runtime
 attachment. Trainable predictors therefore use SVI. A frozen predictor
 can also be used with NUTS or HMC.
 
+## Unordered choices with varying effects
+
+For an unordered response, encode the alternatives as consecutive integers
+beginning at zero. This synthetic example has three choices and a
+participant-specific intercept:
+
+```python
+rng = np.random.default_rng(4)
+N = 120
+participant = np.repeat(np.arange(12), 10)
+x = rng.normal(size=N)
+logits = np.column_stack([
+    np.zeros(N),
+    -0.4 + 1.1 * x,
+    0.7 - 0.6 * x,
+])
+prob = np.exp(logits - logits.max(axis=1, keepdims=True))
+prob /= prob.sum(axis=1, keepdims=True)
+choice = np.array([rng.choice(3, p=row) for row in prob])
+choice_data = pd.DataFrame({
+    "choice": choice,
+    "x": x,
+    "participant": participant,
+})
+```
+
+The categorical compiler takes category zero as the reference and learns
+two coefficient vectors, one for each non-reference category:
+
+```python
+choice_fit = fit(
+    "choice ~ x + (1 | participant)",
+    data=choice_data,
+    family="categorical",
+    method="svi",
+    num_samples=250,
+    seed=0,
+)
+```
+
+The generated program builds an `(N, 3)` logit matrix whose first column
+is zero, then applies softmax along the category axis. Fixed coefficients
+and non-centered random effects have two entries apiece. Thus every term
+has the same reference-category interpretation, and the additive logit
+direction is identified.
+
+A neural classifier can contribute either all three logits or the two
+non-reference logits. `fit` converts a full `(N, 3)` output to reference
+contrasts before adding it to the formula predictor:
+
+<!-- python: skip -->
+```python
+classifier = torch.nn.Linear(feature_count, 3)
+choice_fit = fit(
+    "choice ~ condition + (1 | participant)",
+    data=choice_data,
+    family="categorical",
+    predictor=classifier,
+    predictor_data=features,
+    method="svi",
+    num_samples=3000,
+)
+```
+
+## A finite-mixture regression
+
+Some continuous responses combine several regimes. Here each observation
+comes from one of three Gaussian components, while `x` shifts every
+component location:
+
+```python
+rng = np.random.default_rng(8)
+N = 150
+x = rng.normal(size=N)
+component = rng.choice(3, size=N, p=[0.25, 0.5, 0.25])
+offset = np.array([-2.5, 0.0, 2.5])
+y = 0.8 * x + offset[component] + rng.normal(scale=0.4, size=N)
+mixture_data = pd.DataFrame({"y": y, "x": x})
+
+mixture_fit = fit(
+    "y ~ x",
+    data=mixture_data,
+    family="mixture",
+    mixture_components=3,
+    method="svi",
+    num_samples=250,
+    seed=0,
+)
+```
+
+The formula intercept is the common location. The compiler centers three
+component offsets around it, projects two free logit and offset contrasts
+through an orthonormal Helmert basis, turns the three resulting logits into
+shared weights, and learns one positive scale per component. `MixtureNormal`
+sums over the component assignment inside the likelihood, so the guide
+contains only continuous sites. The components remain exchangeable;
+inspect permutation-invariant summaries or impose a substantively
+motivated labeling convention when interpreting them. The 250-step SVI
+budgets keep these tutorial fits quick; increase them and inspect diagnostics
+before interpreting either posterior.
+
 ## Model comparison with PSIS-LOO
 
 Two models on the same Bernoulli outcome: with and without the predictor. The smaller `N` and short MCMC keeps the example fast.
@@ -377,6 +478,7 @@ You have:
 - Fit a Gaussian regression with one line of code and recovered the true coefficients via SVI.
 - Inspected the emitted `.qvr` source and seen how predictors flow in through the host-data channel rather than as latent draws.
 - Fit a hierarchical model with `(1 | g)` random intercepts and seen where SVI's mean-field approximation under-shrinks group-level variance.
+- Fit identified unordered categorical and finite Gaussian-mixture regressions.
 - Run NUTS on a Bernoulli regression and compared two models via PSIS-LOO with stacking weights.
 - Wrapped MCMC results into an ArviZ `DataTree` and run a posterior-predictive check.
 - Inspected the lens machinery that maps a `Formula` to a QVR `Module`.

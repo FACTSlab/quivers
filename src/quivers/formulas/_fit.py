@@ -72,6 +72,10 @@ class BayesianFit(dx.Model):
     reparameterize: Literal["centered", "noncentered"] = "noncentered"
     binomial_trials: int | str = 1
     thresholds_by: str | None = None
+    mixture_components: int = 2
+    fixed_prior: str = "Normal(0.0, 5.0)"
+    random_scale_prior: str = "HalfNormal(1.0)"
+    priors: Mapping[str, str] = dx.field(default_factory=dict, opaque=True)
     predictor: nn.Module | None = dx.field(default=None, opaque=True)
     predictor_data: torch.Tensor | None = dx.field(default=None, opaque=True)
     predictor_name: str | None = None
@@ -81,9 +85,13 @@ class BayesianFit(dx.Model):
         """Lazily emit the AST-equivalent ``.qvr`` source for display."""
         lens = FormulaToQVRModule(
             self.family,
+            fixed_prior=self.fixed_prior,
+            random_scale_prior=self.random_scale_prior,
+            user_priors=self.priors,
             reparameterize=self.reparameterize,
             binomial_trials=self.binomial_trials,
             thresholds_by=self.thresholds_by,
+            mixture_components=self.mixture_components,
             predictor_name=self.predictor_name,
         )
         module, _ = lens.forward(self.formula)
@@ -114,6 +122,7 @@ def fit(
     reparameterize: Literal["centered", "noncentered"] = "noncentered",
     binomial_trials: int | str = 1,
     thresholds_by: str | None = None,
+    mixture_components: int = 2,
     predictor: nn.Module | None = None,
     predictor_data: torch.Tensor | None = None,
     seed: int = 0,
@@ -123,6 +132,34 @@ def fit(
     See [`quivers.formulas`][quivers.formulas] for surface details.  This entry
     point composes `formula_from_data`, `FormulaToQVRModule`,
     `Compiler`, and the inference layer in one call.
+
+    ``family="categorical"`` infers contiguous labels ``0..K-1`` and uses
+    label zero as the reference. An attached categorical predictor may return
+    ``(N, K-1)`` reference logits or ``(N, K)`` full logits. For
+    ``family="mixture"``, ``mixture_components`` selects any finite component
+    count of at least two; the likelihood integrates assignments exactly.
+
+    Parameters
+    ----------
+    formula : str
+        brms/lme4-style response formula.
+    data : IntoDataFrame
+        Pandas, Polars, or another Narwhals-compatible dataframe.
+    family : str or Family
+        Registered response family or a family value.
+    method : {"nuts", "hmc", "svi"}
+        Inference algorithm.
+    mixture_components : int
+        Number of Gaussian components for the mixture family.
+    predictor : nn.Module or None
+        Optional differentiable contribution on the linear-predictor scale.
+    predictor_data : torch.Tensor or None
+        Input passed to ``predictor`` on each SVI step.
+
+    Returns
+    -------
+    BayesianFit
+        Parsed formula, compiled program, fitted posterior, and observations.
     """
     if isinstance(family, str):
         if family not in families:
@@ -156,6 +193,7 @@ def fit(
         reparameterize=reparameterize,
         binomial_trials=binomial_trials,
         thresholds_by=thresholds_by,
+        mixture_components=mixture_components,
         predictor_name=predictor_name,
     )
     module, _ = lens.forward(parsed)
@@ -189,11 +227,20 @@ def fit(
             observations[_qvr_name(binomial_trials)] = trials
     if predictor is not None:
         assert predictor_data is not None
+        assert predictor_name is not None
+        predictor_categories = (
+            FormulaToQVRModule._category_count(parsed, family="categorical")
+            if family_obj.name == "categorical"
+            else None
+        )
         observations[predictor_name] = _predictor_output(
             predictor,
             predictor_data,
             n_obs=parsed.response_values.shape[0],
+            n_categories=predictor_categories,
         ).detach()
+    else:
+        predictor_categories = None
 
     torch.manual_seed(seed)
     if method == "svi":
@@ -205,6 +252,7 @@ def fit(
             predictor=predictor,
             predictor_data=predictor_data,
             predictor_name=predictor_name,
+            predictor_categories=predictor_categories,
         )
     else:
         posterior = _fit_mcmc(
@@ -225,6 +273,10 @@ def fit(
         reparameterize=reparameterize,
         binomial_trials=binomial_trials,
         thresholds_by=thresholds_by,
+        mixture_components=mixture_components,
+        fixed_prior=fixed_prior,
+        random_scale_prior=random_scale_prior,
+        priors=dict(priors or {}),
         predictor=predictor,
         predictor_data=predictor_data,
         predictor_name=predictor_name,
@@ -242,6 +294,7 @@ def formula_to_qvr(
     reparameterize: Literal["centered", "noncentered"] = "noncentered",
     binomial_trials: int | str = 1,
     thresholds_by: str | None = None,
+    mixture_components: int = 2,
     predictor_name: str | None = None,
     path: str | Path | None = None,
 ) -> str:
@@ -249,7 +302,8 @@ def formula_to_qvr(
 
     Builds the formula AST → QVR Module via `FormulaToQVRModule`,
     then serialises the module via [`quivers.dsl.emit.module_to_source`][quivers.dsl.emit.module_to_source].
-    Optionally writes the result to ``path``.
+    Optionally writes the result to ``path``. ``mixture_components`` selects
+    any integer component count of at least two for ``family="mixture"``.
     """
     if isinstance(family, str):
         if family not in families:
@@ -275,6 +329,7 @@ def formula_to_qvr(
         reparameterize=reparameterize,
         binomial_trials=binomial_trials,
         thresholds_by=thresholds_by,
+        mixture_components=mixture_components,
         predictor_name=predictor_name,
     )
     module, _ = lens.forward(parsed)
@@ -307,6 +362,7 @@ def _fit_svi(
     predictor: nn.Module | None = None,
     predictor_data: torch.Tensor | None = None,
     predictor_name: str | None = None,
+    predictor_categories: int | None = None,
 ):
     """Run an SVI fit + ELBO.
 
@@ -334,13 +390,19 @@ def _fit_svi(
             assert predictor_data is not None and predictor_name is not None
             step_observations = dict(observations)
             step_observations[predictor_name] = _predictor_output(
-                predictor, predictor_data, n_obs=n_obs
+                predictor,
+                predictor_data,
+                n_obs=n_obs,
+                n_categories=predictor_categories,
             )
         svi.step(x, step_observations)
     if predictor is not None:
         assert predictor_data is not None and predictor_name is not None
         observations[predictor_name] = _predictor_output(
-            predictor, predictor_data, n_obs=n_obs
+            predictor,
+            predictor_data,
+            n_obs=n_obs,
+            n_categories=predictor_categories,
         ).detach()
     return guide
 
@@ -377,11 +439,24 @@ def _predictor_output(
     data: torch.Tensor,
     *,
     n_obs: int,
+    n_categories: int | None = None,
 ) -> torch.Tensor:
     value = predictor(data)
     if not isinstance(value, torch.Tensor):
         raise TypeError(
             "fit: predictor must return a torch.Tensor on the linear-predictor scale"
+        )
+    if n_categories is not None:
+        if value.shape == (n_obs,) and n_categories == 2:
+            return value
+        if value.shape == (n_obs, n_categories - 1):
+            return value.reshape(-1)
+        if value.shape == (n_obs, n_categories):
+            return (value[:, 1:] - value[:, :1]).reshape(-1)
+        raise ValueError(
+            "fit: categorical predictor returned shape "
+            f"{tuple(value.shape)}, expected ({n_obs}, {n_categories - 1}) "
+            f"or ({n_obs}, {n_categories})"
         )
     if value.ndim == 2 and value.shape[-1] == 1:
         value = value.squeeze(-1)

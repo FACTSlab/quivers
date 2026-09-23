@@ -1965,6 +1965,29 @@ def make_inline_distribution(
             param_spec.append(("var", var_dim))
             var_name_order.append(arg)
             total_var_dim += var_dim
+    if family == "MixtureNormal":
+        # QIEC can currently retain the component width for an indexed draw
+        # while conservatively typing a derived vector-valued ``let`` as
+        # width one. MixtureNormal's three vector parameters necessarily
+        # share one component axis, so a known width on any slot determines
+        # the unresolved derived slots without guessing at runtime after the
+        # arguments have been concatenated.
+        known_component_dims = {
+            int(value)
+            for (kind, value), rank in zip(param_spec, fam_event_ranks, strict=True)
+            if kind == "var" and rank >= 1 and int(value) > 1
+        }
+        if len(known_component_dims) == 1:
+            component_dim = known_component_dims.pop()
+            param_spec = [
+                (kind, component_dim)
+                if kind == "var" and rank >= 1 and int(value) == 1
+                else (kind, value)
+                for (kind, value), rank in zip(param_spec, fam_event_ranks, strict=True)
+            ]
+            total_var_dim = sum(
+                int(value) for kind, value in param_spec if kind == "var"
+            )
     if total_var_dim == 0:
         domain = Euclidean(name="_inline_domain", dim=1)
     elif len(var_name_order) == 1 and variable_types:

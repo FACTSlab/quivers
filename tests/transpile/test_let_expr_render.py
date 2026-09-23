@@ -111,6 +111,52 @@ def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> M
     )
 
 
+def _softmax_module() -> Module:
+    """A typed vector-valued softmax used by renderer tests."""
+    component = TypeName(name="Component")
+    return Module(
+        statements=(
+            ObjectDecl(
+                names=("Component",),
+                init=TypeFromExpr(
+                    expr=DiscreteConstructor(constructor="FinSet", args=("3",))
+                ),
+            ),
+            ObjectDecl(
+                names=("Resp",),
+                init=TypeFromExpr(
+                    expr=DiscreteConstructor(constructor="FinSet", args=("4",))
+                ),
+            ),
+            ProgramDecl(
+                name="model",
+                domain=_RESP,
+                codomain=_RESP,
+                draws=(
+                    SampleStep(
+                        vars=("u",),
+                        morphism="Normal",
+                        args=(_scalar(0.0), _scalar(1.0)),
+                        index=component,
+                    ),
+                    LetStep(
+                        name="m",
+                        value=LetExprCall(func="softmax", args=(LetExprVar(name="u"),)),
+                    ),
+                    ObserveStep(
+                        vars=("y",),
+                        morphism="Categorical",
+                        args=(DrawArgName(text="m"),),
+                        index=_RESP,
+                    ),
+                ),
+                return_vars=("y",),
+            ),
+            ExportDecl(expr=ExprIdent(name="model")),
+        )
+    )
+
+
 #: Where the ``m`` binding starts: the name, an optional subscript, and
 #: an assignment operator, not preceded by another identifier character.
 _M_BINDING = re.compile(r"(?<![A-Za-z0-9_.])m(\[[^\]]*\])?\s*(?:=|<-)\s*")
@@ -208,6 +254,13 @@ _ERF_SYMBOL = {
     "edward2": "tf.math.erf(",
 }
 
+_SOFTMAX_SYMBOL = {
+    "pyro": "torch.softmax(",
+    "numpyro": "jnn.softmax(",
+    "pymc": "pymc.math.softmax(",
+    "edward2": "tf.nn.softmax(",
+}
+
 
 @pytest.mark.parametrize("target", _PYTHON_TARGETS)
 def test_builtin_call_maps_to_target_symbol(target: str) -> None:
@@ -233,13 +286,21 @@ def test_numpyro_emits_special_import() -> None:
 
 
 @pytest.mark.parametrize("target", _PYTHON_TARGETS)
+def test_softmax_maps_to_trailing_axis_call(target: str) -> None:
+    """QVR softmax uses the trailing event axis on every Python target."""
+    line = _m_line(target, _softmax_module()).replace(" ", "")
+    assert _SOFTMAX_SYMBOL[target] in line, line
+    assert ("dim=-1" if target == "pyro" else "axis=-1") in line, line
+
+
+@pytest.mark.parametrize("target", _PYTHON_TARGETS)
 def test_unmapped_builtin_raises(target: str) -> None:
     """A builtin with no per-target mapping raises, not emits a bare name.
 
-    ``softmax`` needs a ``dim`` argument the single-call surface cannot
-    supply, so no target maps it.
+    ``sort`` returns target-specific structures and has no single-call
+    mapping on this surface.
     """
-    value = LetExprCall(func="softmax", args=(LetExprVar(name="u"),))
+    value = LetExprCall(func="sort", args=(LetExprVar(name="u"),))
     with pytest.raises(_transpile.UnsupportedConstruct):
         _transpile.transpile(_module(value), target=target)
 

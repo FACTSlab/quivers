@@ -4,6 +4,20 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.23.0] - 2026-09-23
+
+### Added
+
+- **Identified categorical formula models.** `family="categorical"` now infers contiguous response labels, takes category zero as the reference, and emits class-specific fixed and non-centered random effects over the remaining `K - 1` logits. External neural predictors may return either reference logits or a full `K`-logit matrix.
+- **Configurable finite-mixture regressions.** `family="mixture"` accepts any integer `mixture_components=K` with `K >= 2`, shifts all Gaussian component locations by the formula predictor, and learns shared softmax weights, sum-zero component offsets, and positive component scales. An orthonormal Helmert basis maps `K - 1` free contrasts into the sum-zero `K`-dimensional subspace without a redundant direction; under the default isotropic Normal priors, the induced distributions are permutation symmetric. The likelihood integrates component assignments rather than adding discrete latent sites.
+
+### Fixed
+
+- **Scalar formula families match their documented parameters.** Gamma converts mean and shape to concentration and rate, Beta converts mean and precision to two concentrations, Student-t uses `(df, loc, scale)`, and zero-inflated and hurdle Poisson use `(zero_probability, rate)`.
+- **Derived mixture vectors retain their component width.** An indexed component draw now supplies the width of transformed weight and location vectors to the multi-vector inline likelihood, so formula-generated mixtures execute under SVI and MCMC.
+- **Python transpilers lower softmax on the category axis.** Pyro, NumPyro, PyMC, and Edward2 emit their native softmax with `dim=-1` or `axis=-1`, allowing generated categorical and mixture formulas to cross those target boundaries.
+- **Fitted QVR source preserves prior configuration.** `BayesianFit.qvr_source` and `dump_qvr` now re-emit the fixed, random-scale, and named prior overrides used for the fit.
+
 ## [0.22.0] - 2026-09-23
 
 ### Added
