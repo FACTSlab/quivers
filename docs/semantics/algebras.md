@@ -67,6 +67,10 @@ $$
 
 The log-space analogue of the product-fuzzy / probability algebra. Carrier, unit, and bottom coincide with $\mathcal{V}_{\mathrm{MP}}$; the algebra differs by replacing $\max$ with $\operatorname{logsumexp}$, the smooth aggregation. Composition is numerically stable log-domain matrix multiplication. Programs over log-probabilities live in the sub-poset $(-\infty, 0]$.
 
+An all-$-\infty$ join denotes an impossible cell. Its value is $-\infty$
+and quivers assigns it the zero gradient, avoiding the undefined
+`-inf - -inf` derivative inherited from an unguarded `torch.logsumexp`.
+
 ### 1.8 Markov algebra
 
 $$

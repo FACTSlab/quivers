@@ -34,11 +34,56 @@ import torch
 
 from quivers.core.algebras import (
     COUNTING,
+    LOG_PROB,
     PROBABILITY,
     REAL,
 )
 from quivers.core.morphisms import LatentMorphism, ObservedMorphism
 from quivers.core.objects import FinSet
+
+
+class TestLogProbImpossibleReduction:
+    def test_all_negative_infinity_has_zero_gradient(self) -> None:
+        values = torch.full((2, 3), -float("inf"), requires_grad=True)
+
+        result = LOG_PROB.join(values, dim=1)
+        result.sum().backward()
+
+        assert torch.isneginf(result).all()
+        torch.testing.assert_close(values.grad, torch.zeros_like(values))
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_mixed_rows_match_logsumexp_and_keep_finite_gradients(
+        self, dtype: torch.dtype
+    ) -> None:
+        values = torch.tensor(
+            [[0.0, -1.0, -float("inf")], [-float("inf")] * 3],
+            dtype=dtype,
+            requires_grad=True,
+        )
+
+        result = LOG_PROB.join(values, dim=1)
+        result.sum().backward()
+
+        torch.testing.assert_close(result[0], torch.logsumexp(values.detach()[0], 0))
+        assert torch.isneginf(result[1])
+        torch.testing.assert_close(
+            values.grad[0], torch.softmax(values.detach()[0], dim=0)
+        )
+        torch.testing.assert_close(values.grad[1], torch.zeros(3, dtype=dtype))
+        assert torch.isfinite(values.grad).all()
+
+    def test_tuple_dimensions_preserve_unreduced_shape(self) -> None:
+        values = torch.full((2, 3, 4), -float("inf"), requires_grad=True)
+        values.data[1, 0, 0] = 0.0
+
+        result = LOG_PROB.join(values, dim=(0, 2))
+        result.sum().backward()
+
+        assert result.shape == (3,)
+        assert result[0] == 0.0
+        assert torch.isneginf(result[1:]).all()
+        assert torch.isfinite(values.grad).all()
 
 
 # ---------------------------------------------------------------------------

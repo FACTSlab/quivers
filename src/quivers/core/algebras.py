@@ -1195,7 +1195,26 @@ class LogProbAlgebra(Algebra):
     def join(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         if isinstance(dim, int):
             dim = (dim,)
-        return torch.logsumexp(t, dim=dim)
+        # ``torch.logsumexp`` has the right value for an all-``-inf``
+        # reduction but differentiates that value as ``NaN``. Impossible
+        # dynamic-programming cells are represented by exactly such rows, so
+        # make the empty sum an explicit constant branch. Replacing the zero
+        # before ``log`` is essential: masking the result afterwards leaves
+        # ``log(0)`` in the autograd graph.
+        peak = t.amax(dim=dim, keepdim=True)
+        empty = torch.isneginf(peak)
+        shift = torch.where(empty, torch.zeros_like(peak), peak)
+        total = (t - shift).exp().sum(dim=dim, keepdim=True)
+        safe_total = torch.where(empty, torch.ones_like(total), total)
+        combined = safe_total.log() + shift
+        result = torch.where(
+            empty,
+            torch.full_like(combined, -float("inf")),
+            combined,
+        )
+        for axis in sorted((d % t.ndim for d in dim), reverse=True):
+            result = result.squeeze(axis)
+        return result
 
     def meet(self, t: torch.Tensor, dim: int | tuple[int, ...]) -> torch.Tensor:
         if isinstance(dim, int):

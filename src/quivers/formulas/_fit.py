@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Literal, Mapping
 
 import didactic.api as dx
+import narwhals as nw
 import torch
+from torch import nn
 from narwhals.typing import IntoDataFrame
 
 from quivers.continuous.programs import MonadicProgram
@@ -68,11 +70,22 @@ class BayesianFit(dx.Model):
         default_factory=dict, opaque=True
     )
     reparameterize: Literal["centered", "noncentered"] = "noncentered"
+    binomial_trials: int | str = 1
+    thresholds_by: str | None = None
+    predictor: nn.Module | None = dx.field(default=None, opaque=True)
+    predictor_data: torch.Tensor | None = dx.field(default=None, opaque=True)
+    predictor_name: str | None = None
 
     @property
     def qvr_source(self) -> str:
         """Lazily emit the AST-equivalent ``.qvr`` source for display."""
-        lens = FormulaToQVRModule(self.family, reparameterize=self.reparameterize)
+        lens = FormulaToQVRModule(
+            self.family,
+            reparameterize=self.reparameterize,
+            binomial_trials=self.binomial_trials,
+            thresholds_by=self.thresholds_by,
+            predictor_name=self.predictor_name,
+        )
         module, _ = lens.forward(self.formula)
         return module_to_source(module)
 
@@ -99,6 +112,10 @@ def fit(
     priors: Mapping[str, str] | None = None,
     guide: type | None = None,
     reparameterize: Literal["centered", "noncentered"] = "noncentered",
+    binomial_trials: int | str = 1,
+    thresholds_by: str | None = None,
+    predictor: nn.Module | None = None,
+    predictor_data: torch.Tensor | None = None,
     seed: int = 0,
 ) -> BayesianFit:
     """Compile a brms-style formula, fit it, and return the result.
@@ -117,11 +134,29 @@ def fit(
         family_obj = family
 
     parsed = formula_from_data(formula, data)
+    predictor_name = "neural_eta" if predictor is not None else None
+    if predictor is not None and predictor_data is None:
+        raise ValueError("fit: predictor_data is required when predictor is supplied")
+    if predictor is None and predictor_data is not None:
+        raise ValueError("fit: predictor_data requires predictor")
+    if (
+        predictor is not None
+        and method != "svi"
+        and any(parameter.requires_grad for parameter in predictor.parameters())
+    ):
+        raise ValueError(
+            "fit: a trainable external predictor requires method='svi'; "
+            "freeze its parameters before using NUTS or HMC"
+        )
     lens = FormulaToQVRModule(
         family_obj,
         fixed_prior=fixed_prior,
         random_scale_prior=random_scale_prior,
         user_priors=priors,
+        reparameterize=reparameterize,
+        binomial_trials=binomial_trials,
+        thresholds_by=thresholds_by,
+        predictor_name=predictor_name,
     )
     module, _ = lens.forward(parsed)
     compiler = Compiler(module)
@@ -144,10 +179,33 @@ def fit(
         observations[f"{_qvr_name(group)}_idx"] = torch.as_tensor(
             list(codes), dtype=torch.long
         )
+    if family_obj.name == "binomial":
+        trials = _binomial_trial_tensor(
+            data, binomial_trials, n_obs=parsed.response_values.shape[0]
+        )
+        response = observations[response_name]
+        _validate_binomial_response(response, trials, caller="fit")
+        if isinstance(binomial_trials, str):
+            observations[_qvr_name(binomial_trials)] = trials
+    if predictor is not None:
+        assert predictor_data is not None
+        observations[predictor_name] = _predictor_output(
+            predictor,
+            predictor_data,
+            n_obs=parsed.response_values.shape[0],
+        ).detach()
 
     torch.manual_seed(seed)
     if method == "svi":
-        posterior = _fit_svi(program, observations, num_samples, guide_cls=guide)
+        posterior = _fit_svi(
+            program,
+            observations,
+            num_samples,
+            guide_cls=guide,
+            predictor=predictor,
+            predictor_data=predictor_data,
+            predictor_name=predictor_name,
+        )
     else:
         posterior = _fit_mcmc(
             program,
@@ -165,6 +223,11 @@ def fit(
         posterior=posterior,
         observations=observations,
         reparameterize=reparameterize,
+        binomial_trials=binomial_trials,
+        thresholds_by=thresholds_by,
+        predictor=predictor,
+        predictor_data=predictor_data,
+        predictor_name=predictor_name,
     )
 
 
@@ -177,6 +240,9 @@ def formula_to_qvr(
     random_scale_prior: str = "HalfNormal(1.0)",
     priors: Mapping[str, str] | None = None,
     reparameterize: Literal["centered", "noncentered"] = "noncentered",
+    binomial_trials: int | str = 1,
+    thresholds_by: str | None = None,
+    predictor_name: str | None = None,
     path: str | Path | None = None,
 ) -> str:
     """Emit ``.qvr`` source for a brms-style formula without fitting.
@@ -195,12 +261,21 @@ def formula_to_qvr(
     else:
         family_obj = family
     parsed = formula_from_data(formula, data)
+    if family_obj.name == "binomial":
+        trials = _binomial_trial_tensor(
+            data, binomial_trials, n_obs=parsed.response_values.shape[0]
+        )
+        response = torch.as_tensor(parsed.response_values.copy())
+        _validate_binomial_response(response, trials, caller="formula_to_qvr")
     lens = FormulaToQVRModule(
         family_obj,
         fixed_prior=fixed_prior,
         random_scale_prior=random_scale_prior,
         user_priors=priors,
         reparameterize=reparameterize,
+        binomial_trials=binomial_trials,
+        thresholds_by=thresholds_by,
+        predictor_name=predictor_name,
     )
     module, _ = lens.forward(parsed)
     source = module_to_source(module)
@@ -223,7 +298,16 @@ def _fit_mcmc(program, observations, *, sampler, num_warmup, num_samples, num_ch
     return mcmc.run(program, x, observations)
 
 
-def _fit_svi(program, observations, num_steps, *, guide_cls=None):
+def _fit_svi(
+    program,
+    observations,
+    num_steps,
+    *,
+    guide_cls=None,
+    predictor: nn.Module | None = None,
+    predictor_data: torch.Tensor | None = None,
+    predictor_name: str | None = None,
+):
     """Run an SVI fit + ELBO.
 
     Default guide is `AutoNormalGuide`: a mean-field
@@ -237,13 +321,89 @@ def _fit_svi(program, observations, num_steps, *, guide_cls=None):
     if guide_cls is None:
         guide_cls = AutoNormalGuide
     guide = guide_cls(program, observed_names=set(observations.keys()))
-    optimizer = torch.optim.Adam(
-        list(program.parameters()) + list(guide.parameters()),
-        lr=1e-2,
-    )
+    parameters = list(program.parameters()) + list(guide.parameters())
+    if predictor is not None:
+        parameters.extend(predictor.parameters())
+    optimizer = torch.optim.Adam(parameters, lr=1e-2)
     svi = SVI(program, guide, optimizer, ELBO())
     n_obs = int(observations[next(iter(observations))].shape[0])
     x = torch.zeros(n_obs, 1, dtype=torch.long)
     for _ in range(num_steps):
-        svi.step(x, observations)
+        step_observations = observations
+        if predictor is not None:
+            assert predictor_data is not None and predictor_name is not None
+            step_observations = dict(observations)
+            step_observations[predictor_name] = _predictor_output(
+                predictor, predictor_data, n_obs=n_obs
+            )
+        svi.step(x, step_observations)
+    if predictor is not None:
+        assert predictor_data is not None and predictor_name is not None
+        observations[predictor_name] = _predictor_output(
+            predictor, predictor_data, n_obs=n_obs
+        ).detach()
     return guide
+
+
+def _binomial_trial_tensor(
+    data: IntoDataFrame,
+    trials: int | str,
+    *,
+    n_obs: int,
+) -> torch.Tensor:
+    if isinstance(trials, int):
+        if trials < 1:
+            raise ValueError("binomial_trials must be at least one")
+        return torch.full((n_obs,), float(trials))
+    frame = nw.from_native(data, eager_only=True)
+    if trials not in frame.columns:
+        raise ValueError(f"binomial_trials column {trials!r} is not in the data")
+    values = torch.as_tensor(
+        frame[trials].to_numpy().copy(), dtype=torch.float32
+    ).reshape(-1)
+    if values.shape[0] != n_obs:
+        raise ValueError(
+            f"binomial_trials column has {values.shape[0]} rows, expected {n_obs}"
+        )
+    if not torch.isfinite(values).all() or torch.any(values < 1):
+        raise ValueError("binomial_trials must contain positive finite integers")
+    if not torch.equal(values, values.round()):
+        raise ValueError("binomial_trials must contain integers")
+    return values
+
+
+def _predictor_output(
+    predictor: nn.Module,
+    data: torch.Tensor,
+    *,
+    n_obs: int,
+) -> torch.Tensor:
+    value = predictor(data)
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(
+            "fit: predictor must return a torch.Tensor on the linear-predictor scale"
+        )
+    if value.ndim == 2 and value.shape[-1] == 1:
+        value = value.squeeze(-1)
+    if value.shape != (n_obs,):
+        raise ValueError(
+            f"fit: predictor returned shape {tuple(value.shape)}, expected ({n_obs},)"
+        )
+    return value
+
+
+def _validate_binomial_response(
+    response: torch.Tensor,
+    trials: torch.Tensor,
+    *,
+    caller: str,
+) -> None:
+    if not torch.isfinite(response).all() or not torch.equal(
+        response, response.round()
+    ):
+        raise ValueError(f"{caller}: binomial responses must be finite integers")
+    if torch.any(response < 0) or torch.any(response > trials):
+        raise ValueError(
+            f"{caller}: binomial responses must lie between zero and "
+            "binomial_trials for every row"
+        )

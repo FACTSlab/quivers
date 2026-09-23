@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import re
+import torch
 
 import pytest
 
@@ -146,7 +147,7 @@ def _round_trip(formula: str, data, family: str = "gaussian"):
     [
         ("gaussian", "base_df", "Normal", None),
         ("bernoulli", "binary_df", "Bernoulli", "sigmoid"),
-        ("binomial", "binary_df", "Bernoulli", "sigmoid"),
+        ("binomial", "binary_df", "Binomial", "sigmoid"),
         ("poisson", "count_df", "Poisson", "exp"),
         ("negative_binomial", "count_df", "NegativeBinomial", "exp"),
         ("gamma", "gamma_df", "Gamma", "exp"),
@@ -959,11 +960,111 @@ class TestFamilyLinkDefaults:
     def test_negbin_carries_disp(self, count_df):
         src = formula_to_qvr("y ~ x", data=count_df, family="negative_binomial")
         assert "disp <-" in src
-        assert "NegativeBinomial(mu, disp)" in src
+        assert "negative_binomial_probs = mu / (mu + disp)" in src
+        assert "NegativeBinomial(disp, negative_binomial_probs)" in src
+
+    def test_binomial_uses_scalar_or_per_row_trials(self, binary_df):
+        fixed = formula_to_qvr(
+            "y ~ x", data=binary_df, family="binomial", binomial_trials=4
+        )
+        assert "Binomial(4.0, mu)" in fixed
+        loads(fixed)
+
+        varying_df = binary_df.copy()
+        varying_df["trials"] = np.arange(len(varying_df)) % 4 + 1
+        varying = formula_to_qvr(
+            "y ~ x",
+            data=varying_df,
+            family="binomial",
+            binomial_trials="trials",
+        )
+        assert "Binomial(trials, mu)" in varying
+        loads(varying)
+
+    def test_cumulative_builds_ordered_shared_cutpoints(self):
+        df = pd.DataFrame(
+            {
+                "y": [0, 1, 2, 3, 0, 1, 2, 3],
+                "x": np.linspace(-1.0, 1.0, 8),
+            }
+        )
+        src = formula_to_qvr("y ~ x", data=df, family="cumulative")
+        assert "cutpoint_cumulative = cumsum(exp(cutpoint_log_spacing))" in src
+        assert "OrderedLogistic(mu, cutpoints)" in src
+        loads(src)
+
+    def test_cumulative_rejects_noncontiguous_categories(self):
+        df = pd.DataFrame({"y": [0, 2, 0, 2], "x": np.arange(4.0)})
+        with pytest.raises(ValueError, match="contiguous category labels"):
+            formula_to_qvr("y ~ x", data=df, family="cumulative")
+
+    def test_thresholds_by_rejects_noncumulative_family(self, base_df):
+        with pytest.raises(ValueError, match="only valid for the cumulative family"):
+            formula_to_qvr(
+                "y ~ x + (1 | g)",
+                data=base_df,
+                family="gaussian",
+                thresholds_by="g",
+            )
+
+    def test_binomial_rejects_noninteger_response(self, binary_df):
+        invalid = binary_df.copy()
+        invalid["y"] = invalid["y"].astype(float)
+        invalid.loc[0, "y"] = 0.5
+        with pytest.raises(ValueError, match="finite integers"):
+            formula_to_qvr("y ~ x", data=invalid, family="binomial")
 
     def test_unknown_family_raises(self, base_df):
         with pytest.raises(ValueError, match="unknown family"):
             formula_to_qvr("y ~ x", data=base_df, family="nonexistent")
+
+
+class TestOrdinalMixedNeuralModel:
+    def test_group_thresholds_compile_and_train_external_predictor(self):
+        n = 24
+        features = torch.linspace(-1.0, 1.0, n).reshape(-1, 1)
+        df = pd.DataFrame(
+            {
+                "y": np.tile(np.arange(4), n // 4),
+                "participant": np.repeat(["a", "b", "c"], n // 3),
+                "item": np.tile(["i0", "i1", "i2", "i3"], n // 4),
+            }
+        )
+        predictor = torch.nn.Linear(1, 1, bias=False)
+        initial = predictor.weight.detach().clone()
+
+        result = fit(
+            "y ~ 1 + (1 | participant) + (1 | item)",
+            data=df,
+            family="cumulative",
+            thresholds_by="participant",
+            predictor=predictor,
+            predictor_data=features,
+            method="svi",
+            num_samples=3,
+            seed=0,
+        )
+
+        assert not torch.equal(initial, predictor.weight.detach())
+        assert result.observations["neural_eta"].shape == (n,)
+        assert "row_cutpoints = cutpoint_matrix[participant_idx]" in result.qvr_source
+        assert "eta = intercept + neural_eta" in result.qvr_source
+        loads(result.qvr_source)
+
+    def test_trainable_predictor_requires_svi(self):
+        df = pd.DataFrame({"y": [0, 1, 2, 0, 1, 2]})
+        predictor = torch.nn.Linear(1, 1)
+        with pytest.raises(ValueError, match="requires method='svi'"):
+            fit(
+                "y ~ 1",
+                data=df,
+                family="cumulative",
+                predictor=predictor,
+                predictor_data=torch.ones(6, 1),
+                method="nuts",
+                num_warmup=1,
+                num_samples=1,
+            )
 
 
 # ---------------------------------------------------------------------------

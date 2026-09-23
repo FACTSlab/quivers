@@ -9,6 +9,9 @@ synthetic data.
 
 from __future__ import annotations
 
+from pathlib import Path
+import tomllib
+
 import numpy as np
 import pytest
 import torch
@@ -20,6 +23,14 @@ from quivers.diagnostics import (
     to_datatree,
 )
 from quivers.inference.mcmc.driver import MCMCResult
+
+
+def test_arviz_dependency_floor_matches_datatree_api() -> None:
+    metadata = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    )["project"]["optional-dependencies"]
+    assert "arviz>=1.0" in metadata["diagnostics"]
+    assert "arviz>=1.0" in metadata["formulas"]
 
 
 def _make_result(samples: dict[str, torch.Tensor]) -> MCMCResult:

@@ -155,14 +155,15 @@ value. The built-in families:
 | Family | Link (inverse) | Auxiliary parameters |
 |---|---|---|
 | `gaussian` | identity | `sigma ~ HalfCauchy(2.0)` |
-| `bernoulli`, `binomial` | logit (sigmoid) | – |
+| `bernoulli` | logit (sigmoid) | – |
+| `binomial` | logit (sigmoid) | known trial count |
 | `categorical` | softmax | – |
 | `poisson` | log (exp) | – |
 | `negative_binomial` | log (exp) | `disp ~ Gamma(2.0, 2.0)` |
 | `gamma` | log (exp) | `shape ~ Gamma(2.0, 2.0)` |
 | `beta` | logit (sigmoid) | `phi ~ HalfCauchy(2.0)` |
 | `student_t` | identity | `nu ~ Gamma(2.0, 0.1)`, `sigma ~ HalfCauchy(2.0)` |
-| `cumulative` | identity | – |
+| `cumulative` | identity | learned ordered cutpoints |
 | `zero_inflated_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
 | `hurdle_poisson` | log (exp) | `zi ~ Beta(2.0, 2.0)` |
 | `mixture` | identity | `loc ~ Normal(0.0, 5.0)`, `scale ~ HalfCauchy(2.0)` |
@@ -170,6 +171,85 @@ value. The built-in families:
 Custom families are pluggable: subclass
 [`Family`](../api/formulas/family.md#quivers.formulas.family.Family)
 and register your own observe kernel and link.
+
+For binomial data, `binomial_trials` is either one common positive
+integer or the name of a per-row data column:
+
+<!-- python: skip -->
+```python
+fit(
+    "successes ~ condition + (1 | participant)",
+    data=df,
+    family="binomial",
+    binomial_trials="trials",
+)
+```
+
+The emitted likelihood is `Binomial(trials, sigmoid(eta))`. The
+negative-binomial family uses the NB2 mean/concentration form at the
+formula surface: `mu = exp(eta)`, `disp > 0`, and the compiler emits
+`NegativeBinomial(disp, mu / (mu + disp))`, matching QVR's
+`(total_count, probs)` convention.
+
+### Ordinal mixed models and neural predictors
+
+The cumulative family infers the number of categories from contiguous
+integer response labels `0, ..., K-1`. Shared cutpoints are represented
+by cumulative positive spacings and centered to separate their location
+from the formula intercept. `thresholds_by` replaces the shared spacing
+vector with partially pooled group-specific spacings:
+
+<!-- python: skip -->
+```python
+ordinal_fit = fit(
+    "rating ~ condition + (1 | participant) + (1 | item)",
+    data=df,
+    family="cumulative",
+    thresholds_by="participant",
+    method="nuts",
+)
+```
+
+Every participant's cutpoints remain ordered. Their vector is centered,
+so a participant random intercept controls location while the random
+threshold spacings model differences in scale use.
+
+A differentiable PyTorch predictor can contribute directly to `eta`.
+Pass the module and its input tensor separately from the dataframe:
+
+<!-- python: skip -->
+```python
+parser = NeuralChartParser(...)
+
+joint_fit = fit(
+    "rating ~ condition + (1 | participant) + (1 | item)",
+    data=df,
+    family="cumulative",
+    thresholds_by="participant",
+    predictor=parser,
+    predictor_data=sentence_features,
+    method="svi",
+    num_samples=4000,
+)
+```
+
+The runtime recomputes `parser(sentence_features)` on every SVI step
+and places the result in the emitted program's `neural_eta` host-data
+slot. The SVI optimizer includes the predictor parameters, so gradients
+flow through the ordinal likelihood into the parser. A trainable external
+predictor is restricted to SVI; NUTS and HMC accept it only after its
+parameters have been frozen.
+
+Every [`ParamSource`](../api/continuous/param_source.md) is an
+`nn.Module`, so `LinearSource`, `MLPSource`, and `FunctionSource` can be
+passed as `predictor` directly. The predictor must return one location
+value per response row, with shape `(N,)` or `(N, 1)`.
+
+An arbitrary Python module is a runtime attachment and cannot be encoded
+inside portable QVR source. `joint_fit.qvr_source` therefore names the
+`neural_eta` input explicitly. To emit the same interface without fitting,
+use `formula_to_qvr(..., predictor_name="neural_eta")` and supply that
+tensor from the host runtime.
 
 ### Coefficient priors are autoscaled
 
