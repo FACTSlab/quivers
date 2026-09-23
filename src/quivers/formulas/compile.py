@@ -1023,6 +1023,43 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
                 )
             )
             obs_args = ("disp", "negative_binomial_probs")
+        elif self._family.name == "gamma":
+            # The formula surface uses the brms mean/shape convention.
+            # QVR's Gamma constructor follows torch and accepts
+            # ``(concentration, rate)``, so rate = shape / mean.
+            program_steps.append(_let("gamma_rate", _div(_var("shape"), _var("mu"))))
+            obs_args = ("shape", "gamma_rate")
+        elif self._family.name == "beta":
+            # Convert mean/precision to the two concentrations expected by
+            # QVR: alpha = mu * phi, beta = (1 - mu) * phi.
+            program_steps.extend(
+                [
+                    _let(
+                        "beta_concentration1",
+                        _mul(_var("mu"), _var("phi")),
+                    ),
+                    _let(
+                        "beta_concentration0",
+                        _mul(
+                            _sub(LetExprLiteral(value=1.0), _var("mu")),
+                            _var("phi"),
+                        ),
+                    ),
+                ]
+            )
+            obs_args = ("beta_concentration1", "beta_concentration0")
+        elif self._family.name == "student_t":
+            # QVR follows torch's ``StudentT(df, loc, scale)`` ordering;
+            # the formula surface names those slots ``nu``, ``mu``, and
+            # ``sigma`` respectively.
+            obs_args = ("nu", "mu", "sigma")
+        elif self._family.name in {
+            "zero_inflated_poisson",
+            "hurdle_poisson",
+        }:
+            # Both QVR count-mixture constructors take the structural-zero
+            # probability first and the Poisson rate second.
+            obs_args = ("zi", "mu")
         elif self._family.name == "binomial":
             trials: str | float
             if isinstance(self._binomial_trials, str):

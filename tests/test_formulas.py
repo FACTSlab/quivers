@@ -963,6 +963,38 @@ class TestFamilyLinkDefaults:
         assert "negative_binomial_probs = mu / (mu + disp)" in src
         assert "NegativeBinomial(disp, negative_binomial_probs)" in src
 
+    def test_gamma_converts_mean_shape_to_concentration_rate(self, gamma_df):
+        src = formula_to_qvr("y ~ x", data=gamma_df, family="gamma")
+        assert "gamma_rate = shape / mu" in src
+        assert "Gamma(shape, gamma_rate)" in src
+        loads(src)
+
+    def test_beta_converts_mean_precision_to_concentrations(self, beta_df):
+        src = formula_to_qvr("y ~ x", data=beta_df, family="beta")
+        assert "beta_concentration1 = mu * phi" in src
+        assert "beta_concentration0 = (1.0 - mu) * phi" in src
+        assert "Beta(beta_concentration1, beta_concentration0)" in src
+        loads(src)
+
+    def test_student_t_uses_df_location_scale_order(self, base_df):
+        src = formula_to_qvr("y ~ x", data=base_df, family="student_t")
+        assert "StudentT(nu, mu, sigma)" in src
+        loads(src)
+
+    @pytest.mark.parametrize(
+        ("family", "constructor"),
+        [
+            ("zero_inflated_poisson", "ZeroInflatedPoisson"),
+            ("hurdle_poisson", "HurdlePoisson"),
+        ],
+    )
+    def test_count_mixtures_use_zero_probability_then_rate(
+        self, count_df, family, constructor
+    ):
+        src = formula_to_qvr("y ~ x", data=count_df, family=family)
+        assert f"{constructor}(zi, mu)" in src
+        loads(src)
+
     def test_binomial_uses_scalar_or_per_row_trials(self, binary_df):
         fixed = formula_to_qvr(
             "y ~ x", data=binary_df, family="binomial", binomial_trials=4

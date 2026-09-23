@@ -191,6 +191,15 @@ formula surface: `mu = exp(eta)`, `disp > 0`, and the compiler emits
 `NegativeBinomial(disp, mu / (mu + disp))`, matching QVR's
 `(total_count, probs)` convention.
 
+The other scalar response families likewise use regression-facing
+parameters rather than exposing constructor-specific slots. Gamma uses
+mean `mu` and shape `shape`, then emits `Gamma(shape, shape / mu)`.
+Beta uses mean `mu` and precision `phi`, then emits
+`Beta(mu * phi, (1 - mu) * phi)`. Student-t maps `nu`, `mu`, and
+`sigma` to QVR's `(df, loc, scale)` order. Zero-inflated and hurdle
+Poisson models interpret `zi` as the structural-zero probability and
+`mu` as the Poisson rate.
+
 ### Ordinal mixed models and neural predictors
 
 The cumulative family infers the number of categories from contiguous
