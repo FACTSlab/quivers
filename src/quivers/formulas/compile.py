@@ -64,10 +64,13 @@ from quivers.dsl.ast_nodes import (
     ExprIdent,
     LetExprBinOp,
     LetExprCall,
+    LetExprFactor,
     LetExprIndex,
     LetExprLiteral,
     LetExprNode,
     LetExprVar,
+    LetFactorBinder,
+    LetFactorCase,
     LetStep,
     DiscreteConstructor,
     Module,
@@ -203,6 +206,38 @@ def _mul(left: LetExprNode, right: LetExprNode) -> LetExprNode:
     return LetExprBinOp(op="*", left=left, right=right)
 
 
+def _sub(left: LetExprNode, right: LetExprNode) -> LetExprNode:
+    return LetExprBinOp(op="-", left=left, right=right)
+
+
+def _div(left: LetExprNode, right: LetExprNode) -> LetExprNode:
+    return LetExprBinOp(op="/", left=left, right=right)
+
+
+def _call(name: str, *args: LetExprNode) -> LetExprCall:
+    return LetExprCall(func=name, args=tuple(args))
+
+
+def _index(name: str, *indices: LetExprNode) -> LetExprIndex:
+    return LetExprIndex(array=_var(name), indices=tuple(indices))
+
+
+def _factor(
+    binders: tuple[tuple[str, str], ...],
+    *,
+    body: LetExprNode | None = None,
+    cases: tuple[tuple[int, LetExprNode], ...] = (),
+) -> LetExprFactor:
+    return LetExprFactor(
+        binders=tuple(
+            LetFactorBinder(var=name, index=TypeName(name=index))
+            for name, index in binders
+        ),
+        body=body,
+        cases=tuple(LetFactorCase(label=label, value=value) for label, value in cases),
+    )
+
+
 def _apply_link(eta: LetExprNode, link_name: str) -> LetExprNode:
     if link_name == "identity":
         return eta
@@ -270,6 +305,11 @@ def _decode_module(module: Module) -> dict:
             for decl_name in stmt.names:
                 if decl_name == "Resp":
                     n_obs = cardinality
+                elif decl_name.startswith("Formula"):
+                    # Compiler-owned axes used to assemble family parameters
+                    # (cutpoints, spacings, flattened threshold cells) are not
+                    # source-level random-effect grouping factors.
+                    continue
                 else:
                     group_cardinalities[decl_name] = cardinality
         elif isinstance(stmt, ProgramDecl):
@@ -418,11 +458,26 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         random_scale_prior: str = "HalfNormal(1.0)",
         user_priors: Mapping[str, str] | None = None,
         reparameterize: Literal["centered", "noncentered"] = "noncentered",
+        binomial_trials: int | str = 1,
+        thresholds_by: str | None = None,
+        predictor_name: str | None = None,
     ) -> None:
         self._family = family
         self._fixed_prior = fixed_prior
         self._random_scale_prior = random_scale_prior
         self._user_priors: Mapping[str, str] = dict(user_priors or {})
+        if thresholds_by is not None and family.name != "cumulative":
+            raise ValueError(
+                "FormulaToQVRModule: thresholds_by is only valid for the "
+                "cumulative family"
+            )
+        if isinstance(binomial_trials, int) and binomial_trials < 1:
+            raise ValueError("FormulaToQVRModule: binomial_trials must be at least one")
+        self._binomial_trials = binomial_trials
+        self._thresholds_by = thresholds_by
+        self._predictor_name = (
+            _qvr_name(predictor_name) if predictor_name is not None else None
+        )
         if reparameterize not in ("centered", "noncentered"):
             raise ValueError(
                 f"FormulaToQVRModule: reparameterize must be 'centered' "
@@ -524,6 +579,270 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             obs[col.qvr_name] = torch.as_tensor(col.data.copy(), dtype=torch.float32)
         return obs
 
+    @staticmethod
+    def _ordinal_category_count(formula: Formula) -> int:
+        values = np.asarray(formula.response_values, dtype=np.float64).reshape(-1)
+        if values.size == 0 or not np.isfinite(values).all():
+            raise ValueError("cumulative family requires a nonempty, finite response")
+        integers = values.astype(np.int64)
+        if not np.equal(values, integers).all():
+            raise ValueError("cumulative family requires integer category labels")
+        levels = np.unique(integers)
+        expected = np.arange(int(levels[-1]) + 1)
+        if not np.array_equal(levels, expected):
+            raise ValueError(
+                "cumulative family requires contiguous category labels "
+                f"0..K-1; got {levels.tolist()!r}"
+            )
+        if levels.size < 2:
+            raise ValueError("cumulative family requires at least two categories")
+        return int(levels.size)
+
+    @staticmethod
+    def _append_finite_object(
+        statements: list[Statement], name: str, cardinality: int
+    ) -> None:
+        statements.append(
+            ObjectDecl(
+                names=(name,),
+                init=TypeFromExpr(
+                    expr=DiscreteConstructor(
+                        constructor="FinSet", args=(str(cardinality),)
+                    )
+                ),
+            )
+        )
+
+    def _append_ordinal_cutpoints(
+        self,
+        formula: Formula,
+        statements: list[Statement],
+        program_steps: list[ProgramStep],
+    ) -> str:
+        """Emit identified ordered cutpoints and return their variable name.
+
+        Cutpoints are represented by a zero origin followed by cumulative
+        positive spacings and are centered before use. Centering separates the
+        threshold location from the formula intercept. With ``thresholds_by``
+        the log spacings receive hierarchical group-level deviations, so every
+        group gets an ordered scale without introducing an unidentified random
+        threshold shift alongside its random intercept.
+        """
+        n_categories = self._ordinal_category_count(formula)
+        n_cutpoints = n_categories - 1
+        cutpoint_index = "FormulaCutpoint"
+        self._append_finite_object(statements, cutpoint_index, n_cutpoints)
+
+        if n_cutpoints == 1:
+            if self._thresholds_by is not None:
+                raise ValueError(
+                    "thresholds_by requires at least three response categories; "
+                    "a binary cumulative model has only one threshold"
+                )
+            program_steps.append(
+                _let(
+                    "cutpoints",
+                    _factor(
+                        (("cutpoint", cutpoint_index),),
+                        cases=((0, LetExprLiteral(value=0.0)),),
+                    ),
+                )
+            )
+            return "cutpoints"
+
+        spacing_index = "FormulaSpacing"
+        n_spacings = n_cutpoints - 1
+        self._append_finite_object(statements, spacing_index, n_spacings)
+
+        if self._thresholds_by is None:
+            program_steps.append(
+                _draw(
+                    "cutpoint_log_spacing",
+                    "Normal",
+                    (0.0, 1.0),
+                    index=TypeName(name=spacing_index),
+                )
+            )
+            program_steps.append(
+                _let(
+                    "cutpoint_cumulative",
+                    _call("cumsum", _call("exp", _var("cutpoint_log_spacing"))),
+                )
+            )
+            cases = ((0, LetExprLiteral(value=0.0)),) + tuple(
+                (
+                    cutpoint,
+                    _index(
+                        "cutpoint_cumulative",
+                        LetExprLiteral(value=float(cutpoint - 1), integral=True),
+                    ),
+                )
+                for cutpoint in range(1, n_cutpoints)
+            )
+            program_steps.append(
+                _let(
+                    "cutpoints_uncentered",
+                    _factor((("cutpoint", cutpoint_index),), cases=cases),
+                )
+            )
+            program_steps.append(
+                _let(
+                    "cutpoints",
+                    _sub(
+                        _var("cutpoints_uncentered"),
+                        _call("mean", _var("cutpoints_uncentered")),
+                    ),
+                )
+            )
+            return "cutpoints"
+
+        group = self._thresholds_by
+        if group not in formula.group_levels:
+            raise ValueError(
+                f"thresholds_by={group!r} must name a grouping factor in "
+                f"the formula; choices are {sorted(formula.group_levels)!r}"
+            )
+        qgroup = _qvr_name(group)
+        n_groups = len(formula.group_levels[group])
+        cell_index = "FormulaThresholdCell"
+        self._append_finite_object(statements, cell_index, n_groups * n_spacings)
+
+        program_steps.extend(
+            [
+                _draw(
+                    "cutpoint_log_spacing_mean",
+                    "Normal",
+                    (0.0, 1.0),
+                    index=TypeName(name=spacing_index),
+                ),
+                _draw(
+                    "cutpoint_log_spacing_scale",
+                    "HalfNormal",
+                    (0.5,),
+                    index=TypeName(name=spacing_index),
+                ),
+                _draw(
+                    "cutpoint_log_spacing_noise",
+                    "Normal",
+                    (0.0, 1.0),
+                    index=TypeName(name=cell_index),
+                ),
+            ]
+        )
+        flat_index = _add(
+            _mul(
+                _var("threshold_group"),
+                LetExprLiteral(value=float(n_spacings), integral=True),
+            ),
+            _var("spacing"),
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_noise_matrix",
+                _factor(
+                    (("threshold_group", qgroup), ("spacing", spacing_index)),
+                    body=_index("cutpoint_log_spacing_noise", flat_index),
+                ),
+            )
+        )
+        log_spacing = _add(
+            _index("cutpoint_log_spacing_mean", _var("spacing")),
+            _mul(
+                _index("cutpoint_log_spacing_scale", _var("spacing")),
+                _index(
+                    "cutpoint_noise_matrix",
+                    _var("threshold_group"),
+                    _var("spacing"),
+                ),
+            ),
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_log_spacing_matrix",
+                _factor(
+                    (("threshold_group", qgroup), ("spacing", spacing_index)),
+                    body=log_spacing,
+                ),
+            )
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_cumulative_matrix",
+                _call("cumsum", _call("exp", _var("cutpoint_log_spacing_matrix"))),
+            )
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_zero_by_group",
+                _factor(
+                    (("threshold_group", qgroup),),
+                    body=LetExprLiteral(value=0.0),
+                ),
+            )
+        )
+        position_cases: tuple[tuple[int, LetExprNode], ...] = (
+            (0, _var("cutpoint_zero_by_group")),
+        ) + tuple(
+            (
+                cutpoint,
+                _factor(
+                    (("threshold_group", qgroup),),
+                    body=_index(
+                        "cutpoint_cumulative_matrix",
+                        _var("threshold_group"),
+                        LetExprLiteral(value=float(cutpoint - 1), integral=True),
+                    ),
+                ),
+            )
+            for cutpoint in range(1, n_cutpoints)
+        )
+        program_steps.append(
+            _let(
+                "cutpoints_by_position",
+                _factor((("cutpoint", cutpoint_index),), cases=position_cases),
+            )
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_matrix_uncentered",
+                _factor(
+                    (("threshold_group", qgroup), ("cutpoint", cutpoint_index)),
+                    body=_index(
+                        "cutpoints_by_position",
+                        _var("cutpoint"),
+                        _var("threshold_group"),
+                    ),
+                ),
+            )
+        )
+        centered_value = _sub(
+            _index(
+                "cutpoint_matrix_uncentered",
+                _var("threshold_group"),
+                _var("cutpoint"),
+            ),
+            _call(
+                "mean",
+                _index("cutpoint_matrix_uncentered", _var("threshold_group")),
+            ),
+        )
+        program_steps.append(
+            _let(
+                "cutpoint_matrix",
+                _factor(
+                    (("threshold_group", qgroup), ("cutpoint", cutpoint_index)),
+                    body=centered_value,
+                ),
+            )
+        )
+        program_steps.append(
+            _let(
+                "row_cutpoints",
+                _index("cutpoint_matrix", _var(f"{qgroup}_idx")),
+            )
+        )
+        return "row_cutpoints"
+
     def _build_module(self, formula: Formula) -> Module:
         statements: list[Statement] = []
         n_obs = formula.response_values.shape[0]
@@ -583,6 +902,13 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
                     _let(contrib_name, _mul(_var(beta_name), _var(col.qvr_name)))
                 )
                 linear_terms.append(_var(contrib_name))
+
+        if self._predictor_name is not None:
+            # A host-attached differentiable predictor contributes on the
+            # linear-predictor scale. The free name is supplied by ``fit`` at
+            # every optimization step, so gradients remain connected to the
+            # external module rather than being frozen into the data frame.
+            linear_terms.append(_var(self._predictor_name))
 
         # Random effects.  Each (slope | g) entry emits its own scale
         # latent + per-level plate draw + per-row gather; multiple
@@ -669,6 +995,12 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
             family_name, args = _parse_prior_call(prior)
             program_steps.append(_draw(aux.name, family_name, args))
 
+        cutpoints_name: str | None = None
+        if self._family.name == "cumulative":
+            cutpoints_name = self._append_ordinal_cutpoints(
+                formula, statements, program_steps
+            )
+
         if not linear_terms:
             eta_expr: LetExprNode = LetExprLiteral(value=0.0)
         else:
@@ -677,9 +1009,29 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         mu_expr = _apply_link(_var("eta"), self._family.location_link.name)
         program_steps.append(_let("mu", mu_expr))
 
-        obs_args: tuple[str | float, ...] = ("mu",) + tuple(
-            self._family.extra_observe_args
-        )
+        if self._family.name == "cumulative":
+            assert cutpoints_name is not None
+            obs_args: tuple[str | float, ...] = ("mu", cutpoints_name)
+        elif self._family.name == "negative_binomial":
+            # QVR follows torch's ``NegativeBinomial(total_count, probs)``
+            # convention. The formula family is parameterized by mean ``mu``
+            # and concentration ``disp``, for which probs = mu / (mu + disp).
+            program_steps.append(
+                _let(
+                    "negative_binomial_probs",
+                    _div(_var("mu"), _add(_var("mu"), _var("disp"))),
+                )
+            )
+            obs_args = ("disp", "negative_binomial_probs")
+        elif self._family.name == "binomial":
+            trials: str | float
+            if isinstance(self._binomial_trials, str):
+                trials = _qvr_name(self._binomial_trials)
+            else:
+                trials = float(self._binomial_trials)
+            obs_args = (trials, "mu")
+        else:
+            obs_args = ("mu",) + tuple(self._family.extra_observe_args)
         program_steps.append(
             _draw(
                 _qvr_name(formula.response_name),

@@ -1602,7 +1602,7 @@ wheels = [
 
 [[package]]
 name = "quivers"
-version = "0.21.0"
+version = "0.22.0"
 source = { editable = "." }
 dependencies = [
     { name = "didactic" },
@@ -1675,8 +1675,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arviz", marker = "extra == 'diagnostics'", specifier = ">=0.17" },
-    { name = "arviz", marker = "extra == 'formulas'", specifier = ">=0.17" },
+    { name = "arviz", marker = "extra == 'diagnostics'", specifier = ">=1.0" },
+    { name = "arviz", marker = "extra == 'formulas'", specifier = ">=1.0" },
     { name = "didactic", specifier = ">=0.17.1" },
     { name = "formulae", marker = "extra == 'formulas'", specifier = ">=0.6" },
     { name = "ipykernel", marker = "extra == 'repl'", specifier = ">=6.29" },

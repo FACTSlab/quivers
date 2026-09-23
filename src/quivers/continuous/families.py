@@ -3199,11 +3199,14 @@ _register_family(
     FamilySpec(
         name="Binomial",
         dist_class=D.Binomial,
-        params=(ParamSpec(name="probs", transform="sigmoid"),),
+        params=(
+            ParamSpec(name="total_count", transform="softplus_shifted", kind="integer"),
+            ParamSpec(name="probs", transform="sigmoid"),
+        ),
         support=_constraints.nonnegative_integer,
         discrete=True,
         output_kind="categorical",
-        docstring="Conditional Binomial(n=total_count, probs(x)) with fixed total_count.",
+        docstring="Conditional Binomial(n=total_count, probs(x)).",
         conditional_class_override=ConditionalBinomial,
     )
 )

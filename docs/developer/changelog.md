@@ -4,6 +4,24 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] - 2026-09-23
+
+### Added
+
+- **Formula-compiled ordinal mixed models.** `family="cumulative"` now learns an identified ordered cutpoint vector from positive spacings. `thresholds_by="group"` gives each level partially pooled spacing deviations, gathers its centered cutpoints per response row, and composes with the formula's fixed and random effects.
+- **Differentiable external predictors.** `fit(..., predictor=module, predictor_data=tensor, method="svi")` adds a PyTorch module's per-row output to the formula linear predictor and optimizes its parameters jointly with the QVR program and variational guide. Emitted QVR exposes the attachment as the explicit `neural_eta` host input; frozen predictors also work with HMC and NUTS.
+- **True binomial formula likelihoods.** `binomial_trials` accepts either one positive integer or a per-row data-column name and emits `Binomial(total_count, probs)` rather than treating binomial as a Bernoulli alias.
+
+### Fixed
+
+- **Formula-family parameter semantics.** Cumulative formulas now supply ordered cutpoints to `OrderedLogistic`. Negative-binomial formulas convert their mean/concentration surface to QVR's `(total_count, probs)` convention with `probs = mu / (mu + disp)`.
+- **Impossible log-probability cells have finite gradients.** `LogProbAlgebra.join` retains `-inf` for an all-`-inf` reduction and defines its gradient as zero instead of inheriting `NaN` from `torch.logsumexp`.
+- **The ArviZ dependency matches the DataTree API.** The `diagnostics` and `formulas` extras now require ArviZ 1.0 or newer, the first stable line matching the adapter's `xarray.DataTree` contract.
+
+### Changed
+
+- **Binomial's inline family signature is explicit.** Runtime and generated programs share the two-parameter `Binomial(total_count, probs)` surface; the conditional morphism continues to learn probabilities for its configured trial count.
+
 ## [0.21.0] - 2026-09-22
 
 ### Fixed

@@ -126,7 +126,7 @@ families: Mapping[str, Family] = {
     "binomial": Family(
         name="binomial",
         location_link=_LOGIT,
-        observe_family="Bernoulli",
+        observe_family="Binomial",
     ),
     "categorical": Family(
         name="categorical",

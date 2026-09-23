@@ -197,7 +197,63 @@ The following choices control the inference path:
 
 - **`method="nuts" | "hmc" | "svi"`**. The default `"nuts"` samples the joint posterior with the No-U-Turn extension to HMC and produces an `MCMCResult`. `"svi"` fits a [`Guide`](../../api/inference/guide.md) by optimization and may be more practical for large models. Either method still requires diagnostics.
 - **`guide=Cls`** (SVI only). Defaults to [`AutoNormalGuide`](../../api/inference/guide.md) (mean-field diagonal Normal). Other choices: [`AutoMultivariateNormalGuide`](../../api/inference/guide.md) for a full-rank Cholesky; [`AutoLowRankMultivariateNormalGuide`](../../api/inference/guide.md) for `O(D·rank)` memory on high-dimensional models; [`AutoLaplaceApproximation`](../../api/inference/guide.md) for a Gaussian fit at the MAP; [`AutoIAFGuide`](../../api/inference/guide.md) for an inverse-autoregressive normalizing flow. Pass the class, not an instance: `fit(..., guide=AutoMultivariateNormalGuide)`.
-- **`reparameterize="noncentered" | "centered"`**. [`formula_to_qvr`](../../api/formulas/compile.md) uses this option when emitting random-effect terms. The current `fit` implementation records the option on `BayesianFit` but does not pass it into the runtime compiler, which thus uses non-centering. Use `formula_to_qvr(..., reparameterize="centered")` when you need centered source and inspect `result.qvr_source` to confirm the fitted program.
+- **`reparameterize="noncentered" | "centered"`**. Both [`fit`](../../api/formulas/fit.md) and [`formula_to_qvr`](../../api/formulas/compile.md) pass this option into the formula compiler. Inspect `result.qvr_source` to confirm the fitted program.
+
+## Ordinal responses with participant-specific scale use
+
+An ordinal response needs ordered cutpoints in addition to its linear
+predictor. The cumulative family learns those cutpoints rather than
+requiring them as external data. The grouped form below gives each
+participant a partially pooled spacing vector while retaining crossed
+participant and item intercepts:
+
+<!-- python: skip -->
+```python
+result = fit(
+    "rating ~ condition + (1 | participant) + (1 | item)",
+    data=ratings,
+    family="cumulative",
+    thresholds_by="participant",
+    method="svi",
+    num_samples=4000,
+    seed=0,
+)
+```
+
+Response labels must be contiguous integers beginning at zero. The
+generated program exponentiates log spacings, cumulatively sums them,
+and centers each participant's cutpoint vector. Thus cutpoints stay
+ordered on every draw, the random intercept remains the location effect,
+and the thresholds describe differences in how participants use the
+response scale.
+
+### Joint training with a neural predictor
+
+Suppose a neural parser produces one grammaticality score per item. Its
+score can enter the same mixed model additively on the latent scale:
+
+<!-- python: skip -->
+```python
+parser = NeuralChartParser(...)
+
+result = fit(
+    "rating ~ condition + (1 | participant) + (1 | item)",
+    data=ratings,
+    family="cumulative",
+    thresholds_by="participant",
+    predictor=parser,
+    predictor_data=sentence_features,
+    method="svi",
+    num_samples=4000,
+    seed=0,
+)
+```
+
+The optimizer sees the parser parameters alongside the QVR program and
+guide parameters. The generated QVR names the parser output as the free
+host input `neural_eta`; the Python module itself remains a runtime
+attachment. Trainable predictors therefore use SVI. A frozen predictor
+can also be used with NUTS or HMC.
 
 ## Model comparison with PSIS-LOO
 
