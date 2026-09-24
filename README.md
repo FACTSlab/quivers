@@ -1,7 +1,7 @@
 <h1 align="center">Quivers</h1>
 
 <p align="center">
-  <em>A typed language, compiler, and inference system for compositional probabilistic models.</em>
+  <em>A typed functional probabilistic programming language for PyTorch.</em>
 </p>
 
 <p align="center">
@@ -26,52 +26,48 @@
 
 ---
 
-Quivers is a probabilistic programming language, compiler, and Python library
-for models whose probabilistic, logical, and neural parts need to compose. Its
-QVR language combines familiar `sample` and `observe` statements with typed
-program signatures, indexed data, algebraic effects, handlers, and first-class
-program composition.
-
-Every executable QVR declaration lowers to the Quivers Indexed Effect Core
-(QIEC), a typed and executable intermediate representation. This shared core
-gives direct execution, serialization, editor diagnostics, program analysis,
-and target checking the same account of a model. A differentiable PyTorch
-runtime supplies variational and Monte Carlo inference; transpilers emit code
-for eleven other probabilistic programming systems.
-
-Quivers also exposes the machinery beneath the language. The Python library
-includes a typed categorical API, weighted deduction, structural encoders and
-decoders, a mixed-effects formula frontend, and statistical diagnostics. You
-can work entirely in QVR or with formulas, or extend the abstractions on which
-those interfaces are built.
+Quivers is a typed functional probabilistic programming language and compiler
+with a PyTorch runtime. It includes the QVR source language, a compiler to the
+Quivers Indexed Effect Core (QIEC), inference and diagnostics, a mixed-effects
+formula interface, eleven transpilers, and editor and notebook tooling. Its
+Python API also exposes categorical, deduction, and structural modeling
+primitives.
 
 ## What Quivers includes
 
 | Area | What it provides |
 | --- | --- |
-| **QVR language and compiler** | Typed probabilistic programs, indexed families, lexical effect instances, row-polymorphic computations, authored handlers, discrete marginalization, and combinators such as composition, `map`, `fold`, `traverse`, groups, and scans. |
-| **Execution and inference** | A PyTorch runtime with automatic differentiation; SVI with automatic and flow-based guides; HMC, NUTS, and hybrid samplers; and more than forty distribution families. |
-| **Formulas and data** | A brms-style mixed-effects interface for pandas, Polars, and other Narwhals-compatible dataframes. Formula models compile to inspectable QVR rather than remaining a closed frontend. |
+| **QVR language and compiler** | Typed probabilistic programs with indexed families, lexical effect instances, row-polymorphic computations, and authored handlers. The language includes discrete marginalization and collection operators such as `map`, `fold`, and `traverse`. |
+| **Execution and inference** | A PyTorch runtime with automatic differentiation and more than forty distribution families. Inference includes SVI with automatic and flow-based guides, HMC, NUTS, and hybrid samplers. |
+| **Formulas and data** | A brms-style mixed-effects interface for pandas, Polars, and other Narwhals-compatible dataframes. The generated QVR can be saved and edited. |
 | **Diagnostics and analysis** | ArviZ export, ESS and R-hat, PSIS-LOO, posterior-predictive checks, LOO-PIT, static program summaries, source maps, and algebra-aware initialization advice. |
-| **Composition and structure** | A typed V-enriched categorical API, algebra-parametric semantics, weighted chart deduction, and reusable signature, encoder, decoder, and loss declarations. |
+| **Composition and structure** | A typed V-enriched categorical API and algebra-parametric semantics. QVR adds weighted chart deduction and declarations for structural signatures, encoders, decoders, and losses. |
 | **Transpilation** | Capability-checked output for BUGS, Church, Edward2, Gen, JAGS, NumPyro, PyMC, Pyro, Stan, Turing, and WebPPL. Unsupported target features are reported before code generation. |
 | **Developer tooling** | A command-line interface, interactive REPL, Jupyter kernel, language server, Pygments and tree-sitter grammars, and first-party extensions for VS Code, Cursor, and Zed. |
 
-## Who Quivers is for
+## Installation
 
-- Probabilistic programmers who want typed, composable models without giving
-  up a differentiable Python runtime.
-- Computational statisticians who want mixed-effects formulas, modern
-  inference, diagnostics, and inspectable generated programs.
-- Researchers in semantics and NLP who combine probabilistic programs with
-  grammars, deduction, neural modules, or indexed linguistic structures.
-- Programming-language and category-theory researchers who need an executable
-  model of typed effects and algebra-parametric composition.
+Quivers requires Python 3.14 or later. Install the base package with:
+
+```bash
+python -m pip install quivers
+```
+
+Optional features are distributed as extras:
+
+```bash
+python -m pip install 'quivers[formulas,diagnostics,repl,lsp,targets]'
+```
+
+The user-facing extras are `formulas`, `data`, `diagnostics`, `repl`, `lsp`,
+and `targets`. The `dev` and `docs` extras are for work on Quivers itself.
+Some transpilation targets require their own runtime or compiler. The
+[installation guide](https://FACTSlab.github.io/quivers/getting-started/installation/)
+covers editor setup and target-specific dependencies.
 
 ## Quick start
 
-This stochastic GRU language model combines typed morphisms, a recurrent
-program, categorical composition, `scan`, and an observed response.
+This QVR file defines a stochastic GRU language model:
 
 <!-- GitHub Linguist fallback: QVR currently uses the R lexer. -->
 ```R
@@ -107,11 +103,9 @@ program gru_lm : Token -> Token
 export gru_lm
 ```
 
-Install Quivers, download this checked example, and ask the compiler to verify
-it:
+Download the example and check it:
 
 ```bash
-python -m pip install quivers
 curl -LO https://raw.githubusercontent.com/FACTSlab/quivers/main/docs/examples/source/gru_lm.qvr
 qvr check gru_lm.qvr
 ```
@@ -121,27 +115,6 @@ develops the language and inference workflow from a first model. The
 [examples gallery](https://FACTSlab.github.io/quivers/examples/) covers
 hierarchical and state-space models, mixture models, neural language models,
 formal grammars, and structural autoencoders.
-
-## Installation
-
-Quivers requires Python 3.14 or later. The base package contains the language,
-compiler, PyTorch runtime, inference library, and command-line interface:
-
-```bash
-python -m pip install quivers
-```
-
-Install optional surfaces individually or together:
-
-```bash
-python -m pip install 'quivers[formulas,diagnostics,repl,lsp,targets]'
-```
-
-The available extras are `formulas`, `data`, `diagnostics`, `repl`, `lsp`, and
-`targets`; `dev` and `docs` support work on Quivers itself. Some transpilation
-targets require their own external runtime or compiler. See the
-[installation guide](https://FACTSlab.github.io/quivers/getting-started/installation/)
-for editor setup and target-specific dependencies.
 
 ## Typical workflows
 
@@ -198,10 +171,6 @@ flowchart LR
     API --> Torch
 ```
 
-The diagram shows the common paths, not a requirement to use every layer.
-Formula users can fit a model in one call; QVR users can check and run a file;
-library users can construct and compose the underlying objects directly.
-
 ## Documentation
 
 | Resource | Use it for |
@@ -232,10 +201,8 @@ runtime behavior.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, testing
-commands, contribution workflow, and commit conventions. Contributions to the
-language, runtime, documentation, examples, and editor integrations are
-welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, tests,
+contribution workflow, and commit conventions.
 
 ## Acknowledgments
 
