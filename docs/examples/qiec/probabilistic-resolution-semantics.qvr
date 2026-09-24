@@ -1,0 +1,104 @@
+# Probabilistic resolution semantics for "approximately five dollars."
+#
+# This is a finite realization of Kuchmiichuk (2026), equations 48--53.
+# Prices are integer cents, so the paper's exact, ten-cent, and twenty-cent
+# descriptions have exact boundaries.
+
+index Precision = Exact | Loose
+
+family Resolution[A : Type](p : Precision) : Type
+    constructor ExactAt : A -> Resolution[A](Exact)
+    constructor Around : A * Int -> Resolution[A](Loose)
+
+effect Resolve[p : Precision]
+    choose : Int -> Resolution[Int](p)
+
+instance unresolved : Resolve[Loose]
+
+handler condition_nonexact for Resolve[Loose] : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return probability =>
+        return probability
+    choose(center : Int) resumes omega =>
+        let within_ten <- resume(construct Around[Int](center, 10) as Resolution[Int](Loose))
+        let within_twenty <- resume(construct Around[Int](center, 20) as Resolution[Int](Loose))
+        return 0.75 * within_ten + 0.25 * within_twenty
+
+handler select_exact for Resolve[Exact] : Real -> Real [coverage=total, forwards=none, implementation=authored]
+    return probability =>
+        return probability
+    choose(center : Int) resumes 1 =>
+        resume(construct ExactAt[Int](center) as Resolution[Int](Exact))
+
+define supported[p : Precision](description : Resolution[Int](p), quantity : Int) : Real !{} =
+    case description motive (q : Precision) => Real
+        ExactAt(center) =>
+            if quantity == center then
+                return 1.0
+            else
+                return 0.0
+        Around(center, radius) =>
+            if abs(quantity - center) <= radius then
+                return 1.0
+            else
+                return 0.0
+
+define request_loose(quantity : Int, numeral : Int) : Real !{unresolved | rho lacks unresolved} =
+    let description <- perform unresolved.choose(numeral)
+    let truth <- supported[Loose](description, quantity)
+    return truth
+
+define approximate_likelihood(quantity : Int, numeral : Int) : Real !{} =
+    with instance reading : Resolve[Loose] in
+        handle reading with condition_nonexact in
+            let description <- perform reading.choose(numeral)
+            let truth <- supported[Loose](description, quantity)
+            return truth
+
+define exact_likelihood(quantity : Int, numeral : Int) : Real !{} =
+    with instance reading : Resolve[Exact] in
+        handle reading with select_exact in
+            let description <- perform reading.choose(numeral)
+            let truth <- supported[Exact](description, quantity)
+            return truth
+
+define bare_likelihood(quantity : Int, numeral : Int) : Real !{} =
+    let exact <- exact_likelihood(quantity, numeral)
+    let loose <- approximate_likelihood(quantity, numeral)
+    return 0.6 * exact + 0.4 * loose
+
+define normalize(masses : Tensor[Real]([7])) : Tensor[Real]([7]) !{} =
+    let total = fold(masses, 0.0, acc -> mass -> acc + mass)
+    return map(masses, mass -> mass / total)
+
+define approximate_mass(prior : Real, quantity : Int, numeral : Int) : Real !{} =
+    let likelihood <- approximate_likelihood(quantity, numeral)
+    return prior * likelihood
+
+define bare_mass(prior : Real, quantity : Int, numeral : Int) : Real !{} =
+    let likelihood <- bare_likelihood(quantity, numeral)
+    return prior * likelihood
+
+define approximate_five(prior : Tensor[Real]([7])) : Tensor[Real]([7]) !{} =
+    let quantities = [470, 480, 490, 500, 510, 520, 530]
+    let masses <- traverse(
+        [0, 1, 2, 3, 4, 5, 6],
+        i -> approximate_mass(prior[i], quantities[i], 500),
+    )
+    return normalize(masses)
+
+define bare_five(prior : Tensor[Real]([7])) : Tensor[Real]([7]) !{} =
+    let quantities = [470, 480, 490, 500, 510, 520, 530]
+    let masses <- traverse(
+        [0, 1, 2, 3, 4, 5, 6],
+        i -> bare_mass(prior[i], quantities[i], 500),
+    )
+    return normalize(masses)
+
+object Context : FinSet 1
+object PricePosterior : Real 7
+
+program hear_approximately_five : Context -> PricePosterior
+    let posterior <- approximate_five(price_prior)
+    return posterior
+
+export hear_approximately_five

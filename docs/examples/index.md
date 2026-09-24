@@ -28,7 +28,8 @@ particular statistical family.
 | open sequence extent and recursive scan lowering | [Vanilla RNN LM](vanilla-rnn-lm.md) | generated scan step and trajectory site addresses |
 | network kernel computation | [Bayesian Neural Network](bnn.md) | MLP parameter source and reference-machine boundary |
 | measure-algebra families | [Amortized Bayesian Semantics](amortized-bayesian-semantics.md) | heterogeneous `Mixture` value used for scoring and prediction |
-| finite collection traversal, indexed effects, nested computation calls, lexical uncertainty | [Lexical-Uncertainty RSA](qiec/lexical-uncertainty-rsa.qvr) | `map`/`fold` normalization, `traverse` over worlds and lexica, lexical marginalization, observed-or-predicted interpretation |
+| indexed families, parameterized effects, open rows, scoped instances, authored multi-shot handlers | [Probabilistic Resolution Semantics](probabilistic-resolution-semantics.md) | exact and loose resolution types, probability-effect marginalization, common-ground update |
+| finite collection traversal, nested computation calls, lexical uncertainty | [Lexical-Uncertainty RSA](qiec/lexical-uncertainty-rsa.qvr) | `map`/`fold` normalization, `traverse` over worlds and lexica, lexical marginalization |
 
 The generated [transpilation support matrix](../transpile-support.md) records
 whether each measured source reaches each backend. A successful
@@ -45,6 +46,11 @@ examples state both where they differ.
   model of [Bergen, Levy, and Goodman (2016)](https://doi.org/10.3765/sp.9.20),
   with a literal listener nested inside a pragmatic speaker and a listener
   that traverses and marginalizes over three lexica.
+- [Probabilistic Resolution Semantics](probabilistic-resolution-semantics.md):
+  Kuchmiichuk's probability-effect analysis of *approximately five dollars*,
+  with precision-indexed descriptions, scoped resolution requests, authored
+  single- and multi-shot handlers, and the common-ground update from the
+  paper's equations 48--53.
 
 ## Regressions
 

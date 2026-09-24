@@ -159,6 +159,7 @@ nav:
   - Examples Gallery:
     - Overview: examples/index.md
     - Amortized Bayesian Semantics: examples/amortized-bayesian-semantics.md
+    - Probabilistic Resolution Semantics: examples/probabilistic-resolution-semantics.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
     - Beta Regression: examples/beta-regression.md
     - Gamma Regression: examples/gamma-regression.md

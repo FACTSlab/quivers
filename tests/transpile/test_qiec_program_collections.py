@@ -80,11 +80,11 @@ def test_python_targets_render_real_to_int(target: str, spelling: str) -> None:
 
 @pytest.mark.parametrize("target", ("pyro", "numpyro"))
 def test_lexical_uncertainty_rsa_transpiles_to_python_targets(target: str) -> None:
-    """The released collection/effect example crosses the complete boundary."""
+    """The released collection/RSA example crosses the complete boundary."""
     source = (_ROOT / "docs/examples/qiec/lexical-uncertainty-rsa.qvr").read_text()
     output = transpile(parse(source), target=target).decode()
     ast.parse(output)
-    assert "states = [0,1,2,3,4,5]" in output
+    assert "qiec_specificity_listener" in output
     if target == "pyro":
         import pyro
         import torch
@@ -94,12 +94,12 @@ def test_lexical_uncertainty_rsa_transpiles_to_python_targets(target: str) -> No
         model = pyro.condition(
             namespace["model"], data={"raw_alpha": torch.tensor(0.0)}
         )
+        choices = torch.tensor([1.0] * 141 + [0.0] * 59)
         trace = pyro.poutine.trace(model).get_trace(
-            listener_choice=torch.tensor(0.0),
-            heard_some=torch.tensor([1.0]),
+            chose_some_not_all=choices,
         )
         trace.compute_log_prob()
-        assert float(trace.log_prob_sum()) == pytest.approx(-2.89819356, abs=1e-6)
+        assert float(trace.log_prob_sum()) == pytest.approx(-122.23291779, abs=1e-6)
         posterior = trace.nodes["_RETURN"]["value"]
         assert tuple(float(value) for value in posterior) == pytest.approx(
             (0.29586356, 0.70413644), abs=1e-6
