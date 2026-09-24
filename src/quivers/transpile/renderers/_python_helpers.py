@@ -501,6 +501,9 @@ _TORCH_FUNCTIONAL: tuple[str, ...] = (
 #: reduction-axis keyword. A scalar argument keeps the Python builtin.
 _AXIS_REDUCING_CALLS: frozenset[str] = frozenset({"sum", "mean", "prod", "max", "min"})
 
+# Shape-preserving primitives whose semantics fixes the trailing event axis.
+_TRAILING_AXIS_CALLS: frozenset[str] = frozenset({"softmax"})
+
 #: Per-target keyword name for the reduction axis. NumPy / JAX / PyMC /
 #: TensorFlow spell it ``axis``; PyTorch spells it ``dim``.
 _AXIS_KEYWORD_BY_TARGET: dict[str, str] = {
@@ -529,6 +532,7 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "prod": _torch_reduce("prod"),
         "max": _torch_reduce("amax"),
         "min": _torch_reduce("amin"),
+        "softmax": _torch("softmax"),
     },
     "numpyro": {
         "exp": _jnp("exp"),
@@ -578,6 +582,7 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "prod": _jnp("prod"),
         "max": _jnp("max"),
         "min": _jnp("min"),
+        "softmax": _jnn("softmax"),
     },
     "pymc": {
         "exp": _pmath("exp"),
@@ -604,6 +609,7 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "prod": _pmath("prod"),
         "max": _pmath("max"),
         "min": _pmath("min"),
+        "softmax": _pmath("softmax"),
     },
     "edward2": {
         "exp": _tfmath("exp"),
@@ -651,6 +657,7 @@ _LET_CALL_SYMBOLS: dict[str, dict[str, _CallEntry]] = {
         "prod": (("tf", "reduce_prod"), None),
         "max": (("tf", "reduce_max"), None),
         "min": (("tf", "reduce_min"), None),
+        "softmax": _tfnn("softmax"),
     },
 }
 
@@ -846,11 +853,13 @@ def render_let_expr_python(
         # array-aware aggregator, so append the reduction-axis keyword
         # (``axis=-1`` / ``dim=-1``). A scalar argument keeps the
         # Python-builtin call shape with no keyword.
-        if (
+        needs_trailing_axis = expr.func in _TRAILING_AXIS_CALLS and len(expr.args) == 1
+        reduces_event_axis = (
             expr.func in _AXIS_REDUCING_CALLS
             and len(expr.args) == 1
             and _infer_event_rank(ctx, expr.args[0]) > 0
-        ):
+        )
+        if needs_trailing_axis or reduces_event_axis:
             axis_kw = _AXIS_KEYWORD_BY_TARGET.get(ctx.target, "axis")
             kw = ctx.v(ctx.fresh("kw"), "keyword_argument")
             ctx.e(kw, identifier(ctx, axis_kw), "name")

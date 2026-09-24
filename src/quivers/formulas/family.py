@@ -11,7 +11,9 @@ implementation is uniform across all of GLM / GLMM / GAMLSS-style
 distributional regression because each family declares its
 location parameter (mandatory) and any auxiliary parameters
 (``sigma``, ``phi``, ``disp``, ``zi``, ``alpha``) with their
-priors and links separately.
+priors and links separately. Categorical and finite-mixture families
+add compiler-owned component axes because their likelihood parameters
+are vectors rather than scalar auxiliaries.
 """
 
 from __future__ import annotations
@@ -253,18 +255,5 @@ families: Mapping[str, Family] = {
         name="mixture",
         location_link=_IDENTITY,
         observe_family="MixtureNormal",
-        extra_observe_args=("loc", "scale"),
-        aux_params=(
-            AuxParam(
-                name="loc",
-                prior="Normal(0.0, 5.0)",
-                link=_IDENTITY,
-            ),
-            AuxParam(
-                name="scale",
-                prior="HalfCauchy(2.0)",
-                link=_LOG,
-            ),
-        ),
     ),
 }
