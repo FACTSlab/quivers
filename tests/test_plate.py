@@ -11,9 +11,9 @@ Covers:
 * DSL parse / compile round-trips for the hierarchical-Bayesian
   AST nodes.
 
-The runtime extensions are not yet wired into the SVI guide; an
-end-to-end fit on synthetic data is reserved for a follow-up
-test once the inference layer recognizes plate-draw sites.
+The inference registry and guides recognize plate-draw sites, with
+end-to-end SVI coverage in the formula and inference suites. This module
+keeps its focus on the primitive runtime and DSL compiler surfaces.
 """
 
 from __future__ import annotations

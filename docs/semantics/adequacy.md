@@ -43,7 +43,11 @@ Sampling from `f >> g` is ancestral: sample the intermediate value with `f.rsamp
 
 Density evaluation is different. `SampledComposition.log_prob` draws a fixed number of intermediate samples, evaluates the second density, and combines the values with `logsumexp - log(n)`. The density-scale average is a Monte Carlo estimator of the integral; taking its logarithm introduces finite-sample bias. The default sample count is 100. Thus the returned log density is an approximation, not pointwise equality with the Chapman–Kolmogorov integral.
 
-`ScanMorphism.log_prob` currently returns zeros for the final state, while `log_joint(x, hidden_states)` scores a supplied full hidden trajectory. A semantics that requires the marginal density of the final recurrent state is thus not implemented by `log_prob`.
+`ScanMorphism.log_prob(x, y)` constructs the canonical reference trajectory
+ending at `y` and returns `log_joint` for that fixed trajectory. It does not
+integrate over the intermediate hidden states. Thus it is a trajectory score,
+not the marginal density of the final recurrent state. A cell without a
+conditional density contributes zero instead.
 
 ## 4. Programs and data
 

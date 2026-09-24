@@ -211,7 +211,11 @@ declaration names, calls, numbers, strings, and comments. It is not a QVR
 grammar: effect rows, categorial slashes, the `~ Family` clause, and axis roles
 remain approximate until Linguist has a native QVR entry.
 
-Registering QVR upstream with Linguist is tracked at [panproto/panproto#84](https://github.com/panproto/panproto/issues/84); upvoting helps prioritize it.
+Native GitHub highlighting requires a QVR language entry in
+[github-linguist](https://github.com/github-linguist/linguist/blob/main/CONTRIBUTING.md#adding-a-language).
+Panproto's separate refresh of its vendored QVR grammar is tracked in
+[panproto/panproto#321](https://github.com/panproto/panproto/issues/321); that
+vendor update does not register QVR with GitHub Linguist.
 
 ## Verifying your setup
 
