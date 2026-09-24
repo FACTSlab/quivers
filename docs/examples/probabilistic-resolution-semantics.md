@@ -129,10 +129,31 @@ value. Conditioning away the exact description produces a three-way plateau
 from $4.90 through $5.10, with the widest description contributing the smaller
 outer mass.
 
-## Run and transpile it
+## Try it
 
 Check the complete module and run both updates under the QIEC reference
 machine:
+
+```python
+from quivers.dsl import load
+
+model = load("docs/examples/qiec/probabilistic-resolution-semantics.qvr")
+uniform = (1.0 / 7.0,) * 7
+
+approximate = model.run("hear_approximately_five", uniform)
+bare = model.run("bare_five", uniform)
+
+assert approximate.value == (
+    0.0,
+    1.0 / 14.0,
+    2.0 / 7.0,
+    2.0 / 7.0,
+    2.0 / 7.0,
+    1.0 / 14.0,
+    0.0,
+)
+assert bare.value == (0.0, 0.05, 0.20, 0.50, 0.20, 0.05, 0.0)
+```
 
 ```bash
 qvr check docs/examples/qiec/probabilistic-resolution-semantics.qvr --target pyro
