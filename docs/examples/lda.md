@@ -25,8 +25,8 @@ computed via [log-sum-exp](https://en.wikipedia.org/wiki/LogSumExp) over the $K$
 #
 #   theta_d  ~ Dirichlet(alpha)            per-document topic mixture
 #   phi_k    ~ Dirichlet(beta)             per-topic word distribution
-#   z_{d,n}  ~ Categorical(theta_d)        per-word topic assignment
-#   w_{d,n}  ~ Categorical(phi_{z_{d,n}})  per-word observed token
+#   z_{d,n}  ~ Categorical(probs=theta_d)        per-word topic assignment
+#   w_{d,n}  ~ Categorical(probs=phi_{z_{d,n}})  per-word observed token
 #
 # The per-word topic z_{d,n} is integrated out of the per-word
 # likelihood. The closed-form marginal is
@@ -57,8 +57,8 @@ program lda(alpha : Real, beta : Real) : Token -> Mix
     sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
     sample phi : Topic <- Dirichlet(beta) [over=Vocab, iid_over=Topic]
 
-    marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-        observe w : Token <- Categorical(phi[z]) [via=word_idx]
+    marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+        observe w : Token <- Categorical(probs=phi[z]) [via=word_idx]
 
     return theta
 
@@ -78,13 +78,13 @@ The scoped marginalize block
 
 <!-- compile: false -->
 ```qvr
-marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-    observe w : Token <- Categorical(phi[z]) [via=word_idx]
+marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+    observe w : Token <- Categorical(probs=phi[z]) [via=word_idx]
 ```
 
 introduces one shared topic latent $z_d$ per document under a Categorical prior
 parameterized by the document-shaped `theta`. The body's
-`Categorical(phi[z])` looks up that topic's vocabulary row and scores every
+`Categorical(probs=phi[z])` looks up that topic's vocabulary row and scores every
 observed token in the document. The `[over=Doc]` grouping plate accumulates
 each observation into its document; `[via=word_idx]` names the runtime
 fibration from each word position into its document. The agenda evaluates the

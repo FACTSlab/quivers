@@ -57,9 +57,9 @@ def test_three_level_nested_gradient_flows_to_continuous_latent() -> None:
         sample probs_1 : K1 <- HalfNormal(1.0)
         sample probs_2 : K2 <- HalfNormal(1.0)
         sample probs_3 : K3 <- HalfNormal(1.0)
-        marginalize a : K1 <- Categorical(probs_1) [over=G1]
-            marginalize b : K2 <- Categorical(probs_2) [over=G2]
-                marginalize c : K3 <- Categorical(probs_3) [over=G3]
+        marginalize a : K1 <- Categorical(probs=probs_1) [over=G1]
+            marginalize b : K2 <- Categorical(probs=probs_2) [over=G2]
+                marginalize c : K3 <- Categorical(probs=probs_3) [over=G3]
                     observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_1]
         return mu_shift
     export nested
@@ -111,9 +111,9 @@ def test_three_level_nested_score_matches_manual_recursion() -> None:
         sample probs_1 : K1 <- HalfNormal(1.0)
         sample probs_2 : K2 <- HalfNormal(1.0)
         sample probs_3 : K3 <- HalfNormal(1.0)
-        marginalize a : K1 <- Categorical(probs_1) [over=G1]
-            marginalize b : K2 <- Categorical(probs_2) [over=G2]
-                marginalize c : K3 <- Categorical(probs_3) [over=G3]
+        marginalize a : K1 <- Categorical(probs=probs_1) [over=G1]
+            marginalize b : K2 <- Categorical(probs=probs_2) [over=G2]
+                marginalize c : K3 <- Categorical(probs=probs_3) [over=G3]
                     observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_1]
         return mu_shift
     export nested
@@ -171,8 +171,8 @@ def test_nested_product_plate_sums_along_the_projection() -> None:
         sample mu_shift <- Normal(0.0, 1.0)
         sample probs_outer : K1 <- HalfNormal(1.0)
         sample probs_inner : K2 <- HalfNormal(1.0)
-        marginalize outer : K1 <- Categorical(probs_outer) [over=G1]
-            marginalize inner : K2 <- Categorical(probs_inner) [over=[G1, G2]]
+        marginalize outer : K1 <- Categorical(probs=probs_outer) [over=G1]
+            marginalize inner : K2 <- Categorical(probs=probs_inner) [over=[G1, G2]]
                 observe r : Resp <- Normal(mu_shift, 1.0) [via=[outer_idx, inner_idx]]
         return mu_shift
     export demo
@@ -229,8 +229,8 @@ def test_nested_plate_of_another_extent_is_refused() -> None:
     program demo : Resp -> Resp
         sample probs_outer : K1 <- HalfNormal(1.0)
         sample probs_inner : K2 <- HalfNormal(1.0)
-        marginalize outer : K1 <- Categorical(probs_outer) [over=G1]
-            marginalize inner : K2 <- Categorical(probs_inner) [over=G2]
+        marginalize outer : K1 <- Categorical(probs=probs_outer) [over=G1]
+            marginalize inner : K2 <- Categorical(probs=probs_inner) [over=G2]
                 observe r : Resp <- HalfNormal(1.0) [via=idx]
         return probs_outer
     export demo
@@ -260,7 +260,7 @@ def test_body_with_multiple_lets_using_latent() -> None:
 
     program bodylet : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
-        marginalize cls : Class <- Categorical(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs=probs) [over=Item]
             observe r : Resp <- HalfNormal(1.0) [via=idx]
         return probs
     export bodylet

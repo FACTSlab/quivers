@@ -4,11 +4,11 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.23.1] - 2026-10-02
+## [0.24.0] - 2026-10-03
 
-### Fixed
+### Changed
 
-- **QVR can represent categorical logits explicitly.** `Categorical(logits=scores)` now preserves signed scores through parsing, emission, validation, eager execution, QIEC elaboration, and transpilation. Positional `Categorical(weights)` remains the probability form for compatibility; targets without a native logits parameter report how to convert with `softmax` instead of silently changing the model.
+- **Categorical parameterization is explicit.** QVR draw calls now require either `Categorical(probs=weights)` or `Categorical(logits=scores)`, and preserve that choice through parsing, emission, validation, eager execution, QIEC elaboration, and transpilation. Positional `Categorical(values)` is rejected; `qvr migrate` rewrites the prior probability form to `probs=`, while probability-only targets tell logits users to convert with `softmax` instead of silently changing the model.
 
 ## [0.23.0] - 2026-09-23
 

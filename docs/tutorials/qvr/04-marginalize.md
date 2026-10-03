@@ -26,7 +26,7 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
         sample mu_k : Component <- Normal(0.0, 5.0)
         sample sd_k : Component <- HalfNormal(1.0)
 
-        marginalize z : Component <- Categorical(probs) [over=Item]
+        marginalize z : Component <- Categorical(probs=probs) [over=Item]
             observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
         return probs
 
@@ -102,7 +102,7 @@ program gmm : Item -> Weights
     sample mu_k : Component <- Normal(0.0, 5.0)
     sample sd_k : Component <- HalfNormal(1.0)
 
-    marginalize z : Component <- Categorical(probs) [over=Item]
+    marginalize z : Component <- Categorical(probs=probs) [over=Item]
         observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
     return probs
 
@@ -149,7 +149,7 @@ program grouped_mixture : Item -> Weights [effects=[Sample, Score, Marginal]]
     sample mu_k : Component <- Normal(0.0, 5.0)
     sample sd_k : Component <- HalfNormal(1.0)
 
-    marginalize z : Component <- Categorical(probs) [over=Group]
+    marginalize z : Component <- Categorical(probs=probs) [over=Group]
         observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=group_idx]
     return probs
 

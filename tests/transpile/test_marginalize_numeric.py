@@ -8,7 +8,7 @@ form:
 
 1. *Beta-Bernoulli mixture*: a 2-component Bernoulli mixture with a
    Dirichlet(1) mixing weight and per-component Beta priors. The
-   `marginalize cls : Cls <- Categorical(probs) [over=Obs]` form
+   `marginalize cls : Cls <- Categorical(probs=probs) [over=Obs]` form
    integrates out the per-observation class indicator analytically.
 2. *Mixture of Normals*: a 2-component Normal mixture with
    per-component Normal priors on the location. Same marginalize
@@ -96,7 +96,7 @@ object Obs : FinSet 30
 program beta_bernoulli_mix : Obs -> Obs
     sample probs <- Dirichlet(1.0) [over=Cls]
     sample theta <- Dirichlet(2.0) [over=Cls]
-    marginalize cls : Cls <- Categorical(probs) [over=Obs, reduction=logsumexp]
+    marginalize cls : Cls <- Categorical(probs=probs) [over=Obs, reduction=logsumexp]
         observe y : Obs <- Bernoulli(theta[cls]) [via=idx]
     return probs
 export beta_bernoulli_mix
@@ -111,7 +111,7 @@ program normal_mix : Obs -> Obs
     sample mu_diff <- HalfNormal(1.0)
     let mu = factor c : Cls in mu_low + c * mu_diff
     let sigma = 0.5
-    marginalize cls : Cls <- Categorical(probs) [over=Obs, reduction=logsumexp]
+    marginalize cls : Cls <- Categorical(probs=probs) [over=Obs, reduction=logsumexp]
         observe y : Obs <- Normal(mu[cls], sigma) [via=idx]
     return probs
 export normal_mix

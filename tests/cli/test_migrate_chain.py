@@ -115,11 +115,37 @@ def test_v018_to_v019_additive_hop_is_byte_preserving_and_validated() -> None:
         hop_18_19.migrate(b"\x00\x00\x00")
 
 
-def test_v019_to_head_layout_hop_is_byte_preserving_and_validated() -> None:
+def test_v019_to_head_layout_hop_preserves_unaffected_source_and_validates() -> None:
     source = b"define f(x : Real) : Real !{} =\n    return exp(x)\n"
     assert hop_19_head.migrate(source) == source
     with pytest.raises(MigrationError, match="does not parse"):
         hop_19_head.migrate(b"\x00\x00\x00")
+
+
+def test_v019_to_head_names_categorical_probability_arguments() -> None:
+    source = b"""\
+object K : FinSet 3
+morphism prior : K -> K ~ Categorical(weights)
+program p : K -> K
+    observe y <- Categorical(weights)
+    return y
+"""
+    expected = source.replace(b"Categorical(weights)", b"Categorical(probs=weights)")
+    assert hop_19_head.migrate(source) == expected
+
+
+def test_v019_to_head_bundles_categorical_spread_probabilities() -> None:
+    source = b"""\
+object K : FinSet 3
+program p : K -> K
+    sample y <- Categorical(0.2, 0.3, 0.5)
+    return y
+"""
+    expected = source.replace(
+        b"Categorical(0.2, 0.3, 0.5)",
+        b"Categorical(probs=[0.2, 0.3, 0.5])",
+    )
+    assert hop_19_head.migrate(source) == expected
 
 
 def test_manifest_identity_drift_is_checked_for_v09_alias(

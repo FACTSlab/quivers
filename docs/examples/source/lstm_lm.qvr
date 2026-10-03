@@ -13,7 +13,7 @@
 #   o_t      ~ LogitNormal(gate_o(x_t, h_{t-1}))  output gate
 #   g_t      ~ Normal(cell_cand(x_t, h_{t-1}))    cell candidate
 #   h_t      = o_t * tanh(f_t * h_{t-1} + i_t * g_t) folded-state update
-#   next_t   ~ Categorical(lm_head(h_t))          next-token target
+#   next_t   ~ Categorical(logits=lm_head(h_t))   next-token target
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
 # one next-token target per context. Token is the vocabulary, so it

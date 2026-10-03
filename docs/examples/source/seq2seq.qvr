@@ -11,7 +11,7 @@
 #   h_enc    ~ encoder(source)                    source branch
 #   h_dec    ~ decoder(target)                    target branch
 #   h        ~ cross(h_enc, h_dec)                merged representation
-#   next_t   ~ Categorical(lm_head(h))            next-token target
+#   next_t   ~ Categorical(logits=lm_head(h))     next-token target
 #
 # Composing the two backbones via the tensor product @ and
 # following with cross >> lm_head gives a Kleisli morphism

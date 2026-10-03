@@ -129,7 +129,7 @@ program lexical_uncertainty_rsa : Event -> Posterior
     )
     let state_prior = map(states, state -> 1.0 / real(length(states)))
 
-    marginalize state : CommunicationState <- Categorical(state_prior) [reduction=logsumexp]
+    marginalize state : CommunicationState <- Categorical(probs=state_prior) [reduction=logsumexp]
         let p_some = speaker_some[state]
         observe heard_some : Event <- Bernoulli(p_some)
 

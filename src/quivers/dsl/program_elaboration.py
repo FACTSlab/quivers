@@ -4199,11 +4199,37 @@ class _ProgramElaboration:
             If more arguments are supplied than the family has
             parameters.
         """
-        del morphism
         structural: tuple[DrawArg, ...] = step.args or ()
+        if (
+            not structural
+            and morphism is not None
+            and morphism.init_family is not None
+            and morphism.init_family.family == record.name
+            and morphism.init_family.args
+        ):
+            init = morphism.init_family
+            parameters = init.arg_parameters or (None,) * len(init.args)
+            structural = tuple(
+                (
+                    DrawArgName(text=argument)
+                    if isinstance(argument, str)
+                    else DrawArgScalar(value=float(argument))
+                ).with_(parameter=parameter)
+                for argument, parameter in zip(init.args, parameters, strict=True)
+            )
         wire = tuple(resolved.args or ())
         raw: list[DrawArg | str | float | _Spread] = list(structural)
         raw.extend(wire[len(structural) :])
+        if record.name == "Categorical" and (
+            len(structural) != 1
+            or structural[0].parameter not in ("probs", "logits")
+        ):
+            self._fail(
+                step,
+                "Categorical requires exactly one explicit parameterization; "
+                "use probs=... or logits=...",
+                code="qiec-program",
+            )
         if any(argument.parameter is not None for argument in structural):
             if len(raw) > len(record.parameters):
                 self._fail(
@@ -4256,8 +4282,9 @@ class _ProgramElaboration:
         """Bind positional and named source arguments to family parameters.
 
         Positional arguments fill the next unused registry parameter. Named
-        arguments select their parameter directly, which is what distinguishes
-        ``Categorical(logits=x)`` from the probability-bearing positional form.
+        arguments select their parameter directly, which puts
+        ``Categorical(probs=x)`` and ``Categorical(logits=x)`` on the same
+        explicit footing.
         A positional source argument may not follow a named one; resolver-added
         wire defaults are allowed after the authored arguments.
         """

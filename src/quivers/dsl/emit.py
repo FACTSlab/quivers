@@ -1592,7 +1592,15 @@ def _emit_morphism(decl: MorphismDecl, indent: int) -> str:
             f"emit: morphism {decl.names!r} carries both init_family and init_expr"
         )
     if decl.init_family is not None:
-        args = ", ".join(_emit_init_family_arg(a) for a in decl.init_family.args)
+        parameters = decl.init_family.arg_parameters or (None,) * len(
+            decl.init_family.args
+        )
+        args = ", ".join(
+            f"{parameter}={_emit_init_family_arg(arg)}"
+            if parameter is not None
+            else _emit_init_family_arg(arg)
+            for arg, parameter in zip(decl.init_family.args, parameters, strict=True)
+        )
         head = f"{head} ~ {decl.init_family.family}({args})"
     elif decl.init_expr is not None:
         head = f"{head} ~ {_emit_expr(decl.init_expr)}"

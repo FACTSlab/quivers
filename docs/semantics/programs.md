@@ -107,10 +107,11 @@ $$
 where $\theta_F$ is the family's parameter map (which may depend on previously-bound variables in $\phi$). In short: keep the current trace $\phi$ and append a fresh sample from $F$ conditioned on it. The induced action on measures over $\Phi$ is $\mu_{\Phi \times \mathsf{cod}(F)} \circ \mathcal{G}\bigl(\mathcal{S}\llbracket \mathsf{bind} \rrbracket\bigr)$.
 
 A named family argument selects a coordinate of $\theta_F$ directly. Thus
-`Categorical(probs=p)` and positional `Categorical(p)` use the probability
-coordinate, while `Categorical(logits=l)` uses the logit coordinate and the
-corresponding normalized categorical mass function. Supplying both coordinates
-in one application is undefined and rejected statically.
+`Categorical(probs=p)` uses the probability coordinate, while
+`Categorical(logits=l)` uses the logit coordinate and the corresponding
+normalized categorical mass function. A categorical application that supplies
+neither name, or that supplies both coordinates, is undefined and rejected
+statically.
 
 #### 2.1.1 Destructuring bind
 

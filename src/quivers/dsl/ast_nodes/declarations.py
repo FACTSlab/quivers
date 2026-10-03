@@ -268,6 +268,7 @@ class MorphismInitFamily(dx.Model):
 
     family: str
     args: tuple[str | float, ...] = ()
+    arg_parameters: tuple[str | None, ...] = ()
     line: int = 0
     col: int = 0
 

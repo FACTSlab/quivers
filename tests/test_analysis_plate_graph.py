@@ -209,9 +209,9 @@ def test_doubly_nested_marginalize():
             sample phi : Topic <- Dirichlet(1.0) [over=Word, iid_over=Topic]
             sample psi : Topic <- Dirichlet(1.0) [over=Sense, iid_over=Topic]
 
-            marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-                marginalize s : Sense <- Categorical(psi[z]) [over=Doc, reduction=logsumexp]
-                    observe w : Word <- Categorical(phi[z]) [via=word_idx]
+            marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+                marginalize s : Sense <- Categorical(probs=psi[z]) [over=Doc, reduction=logsumexp]
+                    observe w : Word <- Categorical(probs=phi[z]) [via=word_idx]
 
             return theta
         """
@@ -234,7 +234,7 @@ def test_doubly_nested_marginalize():
 
 
 def test_subscript_args_produce_edges_to_both_base_and_index(lda_graph):
-    """``Categorical(phi[z])`` produces edges from both ``phi``
+    """``Categorical(probs=phi[z])`` produces edges from both ``phi``
     and ``z`` to the observe site."""
     pairs = {(e.src, e.dst) for e in lda_graph.edges}
     assert ("phi", "w") in pairs

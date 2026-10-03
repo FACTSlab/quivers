@@ -176,7 +176,7 @@ object Item : FinSet 8
 object Comp : FinSet 4
 program prog : Item -> Item
     sample probs <- Dirichlet(1.0) [over=Comp]
-    marginalize z : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]
+    marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
         observe r : Item <- Normal(0.0, 1.0) [via=idx]
     return probs
 export prog

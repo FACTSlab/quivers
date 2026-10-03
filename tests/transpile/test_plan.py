@@ -43,7 +43,7 @@ object Item : FinSet 8
 object Comp : FinSet 4
 program prog : Item -> Item
     sample probs <- Dirichlet(1.0) [over=Comp]
-    marginalize z : Comp <- Categorical(probs) [over=Item, reduction=logsumexp]
+    marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
         observe r : Item <- Normal(0.0, 1.0) [via=idx]
     return probs
 export prog
@@ -83,6 +83,15 @@ CATEGORICAL_LOGITS = """\
 object Category : FinSet 3
 program prog : Category -> Category
     observe y <- Categorical(logits=[-2.0, 0.5, 1.25])
+    return y
+export prog
+"""
+
+CATEGORICAL_LOGITS_MORPHISM = """\
+object Category : FinSet 3
+morphism prior : Category -> Category ~ Categorical(logits=scores)
+program prog : Category -> Category
+    observe y <- prior
     return y
 export prog
 """
@@ -163,6 +172,14 @@ def test_categorical_logits_keep_the_target_parameterization(
 ) -> None:
     rendered = transpile(parse(CATEGORICAL_LOGITS), target=target).decode()
     assert fragment in rendered
+
+
+def test_categorical_morphism_init_keeps_its_named_parameterization() -> None:
+    ir = Lower().forward(parse(CATEGORICAL_LOGITS_MORPHISM))
+    observe = ir.body[0]
+    assert isinstance(observe, IRObserve)
+    assert observe.arg_names == ("logits",)
+    assert observe.args == (IRArgRef(name="scores", indices=()),)
 
 
 @pytest.mark.parametrize(

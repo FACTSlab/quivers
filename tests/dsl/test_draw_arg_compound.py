@@ -17,6 +17,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgList,
     DrawArgName,
     DrawArgScalar,
+    MorphismDecl,
     ProgramDecl,
     SampleStep,
 )
@@ -126,6 +127,20 @@ def test_parser_and_emitter_preserve_a_named_logits_argument():
     assert "Categorical(logits=logits)" in module_to_source(module)
 
 
+def test_parser_and_emitter_preserve_a_named_morphism_init_argument():
+    src = """
+        object X : FinSet 3
+        morphism prior : X -> X ~ Categorical(logits=logits)
+    """
+    module = _parse(src)
+    decl = module.statements[1]
+    assert isinstance(decl, MorphismDecl)
+    assert decl.init_family is not None
+    assert decl.init_family.args == ("logits",)
+    assert decl.init_family.arg_parameters == ("logits",)
+    assert "Categorical(logits=logits)" in module_to_source(module)
+
+
 def test_logits_literal_is_not_validated_as_a_probability_simplex():
     src = """
         object X : FinSet 3
@@ -135,6 +150,45 @@ def test_logits_literal_is_not_validated_as_a_probability_simplex():
     """
     module = _parse(src)
     assert validate_family_arg_shapes(module) == []
+
+
+def test_positional_categorical_argument_is_rejected_as_ambiguous():
+    src = """
+        object X : FinSet 3
+        program p(probs) : X -> X
+            sample y : X <- Categorical(probs)
+            return y
+    """
+    diags = validate_family_arg_shapes(_parse(src))
+    target = [d for d in diags if d.code == "family-arg-parameterization"]
+    assert len(target) == 1
+    assert target[0].severity == "error"
+
+
+def test_categorical_rejects_probs_and_logits_together():
+    src = """
+        object X : FinSet 3
+        program p : X -> X
+            sample probs : X <- HalfNormal(1.0)
+            sample logits : X <- Normal(0.0, 1.0)
+            sample y : X <- Categorical(probs=probs, logits=logits)
+            return y
+    """
+    diags = validate_family_arg_shapes(_parse(src))
+    target = [d for d in diags if d.code == "family-arg-parameterization"]
+    assert len(target) == 1
+    assert target[0].severity == "error"
+
+
+def test_positional_categorical_morphism_init_is_rejected_as_ambiguous():
+    src = """
+        object X : FinSet 3
+        morphism prior : X -> X ~ Categorical(probs)
+    """
+    diags = validate_family_arg_shapes(_parse(src))
+    target = [d for d in diags if d.code == "family-arg-parameterization"]
+    assert len(target) == 1
+    assert target[0].severity == "error"
 
 
 def test_implicit_family_defaults_emits_warning_diagnostic():
@@ -169,7 +223,7 @@ def test_simplex_literal_sum_warning():
     src = """
         object X : FinSet 3
         program p : X -> X
-            sample y : X <- Categorical([0.1, 0.2, 0.3])
+            sample y : X <- Categorical(probs=[0.1, 0.2, 0.3])
             return y
     """
     module = _parse(src)
@@ -182,7 +236,7 @@ def test_simplex_literal_valid_no_warning():
     src = """
         object X : FinSet 3
         program p : X -> X
-            sample y : X <- Categorical([0.1, 0.2, 0.7])
+            sample y : X <- Categorical(probs=[0.1, 0.2, 0.7])
             return y
     """
     module = _parse(src)

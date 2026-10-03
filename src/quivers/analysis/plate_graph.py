@@ -9,7 +9,7 @@ ingredients:
   deterministic nodes are conventionally drawn as smaller dots.
 * **Edges**: directed dependencies between nodes, computed from
   the family-argument list of each draw / observe step. ``z ~
-  Categorical(theta)`` produces an edge from ``theta`` to ``z``.
+  Categorical(probs=theta)`` produces an edge from ``theta`` to ``z``.
 * **Plates**: rectangular regions enclosing groups of nodes that
   share a common indexing axis. A plate is induced by an ``index``
   annotation on a draw (``sample theta : Doc <- ...`` puts ``theta``

@@ -67,18 +67,19 @@ parameter source conditional on the morphism's input. Inline distribution
 applications in `sample` and `observe` steps may mix literal and variable
 arguments in registry order.
 
-When a family exposes alternative parameterizations, a call may select one by
-name. Positional `Categorical(weights)` continues to interpret `weights` as
-probabilities, while signed scores use `Categorical(logits=scores)`:
+When a family exposes alternative parameterizations, the call selects one by
+name. Categorical calls require either `Categorical(probs=weights)` or
+`Categorical(logits=scores)`:
 
 <!-- compile: false -->
 ```qvr
 observe choice : Trial <- Categorical(logits=choice_logits)
 ```
 
-A call cannot supply both `probs` and `logits`. Transpile targets with native
+A call cannot supply both `probs` and `logits`, and positional
+`Categorical(values)` is rejected as ambiguous. Transpile targets with native
 logits support preserve the named parameter; probability-only targets require
-an explicit `softmax` followed by the positional probability form.
+an explicit `softmax` followed by `Categorical(probs=softmax(scores))`.
 
 Vector-family spread syntax gathers entries into one vector parameter:
 `Dirichlet(1.0, 2.0, 3.0)` is the same concentration shape as
@@ -155,7 +156,7 @@ object Component : FinSet 2
 program mixture : Row -> Row
     sample probs <- Dirichlet(2.0) [over=Component]
     sample mean : Component <- Normal(0.0, 3.0)
-    marginalize z : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
+    marginalize z : Component <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
         observe y : Row <- Normal(mean[z], 1.0) [via=item_idx]
     return mean
 

@@ -1377,7 +1377,7 @@ def _make_sentinel(
 
     Reference args are dimensioned using the class-level
     `arg_constraints` (when available) so distributions like
-    `Categorical(probs)` get a vector placeholder rather than a
+    `Categorical(probs=probs)` get a vector placeholder rather than a
     scalar.
     """
     key = (

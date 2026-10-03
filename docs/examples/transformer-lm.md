@@ -22,7 +22,7 @@ This model borrows the parallel-head and stacked-block shape of a [Transformer](
 #   h_res    ~ residual_attn(h_heads)              learned stochastic map
 #   h_ff     ~ ff_up(h_res) >> ff_down             feed-forward block
 #   h        ~ residual_ff(h_ff)                   feed-forward residual
-#   next_t   ~ Categorical(lm_head(h))             next-token target
+#   next_t   ~ Categorical(logits=lm_head(h))      next-token target
 #
 # stack(layer, 2) composes two independently parameterized copies
 # of the branch plus feed-forward block. The morphism weights are

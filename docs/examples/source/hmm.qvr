@@ -50,8 +50,8 @@ program hmm_program : Step -> StateDist
     sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
     sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
 
-    marginalize state <- Categorical(initial_row) [reduction=logsumexp]
-        observe obs : Step <- Categorical(emission_rows[state])
+    marginalize state <- Categorical(probs=initial_row) [reduction=logsumexp]
+        observe obs : Step <- Categorical(probs=emission_rows[state])
 
     return initial_row
 

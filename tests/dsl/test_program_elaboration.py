@@ -81,7 +81,7 @@ program prog(concentration : Real) : Resp -> Resp
     sample probs <- Dirichlet(concentration) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
+    marginalize cls : Component <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
         observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
     return probs
 export prog
@@ -288,6 +288,20 @@ def test_named_categorical_logits_match_torch_on_signed_scores() -> None:
     expected = td.Normal(0.0, 1.0).log_prob(logits).sum()
     expected = expected + td.Categorical(logits=logits).log_prob(torch.tensor(2))
     assert run.log_joint == pytest.approx(float(expected), rel=1e-5, abs=1e-6)
+
+
+def test_categorical_rejects_probs_and_logits_together() -> None:
+    source = """\
+object Category : FinSet 3
+program prog : Category -> Category
+    sample probs : Category <- HalfNormal(1.0)
+    sample logits : Category <- Normal(0.0, 1.0)
+    observe y <- Categorical(probs=probs, logits=logits)
+    return y
+export prog
+"""
+    with pytest.raises(QiecDiagnosticError, match="exactly one"):
+        _module(source)
 
 
 def test_grouped_marginalization_agrees_with_the_torch_runtime_and_closed_form() -> (
@@ -715,7 +729,7 @@ def test_open_extents_reach_marginal_helpers_and_callers() -> None:
         "object Obs : FinSet 3\n"
         "program prog : Obs -> Obs\n"
         "    sample probs <- Dirichlet(alpha)\n"
-        "    marginalize z <- Categorical(probs)\n"
+        "    marginalize z <- Categorical(probs=probs)\n"
         "        observe y <- Normal(mu[z], 1.0)\n"
         "    return probs\n"
         "export prog\n"
@@ -765,7 +779,7 @@ program prog : Resp -> Resp
     sample probs <- Dirichlet(1.5) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=REDUCTION]
+    marginalize cls : Component <- Categorical(probs=probs) [over=Item, reduction=REDUCTION]
         observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
     return probs
 export prog
@@ -780,7 +794,7 @@ program prog : Resp -> Resp
     sample probs <- Dirichlet(1.0) [over=Component]
     sample mu : Component <- Normal(0.0, 5.0)
     sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=[Item, Subj]]
+    marginalize cls : Component <- Categorical(probs=probs) [over=[Item, Subj]]
         observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=[item_idx, subj_idx]]
     return probs
 export prog
@@ -796,8 +810,8 @@ program prog : Resp -> Resp
     sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
     sample mu : Inner <- Normal(0.0, 5.0)
     sample sigma : Inner <- HalfNormal(1.0)
-    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
-        marginalize s : Inner <- Categorical(probs_inner[z]) [over=Item]
+    marginalize z : Outer <- Categorical(probs=probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs=probs_inner[z]) [over=Item]
             observe r : Resp <- Normal(mu[s], sigma[s]) [via=idx]
     return probs_outer
 export prog
@@ -814,8 +828,8 @@ program prog : Resp -> Resp
     sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
     sample mu : Inner <- Normal(0.0, 5.0)
     sample sigma : Inner <- HalfNormal(1.0)
-    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
-        marginalize s : Inner <- Categorical(probs_inner[z]) [over=[Item, Subj]]
+    marginalize z : Outer <- Categorical(probs=probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs=probs_inner[z]) [over=[Item, Subj]]
             observe r : Resp <- Normal(mu[s], sigma[s]) [via=[item_idx, subj_idx]]
     return probs_outer
 export prog
@@ -826,7 +840,7 @@ object Component : FinSet 2
 object Resp : FinSet 4
 program prog : Resp -> Resp
     sample probs <- Dirichlet(1.0) [over=Component]
-    marginalize cls : Component <- Categorical(probs)
+    marginalize cls : Component <- Categorical(probs=probs)
         sample mu : Component <- Normal(0.0, 5.0)
         observe r : Resp <- Normal(mu[cls], 1.0)
     return probs
@@ -1087,7 +1101,10 @@ def test_a_nested_group_unrelated_to_the_outer_is_refused() -> None:
         NESTED_PROJECTED.replace("[over=[Item, Subj]]", "[over=Subj]")
         .replace("[via=[item_idx, subj_idx]]", "[via=subj_idx]")
         .replace("object Subj : FinSet 2", "object Subj : FinSet 3")
-        .replace("Categorical(probs_inner[z])", "Categorical(probs_outer)")
+        .replace(
+            "Categorical(probs=probs_inner[z])",
+            "Categorical(probs=probs_outer)",
+        )
     )
     with pytest.raises(QiecDiagnosticError) as captured:
         _module(source)

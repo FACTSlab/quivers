@@ -2058,7 +2058,13 @@ def _bind_inline_arguments(
     that runtime intact while selecting the logits builder for the one family
     whose QVR surface exposes an alternative parameterization.
     """
-    if not any(getattr(argument, "parameter", None) is not None for argument in args):
+    named = any(getattr(argument, "parameter", None) is not None for argument in args)
+    if family == "Categorical" and args and not named:
+        raise TypeError(
+            "Categorical requires an explicit parameterization; "
+            "use probs=... or logits=..."
+        )
+    if not named:
         return args, None
 
     canonical = get_inline_param_names(family)

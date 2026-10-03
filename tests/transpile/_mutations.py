@@ -1281,7 +1281,7 @@ program normal_mix : Obs -> Obs
     sample mu_diff <- HalfNormal(1.0)
     let mu = factor c : Cls in mu_low + c * mu_diff
     let sigma = 0.5
-    marginalize cls : Cls <- Categorical(probs) [over=Obs, reduction=logsumexp]
+    marginalize cls : Cls <- Categorical(probs=probs) [over=Obs, reduction=logsumexp]
         observe y : Obs <- Normal(mu[cls], sigma) [via=idx]
     return probs
 export normal_mix

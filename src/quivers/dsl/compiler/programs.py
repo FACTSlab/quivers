@@ -10,7 +10,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
-from typing import cast
+from typing import Literal, cast
 import torch
 from torch.distributions import constraints as _constraints
 from quivers.continuous.family_spec import FAMILY_REGISTRY, FamilySpec
@@ -804,19 +804,31 @@ class _ProgramsMixin:
                         step.line,
                         step.col,
                     )
-                # Extract the categorical prior's `probs` argument.
+                # Extract the categorical prior's probability or logits tensor.
                 probs_var: str | None = None
                 probs_indices: tuple[str, ...] = ()
+                parameterization: Literal["probs", "logits"] = "probs"
                 if has_over:
                     if not step.args:
                         raise CompileError(
                             "grouped marginalize requires the latent's "
-                            "categorical family to carry a probs argument "
-                            "(e.g. `Categorical(probs)`)",
+                            "categorical family to carry an explicit argument "
+                            "(e.g. `Categorical(probs=weights)`)",
                             step.line,
                             step.col,
                         )
                     first = step.args[0]
+                    if len(step.args) != 1 or first.parameter not in (
+                        "probs",
+                        "logits",
+                    ):
+                        raise CompileError(
+                            "Categorical requires exactly one explicit "
+                            "parameterization; use probs=... or logits=...",
+                            step.line,
+                            step.col,
+                        )
+                    parameterization = first.parameter
                     # `first` is a `DrawArg` tagged variant on the
                     # widened AST. A `DrawArgName` carries the
                     # identifier text and a `DrawArgIndex` a probs
@@ -878,6 +890,7 @@ class _ProgramsMixin:
                         var_name=latent_name,
                         class_size=0,
                         probs_var=None,
+                        parameterization=parameterization,
                         over_obj=None,
                         over_objs=None,
                         body_ll_var=latent_name,
@@ -993,6 +1006,7 @@ class _ProgramsMixin:
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
                             probs_indices=inner_marg.probs_indices,
+                            parameterization=inner_marg.parameterization,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
                             body_ll_var=latent_name,
@@ -1044,6 +1058,7 @@ class _ProgramsMixin:
                         class_size=class_size,
                         probs_var=probs_var,
                         probs_indices=probs_indices,
+                        parameterization=parameterization,
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
@@ -1562,6 +1577,7 @@ class _ProgramsMixin:
                 class_size=step.class_size,
                 probs_var=renamed_probs,
                 probs_indices=tuple(rename.get(v, v) for v in step.probs_indices),
+                parameterization=step.parameterization,
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
                 body_ll_var=renamed_body_ll,
@@ -2699,6 +2715,7 @@ class _ProgramsMixin:
                     probs_var = step.probs_var
                     probs_indices = step.probs_indices
                     reduction = step.reduction or "logsumexp"
+                    parameterization = step.parameterization
                     observe_specs = tuple(
                         (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
                         for entry in step.body_observes
@@ -2722,6 +2739,7 @@ class _ProgramsMixin:
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
+                        _parameterization: str = parameterization,
                         _product: bool = is_product,
                         _per_group: bool = is_nested_inner,
                     ) -> torch.Tensor:
@@ -2785,8 +2803,12 @@ class _ProgramsMixin:
                         probs = env[_probs]
                         for index_name in _probs_indices:
                             probs = probs[env[index_name].to(torch.long)]
-                        log_prior = torch.log(probs.clamp_min(1e-38))
-                        # A per-group prior (the categorical's ``probs``
+                        log_prior = (
+                            torch.log_softmax(probs, dim=-1)
+                            if _parameterization == "logits"
+                            else torch.log(probs.clamp_min(1e-38))
+                        )
+                        # A per-group prior (the categorical parameter tensor
                         # is indexed by the grouping plate, shape
                         # ``(|G|, K)``) denotes a per-row latent: each
                         # response row draws its own class from its
@@ -3217,12 +3239,23 @@ class _ProgramsMixin:
         if prior_step_args is None or len(prior_step_args) != 1:
             raise CompileError(
                 f"marginalize {latent_name!r}: the prior family "
-                f"{prior_family!r} must carry exactly one named probability "
+                f"{prior_family!r} must carry exactly one named parameter "
                 f"tensor argument",
                 step.line,
                 step.col,
             )
         prior_arg = prior_step_args[0]
+        prior_parameterization = getattr(prior_args[0], "parameter", None)
+        if prior_family == "Categorical" and prior_parameterization not in (
+            "probs",
+            "logits",
+        ):
+            raise CompileError(
+                "Categorical requires exactly one explicit parameterization; "
+                "use probs=... or logits=...",
+                step.line,
+                step.col,
+            )
 
         # A single shared vector-valued likelihood parameter (e.g. a
         # `Categorical` row ``emission_rows[k]`` of shape ``(K_cat,)``)
@@ -3265,6 +3298,7 @@ class _ProgramsMixin:
             _response: str | None = response_var,
             _prior_arg: DrawArgIndex | str = prior_arg,
             _categorical: bool = _CATEGORICAL,
+            _parameterization: str | None = prior_parameterization,
             _reduction: str = reduction,
             _shared_vector: bool = shared_vector_theta,
         ) -> torch.Tensor:
@@ -3275,7 +3309,11 @@ class _ProgramsMixin:
                     torch.tensor(k, dtype=torch.long, device=probs.device)
                     for k in range(class_count)
                 ]
-                log_prior = torch.log(probs.clamp_min(1e-38))
+                log_prior = (
+                    torch.log_softmax(probs, dim=-1)
+                    if _parameterization == "logits"
+                    else torch.log(probs.clamp_min(1e-38))
+                )
             else:
                 p = probs.clamp(1e-38, 1.0 - 1e-7)
                 class_values = [

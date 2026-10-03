@@ -32,7 +32,9 @@ from torch.distributions.constraints import Constraint
 from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgList,
+    DrawArgName,
     DrawArgScalar,
+    ExprMorphismCall,
     MarginalizeStep,
     Module,
     MorphismDecl,
@@ -113,11 +115,41 @@ def _walk_morphism(
 ) -> None:
     init = decl.init_family
     if init is None:
+        if (
+            isinstance(decl.init_expr, ExprMorphismCall)
+            and decl.init_expr.callee == "Categorical"
+        ):
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=decl.line,
+                    col=decl.col,
+                )
+            )
         return
     if init.family not in family_set:
         return
     meta = FAMILY_META[init.family]
     if not init.args:
+        if init.family == "Categorical":
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=decl.line,
+                    col=decl.col,
+                )
+            )
+            return
         out.append(
             Violation(
                 code="implicit-family-defaults",
@@ -134,9 +166,18 @@ def _walk_morphism(
             )
         )
     else:
+        parameters = init.arg_parameters or (None,) * len(init.args)
+        wrapped = tuple(
+            (
+                DrawArgName(text=arg)
+                if isinstance(arg, str)
+                else DrawArgScalar(value=float(arg))
+            ).with_(parameter=parameter)
+            for arg, parameter in zip(init.args, parameters, strict=True)
+        )
         _check_args_shape(
             family=init.family,
-            args=init.args,
+            args=wrapped,
             meta=meta,
             line=init.line or decl.line,
             col=init.col or decl.col,
@@ -169,6 +210,20 @@ def _check_step(
     # Implicit-defaults check: the step (or its referenced init
     # clause) carried no args, the resolver filled defaults.
     if not step.args:
+        if step.morphism == "Categorical":
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=step.line,
+                    col=step.col,
+                )
+            )
+            return
         # When the morphism slot is itself a morphism declaration with
         # explicit init args, the warning emits at the morphism site
         # (handled by `_walk_morphism`) rather than here.
@@ -217,6 +272,23 @@ def _check_args_shape(
     out: list[Violation],
 ) -> None:
     """Check argument binding and shape against ``arg_constraints``."""
+    if family == "Categorical":
+        parameters = tuple(arg.parameter for arg in args)
+        if len(parameters) != 1 or parameters[0] not in ("probs", "logits"):
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires exactly one explicit "
+                        "parameterization; use probs=... or logits=..."
+                    ),
+                    line=line,
+                    col=col,
+                )
+            )
+            return
+
     arg_constraints = _read_arg_constraints(meta)
     if arg_constraints is None:
         # Property-form arg_constraints: skip the shape check rather

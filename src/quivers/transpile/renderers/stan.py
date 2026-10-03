@@ -444,7 +444,7 @@ class StanRenderer(RendererBase):
         record each outcome's alphabet width.
 
         The width is the trailing event extent of the family's
-        probability argument: a `Categorical(phi[z])` whose `phi` is
+        probability argument: a `Categorical(probs=phi[z])` whose `phi` is
         declared `array[K] simplex[V]` scores a value on `1:V`.
         Raises when the family is class-index and the width cannot be
         resolved statically, because the declaration would otherwise
@@ -621,7 +621,7 @@ class StanRenderer(RendererBase):
         slot expects an event_dim>=1 arg.
 
         For the language-model idiom `observe target : Token <-
-        Categorical(h)`, the Token axis is the consumer node's plate
+        Categorical(logits=h)`, the Token axis is the consumer node's plate
         batch_dim. The cardinality is the static size of that batch
         dim. When the batch dim is dynamic or absent, returns None
         and the promotion path skips this consumer.
@@ -1827,7 +1827,7 @@ class StanRenderer(RendererBase):
         """True when the latent's probability argument carries the
         marginalize's grouping plate.
 
-        A `Categorical(theta)` whose `theta` is declared
+        A `Categorical(probs=theta)` whose `theta` is declared
         `array[|G|] simplex[K]` gives every row of the group its own
         draw from its group's prior, so the marginal is one
         `log_sum_exp` per row. A bare `simplex[K]` prior instead
@@ -2677,7 +2677,7 @@ class StanRenderer(RendererBase):
         to a previously-declared name whose declaration plate carries
         the grouping axes, prepend `prior_index_args` as indices.
 
-        For LDA's `Categorical(theta)` inside a `marginalize ... [over=Doc]`
+        For LDA's `Categorical(probs=theta)` inside a `marginalize ... [over=Doc]`
         scope where `theta : array[20] simplex[3]`, the ref to `theta`
         becomes `theta[word_idx[n_Word]]` under the per-row reading
         and `theta[g_Doc]` under the grouped one.

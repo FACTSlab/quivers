@@ -11,7 +11,7 @@ observation's per-class log-likelihood through `g` before the
 log-sum-exp reduction. The shape under test is
 
 ```
-marginalize cls : Cls <- Categorical(probs) [over=Group]
+marginalize cls : Cls <- Categorical(probs=probs) [over=Group]
     observe y : Obs <- Normal(mu[cls], sigma) [via=g]
 ```
 
@@ -75,7 +75,7 @@ program subject_mix : Obs -> Obs
     sample mu_diff <- HalfNormal(1.0)
     let mu = factor c : Cls in mu_low + c * mu_diff
     let sigma = 0.5
-    marginalize cls : Cls <- Categorical(probs) [over=Group, reduction=logsumexp]
+    marginalize cls : Cls <- Categorical(probs=probs) [over=Group, reduction=logsumexp]
         observe y : Obs <- Normal(mu[cls], sigma) [via=g]
     return probs
 export subject_mix

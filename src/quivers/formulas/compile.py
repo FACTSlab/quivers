@@ -176,6 +176,10 @@ def _draw(
     expects.
     """
     tagged_args = tuple(_to_draw_arg(a) for a in args)
+    if family == "Categorical":
+        if len(tagged_args) != 1:
+            raise ValueError("formula Categorical expects one probability argument")
+        tagged_args = (tagged_args[0].with_(parameter="probs"),)
     if mode == "score":
         return ObserveStep(
             vars=(var,),

@@ -68,7 +68,7 @@ accumulator before the log-sum-exp over the class axis:
 
 <!-- compile: false -->
 ```qvr
-marginalize class : K <- Categorical(probs) [over=G]
+marginalize class : K <- Categorical(probs=probs) [over=G]
     observe r_a : Resp_a <- F_a(...) [via=idx_a]
     observe r_b : Resp_b <- F_b(...) [via=idx_b]
     ...

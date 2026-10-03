@@ -53,7 +53,7 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     for i in range(num_levels):
         pad = indent * (i + 1)
         nested.append(
-            f"{pad}marginalize lat_{i} : K_{i} <- Categorical(probs_{i}) [over=G_{i}]"
+            f"{pad}marginalize lat_{i} : K_{i} <- Categorical(probs=probs_{i}) [over=G_{i}]"
         )
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.

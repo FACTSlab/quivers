@@ -1069,7 +1069,7 @@ class TestFamilyLinkDefaults:
         assert "sample sigma_g_Intercept : FormulaCategoryLogit" in src
         assert "0 -> categorical_zero_logit" in src
         assert "let mu = softmax(eta)" in src
-        assert "Categorical(mu)" in src
+        assert "Categorical(probs=mu)" in src
         loads(src)
 
     def test_categorical_lens_round_trip_preserves_random_structure(
@@ -1261,7 +1261,7 @@ class TestCategoricalAndMixtureInference:
             num_samples=2,
             seed=0,
         )
-        assert "Categorical(mu)" in result.qvr_source
+        assert "Categorical(probs=mu)" in result.qvr_source
         assert result.observations["y"].shape == (len(categorical_df),)
 
     def test_categorical_predictor_accepts_full_logits(self, categorical_df):

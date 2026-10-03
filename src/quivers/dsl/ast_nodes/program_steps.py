@@ -312,9 +312,11 @@ class GroupedMarginalizeStep(ProgramStep):
     The compiler lowers a surface `MarginalizeStep` into this
     shape after expanding the scope. ``class_size`` is the resolved
     cardinality of the latent index; ``probs_var`` names the env
-    slot holding the family's probability tensor, which
+    slot holding the family's probability or logits tensor, which
     ``probs_indices`` gather rows of, left to right, when the prior is
-    written ``probs[latent]`` against an enclosing latent; ``over_obj``
+    written ``probs[latent]`` against an enclosing latent;
+    ``parameterization`` records whether that tensor is probabilities or
+    logits; ``over_obj``
     / ``over_objs`` carry the grouping object (single or product);
     ``body_ll_var`` names the env slot that the grouped observe
     pushed its (N_m, K) log-likelihood into; ``body_observes`` lists
@@ -326,6 +328,7 @@ class GroupedMarginalizeStep(ProgramStep):
     class_size: int
     probs_var: str | None = None
     probs_indices: tuple[str, ...] = ()
+    parameterization: Literal["probs", "logits"] = "probs"
     over_obj: str | None = None
     over_objs: tuple[str, ...] | None = None
     body_ll_var: str = ""

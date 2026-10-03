@@ -218,8 +218,8 @@ class TestDSLSurface:
 
         program demo : Item -> Item
             sample probs : Cls <- Dirichlet(1.0) [over=Cls]
-            marginalize cls : Cls <- Categorical(probs) [over=Item, reduction=logsumexp]
-                observe y : Item <- Categorical(probs) [via=item_idx]
+            marginalize cls : Cls <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
+                observe y : Item <- Categorical(probs=probs) [via=item_idx]
             return probs
 
         export demo

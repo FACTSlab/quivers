@@ -392,10 +392,11 @@ def _walk_morphism_init_family(t: _Tree, vid: str) -> MorphismInitFamily:
         raise ParseError(f"morphism_init_family missing family at {vid}")
     # `MorphismInitFamily` predates the tagged `DrawArg` union and
     # accepts only simple `str | float` args (identifiers or numeric
-    # literals). Flatten the two admissible `DrawArg` variants
-    # (`DrawArgName`, `DrawArgScalar`) back to their scalar form
-    # here; other variants are grammar errors for an init family.
+    # literals). Flatten the two admissible `DrawArg` variants while
+    # retaining their parameter names in a parallel tuple. Other
+    # variants are grammar errors for an init family.
     args: list[str | float] = []
+    arg_parameters: list[str | None] = []
     for a in t.fields(vid, "args"):
         wrapped = _walk_draw_arg(t, a)
         if isinstance(wrapped, DrawArgName):
@@ -407,9 +408,11 @@ def _walk_morphism_init_family(t: _Tree, vid: str) -> MorphismInitFamily:
                 f"morphism_init_family: unsupported arg shape "
                 f"{type(wrapped).__name__} at {vid}"
             )
+        arg_parameters.append(wrapped.parameter)
     return MorphismInitFamily(
         family=t.text(family_vid),
         args=tuple(args),
+        arg_parameters=tuple(arg_parameters),
         line=line,
         col=col,
     )

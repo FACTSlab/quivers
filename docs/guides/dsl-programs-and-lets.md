@@ -177,7 +177,7 @@ log-likelihood (discrete) or fibrewise integration (continuous);
 
 <!-- compile: false -->
 ```qvr
-marginalize class : Item <- Categorical(class_logits)
+marginalize class : Item <- Categorical(logits=class_logits)
     observe r : N <- Bernoulli(theta[class[N]])
 ```
 

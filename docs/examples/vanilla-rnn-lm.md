@@ -18,7 +18,7 @@ This recurrent language model uses a [`rnn_cell`](../guides/dsl-programs-and-let
 # Generative structure:
 #
 #   h_t      = tanh(W [x_t ; h_{t-1}])           recurrent update
-#   next_t   ~ Categorical(lm_head(h_t))         next-token target
+#   next_t   ~ Categorical(logits=lm_head(h_t))  next-token target
 #
 # The tanh is drawn rather than applied. A LogitNormal draw is a
 # sigmoid of a Gaussian pre-activation, and tanh(u) = 2 sigmoid(2u) - 1,

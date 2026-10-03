@@ -596,7 +596,7 @@ object Class : FinSet 4
 
 program demo : Resp -> Resp
     sample probs : Class <- HalfNormal(1.0)
-    marginalize cls : Class <- Categorical(probs) [over=Item, reduction=sum]
+    marginalize cls : Class <- Categorical(probs=probs) [over=Item, reduction=sum]
         observe r : Resp <- HalfNormal(1.0) [via=idx]
     return probs
 

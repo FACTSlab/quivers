@@ -136,7 +136,7 @@ The response model gives each item its own probability over two analyses:
 ```qvr
 sample analysis_prob : Item <- Dirichlet(concentration) [over=Analysis, iid_over=Item]
 
-marginalize analysis : Analysis <- Categorical(analysis_prob) [over=Item, reduction=logsumexp]
+marginalize analysis : Analysis <- Categorical(probs=analysis_prob) [over=Item, reduction=logsumexp]
     observe ambiguity_rating : Trial <- Normal(analysis_shift[analysis], residual_scale) [via=item_idx]
 ```
 

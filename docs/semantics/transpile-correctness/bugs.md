@@ -52,7 +52,7 @@ Other parameterization differences:
 | `Laplace(μ, b)` | `ddexp(μ, 1/b)` | rate = $1/b$ |
 | `MultivariateNormal(μ, Σ)` | `dmnorm(μ, Σ⁻¹)` | precision matrix |
 | `Dirichlet(α)` | `ddirch(α)` | identity |
-| `Categorical(p)` | `dcat(p)` | identity |
+| `Categorical(probs=p)` | `dcat(p)` | identity |
 | `Bernoulli(p)` | `dbern(p)` | identity |
 | `LogNormal(μ, σ)` | `dlnorm(μ, 1/σ²)` | precision |
 | `StudentT(ν, μ, σ)` | `dt(μ, 1/σ², ν)` | precision |

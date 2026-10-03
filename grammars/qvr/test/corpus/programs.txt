@@ -190,7 +190,7 @@ marginalize with scope
 ==================
 
 program marg : A -> B
-    marginalize c : K <- Categorical(probs)
+    marginalize c : K <- Categorical(probs=probs)
         observe r <- emissions(c)
         let s = r * 2.0
     return c

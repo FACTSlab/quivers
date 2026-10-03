@@ -114,7 +114,7 @@ program reading_times(concentration : Real) : Trial -> ReadingTime
 
     observe log_rt : Trial <- Normal(mean_log_rt, residual_scale)
 
-    marginalize analysis : Analysis <- Categorical(analysis_prob) [over=Item, reduction=logsumexp]
+    marginalize analysis : Analysis <- Categorical(probs=analysis_prob) [over=Item, reduction=logsumexp]
         observe ambiguity_rating : Trial <- Normal(analysis_shift[analysis], residual_scale) [via=item_idx]
 
     let held_out <- complete[Missing](construct Absent() as Measurement(Missing), robust_intercept, residual_scale)

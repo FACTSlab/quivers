@@ -58,7 +58,7 @@ def _two_class_mixture_model() -> str:
     program two_class_mix : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Categorical(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs=probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return mu_shift
     export two_class_mix
@@ -91,6 +91,34 @@ def test_grouped_marginalize_log_joint_returns_finite_scalar() -> None:
     }
     out = model.log_joint(torch.zeros(1, 1), obs)
     assert torch.isfinite(out).all()
+
+
+def test_grouped_categorical_logits_use_log_softmax() -> None:
+    """The classic grouped path keeps the authored logits coordinate."""
+    src = """
+    composition log_prob [level=algebra]
+
+    object Item : FinSet 2
+    object Resp : FinSet 4
+    object Class : FinSet 2
+
+    program mix : Resp -> Resp
+        sample logits : Class <- Normal(0.0, 1.0)
+        marginalize cls : Class <- Categorical(logits=logits) [over=Item]
+            observe r : Resp <- Normal(0.0, 1.0) [via=idx]
+        return logits
+    export mix
+    """
+    model = loads(textwrap.dedent(src)).morphism
+    logits = torch.tensor([0.4, -0.2])
+    observations = {
+        "logits": logits,
+        "idx": torch.tensor([0, 0, 1, 1]),
+        "_grouped_ll_cls_0": torch.zeros(4, 2),
+    }
+    actual = model.log_joint(torch.zeros(1, 1), observations)
+    expected = torch.distributions.Normal(0.0, 1.0).log_prob(logits).sum()
+    assert actual == pytest.approx(float(expected))
 
 
 def test_missing_via_index_raises_clear_error() -> None:
@@ -186,7 +214,7 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     program recovery : Resp -> Resp
         sample probs : Class <- HalfNormal(1.0)
         sample mu_shift <- Normal(0.0, 1.0)
-        marginalize cls : Class <- Categorical(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs=probs) [over=Item]
             observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
         return probs
     export recovery
@@ -250,7 +278,7 @@ def _two_task_mixture_model() -> str:
 
     program two_task_mix : Item -> Item
         sample probs : Class <- HalfNormal(1.0)
-        marginalize cls : Class <- Categorical(probs) [over=Item]
+        marginalize cls : Class <- Categorical(probs=probs) [over=Item]
             observe r_a : RespA <- HalfNormal(1.0) [via=idx_a]
             observe r_b : RespB <- HalfNormal(1.0) [via=idx_b]
         return probs
