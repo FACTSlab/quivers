@@ -146,7 +146,7 @@ def _softmax_module() -> Module:
                     ObserveStep(
                         vars=("y",),
                         morphism="Categorical",
-                        args=(DrawArgName(text="m"),),
+                        args=(DrawArgName(text="m", parameter="probs"),),
                         index=_RESP,
                     ),
                 ),
