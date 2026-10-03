@@ -180,6 +180,7 @@ _STAN_LOG_DENSITY_SUFFIX: dict[str, str] = {
     "beta_binomial": "lpmf",
     "binomial": "lpmf",
     "categorical": "lpmf",
+    "categorical_logit": "lpmf",
     "cauchy": "lpdf",
     "chi_square": "lpdf",
     "continuous_bernoulli": "lpdf",
@@ -1103,6 +1104,8 @@ class StanRenderer(RendererBase):
             return self._emit_mixture_normal(
                 ctx, name=name, args=args, arg_names=arg_names, plate=plate
             )
+        if family == "Categorical" and arg_names == ("logits",):
+            stan_name = "categorical_logit"
         density_name = self._log_density_name(family, stan_name)
         del arg_names  # Stan is positional; arg_names are unused.
         parent = self._ensure_block(ctx, "model")
@@ -1735,6 +1738,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         # Eligibility checks satisfied; compute the latent cardinality.
         latent_card = self._latent_cardinality(meta, node, ctx)
         if latent_card is None:
@@ -1939,6 +1944,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         # Declare the latent in the parameters block.
         self.declare(
             ctx,
@@ -2029,6 +2036,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         lps_name = self._marginalize_var or ""
         if not lps_name:
             raise UnsupportedConstruct(
@@ -2123,6 +2132,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         lpdf_name = self._log_density_name(node.family, stan_name)
         lps_name = self._marginalize_var or ""
         group_idx_exprs = self._marginalize_group_index_exprs(node, parent, loop_names)

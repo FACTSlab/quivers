@@ -698,22 +698,29 @@ def _emit_let_factor(e: LetExprFactor) -> str:
 
 
 def _emit_draw_arg(arg: DrawArg) -> str:
+    rendered: str
     if isinstance(arg, DrawArgName):
-        return arg.text
-    if isinstance(arg, DrawArgIndex):
+        rendered = arg.text
+    elif isinstance(arg, DrawArgIndex):
         if not arg.indices:
             raise EmitError(
                 f"emit: bracket index {arg.name!r} has no indices; "
                 f"a DrawArgIndex must carry at least one index name",
             )
-        return f"{arg.name}[" + ", ".join(arg.indices) + "]"
-    if isinstance(arg, DrawArgScalar):
-        return _emit_number(arg.value)
-    if isinstance(arg, DrawArgDist):
-        return f"{arg.family}(" + ", ".join(_emit_draw_arg(a) for a in arg.args) + ")"
-    if isinstance(arg, DrawArgList):
-        return "[" + ", ".join(_emit_draw_arg(a) for a in arg.items) + "]"
-    raise EmitError(f"emit: unknown DrawArg kind {type(arg).__name__!r}")
+        rendered = f"{arg.name}[" + ", ".join(arg.indices) + "]"
+    elif isinstance(arg, DrawArgScalar):
+        rendered = _emit_number(arg.value)
+    elif isinstance(arg, DrawArgDist):
+        rendered = (
+            f"{arg.family}(" + ", ".join(_emit_draw_arg(a) for a in arg.args) + ")"
+        )
+    elif isinstance(arg, DrawArgList):
+        rendered = "[" + ", ".join(_emit_draw_arg(a) for a in arg.items) + "]"
+    else:
+        raise EmitError(f"emit: unknown DrawArg kind {type(arg).__name__!r}")
+    if arg.parameter is not None:
+        return f"{arg.parameter}={rendered}"
+    return rendered
 
 
 def _emit_draw_args(args: tuple[DrawArg, ...] | None) -> str:

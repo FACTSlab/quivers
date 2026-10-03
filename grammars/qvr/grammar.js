@@ -1615,12 +1615,29 @@ module.exports = grammar({
     ),
 
     _draw_arg: $ => choice(
+      $.named_draw_arg,
       $.bracket_index_arg,
       $.family_call_arg,
       $.list_arg,
       $.identifier,
       $.signed_number,
     ),
+
+    // A distribution parameter may be named explicitly when a family has
+    // alternative parameterizations, e.g. `Categorical(logits=scores)`.
+    // The value remains an ordinary draw argument so names, indexed values,
+    // literals, vectors, and nested distributions share one representation.
+    named_draw_arg: $ => prec(3, seq(
+      field('parameter', $.identifier),
+      '=',
+      field('value', choice(
+        $.bracket_index_arg,
+        $.family_call_arg,
+        $.list_arg,
+        $.identifier,
+        $.signed_number,
+      )),
+    )),
 
     // Distribution-call expression at a draw-arg position, e.g.
     // `Mixture([0.3, 0.7], [PointMass(0), Poisson(rate)])`. The

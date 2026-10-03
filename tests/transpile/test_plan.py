@@ -79,6 +79,14 @@ program prog : Obs -> Obs
 export prog
 """
 
+CATEGORICAL_LOGITS = """\
+object Category : FinSet 3
+program prog : Category -> Category
+    observe y <- Categorical(logits=[-2.0, 0.5, 1.25])
+    return y
+export prog
+"""
+
 
 def _kinds(body: tuple[object, ...]) -> list[str]:
     """The node kinds of a plan body, in order."""
@@ -138,6 +146,33 @@ def test_target_plan_optimization_can_be_disabled() -> None:
     )
     assert reference.value == 5.0
     assert reference.log_joint == 0.0
+
+
+@pytest.mark.parametrize(
+    ("target", "fragment"),
+    [
+        ("pyro", "Categorical(logits="),
+        ("numpyro", "Categorical(logits="),
+        ("pymc", "logit_p="),
+        ("edward2", "Categorical(logits="),
+        ("stan", "categorical_logit_lpmf(y |"),
+    ],
+)
+def test_categorical_logits_keep_the_target_parameterization(
+    target: str, fragment: str
+) -> None:
+    rendered = transpile(parse(CATEGORICAL_LOGITS), target=target).decode()
+    assert fragment in rendered
+
+
+@pytest.mark.parametrize(
+    "target", ["webppl", "church", "gen", "turing", "bugs", "jags"]
+)
+def test_categorical_logits_are_refused_by_probability_only_targets(
+    target: str,
+) -> None:
+    with pytest.raises(UnsupportedConstruct, match="probability parameterization"):
+        transpile(parse(CATEGORICAL_LOGITS), target=target)
 
 
 def test_a_grouped_marginalization_states_its_fibration_on_the_observation() -> None:

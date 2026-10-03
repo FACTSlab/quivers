@@ -1524,6 +1524,15 @@ def _ordered_logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
     return OrderedLogistic(params[0], params[1])
 
 
+def _categorical_logits_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a categorical distribution from one tensor of logits."""
+    if len(params) != 1:
+        raise ValueError(
+            f"inline Categorical(logits=...) expects one tensor; got {len(params)}"
+        )
+    return D.Categorical(logits=params[0])
+
+
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
@@ -1901,6 +1910,7 @@ def make_inline_distribution(
         The inline distribution morphism, and the variable names
         to pass as step input (None = use program input).
     """
+    args, selected_parameters = _bind_inline_arguments(family, args)
     if family in _OPERATOR_FAMILIES:
         return _make_operator_distribution(
             family,
@@ -1937,6 +1947,9 @@ def make_inline_distribution(
             f"no builder for inline family {family!r} with variable arguments"
         )
     param_names, dist_builder, discrete = _FAMILY_BUILDERS[family]
+    if family == "Categorical" and selected_parameters == ("logits",):
+        param_names = ("logits",)
+        dist_builder = _categorical_logits_builder
     if len(args) != len(param_names):
         raise ValueError(
             f"inline {family} expects {len(param_names)} args ({', '.join(param_names)}), got {len(args)}"
@@ -2033,6 +2046,66 @@ def make_inline_distribution(
         param_event_ranks=fam_event_ranks,
     )
     return (morph, tuple(var_name_order))
+
+
+def _bind_inline_arguments(
+    family: str,
+    args: tuple,
+) -> tuple[tuple, tuple[str, ...] | None]:
+    """Bind optional source keywords and remove them from argument values.
+
+    The classic torch runtime consumes values positionally. This adapter keeps
+    that runtime intact while selecting the logits builder for the one family
+    whose QVR surface exposes an alternative parameterization.
+    """
+    if not any(getattr(argument, "parameter", None) is not None for argument in args):
+        return args, None
+
+    canonical = get_inline_param_names(family)
+    if canonical is None:
+        raise TypeError(f"family {family!r} does not take named arguments")
+    available = ("probs", "logits") if family == "Categorical" else canonical
+    bound: dict[str, object] = {}
+    positional = 0
+    named_seen = False
+    for argument in args:
+        name = getattr(argument, "parameter", None)
+        value = argument.with_(parameter=None) if name is not None else argument
+        if name is None:
+            if named_seen:
+                raise TypeError(
+                    "a positional family argument cannot follow a named one"
+                )
+            if positional >= len(canonical):
+                raise TypeError(
+                    f"family {family!r} takes at most {len(canonical)} "
+                    "positional arguments"
+                )
+            name = canonical[positional]
+            positional += 1
+        else:
+            named_seen = True
+            if name not in available:
+                raise TypeError(
+                    f"family {family!r} has no parameter {name!r}; "
+                    f"it takes {', '.join(available)}"
+                )
+        if name in bound:
+            raise TypeError(f"family {family!r} is given parameter {name!r} twice")
+        bound[name] = value
+
+    if family == "Categorical":
+        selected = tuple(name for name in available if name in bound)
+        if len(selected) != 1:
+            raise TypeError("Categorical takes either 'probs' or 'logits', not both")
+    else:
+        missing = tuple(name for name in canonical if name not in bound)
+        if missing:
+            raise TypeError(
+                f"family {family!r} is missing parameter(s) {', '.join(missing)}"
+            )
+        selected = canonical
+    return tuple(bound[name] for name in selected), selected
 
 
 def _infer_domain(

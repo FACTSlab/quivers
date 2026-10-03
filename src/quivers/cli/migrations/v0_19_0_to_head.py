@@ -1,8 +1,9 @@
 """One-hop migrator from the released v0.19 surface to QVR HEAD.
 
-QVR HEAD accepts hanging-indented argument and list forms while retaining the
-v0.19 layouts. Migration is thus byte-preserving, but it remains a validating
-hop because the generated parser identity changed.
+QVR HEAD accepts hanging-indented argument and list forms plus named draw
+arguments while retaining the v0.19 layouts. Migration is thus
+byte-preserving, but it remains a validating hop because the generated parser
+identity changed.
 """
 
 from __future__ import annotations

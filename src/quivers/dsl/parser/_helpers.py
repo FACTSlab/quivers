@@ -60,9 +60,17 @@ def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
     recurses into the inner call to build a distribution-valued
     parameter for the outer family. A `list_arg` walks to a
     [`DrawArgList`][quivers.dsl.ast_nodes.DrawArgList] whose items
-    are themselves draw args.
+    are themselves draw args. A ``named_draw_arg`` walks its value in
+    exactly the same way and records the parameter name on that value.
     """
     k = t.kind(vid)
+    if k == "named_draw_arg":
+        pv = t.field(vid, "parameter")
+        vv = t.field(vid, "value")
+        if pv is None or vv is None:
+            raise ParseError(f"named_draw_arg malformed at {vid}")
+        value = _walk_draw_arg(t, vv)
+        return value.with_(parameter=t.text(pv))
     if k == "identifier":
         return DrawArgName(text=t.text(vid))
     if k in ("signed_number", "integer", "float"):

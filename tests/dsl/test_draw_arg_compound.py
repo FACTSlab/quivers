@@ -21,6 +21,7 @@ from quivers.dsl.ast_nodes import (
     SampleStep,
 )
 from quivers.dsl.compiler._validate import validate_family_arg_shapes
+from quivers.dsl.emit import module_to_source
 from quivers.dsl.parser import parse
 from quivers.dsl.draw_args import is_matrix, list_atoms, matrix_rows
 
@@ -106,6 +107,34 @@ def test_parser_emits_draw_arg_name_for_identifier():
     arg = step.args[0]
     assert isinstance(arg, DrawArgName)
     assert arg.text == "probs"
+
+
+def test_parser_and_emitter_preserve_a_named_logits_argument():
+    src = """
+        object X : FinSet 3
+        program p(logits) : X -> X
+            sample y : X <- Categorical(logits=logits)
+            return y
+    """
+    module = _parse(src)
+    step = _first_sample(module)
+    assert step.args is not None
+    arg = step.args[0]
+    assert isinstance(arg, DrawArgName)
+    assert arg.text == "logits"
+    assert arg.parameter == "logits"
+    assert "Categorical(logits=logits)" in module_to_source(module)
+
+
+def test_logits_literal_is_not_validated_as_a_probability_simplex():
+    src = """
+        object X : FinSet 3
+        program p : X -> X
+            sample y : X <- Categorical(logits=[-2.0, 0.5, 1.25])
+            return y
+    """
+    module = _parse(src)
+    assert validate_family_arg_shapes(module) == []
 
 
 def test_implicit_family_defaults_emits_warning_diagnostic():

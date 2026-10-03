@@ -105,6 +105,15 @@ program prog : Obs -> Obs
 export prog
 """
 
+CATEGORICAL_LOGITS = """\
+object Category : FinSet 3
+program prog : Category -> Category
+    sample logits : Category <- Normal(0.0, 1.0)
+    observe y <- Categorical(logits=logits)
+    return y
+export prog
+"""
+
 
 def _module(source: str) -> QiecModule:
     """Lower a program module.
@@ -251,6 +260,11 @@ def test_a_marginalization_block_becomes_an_enumerated_helper() -> None:
         (BETA_BERNOULLI, {"y": True}, {"theta": 0.3}),
         (LET_STEP, {"y": 0.7}, {"a": 0.2, "b": -0.4}),
         (IID_PLATE, {"y": (0.1, 0.2, 0.3)}, {"xs": (0.5, -0.5, 1.0)}),
+        (
+            CATEGORICAL_LOGITS,
+            {"y": 2},
+            {"logits": (-2.0, 0.5, 1.25)},
+        ),
         (SCORED, {}, {"x": 0.8}),
     ],
 )
@@ -261,6 +275,19 @@ def test_reference_runs_agree_with_the_torch_runtime(
     run = run_program(module, "prog", data=clamps, sites=sites)
     expected = _classic_log_joint(source, {**clamps, **sites})
     assert run.log_joint == pytest.approx(expected, rel=1e-5, abs=1e-6)
+
+
+def test_named_categorical_logits_match_torch_on_signed_scores() -> None:
+    logits = torch.tensor((-2.0, 0.5, 1.25))
+    run = run_program(
+        _module(CATEGORICAL_LOGITS),
+        "prog",
+        data={"y": 2},
+        sites={"logits": tuple(float(item) for item in logits)},
+    )
+    expected = td.Normal(0.0, 1.0).log_prob(logits).sum()
+    expected = expected + td.Categorical(logits=logits).log_prob(torch.tensor(2))
+    assert run.log_joint == pytest.approx(float(expected), rel=1e-5, abs=1e-6)
 
 
 def test_grouped_marginalization_agrees_with_the_torch_runtime_and_closed_form() -> (

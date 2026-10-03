@@ -4204,6 +4204,27 @@ class _ProgramElaboration:
         wire = tuple(resolved.args or ())
         raw: list[DrawArg | str | float | _Spread] = list(structural)
         raw.extend(wire[len(structural) :])
+        if any(argument.parameter is not None for argument in structural):
+            if len(raw) > len(record.parameters):
+                self._fail(
+                    step,
+                    f"family {record.name!r} takes at most "
+                    f"{len(record.parameters)} parameters "
+                    f"({', '.join(record.parameter_names)})",
+                    code="qiec-program",
+                )
+            return self._named_family_arguments(
+                record,
+                raw,
+                len(structural),
+                step,
+                plate,
+                scope,
+                state,
+                via,
+                group,
+            )
+
         raw = self._bundle_vector_argument(record, raw, step, plate, state)
         if len(raw) > len(record.parameters):
             self._fail(
@@ -4218,6 +4239,89 @@ class _ProgramElaboration:
             if via is not None and group is not None:
                 value = self._fibred(value, via, group, plate, scope, state, step)
             arguments.append((parameter.name, value))
+        return arguments
+
+    def _named_family_arguments(
+        self: _Elaborator,
+        record: DistributionFamily,
+        raw: list[DrawArg | str | float | _Spread],
+        structural_count: int,
+        step: SampleStep | ObserveStep | MarginalizeStep,
+        plate: PlateShape,
+        scope: _Scope,
+        state: _ProgramState,
+        via: tuple[str, ...] | None,
+        group: PlateAxis | None,
+    ) -> list[tuple[str, Value]]:
+        """Bind positional and named source arguments to family parameters.
+
+        Positional arguments fill the next unused registry parameter. Named
+        arguments select their parameter directly, which is what distinguishes
+        ``Categorical(logits=x)`` from the probability-bearing positional form.
+        A positional source argument may not follow a named one; resolver-added
+        wire defaults are allowed after the authored arguments.
+        """
+        supplied: set[str] = set()
+        named_seen = False
+        arguments: list[tuple[str, Value]] = []
+
+        for position, argument in enumerate(raw):
+            parameter_name = (
+                argument.parameter if isinstance(argument, DrawArg) else None
+            )
+            if parameter_name is not None:
+                named_seen = True
+                try:
+                    parameter = record.parameter(parameter_name)
+                except KeyError:
+                    self._fail(
+                        step,
+                        f"family {record.name!r} has no parameter "
+                        f"{parameter_name!r}; it takes "
+                        f"{', '.join(record.parameter_names)}",
+                        code="qiec-program",
+                    )
+            else:
+                if named_seen and position < structural_count:
+                    self._fail(
+                        step,
+                        "a positional family argument cannot follow a named one",
+                        code="qiec-program",
+                    )
+                parameter = next(
+                    (
+                        candidate
+                        for candidate in record.parameters
+                        if candidate.name not in supplied
+                    ),
+                    None,
+                )
+                if parameter is None:
+                    self._fail(
+                        step,
+                        f"family {record.name!r} takes at most "
+                        f"{len(record.parameters)} parameters",
+                        code="qiec-program",
+                    )
+            if parameter.name in supplied:
+                self._fail(
+                    step,
+                    f"family {record.name!r} is given parameter "
+                    f"{parameter.name!r} twice",
+                    code="qiec-program",
+                )
+            supplied.add(parameter.name)
+            value = self._draw_argument(argument, parameter, plate, scope, state, step)
+            if via is not None and group is not None:
+                value = self._fibred(value, via, group, plate, scope, state, step)
+            arguments.append((parameter.name, value))
+
+        if {"probs", "logits"} <= supplied:
+            self._fail(
+                step,
+                f"family {record.name!r} takes either 'probs' or 'logits', not both",
+                code="qiec-program",
+            )
         return arguments
 
     def _bundle_vector_argument(

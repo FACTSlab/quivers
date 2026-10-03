@@ -216,15 +216,14 @@ def _check_args_shape(
     origin: str,
     out: list[Violation],
 ) -> None:
-    """Check positional arity and elementwise shape compatibility
-    against the family's `arg_constraints`."""
+    """Check argument binding and shape against ``arg_constraints``."""
     arg_constraints = _read_arg_constraints(meta)
     if arg_constraints is None:
         # Property-form arg_constraints: skip the shape check rather
         # than raise; the transpile-time Lower handles the sentinel
         # path for these families.
         return
-    arg_names = tuple(arg_constraints.keys())
+    arg_names = tuple(arg_constraints)
     if len(args) > len(arg_names):
         out.append(
             Violation(
@@ -240,7 +239,74 @@ def _check_args_shape(
             )
         )
         return
-    for arg, (arg_name, constraint) in zip(args, arg_constraints.items()):
+
+    bound: list[tuple[DrawArg, str, Constraint]] = []
+    supplied: set[str] = set()
+    named_seen = False
+    for arg in args:
+        if arg.parameter is not None:
+            named_seen = True
+            arg_name = arg.parameter
+            if arg_name not in arg_constraints:
+                out.append(
+                    Violation(
+                        code="family-arg-shape",
+                        severity="error",
+                        message=(
+                            f"family {family!r} has no parameter {arg_name!r}; "
+                            f"it takes {list(arg_names)!r}"
+                        ),
+                        line=line,
+                        col=col,
+                    )
+                )
+                return
+        else:
+            if named_seen:
+                out.append(
+                    Violation(
+                        code="family-arg-shape",
+                        severity="error",
+                        message=(
+                            f"{origin} has a positional argument after a named one"
+                        ),
+                        line=line,
+                        col=col,
+                    )
+                )
+                return
+            arg_name = next((name for name in arg_names if name not in supplied), "")
+        if arg_name in supplied:
+            out.append(
+                Violation(
+                    code="family-arg-shape",
+                    severity="error",
+                    message=(
+                        f"family {family!r} is given parameter {arg_name!r} twice"
+                    ),
+                    line=line,
+                    col=col,
+                )
+            )
+            return
+        supplied.add(arg_name)
+        bound.append((arg, arg_name, arg_constraints[arg_name]))
+
+    if {"probs", "logits"} <= supplied:
+        out.append(
+            Violation(
+                code="family-arg-shape",
+                severity="error",
+                message=(
+                    f"family {family!r} takes either 'probs' or 'logits', not both"
+                ),
+                line=line,
+                col=col,
+            )
+        )
+        return
+
+    for arg, arg_name, constraint in bound:
         _check_arg_against_constraint(
             family=family,
             arg=arg,

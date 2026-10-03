@@ -41,10 +41,17 @@ class DrawArg(dx.TaggedUnion, discriminator="kind"):
     (variable reference), numeric literal, distribution-call
     expression (compositional measure algebra), and list of args.
 
+    ``parameter`` records an optional source-level keyword, as in
+    ``Categorical(logits=scores)``. Keeping the name on the value rather
+    than introducing a second wrapper union means every existing draw-arg
+    traversal continues to see the value's actual structural shape.
+
     Sum-type representation rather than a Python union so the
     panproto translation can carry the AST through the grammar
     walker, the migration lens, and the pretty-printer uniformly.
     """
+
+    parameter: str | None = None
 
 
 class DrawArgName(DrawArg):

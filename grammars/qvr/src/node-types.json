@@ -3270,6 +3270,10 @@
             "named": true
           },
           {
+            "type": "named_draw_arg",
+            "named": true
+          },
+          {
             "type": "signed_number",
             "named": true
           }
@@ -5089,6 +5093,10 @@
           "named": true
         },
         {
+          "type": "named_draw_arg",
+          "named": true
+        },
+        {
           "type": "signed_number",
           "named": true
         }
@@ -5219,6 +5227,10 @@
           },
           {
             "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "named_draw_arg",
             "named": true
           },
           {
@@ -5700,6 +5712,10 @@
             "named": true
           },
           {
+            "type": "named_draw_arg",
+            "named": true
+          },
+          {
             "type": "signed_number",
             "named": true
           }
@@ -5793,6 +5809,48 @@
           },
           {
             "type": "object_slash",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "named_draw_arg",
+    "named": true,
+    "fields": {
+      "parameter": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "bracket_index_arg",
+            "named": true
+          },
+          {
+            "type": "family_call_arg",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "signed_number",
             "named": true
           }
         ]
@@ -6278,6 +6336,10 @@
           },
           {
             "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "named_draw_arg",
             "named": true
           },
           {
@@ -9790,6 +9852,10 @@
           },
           {
             "type": "list_arg",
+            "named": true
+          },
+          {
+            "type": "named_draw_arg",
             "named": true
           },
           {

@@ -67,6 +67,19 @@ parameter source conditional on the morphism's input. Inline distribution
 applications in `sample` and `observe` steps may mix literal and variable
 arguments in registry order.
 
+When a family exposes alternative parameterizations, a call may select one by
+name. Positional `Categorical(weights)` continues to interpret `weights` as
+probabilities, while signed scores use `Categorical(logits=scores)`:
+
+<!-- compile: false -->
+```qvr
+observe choice : Trial <- Categorical(logits=choice_logits)
+```
+
+A call cannot supply both `probs` and `logits`. Transpile targets with native
+logits support preserve the named parameter; probability-only targets require
+an explicit `softmax` followed by the positional probability form.
+
 Vector-family spread syntax gathers entries into one vector parameter:
 `Dirichlet(1.0, 2.0, 3.0)` is the same concentration shape as
 `Dirichlet([1.0, 2.0, 3.0])`. A single literal under a fixed output extent is

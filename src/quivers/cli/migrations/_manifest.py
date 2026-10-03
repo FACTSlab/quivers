@@ -89,10 +89,10 @@ GRAMMAR_ASSETS: dict[str, GrammarAsset] = {
         "7c273ca205f8e27dc55ce5167f2f3e2ece947753fef9a52a7b02257eb23733bc",
     ),
     "HEAD": GrammarAsset(
-        "59c35f0f947f849c45badae44cd4fd85a493ce1cacaa4473846189863d1dc503",
-        "bb6e3e0a94d6d862f90d3b9a7cf4d4bc62c5fff06ab65b3a9f1b15dd4dcb5965",
-        "51f0178d34280980b2d188b9e25ff303daa18138502d6c145c0629ce0e3d27e0",
-        "c9dacb6e7651a2cfe83c32e4701b8bd1d7a641edbfac10fa57e30ef245bbf28c",
+        "7c4d1629cce1b025fbbe197d791a6afeba7f190e4de9eaa4076a275624ef42b4",
+        "7dd74eb3263b224a622c276b2bf2bcd56fa6127b259ccdcee5e4b2ae6ed8cbb2",
+        "8b2cdd654d124fdd9021dd073261a5b296497184cf2e892a59f143d1afcc0e73",
+        "764e9bfbef52e2a8f7ab44824214e5f60f56dc91e3da9aed3ec4cf76cdf50631",
     ),
 }
 
@@ -133,7 +133,7 @@ SCHEMA_COMMITS: dict[str, str] = {
     "v0.17.0": "56fde386d73bc4667726dc29f4a17ceeae070ed2a3effd10695a69c41c0a3079",
     "v0.18.0": "56fde386d73bc4667726dc29f4a17ceeae070ed2a3effd10695a69c41c0a3079",
     "v0.19.0": "b4b20dd709fb0466384f12e5c9fbfaf959013a426bbb82ba0806a8d75ac2877e",
-    "HEAD": "b4b20dd709fb0466384f12e5c9fbfaf959013a426bbb82ba0806a8d75ac2877e",
+    "HEAD": "4c431062a4d3a924b019e38f3192f1ac1c18592e674188f46b57da4cb5ccaff8",
 }
 
 
