@@ -1431,11 +1431,18 @@ class _ProgramsMixin:
                 if key in value_subst:
                     sub = value_subst[key]
                     if isinstance(sub, (int, float)) and not isinstance(sub, bool):
-                        out.append(DrawArgScalar(value=float(sub)))
+                        out.append(
+                            DrawArgScalar(
+                                value=float(sub),
+                                parameter=a.parameter,
+                                line=a.line,
+                                col=a.col,
+                            )
+                        )
                     else:
-                        out.append(DrawArgName(text=str(sub)))
+                        out.append(a.with_(text=str(sub)))
                 elif key in rename:
-                    out.append(DrawArgName(text=rename[key]))
+                    out.append(a.with_(text=rename[key]))
                 else:
                     out.append(a)
             elif isinstance(a, DrawArgIndex):
@@ -1460,7 +1467,7 @@ class _ProgramsMixin:
                         new_indices.append(rename[ix])
                     else:
                         new_indices.append(ix)
-                out.append(DrawArgIndex(name=new_name, indices=tuple(new_indices)))
+                out.append(a.with_(name=new_name, indices=tuple(new_indices)))
             elif isinstance(a, str):
                 if a in value_subst:
                     out.append(value_subst[a])

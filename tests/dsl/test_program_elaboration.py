@@ -535,6 +535,26 @@ def test_a_template_draw_instantiates_the_template_and_agrees_with_torch() -> No
     assert float(traced.log_joint) == pytest.approx(float(expected), rel=1e-5)
 
 
+@pytest.mark.parametrize("parameter", ["probs", "logits"])
+def test_a_template_draw_preserves_categorical_parameterization(
+    parameter: str,
+) -> None:
+    """Alpha-renaming a template's local parameter must retain the source
+    keyword that distinguishes categorical probabilities from logits."""
+    source = f"""\
+object Class : FinSet 3
+program choice(K : FinSet) : K -> K
+    sample scores : K <- Normal(0.0, 1.0)
+    sample z <- Categorical({parameter}=scores)
+    return z
+program main : Class -> Class
+    sample outcome <- choice(Class)
+    return outcome
+export main
+"""
+    Compiler(parse(source)).compile()
+
+
 _MORPHISM_TEMPLATE = """\
 object Subj : FinSet 5
 object UnitSpace : Real 1
