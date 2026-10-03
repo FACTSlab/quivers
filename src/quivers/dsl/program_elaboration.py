@@ -4221,8 +4221,7 @@ class _ProgramElaboration:
         raw: list[DrawArg | str | float | _Spread] = list(structural)
         raw.extend(wire[len(structural) :])
         if record.name == "Categorical" and (
-            len(structural) != 1
-            or structural[0].parameter not in ("probs", "logits")
+            len(structural) != 1 or structural[0].parameter not in ("probs", "logits")
         ):
             self._fail(
                 step,
