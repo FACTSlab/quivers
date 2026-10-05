@@ -35,9 +35,9 @@ object Weight : Real 1
 # plate extent; the codomain Weight is the value space of the one
 # real number a single weight is.
 program ccg_prior : Rule -> Weight
-    sample rule_weights : Rule <- Normal(0.0, 1.0)
+    sample rule_weights : Rule <- Normal(loc=0.0, scale=1.0)
     let rule_rate = exp(rule_weights)
-    observe rule_counts : Rule <- Poisson(rule_rate)
+    observe rule_counts : Rule <- Poisson(rate=rule_rate)
     return rule_weights
 
 export ccg_prior

@@ -47,7 +47,7 @@ def test_poisson_rate_renamed_to_mu() -> None:
     src = (
         "object O : Real 4\n"
         "program g : O -> O\n"
-        "    sample t <- Poisson(3.0)\n"
+        "    sample t <- Poisson(rate=3.0)\n"
         "    return t\n"
         "export g"
     )
@@ -61,7 +61,7 @@ def test_chi2_df_renamed_to_nu() -> None:
     """PyMC `ChiSquared` takes `nu`, not the torch `df`."""
     src = (
         "object Obs : Real 4\n"
-        "morphism k : Obs -> Obs [role=kernel] ~ Chi2(3.0)\n"
+        "morphism k : Obs -> Obs [role=kernel] ~ Chi2(df=3.0)\n"
         "program g : Obs -> Obs\n"
         "    sample x <- k\n"
         "    return x\n"
@@ -78,7 +78,7 @@ def test_kumaraswamy_concentrations_renamed_to_a_b() -> None:
     `concentration0`."""
     src = (
         "object Obs : Real 4\n"
-        "morphism k : Obs -> Obs [role=kernel] ~ Kumaraswamy(2.0, 3.0)\n"
+        "morphism k : Obs -> Obs [role=kernel] ~ Kumaraswamy(concentration1=2.0, concentration0=3.0)\n"
         "program g : Obs -> Obs\n"
         "    sample x <- k\n"
         "    return x\n"
@@ -110,7 +110,7 @@ def test_geometric_latent_shifted_off_by_one() -> None:
     src = (
         "object O : FinSet 4\n"
         "program g : O -> O\n"
-        "    sample t : O <- Geometric(0.3)\n"
+        "    sample t : O <- Geometric(probs=0.3)\n"
         "    return t\n"
         "export g"
     )
@@ -128,7 +128,7 @@ def test_geometric_observed_shifted_off_by_one() -> None:
     src = (
         "object O : FinSet 4\n"
         "program g : O -> O\n"
-        "    observe t : O <- Geometric(0.3)\n"
+        "    observe t : O <- Geometric(probs=0.3)\n"
         "    return t\n"
         "export g"
     )
@@ -164,7 +164,7 @@ def test_wishart_call_site_emits_nu_and_capital_v() -> None:
     src = (
         "object Dim : FinSet 2\n"
         "program g : Dim -> Dim\n"
-        "    sample s : Dim <- Wishart(5.0, [[1.0, 0.0], [0.0, 1.0]])\n"
+        "    sample s : Dim <- Wishart(df=5.0, scale_tril=[[1.0, 0.0], [0.0, 1.0]])\n"
         "    return s\n"
         "export g"
     )
@@ -183,8 +183,8 @@ def test_wishart_call_site_emits_nu_and_capital_v() -> None:
 _LKJ_SOURCE = (
     "object Dim : FinSet 4\n"
     "program correlation_model : Dim -> Dim\n"
-    "    sample eta <- HalfNormal(2.0)\n"
-    "    sample chol : Dim <- LKJCholesky(eta)\n"
+    "    sample eta <- HalfNormal(scale=2.0)\n"
+    "    sample chol : Dim <- LKJCholesky(concentration=eta)\n"
     "    return chol\n"
     "export correlation_model"
 )
@@ -197,7 +197,7 @@ _LKJ_SOURCE = (
 _LKJ_SOURCE_D3 = (
     "object Dim : FinSet 3\n"
     "program correlation_model : Dim -> Dim\n"
-    "    sample chol : Dim <- LKJCholesky(1.0)\n"
+    "    sample chol : Dim <- LKJCholesky(concentration=1.0)\n"
     "    return chol\n"
     "export correlation_model"
 )

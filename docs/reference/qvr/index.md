@@ -64,10 +64,10 @@ define robustify(x : Real) : Real !{} =
 object Row : FinSet 8
 
 program observations : Row -> Row
-    sample location <- Normal(0.0, 2.0)
-    sample scale <- HalfNormal(1.0)
+    sample location <- Normal(loc=0.0, scale=2.0)
+    sample scale <- HalfNormal(scale=1.0)
     let centre <- robustify(location)
-    observe y : Row <- Normal(centre, scale)
+    observe y : Row <- Normal(loc=centre, scale=scale)
     return y
 
 export observations

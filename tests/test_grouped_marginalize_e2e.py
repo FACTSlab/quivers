@@ -56,10 +56,10 @@ def _two_class_mixture_model() -> str:
     object Class : FinSet 2
 
     program two_class_mix : Resp -> Resp
-        sample probs : Class <- HalfNormal(1.0)
-        sample mu_shift <- Normal(0.0, 1.0)
+        sample probs : Class <- HalfNormal(scale=1.0)
+        sample mu_shift <- Normal(loc=0.0, scale=1.0)
         marginalize cls : Class <- Categorical(probs=probs) [over=Item]
-            observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
+            observe r : Resp <- Normal(loc=mu_shift, scale=1.0) [via=idx]
         return mu_shift
     export two_class_mix
     """
@@ -103,9 +103,9 @@ def test_grouped_categorical_logits_use_log_softmax() -> None:
     object Class : FinSet 2
 
     program mix : Resp -> Resp
-        sample logits : Class <- Normal(0.0, 1.0)
+        sample logits : Class <- Normal(loc=0.0, scale=1.0)
         marginalize cls : Class <- Categorical(logits=logits) [over=Item]
-            observe r : Resp <- Normal(0.0, 1.0) [via=idx]
+            observe r : Resp <- Normal(loc=0.0, scale=1.0) [via=idx]
         return logits
     export mix
     """
@@ -212,10 +212,10 @@ def test_grouped_marginalize_recovers_mixture_proportions() -> None:
     object Class : FinSet 2
 
     program recovery : Resp -> Resp
-        sample probs : Class <- HalfNormal(1.0)
-        sample mu_shift <- Normal(0.0, 1.0)
+        sample probs : Class <- HalfNormal(scale=1.0)
+        sample mu_shift <- Normal(loc=0.0, scale=1.0)
         marginalize cls : Class <- Categorical(probs=probs) [over=Item]
-            observe r : Resp <- Normal(mu_shift, 1.0) [via=idx]
+            observe r : Resp <- Normal(loc=mu_shift, scale=1.0) [via=idx]
         return probs
     export recovery
     """
@@ -277,10 +277,10 @@ def _two_task_mixture_model() -> str:
     object Class : FinSet 2
 
     program two_task_mix : Item -> Item
-        sample probs : Class <- HalfNormal(1.0)
+        sample probs : Class <- HalfNormal(scale=1.0)
         marginalize cls : Class <- Categorical(probs=probs) [over=Item]
-            observe r_a : RespA <- HalfNormal(1.0) [via=idx_a]
-            observe r_b : RespB <- HalfNormal(1.0) [via=idx_b]
+            observe r_a : RespA <- HalfNormal(scale=1.0) [via=idx_a]
+            observe r_b : RespB <- HalfNormal(scale=1.0) [via=idx_b]
         return probs
     export two_task_mix
     """

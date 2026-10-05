@@ -9,6 +9,6 @@ deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
         "the" : S = the
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample x <- Normal(0.0, 1.0)
+    sample x <- Normal(loc=0.0, scale=1.0)
     return x
 export prog

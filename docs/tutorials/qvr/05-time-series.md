@@ -16,14 +16,14 @@ A *plate-draw* binds one value per index of a finite-set object:
 <!-- compile: false -->
 ```qvr
 object School : FinSet 8
-sample theta : School <- Normal(mu, tau)
+sample theta : School <- Normal(loc=mu, scale=tau)
 ```
 
 is the QVR analogue of NumPyro's `with plate("schools", 8): theta = sample("theta", dist.Normal(mu, tau))`. The result has shape `(8,)`; subsequent `let` arithmetic broadcasts over it. A *vectorized observe* over a plate has the same shape:
 
 <!-- compile: false -->
 ```qvr
-observe y : School <- Normal(theta, sigma_j)
+observe y : School <- Normal(loc=theta, scale=sigma_j)
 ```
 
 Plates are good for IID structure: nothing about index `j+1` depends on what happened at `j`. For genuinely sequential data, you want `scan`.

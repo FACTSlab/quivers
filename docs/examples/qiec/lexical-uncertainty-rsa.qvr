@@ -107,7 +107,7 @@ object Event : FinSet 1
 object Posterior : Real 2
 
 program lexical_uncertainty_rsa : Event -> Posterior
-    sample raw_alpha <- Normal(0.0, 1.0)
+    sample raw_alpha <- Normal(loc=0.0, scale=1.0)
     let alpha = exp(raw_alpha)
     let epsilon = 0.000001
     let posterior <- lexical_listener(alpha, epsilon)
@@ -131,7 +131,7 @@ program lexical_uncertainty_rsa : Event -> Posterior
 
     marginalize state : CommunicationState <- Categorical(probs=state_prior) [reduction=logsumexp]
         let p_some = speaker_some[state]
-        observe heard_some : Event <- Bernoulli(p_some)
+        observe heard_some : Event <- Bernoulli(probs=p_some)
 
     return posterior
 

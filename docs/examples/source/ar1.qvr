@@ -22,13 +22,13 @@ object Step : FinSet 64
 object Val : Real 1
 
 program ar1 : Step -> Val
-    sample alpha <- Normal(0.0, 5.0)
-    sample phi <- Uniform(-1.0, 1.0)
-    sample sigma <- HalfCauchy(1.0)
+    sample alpha <- Normal(loc=0.0, scale=5.0)
+    sample phi <- Uniform(low=-1.0, high=1.0)
+    sample sigma <- HalfCauchy(scale=1.0)
 
     let mu = alpha + phi * y_prev
 
-    observe y : Step <- Normal(mu, sigma)
+    observe y : Step <- Normal(loc=mu, scale=sigma)
     return phi
 
 export ar1

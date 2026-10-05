@@ -14,15 +14,15 @@
 # Tier-3 hard-geometry stress.
 object Obs : FinSet 1
 program ill_conditioned_mvn : Obs -> Obs
-    sample x_1 <- Normal(0.0, 100.0)
-    sample x_2 <- Normal(0.0, 10.0)
-    sample x_3 <- Normal(0.0, 1.0)
-    sample x_4 <- Normal(0.0, 0.1)
-    sample x_5 <- Normal(0.0, 0.01)
-    observe y_1 <- Normal(x_1, 0.1)
-    observe y_2 <- Normal(x_2, 0.1)
-    observe y_3 <- Normal(x_3, 0.1)
-    observe y_4 <- Normal(x_4, 0.1)
-    observe y_5 <- Normal(x_5, 0.1)
+    sample x_1 <- Normal(loc=0.0, scale=100.0)
+    sample x_2 <- Normal(loc=0.0, scale=10.0)
+    sample x_3 <- Normal(loc=0.0, scale=1.0)
+    sample x_4 <- Normal(loc=0.0, scale=0.1)
+    sample x_5 <- Normal(loc=0.0, scale=0.01)
+    observe y_1 <- Normal(loc=x_1, scale=0.1)
+    observe y_2 <- Normal(loc=x_2, scale=0.1)
+    observe y_3 <- Normal(loc=x_3, scale=0.1)
+    observe y_4 <- Normal(loc=x_4, scale=0.1)
+    observe y_5 <- Normal(loc=x_5, scale=0.1)
     return x_1
 export ill_conditioned_mvn

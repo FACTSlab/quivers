@@ -40,16 +40,16 @@ _POOLING_SRC = """
 object School : FinSet 8
 
 program school_effects(spread : Real, K : FinSet) : K -> K
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 
 program pooled : School -> School
     sample theta <- school_effects({spread}, School)
-    sample sigma <- LogNormal(0.0, 0.5)
+    sample sigma <- LogNormal(loc=0.0, scale=0.5)
     let total_effect = sum(theta)
     {score_line}
-    observe y : School <- Normal(theta, sigma)
+    observe y : School <- Normal(loc=theta, scale=sigma)
     return (effects: theta, scale: sigma)
 
 export pooled
@@ -59,7 +59,7 @@ _TEMPLATE_ONLY_SRC = """
 object School : FinSet 8
 
 program school_effects(spread : Real, K : FinSet) : K -> K
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 

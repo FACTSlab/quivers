@@ -105,8 +105,8 @@ def _normal_normal_model():
     return loads(
         "object Obs : FinSet 20\n"
         "program p : Obs -> Obs\n"
-        "    sample mu <- Normal(0.0, 1.0)\n"
-        "    observe y : Obs <- Normal(mu, 1.0)\n"
+        "    sample mu <- Normal(loc=0.0, scale=1.0)\n"
+        "    observe y : Obs <- Normal(loc=mu, scale=1.0)\n"
         "    return mu\n"
         "export p\n"
     ).morphism

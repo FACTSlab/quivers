@@ -20,7 +20,7 @@ from quivers.transpile.qiec_ir import (
 _OLD_PROGRAM = """\
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog
 """
@@ -33,7 +33,7 @@ define answer() : Int !{} =
 
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog
 """
@@ -44,7 +44,7 @@ effect Broken
 
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog
 """
@@ -190,13 +190,13 @@ _PROGRAM_CALLING_PROGRAM = """\
 object X : FinSet 2
 object R : FinSet 2
 program sub : X -> R * R
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(a, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=a, scale=1.0)
     return (a, b)
 program main : X -> R
     sample (u, v) <- sub
     let s = u + v
-    sample w <- Normal(s, 1.0)
+    sample w <- Normal(loc=s, scale=1.0)
     return w
 export main
 """

@@ -36,6 +36,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     ExprIdent,
     LetExprCall,
@@ -164,6 +165,11 @@ from quivers.qiec.types import (
     render_static,
 )
 from quivers.dsl.composite_lets import expand_composite_lets
+from quivers.dsl.family_schemas import (
+    family_parameter_names,
+    family_parameterizations,
+    render_parameterizations,
+)
 from quivers.dsl.let_expr_traversal import free_let_names, walk_let_expr
 from quivers.dsl.deduction_elaboration import PARAMS_INSTANCE
 from quivers.dsl.program_templates import (
@@ -858,6 +864,8 @@ def _argument_names(argument: DrawArg) -> list[str]:
     list[str]
         Bare names, indexed bases and their indices, and list entries.
     """
+    if isinstance(argument, DrawArgNamed):
+        return _argument_names(argument.value)
     if isinstance(argument, DrawArgName):
         return [argument.text]
     if isinstance(argument, DrawArgIndex):
@@ -4199,29 +4207,29 @@ class _ProgramElaboration:
             If more arguments are supplied than the family has
             parameters.
         """
-        structural: tuple[DrawArg, ...] = step.args or ()
+        direct_family = step.morphism in FAMILIES or step.morphism in OPERATOR_ALIASES
+        structural: tuple[DrawArg, ...] = (step.args or ()) if direct_family else ()
         if (
             not structural
+            and not step.args
             and morphism is not None
             and morphism.init_family is not None
-            and morphism.init_family.family == record.name
+            and OPERATOR_ALIASES.get(
+                morphism.init_family.family, morphism.init_family.family
+            )
+            == record.name
             and morphism.init_family.args
         ):
             init = morphism.init_family
-            parameters = init.arg_parameters or (None,) * len(init.args)
-            structural = tuple(
-                (
-                    DrawArgName(text=argument)
-                    if isinstance(argument, str)
-                    else DrawArgScalar(value=float(argument))
-                ).with_(parameter=parameter)
-                for argument, parameter in zip(init.args, parameters, strict=True)
-            )
+            structural = init.args
         wire = tuple(resolved.args or ())
-        raw: list[DrawArg | str | float | _Spread] = list(structural)
-        raw.extend(wire[len(structural) :])
-        if record.name == "Categorical" and (
-            len(structural) != 1 or structural[0].parameter not in ("probs", "logits")
+        raw: list[DrawArg | str | float | _Spread] = (
+            list(structural) if structural else list(wire)
+        )
+        if (
+            record.name == "Categorical"
+            and not structural
+            and not (morphism is not None and step.args)
         ):
             self._fail(
                 step,
@@ -4229,19 +4237,11 @@ class _ProgramElaboration:
                 "use probs=... or logits=...",
                 code="qiec-program",
             )
-        if any(argument.parameter is not None for argument in structural):
-            if len(raw) > len(record.parameters):
-                self._fail(
-                    step,
-                    f"family {record.name!r} takes at most "
-                    f"{len(record.parameters)} parameters "
-                    f"({', '.join(record.parameter_names)})",
-                    code="qiec-program",
-                )
+        if structural:
             return self._named_family_arguments(
                 record,
-                raw,
-                len(structural),
+                resolved.family,
+                list(structural),
                 step,
                 plate,
                 scope,
@@ -4269,8 +4269,8 @@ class _ProgramElaboration:
     def _named_family_arguments(
         self: _Elaborator,
         record: DistributionFamily,
+        surface_family: str,
         raw: list[DrawArg | str | float | _Spread],
-        structural_count: int,
         step: SampleStep | ObserveStep | MarginalizeStep,
         plate: PlateShape,
         scope: _Scope,
@@ -4278,76 +4278,63 @@ class _ProgramElaboration:
         via: tuple[str, ...] | None,
         group: PlateAxis | None,
     ) -> list[tuple[str, Value]]:
-        """Bind positional and named source arguments to family parameters.
-
-        Positional arguments fill the next unused registry parameter. Named
-        arguments select their parameter directly, which puts
-        ``Categorical(probs=x)`` and ``Categorical(logits=x)`` on the same
-        explicit footing.
-        A positional source argument may not follow a named one; resolver-added
-        wire defaults are allowed after the authored arguments.
-        """
+        """Bind a keyword-only construction to one complete family schema."""
+        schemas = family_parameterizations(surface_family, record.parameter_names)
+        schema_text = render_parameterizations(schemas)
         supplied: set[str] = set()
-        named_seen = False
-        arguments: list[tuple[str, Value]] = []
-
-        for position, argument in enumerate(raw):
-            parameter_name = (
-                argument.parameter if isinstance(argument, DrawArg) else None
-            )
-            if parameter_name is not None:
-                named_seen = True
-                try:
-                    parameter = record.parameter(parameter_name)
-                except KeyError:
-                    self._fail(
-                        step,
-                        f"family {record.name!r} has no parameter "
-                        f"{parameter_name!r}; it takes "
-                        f"{', '.join(record.parameter_names)}",
-                        code="qiec-program",
-                    )
-            else:
-                if named_seen and position < structural_count:
-                    self._fail(
-                        step,
-                        "a positional family argument cannot follow a named one",
-                        code="qiec-program",
-                    )
-                parameter = next(
-                    (
-                        candidate
-                        for candidate in record.parameters
-                        if candidate.name not in supplied
-                    ),
-                    None,
+        source: dict[str, DrawArg] = {}
+        for argument in raw:
+            if not isinstance(argument, DrawArgNamed):
+                self._fail(
+                    step,
+                    f"family {record.name!r} arguments are keyword-only; "
+                    f"use one complete schema: {schema_text}",
+                    code="qiec-program",
                 )
-                if parameter is None:
-                    self._fail(
-                        step,
-                        f"family {record.name!r} takes at most "
-                        f"{len(record.parameters)} parameters",
-                        code="qiec-program",
-                    )
-            if parameter.name in supplied:
+            parameter_name = argument.parameter
+            if parameter_name in supplied:
                 self._fail(
                     step,
                     f"family {record.name!r} is given parameter "
-                    f"{parameter.name!r} twice",
+                    f"{parameter_name!r} twice",
                     code="qiec-program",
                 )
-            supplied.add(parameter.name)
+            supplied.add(parameter_name)
+            source[parameter_name] = argument.value
+
+        selected = next((schema for schema in schemas if set(schema) == supplied), None)
+        if selected is None:
+            self._fail(
+                step,
+                f"family {record.name!r} requires exactly one complete parameter "
+                f"schema {schema_text}; got ({', '.join(source)})",
+                code="qiec-program",
+            )
+
+        arguments: list[tuple[str, Value]] = []
+        for parameter_name in selected:
+            try:
+                parameter = _semantic_family_parameter(
+                    record, parameter_name, surface_family
+                )
+            except KeyError:
+                self._fail(
+                    step,
+                    f"family {record.name!r} has no parameter "
+                    f"{parameter_name!r}; it takes "
+                    f"{', '.join(record.parameter_names)}",
+                    code="qiec-program",
+                )
+            argument: DrawArg | str | float | _Spread = source[parameter_name]
+            if len(selected) == 1:
+                bundled = self._bundle_vector_argument(
+                    record, [argument], step, plate, state
+                )
+                argument = bundled[0]
             value = self._draw_argument(argument, parameter, plate, scope, state, step)
             if via is not None and group is not None:
                 value = self._fibred(value, via, group, plate, scope, state, step)
             arguments.append((parameter.name, value))
-
-        if {"probs", "logits"} <= supplied:
-            self._fail(
-                step,
-                f"family {record.name!r} takes either 'probs' or 'logits', not both",
-                code="qiec-program",
-            )
         return arguments
 
     def _bundle_vector_argument(
@@ -4496,7 +4483,11 @@ class _ProgramElaboration:
             return _literal(float(argument), integral)
         if isinstance(argument, DrawArgScalar):
             return _literal(argument.value, integral)
-        if isinstance(argument, DrawArgName):
+        if isinstance(argument, DrawArgNamed):
+            return self._draw_argument(
+                argument.value, parameter, plate, scope, state, node
+            )
+        elif isinstance(argument, DrawArgName):
             return self._named_argument(
                 argument.text, element, rank, constraint, plate, scope, state, node
             )
@@ -4896,29 +4887,59 @@ class _ProgramElaboration:
                 f"family:{argument.family}: not in the semantic family registry",
                 code="qiec-program",
             )
-        if len(argument.args) > len(record.parameters):
+        schemas = family_parameterizations(argument.family, record.parameter_names)
+        schema_text = render_parameterizations(schemas)
+        if any(not isinstance(item, DrawArgNamed) for item in argument.args):
             self._fail(
                 node,
-                f"family {argument.family!r} takes at most "
-                f"{len(record.parameters)} argument(s), got {len(argument.args)}",
+                f"family {argument.family!r} arguments are keyword-only; "
+                f"use one complete schema: {schema_text}",
                 code="qiec-program",
             )
-        arguments = [
-            (
-                parameter.name,
-                self._draw_argument(
-                    item,
-                    _ScalarParameter(element)
-                    if element is not None and record.name == "PointMass"
-                    else parameter,
-                    PlateShape(),
-                    scope,
-                    state,
-                    node,
-                ),
+        source = {item.parameter: item.value for item in argument.args}
+        if len(source) != len(argument.args):
+            self._fail(
+                node,
+                f"family {argument.family!r} is given a parameter twice",
+                code="qiec-program",
             )
-            for parameter, item in zip(record.parameters, argument.args, strict=False)
-        ]
+        selected = next(
+            (schema for schema in schemas if set(schema) == set(source)), None
+        )
+        if selected is None:
+            self._fail(
+                node,
+                f"family {argument.family!r} requires exactly one complete "
+                f"parameter schema {schema_text}; got ({', '.join(source)})",
+                code="qiec-program",
+            )
+        arguments = []
+        for parameter_name in selected:
+            try:
+                parameter = _semantic_family_parameter(
+                    record, parameter_name, argument.family
+                )
+            except KeyError:
+                self._fail(
+                    node,
+                    f"family {record.name!r} has no parameter {parameter_name!r}",
+                    code="qiec-program",
+                )
+            arguments.append(
+                (
+                    parameter.name,
+                    self._draw_argument(
+                        source[parameter_name],
+                        _ScalarParameter(element)
+                        if element is not None and record.name == "PointMass"
+                        else parameter,
+                        PlateShape(),
+                        scope,
+                        state,
+                        node,
+                    ),
+                )
+            )
         provisional = DistributionValue(
             record.id,
             record.name,
@@ -4990,15 +5011,58 @@ class _ProgramElaboration:
                 f"family:{resolved.family}: not in the semantic family registry",
                 code="qiec-program",
             )
-        arguments = [
-            (
-                parameter.name,
-                self._draw_argument(item, parameter, PlateShape(), scope, state, node),
+        init = morphism.init_family
+        if init is not None and init.args:
+            schemas = family_parameterizations(init.family, record.parameter_names)
+            schema_text = render_parameterizations(schemas)
+            if any(not isinstance(item, DrawArgNamed) for item in init.args):
+                self._fail(
+                    node,
+                    f"family {record.name!r} arguments are keyword-only; "
+                    f"use one complete schema: {schema_text}",
+                    code="qiec-program",
+                )
+            source = {item.parameter: item.value for item in init.args}
+            selected = next(
+                (schema for schema in schemas if set(schema) == set(source)), None
             )
-            for parameter, item in zip(
-                record.parameters, resolved.args or (), strict=False
-            )
-        ]
+            if selected is None or len(source) != len(init.args):
+                self._fail(
+                    node,
+                    f"family {record.name!r} requires exactly one complete "
+                    f"parameter schema {schema_text}",
+                    code="qiec-program",
+                )
+            arguments = []
+            for parameter_name in selected:
+                parameter = _semantic_family_parameter(
+                    record, parameter_name, init.family
+                )
+                arguments.append(
+                    (
+                        parameter.name,
+                        self._draw_argument(
+                            source[parameter_name],
+                            parameter,
+                            PlateShape(),
+                            scope,
+                            state,
+                            node,
+                        ),
+                    )
+                )
+        else:
+            arguments = [
+                (
+                    parameter.name,
+                    self._draw_argument(
+                        item, parameter, PlateShape(), scope, state, node
+                    ),
+                )
+                for parameter, item in zip(
+                    record.parameters, resolved.args or (), strict=False
+                )
+            ]
         provisional = DistributionValue(
             record.id,
             record.name,
@@ -6183,6 +6247,30 @@ class _ProgramElaboration:
         )
 
 
+def _semantic_family_parameter(
+    record: DistributionFamily,
+    surface_name: str,
+    surface_family: str | None = None,
+) -> FamilyParameter:
+    """Resolve a QVR keyword to the semantic registry parameter it fills.
+
+    Most names coincide. A few historical surface families use different
+    terminology (for instance ``LogitNormal(mu=..., sigma=...)`` while the
+    semantic record uses ``loc`` and ``scale``); those retain the established
+    positional correspondence without exposing positions in source.
+    """
+    try:
+        return record.parameter(surface_name)
+    except KeyError:
+        surface = family_parameter_names(surface_family or record.name) or ()
+        if surface_name not in surface:
+            raise
+        position = surface.index(surface_name)
+        if position >= len(record.parameters):
+            raise
+        return record.parameters[position]
+
+
 def _structured(
     record: DistributionFamily, morphism: MorphismDecl, step: object
 ) -> bool:
@@ -6498,7 +6586,9 @@ def _draw_dependencies(step: SampleStep) -> set[str]:
         argument : DrawArg | str | float
             The argument.
         """
-        if isinstance(argument, DrawArgName):
+        if isinstance(argument, DrawArgNamed):
+            visit(argument.value)
+        elif isinstance(argument, DrawArgName):
             names.add(argument.text)
         elif isinstance(argument, DrawArgIndex):
             names.add(argument.name)

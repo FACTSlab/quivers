@@ -2,6 +2,6 @@
 object Dim : FinSet 3
 object Obs : Real 9
 program wishart_fixture : Obs -> Obs
-    sample sigma <- Wishart(4.0, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]) [over=[Dim, Dim]]
+    sample sigma <- Wishart(df=4.0, scale_tril=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]) [over=[Dim, Dim]]
     return sigma
 export wishart_fixture

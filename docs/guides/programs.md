@@ -347,8 +347,8 @@ parser translates:
 object X : FinSet 3
 object Y : FinSet 4
 program my_prog : X -> Y
-    sample mu <- LogitNormal(0, 1)
-    sample x <- Normal(mu, 1)
+    sample mu <- LogitNormal(mu=0, sigma=1)
+    sample x <- Normal(loc=mu, scale=1)
     return x
 
 export my_prog

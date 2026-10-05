@@ -13,11 +13,11 @@ sample sites and score terms become effect requests. This elaboration is the
 object Row : FinSet 100
 
 program regression : Row -> Row [effects=[Sample, Score]]
-    sample sigma <- HalfNormal(1.0)
-    sample intercept <- Normal(0.0, 5.0)
-    sample slope <- Normal(0.0, 2.0)
+    sample sigma <- HalfNormal(scale=1.0)
+    sample intercept <- Normal(loc=0.0, scale=5.0)
+    sample slope <- Normal(loc=0.0, scale=2.0)
     let mean = intercept + slope * x
-    observe y : Row <- Normal(mean, sigma)
+    observe y : Row <- Normal(loc=mean, scale=sigma)
     return y
 
 export regression
@@ -59,13 +59,15 @@ A morphism with literal family arguments is input-independent:
 
 <!-- compile: false -->
 ```qvr
-morphism prior : A -> R ~ Normal(0.0, 1.0)
+morphism prior : A -> R ~ Normal(loc=0.0, scale=1.0)
 ```
 
 It has no learned lookup table. By contrast, a bare `~ Normal` requests a
 parameter source conditional on the morphism's input. Inline distribution
 applications in `sample` and `observe` steps may mix literal and variable
-arguments in registry order.
+arguments, but every argument is named. A call must match one complete schema;
+for instance, `Normal(loc=mean, scale=sigma)` may reverse its source order
+without changing its meaning. Computation and morphism calls remain positional.
 
 When a family exposes alternative parameterizations, the call selects one by
 name. Categorical calls require either `Categorical(probs=weights)` or
@@ -76,15 +78,16 @@ name. Categorical calls require either `Categorical(probs=weights)` or
 observe choice : Trial <- Categorical(logits=choice_logits)
 ```
 
-A call cannot supply both `probs` and `logits`, and positional
-`Categorical(values)` is rejected as ambiguous. Transpile targets with native
-logits support preserve the named parameter; probability-only targets require
-an explicit `softmax` followed by `Categorical(probs=softmax(scores))`.
+A call cannot supply both `probs` and `logits`. Positional family construction
+is rejected uniformly, including calls whose parameterization would otherwise
+appear unambiguous. Transpile targets with native logits support preserve the
+named parameter; probability-only targets require an explicit `softmax`
+followed by `Categorical(probs=softmax(scores))`.
 
-Vector-family spread syntax gathers entries into one vector parameter:
-`Dirichlet(1.0, 2.0, 3.0)` is the same concentration shape as
-`Dirichlet([1.0, 2.0, 3.0])`. A single literal under a fixed output extent is
-a symmetric concentration of that extent.
+Vector-family values occupy one named parameter:
+`Dirichlet(concentration=[1.0, 2.0, 3.0])` supplies an explicit vector. A
+single literal, `Dirichlet(concentration=1.0)`, is a symmetric concentration
+under a fixed output extent.
 
 ## Open input extents
 
@@ -96,7 +99,7 @@ static `Nat` binder. The invocation reads the extent from data when possible:
 object Draw : FinSet 1
 
 program simplex : Draw -> Draw
-    sample probs <- Dirichlet(alpha)
+    sample probs <- Dirichlet(concentration=alpha)
     return probs
 
 export simplex
@@ -120,10 +123,10 @@ define standardize(x : Real, location : Real, scale : Real) : Real !{} =
 object Row : FinSet 8
 
 program standardized : Row -> Row
-    sample location <- Normal(0.0, 1.0)
-    sample scale <- HalfNormal(1.0)
+    sample location <- Normal(loc=0.0, scale=1.0)
+    sample scale <- HalfNormal(scale=1.0)
     let z <- standardize(x, location, scale)
-    observe y : Row <- Normal(z, 1.0)
+    observe y : Row <- Normal(loc=z, scale=1.0)
     return y
 
 export standardized
@@ -154,10 +157,10 @@ object Row : FinSet 6
 object Component : FinSet 2
 
 program mixture : Row -> Row
-    sample probs <- Dirichlet(2.0) [over=Component]
-    sample mean : Component <- Normal(0.0, 3.0)
+    sample probs <- Dirichlet(concentration=2.0) [over=Component]
+    sample mean : Component <- Normal(loc=0.0, scale=3.0)
     marginalize z : Component <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
-        observe y : Row <- Normal(mean[z], 1.0) [via=item_idx]
+        observe y : Row <- Normal(loc=mean[z], scale=1.0) [via=item_idx]
     return mean
 
 export mixture

@@ -19,7 +19,7 @@ deduction Ambiguous : Term -> Term [semiring=LogProb, start=S, depth=8.0]
         "with" : P = with #[learnable]
 
 program attach : Term -> Weight
-    sample bias <- Normal(0.0, 1.0)
+    sample bias <- Normal(loc=0.0, scale=1.0)
     let chart = parse(Ambiguous, sentence)
     score log_z = chart.goal_weight() + bias
     return log_z

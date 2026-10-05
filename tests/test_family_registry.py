@@ -30,8 +30,10 @@ from quivers.continuous.family_spec import (
     get as registry_get,
     names as registry_names,
 )
-from quivers.continuous.inline import make_inline_distribution
+from quivers.continuous.inline import get_inline_param_names, make_inline_distribution
 from quivers.continuous.spaces import Euclidean
+from quivers.dsl.ast_nodes import DrawArgNamed, DrawArgScalar
+from quivers.dsl.family_schemas import family_parameter_names
 
 
 # ---------------------------------------------------------------------------
@@ -115,12 +117,23 @@ _INLINE_FIXED_TEST_CASES = [
 ]
 
 
+def _named_literal_args(name: str, args: tuple) -> tuple[DrawArgNamed, ...]:
+    parameters = family_parameter_names(name) or get_inline_param_names(name)
+    assert parameters is not None
+    return tuple(
+        DrawArgNamed(parameter=parameter, value=DrawArgScalar(value=value))
+        for parameter, value in zip(parameters, args, strict=True)
+    )
+
+
 @pytest.mark.parametrize("name,args", _INLINE_FIXED_TEST_CASES)
 def test_inline_fixed_distribution_samples(name: str, args: tuple) -> None:
     """All-literal inline distribution produces finite samples in
     the right shape."""
     codomain = Euclidean(name=f"_test_{name}", dim=1)
-    morph, var_names = make_inline_distribution(name, args, codomain)
+    morph, var_names = make_inline_distribution(
+        name, _named_literal_args(name, args), codomain
+    )
     assert var_names is None, "all-literal call should produce no var inputs"
     x = torch.zeros(4, 1)
     samples = morph.rsample(x)
@@ -141,7 +154,7 @@ def test_inline_fixed_distribution_samples(name: str, args: tuple) -> None:
 def test_inline_fixed_log_prob_finite(name: str, args: tuple) -> None:
     """log_prob evaluates to finite values on a sampled point."""
     codomain = Euclidean(name=f"_test_{name}", dim=1)
-    morph, _ = make_inline_distribution(name, args, codomain)
+    morph, _ = make_inline_distribution(name, _named_literal_args(name, args), codomain)
     x = torch.zeros(4, 1)
     samples = morph.rsample(x)
     lp = morph.log_prob(x, samples.float() if samples.dtype == torch.long else samples)

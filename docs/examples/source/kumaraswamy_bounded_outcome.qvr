@@ -30,14 +30,14 @@ object Resp : FinSet 64
 object Val : Real 1
 
 program kumaraswamy_regression : Resp -> Val
-    sample b <- HalfNormal(2.0)
-    sample gamma_0 <- Normal(0.0, 1.0)
-    sample gamma_1 <- Normal(0.0, 1.0)
+    sample b <- HalfNormal(scale=2.0)
+    sample gamma_0 <- Normal(loc=0.0, scale=1.0)
+    sample gamma_1 <- Normal(loc=0.0, scale=1.0)
 
     let eta = gamma_0 + gamma_1 * x
     let a = exp(eta)
 
-    observe y : Resp <- Kumaraswamy(a, b)
+    observe y : Resp <- Kumaraswamy(concentration1=a, concentration0=b)
     return a
 
 export kumaraswamy_regression

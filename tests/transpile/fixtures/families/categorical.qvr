@@ -12,9 +12,9 @@
 object Item : FinSet 8
 object Comp : FinSet 4
 program categorical_fixture : Item -> Item
-    sample probs <- Dirichlet(concentration) [over=Comp]
+    sample probs <- Dirichlet(concentration=concentration) [over=Comp]
     observe cls : Item <- Categorical(probs=probs)
     marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
-        observe r : Item <- Normal(0.0, 1.0) [via=idx]
+        observe r : Item <- Normal(loc=0.0, scale=1.0) [via=idx]
     return probs
 export categorical_fixture

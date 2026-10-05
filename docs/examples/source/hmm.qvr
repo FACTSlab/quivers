@@ -46,9 +46,9 @@ define hmm = initial >> n_step
 # returned initial-state vector, a point of the State simplex
 # embedded in R^8.
 program hmm_program : Step -> StateDist
-    sample initial_row <- Dirichlet(1.0) [over=State]
-    sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
-    sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
+    sample initial_row <- Dirichlet(concentration=1.0) [over=State]
+    sample transition_rows : State <- Dirichlet(concentration=1.0) [over=State, iid_over=State]
+    sample emission_rows : State <- Dirichlet(concentration=1.0) [over=Obs, iid_over=State]
 
     marginalize state <- Categorical(probs=initial_row) [reduction=logsumexp]
         observe obs : Step <- Categorical(probs=emission_rows[state])

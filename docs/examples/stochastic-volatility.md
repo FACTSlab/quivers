@@ -30,17 +30,17 @@ object Step : FinSet 200
 object Val : Real 1
 
 program stochastic_volatility : Step -> Val
-    sample mu <- Normal(0.0, 10.0)
-    sample phi <- Uniform(-1.0, 1.0)
-    sample sigma_h <- HalfCauchy(2.5)
+    sample mu <- Normal(loc=0.0, scale=10.0)
+    sample phi <- Uniform(low=-1.0, high=1.0)
+    sample sigma_h <- HalfCauchy(scale=2.5)
 
     let h_mean = mu + phi * (h_prev - mu)
 
-    sample h : Step <- Normal(h_mean, sigma_h)
+    sample h : Step <- Normal(loc=h_mean, scale=sigma_h)
 
     let scale = exp(0.5 * h)
 
-    observe r : Step <- Normal(0.0, scale)
+    observe r : Step <- Normal(loc=0.0, scale=scale)
     return phi
 
 export stochastic_volatility

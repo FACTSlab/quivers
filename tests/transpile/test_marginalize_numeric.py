@@ -94,10 +94,10 @@ double precision when the model is in closed form."""
 _BETA_BERNOULLI_MIX_SOURCE = """object Cls : FinSet 2
 object Obs : FinSet 30
 program beta_bernoulli_mix : Obs -> Obs
-    sample probs <- Dirichlet(1.0) [over=Cls]
-    sample theta <- Dirichlet(2.0) [over=Cls]
+    sample probs <- Dirichlet(concentration=1.0) [over=Cls]
+    sample theta <- Dirichlet(concentration=2.0) [over=Cls]
     marginalize cls : Cls <- Categorical(probs=probs) [over=Obs, reduction=logsumexp]
-        observe y : Obs <- Bernoulli(theta[cls]) [via=idx]
+        observe y : Obs <- Bernoulli(probs=theta[cls]) [via=idx]
     return probs
 export beta_bernoulli_mix
 """
@@ -106,13 +106,13 @@ export beta_bernoulli_mix
 _NORMAL_MIX_SOURCE = """object Cls : FinSet 2
 object Obs : FinSet 20
 program normal_mix : Obs -> Obs
-    sample probs <- Dirichlet(1.0) [over=Cls]
-    sample mu_low <- Normal(-2.0, 1.0)
-    sample mu_diff <- HalfNormal(1.0)
+    sample probs <- Dirichlet(concentration=1.0) [over=Cls]
+    sample mu_low <- Normal(loc=-2.0, scale=1.0)
+    sample mu_diff <- HalfNormal(scale=1.0)
     let mu = factor c : Cls in mu_low + c * mu_diff
     let sigma = 0.5
     marginalize cls : Cls <- Categorical(probs=probs) [over=Obs, reduction=logsumexp]
-        observe y : Obs <- Normal(mu[cls], sigma) [via=idx]
+        observe y : Obs <- Normal(loc=mu[cls], scale=sigma) [via=idx]
     return probs
 export normal_mix
 """

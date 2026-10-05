@@ -597,8 +597,8 @@ def test_d_dropping_the_observation_changes_the_reference_joint() -> None:
     module = _module(
         "D",
         _source("D").replace(
-            "        observe y : Resp <- Normal(mu[z], 1.0) [via=idx]\n",
-            "        observe y : Resp <- Normal(mu[z], 2.0) [via=idx]\n",
+            "        observe y : Resp <- Normal(loc=mu[z], scale=1.0) [via=idx]\n",
+            "        observe y : Resp <- Normal(loc=mu[z], scale=2.0) [via=idx]\n",
         ),
     )
     point = _D_POINTS[0]

@@ -24,8 +24,8 @@ composite $\Gamma \to \mathcal{G}(\tau_2)$ in
 <!-- compile: false -->
 ```qvr
 program my_prog : X -> Y
-    sample mu <- LogitNormal(0.0, 1.0)
-    sample x <- Normal(mu, 1.0)
+    sample mu <- LogitNormal(mu=0.0, sigma=1.0)
+    sample x <- Normal(loc=mu, scale=1.0)
 
     return x
 
@@ -53,7 +53,7 @@ marginal binds.
 <!-- compile: false -->
 ```qvr
 program prior : X -> Y [effects=[Sample]]
-    sample mu <- Normal(0.0, 1.0)
+    sample mu <- Normal(loc=0.0, scale=1.0)
     return mu
 
 program deterministic : X -> X [effects=[Pure]]
@@ -122,7 +122,7 @@ binding pattern from the distribution call:
 
 <!-- compile: false -->
 ```qvr
-sample x <- Normal(0.0, 1.0)
+sample x <- Normal(loc=0.0, scale=1.0)
 ```
 
 This step introduces `x` as a random variable distributed according
@@ -142,8 +142,8 @@ $\mathbf{Kern}(\mathbf{1}, K^A) \cong \mathbf{Kern}(A, K)$.
 <!-- compile: false -->
 ```qvr
 object Item : FinSet 1000
-sample duration_incr : Item <- HalfNormal(1.0)
-sample by_subject    : Subject <- Normal(0.0, sigma)
+sample duration_incr : Item <- HalfNormal(scale=1.0)
+sample by_subject    : Subject <- Normal(loc=0.0, scale=sigma)
 ```
 
 ### Indexed observe
@@ -160,7 +160,7 @@ use bracket-indexed sections `theta[N]` to refer to plate variables.
 
 <!-- compile: false -->
 ```qvr
-observe cloze_resp : RespCloze <- Bernoulli(intercept_cloze)
+observe cloze_resp : RespCloze <- Bernoulli(probs=intercept_cloze)
 ```
 
 ### Scoped marginalize
@@ -178,7 +178,7 @@ log-likelihood (discrete) or fibrewise integration (continuous);
 <!-- compile: false -->
 ```qvr
 marginalize class : Item <- Categorical(logits=class_logits)
-    observe r : N <- Bernoulli(theta[class[N]])
+    observe r : N <- Bernoulli(probs=theta[class[N]])
 ```
 
 The grouped form with `[over=G]` and per-observe `[via=<idx>]`
@@ -196,7 +196,7 @@ $N \to B$.
 
 <!-- compile: false -->
 ```qvr
-sample by_verb : Verb <- Normal(0.0, sigma)
+sample by_verb : Verb <- Normal(loc=0.0, scale=sigma)
 let intercept_for_item = by_verb[verb_of_item]
 ```
 
@@ -237,11 +237,11 @@ fresh latents per use, no inadvertent tying.
 <!-- compile: false -->
 ```qvr
 # Parametric random-intercepts template: one HalfNormal scale and
-# a per-level Normal(0, sigma) plate, polymorphic over the grouping
+# a per-level Normal(loc=0, scale=sigma) plate, polymorphic over the grouping
 # object G and the half-normal hyperparameter scale.
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    sample sigma <- HalfNormal(scale)
-    sample v : G <- Normal(0.0, sigma)
+    sample sigma <- HalfNormal(scale=scale)
+    sample v : G <- Normal(loc=0.0, scale=sigma)
     return v
 ```
 
@@ -269,7 +269,7 @@ model's posterior kernel $q(\theta \mid \mathrm{data})$.
 object Logits4 : Real 4
 
 program scored : Item -> Logits4
-    sample raw_logits <- Normal(0.0, 1.0)
+    sample raw_logits <- Normal(loc=0.0, scale=1.0)
     return raw_logits
 
 program class_probs(raw_logits) : Item -> Logits4 [effects=[Pure], over=scored]
@@ -319,18 +319,18 @@ batch axes (the complement of `over`). Any axis not in `over` is
 batched by default, which categorically is a product of independent
 distributions on that axis. On a sample step, the `: A` annotation
 beside an `over` clause is the batch plate: `sample rows : Doc <-
-Dirichlet(1.0) [over=Topic]` draws one point of the `Topic`-simplex
+Dirichlet(concentration=1.0) [over=Topic]` draws one point of the `Topic`-simplex
 per document, while an annotation naming one of the `over` axes
 restates it. Without an `over`, the annotation on a vector family
 names the family's own axis when nothing else fixes it (`sample pi :
-K <- Dirichlet(1.0)` draws one `K`-simplex point) and the batch plate
+K <- Dirichlet(concentration=1.0)` draws one `K`-simplex point) and the batch plate
 when the arguments fix the event otherwise (`sample pc : Item <-
-Dirichlet(1.0, 2.0, 3.0)` draws one three-simplex point per item).
+Dirichlet(concentration=[1.0, 2.0, 3.0])` draws one three-simplex point per item).
 
-A vector family's single parameter may be written with its entries
-spread, `Dirichlet(1.0, 2.0, 3.0)`, or as one literal, `Dirichlet(1.0)`,
-the symmetric concentration at the dimension the step's plate, or
-else the program's declared codomain, fixes.
+A vector family's single parameter is named like every other family parameter.
+Write `Dirichlet(concentration=[1.0, 2.0, 3.0])` for an explicit vector or
+`Dirichlet(concentration=1.0)` for a symmetric concentration at the dimension
+fixed by the step's plate or the program's declared codomain.
 
 **Axis names.** Names resolve against the named factors of the
 surrounding morphism's dom and cod (or the type annotation `: T`
@@ -366,19 +366,19 @@ rebinding.
 <!-- compile: false -->
 ```qvr
 # Vector prior: 5-dim MVN over the codomain axis.
-sample mu : Real 5 <- MultivariateNormal(zeros, L) [over=cod]
+sample mu : Real 5 <- MultivariateNormal(loc=zeros, scale_tril=L) [over=cod]
 
 # Matrix prior on a morphism: Kronecker MatrixNormal.
 morphism W : Real 32 -> Real 64 [role=latent, over=[dom, cod]]
-    ~ MatrixNormal(loc, row_scale, col_scale)
+    ~ MatrixNormal(loc=loc, row_covariance=row_scale, col_covariance=col_scale)
 
 # Per-row Dirichlet on a transition kernel: each row is a K-dim
 # simplex independently, rows are iid.
 morphism T : Real K -> Real K [role=latent, over=cod, iid_over=dom]
-    ~ Dirichlet(alpha)
+    ~ Dirichlet(concentration=alpha)
 
 # MVN response per observation row.
-observe y : N <- MultivariateNormal(mu_hat, scale_tril) [over=cod]
+observe y : N <- MultivariateNormal(loc=mu_hat, scale_tril=scale_tril) [over=cod]
 ```
 
 ## Let expressions (arithmetic, primitives, and collections)
@@ -518,20 +518,20 @@ registered families accept literal-or-variable arguments at any position:
 <!-- compile: false -->
 ```qvr
 # all-literal (fixed): Unit -> codomain
-sample x <- Normal(0.0, 1.0)
-sample p <- Beta(2.0, 5.0)
+sample x <- Normal(loc=0.0, scale=1.0)
+sample p <- Beta(concentration1=2.0, concentration0=5.0)
 
 # all-variable (direct): variables -> codomain
-sample y <- Normal(mu, sigma)
-sample b <- Bernoulli(theta)
+sample y <- Normal(loc=mu, scale=sigma)
+sample b <- Bernoulli(probs=theta)
 
 # mixed literal / variable: any combination works
-sample h_cand <- Normal(reset_hidden, 0.5)
-sample z <- Normal(0.0, learned_scale)
-sample r <- TruncatedNormal(mu, sigma, 0.0, 1.0)
+sample h_cand <- Normal(loc=reset_hidden, scale=0.5)
+sample z <- Normal(loc=0.0, scale=learned_scale)
+sample r <- TruncatedNormal(mu=mu, sigma=sigma, low=0.0, high=1.0)
 
 # negative literals
-sample z <- Normal(-1.5, 0.3)
+sample z <- Normal(loc=-1.5, scale=0.3)
 ```
 
 A representative subset of the inline-distribution registry (the
@@ -607,10 +607,10 @@ object Data : FinSet 1
 object Y : Real 2
 
 program regression : Data -> Y
-    sample theta <- LogitNormal(0.0, 1.0)
-    sample y <- Normal(theta, 0.5)
+    sample theta <- LogitNormal(mu=0.0, sigma=1.0)
+    sample y <- Normal(loc=theta, scale=0.5)
 
-    observe _ <- Normal(y, 0.1)
+    observe _ <- Normal(loc=y, scale=0.1)
 
     return y
 ```

@@ -29,6 +29,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
@@ -2277,23 +2278,9 @@ class WebPPLRenderer(RendererBase):
         # object literal using the inner family's `arg_names` from
         # its arg_constraints.
         alias_map = inner_meta.arg_aliases.get("webppl", {})
-        cls_attr = getattr(inner_meta.distribution_class, "arg_constraints", None)
-        if isinstance(cls_attr, dict):
-            keys = tuple(cls_attr.keys())
-        else:
-            keys = ()
-        raw_args = init.args or ()
-        if len(raw_args) > len(keys):
-            raise UnsupportedConstruct(
-                "qvr-webppl",
-                [
-                    f"arg:family-ref:{arg.name}: too many args "
-                    f"({len(raw_args)}) for {init.family} "
-                    f"(expects {len(keys)})"
-                ],
-            )
+        raw_args = bind_family_arguments(init.family, init.args or ())
         entries: list[tuple[str, str]] = []
-        for raw, raw_key in zip(raw_args, keys, strict=False):
+        for raw_key, raw in raw_args:
             keyword = str(alias_map.get(raw_key, raw_key))
             vid = self._render_init_family_arg(ctx, raw)
             entries.append((keyword, vid))
@@ -2315,6 +2302,8 @@ class WebPPLRenderer(RendererBase):
         structured DrawArg variants; translate them to JS
         expression vertices.
         """
+        if not isinstance(raw, (int, float, str)):
+            raw = atom_value(raw)
         if isinstance(raw, (int, float)):
             return self._number_literal(ctx, float(raw))
         if isinstance(raw, str):

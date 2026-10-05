@@ -2,6 +2,6 @@
 object Cls : FinSet 4
 object Obs : Real 4
 program relaxedonehotcategorical_fixture : Obs -> Obs
-    sample z <- RelaxedOneHotCategorical(probs) [over=Cls]
+    sample z <- RelaxedOneHotCategorical(temperature=0.5, probs=[0.0, 0.0, 0.0, 0.0]) [over=Cls]
     return z
 export relaxedonehotcategorical_fixture

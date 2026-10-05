@@ -89,8 +89,8 @@ def main() -> None:
         path.write_text(
             "object Obs : FinSet 4\n\n"
             "program prog : Obs -> Obs\n"
-            "    sample a <- Normal(0.0, 1.0)\n"
-            "    observe y : Obs <- Normal(a, 0.5)\n"
+            "    sample a <- Normal(loc=0.0, scale=1.0)\n"
+            "    observe y : Obs <- Normal(loc=a, scale=0.5)\n"
             "    return a\n"
             "export prog\n"
         )

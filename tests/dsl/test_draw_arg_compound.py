@@ -16,6 +16,7 @@ import textwrap
 from quivers.dsl.ast_nodes import (
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     MorphismDecl,
     ProgramDecl,
@@ -44,7 +45,7 @@ def test_parser_emits_draw_arg_list_for_vector_literal():
     src = """
         object X : FinSet 3
         program p : X -> X
-            sample y : X <- Categorical([0.1, 0.2, 0.7])
+            sample y : X <- Categorical(probs=[0.1, 0.2, 0.7])
             return y
     """
     module = _parse(src)
@@ -52,16 +53,17 @@ def test_parser_emits_draw_arg_list_for_vector_literal():
     assert step.args is not None
     assert len(step.args) == 1
     arg = step.args[0]
-    assert isinstance(arg, DrawArgList)
-    assert not is_matrix(arg)
-    assert list_atoms(arg) == (0.1, 0.2, 0.7)
+    assert isinstance(arg, DrawArgNamed) and arg.parameter == "probs"
+    assert isinstance(arg.value, DrawArgList)
+    assert not is_matrix(arg.value)
+    assert list_atoms(arg.value) == (0.1, 0.2, 0.7)
 
 
 def test_parser_emits_nested_draw_arg_list_for_2d_literal():
     src = """
         object X : FinSet 2
         program p : X -> X
-            sample z : X <- MultivariateNormal([0.0, 0.0], [[1.0, 0.5], [0.5, 1.0]])
+            sample z : X <- MultivariateNormal(loc=[0.0, 0.0], scale_tril=[[1.0, 0.5], [0.5, 1.0]])
             return z
     """
     module = _parse(src)
@@ -69,45 +71,49 @@ def test_parser_emits_nested_draw_arg_list_for_2d_literal():
     assert step.args is not None
     assert len(step.args) == 2
     mean, cov = step.args
+    assert isinstance(mean, DrawArgNamed) and mean.parameter == "loc"
+    assert isinstance(cov, DrawArgNamed) and cov.parameter == "scale_tril"
     # A vector literal is a flat `DrawArgList` of scalar atoms.
-    assert isinstance(mean, DrawArgList)
-    assert not is_matrix(mean)
-    assert list_atoms(mean) == (0.0, 0.0)
+    assert isinstance(mean.value, DrawArgList)
+    assert not is_matrix(mean.value)
+    assert list_atoms(mean.value) == (0.0, 0.0)
     # A matrix literal is a `DrawArgList` whose items are themselves
     # `DrawArgList` rows of scalar atoms.
-    assert isinstance(cov, DrawArgList)
-    assert is_matrix(cov)
-    assert matrix_rows(cov) == ((1.0, 0.5), (0.5, 1.0))
+    assert isinstance(cov.value, DrawArgList)
+    assert is_matrix(cov.value)
+    assert matrix_rows(cov.value) == ((1.0, 0.5), (0.5, 1.0))
 
 
 def test_parser_emits_draw_arg_scalar_for_numeric_literal():
     src = """
         object X : FinSet 3
         program p : X -> X
-            sample y : X <- Categorical(0.5)
+            sample y : X <- Categorical(probs=0.5)
             return y
     """
     module = _parse(src)
     step = _first_sample(module)
     assert step.args is not None
     arg = step.args[0]
-    assert isinstance(arg, DrawArgScalar)
-    assert arg.value == 0.5
+    assert isinstance(arg, DrawArgNamed) and arg.parameter == "probs"
+    assert isinstance(arg.value, DrawArgScalar)
+    assert arg.value.value == 0.5
 
 
 def test_parser_emits_draw_arg_name_for_identifier():
     src = """
         object X : FinSet 3
         program p(probs) : X -> X
-            sample y : X <- Categorical(probs)
+            sample y : X <- Categorical(probs=probs)
             return y
     """
     module = _parse(src)
     step = _first_sample(module)
     assert step.args is not None
     arg = step.args[0]
-    assert isinstance(arg, DrawArgName)
-    assert arg.text == "probs"
+    assert isinstance(arg, DrawArgNamed) and arg.parameter == "probs"
+    assert isinstance(arg.value, DrawArgName)
+    assert arg.value.text == "probs"
 
 
 def test_parser_and_emitter_preserve_a_named_logits_argument():
@@ -121,9 +127,10 @@ def test_parser_and_emitter_preserve_a_named_logits_argument():
     step = _first_sample(module)
     assert step.args is not None
     arg = step.args[0]
-    assert isinstance(arg, DrawArgName)
-    assert arg.text == "logits"
+    assert isinstance(arg, DrawArgNamed)
     assert arg.parameter == "logits"
+    assert isinstance(arg.value, DrawArgName)
+    assert arg.value.text == "logits"
     assert "Categorical(logits=logits)" in module_to_source(module)
 
 
@@ -136,8 +143,12 @@ def test_parser_and_emitter_preserve_a_named_morphism_init_argument():
     decl = module.statements[1]
     assert isinstance(decl, MorphismDecl)
     assert decl.init_family is not None
-    assert decl.init_family.args == ("logits",)
-    assert decl.init_family.arg_parameters == ("logits",)
+    assert len(decl.init_family.args) == 1
+    arg = decl.init_family.args[0]
+    assert isinstance(arg, DrawArgNamed)
+    assert arg.parameter == "logits"
+    assert isinstance(arg.value, DrawArgName)
+    assert arg.value.text == "logits"
     assert "Categorical(logits=logits)" in module_to_source(module)
 
 
@@ -169,8 +180,8 @@ def test_categorical_rejects_probs_and_logits_together():
     src = """
         object X : FinSet 3
         program p : X -> X
-            sample probs : X <- HalfNormal(1.0)
-            sample logits : X <- Normal(0.0, 1.0)
+            sample probs : X <- HalfNormal(scale=1.0)
+            sample logits : X <- Normal(loc=0.0, scale=1.0)
             sample y : X <- Categorical(probs=probs, logits=logits)
             return y
     """
@@ -205,17 +216,17 @@ def test_implicit_family_defaults_emits_warning_diagnostic():
     assert all(d.severity == "warning" for d in target)
 
 
-def test_family_arg_shape_error_for_arity_mismatch():
+def test_family_arg_parameterization_error_for_incomplete_schema():
     src = """
         object X : Real 1
         program p : X -> X
-            sample x : X <- Normal(1, 2, 3)
+            sample x : X <- Normal(loc=1)
             return x
     """
     module = _parse(src)
     diags = validate_family_arg_shapes(module)
-    target = [d for d in diags if d.code == "family-arg-shape"]
-    assert target, f"expected family-arg-shape diagnostic, got {diags!r}"
+    target = [d for d in diags if d.code == "family-arg-parameterization"]
+    assert target, f"expected family-arg-parameterization diagnostic, got {diags!r}"
     assert any(d.severity == "error" for d in target)
 
 

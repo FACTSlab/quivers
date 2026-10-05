@@ -12,6 +12,7 @@ import pathlib
 import panproto
 import torch.distributions.constraints as c
 
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.renderers._python_helpers import (
     PyCtx,
@@ -1560,11 +1561,6 @@ class NumPyroRenderer(RendererBase):
                 ctx,
                 target=specialised,
                 base_decl=decl,
-                inner_arg_names=tuple(
-                    inner_meta.distribution_class.arg_constraints.keys()
-                    if isinstance(inner_meta.distribution_class.arg_constraints, dict)
-                    else ()
-                ),
                 rest_args=args[1:],
                 rest_names=arg_names[1:],
             )
@@ -1584,7 +1580,6 @@ class NumPyroRenderer(RendererBase):
         *,
         target: str,
         base_decl,
-        inner_arg_names: tuple[str, ...],
         rest_args: tuple[IRArg, ...],
         rest_names: tuple[str, ...],
     ) -> str:
@@ -1593,10 +1588,12 @@ class NumPyroRenderer(RendererBase):
         a specialised truncated wrapper for."""
         py = ctx.py
         callee = attribute(py, ("numpyro", "distributions", target))
-        base_args = base_decl.init_family.args or ()
+        base_args = bind_family_arguments(
+            base_decl.init_family.family, base_decl.init_family.args or ()
+        )
         keyword: list[tuple[str, str]] = []
-        for arg, name in zip(base_args, inner_arg_names, strict=False):
-            keyword.append((name, arg_expr(py, arg)))
+        for name, arg in base_args:
+            keyword.append((name, arg_expr(py, atom_value(arg))))
         for arg, name in zip(rest_args, rest_names, strict=False):
             keyword.append((name, self._render_arg(ctx, arg)))
         return call(py, callee, keyword=tuple(keyword))
@@ -1608,16 +1605,12 @@ class NumPyroRenderer(RendererBase):
         inner_family = decl.init_family.family
         inner_meta = FAMILY_META[inner_family]
         target = inner_meta.target_names[_BACKEND]
-        cls_attr = inner_meta.distribution_class.arg_constraints
-        names: tuple[str, ...]
-        if isinstance(cls_attr, dict):
-            names = tuple(cls_attr.keys())
-        else:
-            names = ()
         callee = attribute(py, ("numpyro", "distributions", target))
         keyword: list[tuple[str, str]] = []
-        for arg, name in zip(decl.init_family.args or (), names, strict=False):
-            keyword.append((name, arg_expr(py, arg)))
+        for name, arg in bind_family_arguments(
+            inner_family, decl.init_family.args or ()
+        ):
+            keyword.append((name, arg_expr(py, atom_value(arg))))
         return call(py, callee, keyword=tuple(keyword))
 
     def _truncated_distribution_call(

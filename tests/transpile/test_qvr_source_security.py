@@ -73,8 +73,8 @@ def test_identifier_does_not_carry_python_injection(backend: str) -> None:
     payload = "theta__import__os__system_rm_rf"
     src = f"""object Obs : FinSet 30
 program inject : Obs -> Obs
-    sample {payload} <- Beta(2.0, 5.0)
-    observe y : Obs <- Bernoulli({payload})
+    sample {payload} <- Beta(concentration1=2.0, concentration0=5.0)
+    observe y : Obs <- Bernoulli(probs={payload})
     return {payload}
 export inject
 """
@@ -114,7 +114,7 @@ def test_invalid_identifier_with_special_chars_rejected(
     ):
         src = f"""object Obs : FinSet 30
 program inject : Obs -> Obs
-    sample {payload} <- Beta(2.0, 5.0)
+    sample {payload} <- Beta(concentration1=2.0, concentration0=5.0)
     return {payload}
 export inject
 """
@@ -142,9 +142,9 @@ def test_deep_nesting_does_not_crash(backend: str) -> None:
             nested = f"({nested} + 0.0)"
         src = f"""object Obs : FinSet 5
 program nested : Obs -> Obs
-    sample theta <- Normal(0.0, 1.0)
+    sample theta <- Normal(loc=0.0, scale=1.0)
     let deep = {nested}
-    observe y : Obs <- Normal(theta + deep, 1.0)
+    observe y : Obs <- Normal(loc=theta + deep, scale=1.0)
     return theta
 export nested
 """
@@ -170,8 +170,8 @@ def test_numeric_literal_at_float_extremes(backend: str) -> None:
     for literal in ("1e400", "-1e400", "1e-400", "0.0", "1e308"):
         src = f"""object Obs : FinSet 5
 program extreme : Obs -> Obs
-    sample theta <- Normal({literal}, 1.0)
-    observe y : Obs <- Normal(theta, 1.0)
+    sample theta <- Normal(loc={literal}, scale=1.0)
+    observe y : Obs <- Normal(loc=theta, scale=1.0)
     return theta
 export extreme
 """
@@ -191,8 +191,8 @@ def test_long_identifier_does_not_overflow_buffer(backend: str) -> None:
     long_name = "x" * 10000
     src = f"""object Obs : FinSet 5
 program long : Obs -> Obs
-    sample {long_name} <- Normal(0.0, 1.0)
-    observe y : Obs <- Normal({long_name}, 1.0)
+    sample {long_name} <- Normal(loc=0.0, scale=1.0)
+    observe y : Obs <- Normal(loc={long_name}, scale=1.0)
     return {long_name}
 export long
 """
@@ -212,12 +212,12 @@ def test_many_top_level_declarations(backend: str) -> None:
     """
     n = 500
     samples = "\n    ".join(
-        f"sample x_{i} <- Normal({float(i)}, 1.0)" for i in range(n)
+        f"sample x_{i} <- Normal(loc={float(i)}, scale=1.0)" for i in range(n)
     )
     src = f"""object Obs : FinSet 5
 program many : Obs -> Obs
     {samples}
-    observe y : Obs <- Normal(x_0, 1.0)
+    observe y : Obs <- Normal(loc=x_0, scale=1.0)
     return x_0
 export many
 """
@@ -246,7 +246,7 @@ def test_filesystem_path_in_identifier_does_not_escape(
     ):
         src = f"""object Obs : FinSet 5
 program traverse : Obs -> Obs
-    sample {payload} <- Normal(0.0, 1.0)
+    sample {payload} <- Normal(loc=0.0, scale=1.0)
     return {payload}
 export traverse
 """
@@ -290,7 +290,7 @@ def test_string_literal_does_not_escape_target_quotes(
         "object Obs : FinSet 5\n"
         "program p : Obs -> Obs\n"
         '    let label = "abc\\"; os.system(\'rm -rf /\'); foo = \\"def"\n'
-        "    sample x <- Normal(0.0, 1.0)\n"
+        "    sample x <- Normal(loc=0.0, scale=1.0)\n"
         "    return x\n"
         "export p\n"
     )
@@ -368,7 +368,7 @@ def test_axis_size_overflow_rejected(backend: str) -> None:
     for size in ("2147483647", "9223372036854775807"):
         src = f"""object Obs : FinSet {size}
 program overflow : Obs -> Obs
-    sample theta <- Normal(0.0, 1.0)
+    sample theta <- Normal(loc=0.0, scale=1.0)
     return theta
 export overflow
 """

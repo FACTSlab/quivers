@@ -67,8 +67,8 @@ _LKJ_SOURCE = """
 object Dim : FinSet 4
 
 program correlation_model : Dim -> Dim
-    sample eta <- HalfNormal(2.0)
-    sample chol : Dim <- LKJCholesky(eta)
+    sample eta <- HalfNormal(scale=2.0)
+    sample chol : Dim <- LKJCholesky(concentration=eta)
     return chol
 
 export correlation_model
@@ -79,7 +79,7 @@ _LOGITNORMAL_SOURCE = """
 object Obs : FinSet 8
 
 program logitnormal_model : Obs -> Obs
-    sample theta <- LogitNormal(0.0, 1.0)
+    sample theta <- LogitNormal(mu=0.0, sigma=1.0)
     return theta
 
 export logitnormal_model
@@ -90,7 +90,7 @@ _HALFSTUDENTT_SOURCE = """
 object Resp : FinSet 1
 
 program half_student_t_model : Resp -> Resp
-    sample sigma <- HalfStudentT(3.0, 1.0)
+    sample sigma <- HalfStudentT(df=3.0, scale=1.0)
     return sigma
 
 export half_student_t_model
@@ -103,7 +103,7 @@ _INVERSEWISHART_SOURCE = """
 object Dim : FinSet 3
 
 program inverse_wishart_model : Dim -> Dim
-    sample sigma : Dim <- InverseWishart(7.0, [[1.0, 0.0, 0.0], [0.2, 1.0, 0.0], [0.1, 0.3, 1.0]])
+    sample sigma : Dim <- InverseWishart(df=7.0, scale_tril=[[1.0, 0.0, 0.0], [0.2, 1.0, 0.0], [0.1, 0.3, 1.0]])
     return sigma
 
 export inverse_wishart_model
@@ -125,8 +125,8 @@ _RELAXED_SOURCE = """
 object Obs : FinSet 4
 
 program relaxed_model : Obs -> Obs
-    sample x <- RelaxedBernoulli(0.5, 0.3)
-    sample z : Obs <- RelaxedOneHotCategorical(0.25, [0.1, 0.2, 0.3, 0.4])
+    sample x <- RelaxedBernoulli(temperature=0.5, probs=0.3)
+    sample z : Obs <- RelaxedOneHotCategorical(temperature=0.25, probs=[0.1, 0.2, 0.3, 0.4])
     return z
 
 export relaxed_model

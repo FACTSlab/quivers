@@ -595,9 +595,9 @@ object Resp : FinSet 6
 object Class : FinSet 4
 
 program demo : Resp -> Resp
-    sample probs : Class <- HalfNormal(1.0)
+    sample probs : Class <- HalfNormal(scale=1.0)
     marginalize cls : Class <- Categorical(probs=probs) [over=Item, reduction=sum]
-        observe r : Resp <- HalfNormal(1.0) [via=idx]
+        observe r : Resp <- HalfNormal(scale=1.0) [via=idx]
     return probs
 
 export demo
@@ -629,8 +629,8 @@ def test_status_line_shows_program_entries_and_failures(tmp_path: Path) -> None:
     path.write_text(
         "object Obs : FinSet 4\n\n"
         "program prog : Obs -> Obs\n"
-        "    sample a <- Normal(0.0, 1.0)\n"
-        "    observe y : Obs <- Normal(a, 0.5)\n"
+        "    sample a <- Normal(loc=0.0, scale=1.0)\n"
+        "    observe y : Obs <- Normal(loc=a, scale=0.5)\n"
         "    return a\n"
         "export prog\n\n"
         "define spin(n : Int) : Int !{} =\n    spin(n)\n"

@@ -32,12 +32,12 @@ object Row : FinSet 3
 object Value : Real 1
 
 program shifted : Row -> Value
-    sample offset <- Normal(0.0, 1.0)
+    sample offset <- Normal(loc=0.0, scale=1.0)
     let locations <- traverse(
         [1.0, 2.0, 3.0],
         value -> shift(value, offset),
     )
-    observe y : Row <- Normal(locations, 1.0)
+    observe y : Row <- Normal(loc=locations, scale=1.0)
     return offset
 
 export shifted

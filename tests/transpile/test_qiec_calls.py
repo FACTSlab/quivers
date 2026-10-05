@@ -35,10 +35,10 @@ instance random : Random
 instance score : Score
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let c <- noisy(a)
     let d <- noisy(c)
-    observe y : Obs <- Normal(d, 0.5)
+    observe y : Obs <- Normal(loc=d, scale=0.5)
     return d
 export prog
 """
@@ -54,9 +54,9 @@ define scale(x : Real, k : Int) : Real !{} =
         return rest
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let c <- scale(a, 3)
-    observe y : Obs <- Normal(c, 0.5)
+    observe y : Obs <- Normal(loc=c, scale=0.5)
     return c
 export prog
 """
@@ -64,7 +64,7 @@ export prog
 SCORE = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample x <- Normal(0.0, 1.0)
+    sample x <- Normal(loc=0.0, scale=1.0)
     score penalty = x * x
     return x
 export prog
@@ -74,10 +74,10 @@ CASE_TABLE = """\
 object Class : FinSet 3
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample p <- Beta(1.0, 1.0)
+    sample p <- Beta(concentration1=1.0, concentration0=1.0)
     let leaf = factor cls : Class in { 0 -> log(p), 1 -> log(1.0 - p), 2 -> 0.0, }
     let head = leaf[0]
-    observe y : Obs <- Normal(head, 0.5)
+    observe y : Obs <- Normal(loc=head, scale=0.5)
     return p
 export prog
 """
@@ -175,9 +175,9 @@ def test_gen_marginalizes_through_a_traced_factor() -> None:
 object Item : FinSet 8
 object Comp : FinSet 4
 program prog : Item -> Item
-    sample probs <- Dirichlet(1.0) [over=Comp]
+    sample probs <- Dirichlet(concentration=1.0) [over=Comp]
     marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
-        observe r : Item <- Normal(0.0, 1.0) [via=idx]
+        observe r : Item <- Normal(loc=0.0, scale=1.0) [via=idx]
     return probs
 export prog
 """
@@ -202,9 +202,9 @@ def test_julia_targets_read_a_scalar_binding_as_one_value() -> None:
 object Resp : FinSet 5
 object K : FinSet 3
 program prog : Resp -> Resp
-    sample mu : K <- Normal(0.0, 1.0)
+    sample mu : K <- Normal(loc=0.0, scale=1.0)
     let m0 = mu[0]
-    observe y : Resp <- Normal(m0, 0.5)
+    observe y : Resp <- Normal(loc=m0, scale=0.5)
     return mu
 export prog
 """

@@ -2,6 +2,6 @@
 object Obs : FinSet 4
 object Comp : FinSet 3
 program dirichlet_fixture : Obs -> Obs
-    sample probs <- Dirichlet(concentration) [over=Comp]
+    sample probs <- Dirichlet(concentration=concentration) [over=Comp]
     return probs
 export dirichlet_fixture

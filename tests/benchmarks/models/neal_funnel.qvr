@@ -12,8 +12,8 @@
 # stress.
 object Latent : FinSet 9
 program neal_funnel : Latent -> Latent
-    sample v <- Normal(0.0, 3.0)
+    sample v <- Normal(loc=0.0, scale=3.0)
     let sigma = exp(0.5 * v)
-    sample x : Latent <- Normal(0.0, sigma)
+    sample x : Latent <- Normal(loc=0.0, scale=sigma)
     return v
 export neal_funnel

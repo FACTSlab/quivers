@@ -42,6 +42,7 @@ from quivers.dsl.ast_nodes.module import Module
 from quivers.dsl.ast_nodes.objects import DiscreteConstructor, TypeName
 from quivers.dsl.ast_nodes.program_steps import (
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     LetStep,
     ObserveStep,
@@ -72,22 +73,35 @@ def _scalar(x: float) -> DrawArgScalar:
     return DrawArgScalar(value=float(x))
 
 
+def _named(name: str, value) -> DrawArgNamed:
+    return DrawArgNamed(parameter=name, value=value)
+
+
 def _module(let_value: LetExprNode, *, extra_samples: tuple[str, ...] = ()) -> Module:
     """A one-program module binding ``m = <let_value>`` and observing it."""
     samples = ("a", "b", "c", "u", *extra_samples)
     draws = tuple(
-        SampleStep(vars=(name,), morphism="Normal", args=(_scalar(0.0), _scalar(1.0)))
+        SampleStep(
+            vars=(name,),
+            morphism="Normal",
+            args=(_named("loc", _scalar(0.0)), _named("scale", _scalar(1.0))),
+        )
         for name in samples
     )
     draws += (
         SampleStep(
-            vars=("sigma",), morphism="Uniform", args=(_scalar(0.0), _scalar(1.0))
+            vars=("sigma",),
+            morphism="Uniform",
+            args=(_named("low", _scalar(0.0)), _named("high", _scalar(1.0))),
         ),
         LetStep(name="m", value=let_value),
         ObserveStep(
             vars=("y",),
             morphism="Normal",
-            args=(DrawArgName(text="m"), DrawArgName(text="sigma")),
+            args=(
+                _named("loc", DrawArgName(text="m")),
+                _named("scale", DrawArgName(text="sigma")),
+            ),
             index=_RESP,
         ),
     )
@@ -136,7 +150,10 @@ def _softmax_module() -> Module:
                     SampleStep(
                         vars=("u",),
                         morphism="Normal",
-                        args=(_scalar(0.0), _scalar(1.0)),
+                        args=(
+                            _named("loc", _scalar(0.0)),
+                            _named("scale", _scalar(1.0)),
+                        ),
                         index=component,
                     ),
                     LetStep(
@@ -146,7 +163,11 @@ def _softmax_module() -> Module:
                     ObserveStep(
                         vars=("y",),
                         morphism="Categorical",
-                        args=(DrawArgName(text="m", parameter="probs"),),
+                        args=(
+                            DrawArgNamed(
+                                parameter="probs", value=DrawArgName(text="m")
+                            ),
+                        ),
                         index=_RESP,
                     ),
                 ),

@@ -24,8 +24,8 @@ _FIXTURES = [
 object Resp : FinSet 1
 encoder encode : Resp
 program flip : Resp -> Resp
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return y
 """,
         {"encoder_decl"},

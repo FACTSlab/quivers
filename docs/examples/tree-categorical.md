@@ -45,20 +45,20 @@ object Val : Real 1
 # whose rows are single real numbers, so the codomain is Real 1
 # and not the Resp index the observations are plated over.
 program tree_categorical : Resp -> Val
-    sample p_root <- Beta(1.0, 1.0)
-    sample p_left <- Beta(1.0, 1.0)
-    sample p_right <- Beta(1.0, 1.0)
+    sample p_root <- Beta(concentration1=1.0, concentration0=1.0)
+    sample p_left <- Beta(concentration1=1.0, concentration0=1.0)
+    sample p_right <- Beta(concentration1=1.0, concentration0=1.0)
 
     let leaf_log = factor cls : Class in { 0 -> log(1.0 - p_root) + log(1.0 - p_left), 1 -> log(1.0 - p_root) + log(p_left), 2 -> log(p_root)       + log(1.0 - p_right), 3 -> log(p_root)       + log(p_right), }
 
-    sample sigma_v <- HalfNormal(1.0)
-    sample delta : Verb <- Normal(0.0, sigma_v)
-    sample mu : Class <- Normal(0.0, 1.0)
+    sample sigma_v <- HalfNormal(scale=1.0)
+    sample delta : Verb <- Normal(loc=0.0, scale=sigma_v)
+    sample mu : Class <- Normal(loc=0.0, scale=1.0)
 
     let cell_score = factor v : Verb, cls : Class in delta[v] + mu[cls] + leaf_log[cls]
     let cell0 = cell_score[0, 0]
 
-    observe y : Resp <- Normal(cell0, 0.5)
+    observe y : Resp <- Normal(loc=cell0, scale=0.5)
     return delta
 
 export tree_categorical

@@ -54,13 +54,13 @@ object Batch : FinSet 12
 object Val : Real 1
 
 program ab_test : Batch -> Val
-    sample conc1 : Arm <- HalfCauchy(2.0)
-    sample conc0 : Arm <- HalfCauchy(2.0)
+    sample conc1 : Arm <- HalfCauchy(scale=2.0)
+    sample conc0 : Arm <- HalfCauchy(scale=2.0)
 
     let a = conc1[arm_idx]
     let b = conc0[arm_idx]
 
-    observe y : Batch <- BetaBinomial(n_trials, a, b)
+    observe y : Batch <- BetaBinomial(total_count=n_trials, concentration1=a, concentration0=b)
     return a
 
 export ab_test

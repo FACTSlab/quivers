@@ -148,6 +148,26 @@ program p : K -> K
     assert hop_19_head.migrate(source) == expected
 
 
+def test_v019_to_head_names_all_family_construction_levels() -> None:
+    source = b"""\
+object K : FinSet 3
+morphism prior : K -> K ~ Normal(0.0, 1.0)
+program p : K -> K
+    sample weights <- Dirichlet(1.0, 2.0, 3.0)
+    observe y <- Restrict(Normal(0.0, 1.0), 0.0, 2.0)
+    return y
+"""
+    expected = b"""\
+object K : FinSet 3
+morphism prior : K -> K ~ Normal(loc=0.0, scale=1.0)
+program p : K -> K
+    sample weights <- Dirichlet(concentration=[1.0, 2.0, 3.0])
+    observe y <- Restrict(base=Normal(loc=0.0, scale=1.0), low=0.0, high=2.0)
+    return y
+"""
+    assert hop_19_head.migrate(source) == expected
+
+
 def test_manifest_identity_drift_is_checked_for_v09_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

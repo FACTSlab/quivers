@@ -40,10 +40,10 @@ object Resp : FinSet 400
 object Val : Real 1
 
 program zip_regression : Resp -> Val
-    sample alpha_zero : Out <- Normal(0.0, 5.0)
-    sample beta_zero : Out <- Normal(0.0, 5.0)
-    sample alpha_rate : Out <- Normal(0.0, 5.0)
-    sample beta_rate : Out <- Normal(0.0, 5.0)
+    sample alpha_zero : Out <- Normal(loc=0.0, scale=5.0)
+    sample beta_zero : Out <- Normal(loc=0.0, scale=5.0)
+    sample alpha_rate : Out <- Normal(loc=0.0, scale=5.0)
+    sample beta_rate : Out <- Normal(loc=0.0, scale=5.0)
 
     let az = alpha_zero[out_idx]
     let bz = beta_zero[out_idx]
@@ -52,9 +52,9 @@ program zip_regression : Resp -> Val
     let pi_z = sigmoid(az + bz * x)
     let rate = exp(ar + br * x)
 
-    marginalize z : Resp <- ContinuousBernoulli(pi_z)
+    marginalize z : Resp <- ContinuousBernoulli(probs=pi_z)
         let gated_rate = z * rate
-        observe y : Resp <- Poisson(gated_rate)
+        observe y : Resp <- Poisson(rate=gated_rate)
 
     return beta_rate
 

@@ -98,24 +98,24 @@ program reading_times(concentration : Real) : Trial -> ReadingTime
     let chart = parse(semantic_parser, sentence)
     score syntactic_evidence = chart.goal_weight()
 
-    sample participant_scale <- HalfStudentT(3.0, 0.5)
-    sample item_scale <- HalfStudentT(3.0, 0.5)
-    sample residual_scale <- HalfStudentT(4.0, 0.25)
+    sample participant_scale <- HalfStudentT(df=3.0, scale=0.5)
+    sample item_scale <- HalfStudentT(df=3.0, scale=0.5)
+    sample residual_scale <- HalfStudentT(df=4.0, scale=0.25)
 
-    sample participant_raw : Participant <- Normal(0.0, 1.0)
-    sample item_raw : Item <- Normal(0.0, 1.0)
-    sample analysis_shift : Analysis <- Normal(0.0, 0.5)
-    sample analysis_prob : Item <- Dirichlet(concentration) [over=Analysis, iid_over=Item]
+    sample participant_raw : Participant <- Normal(loc=0.0, scale=1.0)
+    sample item_raw : Item <- Normal(loc=0.0, scale=1.0)
+    sample analysis_shift : Analysis <- Normal(loc=0.0, scale=0.5)
+    sample analysis_prob : Item <- Dirichlet(concentration=concentration) [over=Analysis, iid_over=Item]
 
     let participant_effect = participant_scale * participant_raw[participant_idx]
     let item_effect = item_scale * item_raw[item_idx]
     let robust_intercept <- robustify(grand_mean)
     let mean_log_rt = robust_intercept + participant_effect + item_effect
 
-    observe log_rt : Trial <- Normal(mean_log_rt, residual_scale)
+    observe log_rt : Trial <- Normal(loc=mean_log_rt, scale=residual_scale)
 
     marginalize analysis : Analysis <- Categorical(probs=analysis_prob) [over=Item, reduction=logsumexp]
-        observe ambiguity_rating : Trial <- Normal(analysis_shift[analysis], residual_scale) [via=item_idx]
+        observe ambiguity_rating : Trial <- Normal(loc=analysis_shift[analysis], scale=residual_scale) [via=item_idx]
 
     let held_out <- complete[Missing](construct Absent() as Measurement(Missing), robust_intercept, residual_scale)
     return held_out

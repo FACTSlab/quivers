@@ -25,11 +25,11 @@ object Item : FinSet 100
 # dict; free variables in `let` expressions resolve from the
 # conditioning data at trace time (host-data channel).
 program regression : Item -> Item [effects=[Sample, Score]]
-    sample sigma  <- HalfNormal(1.0)
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample sigma  <- HalfNormal(scale=1.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let mu = beta_0 + beta_1 * x
-    observe y : Item <- Normal(mu, sigma)
+    observe y : Item <- Normal(loc=mu, scale=sigma)
     return y
 
 export regression

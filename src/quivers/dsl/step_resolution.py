@@ -22,6 +22,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     DrawStep,
     Expr,
@@ -124,6 +125,8 @@ def _draw_arg_to_wire(arg: DrawArg) -> str | float:
     """Lower a `DrawArg` atomic variant to its wire form. Compound
     variants encode positionally so the legacy backend pipeline
     receives the structural literal as a parseable string surrogate."""
+    if isinstance(arg, DrawArgNamed):
+        return _draw_arg_to_wire(arg.value)
     if isinstance(arg, DrawArgScalar):
         return arg.value
     if isinstance(arg, DrawArgName):
@@ -237,6 +240,8 @@ def _let_expr_value_names(expr: LetExprNode) -> frozenset[str]:
 
 def _draw_arg_value_names(arg: DrawArg) -> frozenset[str]:
     """Return every name a draw-step argument reads as a value."""
+    if isinstance(arg, DrawArgNamed):
+        return _draw_arg_value_names(arg.value)
     if isinstance(arg, DrawArgName):
         return frozenset({arg.text})
     if isinstance(arg, DrawArgIndex):
@@ -817,8 +822,7 @@ def _from_init_family(
 ) -> ResolvedDist:
     """Unfold a ``~ Family(args)`` init clause.
 
-    ``init.args`` are already in wire form (``str`` identifiers or
-    ``float`` literals); the step's own args arrive as `DrawArg`
+    ``init.args`` and the step's own args are structural `DrawArg`
     variants and are lowered to wire form here. When the declaration
     carries explicit init args and the step also supplies args, the
     step args take precedence; otherwise the declaration's init args
@@ -841,7 +845,7 @@ def _from_init_family(
         if step_args:
             wire = tuple(_draw_arg_to_wire(a) for a in step_args)
         else:
-            wire = init.args
+            wire = tuple(_draw_arg_to_wire(argument) for argument in init.args)
         return ResolvedDist(
             family=init.family,
             args=wire,

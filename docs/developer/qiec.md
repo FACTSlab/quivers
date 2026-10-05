@@ -408,9 +408,9 @@ define noisy(x : Real) : Real !{random} =
     return y
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let c <- noisy(a)
-    observe y <- Normal(c, 0.5)
+    observe y <- Normal(loc=c, scale=0.5)
     return c
 export prog
 

@@ -106,8 +106,8 @@ def test_dsl_observe_zero_inflated_poisson() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- ZeroInflatedPoisson(pi, rate)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- ZeroInflatedPoisson(zero_prob=pi, rate=rate)
     return y
 export m
 """)
@@ -127,8 +127,8 @@ def test_dsl_observe_hurdle_poisson() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- HurdlePoisson(pi, rate)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- HurdlePoisson(zero_prob=pi, rate=rate)
     return y
 export m
 """)

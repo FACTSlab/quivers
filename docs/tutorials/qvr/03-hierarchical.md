@@ -102,11 +102,11 @@ The standard fix is to reparameterise ([Papaspiliopoulos, Roberts & Sköld, 2007
 ```qvr
 object School : FinSet 8
 program eight_schools_noncentred : School -> School [effects=[Sample, Score]]
-    sample mu  <- Normal(0.0, 5.0)
-    sample tau <- HalfNormal(5.0)
-    sample eta : School <- Normal(0.0, 1.0)
+    sample mu  <- Normal(loc=0.0, scale=5.0)
+    sample tau <- HalfNormal(scale=5.0)
+    sample eta : School <- Normal(loc=0.0, scale=1.0)
     let theta = mu + tau * eta
-    observe y : School <- Normal(theta, sigma_j)
+    observe y : School <- Normal(loc=theta, scale=sigma_j)
     return theta
 
 export eight_schools_noncentred

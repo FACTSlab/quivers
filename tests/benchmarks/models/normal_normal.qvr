@@ -12,7 +12,7 @@
 # Gaussian, so an AutoNormalGuide should be near-exact.
 object Obs : FinSet 30
 program normal_normal : Obs -> Obs
-    sample mu <- Normal(0.0, 1.0)
-    observe y : Obs <- Normal(mu, 1.0)
+    sample mu <- Normal(loc=0.0, scale=1.0)
+    observe y : Obs <- Normal(loc=mu, scale=1.0)
     return mu
 export normal_normal

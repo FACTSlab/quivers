@@ -4,9 +4,9 @@
 object Coef : FinSet 4
 object Obs : FinSet 200
 program horseshoe_fixture : Obs -> Obs
-    sample tau <- HalfCauchy(1.0)
-    sample lambda_local : Coef <- HalfCauchy(1.0)
-    sample z_raw : Coef <- Normal(0.0, 1.0)
+    sample tau <- HalfCauchy(scale=1.0)
+    sample lambda_local : Coef <- HalfCauchy(scale=1.0)
+    sample z_raw : Coef <- Normal(loc=0.0, scale=1.0)
     let beta = tau * lambda_local * z_raw
     return beta
 export horseshoe_fixture

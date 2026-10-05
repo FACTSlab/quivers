@@ -1,8 +1,8 @@
 # Auto-generated fixture exercising the Weibull family.
 # Family lacks an inline factory; declared via a morphism
-# kernel with `~ Weibull(1.5, 1.0)`.
+# kernel with `~ Weibull(scale=1.5, concentration=1.0)`.
 object Obs : Real 4
-morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(1.5, 1.0)
+morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(scale=1.5, concentration=1.0)
 program weibull_fixture : Obs -> Obs
     sample x <- weibull_kernel
     return x

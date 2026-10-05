@@ -274,7 +274,7 @@ _SCALAR_DIRICHLET_SRC = """
 object K : FinSet 4
 
 program dirichlet_scalar_conc : K -> K
-    sample p <- Dirichlet(a) [over=K]
+    sample p <- Dirichlet(concentration=a) [over=K]
     return p
 
 export dirichlet_scalar_conc

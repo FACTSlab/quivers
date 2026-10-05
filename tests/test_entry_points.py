@@ -48,10 +48,10 @@ instance random : Random
 instance score : Score
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let b <- shift(a, 2.0)
     let c <- noisy(b)
-    observe y : Obs <- Normal(c, 0.5)
+    observe y : Obs <- Normal(loc=c, scale=0.5)
     return c
 export prog
 """
@@ -184,13 +184,13 @@ _TEMPLATE = """\
 object School : FinSet 8
 object Effect : Real 1
 program school_effects(spread : Real, K : FinSet) : K -> Effect
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 program pooled : School -> Effect
     sample theta <- school_effects(0.6, School)
-    sample sigma <- LogNormal(0.0, 0.5)
-    observe y : School <- Normal(theta, sigma)
+    sample sigma <- LogNormal(loc=0.0, scale=0.5)
+    observe y : School <- Normal(loc=theta, scale=sigma)
     return theta
 export pooled
 """

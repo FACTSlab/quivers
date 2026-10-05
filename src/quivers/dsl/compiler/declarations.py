@@ -51,6 +51,8 @@ from quivers.dsl.ast_nodes import (
     CategoryDecl,
     CompositionDecl,
     CompositionRuleEntry,
+    DrawArgNamed,
+    DrawArgScalar,
     ExprIdent,
     MorphismDecl,
     RuleDecl,
@@ -1092,7 +1094,10 @@ class _DeclarationsMixin:
         domain = self._resolve_any_space(decl.domain)
         codomain = self._resolve_any_space(decl.codomain)
         explicit_args = decl.init_family.args if decl.init_family is not None else ()
-        if explicit_args and all(isinstance(arg, float) for arg in explicit_args):
+        if explicit_args and all(
+            isinstance(arg, DrawArgNamed) and isinstance(arg.value, DrawArgScalar)
+            for arg in explicit_args
+        ):
             network_options = {
                 entry.key
                 for entry in decl.options

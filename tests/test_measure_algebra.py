@@ -370,8 +370,8 @@ def test_operator_measure_draws_one_value_per_row_and_coordinate() -> None:
     object Out : Real 1
 
     program prior : Obs -> Out
-        sample scale <- HalfNormal(2.0)
-        sample shift <- TruncatedNormal(0.0, 1.0, -1.0, 1.0)
+        sample scale <- HalfNormal(scale=2.0)
+        sample shift <- TruncatedNormal(mu=0.0, sigma=1.0, low=-1.0, high=1.0)
         return scale
     export prior
     """

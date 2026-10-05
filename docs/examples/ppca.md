@@ -59,15 +59,15 @@ define ppca = Z >> W
 # sampled transposed (ObsDim -> LatentDim) so the per-Resp inner
 # product is two compatible Resp-by-LatentDim gathers.
 program ppca_program : Resp -> Val
-    sample sigma <- HalfCauchy(2.5)
-    sample Z_mat : Item <- Normal(0.0, 1.0) [over=LatentDim, iid_over=Item]
-    sample W_mat : ObsDim <- Normal(0.0, 1.0) [over=LatentDim, iid_over=ObsDim]
+    sample sigma <- HalfCauchy(scale=2.5)
+    sample Z_mat : Item <- Normal(loc=0.0, scale=1.0) [over=LatentDim, iid_over=Item]
+    sample W_mat : ObsDim <- Normal(loc=0.0, scale=1.0) [over=LatentDim, iid_over=ObsDim]
 
     let z_row = Z_mat[item_idx]
     let w_row = W_mat[obs_idx]
     let mu = sum(z_row * w_row)
 
-    observe y : Resp <- Normal(mu, sigma)
+    observe y : Resp <- Normal(loc=mu, scale=sigma)
     return y
 
 export ppca_program
@@ -83,7 +83,7 @@ The following matrix-normal declaration is an optional alternative, not part of 
 
 <!-- compile: false -->
 ```qvr
-morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(0.0, 1.0, 1.0) over (dom, cod)
+morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(loc=0.0, row_covariance=1.0, col_covariance=1.0) over (dom, cod)
 ```
 
 It would place a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The runnable `ppca_program` uses indexed Normal draws instead.

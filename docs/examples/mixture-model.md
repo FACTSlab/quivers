@@ -50,11 +50,11 @@ object Resp : FinSet 100
 object Weights : Real 3
 
 program gmm(alpha : Real) : Resp -> Weights
-    sample probs <- Dirichlet(alpha) [over=Component]
-    sample mu : Component <- Normal(0.0, 5.0)
-    sample sigma : Component <- HalfNormal(1.0)
+    sample probs <- Dirichlet(concentration=alpha) [over=Component]
+    sample mu : Component <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Component <- HalfNormal(scale=1.0)
 
-    observe r : Resp <- MixtureNormal(probs, mu, sigma)
+    observe r : Resp <- MixtureNormal(weights=probs, loc=mu, scale=sigma)
 
     return probs
 

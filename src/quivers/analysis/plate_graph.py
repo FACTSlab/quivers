@@ -40,8 +40,12 @@ from typing import Literal
 import didactic.api as dx
 
 from quivers.dsl.ast_nodes import (
+    DrawArg,
+    DrawArgDist,
     DrawArgIndex,
+    DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     LetStep,
     MarginalizeStep,
     ObserveStep,
@@ -291,7 +295,16 @@ def _step_args(step: object) -> tuple[str, ...]:
     if not args:
         return ()
     out: list[str] = []
-    for a in args:
+
+    def collect(a: DrawArg | str) -> None:
+        if isinstance(a, DrawArgNamed):
+            collect(a.value)
+        elif isinstance(a, DrawArgDist):
+            for nested in a.args:
+                collect(nested)
+        elif isinstance(a, DrawArgList):
+            for nested in a.items:
+                collect(nested)
         if isinstance(a, DrawArgIndex):
             if a.name:
                 out.append(a.name)
@@ -300,6 +313,9 @@ def _step_args(step: object) -> tuple[str, ...]:
             out.append(a.text)
         elif isinstance(a, str):
             out.append(a)
+
+    for a in args:
+        collect(a)
     return tuple(out)
 
 

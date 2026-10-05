@@ -23,6 +23,18 @@ import torch.nn as nn
 from quivers.continuous.inline import make_inline_distribution
 from quivers.continuous.spaces import Euclidean
 from quivers.dsl import loads
+from quivers.dsl.ast_nodes import DrawArgName, DrawArgNamed
+
+
+def _mixture_args(weights: str, loc: str, scale: str) -> tuple[DrawArgNamed, ...]:
+    return tuple(
+        DrawArgNamed(parameter=parameter, value=DrawArgName(text=value))
+        for parameter, value in (
+            ("weights", weights),
+            ("loc", loc),
+            ("scale", scale),
+        )
+    )
 
 
 def _reference_mixture_logprob(
@@ -48,7 +60,10 @@ def test_inline_mixture_normal_log_prob_matches_reference() -> None:
         "s": Euclidean(name="s", dim=k),
     }
     morph, order = make_inline_distribution(
-        "MixtureNormal", ("w", "m", "s"), Euclidean(name="R", dim=1), types
+        "MixtureNormal",
+        _mixture_args("w", "m", "s"),
+        Euclidean(name="R", dim=1),
+        types,
     )
     assert order == ("w", "m", "s")
 
@@ -77,10 +92,10 @@ def test_inline_mixture_normal_per_row_gmm_compiles_and_fits() -> None:
         object Resp : FinSet 300
 
         program gmm : Resp -> Resp
-            sample probs <- Dirichlet(1.0) [over=Component]
-            sample mu : Component <- Normal(0.0, 5.0)
-            sample sigma : Component <- HalfNormal(1.0)
-            observe r : Resp <- MixtureNormal(probs, mu, sigma)
+            sample probs <- Dirichlet(concentration=1.0) [over=Component]
+            sample mu : Component <- Normal(loc=0.0, scale=5.0)
+            sample sigma : Component <- HalfNormal(scale=1.0)
+            observe r : Resp <- MixtureNormal(weights=probs, loc=mu, scale=sigma)
             return probs
 
         export gmm
@@ -115,7 +130,10 @@ def test_inline_multi_vector_splits_by_declared_dim() -> None:
         "b": Euclidean(name="b", dim=3),
     }
     morph, _ = make_inline_distribution(
-        "MixtureNormal", ("a", "a", "b"), Euclidean(name="R", dim=1), types
+        "MixtureNormal",
+        _mixture_args("a", "a", "b"),
+        Euclidean(name="R", dim=1),
+        types,
     )
     # Two length-2 vectors then a length-3 vector: 7 columns total.
     stacked = torch.arange(7.0).reshape(1, -1)

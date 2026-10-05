@@ -12,7 +12,7 @@ A typed signature like `program f : A -> B` exists so the compiler can reject pr
 ```qvr
 # A program declared with effects=[Pure], but the body contains `observe`:
 program p : Item -> Item [effects=[Pure]]
-    observe y : Item <- Normal(0, 1)
+    observe y : Item <- Normal(loc=0, scale=1)
     return y
 # CompileError: line 2, col 4: program declared effects=[Pure]
 #               but uses Score effect on `observe y`

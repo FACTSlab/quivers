@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program beta_fixture : Obs -> Obs
-    sample theta <- Beta(2.0, 2.0)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
     return theta
 export beta_fixture

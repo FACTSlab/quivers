@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program halfcauchy_fixture : Obs -> Obs
-    sample theta <- HalfCauchy(1.0)
+    sample theta <- HalfCauchy(scale=1.0)
     return theta
 export halfcauchy_fixture

@@ -358,26 +358,26 @@ class TestPriorOverrides:
         src = formula_to_qvr(
             "y ~ x",
             data=base_df,
-            priors={"beta_x": "Normal(0.0, 1.0)"},
+            priors={"beta_x": "Normal(loc=0.0, scale=1.0)"},
         )
-        assert "beta_x <- Normal(0.0, 1.0)" in src
-        assert "intercept <- Normal(0.0, 5.0)" in src
+        assert "beta_x <- Normal(loc=0.0, scale=1.0)" in src
+        assert "intercept <- Normal(loc=0.0, scale=5.0)" in src
 
     def test_override_random_scale(self, base_df):
         src = formula_to_qvr(
             "y ~ x + (1 | g)",
             data=base_df,
-            priors={"sigma_g_Intercept": "HalfCauchy(0.5)"},
+            priors={"sigma_g_Intercept": "HalfCauchy(scale=0.5)"},
         )
-        assert "sigma_g_Intercept <- HalfCauchy(0.5)" in src
+        assert "sigma_g_Intercept <- HalfCauchy(scale=0.5)" in src
 
     def test_override_observation_scale(self, base_df):
         src = formula_to_qvr(
             "y ~ x",
             data=base_df,
-            priors={"sigma": "HalfNormal(0.5)"},
+            priors={"sigma": "HalfNormal(scale=0.5)"},
         )
-        assert "sigma <- HalfNormal(0.5)" in src
+        assert "sigma <- HalfNormal(scale=0.5)" in src
 
 
 # ---------------------------------------------------------------------------
@@ -982,30 +982,35 @@ class TestFamilyLinkDefaults:
     def test_gaussian_carries_sigma(self, base_df):
         src = formula_to_qvr("y ~ x", data=base_df, family="gaussian")
         assert "sigma <- HalfCauchy" in src
-        assert "Normal(mu, sigma)" in src
+        assert "Normal(loc=mu, scale=sigma)" in src
 
     def test_negbin_carries_disp(self, count_df):
         src = formula_to_qvr("y ~ x", data=count_df, family="negative_binomial")
         assert "disp <-" in src
         assert "negative_binomial_probs = mu / (mu + disp)" in src
-        assert "NegativeBinomial(disp, negative_binomial_probs)" in src
+        assert (
+            "NegativeBinomial(total_count=disp, probs=negative_binomial_probs)" in src
+        )
 
     def test_gamma_converts_mean_shape_to_concentration_rate(self, gamma_df):
         src = formula_to_qvr("y ~ x", data=gamma_df, family="gamma")
         assert "gamma_rate = shape / mu" in src
-        assert "Gamma(shape, gamma_rate)" in src
+        assert "Gamma(concentration=shape, rate=gamma_rate)" in src
         loads(src)
 
     def test_beta_converts_mean_precision_to_concentrations(self, beta_df):
         src = formula_to_qvr("y ~ x", data=beta_df, family="beta")
         assert "beta_concentration1 = mu * phi" in src
         assert "beta_concentration0 = (1.0 - mu) * phi" in src
-        assert "Beta(beta_concentration1, beta_concentration0)" in src
+        assert (
+            "Beta(concentration1=beta_concentration1, "
+            "concentration0=beta_concentration0)" in src
+        )
         loads(src)
 
     def test_student_t_uses_df_location_scale_order(self, base_df):
         src = formula_to_qvr("y ~ x", data=base_df, family="student_t")
-        assert "StudentT(nu, mu, sigma)" in src
+        assert "StudentT(df=nu, loc=mu, scale=sigma)" in src
         loads(src)
 
     @pytest.mark.parametrize(
@@ -1019,14 +1024,14 @@ class TestFamilyLinkDefaults:
         self, count_df, family, constructor
     ):
         src = formula_to_qvr("y ~ x", data=count_df, family=family)
-        assert f"{constructor}(zi, mu)" in src
+        assert f"{constructor}(zero_prob=zi, rate=mu)" in src
         loads(src)
 
     def test_binomial_uses_scalar_or_per_row_trials(self, binary_df):
         fixed = formula_to_qvr(
             "y ~ x", data=binary_df, family="binomial", binomial_trials=4
         )
-        assert "Binomial(4.0, mu)" in fixed
+        assert "Binomial(total_count=4.0, probs=mu)" in fixed
         loads(fixed)
 
         varying_df = binary_df.copy()
@@ -1037,7 +1042,7 @@ class TestFamilyLinkDefaults:
             family="binomial",
             binomial_trials="trials",
         )
-        assert "Binomial(trials, mu)" in varying
+        assert "Binomial(total_count=trials, probs=mu)" in varying
         loads(varying)
 
     def test_cumulative_builds_ordered_shared_cutpoints(self):
@@ -1049,7 +1054,7 @@ class TestFamilyLinkDefaults:
         )
         src = formula_to_qvr("y ~ x", data=df, family="cumulative")
         assert "cutpoint_cumulative = cumsum(exp(cutpoint_log_spacing))" in src
-        assert "OrderedLogistic(mu, cutpoints)" in src
+        assert "OrderedLogistic(predictor=mu, cutpoints=cutpoints)" in src
         loads(src)
 
     def test_cumulative_rejects_noncontiguous_categories(self):
@@ -1101,19 +1106,28 @@ class TestFamilyLinkDefaults:
             family="mixture",
             mixture_components=3,
             priors={
-                "mixture_logit": "Normal(0.0, 0.5)",
-                "mixture_offset": "Normal(0.0, 2.0)",
-                "mixture_scale": "HalfNormal(1.0)",
+                "mixture_logit": "Normal(loc=0.0, scale=0.5)",
+                "mixture_offset": "Normal(loc=0.0, scale=2.0)",
+                "mixture_scale": "HalfNormal(scale=1.0)",
             },
         )
         assert "object FormulaComponent : FinSet 3" in src
         assert "object FormulaComponentContrast : FinSet 2" in src
-        assert "mixture_logit : FormulaComponentContrast <- Normal(0.0, 0.5)" in src
-        assert "mixture_offset : FormulaComponentContrast <- Normal(0.0, 2.0)" in src
-        assert "mixture_scale : FormulaComponent <- HalfNormal(1.0)" in src
+        assert (
+            "mixture_logit : FormulaComponentContrast <- "
+            "Normal(loc=0.0, scale=0.5)" in src
+        )
+        assert (
+            "mixture_offset : FormulaComponentContrast <- "
+            "Normal(loc=0.0, scale=2.0)" in src
+        )
+        assert "mixture_scale : FormulaComponent <- HalfNormal(scale=1.0)" in src
         assert "mixture_weights = softmax(mixture_logits)" in src
         assert "mixture_offsets = factor component : FormulaComponent" in src
-        assert "MixtureNormal(mixture_weights, mixture_locations, mixture_scale)" in src
+        assert (
+            "MixtureNormal(weights=mixture_weights, loc=mixture_locations, "
+            "scale=mixture_scale)" in src
+        )
         loads(src)
 
     def test_mixture_requires_at_least_two_components(self, mixture_df):
@@ -1309,8 +1323,9 @@ class TestCategoricalAndMixtureInference:
             seed=0,
         )
         assert f"object FormulaComponent : FinSet {components}" in result.qvr_source
-        assert "MixtureNormal(mixture_weights, mixture_locations, mixture_scale)" in (
-            result.qvr_source
+        assert (
+            "MixtureNormal(weights=mixture_weights, loc=mixture_locations, "
+            "scale=mixture_scale)" in result.qvr_source
         )
 
     def test_fitted_source_preserves_requested_priors(self, mixture_df):
@@ -1319,14 +1334,14 @@ class TestCategoricalAndMixtureInference:
             data=mixture_df,
             family="mixture",
             mixture_components=3,
-            fixed_prior="Normal(0.0, 3.0)",
-            priors={"mixture_scale": "HalfNormal(0.75)"},
+            fixed_prior="Normal(loc=0.0, scale=3.0)",
+            priors={"mixture_scale": "HalfNormal(scale=0.75)"},
             method="svi",
             num_samples=1,
             seed=0,
         )
-        assert "intercept <- Normal(0.0, 3.0)" in result.qvr_source
-        assert "mixture_scale : FormulaComponent <- HalfNormal(0.75)" in (
+        assert "intercept <- Normal(loc=0.0, scale=3.0)" in result.qvr_source
+        assert "mixture_scale : FormulaComponent <- HalfNormal(scale=0.75)" in (
             result.qvr_source
         )
 
@@ -1344,7 +1359,9 @@ class TestPriorAutoscaling:
         the column's units."""
         src = formula_to_qvr("y ~ x", data=base_df, family="gaussian")
         rms = float(np.sqrt(np.mean(np.square(base_df["x"].to_numpy()))))
-        match = re.search(r"sample beta_x <- Normal\(0\.0, ([0-9.eE+-]+)\)", src)
+        match = re.search(
+            r"sample beta_x <- Normal\(loc=0\.0, scale=([0-9.eE+-]+)\)", src
+        )
         assert match, f"no autoscaled beta_x prior in:\n{src}"
         assert float(match.group(1)) == pytest.approx(5.0 / rms, rel=1e-6)
 
@@ -1358,7 +1375,9 @@ class TestPriorAutoscaling:
         scales = [
             float(s)
             for s in re.findall(
-                r"sample beta_poly_x_2_\d <- Normal\(0\.0, ([0-9.eE+-]+)\)", src
+                r"sample beta_poly_x_2_\d <- "
+                r"Normal\(loc=0\.0, scale=([0-9.eE+-]+)\)",
+                src,
             )
         ]
         assert len(scales) == 2
@@ -1371,7 +1390,7 @@ class TestPriorAutoscaling:
         """The intercept multiplies a column of ones, so there is no
         scale to correct for."""
         src = formula_to_qvr("y ~ x", data=base_df, family="gaussian")
-        assert "sample intercept <- Normal(0.0, 5.0)" in src
+        assert "sample intercept <- Normal(loc=0.0, scale=5.0)" in src
 
     def test_explicit_prior_is_emitted_as_written(self, base_df):
         """An override is the user's statement about that coefficient,
@@ -1380,6 +1399,6 @@ class TestPriorAutoscaling:
             "y ~ x",
             data=base_df,
             family="gaussian",
-            priors={"beta_x": "Normal(0.0, 0.25)"},
+            priors={"beta_x": "Normal(loc=0.0, scale=0.25)"},
         )
-        assert "sample beta_x <- Normal(0.0, 0.25)" in src
+        assert "sample beta_x <- Normal(loc=0.0, scale=0.25)" in src

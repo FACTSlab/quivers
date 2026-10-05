@@ -79,10 +79,10 @@ A program declaration fixes a categorical boundary and introduces its body:
 object Row : FinSet 8
 
 program regression : Row -> Row
-    sample location <- Normal(0.0, 2.0)
-    sample scale <- HalfNormal(1.0)
+    sample location <- Normal(loc=0.0, scale=2.0)
+    sample scale <- HalfNormal(scale=1.0)
     let mean = location + offset
-    observe y : Row <- Normal(mean, scale)
+    observe y : Row <- Normal(loc=mean, scale=scale)
     return y
 ```
 
@@ -141,9 +141,9 @@ An annotation after the bound name introduces a batch axis:
 object Group : FinSet 8
 
 program hierarchical : Group -> Group
-    sample tau <- HalfNormal(1.0)
-    sample group_effect : Group <- Normal(0.0, tau)
-    observe y : Group <- Normal(group_effect, sigma)
+    sample tau <- HalfNormal(scale=1.0)
+    sample group_effect : Group <- Normal(loc=0.0, scale=tau)
+    observe y : Group <- Normal(loc=group_effect, scale=sigma)
     return y
 ```
 

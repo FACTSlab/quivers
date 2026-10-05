@@ -30,27 +30,51 @@ re-sugars on the way out.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgDist,
     DrawArgList,
+    DrawArgNamed,
     DrawArgScalar,
     ObserveStep,
     SampleStep,
 )
+from quivers.dsl.draw_args import bind_family_arguments
 
 
-def _dist(family: str, *args: DrawArg) -> DrawArgDist:
-    return DrawArgDist(family=family, args=tuple(args))
+def _named(parameter: str, value: DrawArg) -> DrawArgNamed:
+    return DrawArgNamed(parameter=parameter, value=value)
+
+
+def _dist(family: str, **arguments: DrawArg) -> DrawArgDist:
+    return DrawArgDist(
+        family=family,
+        args=tuple(_named(parameter, value) for parameter, value in arguments.items()),
+    )
 
 
 def _scalar(value: float) -> DrawArgScalar:
     return DrawArgScalar(value=float(value))
 
 
-def _all_scalar(args: tuple[DrawArg, ...]) -> bool:
-    return all(isinstance(a, DrawArgScalar) for a in args)
+def _literal_values(
+    family: str,
+    args: tuple[DrawArg, ...],
+) -> tuple[DrawArgScalar, ...] | None:
+    """Return keyword-bound scalar values in the family's canonical order."""
+    try:
+        bound = bind_family_arguments(family, args, SUGAR_PARAMETERS[family])
+    except TypeError:
+        # The normal validation pass owns diagnostics for incomplete or
+        # otherwise malformed family calls. Sugar only canonicalizes calls
+        # that are already structurally complete.
+        return None
+    values = tuple(value for _, value in bound)
+    if not all(isinstance(value, DrawArgScalar) for value in values):
+        return None
+    return cast(tuple[DrawArgScalar, ...], values)
 
 
 def _desugar_truncated_normal(
@@ -61,7 +85,11 @@ def _desugar_truncated_normal(
             f"TruncatedNormal: expected (mu, sigma, low, high), got {len(args)} args"
         )
     mu, sigma, low, high = args
-    return "Restrict", (_dist("Normal", mu, sigma), low, high)
+    return "Restrict", (
+        _named("base", _dist("Normal", loc=mu, scale=sigma)),
+        _named("low", low),
+        _named("high", high),
+    )
 
 
 def _desugar_half(base_family: str, default_loc: float = 0.0):
@@ -76,8 +104,11 @@ def _desugar_half(base_family: str, default_loc: float = 0.0):
             )
         (scale,) = args
         return "Restrict", (
-            _dist(base_family, _scalar(default_loc), scale),
-            _scalar(0.0),
+            _named(
+                "base",
+                _dist(base_family, loc=_scalar(default_loc), scale=scale),
+            ),
+            _named("low", _scalar(0.0)),
         )
 
     return _impl
@@ -90,8 +121,11 @@ def _desugar_half_student_t(
         raise ValueError(f"HalfStudentT: expected (nu, scale), got {len(args)} args")
     nu, scale = args
     return "Restrict", (
-        _dist("StudentT", nu, _scalar(0.0), scale),
-        _scalar(0.0),
+        _named(
+            "base",
+            _dist("StudentT", df=nu, loc=_scalar(0.0), scale=scale),
+        ),
+        _named("low", _scalar(0.0)),
     )
 
 
@@ -110,6 +144,18 @@ SUGAR_TABLE: dict[
 }
 
 
+# Canonical parameters consumed by each surface family before it is
+# rewritten into the operator algebra. Binding through the same shared
+# helper as ordinary compilation makes source order irrelevant here too.
+SUGAR_PARAMETERS: dict[str, tuple[str, ...]] = {
+    "TruncatedNormal": ("mu", "sigma", "low", "high"),
+    "HalfNormal": ("scale",),
+    "HalfCauchy": ("scale",),
+    "HalfLaplace": ("scale",),
+    "HalfStudentT": ("nu", "scale"),
+}
+
+
 def desugar_step(step: SampleStep | ObserveStep) -> SampleStep | ObserveStep:
     """Rewrite a step whose morphism is a sugar family into the
     canonical operator-algebra form. Steps whose morphism is not in
@@ -124,8 +170,10 @@ def desugar_step(step: SampleStep | ObserveStep) -> SampleStep | ObserveStep:
     if args is not None:
         args = tuple(_desugar_arg(a) for a in args)
     morphism = step.morphism
-    if morphism in SUGAR_TABLE and args is not None and _all_scalar(args):
-        morphism, args = SUGAR_TABLE[morphism](args)
+    if morphism in SUGAR_TABLE and args is not None:
+        values = _literal_values(morphism, args)
+        if values is not None:
+            morphism, args = SUGAR_TABLE[morphism](values)
     if morphism == step.morphism and args == step.args:
         return step
     return step.with_(morphism=morphism, args=args)
@@ -137,11 +185,15 @@ def _desugar_arg(arg: DrawArg) -> DrawArg:
     rewritten; lists are mapped element-wise; everything else passes
     through.
     """
+    if isinstance(arg, DrawArgNamed):
+        return arg.with_(value=_desugar_arg(arg.value))
     if isinstance(arg, DrawArgDist):
         inner_args = tuple(_desugar_arg(a) for a in arg.args)
-        if arg.family in SUGAR_TABLE and _all_scalar(inner_args):
-            new_family, new_args = SUGAR_TABLE[arg.family](inner_args)
-            return DrawArgDist(family=new_family, args=new_args)
+        if arg.family in SUGAR_TABLE:
+            values = _literal_values(arg.family, inner_args)
+            if values is not None:
+                new_family, new_args = SUGAR_TABLE[arg.family](values)
+                return DrawArgDist(family=new_family, args=new_args)
         return DrawArgDist(family=arg.family, args=inner_args)
     if isinstance(arg, DrawArgList):
         return DrawArgList(items=tuple(_desugar_arg(item) for item in arg.items))

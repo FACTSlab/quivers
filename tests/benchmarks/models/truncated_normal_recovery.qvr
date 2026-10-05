@@ -10,7 +10,7 @@
 # evaluation must use the correct truncated log-density.
 object Obs : FinSet 60
 program truncated_normal_recovery : Obs -> Obs
-    sample mu <- Uniform(0.0, 1.0)
-    observe y : Obs <- TruncatedNormal(mu, 0.2, 0.0, 1.0)
+    sample mu <- Uniform(low=0.0, high=1.0)
+    observe y : Obs <- TruncatedNormal(mu=mu, sigma=0.2, low=0.0, high=1.0)
     return mu
 export truncated_normal_recovery

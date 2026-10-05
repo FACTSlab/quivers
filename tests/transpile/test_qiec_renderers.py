@@ -234,7 +234,7 @@ MIXED = (
     + """\
 object Resp : FinSet 4
 program model_program : Resp -> Resp
-    sample coin <- Bernoulli(0.5)
+    sample coin <- Bernoulli(probs=0.5)
     return coin
 export model_program
 """

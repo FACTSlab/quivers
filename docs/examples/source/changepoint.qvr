@@ -24,14 +24,14 @@ object Step : FinSet 64
 object Val : Real 1
 
 program changepoint : Step -> Val
-    sample tau <- Uniform(0.0, 100.0)
-    sample rate_before <- Gamma(2.0, 1.0)
-    sample rate_after <- Gamma(2.0, 1.0)
+    sample tau <- Uniform(low=0.0, high=100.0)
+    sample rate_before <- Gamma(concentration=2.0, rate=1.0)
+    sample rate_after <- Gamma(concentration=2.0, rate=1.0)
 
     let s = sigmoid(20.0 * (t - tau))
     let rate = (1.0 - s) * rate_before + s * rate_after
 
-    observe y : Step <- Poisson(rate)
+    observe y : Step <- Poisson(rate=rate)
     return tau
 
 export changepoint

@@ -134,10 +134,10 @@ The response model gives each item its own probability over two analyses:
 
 <!-- compile: false -->
 ```qvr
-sample analysis_prob : Item <- Dirichlet(concentration) [over=Analysis, iid_over=Item]
+sample analysis_prob : Item <- Dirichlet(concentration=concentration) [over=Analysis, iid_over=Item]
 
 marginalize analysis : Analysis <- Categorical(probs=analysis_prob) [over=Item, reduction=logsumexp]
-    observe ambiguity_rating : Trial <- Normal(analysis_shift[analysis], residual_scale) [via=item_idx]
+    observe ambiguity_rating : Trial <- Normal(loc=analysis_shift[analysis], scale=residual_scale) [via=item_idx]
 ```
 
 `item_idx` maps trials to items. The runtime first sums trial log likelihoods

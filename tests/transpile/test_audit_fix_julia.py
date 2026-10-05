@@ -41,7 +41,7 @@ def _emit(source: str, target: str) -> str:
 
 _WEIBULL_QVR = (
     "object Obs : Real 4\n"
-    "morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(1.5, 1.0)\n"
+    "morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(scale=1.5, concentration=1.0)\n"
     "program weibull_fixture : Obs -> Obs\n"
     "    sample x <- weibull_kernel\n"
     "    return x\n"
@@ -51,7 +51,7 @@ _WEIBULL_QVR = (
 _STUDENTT_QVR = (
     "object Obs : Real 4\n"
     "morphism studentt_kernel : Obs -> Obs [role=kernel] "
-    "~ StudentT(5.0, 0.0, 1.0)\n"
+    "~ StudentT(df=5.0, loc=0.0, scale=1.0)\n"
     "program studentt_fixture : Obs -> Obs\n"
     "    sample x <- studentt_kernel\n"
     "    return x\n"
@@ -61,8 +61,8 @@ _STUDENTT_QVR = (
 _LKJ_QVR = (
     "object Dim : FinSet 4\n"
     "program correlation_model : Dim -> Dim\n"
-    "    sample eta <- HalfNormal(2.0)\n"
-    "    sample chol : Dim <- LKJCholesky(eta)\n"
+    "    sample eta <- HalfNormal(scale=2.0)\n"
+    "    sample chol : Dim <- LKJCholesky(concentration=eta)\n"
     "    return chol\n"
     "export correlation_model\n"
 )
@@ -70,7 +70,7 @@ _LKJ_QVR = (
 _NEGBIN_QVR = (
     "object Obs : FinSet 8\n"
     "program nb : Obs -> Obs\n"
-    "    sample y <- NegativeBinomial(10.0, 0.3)\n"
+    "    sample y <- NegativeBinomial(total_count=10.0, probs=0.3)\n"
     "    return y\n"
     "export nb\n"
 )
@@ -78,7 +78,7 @@ _NEGBIN_QVR = (
 _GAMMA_QVR = (
     "object O : FinSet 8\n"
     "program g : O -> O\n"
-    "    sample t <- Gamma(2.0, 5.0)\n"
+    "    sample t <- Gamma(concentration=2.0, rate=5.0)\n"
     "    return t\n"
     "export g\n"
 )
@@ -86,7 +86,7 @@ _GAMMA_QVR = (
 _LOGNORMAL_QVR = (
     "object Obs : FinSet 8\n"
     "program lognormal_fixture : Obs -> Obs\n"
-    "    sample theta <- LogNormal(0.0, 1.0)\n"
+    "    sample theta <- LogNormal(loc=0.0, scale=1.0)\n"
     "    return theta\n"
     "export lognormal_fixture\n"
 )

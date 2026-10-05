@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program horseshoe_fixture : Obs -> Obs
-    sample theta <- Horseshoe(1.5)
+    sample theta <- Horseshoe(scale=1.5)
     return theta
 export horseshoe_fixture

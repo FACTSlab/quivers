@@ -29,11 +29,11 @@ from quivers.transpile.plan import Lower
 REGRESSION = """\
 object Resp : FinSet 5
 program prog : Resp -> Resp
-    sample alpha <- Normal(0.0, 5.0)
-    sample beta <- Normal(0.0, 5.0)
+    sample alpha <- Normal(loc=0.0, scale=5.0)
+    sample beta <- Normal(loc=0.0, scale=5.0)
     let mu = alpha + beta * x
     score penalty = -0.5 * alpha * alpha
-    observe y : Resp <- Normal(mu, 1.0)
+    observe y : Resp <- Normal(loc=mu, scale=1.0)
     return alpha
 export prog
 """
@@ -42,9 +42,9 @@ GROUPED = """\
 object Item : FinSet 8
 object Comp : FinSet 4
 program prog : Item -> Item
-    sample probs <- Dirichlet(1.0) [over=Comp]
+    sample probs <- Dirichlet(concentration=1.0) [over=Comp]
     marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
-        observe r : Item <- Normal(0.0, 1.0) [via=idx]
+        observe r : Item <- Normal(loc=0.0, scale=1.0) [via=idx]
     return probs
 export prog
 """
@@ -53,11 +53,11 @@ RELAXED = """\
 object Resp : FinSet 6
 object Out : Real 1
 program prog : Out -> Out
-    sample p <- Beta(2.0, 2.0)
-    sample rate <- Gamma(2.0, 1.0)
-    marginalize z : Resp <- ContinuousBernoulli(p)
+    sample p <- Beta(concentration1=2.0, concentration0=2.0)
+    sample rate <- Gamma(concentration=2.0, rate=1.0)
+    marginalize z : Resp <- ContinuousBernoulli(probs=p)
         let gated = z * rate
-        observe y : Resp <- Poisson(gated)
+        observe y : Resp <- Poisson(rate=gated)
     return rate
 export prog
 """
@@ -267,7 +267,7 @@ def test_a_program_template_draw_is_planned_in_place() -> None:
 object School : FinSet 3
 object Effect : Real 1
 program effects(spread : Real, K : FinSet) : K -> Effect
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 program prog : School -> Effect
@@ -297,10 +297,10 @@ define noisy(x : Real) : Real !{random} =
 instance random : Random
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let b <- shift(a, 2.0)
     let c <- noisy(b)
-    observe y : Obs <- Normal(c, 0.5)
+    observe y : Obs <- Normal(loc=c, scale=0.5)
     return c
 export prog
 """

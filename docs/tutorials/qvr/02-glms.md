@@ -145,11 +145,11 @@ Count response, log link, Poisson likelihood.
 ```qvr
 object Item : FinSet 150
 program poisson_reg : Item -> Item [effects=[Sample, Score]]
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let log_rate = beta_0 + beta_1 * x_design
     let rate     = exp(log_rate)
-    observe y : Item <- Poisson(rate)
+    observe y : Item <- Poisson(rate=rate)
     return y
 
 export poisson_reg

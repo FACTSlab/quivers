@@ -43,24 +43,24 @@ object Effect : Real 1
 object Scale : Real 1
 
 program school_effects(spread : Real, K : FinSet) : K -> Effect
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 
 program pooled_tight : School -> Effect * Scale
     sample theta <- school_effects(0.6, School)
-    sample sigma <- LogNormal(0.0, 0.5)
+    sample sigma <- LogNormal(loc=0.0, scale=0.5)
     let total_effect = sum(theta)
     score centering = -50.0 * total_effect * total_effect
-    observe y : School <- Normal(theta, sigma)
+    observe y : School <- Normal(loc=theta, scale=sigma)
     return (effects: theta, scale: sigma)
 
 program pooled_loose : School -> Effect * Scale
     sample theta <- school_effects(2.5, School)
-    sample sigma <- LogNormal(0.0, 0.5)
+    sample sigma <- LogNormal(loc=0.0, scale=0.5)
     let total_effect = sum(theta)
     score centering = -50.0 * total_effect * total_effect
-    observe y : School <- Normal(theta, sigma)
+    observe y : School <- Normal(loc=theta, scale=sigma)
     return (effects: theta, scale: sigma)
 
 export pooled_tight

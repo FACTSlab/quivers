@@ -9,7 +9,7 @@
 # exp / softplus.
 object Obs : FinSet 80
 program gamma_exponential : Obs -> Obs
-    sample rate <- Gamma(2.0, 1.0)
-    observe y : Obs <- Exponential(rate)
+    sample rate <- Gamma(concentration=2.0, rate=1.0)
+    observe y : Obs <- Exponential(rate=rate)
     return rate
 export gamma_exponential

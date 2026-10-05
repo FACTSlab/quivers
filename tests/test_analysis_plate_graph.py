@@ -147,11 +147,11 @@ def test_let_step_appears_as_deterministic_node():
         object Resp : FinSet 50
 
         program reg : Resp -> Resp
-            sample alpha <- Normal(0.0, 5.0)
-            sample beta  <- Normal(0.0, 2.0)
-            sample sigma <- HalfCauchy(1.0)
+            sample alpha <- Normal(loc=0.0, scale=5.0)
+            sample beta  <- Normal(loc=0.0, scale=2.0)
+            sample sigma <- HalfCauchy(scale=1.0)
             let mu = alpha + beta
-            observe y : Resp <- Normal(mu, sigma)
+            observe y : Resp <- Normal(loc=mu, scale=sigma)
             return y
         """
     )
@@ -172,8 +172,8 @@ def test_observe_with_index_on_response_plate():
         object Resp : FinSet 50
 
         program reg : Resp -> Resp
-            sample mu : Resp <- Normal(0.0, 1.0)
-            observe y : Resp <- Normal(mu, 0.1)
+            sample mu : Resp <- Normal(loc=0.0, scale=1.0)
+            observe y : Resp <- Normal(loc=mu, scale=0.1)
             return mu
         """
     )
@@ -205,9 +205,9 @@ def test_doubly_nested_marginalize():
         object Word : FinSet 200
 
         program lda2 : Word -> Word
-            sample theta : Doc <- Dirichlet(1.0) [over=Topic, iid_over=Doc]
-            sample phi : Topic <- Dirichlet(1.0) [over=Word, iid_over=Topic]
-            sample psi : Topic <- Dirichlet(1.0) [over=Sense, iid_over=Topic]
+            sample theta : Doc <- Dirichlet(concentration=1.0) [over=Topic, iid_over=Doc]
+            sample phi : Topic <- Dirichlet(concentration=1.0) [over=Word, iid_over=Topic]
+            sample psi : Topic <- Dirichlet(concentration=1.0) [over=Sense, iid_over=Topic]
 
             marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
                 marginalize s : Sense <- Categorical(probs=psi[z]) [over=Doc, reduction=logsumexp]

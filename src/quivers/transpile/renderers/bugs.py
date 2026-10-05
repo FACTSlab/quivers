@@ -31,6 +31,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
@@ -1272,9 +1273,9 @@ class BUGSRenderer(RendererBase):
                 [f"truncated:base:{family_ref.name}: init is not `~ Family(args)`"],
             )
         base_family = init.family
-        base_args = tuple(_draw_arg_to_ir(a) for a in (init.args or ()))
-        base_meta = self._lookup_family(base_family)
-        base_arg_names = self._infer_arg_names(base_meta, base_args)
+        bound = bind_family_arguments(base_family, init.args or ())
+        base_args = tuple(_draw_arg_to_ir(value) for _, value in bound)
+        base_arg_names = tuple(name for name, _ in bound)
         if len(node.args) < 3:
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -2743,6 +2744,8 @@ def _draw_arg_to_ir(a: str | float) -> IRArg:
     handler to lift the referenced morphism's init clause into IR
     form for re-emission as the truncated call's args.
     """
+    if not isinstance(a, (int, float, str)):
+        a = atom_value(a)
     if isinstance(a, (int, float)):
         return IRArgNumber(value=float(a))
     stripped = a.strip()

@@ -15,12 +15,14 @@ surface in QVR. Three layers:
 from __future__ import annotations
 
 import torch
+import torch.distributions as td
 
 from quivers.dsl import loads
 from quivers.dsl.ast_nodes import (
     DrawArgDist,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     ObserveStep,
 )
@@ -48,25 +50,28 @@ def test_parse_distribution_call_arg() -> None:
     src = """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Normal(0.0, 1.0), 0.0, 1.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Normal(loc=0.0, scale=1.0), low=0.0, high=1.0)
     return y
 export m
 """
     obs = _first_observe(src)
     assert obs.morphism == "Restrict"
     assert obs.args is not None
-    assert isinstance(obs.args[0], DrawArgDist)
-    assert obs.args[0].family == "Normal"
-    assert isinstance(obs.args[1], DrawArgScalar)
+    base, low, _ = obs.args
+    assert isinstance(base, DrawArgNamed) and base.parameter == "base"
+    assert isinstance(base.value, DrawArgDist)
+    assert base.value.family == "Normal"
+    assert isinstance(low, DrawArgNamed) and low.parameter == "low"
+    assert isinstance(low.value, DrawArgScalar)
 
 
 def test_parse_list_arg() -> None:
     src = """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(2.0)])
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Mixture(weights=[0.3, 0.7], components=[PointMass(value=0.0), Poisson(rate=2.0)])
     return y
 export m
 """
@@ -74,31 +79,41 @@ export m
     assert obs.morphism == "Mixture"
     assert obs.args is not None
     weights, components = obs.args
-    assert isinstance(weights, DrawArgList)
-    assert all(isinstance(w, DrawArgScalar) for w in weights.items)
-    assert isinstance(components, DrawArgList)
-    assert all(isinstance(c, DrawArgDist) for c in components.items)
+    assert isinstance(weights, DrawArgNamed) and weights.parameter == "weights"
+    assert isinstance(weights.value, DrawArgList)
+    assert all(isinstance(w, DrawArgScalar) for w in weights.value.items)
+    assert isinstance(components, DrawArgNamed)
+    assert components.parameter == "components"
+    assert isinstance(components.value, DrawArgList)
+    assert all(isinstance(c, DrawArgDist) for c in components.value.items)
 
 
 def test_parse_nested_operator_calls() -> None:
     src = """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Mixture([0.5, 0.5], [PointMass(0.0), Pushforward(Normal(0.0, 1.0), Exp)])
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Mixture(weights=[0.5, 0.5], components=[PointMass(value=0.0), Pushforward(base=Normal(loc=0.0, scale=1.0), bijector=Exp)])
     return y
 export m
 """
     obs = _first_observe(src)
     assert obs.morphism == "Mixture"
     components = obs.args[1]
-    assert components.items[1].family == "Pushforward"
-    push_args = components.items[1].args
-    assert push_args[0].family == "Normal"
+    assert isinstance(components, DrawArgNamed)
+    assert isinstance(components.value, DrawArgList)
+    pushforward = components.value.items[1]
+    assert isinstance(pushforward, DrawArgDist)
+    assert pushforward.family == "Pushforward"
+    push_args = pushforward.args
+    assert isinstance(push_args[0], DrawArgNamed)
+    assert isinstance(push_args[0].value, DrawArgDist)
+    assert push_args[0].value.family == "Normal"
     # `Exp` without `()` is a bijector name (an identifier); the
     # compiler resolves it via the bijector registry at build time.
-    assert isinstance(push_args[1], DrawArgName)
-    assert push_args[1].text == "Exp"
+    assert isinstance(push_args[1], DrawArgNamed)
+    assert isinstance(push_args[1].value, DrawArgName)
+    assert push_args[1].value.text == "Exp"
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +125,8 @@ def test_pointmass_observe() -> None:
     program = loads("""
 object Resp : FinSet 3
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- PointMass(0.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- PointMass(value=0.0)
     return y
 export m
 """)
@@ -125,8 +140,8 @@ def test_restrict_observe() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Normal(0.0, 1.0), 0.0, 1.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Normal(loc=0.0, scale=1.0), low=0.0, high=1.0)
     return y
 export m
 """)
@@ -140,8 +155,8 @@ def test_pushforward_lognormal() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Pushforward(Normal(0.0, 1.0), Exp)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Pushforward(base=Normal(loc=0.0, scale=1.0), bijector=Exp)
     return y
 export m
 """)
@@ -155,8 +170,8 @@ def test_mixture_observe() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(2.0)])
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Mixture(weights=[0.3, 0.7], components=[PointMass(value=0.0), Poisson(rate=2.0)])
     return y
 export m
 """)
@@ -170,8 +185,8 @@ def test_mixture_pushforward_composition() -> None:
     program = loads("""
 object Resp : FinSet 3
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Mixture([0.5, 0.5], [Pushforward(Normal(0.0, 1.0), Exp), Pushforward(Normal(1.0, 0.5), Exp)])
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Mixture(weights=[0.5, 0.5], components=[Pushforward(base=Normal(loc=0.0, scale=1.0), bijector=Exp), Pushforward(base=Normal(loc=1.0, scale=0.5), bijector=Exp)])
     return y
 export m
 """)
@@ -197,14 +212,52 @@ def _trace_logjoint(src: str, y: torch.Tensor) -> torch.Tensor:
     return tr.log_joint
 
 
+def test_family_keywords_determine_runtime_order() -> None:
+    y = torch.tensor([0.0, 1.0, -1.0, 2.0])
+    actual = _trace_logjoint(
+        """
+object Resp : FinSet 4
+program m : Resp -> Resp
+    observe y : Resp <- Normal(scale=2.0, loc=1.0)
+    return y
+export m
+""",
+        y,
+    )
+    expected = td.Normal(1.0, 2.0).log_prob(y).sum()
+    assert actual == expected
+
+
+def test_categorical_literal_supports_both_named_parameterizations() -> None:
+    y = torch.tensor([0, 1, 2, 2])
+    for parameter, distribution in (
+        ("probs=[0.2, 0.3, 0.5]", td.Categorical(probs=torch.tensor([0.2, 0.3, 0.5]))),
+        (
+            "logits=[-2.0, 0.5, 1.25]",
+            td.Categorical(logits=torch.tensor([-2.0, 0.5, 1.25])),
+        ),
+    ):
+        actual = _trace_logjoint(
+            f"""
+object Resp : FinSet 4
+program m : Resp -> Resp
+    observe y : Resp <- Categorical({parameter})
+    return y
+export m
+""",
+            y,
+        )
+        assert actual == distribution.log_prob(y).sum()
+
+
 def test_truncated_normal_equals_restrict_normal() -> None:
     y = torch.tensor([0.3, 0.5, 0.7, 0.2])
     sugar = _trace_logjoint(
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- TruncatedNormal(0.0, 1.0, 0.0, 1.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- TruncatedNormal(mu=0.0, sigma=1.0, low=0.0, high=1.0)
     return y
 export m
 """,
@@ -214,8 +267,8 @@ export m
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Normal(0.0, 1.0), 0.0, 1.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Normal(loc=0.0, scale=1.0), low=0.0, high=1.0)
     return y
 export m
 """,
@@ -230,8 +283,8 @@ def test_half_normal_equals_restrict_normal_at_zero() -> None:
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- HalfNormal(2.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- HalfNormal(scale=2.0)
     return y
 export m
 """,
@@ -241,8 +294,8 @@ export m
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Normal(0.0, 2.0), 0.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Normal(loc=0.0, scale=2.0), low=0.0)
     return y
 export m
 """,
@@ -257,8 +310,8 @@ def test_half_cauchy_equals_restrict_cauchy_at_zero() -> None:
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- HalfCauchy(2.5)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- HalfCauchy(scale=2.5)
     return y
 export m
 """,
@@ -268,8 +321,8 @@ export m
         """
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Cauchy(0.0, 2.5), 0.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Cauchy(loc=0.0, scale=2.5), low=0.0)
     return y
 export m
 """,
@@ -287,10 +340,10 @@ def test_sugar_desugar_step_idempotent() -> None:
         vars=("y",),
         morphism="TruncatedNormal",
         args=(
-            DrawArgScalar(value=0.0),
-            DrawArgScalar(value=1.0),
-            DrawArgScalar(value=0.0),
-            DrawArgScalar(value=1.0),
+            DrawArgNamed(parameter="mu", value=DrawArgScalar(value=0.0)),
+            DrawArgNamed(parameter="sigma", value=DrawArgScalar(value=1.0)),
+            DrawArgNamed(parameter="low", value=DrawArgScalar(value=0.0)),
+            DrawArgNamed(parameter="high", value=DrawArgScalar(value=1.0)),
         ),
     )
     once = desugar_step(obs)
@@ -309,7 +362,7 @@ def test_sugar_with_variable_arg_passes_through() -> None:
     obs = ObserveStep(
         vars=("y",),
         morphism="HalfNormal",
-        args=(DrawArgName(text="sigma"),),
+        args=(DrawArgNamed(parameter="scale", value=DrawArgName(text="sigma")),),
     )
     out = desugar_step(obs)
     assert out.morphism == "HalfNormal"
@@ -325,8 +378,8 @@ def test_zip_via_existing_inline_family() -> None:
     program = loads("""
 object Resp : FinSet 4
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- ZeroInflatedPoisson(pi, rate)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- ZeroInflatedPoisson(zero_prob=pi, rate=rate)
     return y
 export m
 """)
@@ -352,8 +405,8 @@ def test_truncated_normal_with_literal_args_matches_explicit_operator() -> None:
         """
 object Resp : FinSet 1
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- TruncatedNormal(0.0, 1.0, -2.0, 2.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- TruncatedNormal(mu=0.0, sigma=1.0, low=-2.0, high=2.0)
     return y
 export m
 """,
@@ -363,8 +416,8 @@ export m
         """
 object Resp : FinSet 1
 program m : Resp -> Resp
-    sample foo <- Normal(0.0, 1.0)
-    observe y : Resp <- Restrict(Normal(0.0, 1.0), -2.0, 2.0)
+    sample foo <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- Restrict(base=Normal(loc=0.0, scale=1.0), low=-2.0, high=2.0)
     return y
 export m
 """,

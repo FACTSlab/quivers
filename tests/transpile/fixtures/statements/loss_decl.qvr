@@ -1,8 +1,8 @@
 # Exercises LossDecl (training loss attached to a learnable element).
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return theta
 loss negloglik [weight=1.0, on=program(prog)]
     -log_prob_sum

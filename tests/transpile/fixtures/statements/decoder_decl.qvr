@@ -10,6 +10,6 @@ decoder dec : LF [depth=4]
     body |-> recursive
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog

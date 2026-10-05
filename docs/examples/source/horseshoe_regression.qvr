@@ -29,18 +29,18 @@ object Resp : FinSet 64
 object Val : Real 1
 
 program horseshoe_regression : Resp -> Val
-    sample tau <- HalfCauchy(1.0)
-    sample lambda_local : Coef <- HalfCauchy(1.0)
-    sample z_raw : Coef <- Normal(0.0, 1.0)
-    sample alpha <- Normal(0.0, 5.0)
-    sample sigma <- HalfCauchy(2.0)
+    sample tau <- HalfCauchy(scale=1.0)
+    sample lambda_local : Coef <- HalfCauchy(scale=1.0)
+    sample z_raw : Coef <- Normal(loc=0.0, scale=1.0)
+    sample alpha <- Normal(loc=0.0, scale=5.0)
+    sample sigma <- HalfCauchy(scale=2.0)
 
     let lam = lambda_local[coef_idx]
     let z = z_raw[coef_idx]
     let beta = tau * lam * z
     let mu = alpha + beta * x
 
-    observe y : Resp <- Normal(mu, sigma)
+    observe y : Resp <- Normal(loc=mu, scale=sigma)
     return tau
 
 export horseshoe_regression

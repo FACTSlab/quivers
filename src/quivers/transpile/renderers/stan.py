@@ -79,6 +79,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprLiteral,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
@@ -3113,7 +3114,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(fn, fnid, "name")
         al = self._fresh(ctx, "fral")
         ctx.sb.vertex(al, "argument_list")
-        for raw in init.args or ():
+        for _, raw in bind_family_arguments(init.family, init.args or ()):
             arg_vid = self._render_init_family_arg(ctx, raw)
             ctx.sb.edge(al, arg_vid, "child_of")
         ctx.sb.edge(fn, al, "child_of")
@@ -3132,6 +3133,8 @@ class StanRenderer(RendererBase):
         / matrix args are not admitted in an `init_family` clause, so
         every arg here is atomic.
         """
+        if not isinstance(raw, (int, float, str)):
+            raw = atom_value(raw)
         if isinstance(raw, (int, float)):
             return self._render_number(ctx, float(raw))
         stripped = raw.strip()

@@ -30,6 +30,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     Expr,
     ExprIdent,
@@ -1101,6 +1102,8 @@ def _names_in_step(step: ProgramStep) -> list[str]:
 
 
 def _names_in_raw_arg(arg: DrawArg | str | float) -> list[str]:
+    if isinstance(arg, DrawArgNamed):
+        return _names_in_raw_arg(arg.value)
     if isinstance(arg, DrawArgScalar):
         return []
     if isinstance(arg, DrawArgName):
@@ -1666,6 +1669,8 @@ def _shape_default_tensor(shape: tuple[int, ...]) -> torch.Tensor:
 def _raw_to_ir_for_sentinel(raw: DrawArg | str | float) -> IRArg:
     """Cheap arg-to-IR conversion used only for inner sentinel
     construction (no morphism table required)."""
+    if isinstance(raw, DrawArgNamed):
+        return _raw_to_ir_for_sentinel(raw.value)
     if isinstance(raw, DrawArgScalar):
         return IRArgNumber(value=raw.value)
     if isinstance(raw, DrawArgName):

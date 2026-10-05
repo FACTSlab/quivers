@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program uniform_fixture : Obs -> Obs
-    sample theta <- Uniform(0.0, 1.0)
+    sample theta <- Uniform(low=0.0, high=1.0)
     return theta
 export uniform_fixture

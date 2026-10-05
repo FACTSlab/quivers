@@ -38,17 +38,17 @@ from quivers.dsl.compiler._prelude import _get_family_registry
 # Families generated with the inline-sample form. Args are scalar
 # literals; values picked to put the prior in a benign region.
 _INLINE_SAMPLE: dict[str, str] = {
-    "Beta": "2.0, 2.0",
-    "Bernoulli": "0.5",
-    "Exponential": "1.0",
-    "Gamma": "2.0, 1.0",
-    "HalfCauchy": "1.0",
-    "Horseshoe": "1.5",
-    "HalfNormal": "1.0",
-    "LogNormal": "0.0, 1.0",
-    "LogitNormal": "0.0, 1.0",
-    "Normal": "0.0, 1.0",
-    "Uniform": "0.0, 1.0",
+    "Beta": "concentration1=2.0, concentration0=2.0",
+    "Bernoulli": "probs=0.5",
+    "Exponential": "rate=1.0",
+    "Gamma": "concentration=2.0, rate=1.0",
+    "HalfCauchy": "scale=1.0",
+    "Horseshoe": "scale=1.5",
+    "HalfNormal": "scale=1.0",
+    "LogNormal": "loc=0.0, scale=1.0",
+    "LogitNormal": "mu=0.0, sigma=1.0",
+    "Normal": "loc=0.0, scale=1.0",
+    "Uniform": "low=0.0, high=1.0",
 }
 
 
@@ -118,8 +118,8 @@ def _observe_with_var_source(family: str) -> str:
         f"# unavailable for {family}).\n"
         f"object Obs : FinSet 8\n"
         f"program {family.lower()}_fixture : Obs -> Obs\n"
-        f"    sample mu <- Uniform(0.0, 1.0)\n"
-        f"    observe y : Obs <- {family}(mu, 0.2, 0.0, 1.0)\n"
+        f"    sample mu <- Uniform(low=0.0, high=1.0)\n"
+        f"    observe y : Obs <- {family}(mu=mu, sigma=0.2, low=0.0, high=1.0)\n"
         f"    return mu\n"
         f"export {family.lower()}_fixture\n"
     )
@@ -151,19 +151,19 @@ def _morphism_kernel_source(family: str) -> str:
 
 
 _MORPHISM_KERNEL_DEFAULT_ARGS: dict[str, str] = {
-    "Cauchy": "0.0, 1.0",
-    "Chi2": "3.0",
-    "ContinuousBernoulli": "0.5",
-    "FisherSnedecor": "5.0, 5.0",
-    "Gumbel": "0.0, 1.0",
-    "InverseGamma": "3.0, 1.0",
-    "Kumaraswamy": "2.0, 2.0",
-    "Laplace": "0.0, 1.0",
-    "Pareto": "1.0, 2.0",
-    "RelaxedBernoulli": "0.5, 1.0",
-    "StudentT": "5.0, 0.0, 1.0",
-    "Weibull": "1.5, 1.0",
-    "GeneralizedPareto": "0.0, 1.0, 0.5",
+    "Cauchy": "loc=0.0, scale=1.0",
+    "Chi2": "df=3.0",
+    "ContinuousBernoulli": "probs=0.5",
+    "FisherSnedecor": "df1=5.0, df2=5.0",
+    "Gumbel": "loc=0.0, scale=1.0",
+    "InverseGamma": "concentration=3.0, rate=1.0",
+    "Kumaraswamy": "concentration1=2.0, concentration0=2.0",
+    "Laplace": "loc=0.0, scale=1.0",
+    "Pareto": "scale=1.0, alpha=2.0",
+    "RelaxedBernoulli": "temperature=0.5, probs=1.0",
+    "StudentT": "df=5.0, loc=0.0, scale=1.0",
+    "Weibull": "scale=1.5, concentration=1.0",
+    "GeneralizedPareto": "loc=0.0, scale=1.0, concentration=0.5",
 }
 
 
@@ -188,10 +188,10 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Item : FinSet 8\n"
         "object Comp : FinSet 4\n"
         "program categorical_fixture : Item -> Item\n"
-        "    sample probs <- Dirichlet(concentration) [over=Comp]\n"
+        "    sample probs <- Dirichlet(concentration=concentration) [over=Comp]\n"
         "    observe cls : Item <- Categorical(probs=probs)\n"
         "    marginalize z : Comp <- Categorical(probs=probs) [over=Item, reduction=logsumexp]\n"
-        "        observe r : Item <- Normal(0.0, 1.0) [via=idx]\n"
+        "        observe r : Item <- Normal(loc=0.0, scale=1.0) [via=idx]\n"
         "    return probs\n"
         "export categorical_fixture\n"
     ),
@@ -200,7 +200,7 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Obs : FinSet 4\n"
         "object Comp : FinSet 3\n"
         "program dirichlet_fixture : Obs -> Obs\n"
-        "    sample probs <- Dirichlet(concentration) [over=Comp]\n"
+        "    sample probs <- Dirichlet(concentration=concentration) [over=Comp]\n"
         "    return probs\n"
         "export dirichlet_fixture\n"
     ),
@@ -222,7 +222,7 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Col : FinSet 3\n"
         "object Obs : Real 9\n"
         "program inversewishart_fixture : Obs -> Obs\n"
-        "    sample sigma <- InverseWishart(4.0, [[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]\n"
+        "    sample sigma <- InverseWishart(df=4.0, scale_tril=[[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]\n"
         "    return sigma\n"
         "export inversewishart_fixture\n"
     ),
@@ -231,7 +231,7 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Dim : FinSet 5\n"
         "object Obs : Real 5\n"
         "program lowrankmvn_fixture : Obs -> Obs\n"
-        "    sample x <- LowRankMVN([0.0, 0.0, 0.0, 0.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.0, 1.0]], [1.0, 1.0, 1.0, 1.0, 1.0]) [over=Dim]\n"
+        "    sample x <- LowRankMVN(loc=[0.0, 0.0, 0.0, 0.0, 0.0], cov_factor=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.0, 1.0]], cov_diag=[1.0, 1.0, 1.0, 1.0, 1.0]) [over=Dim]\n"
         "    return x\n"
         "export lowrankmvn_fixture\n"
     ),
@@ -262,7 +262,7 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Cls : FinSet 4\n"
         "object Obs : Real 4\n"
         "program relaxedonehotcategorical_fixture : Obs -> Obs\n"
-        "    sample z <- RelaxedOneHotCategorical(probs) [over=Cls]\n"
+        "    sample z <- RelaxedOneHotCategorical(temperature=0.5, probs=[0.0, 0.0, 0.0, 0.0]) [over=Cls]\n"
         "    return z\n"
         "export relaxedonehotcategorical_fixture\n"
     ),
@@ -271,7 +271,7 @@ _VECTOR_SOURCES: dict[str, str] = {
         "object Dim : FinSet 3\n"
         "object Obs : Real 9\n"
         "program wishart_fixture : Obs -> Obs\n"
-        "    sample sigma <- Wishart(4.0, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]) [over=[Dim, Dim]]\n"
+        "    sample sigma <- Wishart(df=4.0, scale_tril=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]) [over=[Dim, Dim]]\n"
         "    return sigma\n"
         "export wishart_fixture\n"
     ),

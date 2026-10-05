@@ -145,12 +145,12 @@ object Group : FinSet 20
 object Component : FinSet 3
 object Weights : Real 3
 program grouped_mixture : Item -> Weights [effects=[Sample, Score, Marginal]]
-    sample probs : Group <- Dirichlet(1.0) [over=Component, iid_over=Group]
-    sample mu_k : Component <- Normal(0.0, 5.0)
-    sample sd_k : Component <- HalfNormal(1.0)
+    sample probs : Group <- Dirichlet(concentration=1.0) [over=Component, iid_over=Group]
+    sample mu_k : Component <- Normal(loc=0.0, scale=5.0)
+    sample sd_k : Component <- HalfNormal(scale=1.0)
 
     marginalize z : Component <- Categorical(probs=probs) [over=Group]
-        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=group_idx]
+        observe y : Item <- Normal(loc=mu_k[z], scale=sd_k[z]) [via=group_idx]
     return probs
 
 export grouped_mixture

@@ -7,6 +7,6 @@ composition log_prob
     combine = a
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog

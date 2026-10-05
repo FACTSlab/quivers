@@ -42,10 +42,10 @@ def _coupled_pair_model():
     return loads(
         "object Resp : FinSet 8\n"
         "program p : Resp -> Resp\n"
-        "    sample a <- Normal(0.0, 1.0)\n"
-        "    sample b <- Normal(0.0, 1.0)\n"
+        "    sample a <- Normal(loc=0.0, scale=1.0)\n"
+        "    sample b <- Normal(loc=0.0, scale=1.0)\n"
         "    let mu = sigmoid(a + b)\n"
-        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    observe r : Resp <- Bernoulli(probs=mu)\n"
         "    return mu\n"
         "export p\n"
     ).morphism
@@ -56,10 +56,10 @@ def _hierarchical_model():
         "object Subj : FinSet 4\n"
         "object Resp : FinSet 12\n"
         "program p : Resp -> Resp\n"
-        "    sample sigma <- HalfNormal(1.0)\n"
-        "    sample by_subj : Subj <- Normal(0.0, sigma)\n"
+        "    sample sigma <- HalfNormal(scale=1.0)\n"
+        "    sample by_subj : Subj <- Normal(loc=0.0, scale=sigma)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
-        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    observe r : Resp <- Bernoulli(probs=mu)\n"
         "    return mu\n"
         "export p\n"
     ).morphism

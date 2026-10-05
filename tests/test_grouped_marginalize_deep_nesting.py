@@ -44,7 +44,7 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     obj_decls = "\n        ".join(decls)
     prog_lines = [f"program nested_{num_levels} : Resp -> Resp"]
     for i in range(num_levels):
-        prog_lines.append(f"    sample probs_{i} : K_{i} <- HalfNormal(1.0)")
+        prog_lines.append(f"    sample probs_{i} : K_{i} <- HalfNormal(scale=1.0)")
     # Only the innermost block has a fibration into a response
     # plate, host data named by its ``via``; outer levels consume the
     # inner block's already-scattered tensor with identity fibration.
@@ -58,7 +58,9 @@ def _build_nested_program(num_levels: int, n_resp: int = 8) -> str:
     # Innermost body: a single observe step carrying the
     # fibration to its response plate.
     inner_pad = indent * (num_levels + 1)
-    nested.append(f"{inner_pad}observe r : Resp <- HalfNormal(1.0) [via=idx_inner]")
+    nested.append(
+        f"{inner_pad}observe r : Resp <- HalfNormal(scale=1.0) [via=idx_inner]"
+    )
     prog_lines.extend(nested)
     prog_lines.append("    return probs_0")
     body = "\n        ".join(prog_lines)

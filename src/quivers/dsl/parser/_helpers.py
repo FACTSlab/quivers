@@ -8,6 +8,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
 )
 from quivers.dsl.parser._registry import ParseError, _Tree
@@ -60,8 +61,9 @@ def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
     recurses into the inner call to build a distribution-valued
     parameter for the outer family. A `list_arg` walks to a
     [`DrawArgList`][quivers.dsl.ast_nodes.DrawArgList] whose items
-    are themselves draw args. A ``named_draw_arg`` walks its value in
-    exactly the same way and records the parameter name on that value.
+    are themselves draw args. A ``named_draw_arg`` becomes a
+    [`DrawArgNamed`][quivers.dsl.ast_nodes.DrawArgNamed] entry that wraps
+    the value and keeps its parameter name structurally.
     """
     k = t.kind(vid)
     if k == "named_draw_arg":
@@ -69,8 +71,13 @@ def _walk_draw_arg(t: _Tree, vid: str) -> DrawArg:
         vv = t.field(vid, "value")
         if pv is None or vv is None:
             raise ParseError(f"named_draw_arg malformed at {vid}")
-        value = _walk_draw_arg(t, vv)
-        return value.with_(parameter=t.text(pv))
+        line, col = t.line_col(vid)
+        return DrawArgNamed(
+            parameter=t.text(pv),
+            value=_walk_draw_arg(t, vv),
+            line=line,
+            col=col,
+        )
     if k == "identifier":
         return DrawArgName(text=t.text(vid))
     if k in ("signed_number", "integer", "float"):

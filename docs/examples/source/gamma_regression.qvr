@@ -27,14 +27,14 @@ object Resp : FinSet 63
 object Val : Real 1
 
 program gamma_regression : Resp -> Val
-    sample beta_0 : Cat <- Normal(0.0, 2.0)
-    sample beta_1 : Cat <- Normal(0.0, 2.0)
+    sample beta_0 : Cat <- Normal(loc=0.0, scale=2.0)
+    sample beta_1 : Cat <- Normal(loc=0.0, scale=2.0)
 
     let b0 = beta_0[cat_idx]
     let b1 = beta_1[cat_idx]
     let alpha = exp(b0 + b1 * x)
 
-    observe tally : Resp <- Gamma(alpha, 1.0)
+    observe tally : Resp <- Gamma(concentration=alpha, rate=1.0)
     return beta_1
 
 export gamma_regression

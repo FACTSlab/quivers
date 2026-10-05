@@ -23,9 +23,9 @@ object Resp : FinSet 64
 object Val : Real 1
 
 program irt_2pl : Resp -> Val
-    sample ability : Person <- Normal(0.0, 1.0)
-    sample difficulty : Item <- Normal(0.0, 1.0)
-    sample discrim : Item <- LogNormal(0.0, 1.0)
+    sample ability : Person <- Normal(loc=0.0, scale=1.0)
+    sample difficulty : Item <- Normal(loc=0.0, scale=1.0)
+    sample discrim : Item <- LogNormal(loc=0.0, scale=1.0)
 
     let theta = ability[person_idx]
     let b = difficulty[item_idx]
@@ -33,7 +33,7 @@ program irt_2pl : Resp -> Val
     let eta = a * (theta - b)
     let p = sigmoid(eta)
 
-    observe y : Resp <- Bernoulli(p)
+    observe y : Resp <- Bernoulli(probs=p)
     return p
 
 export irt_2pl

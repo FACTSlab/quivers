@@ -15,9 +15,9 @@
 # posterior factorises as Normal(mu | sigma2) * InverseGamma(sigma2).
 object Obs : FinSet 60
 program normal_inverse_gamma : Obs -> Obs
-    sample sigma2 <- InverseGamma(3.0, 2.0)
+    sample sigma2 <- InverseGamma(concentration=3.0, rate=2.0)
     let sigma = sqrt(sigma2)
-    sample mu <- Normal(0.0, sigma)
-    observe y : Obs <- Normal(mu, sigma)
+    sample mu <- Normal(loc=0.0, scale=sigma)
+    observe y : Obs <- Normal(loc=mu, scale=sigma)
     return mu
 export normal_inverse_gamma
