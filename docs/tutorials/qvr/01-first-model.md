@@ -44,11 +44,11 @@ $$
     object Item : FinSet 100
 
     program regression : Item -> Item
-        sample sigma  <- HalfNormal(1.0)
-        sample beta_0 <- Normal(0.0, 5.0)
-        sample beta_1 <- Normal(0.0, 2.0)
+        sample sigma  <- HalfNormal(scale=1.0)
+        sample beta_0 <- Normal(loc=0.0, scale=5.0)
+        sample beta_1 <- Normal(loc=0.0, scale=2.0)
         let mu = beta_0 + beta_1 * x_design
-        observe y : Item <- Normal(mu, sigma)
+        observe y : Item <- Normal(loc=mu, scale=sigma)
         return y
 
     export regression
@@ -89,9 +89,9 @@ Reading the QVR line by line:
 |---|---|
 | `object Item : FinSet 100` | Declare a finite-set index `Item` of size 100: the row dimension of the data. Domain and codomain are typed objects rather than implicit. |
 | `program regression : Item -> Item` | A `program` block is the unit of compilation. The effect set is inferred from the body; you can pin it explicitly with `[effects=[Sample, Score]]` if you want a static check that the body uses only those effects. |
-| `sample sigma <- HalfNormal(1.0)` | Draw a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
+| `sample sigma <- HalfNormal(scale=1.0)` | Draw a random variable. Same as PyMC's `pm.HalfNormal(...)` or NumPyro's `numpyro.sample(...)`. |
 | `let mu = beta_0 + beta_1 * x_design` | Deterministic let. The compiler records the free name `x_design` as a host-data parameter; the inference call supplies it in the observations mapping. |
-| `observe y : Item <- Normal(mu, sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
+| `observe y : Item <- Normal(loc=mu, scale=sigma)` | Vectorised conditioned bind, one draw per element of `Item`. The runtime sets `y` to the observed value at inference time and scores the likelihood. |
 
 If you're coming from Pyro/NumPyro/Stan, the only feature without a direct analogue is the optional `[effects=[...]]` clause: an *effect signature*. By default the compiler infers which effects (`Sample`, `Score`, `Marginal`) the body uses. Pinning the set explicitly turns it into a static promise. If you write `[effects=[Pure]]` and the body contains a `sample` step, the compiler rejects the program at `loads` time.
 
@@ -134,11 +134,11 @@ REGRESSION_SRC = """
 object Item : FinSet 100
 
 program regression : Item -> Item
-    sample sigma  <- HalfNormal(1.0)
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample sigma  <- HalfNormal(scale=1.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let mu = beta_0 + beta_1 * x_design
-    observe y : Item <- Normal(mu, sigma)
+    observe y : Item <- Normal(loc=mu, scale=sigma)
     return y
 
 export regression

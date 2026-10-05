@@ -4,7 +4,7 @@ Quivers exposes the same model through two surfaces: a `.qvr` DSL aimed at peopl
 
 ## QVR DSL track
 
-If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to do the same thing in quivers, start here. The `.qvr` syntax is the primary user-facing surface: you declare types, write a `program` block whose steps look like `v <- Normal(0, 1)` or `observe y <- Bernoulli(p)`, and fit it with SVI or NUTS. Category theory is mostly invisible; the categorical machinery is the implementation, not the API.
+If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to do the same thing in quivers, start here. The `.qvr` syntax is the primary user-facing surface: you declare types, write a `program` block whose steps look like `v <- Normal(loc=0, scale=1)` or `observe y <- Bernoulli(probs=p)`, and fit it with SVI or NUTS. Category theory is mostly invisible; the categorical machinery is the implementation, not the API.
 
 Each chapter shows the QVR version of a familiar model alongside its Pyro / NumPyro / Stan equivalent, then explains what's different and why.
 

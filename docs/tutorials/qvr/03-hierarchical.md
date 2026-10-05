@@ -4,7 +4,7 @@ The eight-schools dataset ([Rubin, 1981](https://doi.org/10.3102/107699860060043
 
 This chapter covers:
 
-- The plate-draw syntax (`v : G <- Normal(0, sigma)`) for per-group random effects.
+- The plate-draw syntax (`v : G <- Normal(loc=0, scale=sigma)`) for per-group random effects.
 - Centered vs non-centered parameterizations and how to write each in QVR.
 - Running NUTS with R-hat, ESS, and divergence diagnostics.
 
@@ -24,10 +24,10 @@ The eight $\theta_j$ are a per-group random effect over the group object `School
     ```qvr
     object School : FinSet 8
     program eight_schools_centred : School -> School [effects=[Sample, Score]]
-        sample mu  <- Normal(0.0, 5.0)
-        sample tau <- HalfNormal(5.0)
-        sample theta : School <- Normal(mu, tau)
-        observe y : School <- Normal(theta, sigma_j)
+        sample mu  <- Normal(loc=0.0, scale=5.0)
+        sample tau <- HalfNormal(scale=5.0)
+        sample theta : School <- Normal(loc=mu, scale=tau)
+        observe y : School <- Normal(loc=theta, scale=sigma_j)
         return theta
 
     export eight_schools_centred
@@ -66,10 +66,10 @@ CENTRED_SRC = """
 object School : FinSet 8
 
 program eight_schools_centred : School -> School
-    sample mu  <- Normal(0.0, 5.0)
-    sample tau <- HalfNormal(5.0)
-    sample theta : School <- Normal(mu, tau)
-    observe y : School <- Normal(theta, sigma_j)
+    sample mu  <- Normal(loc=0.0, scale=5.0)
+    sample tau <- HalfNormal(scale=5.0)
+    sample theta : School <- Normal(loc=mu, scale=tau)
+    observe y : School <- Normal(loc=theta, scale=sigma_j)
     return theta
 
 export eight_schools_centred

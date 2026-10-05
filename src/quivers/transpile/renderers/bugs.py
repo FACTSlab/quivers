@@ -755,25 +755,45 @@ class BUGSRenderer(RendererBase):
         )
 
     def _reject_list_args(self, ir: IRProgram) -> None:
-        """Raise on the first
-        [`IRArgList`][quivers.transpile.ir.IRArgList] /
-        [`IRArgMatrix`][quivers.transpile.ir.IRArgMatrix] anywhere in
-        the program's distribution-call args."""
+        """Report every independent gap on the first literal argument.
+
+        A call may be unsupported both because BUGS has no spelling for its
+        family and because BUGS has no inline list or matrix literal syntax.
+        Keeping both kinds prevents the order of validation passes from
+        hiding either capability boundary.
+        """
         for node in self._all_nodes(ir):
             args = getattr(node, "args", ())
-            for arg in args:
-                self._check_no_literal(arg)
+            arg_kinds = [
+                kind for argument in args for kind in self._literal_arg_kinds(argument)
+            ]
+            if not arg_kinds:
+                continue
+            family_kinds: list[str] = []
+            family = getattr(node, "family", None)
+            if isinstance(family, str) and not _is_wrapper_family_call(args):
+                try:
+                    self._lookup_family(family)
+                except UnsupportedConstruct as exc:
+                    family_kinds.extend(exc.kinds)
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [*family_kinds, *dict.fromkeys(arg_kinds)],
+            )
 
-    def _check_no_literal(self, arg: IRArg) -> None:
+    def _literal_arg_kinds(self, arg: IRArg) -> tuple[str, ...]:
+        """Return the BUGS literal-syntax gaps nested inside `arg`."""
         if isinstance(arg, IRArgList):
-            self.render_list(arg)
+            return ("arg:list-literal",)
         if isinstance(arg, IRArgMatrix):
-            self.render_matrix(arg)
+            return ("arg:matrix-literal",)
         if isinstance(arg, IRArgBroadcast):
-            self._check_no_literal(arg.value)
+            return self._literal_arg_kinds(arg.value)
         if isinstance(arg, IRArgRef):
-            for idx in arg.indices:
-                self._check_no_literal(idx)
+            return tuple(
+                kind for index in arg.indices for kind in self._literal_arg_kinds(index)
+            )
+        return ()
 
     # ------------------------------------------------------------------
     # Family lookup.

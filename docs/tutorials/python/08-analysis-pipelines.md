@@ -71,13 +71,13 @@ print(result.qvr_source)
 ```text
 object Resp : FinSet 200
 program model : Resp -> Resp
-    sample intercept <- Normal(0.0, 5.0)
-    sample beta_x <- Normal(0.0, 5.0)
+    sample intercept <- Normal(loc=0.0, scale=5.0)
+    sample beta_x <- Normal(loc=0.0, scale=5.0)
     let beta_x_per_row = (beta_x * x)
-    sample sigma <- HalfCauchy(2.0)
+    sample sigma <- HalfCauchy(scale=2.0)
     let eta = (intercept + beta_x_per_row)
     let mu = eta
-    observe y : Resp <- Normal(mu, sigma)
+    observe y : Resp <- Normal(loc=mu, scale=sigma)
     return y
 
 export model
@@ -146,22 +146,22 @@ print(result.qvr_source)
 object Resp : FinSet 96
 object g : FinSet 8
 program model : Resp -> Resp
-    sample intercept <- Normal(0.0, 5.0)
-    sample beta_x <- Normal(0.0, 5.0)
+    sample intercept <- Normal(loc=0.0, scale=5.0)
+    sample beta_x <- Normal(loc=0.0, scale=5.0)
     let beta_x_per_row = (beta_x * x)
-    sample sigma_g_Intercept <- HalfNormal(1.0)
-    sample z_g_Intercept : g <- Normal(0.0, 1.0)
+    sample sigma_g_Intercept <- HalfNormal(scale=1.0)
+    sample z_g_Intercept : g <- Normal(loc=0.0, scale=1.0)
     let alpha_g_per_row = (sigma_g_Intercept * z_g_Intercept[g_idx])
-    sample sigma <- HalfCauchy(2.0)
+    sample sigma <- HalfCauchy(scale=2.0)
     let eta = ((intercept + beta_x_per_row) + alpha_g_per_row)
     let mu = eta
-    observe y : Resp <- Normal(mu, sigma)
+    observe y : Resp <- Normal(loc=mu, scale=sigma)
     return y
 
 export model
 ```
 
-The random-intercept structure expands to a `HalfNormal` scale latent `sigma_g_Intercept`, a *standard-Normal* plate draw `z_g_Intercept` of size `|g|`, and a per-row contribution `sigma_g_Intercept * z_g_Intercept[g_idx]`. This is the non-centered parameterization: `alpha_g[i] = sigma * z[i]` is computed deterministically rather than drawn as `alpha_g[i] ~ Normal(0, sigma)`. Non-centering often improves posterior geometry in weakly informed hierarchical models.
+The random-intercept structure expands to a `HalfNormal` scale latent `sigma_g_Intercept`, a *standard-Normal* plate draw `z_g_Intercept` of size `|g|`, and a per-row contribution `sigma_g_Intercept * z_g_Intercept[g_idx]`. This is the non-centered parameterization: `alpha_g[i] = sigma * z[i]` is computed deterministically rather than drawn as `alpha_g[i] ~ Normal(loc=0, scale=sigma)`. Non-centering often improves posterior geometry in weakly informed hierarchical models.
 
 Recovery:
 

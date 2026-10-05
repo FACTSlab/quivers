@@ -22,12 +22,12 @@ Each observation comes from one of two Gaussian clusters; we don't know which.
     object Component : FinSet 2
     object Weights : Real 2
     program gmm : Item -> Weights [effects=[Sample, Score, Marginal]]
-        sample probs <- Dirichlet(1.0) [over=Component]
-        sample mu_k : Component <- Normal(0.0, 5.0)
-        sample sd_k : Component <- HalfNormal(1.0)
+        sample probs <- Dirichlet(concentration=1.0) [over=Component]
+        sample mu_k : Component <- Normal(loc=0.0, scale=5.0)
+        sample sd_k : Component <- HalfNormal(scale=1.0)
 
         marginalize z : Component <- Categorical(probs=probs) [over=Item]
-            observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
+            observe y : Item <- Normal(loc=mu_k[z], scale=sd_k[z]) [via=item_idx]
         return probs
 
     export gmm
@@ -98,12 +98,12 @@ object Component : FinSet 2
 object Weights : Real 2
 
 program gmm : Item -> Weights
-    sample probs <- Dirichlet(1.0) [over=Component]
-    sample mu_k : Component <- Normal(0.0, 5.0)
-    sample sd_k : Component <- HalfNormal(1.0)
+    sample probs <- Dirichlet(concentration=1.0) [over=Component]
+    sample mu_k : Component <- Normal(loc=0.0, scale=5.0)
+    sample sd_k : Component <- HalfNormal(scale=1.0)
 
     marginalize z : Component <- Categorical(probs=probs) [over=Item]
-        observe y : Item <- Normal(mu_k[z], sd_k[z]) [via=item_idx]
+        observe y : Item <- Normal(loc=mu_k[z], scale=sd_k[z]) [via=item_idx]
     return probs
 
 export gmm
