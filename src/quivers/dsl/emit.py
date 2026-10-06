@@ -134,6 +134,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     DrawStep,
     GroupedBodyObserveStep,
@@ -698,34 +699,35 @@ def _emit_let_factor(e: LetExprFactor) -> str:
 
 
 def _emit_draw_arg(arg: DrawArg) -> str:
+    rendered: str
+    if isinstance(arg, DrawArgNamed):
+        return f"{arg.parameter}={_emit_draw_arg(arg.value)}"
     if isinstance(arg, DrawArgName):
-        return arg.text
-    if isinstance(arg, DrawArgIndex):
+        rendered = arg.text
+    elif isinstance(arg, DrawArgIndex):
         if not arg.indices:
             raise EmitError(
                 f"emit: bracket index {arg.name!r} has no indices; "
                 f"a DrawArgIndex must carry at least one index name",
             )
-        return f"{arg.name}[" + ", ".join(arg.indices) + "]"
-    if isinstance(arg, DrawArgScalar):
-        return _emit_number(arg.value)
-    if isinstance(arg, DrawArgDist):
-        return f"{arg.family}(" + ", ".join(_emit_draw_arg(a) for a in arg.args) + ")"
-    if isinstance(arg, DrawArgList):
-        return "[" + ", ".join(_emit_draw_arg(a) for a in arg.items) + "]"
-    raise EmitError(f"emit: unknown DrawArg kind {type(arg).__name__!r}")
+        rendered = f"{arg.name}[" + ", ".join(arg.indices) + "]"
+    elif isinstance(arg, DrawArgScalar):
+        rendered = _emit_number(arg.value)
+    elif isinstance(arg, DrawArgDist):
+        rendered = (
+            f"{arg.family}(" + ", ".join(_emit_draw_arg(a) for a in arg.args) + ")"
+        )
+    elif isinstance(arg, DrawArgList):
+        rendered = "[" + ", ".join(_emit_draw_arg(a) for a in arg.items) + "]"
+    else:
+        raise EmitError(f"emit: unknown DrawArg kind {type(arg).__name__!r}")
+    return rendered
 
 
 def _emit_draw_args(args: tuple[DrawArg, ...] | None) -> str:
     if not args:
         return ""
     return "(" + ", ".join(_emit_draw_arg(a) for a in args) + ")"
-
-
-def _emit_init_family_arg(arg: str | float) -> str:
-    if isinstance(arg, str):
-        return arg
-    return _emit_number(float(arg))
 
 
 # ---------------------------------------------------------------------------
@@ -1585,7 +1587,7 @@ def _emit_morphism(decl: MorphismDecl, indent: int) -> str:
             f"emit: morphism {decl.names!r} carries both init_family and init_expr"
         )
     if decl.init_family is not None:
-        args = ", ".join(_emit_init_family_arg(a) for a in decl.init_family.args)
+        args = ", ".join(_emit_draw_arg(arg) for arg in decl.init_family.args)
         head = f"{head} ~ {decl.init_family.family}({args})"
     elif decl.init_expr is not None:
         head = f"{head} ~ {_emit_expr(decl.init_expr)}"

@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program exponential_fixture : Obs -> Obs
-    sample theta <- Exponential(1.0)
+    sample theta <- Exponential(rate=1.0)
     return theta
 export exponential_fixture

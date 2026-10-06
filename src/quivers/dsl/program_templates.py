@@ -31,8 +31,11 @@ from quivers.dsl.ast_nodes import (
     AxisSpec,
     CallStep,
     DrawArg,
+    DrawArgDist,
     DrawArgIndex,
+    DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     LetExprFactor,
     LetExprLambda,
@@ -374,7 +377,19 @@ def _rename_args(
         return None
     out: list[DrawArg] = []
     for argument in args:
-        if isinstance(argument, DrawArgName):
+        if isinstance(argument, DrawArgNamed):
+            rewritten = _rename_args((argument.value,), values, rename)
+            assert rewritten is not None
+            out.append(argument.with_(value=rewritten[0]))
+        elif isinstance(argument, DrawArgDist):
+            out.append(
+                argument.with_(args=_rename_args(argument.args, values, rename) or ())
+            )
+        elif isinstance(argument, DrawArgList):
+            out.append(
+                argument.with_(items=_rename_args(argument.items, values, rename) or ())
+            )
+        elif isinstance(argument, DrawArgName):
             replacement = values.get(argument.text)
             if replacement is not None:
                 out.append(_draw_argument(replacement, argument))

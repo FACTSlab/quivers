@@ -23,17 +23,17 @@ object Subject : FinSet 200
 object Verb : FinSet 100
 object Resp : FinSet 5000
 program random_intercepts (G : FinSet, scale : Real) : G -> 1
-    sample sigma <- HalfNormal(scale)
-    sample v : G <- Normal(0.0, sigma)
+    sample sigma <- HalfNormal(scale=scale)
+    sample v : G <- Normal(loc=0.0, scale=sigma)
     return v
 
 program crossed : Resp -> Resp
-    sample intercept <- Normal(0.0, 1.0)
+    sample intercept <- Normal(loc=0.0, scale=1.0)
 
     sample by_subject <- random_intercepts(Subject, 1.0)
     sample by_verb    <- random_intercepts(Verb,    1.0)
 
-    observe response : Resp <- Bernoulli(intercept)
+    observe response : Resp <- Bernoulli(probs=intercept)
     return intercept
 
 export crossed
@@ -68,7 +68,7 @@ accumulator before the log-sum-exp over the class axis:
 
 <!-- compile: false -->
 ```qvr
-marginalize class : K <- Categorical(probs) [over=G]
+marginalize class : K <- Categorical(probs=probs) [over=G]
     observe r_a : Resp_a <- F_a(...) [via=idx_a]
     observe r_b : Resp_b <- F_b(...) [via=idx_b]
     ...

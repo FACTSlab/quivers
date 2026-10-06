@@ -35,17 +35,17 @@ from quivers.transpile.plan import Lower
 _FIXTURE_SOURCES: dict[str, str] = {
     "beta_bernoulli": """object Obs : FinSet 30
 program beta_bernoulli : Obs -> Obs
-    sample theta <- Beta(2.0, 5.0)
-    observe y : Obs <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=5.0)
+    observe y : Obs <- Bernoulli(probs=theta)
     return theta
 export beta_bernoulli
 """,
     "bayes_linear_regression": """object Obs : FinSet 60
 program bayes_linear_regression : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=0.0, scale=1.0)
     let mu = a + b * x_design
-    observe y : Obs <- Normal(mu, 0.3)
+    observe y : Obs <- Normal(loc=mu, scale=0.3)
     return mu
 export bayes_linear_regression
 """,

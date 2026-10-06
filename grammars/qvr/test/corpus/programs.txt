@@ -190,7 +190,7 @@ marginalize with scope
 ==================
 
 program marg : A -> B
-    marginalize c : K <- Categorical(probs)
+    marginalize c : K <- Categorical(probs=probs)
         observe r <- emissions(c)
         let s = r * 2.0
     return c
@@ -380,5 +380,31 @@ program calls : A -> B
             (integer)))
         (let_var
           (identifier))))
+    (return_step
+      (identifier))))
+
+==================
+named distribution argument
+==================
+
+program categorical_logits : A -> K
+    observe y <- Categorical(logits=scores)
+    return y
+
+---
+
+(source_file
+  (program_decl
+    (identifier)
+    (object_atom
+      (identifier))
+    (object_atom
+      (identifier))
+    (observe_step
+      (identifier)
+      (identifier)
+      (named_draw_arg
+        (identifier)
+        (identifier)))
     (return_step
       (identifier))))

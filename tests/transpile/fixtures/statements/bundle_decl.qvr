@@ -5,6 +5,6 @@ rule bwd_app(X, Y) : VP, NP |- S
 bundle CCG_rules : [fwd_app, bwd_app]
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog

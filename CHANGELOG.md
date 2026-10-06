@@ -4,6 +4,12 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.24.0] - 2026-10-03
+
+### Changed
+
+- **Distribution-family construction is keyword-only.** Every QVR family application now names one complete parameter schema, such as `Normal(loc=mu, scale=sigma)`, `Dirichlet(concentration=alpha)`, or either `Categorical(probs=weights)` or `Categorical(logits=scores)`. Parameter names are structural syntax-tree nodes, are preserved through parsing, emission, validation, eager execution, QIEC elaboration, and transpilation, and are reordered only at positional target-API boundaries. Ordinary computation and morphism application remains positional. `qvr migrate` names legacy family arguments and gathers formerly splatted categorical and Dirichlet values into their vector parameter.
+
 ## [0.23.0] - 2026-09-23
 
 ### Added

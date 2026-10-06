@@ -45,6 +45,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
     LetFactorCase,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META
@@ -887,7 +888,9 @@ def _render_inner_family(gx: _GenCtx, morphism_name: str, *, arg_ctx: _ArgCtx) -
             [f"family_ref:{morphism_name}: morphism has no init_family declaration"],
         )
     family = init.family
-    raw_args = tuple(init.args or ())
+    raw_args = tuple(
+        value for _, value in bind_family_arguments(family, init.args or ())
+    )
     callee_name = _gen_target_name(family)
     arg_vids = tuple(_lift_raw_arg(gx, a, arg_ctx=arg_ctx) for a in raw_args)
     return _call(gx, _ident(gx, callee_name), arg_vids)
@@ -895,6 +898,8 @@ def _render_inner_family(gx: _GenCtx, morphism_name: str, *, arg_ctx: _ArgCtx) -
 
 def _lift_raw_arg(gx: _GenCtx, raw: object, *, arg_ctx: _ArgCtx) -> str:
     """Lift a morphism-table raw arg (str / number / IRArg) to a vertex."""
+    if not isinstance(raw, (IRArg, int, float, str)):
+        raw = atom_value(raw)
     if isinstance(raw, IRArg):
         return _render_arg(gx, raw, arg_ctx=arg_ctx)
     if isinstance(raw, (int, float)):

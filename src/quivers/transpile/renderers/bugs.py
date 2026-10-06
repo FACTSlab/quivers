@@ -31,6 +31,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
@@ -754,25 +755,45 @@ class BUGSRenderer(RendererBase):
         )
 
     def _reject_list_args(self, ir: IRProgram) -> None:
-        """Raise on the first
-        [`IRArgList`][quivers.transpile.ir.IRArgList] /
-        [`IRArgMatrix`][quivers.transpile.ir.IRArgMatrix] anywhere in
-        the program's distribution-call args."""
+        """Report every independent gap on the first literal argument.
+
+        A call may be unsupported both because BUGS has no spelling for its
+        family and because BUGS has no inline list or matrix literal syntax.
+        Keeping both kinds prevents the order of validation passes from
+        hiding either capability boundary.
+        """
         for node in self._all_nodes(ir):
             args = getattr(node, "args", ())
-            for arg in args:
-                self._check_no_literal(arg)
+            arg_kinds = [
+                kind for argument in args for kind in self._literal_arg_kinds(argument)
+            ]
+            if not arg_kinds:
+                continue
+            family_kinds: list[str] = []
+            family = getattr(node, "family", None)
+            if isinstance(family, str) and not _is_wrapper_family_call(args):
+                try:
+                    self._lookup_family(family)
+                except UnsupportedConstruct as exc:
+                    family_kinds.extend(exc.kinds)
+            raise UnsupportedConstruct(
+                f"qvr-{self.target}",
+                [*family_kinds, *dict.fromkeys(arg_kinds)],
+            )
 
-    def _check_no_literal(self, arg: IRArg) -> None:
+    def _literal_arg_kinds(self, arg: IRArg) -> tuple[str, ...]:
+        """Return the BUGS literal-syntax gaps nested inside `arg`."""
         if isinstance(arg, IRArgList):
-            self.render_list(arg)
+            return ("arg:list-literal",)
         if isinstance(arg, IRArgMatrix):
-            self.render_matrix(arg)
+            return ("arg:matrix-literal",)
         if isinstance(arg, IRArgBroadcast):
-            self._check_no_literal(arg.value)
+            return self._literal_arg_kinds(arg.value)
         if isinstance(arg, IRArgRef):
-            for idx in arg.indices:
-                self._check_no_literal(idx)
+            return tuple(
+                kind for index in arg.indices for kind in self._literal_arg_kinds(index)
+            )
+        return ()
 
     # ------------------------------------------------------------------
     # Family lookup.
@@ -1272,9 +1293,9 @@ class BUGSRenderer(RendererBase):
                 [f"truncated:base:{family_ref.name}: init is not `~ Family(args)`"],
             )
         base_family = init.family
-        base_args = tuple(_draw_arg_to_ir(a) for a in (init.args or ()))
-        base_meta = self._lookup_family(base_family)
-        base_arg_names = self._infer_arg_names(base_meta, base_args)
+        bound = bind_family_arguments(base_family, init.args or ())
+        base_args = tuple(_draw_arg_to_ir(value) for _, value in bound)
+        base_arg_names = tuple(name for name, _ in bound)
         if len(node.args) < 3:
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -2743,6 +2764,8 @@ def _draw_arg_to_ir(a: str | float) -> IRArg:
     handler to lift the referenced morphism's init clause into IR
     form for re-emission as the truncated call's args.
     """
+    if not isinstance(a, (int, float, str)):
+        a = atom_value(a)
     if isinstance(a, (int, float)):
         return IRArgNumber(value=float(a))
     stripped = a.strip()

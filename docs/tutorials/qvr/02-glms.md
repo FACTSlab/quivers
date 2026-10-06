@@ -19,11 +19,11 @@ Binary response, sigmoid link, Bernoulli likelihood.
     ```qvr
     object Item : FinSet 200
     program logistic : Item -> Item [effects=[Sample, Score]]
-        sample beta_0 <- Normal(0.0, 5.0)
-        sample beta_1 <- Normal(0.0, 2.0)
+        sample beta_0 <- Normal(loc=0.0, scale=5.0)
+        sample beta_1 <- Normal(loc=0.0, scale=2.0)
         let logit = beta_0 + beta_1 * x_design
         let p     = sigmoid(logit)
-        observe y : Item <- Bernoulli(p)
+        observe y : Item <- Bernoulli(probs=p)
         return y
 
     export logistic
@@ -79,11 +79,11 @@ LOGISTIC_SRC = """
 object Item : FinSet 200
 
 program logistic : Item -> Item
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let logit = beta_0 + beta_1 * x_design
     let p     = sigmoid(logit)
-    observe y : Item <- Bernoulli(p)
+    observe y : Item <- Bernoulli(probs=p)
     return y
 
 export logistic
@@ -145,11 +145,11 @@ Count response, log link, Poisson likelihood.
 ```qvr
 object Item : FinSet 150
 program poisson_reg : Item -> Item [effects=[Sample, Score]]
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let log_rate = beta_0 + beta_1 * x_design
     let rate     = exp(log_rate)
-    observe y : Item <- Poisson(rate)
+    observe y : Item <- Poisson(rate=rate)
     return y
 
 export poisson_reg
@@ -169,7 +169,7 @@ Most "why does this fail at runtime" questions trace to one of three slips:
 
 Three observations from this chapter you may have already noticed:
 
-1. **No `pyro.plate` / `numpyro.plate` wrapping.** Plates are inferred from object cardinalities and the domain/codomain typing. If you need an explicit indexed family (say a per-group intercept), chapter 3 introduces the plate-draw syntax (`v : G <- Normal(0, sigma)`).
+1. **No `pyro.plate` / `numpyro.plate` wrapping.** Plates are inferred from object cardinalities and the domain/codomain typing. If you need an explicit indexed family (say a per-group intercept), chapter 3 introduces the plate-draw syntax (`v : G <- Normal(loc=0, scale=sigma)`).
 2. **`let` is not sampling.** PyMC `pm.Deterministic`, NumPyro `numpyro.deterministic`, Pyro `pyro.deterministic`: every PPL has a different name for "this is a function of random variables, not itself random." QVR uses `let`. The compiler tracks the dependency for autograd.
 3. **Several entries, one module.** A `.qvr` file may declare several
    programs and computations. `Program.entry_points()` lists the checked

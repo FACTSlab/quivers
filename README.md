@@ -86,7 +86,7 @@ program gru_cell(x_t, h_prev) : Embedded * Hidden -> Hidden
 
     let reset_hidden = r * h_prev
 
-    sample h_cand <- Normal(reset_hidden, 0.5)
+    sample h_cand <- Normal(loc=reset_hidden, scale=0.5)
 
     let z_complement = 1.0 - z
     let h_new = z_complement * h_prev + z * h_cand

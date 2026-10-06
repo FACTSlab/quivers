@@ -11,8 +11,8 @@ observation's per-class log-likelihood through `g` before the
 log-sum-exp reduction. The shape under test is
 
 ```
-marginalize cls : Cls <- Categorical(probs) [over=Group]
-    observe y : Obs <- Normal(mu[cls], sigma) [via=g]
+marginalize cls : Cls <- Categorical(probs=probs) [over=Group]
+    observe y : Obs <- Normal(loc=mu[cls], scale=sigma) [via=g]
 ```
 
 with `|Obs| > |Group|` and `g[n]` not the identity. This stresses
@@ -70,13 +70,13 @@ _SUBJECT_MIX_SOURCE = """object Cls : FinSet 2
 object Group : FinSet 3
 object Obs : FinSet 12
 program subject_mix : Obs -> Obs
-    sample probs <- Dirichlet(1.0) [over=Cls]
-    sample mu_low <- Normal(-2.0, 1.0)
-    sample mu_diff <- HalfNormal(1.0)
+    sample probs <- Dirichlet(concentration=1.0) [over=Cls]
+    sample mu_low <- Normal(loc=-2.0, scale=1.0)
+    sample mu_diff <- HalfNormal(scale=1.0)
     let mu = factor c : Cls in mu_low + c * mu_diff
     let sigma = 0.5
-    marginalize cls : Cls <- Categorical(probs) [over=Group, reduction=logsumexp]
-        observe y : Obs <- Normal(mu[cls], sigma) [via=g]
+    marginalize cls : Cls <- Categorical(probs=probs) [over=Group, reduction=logsumexp]
+        observe y : Obs <- Normal(loc=mu[cls], scale=sigma) [via=g]
     return probs
 export subject_mix
 """

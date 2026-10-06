@@ -79,6 +79,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprLiteral,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.lower import _collect_let_expr_var_names
@@ -180,6 +181,7 @@ _STAN_LOG_DENSITY_SUFFIX: dict[str, str] = {
     "beta_binomial": "lpmf",
     "binomial": "lpmf",
     "categorical": "lpmf",
+    "categorical_logit": "lpmf",
     "cauchy": "lpdf",
     "chi_square": "lpdf",
     "continuous_bernoulli": "lpdf",
@@ -443,7 +445,7 @@ class StanRenderer(RendererBase):
         record each outcome's alphabet width.
 
         The width is the trailing event extent of the family's
-        probability argument: a `Categorical(phi[z])` whose `phi` is
+        probability argument: a `Categorical(probs=phi[z])` whose `phi` is
         declared `array[K] simplex[V]` scores a value on `1:V`.
         Raises when the family is class-index and the width cannot be
         resolved statically, because the declaration would otherwise
@@ -620,7 +622,7 @@ class StanRenderer(RendererBase):
         slot expects an event_dim>=1 arg.
 
         For the language-model idiom `observe target : Token <-
-        Categorical(h)`, the Token axis is the consumer node's plate
+        Categorical(logits=h)`, the Token axis is the consumer node's plate
         batch_dim. The cardinality is the static size of that batch
         dim. When the batch dim is dynamic or absent, returns None
         and the promotion path skips this consumer.
@@ -1103,6 +1105,8 @@ class StanRenderer(RendererBase):
             return self._emit_mixture_normal(
                 ctx, name=name, args=args, arg_names=arg_names, plate=plate
             )
+        if family == "Categorical" and arg_names == ("logits",):
+            stan_name = "categorical_logit"
         density_name = self._log_density_name(family, stan_name)
         del arg_names  # Stan is positional; arg_names are unused.
         parent = self._ensure_block(ctx, "model")
@@ -1735,6 +1739,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         # Eligibility checks satisfied; compute the latent cardinality.
         latent_card = self._latent_cardinality(meta, node, ctx)
         if latent_card is None:
@@ -1822,7 +1828,7 @@ class StanRenderer(RendererBase):
         """True when the latent's probability argument carries the
         marginalize's grouping plate.
 
-        A `Categorical(theta)` whose `theta` is declared
+        A `Categorical(probs=theta)` whose `theta` is declared
         `array[|G|] simplex[K]` gives every row of the group its own
         draw from its group's prior, so the marginal is one
         `log_sum_exp` per row. A bare `simplex[K]` prior instead
@@ -1939,6 +1945,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         # Declare the latent in the parameters block.
         self.declare(
             ctx,
@@ -2029,6 +2037,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         lps_name = self._marginalize_var or ""
         if not lps_name:
             raise UnsupportedConstruct(
@@ -2123,6 +2133,8 @@ class StanRenderer(RendererBase):
                 "qvr-stan",
                 [f"family:no-stan-target:{node.family}"],
             )
+        if node.family == "Categorical" and node.arg_names == ("logits",):
+            stan_name = "categorical_logit"
         lpdf_name = self._log_density_name(node.family, stan_name)
         lps_name = self._marginalize_var or ""
         group_idx_exprs = self._marginalize_group_index_exprs(node, parent, loop_names)
@@ -2666,7 +2678,7 @@ class StanRenderer(RendererBase):
         to a previously-declared name whose declaration plate carries
         the grouping axes, prepend `prior_index_args` as indices.
 
-        For LDA's `Categorical(theta)` inside a `marginalize ... [over=Doc]`
+        For LDA's `Categorical(probs=theta)` inside a `marginalize ... [over=Doc]`
         scope where `theta : array[20] simplex[3]`, the ref to `theta`
         becomes `theta[word_idx[n_Word]]` under the per-row reading
         and `theta[g_Doc]` under the grouped one.
@@ -3102,7 +3114,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(fn, fnid, "name")
         al = self._fresh(ctx, "fral")
         ctx.sb.vertex(al, "argument_list")
-        for raw in init.args or ():
+        for _, raw in bind_family_arguments(init.family, init.args or ()):
             arg_vid = self._render_init_family_arg(ctx, raw)
             ctx.sb.edge(al, arg_vid, "child_of")
         ctx.sb.edge(fn, al, "child_of")
@@ -3121,6 +3133,8 @@ class StanRenderer(RendererBase):
         / matrix args are not admitted in an `init_family` clause, so
         every arg here is atomic.
         """
+        if not isinstance(raw, (int, float, str)):
+            raw = atom_value(raw)
         if isinstance(raw, (int, float)):
             return self._render_number(ctx, float(raw))
         stripped = raw.strip()

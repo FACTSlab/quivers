@@ -785,10 +785,10 @@ def _reconstruct_mixture_model(
 ) -> dict[str, Tensor]:
     """`mixture_model.qvr`, instantiated at `gmm(alpha=1.0)`:
 
-        sample probs <- Dirichlet(alpha) [over=Component]
-        sample mu    : Component <- Normal(0.0, 5.0)
-        sample sigma : Component <- HalfNormal(1.0)
-        observe r    : Resp <- MixtureNormal(probs, mu, sigma)
+        sample probs <- Dirichlet(concentration=alpha) [over=Component]
+        sample mu    : Component <- Normal(loc=0.0, scale=5.0)
+        sample sigma : Component <- HalfNormal(scale=1.0)
+        observe r    : Resp <- MixtureNormal(weights=probs, loc=mu, scale=sigma)
 
     Wholly reconstructible from the source: every family is named,
     every hyper-parameter is a literal, and the one non-elementary
@@ -853,12 +853,12 @@ def _reconstruct_parametric_pooling(
 ) -> dict[str, Tensor]:
     """`parametric_pooling.qvr`, exporting `pooled_tight`:
 
-        sample z : K <- Normal(0.0, 1.0)      (inside school_effects)
+        sample z : K <- Normal(loc=0.0, scale=1.0)      (inside school_effects)
         let effect = spread * z               (spread = 0.6)
-        sample sigma <- LogNormal(0.0, 0.5)
+        sample sigma <- LogNormal(loc=0.0, scale=0.5)
         let total_effect = sum(theta)
         score centering = -50.0 * total_effect * total_effect
-        observe y : School <- Normal(theta, sigma)
+        observe y : School <- Normal(loc=theta, scale=sigma)
 
     Wholly reconstructible. The `score` step is a log-density summand
     in its own right, not a normalised family: it enters the joint as
@@ -1045,14 +1045,14 @@ def _reconstruct_tree_categorical(
 ) -> dict[str, Tensor]:
     """`tree_categorical.qvr`:
 
-        sample p_root, p_left, p_right <- Beta(1.0, 1.0)
+        sample p_root, p_left, p_right <- Beta(concentration1=1.0, concentration0=1.0)
         let leaf_log = factor cls : Class in { 0 -> log(1 - p_root) + log(1 - p_left), ... }
-        sample sigma_v <- HalfNormal(1.0)
-        sample delta : Verb <- Normal(0.0, sigma_v)
-        sample mu : Class <- Normal(0.0, 1.0)
+        sample sigma_v <- HalfNormal(scale=1.0)
+        sample delta : Verb <- Normal(loc=0.0, scale=sigma_v)
+        sample mu : Class <- Normal(loc=0.0, scale=1.0)
         let cell_score = factor v : Verb, cls : Class in delta[v] + mu[cls] + leaf_log[cls]
         let cell0 = cell_score[0, 0]
-        observe y : Resp <- Normal(cell0, 0.5)
+        observe y : Resp <- Normal(loc=cell0, scale=0.5)
 
     Wholly reconstructible. Only cell `(0, 0)` of the rank-2 factor
     reaches the likelihood, so the reconstruction evaluates that one

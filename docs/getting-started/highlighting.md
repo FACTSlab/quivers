@@ -226,10 +226,10 @@ A baseline probabilistic-program check is:
 object Item : FinSet 32
 
 program regression : Item -> Item [effects=[Sample, Score]]
-    sample sigma <- HalfNormal(1.0)
-    sample beta <- Normal(0.0, 2.0)
+    sample sigma <- HalfNormal(scale=1.0)
+    sample beta <- Normal(loc=0.0, scale=2.0)
     let mu = beta * x
-    observe y : Item <- Normal(mu, sigma)
+    observe y : Item <- Normal(loc=mu, scale=sigma)
     return y
 
 export regression

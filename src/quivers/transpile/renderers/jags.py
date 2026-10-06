@@ -25,6 +25,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprUnaryOp,
     LetExprVar,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
@@ -2057,14 +2058,9 @@ class JAGSRenderer(RendererBase):
                 f"qvr-{_BACKEND}",
                 [f"family:no-target-name:{inner_family}"],
             )
-        inner_args: tuple[IRArg, ...] = tuple(
-            _coerce_to_ir_arg(a) for a in (decl.init_family.args or ())
-        )
-        inner_arg_names = tuple(
-            inner_meta.distribution_class.arg_constraints.keys()
-            if isinstance(inner_meta.distribution_class.arg_constraints, dict)
-            else ()
-        )
+        bound = bind_family_arguments(inner_family, decl.init_family.args or ())
+        inner_args = tuple(_coerce_to_ir_arg(value) for _, value in bound)
+        inner_arg_names = tuple(name for name, _ in bound)
         renamed_pairs = tuple(
             (n, a) for n, a in zip(inner_arg_names, inner_args, strict=False)
         )
@@ -3530,6 +3526,8 @@ def _block_child_kind(ctx: _JAGSCtx, vid: str) -> str:
 def _coerce_to_ir_arg(raw: object) -> IRArg:
     """Coerce a morphism's init_family arg (which may be a raw float
     or a name string) to an IRArg variant."""
+    if not isinstance(raw, (IRArg, int, float, str)):
+        raw = atom_value(raw)
     if isinstance(raw, IRArg):
         return raw
     if isinstance(raw, (int, float)):

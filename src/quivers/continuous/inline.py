@@ -63,8 +63,11 @@ from quivers.dsl.ast_nodes import (
     DrawArgDist,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
 )
+from quivers.dsl.family_schemas import family_parameterizations
+from quivers.dsl.draw_args import bind_family_arguments
 
 
 class FixedDistribution(ContinuousMorphism):
@@ -1021,6 +1024,62 @@ def make_fixed_dirichlet(
     return FixedDistribution(codomain, builder, support=_constraints.simplex)
 
 
+def make_fixed_truncated_normal(
+    mu: float,
+    sigma: float,
+    low: float,
+    high: float,
+    codomain: AnySpace,
+) -> FixedDistribution:
+    """Create a fixed truncated normal with literal parameters."""
+    d = getattr(codomain, "dim", 1)
+
+    def builder(batch: int, device: torch.device) -> D.Distribution:
+        params = [
+            torch.full((batch, d), value, device=device)
+            for value in (mu, sigma, low, high)
+        ]
+        return _truncated_normal_builder(params)
+
+    return FixedDistribution(
+        codomain,
+        builder,
+        support=_constraints.interval(low, high),
+    )
+
+
+def make_fixed_categorical(
+    values: float | list[float],
+    codomain: AnySpace,
+    *,
+    parameterization: str,
+) -> FixedDistribution:
+    """Create a literal categorical from probabilities or logits."""
+    cardinality = int(getattr(codomain, "cardinality", getattr(codomain, "size", 2)))
+    if isinstance(values, (list, tuple)):
+        vector = [float(value) for value in values]
+        if len(vector) != cardinality:
+            raise ValueError(
+                f"Categorical {parameterization} vector has length "
+                f"{len(vector)} but codomain has cardinality={cardinality}"
+            )
+    else:
+        vector = [float(values)] * cardinality
+
+    def builder(batch: int, device: torch.device) -> D.Distribution:
+        parameter = torch.tensor(vector, device=device).expand(batch, cardinality)
+        if parameterization == "logits":
+            return D.Categorical(logits=parameter)
+        return D.Categorical(probs=parameter)
+
+    return FixedDistribution(
+        codomain,
+        builder,
+        discrete=True,
+        support=_constraints.integer_interval(0, cardinality - 1),
+    )
+
+
 # Families whose all-literal factory takes a single vector
 # argument (a ``list[float]`` or ``tuple[float, ...]``) rather than
 # one positional float per scalar parameter. The inline call site in
@@ -1041,6 +1100,10 @@ _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
     "LogNormal": (("loc", "scale"), make_fixed_lognormal),
     "Gamma": (("concentration", "rate"), make_fixed_gamma),
     "Dirichlet": (("concentration",), make_fixed_dirichlet),
+    "TruncatedNormal": (
+        ("mu", "sigma", "low", "high"),
+        make_fixed_truncated_normal,
+    ),
 }
 
 # Per-family support constraints for inline distributions. Used when
@@ -1104,6 +1167,19 @@ def get_inline_param_names(family: str) -> tuple[str, ...] | None:
     if family == "TruncatedNormal":
         return ("mu", "sigma", "low", "high")
     return None
+
+
+def get_inline_parameterizations(family: str) -> tuple[tuple[str, ...], ...]:
+    """Return every complete keyword schema accepted by a family call.
+
+    Most families expose one canonical schema. ``Categorical`` exposes two
+    one-parameter schemas so probabilities and logits occupy the same
+    source-language level without overloading a positional value.
+    """
+    canonical = get_inline_param_names(family)
+    if canonical is None:
+        return ()
+    return family_parameterizations(family, canonical)
 
 
 def _normal_builder(params: list[torch.Tensor]) -> D.Distribution:
@@ -1524,6 +1600,15 @@ def _ordered_logistic_builder(params: list[torch.Tensor]) -> D.Distribution:
     return OrderedLogistic(params[0], params[1])
 
 
+def _categorical_logits_builder(params: list[torch.Tensor]) -> D.Distribution:
+    """Build a categorical distribution from one tensor of logits."""
+    if len(params) != 1:
+        raise ValueError(
+            f"inline Categorical(logits=...) expects one tensor; got {len(params)}"
+        )
+    return D.Categorical(logits=params[0])
+
+
 _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
     "Normal": (("loc", "scale"), _normal_builder, False),
     "Bernoulli": (("probs",), _bernoulli_builder, True),
@@ -1650,6 +1735,8 @@ def _eval_draw_arg_value(
     must be resolved at trace time, which the operator dispatch
     handles by raising for the current implementation).
     """
+    if isinstance(arg, DrawArgNamed):
+        return _eval_draw_arg_value(arg.value, variable_types)
     if isinstance(arg, DrawArgScalar):
         return arg.value
     if isinstance(arg, DrawArgName):
@@ -1685,7 +1772,8 @@ def _build_inner_distribution(
     if family in _OPERATOR_FAMILIES:
         return _build_operator_value(family, arg.args, variable_types)
     if family in _BASE_DISTRIBUTION_BUILDERS:
-        evaluated_args = [_eval_draw_arg_value(a, variable_types) for a in arg.args]
+        bound_args, _ = _bind_inline_arguments(family, arg.args)
+        evaluated_args = [_eval_draw_arg_value(a, variable_types) for a in bound_args]
         if any(isinstance(v, str) for v in evaluated_args):
             raise ValueError(
                 f"Inline distribution {family}({arg.args}): "
@@ -1755,12 +1843,20 @@ def _build_operator_value(
     family: str,
     args: tuple,
     variable_types,
+    *,
+    bound: bool = False,
+    parameter_names: tuple[str, ...] | None = None,
 ):
     """Evaluate an operator-family call inside a compositional
     expression. Returns a `Distribution` / `Measure` value usable as
     a parameter to an enclosing operator.
     """
-    evaluated = [_eval_draw_arg_value(a, variable_types) for a in args]
+    if bound:
+        values = args
+        names = parameter_names
+    else:
+        values, names = _bind_inline_arguments(family, args)
+    evaluated = [_eval_draw_arg_value(a, variable_types) for a in values]
     if family == "PointMass":
         if len(evaluated) != 1:
             raise ValueError(f"PointMass: expected 1 arg, got {len(evaluated)}")
@@ -1775,8 +1871,9 @@ def _build_operator_value(
             raise ValueError(
                 f"{family}: first arg must be a Distribution, got {type(base).__name__}"
             )
-        low = evaluated[1] if len(evaluated) >= 2 else None
-        high = evaluated[2] if len(evaluated) >= 3 else None
+        named = dict(zip(names or (), evaluated, strict=False))
+        low = named.get("low")
+        high = named.get("high")
         low_t = torch.as_tensor(low) if low is not None else None
         high_t = torch.as_tensor(high) if high is not None else None
         return _MeasureRestrict(base, low=low_t, high=high_t)
@@ -1833,13 +1930,20 @@ def _make_operator_distribution(
     args,
     codomain: AnySpace,
     variable_types,
+    parameter_names: tuple[str, ...] | None,
 ):
     """Build a `FixedDistribution` wrapper around a compositional
     measure expression. The expression has no free QVR variables;
     all arguments are evaluated at compile time to a closed-form
     `Distribution` / `Measure` instance.
     """
-    fake_dist = _build_operator_value(family, tuple(args), variable_types)
+    fake_dist = _build_operator_value(
+        family,
+        tuple(args),
+        variable_types,
+        bound=True,
+        parameter_names=parameter_names,
+    )
     support = getattr(fake_dist, "support", _constraints.real)
     discrete = isinstance(support, type(_constraints.nonnegative_integer))
 
@@ -1901,12 +2005,14 @@ def make_inline_distribution(
         The inline distribution morphism, and the variable names
         to pass as step input (None = use program input).
     """
+    args, selected_parameters = _bind_inline_arguments(family, args)
     if family in _OPERATOR_FAMILIES:
         return _make_operator_distribution(
             family,
             args,
             codomain,
             variable_types,
+            selected_parameters,
         )
     args = _normalize_inline_args(args)
     # A `DrawArgIndex` (structural bracket-indexed ref) counts as a
@@ -1916,9 +2022,31 @@ def make_inline_distribution(
         a for a in args if isinstance(a, str) or getattr(a, "kind", None) == "index"
     ]
     if not var_names:
-        all_floats = [float(a) for a in args]
+        if family == "Categorical":
+            values = _eval_draw_arg_value(args[0], variable_types)
+            return (
+                make_fixed_categorical(
+                    values,
+                    codomain,
+                    parameterization=(selected_parameters or ("probs",))[0],
+                ),
+                None,
+            )
         if family in _FIXED_FACTORIES:
-            _, factory = _FIXED_FACTORIES[family]
+            factory_parameters, factory = _FIXED_FACTORIES[family]
+            if (
+                selected_parameters is not None
+                and selected_parameters != factory_parameters
+            ):
+                return (
+                    _make_fixed_selected_parameters(
+                        family,
+                        args,
+                        selected_parameters,
+                        codomain,
+                    ),
+                    None,
+                )
             # Vector-parameter families take a single ``list[float]``
             # / ``tuple[float, ...]`` argument rather than splatting
             # the literals. The parser surfaces ``Dirichlet([1, 2, 3])``
@@ -1927,8 +2055,10 @@ def make_inline_distribution(
             # we re-bundle here when the factory's documented contract
             # is a single vector argument.
             if family in _VECTOR_PARAM_FAMILIES:
-                morph = factory(all_floats, codomain)
+                value = _eval_draw_arg_value(args[0], variable_types)
+                morph = factory(value, codomain)
             else:
+                all_floats = [float(a) for a in args]
                 morph = factory(*all_floats, codomain)
             return (morph, None)
         raise ValueError(f"no fixed factory for inline family {family!r}")
@@ -1937,6 +2067,30 @@ def make_inline_distribution(
             f"no builder for inline family {family!r} with variable arguments"
         )
     param_names, dist_builder, discrete = _FAMILY_BUILDERS[family]
+    if family == "Categorical" and selected_parameters == ("logits",):
+        param_names = ("logits",)
+        dist_builder = _categorical_logits_builder
+    elif selected_parameters is not None and selected_parameters != param_names:
+        spec = FAMILY_REGISTRY[family]
+        source_parameters = selected_parameters
+
+        def _selected_builder(
+            params: list[torch.Tensor],
+            _spec: FamilySpec = spec,
+            _parameters: tuple[str, ...] = source_parameters,
+        ) -> D.Distribution:
+            values: dict[str, torch.Tensor] = {}
+            for index, (name, value) in enumerate(
+                zip(_parameters, params, strict=True)
+            ):
+                if name == "probs":
+                    values[name] = value.clamp(min=EPS, max=1.0 - EPS)
+                else:
+                    values[name] = _spec.params[index].inline_clamp(value)
+            return _spec.dist_class(**values)
+
+        param_names = selected_parameters
+        dist_builder = _selected_builder
     if len(args) != len(param_names):
         raise ValueError(
             f"inline {family} expects {len(param_names)} args ({', '.join(param_names)}), got {len(args)}"
@@ -2033,6 +2187,55 @@ def make_inline_distribution(
         param_event_ranks=fam_event_ranks,
     )
     return (morph, tuple(var_name_order))
+
+
+def _make_fixed_selected_parameters(
+    family: str,
+    args: tuple,
+    parameters: tuple[str, ...],
+    codomain: AnySpace,
+) -> FixedDistribution:
+    """Build a literal family through the parameterization named in QVR."""
+    spec = FAMILY_REGISTRY[family]
+    evaluated = [_eval_draw_arg_value(argument, None) for argument in args]
+    d = int(getattr(codomain, "dim", 1))
+
+    def builder(batch: int, device: torch.device) -> D.Distribution:
+        values: dict[str, torch.Tensor] = {}
+        for index, (name, value) in enumerate(zip(parameters, evaluated, strict=True)):
+            if isinstance(value, (list, tuple)):
+                tensor = torch.as_tensor(value, device=device).expand(batch, -1)
+            else:
+                tensor = torch.full((batch, d), float(value), device=device)
+            if name == "probs":
+                tensor = tensor.clamp(min=EPS, max=1.0 - EPS)
+            else:
+                tensor = spec.params[index].inline_clamp(tensor)
+            values[name] = tensor
+        return spec.dist_class(**values)
+
+    return FixedDistribution(
+        codomain,
+        builder,
+        discrete=spec.discrete,
+        support=spec.support,
+    )
+
+
+def _bind_inline_arguments(
+    family: str,
+    args: tuple,
+) -> tuple[tuple, tuple[str, ...] | None]:
+    """Validate and order a keyword-only family construction.
+
+    Argument names are structural `DrawArgNamed` wrappers. The complete set
+    must match one declared family schema; returned values follow that
+    schema's order for the positional runtime builders.
+    """
+    if not args:
+        return args, None
+    bound = bind_family_arguments(family, args, get_inline_param_names(family) or ())
+    return tuple(value for _, value in bound), tuple(name for name, _ in bound)
 
 
 def _infer_domain(

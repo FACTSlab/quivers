@@ -135,7 +135,7 @@ morphism W : Real D -> Real K [role=latent]
 
 # The same morphism with a Matrix-Normal prior on its tensor.
 morphism W : Real D -> Real K [role=latent, over=[dom, cod]]
-    ~ MatrixNormal(0.0, 1.0, 1.0)
+    ~ MatrixNormal(loc=0.0, row_covariance=1.0, col_covariance=1.0)
 ```
 
 The [axis-role clause](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over)
@@ -380,7 +380,7 @@ a `chart` value:
 program parse_score : Sentence -> Real [effects=[Sample, Score]]
     sample chart <- CCG(input)
     let w = chart.goal_weight()
-    observe valid <- Bernoulli(sigmoid(w))
+    observe valid <- Bernoulli(probs=sigmoid(w))
     return w
 ```
 

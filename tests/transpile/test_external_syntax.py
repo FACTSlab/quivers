@@ -43,8 +43,8 @@ from quivers.transpile import transpile
 _BETA_BERNOULLI = """\
 object Resp : FinSet 4
 program flip : Resp -> Resp
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return theta
 export flip
 """

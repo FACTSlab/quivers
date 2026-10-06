@@ -1022,8 +1022,22 @@ class _ProgramWalk:
         else:
             args, arg_names = self._arguments(distribution, site, plate, meta, morphism)
         self.via = None
+        if (
+            family == "Categorical"
+            and arg_names == ("logits",)
+            and self.planner.target
+            not in {"ir", "pyro", "numpyro", "pymc", "edward2", "stan"}
+        ):
+            raise UnsupportedConstruct(
+                f"qvr-{self.planner.target}",
+                [
+                    "family:Categorical:logits: the target only exposes the "
+                    "probability parameterization; apply softmax in QVR and "
+                    "pass the result as probs"
+                ],
+            )
         constraint = _apply_declared_bounds(
-            from_constraint(_resolve_support(meta, args, self.ctx)),
+            from_constraint(_resolve_support(meta, args, self.ctx, arg_names)),
             plate,
             self.ctx,
             site,

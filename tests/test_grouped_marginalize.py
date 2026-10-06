@@ -2,7 +2,7 @@
 
 Covers (i) the runtime primitive
 :func:`quivers.continuous.plate.marginalize_grouped` and
-(ii) the DSL surface ``marginalize c : K <- Categorical(probs) over G
+(ii) the DSL surface ``marginalize c : K <- Categorical(probs=probs) over G
 via idx in { ... }`` that compiles to it.
 
 The runtime primitive realises the right Kan extension along a finite
@@ -212,9 +212,9 @@ class TestGroupedMarginalizeSurface:
         object Class : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Categorical(probs) [over=Item, reduction=logsumexp]
-                observe r : Resp <- HalfNormal(1.0) [via=idx]
+            sample probs : Class <- HalfNormal(scale=1.0)
+            marginalize cls : Class <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
+                observe r : Resp <- HalfNormal(scale=1.0) [via=idx]
             return probs
 
         export demo
@@ -233,9 +233,9 @@ class TestGroupedMarginalizeSurface:
         object Class : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Categorical(probs) [over=Item]
-                observe r : Resp <- HalfNormal(1.0)
+            sample probs : Class <- HalfNormal(scale=1.0)
+            marginalize cls : Class <- Categorical(probs=probs) [over=Item]
+                observe r : Resp <- HalfNormal(scale=1.0)
             return probs
 
         export demo
@@ -254,9 +254,9 @@ class TestGroupedMarginalizeSurface:
         object Class : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Class <- HalfNormal(1.0)
-            marginalize cls <- Categorical(probs) [over=Item]
-                sample inner : Resp <- HalfNormal(1.0)
+            sample probs : Class <- HalfNormal(scale=1.0)
+            marginalize cls <- Categorical(probs=probs) [over=Item]
+                sample inner : Resp <- HalfNormal(scale=1.0)
             return probs
 
         export demo
@@ -275,9 +275,9 @@ class TestGroupedMarginalizeSurface:
         object Class : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Categorical(probs) [over=NotAnObject]
-                sample inner : Resp <- HalfNormal(1.0)
+            sample probs : Class <- HalfNormal(scale=1.0)
+            marginalize cls : Class <- Categorical(probs=probs) [over=NotAnObject]
+                sample inner : Resp <- HalfNormal(scale=1.0)
             return probs
 
         export demo
@@ -295,9 +295,9 @@ class TestGroupedMarginalizeSurface:
         object Class : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Class <- HalfNormal(1.0)
-            marginalize cls : Class <- Categorical(probs)
-                sample z : Item <- Normal(0.0, 1.0)
+            sample probs : Class <- HalfNormal(scale=1.0)
+            marginalize cls : Class <- Categorical(probs=probs)
+                sample z : Item <- Normal(loc=0.0, scale=1.0)
             return probs
 
         export demo

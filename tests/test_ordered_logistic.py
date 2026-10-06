@@ -146,8 +146,8 @@ def test_dsl_inline_observe_with_per_row_cutpoints() -> None:
     program = loads("""
 object Resp : FinSet 6
 program ord : Resp -> Resp
-    sample eta <- Normal(0.0, 1.0)
-    observe y : Resp <- OrderedLogistic(eta, row_cuts)
+    sample eta <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- OrderedLogistic(predictor=eta, cutpoints=row_cuts)
     return y
 export ord
 """)
@@ -180,9 +180,9 @@ def test_dsl_inline_observe_with_participant_indexed_cutpoints() -> None:
     program = loads("""
 object Resp : FinSet 6
 program ord : Resp -> Resp
-    sample eta <- Normal(0.0, 1.0)
+    sample eta <- Normal(loc=0.0, scale=1.0)
     let row_cuts = cutpoints[participant_idx]
-    observe y : Resp <- OrderedLogistic(eta, row_cuts)
+    observe y : Resp <- OrderedLogistic(predictor=eta, cutpoints=row_cuts)
     return y
 export ord
 """)
@@ -231,8 +231,8 @@ def test_dsl_inline_observe_with_shared_cutpoints_vector() -> None:
 object Cut  : FinSet 4
 object Resp : FinSet 100
 program ordinal : Resp -> Resp
-    sample eta <- Normal(0.0, 1.0)
-    observe y : Resp <- OrderedLogistic(eta, base)
+    sample eta <- Normal(loc=0.0, scale=1.0)
+    observe y : Resp <- OrderedLogistic(predictor=eta, cutpoints=base)
     return y
 export ordinal
 """)

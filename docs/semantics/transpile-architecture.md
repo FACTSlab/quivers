@@ -578,10 +578,10 @@ object Doc : FinSet 20
 object Topic : FinSet 3
 object Word : FinSet 200
 program lda(alpha : Real, beta : Real) : Word -> Word
-    sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
-    sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
-    marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-        observe w : Word <- Categorical(phi[z]) [via=word_idx]
+    sample theta : Doc <- Dirichlet(concentration=alpha) [over=Topic, iid_over=Doc]
+    sample phi : Topic <- Dirichlet(concentration=beta) [over=Word, iid_over=Topic]
+    marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+        observe w : Word <- Categorical(probs=phi[z]) [via=word_idx]
     return theta
 ```
 

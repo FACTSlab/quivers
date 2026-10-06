@@ -28,11 +28,64 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     atom_to_draw_arg as _lift_atom,
 )
+from quivers.dsl.family_schemas import (
+    family_parameterizations,
+    render_parameterizations,
+)
 
 Atom = str | float
+
+
+def argument_parameter(arg: DrawArg) -> str | None:
+    """Return the keyword carried by a structural named argument."""
+    return arg.parameter if isinstance(arg, DrawArgNamed) else None
+
+
+def argument_value(arg: DrawArg) -> DrawArg:
+    """Return a named argument's value, or ``arg`` when it is positional."""
+    return arg.value if isinstance(arg, DrawArgNamed) else arg
+
+
+def bind_family_arguments(
+    family: str,
+    args: tuple[DrawArg, ...],
+    canonical: tuple[str, ...] = (),
+) -> tuple[tuple[str, DrawArg], ...]:
+    """Validate and order one keyword-only family construction.
+
+    The AST retains the names authors wrote. This boundary matches those
+    names against one complete schema and returns values in that schema's
+    canonical order, so positional target APIs never depend on source order.
+    """
+    if not args:
+        return ()
+    schemas = family_parameterizations(family, canonical)
+    rendered = render_parameterizations(schemas)
+    if not schemas:
+        raise TypeError(f"family {family!r} does not take named arguments")
+    bound: dict[str, DrawArg] = {}
+    for argument in args:
+        if not isinstance(argument, DrawArgNamed):
+            raise TypeError(
+                f"family {family!r} arguments are keyword-only; "
+                f"use one complete schema: {rendered}"
+            )
+        if argument.parameter in bound:
+            raise TypeError(
+                f"family {family!r} is given parameter {argument.parameter!r} twice"
+            )
+        bound[argument.parameter] = argument.value
+    selected = next((schema for schema in schemas if set(schema) == set(bound)), None)
+    if selected is None:
+        raise TypeError(
+            f"family {family!r} requires exactly one complete parameter schema "
+            f"{rendered}; got ({', '.join(bound)})"
+        )
+    return tuple((name, bound[name]) for name in selected)
 
 
 def encode_index(arg: DrawArgIndex) -> str:
@@ -119,6 +172,9 @@ __all__ = [
     "Atom",
     "atom_to_draw_arg",
     "atom_value",
+    "bind_family_arguments",
+    "argument_parameter",
+    "argument_value",
     "encode_index",
     "is_atom",
     "is_matrix",

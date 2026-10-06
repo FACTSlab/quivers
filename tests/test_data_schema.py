@@ -162,7 +162,7 @@ class TestCompose:
         )
         body = """
 program demo : Verb -> Verb
-    sample mu : Verb <- Normal(0.0, 1.0)
+    sample mu : Verb <- Normal(loc=0.0, scale=1.0)
     return mu
 
 export demo
@@ -181,7 +181,7 @@ export demo
 object Verb : FinSet 99
 
 program demo : Verb -> Verb
-    sample mu : Verb <- Normal(0.0, 1.0)
+    sample mu : Verb <- Normal(loc=0.0, scale=1.0)
     return mu
 
 export demo

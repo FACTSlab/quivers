@@ -12,11 +12,9 @@ following structured diagnostics:
   defaults will be removed once every shipped example moves to an
   explicit ``~ Family(args)`` declaration.
 
-* ``code="family-arg-shape"`` -- ``severity="error"``: the
-  positional arity of the user-supplied args does not match the
-  family's `arg_constraints` dict (the
-  authoritative parameter set held on the underlying
-  `torch.distributions.Distribution`).
+* ``code="family-arg-parameterization"`` -- ``severity="error"``: a
+  family construction uses positional arguments or does not match one
+  complete keyword schema.
 
 * ``code="family-arg-shape"`` -- ``severity="warning"``: a
   literal vector argument has the wrong length for the family's
@@ -31,8 +29,11 @@ from torch.distributions.constraints import Constraint
 
 from quivers.dsl.ast_nodes import (
     DrawArg,
+    DrawArgDist,
     DrawArgList,
+    DrawArgNamed,
     DrawArgScalar,
+    ExprMorphismCall,
     MarginalizeStep,
     Module,
     MorphismDecl,
@@ -43,6 +44,7 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.constraints import Violation
 from quivers.dsl.draw_args import is_matrix
+from quivers.dsl.family_schemas import FAMILY_ALIASES, family_parameterizations
 from quivers.dsl.step_resolution import (
     ResolvedDist,
     StepResolutionError,
@@ -70,7 +72,7 @@ def validate_family_arg_shapes(module: Module) -> list[Violation]:
     # make ordinary ``qvr check`` fail (or crash) for an executable QVR model.
     morphisms = morphism_table(module)
     lets = build_let_table(module)
-    family_set = frozenset(FAMILY_META)
+    family_set = frozenset(FAMILY_META) | frozenset(FAMILY_ALIASES)
 
     for stmt in module.statements:
         if isinstance(stmt, ProgramDecl):
@@ -113,11 +115,41 @@ def _walk_morphism(
 ) -> None:
     init = decl.init_family
     if init is None:
+        if (
+            isinstance(decl.init_expr, ExprMorphismCall)
+            and decl.init_expr.callee == "Categorical"
+        ):
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=decl.line,
+                    col=decl.col,
+                )
+            )
         return
     if init.family not in family_set:
         return
-    meta = FAMILY_META[init.family]
+    meta = FAMILY_META[FAMILY_ALIASES.get(init.family, init.family)]
     if not init.args:
+        if init.family == "Categorical":
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=decl.line,
+                    col=decl.col,
+                )
+            )
+            return
         out.append(
             Violation(
                 code="implicit-family-defaults",
@@ -163,12 +195,29 @@ def _check_step(
         )
     except StepResolutionError:
         return
-    meta = FAMILY_META.get(resolved.family)
+    surface_family = (
+        step.morphism if step.morphism in FAMILY_ALIASES else resolved.family
+    )
+    meta = FAMILY_META.get(FAMILY_ALIASES.get(surface_family, surface_family))
     if meta is None:
         return
     # Implicit-defaults check: the step (or its referenced init
     # clause) carried no args, the resolver filled defaults.
     if not step.args:
+        if step.morphism == "Categorical":
+            out.append(
+                Violation(
+                    code="family-arg-parameterization",
+                    severity="error",
+                    message=(
+                        "Categorical requires an explicit parameterization; "
+                        "use probs=... or logits=..."
+                    ),
+                    line=step.line,
+                    col=step.col,
+                )
+            )
+            return
         # When the morphism slot is itself a morphism declaration with
         # explicit init args, the warning emits at the morphism site
         # (handled by `_walk_morphism`) rather than here.
@@ -195,8 +244,13 @@ def _check_step(
                 )
             )
         return
+    if step.morphism not in family_set:
+        # These are arguments to a declared morphism or computation, whose
+        # signature remains positional; its family initializer is validated
+        # independently by `_walk_morphism`.
+        return
     _check_args_shape(
-        family=resolved.family,
+        family=surface_family,
         args=step.args,
         meta=meta,
         line=step.line,
@@ -216,34 +270,79 @@ def _check_args_shape(
     origin: str,
     out: list[Violation],
 ) -> None:
-    """Check positional arity and elementwise shape compatibility
-    against the family's `arg_constraints`."""
-    arg_constraints = _read_arg_constraints(meta)
-    if arg_constraints is None:
-        # Property-form arg_constraints: skip the shape check rather
-        # than raise; the transpile-time Lower handles the sentinel
-        # path for these families.
+    """Check argument binding and shape against ``arg_constraints``."""
+    arg_constraints = _read_arg_constraints(meta) or {}
+    schemas = family_parameterizations(family, tuple(arg_constraints))
+    if not schemas or schemas == ((),):
         return
-    arg_names = tuple(arg_constraints.keys())
-    if len(args) > len(arg_names):
+    schema_text = " or ".join("(" + ", ".join(schema) + ")" for schema in schemas)
+    if any(not isinstance(arg, DrawArgNamed) for arg in args):
         out.append(
             Violation(
-                code="family-arg-shape",
+                code="family-arg-parameterization",
                 severity="error",
                 message=(
-                    f"family {family!r} expects {len(arg_names)} positional "
-                    f"argument(s) {list(arg_names)!r}; {origin} supplied "
-                    f"{len(args)}"
+                    f"family {family!r} arguments are keyword-only; "
+                    f"{origin} must use one complete schema: {schema_text}"
                 ),
                 line=line,
                 col=col,
             )
         )
         return
-    for arg, (arg_name, constraint) in zip(args, arg_constraints.items()):
+
+    by_name: dict[str, DrawArg] = {}
+    supplied: set[str] = set()
+    for arg in args:
+        assert isinstance(arg, DrawArgNamed)
+        arg_name = arg.parameter
+        if arg_name in supplied:
+            out.append(
+                Violation(
+                    code="family-arg-shape",
+                    severity="error",
+                    message=(
+                        f"family {family!r} is given parameter {arg_name!r} twice"
+                    ),
+                    line=line,
+                    col=col,
+                )
+            )
+            return
+        supplied.add(arg_name)
+        by_name[arg_name] = arg.value
+
+    selected = next((schema for schema in schemas if set(schema) == supplied), None)
+    if selected is None:
+        out.append(
+            Violation(
+                code="family-arg-parameterization",
+                severity="error",
+                message=(
+                    f"family {family!r} requires exactly one complete parameter "
+                    f"schema {schema_text}; {origin} supplied "
+                    f"({', '.join(arg.parameter for arg in args)})"
+                ),
+                line=line,
+                col=col,
+            )
+        )
+        return
+
+    for arg_name in selected:
+        _check_nested_family_args(
+            by_name[arg_name],
+            line=line,
+            col=col,
+            origin=origin,
+            out=out,
+        )
+        constraint = arg_constraints.get(arg_name)
+        if constraint is None:
+            continue
         _check_arg_against_constraint(
             family=family,
-            arg=arg,
+            arg=by_name[arg_name],
             arg_name=arg_name,
             constraint=constraint,
             line=line,
@@ -251,6 +350,39 @@ def _check_args_shape(
             origin=origin,
             out=out,
         )
+
+
+def _check_nested_family_args(
+    argument: DrawArg,
+    *,
+    line: int,
+    col: int,
+    origin: str,
+    out: list[Violation],
+) -> None:
+    """Validate every family construction nested in one argument."""
+    if isinstance(argument, DrawArgDist):
+        meta = FAMILY_META.get(FAMILY_ALIASES.get(argument.family, argument.family))
+        if meta is not None:
+            _check_args_shape(
+                family=argument.family,
+                args=argument.args,
+                meta=meta,
+                line=argument.line or line,
+                col=argument.col or col,
+                origin=f"nested family in {origin}",
+                out=out,
+            )
+        return
+    if isinstance(argument, DrawArgList):
+        for item in argument.items:
+            _check_nested_family_args(
+                item,
+                line=line,
+                col=col,
+                origin=origin,
+                out=out,
+            )
 
 
 def _check_arg_against_constraint(

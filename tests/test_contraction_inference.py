@@ -534,8 +534,8 @@ contraction op_apply (
 ) : A -> D [rule=product_fuzzy]
 
 program p : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export p
@@ -558,8 +558,8 @@ contraction op_apply (
 ) : A -> D [rule=product_fuzzy, wiring="ab, ac, bcd -> ad"]
 
 program p : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export p
@@ -589,8 +589,8 @@ contraction shared_b (
 ) : (A * C) -> B [rule=product_fuzzy, share=[B]]
 
 program p : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export p

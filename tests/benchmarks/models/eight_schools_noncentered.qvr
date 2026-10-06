@@ -15,10 +15,10 @@
 # than on the centered form.
 object School : FinSet 8
 program eight_schools_noncentered : School -> School
-    sample mu <- Normal(0.0, 10.0)
-    sample tau <- HalfCauchy(5.0)
-    sample eta : School <- Normal(0.0, 1.0)
+    sample mu <- Normal(loc=0.0, scale=10.0)
+    sample tau <- HalfCauchy(scale=5.0)
+    sample eta : School <- Normal(loc=0.0, scale=1.0)
     let theta = mu + tau * eta
-    observe y : School <- Normal(theta, 12.0)
+    observe y : School <- Normal(loc=theta, scale=12.0)
     return theta
 export eight_schools_noncentered

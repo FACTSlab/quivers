@@ -2,6 +2,6 @@
 object Dim : FinSet 5
 object Obs : Real 5
 program lowrankmvn_fixture : Obs -> Obs
-    sample x <- LowRankMVN([0.0, 0.0, 0.0, 0.0, 0.0], [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.0, 1.0]], [1.0, 1.0, 1.0, 1.0, 1.0]) [over=Dim]
+    sample x <- LowRankMVN(loc=[0.0, 0.0, 0.0, 0.0, 0.0], cov_factor=[[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.5], [0.0, 1.0]], cov_diag=[1.0, 1.0, 1.0, 1.0, 1.0]) [over=Dim]
     return x
 export lowrankmvn_fixture

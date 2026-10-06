@@ -22,8 +22,8 @@ from tests.transpile import _structural
 _BETA_BERNOULLI = """\
 object Resp : FinSet 4
 program flip : Resp -> Resp
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return theta
 export flip
 """
@@ -183,7 +183,7 @@ def test_pymc_emits_single_model_instantiation() -> None:
 _TURING_HALFNORMAL = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample sigma <- HalfNormal(1.0)
+    sample sigma <- HalfNormal(scale=1.0)
     return sigma
 export prog
 """
@@ -239,8 +239,8 @@ def _julia_call_is_named(schema: panproto.Schema, call_id: str, name: str) -> bo
 _RETURN_FIXTURE = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return theta
 export prog
 """

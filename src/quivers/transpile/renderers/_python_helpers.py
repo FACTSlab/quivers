@@ -1486,7 +1486,7 @@ def marginal_support_size(
     call site does not pin it.
 
     The count is the trailing declared extent of the family's probability
-    argument: `Categorical(theta)` over a `theta` declared
+    argument: `Categorical(probs=theta)` over a `theta` declared
     ``[over=Topic]`` enumerates ``|Topic|`` atoms. Checked computation and
     factor results carry tensor axes as batch dimensions, while a sampled
     simplex carries its class axis as an event dimension, so both halves of

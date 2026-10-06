@@ -17,6 +17,7 @@ from quivers.dsl.ast_nodes import (
     Expr,
     MorphismDecl,
 )
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import (
     parser_registry,
@@ -1222,7 +1223,8 @@ class PyMCRenderer(RendererBase):
             )
         dist_attr = attribute(ctx.py, ("pymc", base_dist_class, "dist"))
         positional = tuple(
-            arg_expr(ctx.py, _draw_arg_to_wire(a)) for a in (init.args or ())
+            arg_expr(ctx.py, _draw_arg_to_wire(value))
+            for _, value in bind_family_arguments(init.family, init.args or ())
         )
         return call(ctx.py, dist_attr, positional=positional)
 
@@ -1395,7 +1397,9 @@ def _draw_arg_to_wire(a: object) -> str | float:
     `arg_expr`-acceptable wire form."""
     if isinstance(a, (int, float)):
         return float(a)
-    return str(a)
+    if isinstance(a, str):
+        return a
+    return atom_value(a)
 
 
 def _bin_op(py: PyCtx, lhs: str, op: str, rhs: str) -> str:

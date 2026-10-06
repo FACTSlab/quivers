@@ -48,6 +48,7 @@ from quivers.dsl.ast_nodes import (
     ProgramDecl,
 )
 from quivers.dsl.ast_nodes.let_expressions import LetExprNode
+from quivers.dsl.draw_args import atom_value, bind_family_arguments
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile.qiec_ir import IRQiecModule
 from quivers.transpile._expand_composites import expand_composite_lets
@@ -2305,7 +2306,12 @@ def _family_ref_to_julia(ctx: _TuringCtx, ref: IRArgFamilyRef) -> str:
             ],
         )
     callee = _identifier(sb, counter, inner_target)
-    inner_args = tuple(_raw_init_arg_to_julia(ctx, a) for a in decl.init_family.args)
+    inner_args = tuple(
+        _raw_init_arg_to_julia(ctx, value)
+        for _, value in bind_family_arguments(
+            decl.init_family.family, decl.init_family.args
+        )
+    )
     return _call(sb, counter, callee, inner_args)
 
 
@@ -2315,6 +2321,8 @@ def _raw_init_arg_to_julia(ctx: _TuringCtx, raw: object) -> str:
     `IRArgFamilyRef` rendering pre-dates the structured DrawArg
     encoding for nested family calls."""
     sb, counter = ctx.sb, ctx.counter
+    if not isinstance(raw, (int, float, str)):
+        raw = atom_value(raw)
     if isinstance(raw, (int, float)):
         return _number(sb, counter, float(raw))
     if isinstance(raw, str):

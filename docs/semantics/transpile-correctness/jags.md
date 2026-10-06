@@ -35,7 +35,7 @@ JAGS family-name differences are:
 | `Dirichlet(α)` | `ddirich(α)` | (BUGS uses `ddirch`) |
 | `Gamma(α, β)` | `dgamma(α, β)` | matches BUGS |
 | `Bernoulli(p)` | `dbern(p)` | matches BUGS |
-| `Categorical(p)` | `dcat(p)` | matches BUGS |
+| `Categorical(probs=p)` | `dcat(p)` | matches BUGS |
 | `Normal(μ, σ)` | `dnorm(μ, 1/σ²)` | precision parameterization |
 
 JAGS also exposes

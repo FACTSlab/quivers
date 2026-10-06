@@ -424,8 +424,8 @@ prints the didactic AST `repr()` instead.
 program lda(alpha : Real, beta : Real) : Word -> Word
     sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
     sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
-    marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-        observe w : Word <- Categorical(phi[z]) [via=word_idx]
+    marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+        observe w : Word <- Categorical(probs=phi[z]) [via=word_idx]
     return theta
 -- declared at docs/examples/source/lda.qvr:32:0
 
@@ -469,12 +469,12 @@ program lda(alpha : Real, beta : Real) : Word -> Word
   param beta : Real
   sample theta : Doc <- Dirichlet(alpha) [over=Topic, iid_over=Doc]
   sample phi : Topic <- Dirichlet(beta) [over=Word, iid_over=Topic]
-  marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
+  marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
   return theta
 
 > :browse lda::z
-marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-  observe w : Word <- Categorical(phi[z]) [via=word_idx]
+marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+  observe w : Word <- Categorical(probs=phi[z]) [via=word_idx]
 ```
 
 #### `:plate PROGRAM [--mermaid|--dot|--tikz|--daft|--open]` / `:p PROGRAM`
@@ -535,8 +535,8 @@ program lda: Word -> Word
 -  ------------  ---------------------------------------------  -------
 1  latent        sample theta : Doc <- Dirichlet(alpha)         alpha
 2  latent        sample phi : Topic <- Dirichlet(beta)          beta
-3  marginalized  marginalize z : Topic <- Categorical(theta)    theta
-4  observed      observe w : Doc x Word <- Categorical(phi, z)  phi, z
+3  marginalized  marginalize z : Topic <- Categorical(probs=theta)    theta
+4  observed      observe w : Doc x Word <- Categorical(probs=phi[z])  phi, z
 ```
 
 Same `--mermaid` / `--dot` / `--open` flags as `:plate`.
@@ -750,8 +750,8 @@ that declaration's scope. Examples on the LDA gallery example:
 theta :: Doc -> Topic
 
 > :browse lda::z
-marginalize z : Topic <- Categorical(theta) [over=Doc, reduction=logsumexp]
-  observe w : Word <- Categorical(phi[z]) [via=word_idx]
+marginalize z : Topic <- Categorical(probs=theta) [over=Doc, reduction=logsumexp]
+  observe w : Word <- Categorical(probs=phi[z]) [via=word_idx]
 
 > :where theta
 references to 'theta':

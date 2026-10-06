@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program lognormal_fixture : Obs -> Obs
-    sample theta <- LogNormal(0.0, 1.0)
+    sample theta <- LogNormal(loc=0.0, scale=1.0)
     return theta
 export lognormal_fixture

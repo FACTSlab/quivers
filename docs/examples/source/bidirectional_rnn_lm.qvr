@@ -12,7 +12,7 @@
 #   h_fwd    ~ scan(fwd_cell)(tok_embed(x))    forward hidden states
 #   h_alt    ~ scan(bwd_cell)(tok_embed(x))    second left-to-right summary
 #   h        ~ combine(h_fwd, h_bwd)           merged representation
-#   masked_t ~ Categorical(lm_head(h))         observed masked token
+#   masked_t ~ Categorical(logits=lm_head(h))  observed masked token
 #
 # Resp is the plate: it indexes the 32 scored rows of the corpus,
 # one masked-token target per context window. Token is the

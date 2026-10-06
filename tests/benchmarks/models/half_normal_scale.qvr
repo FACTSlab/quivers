@@ -12,7 +12,7 @@
 # must lie in (0, ∞); the guide-side bijector is exp / softplus.
 object Obs : FinSet 80
 program half_normal_scale : Obs -> Obs
-    sample sigma <- HalfNormal(2.0)
-    observe y : Obs <- Normal(0.0, sigma)
+    sample sigma <- HalfNormal(scale=2.0)
+    observe y : Obs <- Normal(loc=0.0, scale=sigma)
     return sigma
 export half_normal_scale

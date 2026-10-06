@@ -22,12 +22,12 @@ object Group : FinSet 3
 object Resp : FinSet 6
 
 program hierarchy : Resp -> Resp
-    sample mu <- Normal(0.0, 1.0)
-    sample tau <- HalfNormal(1.0)
-    sample theta : Group <- Normal(mu, tau)
+    sample mu <- Normal(loc=0.0, scale=1.0)
+    sample tau <- HalfNormal(scale=1.0)
+    sample theta : Group <- Normal(loc=mu, scale=tau)
     let rate = exp(theta)
     let expected = rate[idx]
-    observe y : Resp <- Normal(expected, 0.5)
+    observe y : Resp <- Normal(loc=expected, scale=0.5)
     let seen <- account[Observed](construct Present(2.0) as Measurement(Observed), mu, 1.0)
     let held_out <- account[Missing](construct Absent() as Measurement(Missing), mu, 1.0)
     return held_out

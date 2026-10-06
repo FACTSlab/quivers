@@ -164,9 +164,9 @@ override cannot outlive the renderer branch that motivated it."""
 
 
 _HALF_FAMILY_PROBE_ARGS: dict[str, str] = {
-    "HalfCauchy": "HalfCauchy(1.0)",
-    "HalfNormal": "HalfNormal(1.0)",
-    "HalfStudentT": "HalfStudentT(3.0, 1.0)",
+    "HalfCauchy": "HalfCauchy(scale=1.0)",
+    "HalfNormal": "HalfNormal(scale=1.0)",
+    "HalfStudentT": "HalfStudentT(df=3.0, scale=1.0)",
 }
 """Call spelling used to make each folded family emit a draw site.
 
@@ -179,7 +179,7 @@ object Val : Real 1
 
 program probe : Resp -> Val
     sample v <- {call}
-    observe y : Resp <- Normal(v, 1.0)
+    observe y : Resp <- Normal(loc=v, scale=1.0)
     return v
 
 export probe
@@ -262,10 +262,10 @@ object Resp : FinSet 5
 object Weights : Real 3
 
 program probe : Resp -> Weights
-    sample probs <- Dirichlet(1.0) [over=Component]
-    sample mu : Component <- Normal(0.0, 5.0)
-    sample sigma : Component <- HalfNormal(1.0)
-    observe r : Resp <- MixtureNormal(probs, mu, sigma)
+    sample probs <- Dirichlet(concentration=1.0) [over=Component]
+    sample mu : Component <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Component <- HalfNormal(scale=1.0)
+    observe r : Resp <- MixtureNormal(weights=probs, loc=mu, scale=sigma)
     return probs
 
 export probe
@@ -275,13 +275,13 @@ object Batch : FinSet 4
 object Val : Real 1
 
 program probe : Batch -> Val
-    sample conc1 : Arm <- HalfCauchy(2.0)
-    sample conc0 : Arm <- HalfCauchy(2.0)
+    sample conc1 : Arm <- HalfCauchy(scale=2.0)
+    sample conc0 : Arm <- HalfCauchy(scale=2.0)
 
     let a = conc1[arm_idx]
     let b = conc0[arm_idx]
 
-    observe y : Batch <- BetaBinomial(n_trials, a, b)
+    observe y : Batch <- BetaBinomial(total_count=n_trials, concentration1=a, concentration0=b)
     return a
 
 export probe
@@ -290,9 +290,9 @@ export probe
 object Val : Real 1
 
 program probe : Resp -> Val
-    sample a <- HalfNormal(2.0)
-    sample b <- HalfNormal(2.0)
-    observe y : Resp <- Kumaraswamy(a, b)
+    sample a <- HalfNormal(scale=2.0)
+    sample b <- HalfNormal(scale=2.0)
+    observe y : Resp <- Kumaraswamy(concentration1=a, concentration0=b)
     return a
 
 export probe
@@ -301,9 +301,9 @@ export probe
 object Val : Real 1
 
 program probe : Resp -> Val
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     score penalty = -0.5 * a * a
-    observe y : Resp <- Normal(a, 1.0)
+    observe y : Resp <- Normal(loc=a, scale=1.0)
     return a
 
 export probe
@@ -1054,7 +1054,7 @@ def _axis_names(step: SampleStep | ObserveStep) -> tuple[str, ...]:
 
         A folded family is scored elementwise, so the folding factor of two
         applies once per coordinate whether the coordinate sits on a batch
-        axis (`sample s : Coef <- HalfCauchy(1.0)`) or on an event axis
+        axis (`sample s : Coef <- HalfCauchy(scale=1.0)`) or on an event axis
     (`[over=...]`). Both thus multiply the factor count. When an
         `[over=..., iid_over=...]` clause is present it is authoritative and
         the bare index is not counted again, since the index axis reappears

@@ -16,14 +16,14 @@ A *plate-draw* binds one value per index of a finite-set object:
 <!-- compile: false -->
 ```qvr
 object School : FinSet 8
-sample theta : School <- Normal(mu, tau)
+sample theta : School <- Normal(loc=mu, scale=tau)
 ```
 
 is the QVR analogue of NumPyro's `with plate("schools", 8): theta = sample("theta", dist.Normal(mu, tau))`. The result has shape `(8,)`; subsequent `let` arithmetic broadcasts over it. A *vectorized observe* over a plate has the same shape:
 
 <!-- compile: false -->
 ```qvr
-observe y : School <- Normal(theta, sigma_j)
+observe y : School <- Normal(loc=theta, scale=sigma_j)
 ```
 
 Plates are good for IID structure: nothing about index `j+1` depends on what happened at `j`. For genuinely sequential data, you want `scan`.
@@ -79,7 +79,7 @@ Two semantic facts keep this export from being an HMM likelihood:
 
 The clause `~ Family(args) over <axis> [iid over <axis>]` attaches a prior to a kernel `A -> B`. The axes name *which* dimensions of the kernel tensor the family describes and *which* dimensions are replicated independently.
 
-- `over cod` puts the family on the codomain axis. For `transition : State -> State` declared as `~ Dirichlet(1.0) over cod`, each draw is a simplex over the 8 codomain states.
+- `over cod` puts the family on the codomain axis. For `transition : State -> State` declared as `~ Dirichlet(concentration=1.0) over cod`, each draw is a simplex over the 8 codomain states.
 - `iid over dom` says the prior is replicated independently across the domain axis. So `over cod iid over dom` gives 8 independent simplex draws, one per domain row, which is exactly a row-stochastic matrix with a row-wise Dirichlet prior.
 - Order matters because the family is built outward: first you say what one row looks like (`over cod`), then you say how rows replicate (`iid over dom`).
 
@@ -87,10 +87,10 @@ Other useful combinations:
 
 | Pattern | Meaning |
 |---|---|
-| `~ Normal(0, 1) over cod` | one Gaussian vector over the codomain (no replication) |
-| `~ Normal(0, 1) over cod iid over dom` | per-row independent Gaussian vectors |
-| `~ Normal(0, 1) iid over cod iid over dom` | full IID matrix of scalars |
-| `~ Dirichlet(0.1) over cod iid over dom` | sparse row-stochastic prior (concentration < 1) |
+| `~ Normal(loc=0, scale=1) over cod` | one Gaussian vector over the codomain (no replication) |
+| `~ Normal(loc=0, scale=1) over cod iid over dom` | per-row independent Gaussian vectors |
+| `~ Normal(loc=0, scale=1) iid over cod iid over dom` | full IID matrix of scalars |
+| `~ Dirichlet(concentration=0.1) over cod iid over dom` | sparse row-stochastic prior (concentration < 1) |
 
 If neither `over` nor `iid over` is given, the family is broadcast scalar-wise. The compiler synthesises the appropriate `PlateDraw` internally; you don't need to think about plates.
 

@@ -3,6 +3,6 @@ object Row : FinSet 3
 object Col : FinSet 3
 object Obs : Real 9
 program inversewishart_fixture : Obs -> Obs
-    sample sigma <- InverseWishart(4.0, [[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]
+    sample sigma <- InverseWishart(df=4.0, scale_tril=[[1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 1.0]]) [over=[Row, Col]]
     return sigma
 export inversewishart_fixture

@@ -42,13 +42,13 @@ object Resp : FinSet 64
 object Val : Real 1
 
 program logistic_noise_regression : Resp -> Val
-    sample scale <- HalfNormal(2.0)
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
+    sample scale <- HalfNormal(scale=2.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
 
     let mu = beta_0 + beta_1 * x
 
-    observe y : Resp <- Logistic(mu, scale)
+    observe y : Resp <- Logistic(loc=mu, scale=scale)
     return scale
 
 export logistic_noise_regression

@@ -26,8 +26,8 @@ object Dim : FinSet 4
 object Factor : Real 4
 
 program correlation_model : Dim -> Factor
-    sample eta <- HalfNormal(2.0)
-    sample chol : Dim <- LKJCholesky(eta)
+    sample eta <- HalfNormal(scale=2.0)
+    sample chol : Dim <- LKJCholesky(concentration=eta)
     return chol
 
 export correlation_model

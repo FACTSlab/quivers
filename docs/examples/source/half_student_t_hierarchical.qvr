@@ -29,16 +29,16 @@ object Resp : FinSet 60
 object Val : Real 1
 
 program hierarchical_regression : Resp -> Val
-    sample sigma <- HalfStudentT(3.0, 1.0)
-    sample tau <- HalfStudentT(3.0, 1.0)
-    sample beta_0 <- Normal(0.0, 5.0)
-    sample beta_1 <- Normal(0.0, 2.0)
-    sample u : Group <- Normal(0.0, tau)
+    sample sigma <- HalfStudentT(df=3.0, scale=1.0)
+    sample tau <- HalfStudentT(df=3.0, scale=1.0)
+    sample beta_0 <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 <- Normal(loc=0.0, scale=2.0)
+    sample u : Group <- Normal(loc=0.0, scale=tau)
 
     let group_effect = u[group_idx]
     let mu = beta_0 + group_effect + beta_1 * x
 
-    observe y : Resp <- Normal(mu, sigma)
+    observe y : Resp <- Normal(loc=mu, scale=sigma)
     return sigma
 
 export hierarchical_regression

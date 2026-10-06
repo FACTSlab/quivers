@@ -42,11 +42,11 @@ class TestSurfaceCombinations:
         object K_inner : FinSet 2
 
         program nested_prod : Resp -> Resp
-            sample probs_outer : K_outer <- HalfNormal(1.0)
-            sample probs_inner : K_inner <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item]
-                marginalize inner : K_inner <- Categorical(probs_inner) [over=[Item, Subj]]
-                    observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
+            sample probs_outer : K_outer <- HalfNormal(scale=1.0)
+            sample probs_inner : K_inner <- HalfNormal(scale=1.0)
+            marginalize outer : K_outer <- Categorical(probs=probs_outer) [over=Item]
+                marginalize inner : K_inner <- Categorical(probs=probs_inner) [over=[Item, Subj]]
+                    observe r : Resp <- HalfNormal(scale=1.0) [via=[item_idx, subj_idx]]
             return probs_outer
         export nested_prod
         """)
@@ -68,11 +68,11 @@ class TestSurfaceCombinations:
         object K_inner : FinSet 2
 
         program mixed_reds : Resp -> Resp
-            sample probs_outer : K_outer <- HalfNormal(1.0)
-            sample probs_inner : K_inner <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item, reduction=logsumexp]
-                marginalize inner : K_inner <- Categorical(probs_inner) [over=Subj, reduction=sum]
-                    observe r : Resp <- HalfNormal(1.0) [via=inner_idx]
+            sample probs_outer : K_outer <- HalfNormal(scale=1.0)
+            sample probs_inner : K_inner <- HalfNormal(scale=1.0)
+            marginalize outer : K_outer <- Categorical(probs=probs_outer) [over=Item, reduction=logsumexp]
+                marginalize inner : K_inner <- Categorical(probs=probs_inner) [over=Subj, reduction=sum]
+                    observe r : Resp <- HalfNormal(scale=1.0) [via=inner_idx]
             return probs_outer
         export mixed_reds
         """)
@@ -97,14 +97,14 @@ class TestSurfaceCombinations:
         object K_c : FinSet 2
 
         program three_with_cont : Resp -> Resp
-            sample mu_shift <- Normal(0.0, 1.0)
-            sample probs_a : K_a <- HalfNormal(1.0)
-            sample probs_b : K_b <- HalfNormal(1.0)
-            sample probs_c : K_c <- HalfNormal(1.0)
-            marginalize a : K_a <- Categorical(probs_a) [over=G_a]
-                marginalize b : K_b <- Categorical(probs_b) [over=G_b]
-                    marginalize c : K_c <- Categorical(probs_c) [over=G_c]
-                        observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_a]
+            sample mu_shift <- Normal(loc=0.0, scale=1.0)
+            sample probs_a : K_a <- HalfNormal(scale=1.0)
+            sample probs_b : K_b <- HalfNormal(scale=1.0)
+            sample probs_c : K_c <- HalfNormal(scale=1.0)
+            marginalize a : K_a <- Categorical(probs=probs_a) [over=G_a]
+                marginalize b : K_b <- Categorical(probs=probs_b) [over=G_b]
+                    marginalize c : K_c <- Categorical(probs=probs_c) [over=G_c]
+                        observe r : Resp <- Normal(loc=mu_shift, scale=1.0) [via=idx_a]
             return mu_shift
         export three_with_cont
         """)
@@ -136,14 +136,14 @@ class TestRuntimeCombinations:
         object K_c : FinSet 2
 
         program three_with_cont : Resp -> Resp
-            sample mu_shift <- Normal(0.0, 1.0)
-            sample probs_a : K_a <- HalfNormal(1.0)
-            sample probs_b : K_b <- HalfNormal(1.0)
-            sample probs_c : K_c <- HalfNormal(1.0)
-            marginalize a : K_a <- Categorical(probs_a) [over=G_a]
-                marginalize b : K_b <- Categorical(probs_b) [over=G_b]
-                    marginalize c : K_c <- Categorical(probs_c) [over=G_c]
-                        observe r : Resp <- Normal(mu_shift, 1.0) [via=idx_a]
+            sample mu_shift <- Normal(loc=0.0, scale=1.0)
+            sample probs_a : K_a <- HalfNormal(scale=1.0)
+            sample probs_b : K_b <- HalfNormal(scale=1.0)
+            sample probs_c : K_c <- HalfNormal(scale=1.0)
+            marginalize a : K_a <- Categorical(probs=probs_a) [over=G_a]
+                marginalize b : K_b <- Categorical(probs=probs_b) [over=G_b]
+                    marginalize c : K_c <- Categorical(probs=probs_c) [over=G_c]
+                        observe r : Resp <- Normal(loc=mu_shift, scale=1.0) [via=idx_a]
             return mu_shift
         export three_with_cont
         """)
@@ -174,11 +174,11 @@ class TestRuntimeCombinations:
         object K_inner : FinSet 2
 
         program nested_prod : Resp -> Resp
-            sample probs_outer : K_outer <- HalfNormal(1.0)
-            sample probs_inner : K_inner <- HalfNormal(1.0)
-            marginalize outer : K_outer <- Categorical(probs_outer) [over=Item]
-                marginalize inner : K_inner <- Categorical(probs_inner) [over=[Item, Subj]]
-                    observe r : Resp <- HalfNormal(1.0) [via=[item_idx, subj_idx]]
+            sample probs_outer : K_outer <- HalfNormal(scale=1.0)
+            sample probs_inner : K_inner <- HalfNormal(scale=1.0)
+            marginalize outer : K_outer <- Categorical(probs=probs_outer) [over=Item]
+                marginalize inner : K_inner <- Categorical(probs=probs_inner) [over=[Item, Subj]]
+                    observe r : Resp <- HalfNormal(scale=1.0) [via=[item_idx, subj_idx]]
             return probs_outer
         export nested_prod
         """)

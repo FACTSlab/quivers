@@ -5,6 +5,6 @@ deduction PCFG : Term -> Term [semiring=LogProb, start=S, depth=2]
     rule s_np_vp : span(I, K, NP), span(K, J, VP) |- span(I, J, S) #[learnable]
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog

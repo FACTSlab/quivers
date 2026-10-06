@@ -171,7 +171,7 @@ class TestDSLSurface:
         object Subj : FinSet 5
 
         program demo : Subj -> Subj
-            sample coefs : Subj <- Normal(0.0, 1.0)
+            sample coefs : Subj <- Normal(loc=0.0, scale=1.0)
             let z = coefs
             return z
 
@@ -202,8 +202,8 @@ class TestDSLSurface:
         object Resp : FinSet 20
 
         program demo : Resp -> Resp
-            sample mu : Resp <- Normal(0.0, 1.0)
-            observe r : Resp <- Normal(0.0, 1.0)
+            sample mu : Resp <- Normal(loc=0.0, scale=1.0)
+            observe r : Resp <- Normal(loc=0.0, scale=1.0)
             return mu
 
         export demo
@@ -217,9 +217,9 @@ class TestDSLSurface:
         object Cls : FinSet 3
 
         program demo : Item -> Item
-            sample probs : Cls <- Dirichlet(1.0) [over=Cls]
-            marginalize cls : Cls <- Categorical(probs) [over=Item, reduction=logsumexp]
-                observe y : Item <- Categorical(probs) [via=item_idx]
+            sample probs : Cls <- Dirichlet(concentration=1.0) [over=Cls]
+            marginalize cls : Cls <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
+                observe y : Item <- Categorical(probs=probs) [via=item_idx]
             return probs
 
         export demo
@@ -236,8 +236,8 @@ class TestDSLSurface:
         object Verb : FinSet 3
 
         program random_intercepts(G : FinSet, scale : Real) : G -> Real 1
-            sample sigma <- HalfNormal(scale)
-            sample v : G <- Normal(0.0, sigma)
+            sample sigma <- HalfNormal(scale=scale)
+            sample v : G <- Normal(loc=0.0, scale=sigma)
             return v
 
         program demo : SubjCloze -> SubjCloze
@@ -274,7 +274,7 @@ class TestDSLSurface:
         object Subj : FinSet 5
         object UnitSpace : Real 1
 
-        morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(0.0, 1.0)
+        morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(loc=0.0, scale=1.0)
 
         program with_prior(G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> Real 1
             sample v : G <- prior
@@ -370,7 +370,7 @@ def test_inline_family_response_keeps_its_plate_shape() -> None:
     program = loads(
         "object Resp : FinSet 6\n"
         "program ord : Resp -> Resp\n"
-        "    observe y : Resp <- OrderedLogistic(eta, cuts)\n"
+        "    observe y : Resp <- OrderedLogistic(predictor=eta, cutpoints=cuts)\n"
         "    return y\n"
         "export ord\n"
     )

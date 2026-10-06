@@ -79,6 +79,7 @@ from quivers.dsl.ast_nodes import (
     LetFactorCase,
     LetStep,
     DiscreteConstructor,
+    DrawArgNamed,
     Module,
     ObserveStep,
     ProgramDecl,
@@ -90,6 +91,7 @@ from quivers.dsl.ast_nodes import (
     TypeFromExpr,
     TypeName,
 )
+from quivers.dsl.family_schemas import family_parameter_names
 from quivers.formulas.family import Family
 from quivers.formulas.formula import (
     FixedColumn,
@@ -147,14 +149,50 @@ def _parse_prior_call(text: str) -> tuple[str, tuple[str | float, ...]]:
     family, _, rest = text.partition("(")
     body = rest[:-1]
     args: list[str | float] = []
+    named: dict[str, str | float] = {}
     if body.strip():
         for token in body.split(","):
             token = token.strip()
+            parameter: str | None = None
+            if "=" in token:
+                parameter, token = (part.strip() for part in token.split("=", 1))
+                if not parameter:
+                    raise ValueError(
+                        f"compile_formula: prior {text!r} has an empty parameter name"
+                    )
             try:
-                args.append(float(token))
+                value: str | float = float(token)
             except ValueError:
-                args.append(token)
-    return family.strip(), tuple(args)
+                value = token
+            if parameter is None:
+                if named:
+                    raise ValueError(
+                        f"compile_formula: prior {text!r} mixes positional and "
+                        "named arguments"
+                    )
+                args.append(value)
+            else:
+                if args:
+                    raise ValueError(
+                        f"compile_formula: prior {text!r} mixes positional and "
+                        "named arguments"
+                    )
+                if parameter in named:
+                    raise ValueError(
+                        f"compile_formula: prior {text!r} repeats parameter "
+                        f"{parameter!r}"
+                    )
+                named[parameter] = value
+    family = family.strip()
+    if named:
+        parameters = family_parameter_names(family)
+        if parameters is None or set(named) != set(parameters):
+            expected = ", ".join(parameters or ())
+            raise ValueError(
+                f"compile_formula: prior {text!r} must name exactly ({expected})"
+            )
+        return family, tuple(named[parameter] for parameter in parameters)
+    return family, tuple(args)
 
 
 def _draw(
@@ -175,7 +213,18 @@ def _draw(
     [`DrawArg`][quivers.dsl.ast_nodes.DrawArg] shape the AST field
     expects.
     """
-    tagged_args = tuple(_to_draw_arg(a) for a in args)
+    parameters = family_parameter_names(family)
+    if parameters is None:
+        raise ValueError(f"formula family {family!r} has no QVR parameter schema")
+    if len(args) != len(parameters):
+        raise ValueError(
+            f"formula {family} expects {len(parameters)} argument(s) "
+            f"({', '.join(parameters)}), got {len(args)}"
+        )
+    tagged_args = tuple(
+        DrawArgNamed(parameter=parameter, value=_to_draw_arg(argument))
+        for parameter, argument in zip(parameters, args, strict=True)
+    )
     if mode == "score":
         return ObserveStep(
             vars=(var,),

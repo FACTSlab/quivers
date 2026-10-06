@@ -10,7 +10,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import replace as _dc_replace
 from itertools import product as _cartesian_product
-from typing import cast
+from typing import Literal, cast
 import torch
 from torch.distributions import constraints as _constraints
 from quivers.continuous.family_spec import FAMILY_REGISTRY, FamilySpec
@@ -44,8 +44,11 @@ from quivers.dsl.ast_nodes import (
     BindStep,
     ContractionDecl,
     ContractionInput,
+    DrawArgDist,
     DrawArgIndex,
+    DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     DrawStep,
     Expr,
@@ -90,6 +93,7 @@ from quivers.dsl.ast_nodes import (
     ObjectProduct,
     VectorisedObserveStep,
 )
+from quivers.dsl.draw_args import bind_family_arguments
 from quivers.dsl.compiler._options import (
     check_option_keys,
     find_option,
@@ -120,7 +124,7 @@ from quivers.dsl.compiler._prelude import (
 )
 
 
-def _arg_names(args: tuple[DrawArgName | DrawArgIndex | str, ...]) -> tuple[str, ...]:
+def _arg_names(args: tuple) -> tuple[str, ...]:
     """The environment names a tuple of draw arguments reads.
 
     Parameters
@@ -136,7 +140,13 @@ def _arg_names(args: tuple[DrawArgName | DrawArgIndex | str, ...]) -> tuple[str,
     """
     names: list[str] = []
     for arg in args:
-        if isinstance(arg, str):
+        if isinstance(arg, DrawArgNamed):
+            names.extend(_arg_names((arg.value,)))
+        elif isinstance(arg, DrawArgDist):
+            names.extend(_arg_names(arg.args))
+        elif isinstance(arg, DrawArgList):
+            names.extend(_arg_names(arg.items))
+        elif isinstance(arg, str):
             names.append(arg)
         elif isinstance(arg, DrawArgIndex):
             names.append(arg.name)
@@ -804,19 +814,32 @@ class _ProgramsMixin:
                         step.line,
                         step.col,
                     )
-                # Extract the categorical prior's `probs` argument.
+                # Extract the categorical prior's probability or logits tensor.
                 probs_var: str | None = None
                 probs_indices: tuple[str, ...] = ()
+                parameterization: Literal["probs", "logits"] = "probs"
                 if has_over:
                     if not step.args:
                         raise CompileError(
                             "grouped marginalize requires the latent's "
-                            "categorical family to carry a probs argument "
-                            "(e.g. `Categorical(probs)`)",
+                            "categorical family to carry an explicit argument "
+                            "(e.g. `Categorical(probs=weights)`)",
                             step.line,
                             step.col,
                         )
                     first = step.args[0]
+                    if not isinstance(first, DrawArgNamed) or (
+                        len(step.args) != 1
+                        or first.parameter not in ("probs", "logits")
+                    ):
+                        raise CompileError(
+                            "Categorical requires exactly one explicit "
+                            "parameterization; use probs=... or logits=...",
+                            step.line,
+                            step.col,
+                        )
+                    parameterization = first.parameter
+                    first = first.value
                     # `first` is a `DrawArg` tagged variant on the
                     # widened AST. A `DrawArgName` carries the
                     # identifier text and a `DrawArgIndex` a probs
@@ -878,6 +901,7 @@ class _ProgramsMixin:
                         var_name=latent_name,
                         class_size=0,
                         probs_var=None,
+                        parameterization=parameterization,
                         over_obj=None,
                         over_objs=None,
                         body_ll_var=latent_name,
@@ -993,6 +1017,7 @@ class _ProgramsMixin:
                             class_size=inner_marg.class_size,
                             probs_var=inner_marg.probs_var,
                             probs_indices=inner_marg.probs_indices,
+                            parameterization=inner_marg.parameterization,
                             over_obj=inner_marg.over_obj,
                             over_objs=inner_marg.over_objs,
                             body_ll_var=latent_name,
@@ -1044,6 +1069,7 @@ class _ProgramsMixin:
                         class_size=class_size,
                         probs_var=probs_var,
                         probs_indices=probs_indices,
+                        parameterization=parameterization,
                         over_obj=single_over,
                         over_objs=product_overs,
                         body_ll_var=step.vars[0],
@@ -1411,16 +1437,30 @@ class _ProgramsMixin:
             return None
         out: list = []
         for a in args:
-            if isinstance(a, DrawArgName):
+            if isinstance(a, DrawArgNamed):
+                renamed = self._rename_args((a.value,), value_subst, rename)
+                assert renamed is not None
+                out.append(a.with_(value=renamed[0]))
+            elif isinstance(a, DrawArgDist):
+                out.append(
+                    a.with_(args=self._rename_args(a.args, value_subst, rename) or ())
+                )
+            elif isinstance(a, DrawArgList):
+                out.append(
+                    a.with_(items=self._rename_args(a.items, value_subst, rename) or ())
+                )
+            elif isinstance(a, DrawArgName):
                 key = a.text
                 if key in value_subst:
                     sub = value_subst[key]
                     if isinstance(sub, (int, float)) and not isinstance(sub, bool):
-                        out.append(DrawArgScalar(value=float(sub)))
+                        out.append(
+                            DrawArgScalar(value=float(sub), line=a.line, col=a.col)
+                        )
                     else:
-                        out.append(DrawArgName(text=str(sub)))
+                        out.append(a.with_(text=str(sub)))
                 elif key in rename:
-                    out.append(DrawArgName(text=rename[key]))
+                    out.append(a.with_(text=rename[key]))
                 else:
                     out.append(a)
             elif isinstance(a, DrawArgIndex):
@@ -1445,7 +1485,7 @@ class _ProgramsMixin:
                         new_indices.append(rename[ix])
                     else:
                         new_indices.append(ix)
-                out.append(DrawArgIndex(name=new_name, indices=tuple(new_indices)))
+                out.append(a.with_(name=new_name, indices=tuple(new_indices)))
             elif isinstance(a, str):
                 if a in value_subst:
                     out.append(value_subst[a])
@@ -1562,6 +1602,7 @@ class _ProgramsMixin:
                 class_size=step.class_size,
                 probs_var=renamed_probs,
                 probs_indices=tuple(rename.get(v, v) for v in step.probs_indices),
+                parameterization=step.parameterization,
                 over_obj=step.over_obj,
                 over_objs=step.over_objs,
                 body_ll_var=renamed_body_ll,
@@ -2699,6 +2740,7 @@ class _ProgramsMixin:
                     probs_var = step.probs_var
                     probs_indices = step.probs_indices
                     reduction = step.reduction or "logsumexp"
+                    parameterization = step.parameterization
                     observe_specs = tuple(
                         (entry.ll_slot, entry.fibration_var, entry.fibration_axes)
                         for entry in step.body_observes
@@ -2722,6 +2764,7 @@ class _ProgramsMixin:
                         _sizes: tuple[int, ...] = group_sizes,
                         _k: int = num_classes,
                         _reduction: str = reduction,
+                        _parameterization: str = parameterization,
                         _product: bool = is_product,
                         _per_group: bool = is_nested_inner,
                     ) -> torch.Tensor:
@@ -2785,8 +2828,12 @@ class _ProgramsMixin:
                         probs = env[_probs]
                         for index_name in _probs_indices:
                             probs = probs[env[index_name].to(torch.long)]
-                        log_prior = torch.log(probs.clamp_min(1e-38))
-                        # A per-group prior (the categorical's ``probs``
+                        log_prior = (
+                            torch.log_softmax(probs, dim=-1)
+                            if _parameterization == "logits"
+                            else torch.log(probs.clamp_min(1e-38))
+                        )
+                        # A per-group prior (the categorical parameter tensor
                         # is indexed by the grouping plate, shape
                         # ``(|G|, K)``) denotes a per-row latent: each
                         # response row draws its own class from its
@@ -3217,12 +3264,23 @@ class _ProgramsMixin:
         if prior_step_args is None or len(prior_step_args) != 1:
             raise CompileError(
                 f"marginalize {latent_name!r}: the prior family "
-                f"{prior_family!r} must carry exactly one named probability "
+                f"{prior_family!r} must carry exactly one named parameter "
                 f"tensor argument",
                 step.line,
                 step.col,
             )
         prior_arg = prior_step_args[0]
+        prior_parameterization = getattr(prior_args[0], "parameter", None)
+        if prior_family == "Categorical" and prior_parameterization not in (
+            "probs",
+            "logits",
+        ):
+            raise CompileError(
+                "Categorical requires exactly one explicit parameterization; "
+                "use probs=... or logits=...",
+                step.line,
+                step.col,
+            )
 
         # A single shared vector-valued likelihood parameter (e.g. a
         # `Categorical` row ``emission_rows[k]`` of shape ``(K_cat,)``)
@@ -3265,6 +3323,7 @@ class _ProgramsMixin:
             _response: str | None = response_var,
             _prior_arg: DrawArgIndex | str = prior_arg,
             _categorical: bool = _CATEGORICAL,
+            _parameterization: str | None = prior_parameterization,
             _reduction: str = reduction,
             _shared_vector: bool = shared_vector_theta,
         ) -> torch.Tensor:
@@ -3275,7 +3334,11 @@ class _ProgramsMixin:
                     torch.tensor(k, dtype=torch.long, device=probs.device)
                     for k in range(class_count)
                 ]
-                log_prior = torch.log(probs.clamp_min(1e-38))
+                log_prior = (
+                    torch.log_softmax(probs, dim=-1)
+                    if _parameterization == "logits"
+                    else torch.log(probs.clamp_min(1e-38))
+                )
             else:
                 p = probs.clamp(1e-38, 1.0 - 1e-7)
                 class_values = [
@@ -3455,16 +3518,16 @@ class _ProgramsMixin:
                     draw.col,
                 )
             axes_override = self._axes_codomain(getattr(draw, "axes", None))
-            inline_codomain = self._infer_inline_codomain(
-                draw.morphism,
-                draw.args,
-                draw.vars,
-                program_codomain if axes_override is None else axes_override,
-                event_axis=axes_override,
-                line=draw.line,
-                col=draw.col,
-            )
             try:
+                inline_codomain = self._infer_inline_codomain(
+                    draw.morphism,
+                    draw.args,
+                    draw.vars,
+                    program_codomain if axes_override is None else axes_override,
+                    event_axis=axes_override,
+                    line=draw.line,
+                    col=draw.col,
+                )
                 morph, var_args = make_inline_distribution(
                     draw.morphism,
                     draw.args,
@@ -3541,6 +3604,8 @@ class _ProgramsMixin:
         """
         if isinstance(arg, (int, float)) and not isinstance(arg, bool):
             return float(arg)
+        if isinstance(arg, DrawArgNamed):
+            return _ProgramsMixin._as_float(arg.value)
         if isinstance(arg, DrawArgScalar):
             return float(arg.value)
         return None
@@ -3713,6 +3778,11 @@ class _ProgramsMixin:
         AnySpace
             The inferred codomain.
         """
+        bound = bind_family_arguments(
+            family, args, get_inline_param_names(family) or ()
+        )
+        argument_by_name = dict(bound)
+        args = tuple(value for _, value in bound)
         event_size = (
             self._axis_event_size(event_axis) if event_axis is not None else None
         )
@@ -3758,23 +3828,19 @@ class _ProgramsMixin:
         elif family == "Bernoulli":
             return FinSet(name=f"_{var_names[0]}", cardinality=2)
         elif family == "Uniform":
-            float_args = [
-                self._as_float(a) for a in args if self._as_float(a) is not None
-            ]
-            if len(float_args) >= 2:
-                low, high = (float(float_args[0]), float(float_args[1]))
+            low_value = self._as_float(argument_by_name.get("low"))
+            high_value = self._as_float(argument_by_name.get("high"))
+            if low_value is not None and high_value is not None:
+                low, high = (float(low_value), float(high_value))
                 if low == 0.0 and high == 1.0:
                     return UnitInterval(f"_{var_names[0]}")
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
         elif family == "TruncatedNormal":
-            float_args = {}
-            for i, a in enumerate(args):
-                v = self._as_float(a)
-                if v is not None:
-                    float_args[i] = v
-            if 2 in float_args and 3 in float_args:
-                low, high = (float(float_args[2]), float(float_args[3]))
+            low_value = self._as_float(argument_by_name.get("low"))
+            high_value = self._as_float(argument_by_name.get("high"))
+            if low_value is not None and high_value is not None:
+                low, high = (float(low_value), float(high_value))
                 return Euclidean(name=f"_{var_names[0]}", dim=1, low=low, high=high)
             return UnitInterval(f"_{var_names[0]}")
         elif family == "Normal":
@@ -3811,6 +3877,9 @@ class _ProgramsMixin:
                 sim_dim = n_literals
             if sim_dim is None:
                 for a in args:
+                    if isinstance(a, DrawArgList) and a.items:
+                        sim_dim = len(a.items)
+                        break
                     if isinstance(a, (list, tuple)) and len(a) > 0:
                         sim_dim = len(a)
                         break
@@ -3823,6 +3892,15 @@ class _ProgramsMixin:
             if sim_dim is None or sim_dim < 2:
                 sim_dim = 2
             return Simplex(name=f"_{var_names[0]}", dim=sim_dim)
+        elif family == "Categorical":
+            values = argument_by_name.get("probs", argument_by_name.get("logits"))
+            if isinstance(values, DrawArgList) and values.items:
+                cardinality = len(values.items)
+            elif isinstance(program_codomain, SetObject):
+                cardinality = int(program_codomain.cardinality)
+            else:
+                cardinality = 2
+            return FinSet(name=f"_{var_names[0]}", cardinality=cardinality)
         else:
             return Euclidean(name=f"_{var_names[0]}", dim=1)
 

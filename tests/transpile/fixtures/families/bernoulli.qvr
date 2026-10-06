@@ -2,6 +2,6 @@
 # Regenerate via tests/transpile/fixtures/_generate_families.py.
 object Obs : FinSet 8
 program bernoulli_fixture : Obs -> Obs
-    sample theta <- Bernoulli(0.5)
+    sample theta <- Bernoulli(probs=0.5)
     return theta
 export bernoulli_fixture

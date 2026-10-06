@@ -34,6 +34,7 @@ from quivers.dsl.ast_nodes import (
     DrawArg,
     DrawArgIndex,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     Expr,
     ExprIdent,
@@ -175,6 +176,8 @@ def _step_args_to_atoms(
         return None
     out: list[str | float] = []
     for arg in args:
+        if isinstance(arg, DrawArgNamed):
+            arg = arg.value
         if isinstance(arg, DrawArgName):
             out.append(arg.text)
         elif isinstance(arg, DrawArgScalar):
@@ -285,7 +288,11 @@ def _from_init_family(
     `morphism foo : T -> T [role=kernel] ~ Family` form), fall back
     to the family's canonical default parameters so the resulting
     call has the arity the target backend expects."""
-    args = step_args if step_args else init.args
+    args = (
+        step_args
+        if step_args
+        else _step_args_to_atoms(init.args, target="qvr-transpile")
+    )
     if not args:
         args = _FAMILY_DEFAULT_ARGS.get(init.family, ())
     return ResolvedDist(

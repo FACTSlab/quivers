@@ -133,8 +133,8 @@ object Trial : FinSet 6
 object Rate : Real 1
 
 program coin : Trial -> Rate
-    sample theta <- Beta(2.0, 2.0)
-    observe y : Trial <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y : Trial <- Bernoulli(probs=theta)
     return theta
 export coin
 """
@@ -152,10 +152,10 @@ define noisy(x : Real) : Real !{random} =
 instance random : Random
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let b <- shift(a, 2.0)
     let c <- noisy(b)
-    observe y <- Normal(c, 0.5)
+    observe y <- Normal(loc=c, scale=0.5)
     return c
 export prog
 
@@ -248,7 +248,7 @@ def test_mixed_module_is_one_call_graph() -> None:
 
 def test_diff_sees_a_changed_site() -> None:
     """Changing one site's family changes the extracted schema."""
-    changed = PROGRAM_ONLY.replace("Bernoulli(theta)", "Geometric(theta)")
+    changed = PROGRAM_ONLY.replace("Bernoulli(probs=theta)", "Geometric(probs=theta)")
     first = Compiler(parse(PROGRAM_ONLY))
     second = Compiler(parse(changed))
     schema_a = extract_program_schema(first)

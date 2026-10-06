@@ -39,14 +39,14 @@ def _dense(text: str) -> str:
 
 
 def test_jags_studentt_dt_location_precision_df() -> None:
-    out = _dense(_emit("sample t <- StudentT(3.0,1.0,2.0)", "jags"))
+    out = _dense(_emit("sample t <- StudentT(df=3.0,loc=1.0,scale=2.0)", "jags"))
     assert "dt(1,1/(2*2),3)" in out
     # The old bug emitted the torch arg order verbatim.
     assert "dt(3,1,2)" not in out
 
 
 def test_bugs_studentt_dt_location_precision_df() -> None:
-    out = _dense(_emit("sample t <- StudentT(3.0,1.0,2.0)", "bugs"))
+    out = _dense(_emit("sample t <- StudentT(df=3.0,loc=1.0,scale=2.0)", "bugs"))
     assert "dt(1,1/(2*2),3)" in out
     assert "dt(3,1,2)" not in out
 
@@ -58,14 +58,14 @@ def test_bugs_studentt_dt_location_precision_df() -> None:
 
 
 def test_jags_laplace_ddexp_rate() -> None:
-    out = _dense(_emit("sample t <- Laplace(0.0,2.0)", "jags"))
+    out = _dense(_emit("sample t <- Laplace(loc=0.0,scale=2.0)", "jags"))
     assert "ddexp(0,1/2)" in out
     # The old bug emitted the precision 1/(scale*scale).
     assert "ddexp(0,1/(2*2))" not in out
 
 
 def test_bugs_laplace_ddexp_rate() -> None:
-    out = _dense(_emit("sample t <- Laplace(0.0,2.0)", "bugs"))
+    out = _dense(_emit("sample t <- Laplace(loc=0.0,scale=2.0)", "bugs"))
     assert "ddexp(0,1/2)" in out
     assert "ddexp(0,1/(2*2))" not in out
 
@@ -78,12 +78,12 @@ def test_bugs_laplace_ddexp_rate() -> None:
 
 
 def test_jags_normal_stays_precision() -> None:
-    out = _dense(_emit("sample t <- Normal(1.0,2.0)", "jags"))
+    out = _dense(_emit("sample t <- Normal(loc=1.0,scale=2.0)", "jags"))
     assert "dnorm(1,1/(2*2))" in out
 
 
 def test_jags_cauchy_stays_precision_df_one() -> None:
-    out = _dense(_emit("sample t <- Cauchy(1.0,2.0)", "jags"))
+    out = _dense(_emit("sample t <- Cauchy(loc=1.0,scale=2.0)", "jags"))
     assert "dt(1,1/(2*2),1)" in out
 
 
@@ -107,9 +107,9 @@ def test_jags_cauchy_stays_precision_df_one() -> None:
 _HALF_PRIORS = """object Coef : FinSet 4
 
 program half : Coef -> Coef
-    sample tau <- HalfCauchy(1.0)
-    sample sigma <- HalfNormal(2.0)
-    sample lam : Coef <- HalfCauchy(1.0)
+    sample tau <- HalfCauchy(scale=1.0)
+    sample sigma <- HalfNormal(scale=2.0)
+    sample lam : Coef <- HalfCauchy(scale=1.0)
     return tau
 
 export half"""
@@ -151,8 +151,8 @@ def test_bugs_latent_parent_half_normal_emits_renormalized_truncation() -> None:
         "object Coef : FinSet 4\n"
         "\n"
         "program hier : Coef -> Coef\n"
-        "    sample tau <- HalfCauchy(1.0)\n"
-        "    sample sigma <- HalfNormal(tau)\n"
+        "    sample tau <- HalfCauchy(scale=1.0)\n"
+        "    sample sigma <- HalfNormal(scale=tau)\n"
         "    return sigma\n"
         "\n"
         "export hier"
@@ -183,8 +183,8 @@ def test_bugs_observed_half_support_is_not_censored() -> None:
         "object Obs : FinSet 8\n"
         "\n"
         "program obs : Obs -> Obs\n"
-        "    sample sigma <- HalfNormal(1.0)\n"
-        "    observe y : Obs <- HalfNormal(sigma)\n"
+        "    sample sigma <- HalfNormal(scale=1.0)\n"
+        "    observe y : Obs <- HalfNormal(scale=sigma)\n"
         "    return sigma\n"
         "\n"
         "export obs"
@@ -200,7 +200,12 @@ def test_jags_bugs_truncated_normal_keeps_both_bounds() -> None:
     # `TruncatedNormal` emits. Both backends run on the JAGS engine and
     # emit the renormalized `T(low, high)`.
     for target in ("jags", "bugs"):
-        out = _dense(_emit("sample t <- TruncatedNormal(0.0,1.0,0.0,5.0)", target))
+        out = _dense(
+            _emit(
+                "sample t <- TruncatedNormal(mu=0.0,sigma=1.0,low=0.0,high=5.0)",
+                target,
+            )
+        )
         assert "dnorm(0,1/(1*1))T(0,5)" in out
 
 
@@ -211,14 +216,14 @@ def test_jags_bugs_truncated_normal_keeps_both_bounds() -> None:
 
 
 def test_webppl_gamma_rate_reciprocated_to_scale() -> None:
-    out = _dense(_emit("sample t <- Gamma(2.0,5.0)", "webppl"))
+    out = _dense(_emit("sample t <- Gamma(concentration=2.0,rate=5.0)", "webppl"))
     assert "shape:2" in out
     assert "scale:1/5" in out
 
 
 def test_webppl_exponential_rate_unchanged() -> None:
     # WebPPL's Exponential({a}) is rate-parameterised; no reciprocal.
-    out = _dense(_emit("sample t <- Exponential(3.0)", "webppl"))
+    out = _dense(_emit("sample t <- Exponential(rate=3.0)", "webppl"))
     assert "Exponential({a:3})" in out
 
 
@@ -230,25 +235,25 @@ def test_webppl_exponential_rate_unchanged() -> None:
 
 
 def test_webppl_lognormal_grafts_runtime_helper() -> None:
-    out = _emit("sample t <- LogNormal(0.0,1.0)", "webppl")
+    out = _emit("sample t <- LogNormal(loc=0.0,scale=1.0)", "webppl")
     assert "var LogNormal = function" in out
     assert _dense("sample(LogNormal({") in _dense(out)
 
 
 def test_webppl_studentt_grafts_runtime_helper() -> None:
-    out = _emit("sample t <- StudentT(3.0,1.0,2.0)", "webppl")
+    out = _emit("sample t <- StudentT(df=3.0,loc=1.0,scale=2.0)", "webppl")
     assert "var StudentT = function" in out
     assert _dense("sample(StudentT({") in _dense(out)
 
 
 def test_webppl_weibull_grafts_runtime_helper() -> None:
-    out = _emit("sample t <- Weibull(2.0,5.0)", "webppl")
+    out = _emit("sample t <- Weibull(scale=2.0,concentration=5.0)", "webppl")
     assert "var Weibull = function" in out
     assert _dense("sample(Weibull({") in _dense(out)
 
 
 def test_webppl_negbinomial_grafts_runtime_helper() -> None:
-    out = _emit("sample t <- NegativeBinomial(10.0,0.3)", "webppl")
+    out = _emit("sample t <- NegativeBinomial(total_count=10.0,probs=0.3)", "webppl")
     assert "var NegativeBinomial = function" in out
     assert _dense("sample(NegativeBinomial({") in _dense(out)
 
@@ -263,12 +268,12 @@ def test_webppl_negbinomial_grafts_runtime_helper() -> None:
 _CHANGEPOINT = """object Step : FinSet 64
 
 program cp : Step -> Step
-    sample tau <- Uniform(0.0, 100.0)
-    sample rate_before <- Gamma(2.0, 1.0)
-    sample rate_after <- Gamma(2.0, 1.0)
+    sample tau <- Uniform(low=0.0, high=100.0)
+    sample rate_before <- Gamma(concentration=2.0, rate=1.0)
+    sample rate_after <- Gamma(concentration=2.0, rate=1.0)
     let s = sigmoid(20.0 * (t - tau))
     let rate = (1.0 - s) * rate_before + s * rate_after
-    observe y : Step <- Poisson(rate)
+    observe y : Step <- Poisson(rate=rate)
     return tau
 
 export cp"""

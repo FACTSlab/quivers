@@ -5,6 +5,6 @@ object D : FinSet 5
 contraction op_apply (arg1 : A -> B, kernel : B -> D) : A -> D [rule=product_fuzzy]
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample x <- Bernoulli(0.5)
+    sample x <- Bernoulli(probs=0.5)
     return x
 export prog

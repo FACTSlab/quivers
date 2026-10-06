@@ -3,7 +3,7 @@
 # unavailable for TruncatedNormal).
 object Obs : FinSet 8
 program truncatednormal_fixture : Obs -> Obs
-    sample mu <- Uniform(0.0, 1.0)
-    observe y : Obs <- TruncatedNormal(mu, 0.2, 0.0, 1.0)
+    sample mu <- Uniform(low=0.0, high=1.0)
+    observe y : Obs <- TruncatedNormal(mu=mu, sigma=0.2, low=0.0, high=1.0)
     return mu
 export truncatednormal_fixture

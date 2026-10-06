@@ -55,9 +55,9 @@ object A : FinSet 4
 object B : FinSet 4
 
 program model : A -> A
-    sample sigma <- HalfNormal(1.0)
+    sample sigma <- HalfNormal(scale=1.0)
     let y = (sigma + 0.5)
-    observe r : A <- Normal(y, sigma)
+    observe r : A <- Normal(loc=y, scale=sigma)
     return r
 
 export model
@@ -70,11 +70,11 @@ composition product_fuzzy [level=algebra]
 object A : FinSet 8
 
 program model : A -> A
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(0.0, 1.0)
-    sample c <- Normal(0.0, 1.0)
-    sample d <- Normal(0.0, 1.0)
-    observe r : A <- Normal(d, 0.1)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=0.0, scale=1.0)
+    sample c <- Normal(loc=0.0, scale=1.0)
+    sample d <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=d, scale=0.1)
     return r
 
 export model
@@ -118,8 +118,8 @@ class TestChainShape:
 object A : FinSet 2
 
 program model : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export model
@@ -219,8 +219,8 @@ class TestRecommendInit:
 object A : FinSet 2
 
 program model : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export model
@@ -281,8 +281,8 @@ composition real [level=algebra]
 object A : FinSet 4
 
 program model : A -> A
-    sample x <- Normal(0.0, 1.0)
-    observe r : A <- Normal(x, 0.1)
+    sample x <- Normal(loc=0.0, scale=1.0)
+    observe r : A <- Normal(loc=x, scale=0.1)
     return r
 
 export model

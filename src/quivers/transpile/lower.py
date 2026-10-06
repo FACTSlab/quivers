@@ -30,6 +30,7 @@ from quivers.dsl.ast_nodes import (
     DrawArgIndex,
     DrawArgList,
     DrawArgName,
+    DrawArgNamed,
     DrawArgScalar,
     Expr,
     ExprIdent,
@@ -1101,6 +1102,8 @@ def _names_in_step(step: ProgramStep) -> list[str]:
 
 
 def _names_in_raw_arg(arg: DrawArg | str | float) -> list[str]:
+    if isinstance(arg, DrawArgNamed):
+        return _names_in_raw_arg(arg.value)
     if isinstance(arg, DrawArgScalar):
         return []
     if isinstance(arg, DrawArgName):
@@ -1365,6 +1368,7 @@ def _make_sentinel(
     meta: FamilyMeta,
     args: tuple[IRArg, ...],
     ctx: _LowerCtx,
+    arg_names: tuple[str, ...] = (),
 ) -> Distribution:
     """Build a sentinel `Distribution` instance for `meta` with
     placeholder tensors derived from `args`.
@@ -1376,18 +1380,29 @@ def _make_sentinel(
 
     Reference args are dimensioned using the class-level
     `arg_constraints` (when available) so distributions like
-    `Categorical(probs)` get a vector placeholder rather than a
+    `Categorical(probs=probs)` get a vector placeholder rather than a
     scalar.
     """
-    key = (meta.qvr_name, tuple(_arg_key(a) for a in args))
+    key = (
+        meta.qvr_name,
+        tuple(
+            f"{name}={_arg_key(arg)}" for name, arg in zip(arg_names, args, strict=True)
+        )
+        if arg_names
+        else tuple(_arg_key(a) for a in args),
+    )
     if key in ctx.sentinel_cache:
         return ctx.sentinel_cache[key]
-    expected_shapes = _expected_arg_shapes(meta, len(args))
+    expected_shapes = _expected_arg_shapes(meta, len(args), arg_names)
     sentinel_args = tuple(
         _arg_to_tensor(a, ctx, expected_shapes[i]) for i, a in enumerate(args)
     )
     try:
-        instance = meta.distribution_class(*sentinel_args)
+        if arg_names:
+            kwargs = dict(zip(arg_names, sentinel_args, strict=True))
+            instance = meta.distribution_class(**kwargs)
+        else:
+            instance = meta.distribution_class(*sentinel_args)
     except TypeError as exc:
         # The family requires args the user did not supply (e.g.
         # `~ Wishart` with no call-site arguments). Fall through to
@@ -1541,13 +1556,22 @@ def _infer_sentinel_dim(
     return 2
 
 
-def _expected_arg_shapes(meta: FamilyMeta, n_args: int) -> tuple[tuple[int, ...], ...]:
+def _expected_arg_shapes(
+    meta: FamilyMeta,
+    n_args: int,
+    arg_names: tuple[str, ...] = (),
+) -> tuple[tuple[int, ...], ...]:
     """Per-arg expected shape derived from class-level
     `arg_constraints`. Used to size placeholder tensors for the
     sentinel."""
     cls_attr = meta.distribution_class.arg_constraints
     if not isinstance(cls_attr, dict):
         return tuple(() for _ in range(n_args))
+    if arg_names:
+        return tuple(
+            _constraint_default_shape(cls_attr[name]) if name in cls_attr else ()
+            for name in arg_names
+        )
     out: list[tuple[int, ...]] = []
     for _, constraint in list(cls_attr.items())[:n_args]:
         out.append(_constraint_default_shape(constraint))
@@ -1645,6 +1669,8 @@ def _shape_default_tensor(shape: tuple[int, ...]) -> torch.Tensor:
 def _raw_to_ir_for_sentinel(raw: DrawArg | str | float) -> IRArg:
     """Cheap arg-to-IR conversion used only for inner sentinel
     construction (no morphism table required)."""
+    if isinstance(raw, DrawArgNamed):
+        return _raw_to_ir_for_sentinel(raw.value)
     if isinstance(raw, DrawArgScalar):
         return IRArgNumber(value=raw.value)
     if isinstance(raw, DrawArgName):
@@ -1720,6 +1746,7 @@ def _resolve_support(
     meta: FamilyMeta,
     args: tuple[IRArg, ...],
     ctx: _LowerCtx,
+    arg_names: tuple[str, ...] = (),
 ) -> Constraint:
     """Return the support of a call site, evaluating the sentinel
     when the family's support is a `dependent_property`."""
@@ -1728,7 +1755,7 @@ def _resolve_support(
         cls_support, c._DependentProperty
     ):
         return cls_support
-    instance = _make_sentinel(meta, args, ctx)
+    instance = _make_sentinel(meta, args, ctx, arg_names)
     return instance.support
 
 

@@ -3,6 +3,6 @@
 object N : FinSet 8
 object Obs : FinSet 8
 program prog : Obs -> Obs
-    sample xs : N <- Normal(0.0, 1.0)
+    sample xs : N <- Normal(loc=0.0, scale=1.0)
     return xs
 export prog

@@ -319,13 +319,13 @@ object Truth : FinSet 2
 object Resp : FinSet 1
 
 program factivity : Entity -> Truth * Truth * Truth * Resp
-    sample theta_know <- LogitNormal(0.0, 1.0)
-    sample theta_cg <- LogitNormal(0.0, 1.0)
+    sample theta_know <- LogitNormal(mu=0.0, sigma=1.0)
+    sample theta_cg <- LogitNormal(mu=0.0, sigma=1.0)
     let cg_complement = 1
-    sample tau_know <- Bernoulli(theta_know)
-    sample cg_matrix <- Bernoulli(theta_cg)
-    sample sigma <- Uniform(0.0, 1.0)
-    observe response <- TruncatedNormal(theta_know, sigma, 0.0, 1.0)
+    sample tau_know <- Bernoulli(probs=theta_know)
+    sample cg_matrix <- Bernoulli(probs=theta_cg)
+    sample sigma <- Uniform(low=0.0, high=1.0)
+    observe response <- TruncatedNormal(mu=theta_know, sigma=sigma, low=0.0, high=1.0)
     return (tau_know, cg_complement, cg_matrix, response)
 """)
 model_pds = prog_pds.morphism

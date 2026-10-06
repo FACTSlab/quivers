@@ -55,7 +55,7 @@ def test_negative_binomial_scalar_reparameterization() -> None:
     out = _numpyro(
         "object O : FinSet 8\n"
         "program g : O -> O\n"
-        "    sample t <- NegativeBinomial(10.0, 0.3)\n"
+        "    sample t <- NegativeBinomial(total_count=10.0, probs=0.3)\n"
         "    return t\n"
         "export g"
     )
@@ -101,7 +101,7 @@ def test_lkj_correlation_factor_prepends_matrix_dimension() -> None:
     out = _numpyro(
         "object Dim : FinSet 5\n"
         "program p : Dim -> Dim\n"
-        "    sample corr : Dim <- LKJCorrelationFactor(2.0)\n"
+        "    sample corr : Dim <- LKJCorrelationFactor(concentration=2.0)\n"
         "    return corr\n"
         "export p"
     )
@@ -159,7 +159,7 @@ def test_logistic_normal_grafts_stick_breaking_helper() -> None:
     out = _numpyro(
         "object K : FinSet 3\n"
         "program p : K -> K\n"
-        "    sample x : K <- LogisticNormal(loc, scale)\n"
+        "    sample x : K <- LogisticNormal(loc=loc, scale=scale)\n"
         "    return x\n"
         "export p"
     )
@@ -175,7 +175,7 @@ def test_one_hot_categorical_grafts_full_distribution_helper() -> None:
     out = _numpyro(
         "object Cat : FinSet 3\n"
         "program p : Cat -> Cat\n"
-        "    sample x : Cat <- OneHotCategorical(probs)\n"
+        "    sample x : Cat <- OneHotCategorical(probs=probs)\n"
         "    return x\n"
         "export p"
     )
@@ -190,7 +190,7 @@ def test_ordered_probit_grafts_categorical_probs_helper() -> None:
     out = _numpyro(
         "object Cat : FinSet 4\n"
         "program p : Cat -> Cat\n"
-        "    sample x <- OrderedProbit(eta, cutpoints)\n"
+        "    sample x <- OrderedProbit(eta=eta, cutpoints=cutpoints)\n"
         "    return x\n"
         "export p"
     )
@@ -210,7 +210,7 @@ def test_helper_not_grafted_when_unused() -> None:
     out = _numpyro(
         "object O : FinSet 4\n"
         "program p : O -> O\n"
-        "    sample x <- Normal(0.0, 1.0)\n"
+        "    sample x <- Normal(loc=0.0, scale=1.0)\n"
         "    return x\n"
         "export p"
     )

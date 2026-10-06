@@ -335,7 +335,7 @@ def test_bernoulli_observe_scores_numeric_data() -> None:
     src = (
         "object Obs : FinSet 4\n"
         "program bern_fixture : Obs -> Obs\n"
-        "    observe y : Obs <- Bernoulli(0.5)\n"
+        "    observe y : Obs <- Bernoulli(probs=0.5)\n"
         "    return y\n"
         "export bern_fixture\n"
     )

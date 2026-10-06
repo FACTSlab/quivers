@@ -34,9 +34,9 @@ object Resp : FinSet 63
 object Val : Real 1
 
 program negbin_regression : Resp -> Val
-    sample beta_0 : Out <- Normal(0.0, 5.0)
-    sample beta_1 : Out <- Normal(0.0, 5.0)
-    sample dispersion : Out <- Gamma(2.0, 0.5)
+    sample beta_0 : Out <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 : Out <- Normal(loc=0.0, scale=5.0)
+    sample dispersion : Out <- Gamma(concentration=2.0, rate=0.5)
 
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
@@ -45,7 +45,7 @@ program negbin_regression : Resp -> Val
     let mu = exp(eta)
     let probs = disp / (disp + mu)
 
-    observe y : Resp <- NegativeBinomial(disp, probs)
+    observe y : Resp <- NegativeBinomial(total_count=disp, probs=probs)
     return beta_1
 
 export negbin_regression

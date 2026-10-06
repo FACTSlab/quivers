@@ -41,7 +41,7 @@ class:
 
 * `Normal(μ, σ)` ↔ `Normal(loc=μ, scale=σ)`
 * `Dirichlet(α)` ↔ `Dirichlet(concentration=α)` (with `jnp.full((K,), α)` broadcast when α is scalar)
-* `Categorical(p)` ↔ `Categorical(probs=p)`
+* `Categorical(probs=p)` ↔ `Categorical(probs=p)`
 * `Bernoulli(p)` ↔ `Bernoulli(probs=p)`
 * `LogitNormal` ↔ `LogitNormal(loc=μ, scale=σ)`
 

@@ -46,7 +46,7 @@ def _nospace(text: str) -> str:
 
 _WEIBULL_SRC = """
 object Obs : Real 4
-morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(1.5, 2.0)
+morphism weibull_kernel : Obs -> Obs [role=kernel] ~ Weibull(scale=1.5, concentration=2.0)
 program weibull_fixture : Obs -> Obs
     sample x <- weibull_kernel
     return x
@@ -68,9 +68,9 @@ object Out : FinSet 3
 object Resp : FinSet 63
 
 program negbin_regression : Resp -> Resp
-    sample beta_0 : Out <- Normal(0.0, 5.0)
-    sample beta_1 : Out <- Normal(0.0, 5.0)
-    sample dispersion : Out <- Gamma(2.0, 0.5)
+    sample beta_0 : Out <- Normal(loc=0.0, scale=5.0)
+    sample beta_1 : Out <- Normal(loc=0.0, scale=5.0)
+    sample dispersion : Out <- Gamma(concentration=2.0, rate=0.5)
 
     let b0 = beta_0[out_idx]
     let b1 = beta_1[out_idx]
@@ -79,7 +79,7 @@ program negbin_regression : Resp -> Resp
     let mu = exp(eta)
     let probs = disp / (disp + mu)
 
-    observe y : Resp <- NegativeBinomial(disp, probs)
+    observe y : Resp <- NegativeBinomial(total_count=disp, probs=probs)
     return beta_1
 """
 
@@ -102,7 +102,7 @@ def test_negbinomial_neg_binomial_2_conversion() -> None:
 _LOGITNORMAL_SRC = """
 object Obs : FinSet 8
 program logitnormal_fixture : Obs -> Obs
-    sample theta <- LogitNormal(0.0, 1.0)
+    sample theta <- LogitNormal(mu=0.0, sigma=1.0)
     return theta
 export logitnormal_fixture
 """

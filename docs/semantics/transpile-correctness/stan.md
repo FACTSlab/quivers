@@ -72,7 +72,7 @@ canonical forms). The non-trivial cases:
 | `MultivariateNormal(μ, Σ)` | `multi_normal(μ, Σ)` | identity | 0 |
 | `LKJCorrCholesky(η)` | `lkj_corr_cholesky(η)` | identity | 0 |
 | `Dirichlet(α)` | `dirichlet(α)` | identity (scalar broadcast via `rep_vector`) | 0 |
-| `Categorical(p)` | `categorical(p)` | identity (1-indexed) | 0 |
+| `Categorical(probs=p)` | `categorical(p)` | identity (1-indexed) | 0 |
 | `Bernoulli(p)` | `bernoulli(p)` | identity | 0 |
 | `LogitNormal(μ, σ)` | not supported (no native `logit_normal_lpdf`) | — | raises `family:LogitNormal` |
 | every other family in the registry | identical Stan name | identity | 0 |

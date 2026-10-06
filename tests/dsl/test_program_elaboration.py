@@ -46,8 +46,8 @@ from quivers.qiec.kinds import NAT
 BETA_BERNOULLI = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample theta <- Beta(2.0, 2.0)
-    observe y <- Bernoulli(theta)
+    sample theta <- Beta(concentration1=2.0, concentration0=2.0)
+    observe y <- Bernoulli(probs=theta)
     return theta
 export prog
 """
@@ -55,10 +55,10 @@ export prog
 LET_STEP = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=0.0, scale=1.0)
     let mu = a + b
-    observe y <- Normal(mu, 0.5)
+    observe y <- Normal(loc=mu, scale=0.5)
     return mu
 export prog
 """
@@ -67,8 +67,8 @@ IID_PLATE = """\
 object N : FinSet 3
 object Obs : FinSet 8
 program prog : Obs -> Obs
-    sample xs : N <- Normal(0.0, 1.0)
-    observe y : N <- Normal(xs, 0.5)
+    sample xs : N <- Normal(loc=0.0, scale=1.0)
+    observe y : N <- Normal(loc=xs, scale=0.5)
     return xs
 export prog
 """
@@ -78,11 +78,11 @@ object Component : FinSet 3
 object Item : FinSet 2
 object Resp : FinSet 4
 program prog(concentration : Real) : Resp -> Resp
-    sample probs <- Dirichlet(concentration) [over=Component]
-    sample mu : Component <- Normal(0.0, 5.0)
-    sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=logsumexp]
-        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
+    sample probs <- Dirichlet(concentration=concentration) [over=Component]
+    sample mu : Component <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Component <- HalfNormal(scale=1.0)
+    marginalize cls : Component <- Categorical(probs=probs) [over=Item, reduction=logsumexp]
+        observe r : Resp <- Normal(loc=mu[cls], scale=sigma[cls]) [via=idx]
     return probs
 export prog
 """
@@ -99,9 +99,18 @@ export prog
 SCORED = """\
 object Obs : FinSet 4
 program prog : Obs -> Obs
-    sample x <- Normal(0.0, 1.0)
+    sample x <- Normal(loc=0.0, scale=1.0)
     score penalty = x * x
     return x
+export prog
+"""
+
+CATEGORICAL_LOGITS = """\
+object Category : FinSet 3
+program prog : Category -> Category
+    sample logits : Category <- Normal(loc=0.0, scale=1.0)
+    observe y <- Categorical(logits=logits)
+    return y
 export prog
 """
 
@@ -251,6 +260,11 @@ def test_a_marginalization_block_becomes_an_enumerated_helper() -> None:
         (BETA_BERNOULLI, {"y": True}, {"theta": 0.3}),
         (LET_STEP, {"y": 0.7}, {"a": 0.2, "b": -0.4}),
         (IID_PLATE, {"y": (0.1, 0.2, 0.3)}, {"xs": (0.5, -0.5, 1.0)}),
+        (
+            CATEGORICAL_LOGITS,
+            {"y": 2},
+            {"logits": (-2.0, 0.5, 1.25)},
+        ),
         (SCORED, {}, {"x": 0.8}),
     ],
 )
@@ -261,6 +275,33 @@ def test_reference_runs_agree_with_the_torch_runtime(
     run = run_program(module, "prog", data=clamps, sites=sites)
     expected = _classic_log_joint(source, {**clamps, **sites})
     assert run.log_joint == pytest.approx(expected, rel=1e-5, abs=1e-6)
+
+
+def test_named_categorical_logits_match_torch_on_signed_scores() -> None:
+    logits = torch.tensor((-2.0, 0.5, 1.25))
+    run = run_program(
+        _module(CATEGORICAL_LOGITS),
+        "prog",
+        data={"y": 2},
+        sites={"logits": tuple(float(item) for item in logits)},
+    )
+    expected = td.Normal(0.0, 1.0).log_prob(logits).sum()
+    expected = expected + td.Categorical(logits=logits).log_prob(torch.tensor(2))
+    assert run.log_joint == pytest.approx(float(expected), rel=1e-5, abs=1e-6)
+
+
+def test_categorical_rejects_probs_and_logits_together() -> None:
+    source = """\
+object Category : FinSet 3
+program prog : Category -> Category
+    sample probs : Category <- HalfNormal(scale=1.0)
+    sample logits : Category <- Normal(loc=0.0, scale=1.0)
+    observe y <- Categorical(probs=probs, logits=logits)
+    return y
+export prog
+"""
+    with pytest.raises(QiecDiagnosticError, match="exactly one"):
+        _module(source)
 
 
 def test_grouped_marginalization_agrees_with_the_torch_runtime_and_closed_form() -> (
@@ -347,16 +388,16 @@ def test_scores_add_as_weights() -> None:
     ("body", "fragment"),
     [
         (
-            "    sample (a, b) <- Normal(0.0, 1.0)\n    return a\n",
+            "    sample (a, b) <- Normal(loc=0.0, scale=1.0)\n    return a\n",
             "a family draw binds one name",
         ),
         (
-            "    observe y <- Normal(0.0, 1.0) [via=idx]\n    return y\n",
+            "    observe y <- Normal(loc=0.0, scale=1.0) [via=idx]\n    return y\n",
             "outside a grouped",
         ),
         (
-            "    marginalize z <- Normal(0.0, 1.0) [reduction=mean]\n"
-            "        observe y <- Normal(z, 1.0)\n    return z\n",
+            "    marginalize z <- Normal(loc=0.0, scale=1.0) [reduction=mean]\n"
+            "        observe y <- Normal(loc=z, scale=1.0)\n    return z\n",
             "reduction",
         ),
     ],
@@ -378,13 +419,13 @@ _PAIRED = """\
 object X : FinSet 2
 object R : FinSet 2
 program sub : X -> R * R
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(a, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=a, scale=1.0)
     return (a, b)
 program main : X -> R
     sample (u, v) <- sub
     let s = u + v
-    sample w <- Normal(s, 1.0)
+    sample w <- Normal(loc=s, scale=1.0)
     return w
 export main
 """
@@ -443,13 +484,13 @@ _TEMPLATE = """\
 object School : FinSet 8
 object Effect : Real 1
 program school_effects(spread : Real, K : FinSet) : K -> Effect
-    sample z : K <- Normal(0.0, 1.0)
+    sample z : K <- Normal(loc=0.0, scale=1.0)
     let effect = spread * z
     return effect
 program pooled : School -> Effect
     sample theta <- school_effects(0.6, School)
-    sample sigma <- LogNormal(0.0, 0.5)
-    observe y : School <- Normal(theta, sigma)
+    sample sigma <- LogNormal(loc=0.0, scale=0.5)
+    observe y : School <- Normal(loc=theta, scale=sigma)
     return theta
 export pooled
 """
@@ -494,10 +535,30 @@ def test_a_template_draw_instantiates_the_template_and_agrees_with_torch() -> No
     assert float(traced.log_joint) == pytest.approx(float(expected), rel=1e-5)
 
 
+@pytest.mark.parametrize("parameter", ["probs", "logits"])
+def test_a_template_draw_preserves_categorical_parameterization(
+    parameter: str,
+) -> None:
+    """Alpha-renaming a template's local parameter must retain the source
+    keyword that distinguishes categorical probabilities from logits."""
+    source = f"""\
+object Class : FinSet 3
+program choice(K : FinSet) : K -> K
+    sample scores : K <- Normal(loc=0.0, scale=1.0)
+    sample z <- Categorical({parameter}=scores)
+    return z
+program main : Class -> Class
+    sample outcome <- choice(Class)
+    return outcome
+export main
+"""
+    Compiler(parse(source)).compile()
+
+
 _MORPHISM_TEMPLATE = """\
 object Subj : FinSet 5
 object UnitSpace : Real 1
-morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(0.0, 1.0)
+morphism my_prior : Subj -> UnitSpace [role=kernel] ~ Normal(loc=0.0, scale=1.0)
 program with_prior(G : FinSet, prior : Mor[Subj, UnitSpace]) : G -> Real 1
     sample v : G <- prior
     return v
@@ -564,7 +625,7 @@ def test_an_input_without_a_plate_gets_a_static_extent() -> None:
     with torch on."""
     module = _module(
         "object Obs : FinSet 3\nprogram prog : Obs -> Obs\n"
-        "    sample x <- Dirichlet(alpha)\n    return x\nexport prog\n"
+        "    sample x <- Dirichlet(concentration=alpha)\n    return x\nexport prog\n"
     )
     computation = next(item for item in module.computations if item.name == "prog")
     assert [binder.name for binder in computation.telescope] == ["alpha_extent"]
@@ -601,10 +662,10 @@ define noisy(x : Real) : Real !{random} =
 instance random : Random
 
 program prog : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
     let b <- shift(a, 2.0)
     let c <- noisy(b)
-    observe y <- Normal(c, 0.5)
+    observe y <- Normal(loc=c, scale=0.5)
     return c
 export prog
 
@@ -687,9 +748,9 @@ def test_open_extents_reach_marginal_helpers_and_callers() -> None:
     module = _module(
         "object Obs : FinSet 3\n"
         "program prog : Obs -> Obs\n"
-        "    sample probs <- Dirichlet(alpha)\n"
-        "    marginalize z <- Categorical(probs)\n"
-        "        observe y <- Normal(mu[z], 1.0)\n"
+        "    sample probs <- Dirichlet(concentration=alpha)\n"
+        "    marginalize z <- Categorical(probs=probs)\n"
+        "        observe y <- Normal(loc=mu[z], scale=1.0)\n"
         "    return probs\n"
         "export prog\n"
         "program outer : Obs -> Obs\n"
@@ -735,11 +796,11 @@ object Component : FinSet 3
 object Item : FinSet 2
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample probs <- Dirichlet(1.5) [over=Component]
-    sample mu : Component <- Normal(0.0, 5.0)
-    sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=Item, reduction=REDUCTION]
-        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=idx]
+    sample probs <- Dirichlet(concentration=1.5) [over=Component]
+    sample mu : Component <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Component <- HalfNormal(scale=1.0)
+    marginalize cls : Component <- Categorical(probs=probs) [over=Item, reduction=REDUCTION]
+        observe r : Resp <- Normal(loc=mu[cls], scale=sigma[cls]) [via=idx]
     return probs
 export prog
 """
@@ -750,11 +811,11 @@ object Item : FinSet 2
 object Subj : FinSet 3
 object Resp : FinSet 6
 program prog : Resp -> Resp
-    sample probs <- Dirichlet(1.0) [over=Component]
-    sample mu : Component <- Normal(0.0, 5.0)
-    sample sigma : Component <- HalfNormal(1.0)
-    marginalize cls : Component <- Categorical(probs) [over=[Item, Subj]]
-        observe r : Resp <- Normal(mu[cls], sigma[cls]) [via=[item_idx, subj_idx]]
+    sample probs <- Dirichlet(concentration=1.0) [over=Component]
+    sample mu : Component <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Component <- HalfNormal(scale=1.0)
+    marginalize cls : Component <- Categorical(probs=probs) [over=[Item, Subj]]
+        observe r : Resp <- Normal(loc=mu[cls], scale=sigma[cls]) [via=[item_idx, subj_idx]]
     return probs
 export prog
 """
@@ -765,13 +826,13 @@ object Inner : FinSet 2
 object Item : FinSet 2
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample probs_outer <- Dirichlet(1.0) [over=Outer]
-    sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
-    sample mu : Inner <- Normal(0.0, 5.0)
-    sample sigma : Inner <- HalfNormal(1.0)
-    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
-        marginalize s : Inner <- Categorical(probs_inner[z]) [over=Item]
-            observe r : Resp <- Normal(mu[s], sigma[s]) [via=idx]
+    sample probs_outer <- Dirichlet(concentration=1.0) [over=Outer]
+    sample probs_inner : Outer <- Dirichlet(concentration=1.0) [over=Inner]
+    sample mu : Inner <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Inner <- HalfNormal(scale=1.0)
+    marginalize z : Outer <- Categorical(probs=probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs=probs_inner[z]) [over=Item]
+            observe r : Resp <- Normal(loc=mu[s], scale=sigma[s]) [via=idx]
     return probs_outer
 export prog
 """
@@ -783,13 +844,13 @@ object Item : FinSet 2
 object Subj : FinSet 2
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample probs_outer <- Dirichlet(1.0) [over=Outer]
-    sample probs_inner : Outer <- Dirichlet(1.0) [over=Inner]
-    sample mu : Inner <- Normal(0.0, 5.0)
-    sample sigma : Inner <- HalfNormal(1.0)
-    marginalize z : Outer <- Categorical(probs_outer) [over=Item]
-        marginalize s : Inner <- Categorical(probs_inner[z]) [over=[Item, Subj]]
-            observe r : Resp <- Normal(mu[s], sigma[s]) [via=[item_idx, subj_idx]]
+    sample probs_outer <- Dirichlet(concentration=1.0) [over=Outer]
+    sample probs_inner : Outer <- Dirichlet(concentration=1.0) [over=Inner]
+    sample mu : Inner <- Normal(loc=0.0, scale=5.0)
+    sample sigma : Inner <- HalfNormal(scale=1.0)
+    marginalize z : Outer <- Categorical(probs=probs_outer) [over=Item]
+        marginalize s : Inner <- Categorical(probs=probs_inner[z]) [over=[Item, Subj]]
+            observe r : Resp <- Normal(loc=mu[s], scale=sigma[s]) [via=[item_idx, subj_idx]]
     return probs_outer
 export prog
 """
@@ -798,10 +859,10 @@ HOISTED_DRAW = """\
 object Component : FinSet 2
 object Resp : FinSet 4
 program prog : Resp -> Resp
-    sample probs <- Dirichlet(1.0) [over=Component]
-    marginalize cls : Component <- Categorical(probs)
-        sample mu : Component <- Normal(0.0, 5.0)
-        observe r : Resp <- Normal(mu[cls], 1.0)
+    sample probs <- Dirichlet(concentration=1.0) [over=Component]
+    marginalize cls : Component <- Categorical(probs=probs)
+        sample mu : Component <- Normal(loc=0.0, scale=5.0)
+        observe r : Resp <- Normal(loc=mu[cls], scale=1.0)
     return probs
 export prog
 """
@@ -915,8 +976,8 @@ def test_marginalization_reductions_aggregate_the_grouped_shots(
 def test_a_reduction_on_a_continuous_latent_is_refused() -> None:
     source = (
         "object Obs : FinSet 4\nprogram prog : Obs -> Obs\n"
-        "    marginalize z <- Normal(0.0, 1.0) [reduction=logsumexp]\n"
-        "        observe y <- Normal(z, 1.0)\n    return z\nexport prog\n"
+        "    marginalize z <- Normal(loc=0.0, scale=1.0) [reduction=logsumexp]\n"
+        "        observe y <- Normal(loc=z, scale=1.0)\n    return z\nexport prog\n"
     )
     with pytest.raises(QiecDiagnosticError) as captured:
         _module(source)
@@ -1060,7 +1121,10 @@ def test_a_nested_group_unrelated_to_the_outer_is_refused() -> None:
         NESTED_PROJECTED.replace("[over=[Item, Subj]]", "[over=Subj]")
         .replace("[via=[item_idx, subj_idx]]", "[via=subj_idx]")
         .replace("object Subj : FinSet 2", "object Subj : FinSet 3")
-        .replace("Categorical(probs_inner[z])", "Categorical(probs_outer)")
+        .replace(
+            "Categorical(probs=probs_inner[z])",
+            "Categorical(probs=probs_outer)",
+        )
     )
     with pytest.raises(QiecDiagnosticError) as captured:
         _module(source)
@@ -1086,8 +1150,9 @@ def test_a_draw_inside_a_block_is_drawn_once_before_it() -> None:
 
 def test_a_draw_reading_the_latent_inside_a_block_is_refused() -> None:
     source = HOISTED_DRAW.replace(
-        "sample mu : Component <- Normal(0.0, 5.0)", "sample mu <- Normal(cls, 5.0)"
-    ).replace("Normal(mu[cls], 1.0)", "Normal(mu, 1.0)")
+        "sample mu : Component <- Normal(loc=0.0, scale=5.0)",
+        "sample mu <- Normal(loc=cls, scale=5.0)",
+    ).replace("Normal(loc=mu[cls], scale=1.0)", "Normal(loc=mu, scale=1.0)")
     with pytest.raises(QiecDiagnosticError) as captured:
         _module(source)
     assert "draw per value of the latent" in captured.value.message
@@ -1096,11 +1161,11 @@ def test_a_draw_reading_the_latent_inside_a_block_is_refused() -> None:
 @pytest.mark.parametrize(
     ("draw", "shape"),
     [
-        ("sample pc <- Dirichlet(1.0)", (3,)),
-        ("sample pc : Cat <- Dirichlet(1.0)", (3,)),
-        ("sample pc : Item <- Dirichlet(1.0, 2.0)", (5, 2)),
-        ("sample pc : Item <- Dirichlet(1.0) [over=Cat]", (5, 3)),
-        ("sample pc <- Dirichlet(1.0, 2.0, 3.0, 4.0)", (4,)),
+        ("sample pc <- Dirichlet(concentration=1.0)", (3,)),
+        ("sample pc : Cat <- Dirichlet(concentration=1.0)", (3,)),
+        ("sample pc : Item <- Dirichlet(concentration=[1.0, 2.0])", (5, 2)),
+        ("sample pc : Item <- Dirichlet(concentration=1.0) [over=Cat]", (5, 3)),
+        ("sample pc <- Dirichlet(concentration=[1.0, 2.0, 3.0, 4.0])", (4,)),
     ],
 )
 def test_a_vector_family_gathers_its_spread_literals(
@@ -1118,8 +1183,8 @@ def test_a_vector_family_gathers_its_spread_literals(
 def test_an_integer_atom_beside_an_integer_family_shares_its_element() -> None:
     source = (
         "object Obs : FinSet 4\nprogram prog : Obs -> Obs\n"
-        "    sample rate <- Gamma(2.0, 1.0)\n"
-        "    sample y <- Mixture([0.3, 0.7], [PointMass(0.0), Poisson(rate)])\n"
+        "    sample rate <- Gamma(concentration=2.0, rate=1.0)\n"
+        "    sample y <- Mixture(weights=[0.3, 0.7], components=[PointMass(value=0.0), Poisson(rate=rate)])\n"
         "    return rate\nexport prog\n"
     )
     module = _module(source)
@@ -1731,7 +1796,7 @@ def test_a_scalar_family_broadcasts_over_a_vector_argument() -> None:
 object Obs : Real 3
 program prog : Obs -> Obs
     let mu = [0.5, -1.0, 2.0]
-    sample h <- Normal(mu, 0.5)
+    sample h <- Normal(loc=mu, scale=0.5)
     return h
 export prog
 """

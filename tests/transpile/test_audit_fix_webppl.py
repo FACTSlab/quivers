@@ -94,10 +94,10 @@ def test_runtime_webppl_has_no_reassignment() -> None:
 _DATA_INPUT_PIVOT = """object Obs : FinSet 60
 
 program blr : Obs -> Obs
-    sample a <- Normal(0.0, 1.0)
-    sample b <- Normal(0.0, 1.0)
+    sample a <- Normal(loc=0.0, scale=1.0)
+    sample b <- Normal(loc=0.0, scale=1.0)
     let mu = a + b * x_design
-    observe y : Obs <- Normal(mu, 0.3)
+    observe y : Obs <- Normal(loc=mu, scale=0.3)
     return mu
 
 export blr"""
@@ -125,9 +125,9 @@ def test_webppl_data_input_pivot_let_does_not_graft_runtime() -> None:
 _ARRAY_PRIOR_BROADCAST = """object O : FinSet 4
 
 program g : O -> O
-    sample w : O <- Normal(0.0, 1.0)
+    sample w : O <- Normal(loc=0.0, scale=1.0)
     let z = w * 2.0 + 1.0
-    observe y : O <- Normal(z, 0.5)
+    observe y : O <- Normal(loc=z, scale=0.5)
     return z
 
 export g"""
@@ -153,7 +153,7 @@ def test_webppl_array_prior_let_grafts_qvr_bcast() -> None:
 _GAMMA = """object O : FinSet 8
 
 program g : O -> O
-    sample t <- Gamma(2.0, 5.0)
+    sample t <- Gamma(concentration=2.0, rate=5.0)
     return t
 
 export g"""

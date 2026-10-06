@@ -1658,6 +1658,9 @@ _PYRO_LEADING_DIM_FAMILIES = frozenset(
 #: map is `qvr arg name -> pyro keyword`; identity entries are kept
 #: explicit so a reader can check the whole signature in one place.
 _PYRO_KEYWORD_BINDINGS: dict[str, dict[str, str]] = {
+    "Categorical": {
+        "logits": "logits",
+    },
     "BetaBinomial": {
         "total_count": "total_count",
         "concentration1": "concentration1",

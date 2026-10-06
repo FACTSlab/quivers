@@ -55,12 +55,12 @@ define hmm = initial >> n_step
 # returned initial-state vector, a point of the State simplex
 # embedded in R^8.
 program hmm_program : Step -> StateDist
-    sample initial_row <- Dirichlet(1.0) [over=State]
-    sample transition_rows : State <- Dirichlet(1.0) [over=State, iid_over=State]
-    sample emission_rows : State <- Dirichlet(1.0) [over=Obs, iid_over=State]
+    sample initial_row <- Dirichlet(concentration=1.0) [over=State]
+    sample transition_rows : State <- Dirichlet(concentration=1.0) [over=State, iid_over=State]
+    sample emission_rows : State <- Dirichlet(concentration=1.0) [over=Obs, iid_over=State]
 
-    marginalize state <- Categorical(initial_row) [reduction=logsumexp]
-        observe obs : Step <- Categorical(emission_rows[state])
+    marginalize state <- Categorical(probs=initial_row) [reduction=logsumexp]
+        observe obs : Step <- Categorical(probs=emission_rows[state])
 
     return initial_row
 
@@ -76,7 +76,7 @@ export hmm_program
 
 `repeat` builds the algebraic power of `transition` by repeated squaring, with $n$ supplied via `prog(n_steps=N)`. Under the current algebra, the result is a product-fuzzy relation. Also note that `initial : State -> State`, so the exported domain is `State`, not a singleton initial-distribution object.
 
-`hmm_program` is the separate probabilistic surface exported from the same source. Its three `sample` steps draw the initial-state vector, the transition kernel, and the emission kernel from symmetric `Dirichlet(1.0)` priors: `[over=State]` names the simplex axis of the initial row, which carries no plate annotation because it is a single draw, and `iid_over=State` allocates one independent Dirichlet row per source state for `transition_rows` and per latent state for `emission_rows`. The `marginalize` block integrates the latent `state` out of the observation by log-sum-exp over the eight `State` atoms, so the observation body scores `obs` under `Categorical(emission_rows[state])` alone and `transition_rows` never enters the likelihood.
+`hmm_program` is the separate probabilistic surface exported from the same source. Its three `sample` steps draw the initial-state vector, the transition kernel, and the emission kernel from symmetric `Dirichlet(1.0)` priors: `[over=State]` names the simplex axis of the initial row, which carries no plate annotation because it is a single draw, and `iid_over=State` allocates one independent Dirichlet row per source state for `transition_rows` and per latent state for `emission_rows`. The `marginalize` block integrates the latent `state` out of the observation by log-sum-exp over the eight `State` atoms, so the observation body scores `obs` under `Categorical(probs=emission_rows[state])` alone and `transition_rows` never enters the likelihood.
 
 ## Try it
 

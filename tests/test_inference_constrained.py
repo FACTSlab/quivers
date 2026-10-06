@@ -38,15 +38,18 @@ from quivers.inference.trace import trace
 @pytest.mark.parametrize(
     ("dist_spec", "predicate"),
     [
-        ("HalfNormal(1.0)", lambda v: (v >= 0).all()),
-        ("HalfCauchy(1.0)", lambda v: (v >= 0).all()),
-        ("Exponential(1.0)", lambda v: (v > 0).all()),
-        ("Gamma(2.0, 1.0)", lambda v: (v > 0).all()),
-        ("LogNormal(0.0, 1.0)", lambda v: (v > 0).all()),
-        ("Beta(2.0, 5.0)", lambda v: ((v > 0) & (v < 1)).all()),
-        ("Uniform(0.0, 1.0)", lambda v: ((v > 0) & (v < 1)).all()),
-        ("Uniform(-3.0, 5.0)", lambda v: ((v > -3.0) & (v < 5.0)).all()),
-        ("LogitNormal(0.0, 1.0)", lambda v: ((v > 0) & (v < 1)).all()),
+        ("HalfNormal(scale=1.0)", lambda v: (v >= 0).all()),
+        ("HalfCauchy(scale=1.0)", lambda v: (v >= 0).all()),
+        ("Exponential(rate=1.0)", lambda v: (v > 0).all()),
+        ("Gamma(concentration=2.0, rate=1.0)", lambda v: (v > 0).all()),
+        ("LogNormal(loc=0.0, scale=1.0)", lambda v: (v > 0).all()),
+        (
+            "Beta(concentration1=2.0, concentration0=5.0)",
+            lambda v: ((v > 0) & (v < 1)).all(),
+        ),
+        ("Uniform(low=0.0, high=1.0)", lambda v: ((v > 0) & (v < 1)).all()),
+        ("Uniform(low=-3.0, high=5.0)", lambda v: ((v > -3.0) & (v < 5.0)).all()),
+        ("LogitNormal(mu=0.0, sigma=1.0)", lambda v: ((v > 0) & (v < 1)).all()),
     ],
 )
 def test_autonormal_guide_samples_in_support(dist_spec: str, predicate) -> None:
@@ -76,9 +79,12 @@ def test_autonormal_guide_samples_in_support(dist_spec: str, predicate) -> None:
 @pytest.mark.parametrize(
     ("dist_spec", "predicate"),
     [
-        ("HalfNormal(1.0)", lambda v: (v >= 0).all()),
-        ("Beta(2.0, 5.0)", lambda v: ((v > 0) & (v < 1)).all()),
-        ("Uniform(0.0, 1.0)", lambda v: ((v > 0) & (v < 1)).all()),
+        ("HalfNormal(scale=1.0)", lambda v: (v >= 0).all()),
+        (
+            "Beta(concentration1=2.0, concentration0=5.0)",
+            lambda v: ((v > 0) & (v < 1)).all(),
+        ),
+        ("Uniform(low=0.0, high=1.0)", lambda v: ((v > 0) & (v < 1)).all()),
     ],
 )
 def test_autodelta_guide_samples_in_support(dist_spec: str, predicate) -> None:
@@ -106,7 +112,7 @@ def test_autonormal_gradient_flows_through_bijector() -> None:
     prog = loads(
         "object N : FinSet 1\n"
         "program p : N -> N\n"
-        "    sample sigma <- HalfNormal(1.0)\n"
+        "    sample sigma <- HalfNormal(scale=1.0)\n"
         "    return sigma\n"
         "export p\n"
     )
@@ -134,7 +140,7 @@ def test_condition_data_dict_visible_to_let_expression() -> None:
         "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(loc=0.0, scale=1.0)\n"
         "    let mu = by_subj[subj_idx]\n"
         "    return mu\n"
         "export p\n"
@@ -169,9 +175,9 @@ def test_hierarchical_regression_svi_step_runs() -> None:
         "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(loc=0.0, scale=1.0)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
-        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    observe r : Resp <- Bernoulli(probs=mu)\n"
         "    return mu\n"
         "export p\n"
     )
@@ -216,9 +222,9 @@ def test_hierarchical_regression_observation_kernel_composes() -> None:
         "object Resp : FinSet 12\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(loc=0.0, scale=1.0)\n"
         "    let mu = sigmoid(by_subj[subj_idx])\n"
-        "    observe r : Resp <- Bernoulli(mu)\n"
+        "    observe r : Resp <- Bernoulli(probs=mu)\n"
         "    return mu\n"
         "export p\n"
     )
@@ -243,9 +249,9 @@ def test_condition_data_dict_alongside_observations() -> None:
         "object Resp : FinSet 6\n"
         "\n"
         "program p : Resp -> Resp\n"
-        "    sample by_subj : Subj <- Normal(0.0, 1.0)\n"
+        "    sample by_subj : Subj <- Normal(loc=0.0, scale=1.0)\n"
         "    let mu = by_subj[subj_idx]\n"
-        "    observe r : Resp <- Normal(mu, 1.0)\n"
+        "    observe r : Resp <- Normal(loc=mu, scale=1.0)\n"
         "    return r\n"
         "export p\n"
     )
@@ -273,7 +279,7 @@ def test_inline_dirichlet_scalar_concentration() -> None:
     prog = loads(
         "object Cat : FinSet 3\n"
         "program p : Cat -> Cat\n"
-        "    sample pc <- Dirichlet(1.0)\n"
+        "    sample pc <- Dirichlet(concentration=1.0)\n"
         "    return pc\n"
         "export p\n"
     )
@@ -296,7 +302,7 @@ def test_inline_dirichlet_vector_concentration() -> None:
     prog = loads(
         "object Item : FinSet 8\n"
         "program p : Item -> Item\n"
-        "    sample pc : Item <- Dirichlet(1.0, 2.0, 3.0)\n"
+        "    sample pc : Item <- Dirichlet(concentration=[1.0, 2.0, 3.0])\n"
         "    return pc\n"
         "export p\n"
     )
@@ -314,7 +320,7 @@ def test_inline_dirichlet_under_autonormal_guide() -> None:
     prog = loads(
         "object Cat : FinSet 4\n"
         "program p : Cat -> Cat\n"
-        "    sample pc <- Dirichlet(2.0)\n"
+        "    sample pc <- Dirichlet(concentration=2.0)\n"
         "    return pc\n"
         "export p\n"
     )
@@ -337,7 +343,7 @@ def test_inline_dirichlet_score_under_prior() -> None:
     prog = loads(
         "object Cat : FinSet 3\n"
         "program p : Cat -> Cat\n"
-        "    sample pc <- Dirichlet(1.0)\n"
+        "    sample pc <- Dirichlet(concentration=1.0)\n"
         "    return pc\n"
         "export p\n"
     )
