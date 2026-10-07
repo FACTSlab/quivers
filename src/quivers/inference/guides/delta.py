@@ -6,7 +6,7 @@ space, pushed through the support bijector so the constrained
 estimate lies inside the prior's support. Used for MAP estimation
 and as the warmup mean for `AutoLaplaceApproximation`.
 
-Log-density returns zero — the delta-mass contribution and its
+Log-density returns zero: the delta-mass contribution and its
 Jacobian cancel in the ELBO under the standard score-function
 trick.
 """

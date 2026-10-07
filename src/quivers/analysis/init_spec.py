@@ -223,6 +223,17 @@ def recommend_init(module: Module) -> dict[str, InitSpec]:
     algebra, and returns a mapping from latent variable name to the
     `InitSpec` that places the chain at the algebra's
     mid-saturation point at depth-and-size.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed QVR module whose program is analysed.
+
+    Returns
+    -------
+    dict[str, InitSpec]
+        The recipe for each latent, keyed by variable name; empty when
+        the module declares no governing algebra.
     """
     shape = ChainShape.from_module(module)
     algebra = shape.algebra
@@ -243,6 +254,13 @@ def apply_init_spec(parameter: nn.Parameter | torch.Tensor, spec: InitSpec) -> N
     Delegates to ``torch.nn.init`` for ``normal`` / ``uniform`` and
     to a plain ``fill_`` for ``constant``. The tensor's shape is
     preserved; only its entries are overwritten in-place.
+
+    Parameters
+    ----------
+    parameter : nn.Parameter or torch.Tensor
+        The tensor to overwrite in place.
+    spec : InitSpec
+        The recipe to draw the new entries from.
     """
     with torch.no_grad():
         if spec.distribution == "normal":

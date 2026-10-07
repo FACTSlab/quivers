@@ -29,12 +29,7 @@ from pathlib import Path
 import torch
 from torch.distributions import constraints
 
-from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import (
-    MonadicProgram,
-    _LetSpec,
-    _ScoreSpec,
-)
+from quivers.continuous import ContinuousMorphism, Draw, MonadicProgram, Observe
 from tests.transpile.probes._protocol import Point
 from tests.transpile.probes.qvr import QvrProbe
 
@@ -569,10 +564,9 @@ def _sample_site_names(
     """
     if monadic is not None:
         names: list[str] = []
-        for spec in monadic._step_specs:
-            if isinstance(spec, (_LetSpec, _ScoreSpec)) or spec.is_observed:
-                continue
-            names.extend(spec.vars)
+        for spec in monadic.steps:
+            if isinstance(spec, Draw):
+                names.extend(spec.names)
         return names
     return _qvr_sample_names(source_qvr)
 
@@ -1345,16 +1339,16 @@ def site_supports(
     if monadic is None:
         return {}
     out: dict[str, constraints.Constraint] = {}
-    for spec in monadic._step_specs:
-        if isinstance(spec, (_LetSpec, _ScoreSpec)):
+    for spec in monadic.steps:
+        if not isinstance(spec, Draw | Observe):
             continue
-        morphism = monadic._modules.get(spec.morphism_name)
+        morphism = monadic.step_module(spec)
         if not isinstance(morphism, ContinuousMorphism):
             continue
         support = _resolve_support(morphism)
         if support is None:
             continue
-        for name in spec.vars:
+        for name in spec.names:
             out[name] = support
     return out
 

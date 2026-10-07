@@ -240,6 +240,8 @@ nav:
       - Morphisms: api/core/morphisms.md
       - Tensor Operations: api/core/tensor_ops.md
       - Utilities: api/core/util.md
+      - Transformations: api/core/transformations.md
+      - Wiring: api/core/wiring.md
     - Categorical:
       - Overview: api/categorical/functors.md
       - Natural Transformations: api/categorical/natural_transformations.md
@@ -262,6 +264,7 @@ nav:
     - Arrows:
       - Overview: api/arrows/typeclasses.md
       - Arrow Theories: api/arrows/theories.md
+      - Arrow Instances: api/arrows/instances.md
     - Enriched:
       - Overview: api/enriched/ends_coends.md
       - Kan Extensions: api/enriched/kan_extensions.md
@@ -284,6 +287,7 @@ nav:
       - Chart Parsers: api/stochastic/parsers.md
       - Inside Algorithm: api/stochastic/inside.md
       - Agenda: api/stochastic/agenda.md
+      - Deduction Library: api/stochastic/stdlib.md
       - Deduction Systems:
         - Overview: api/stochastic/deduction.md
         - Primitives: api/stochastic/deduction/primitives.md
@@ -295,15 +299,25 @@ nav:
       - Morphisms: api/continuous/morphisms.md
       - Families: api/continuous/families.md
       - Parameter Sources: api/continuous/param_source.md
+      - Ordered and Zero-Inflated: api/continuous/ordered.md
+      - Family Registry: api/continuous/family_spec.md
       - Inline Builders: api/continuous/inline.md
       - Programs: api/continuous/programs.md
-      - Program steps: api/continuous/program_steps.md
+      - Program Steps: api/continuous/program_steps.md
+      - Plates: api/continuous/plate.md
+      - Deterministic Morphisms: api/continuous/deterministic.md
+      - Measure Algebra: api/continuous/measure.md
+      - Bijectors: api/continuous/bijectors.md
       - Scan: api/continuous/scan.md
       - Boundaries: api/continuous/boundaries.md
       - Flows: api/continuous/flows.md
     - DSL:
-      - Overview: api/dsl/parser.md
+      - Overview: api/dsl/index.md
+      - Parser: api/dsl/parser.md
       - AST Nodes: api/dsl/ast_nodes.md
+      - Family Schemas: api/dsl/family_schemas.md
+      - Let-Expression Traversal: api/dsl/let_expr_traversal.md
+      - Pygments Lexer: api/dsl/pygments_lexer.md
       - Compiler: api/dsl/compiler.md
       - Resolution Lenses: api/dsl/resolution.md
       - AST → Source Emit: api/dsl/emit.md
@@ -323,6 +337,7 @@ nav:
       - Encoders: api/structural/encoder.md
       - Decoders: api/structural/decoder.md
       - Loss Registry: api/structural/losses.md
+      - Shapes: api/structural/shapes.md
     - CLI: api/cli.md
     - Inference:
       - Overview: api/inference/trace.md
@@ -410,6 +425,7 @@ nav:
       - Entry points: api/qiec/entries.md
   - Developer Guide:
     - Overview: developer/contributing.md
+    - Public API and exports: developer/public-api.md
     - Indexed effects and GADTs: developer/qiec.md
     - Changelog: developer/changelog.md
     - Inference benchmarks: developer/inference-benchmarks.md

@@ -1,6 +1,6 @@
 """ipykernel Kernel subclass for QVR.
 
-A thin adapter over [`quivers.cli.repl_session.ReplSession`][quivers.cli.repl_session.ReplSession].
+A thin adapter over [`ReplSession`][quivers.cli.ReplSession].
 Cells with a leading ``:`` are routed through the same meta-command
 dispatcher the REPL uses; bare cells are sent through
 `ReplSession.dispatch` and evaluated as either a statement
@@ -21,6 +21,19 @@ from quivers.cli.repl_session import ReplSession
 
 
 class QuiversKernel(Kernel):
+    """A Jupyter kernel that evaluates QVR cells in a `ReplSession`.
+
+    Each line of a cell is dispatched to the session as the REPL would
+    dispatch it, so a leading ``:`` runs a meta-command and other input
+    is elaborated against the session's module. Jupyter constructs the
+    kernel; `install_kernelspec` registers it.
+
+    Parameters
+    ----------
+    **kwargs : Any
+        Keyword arguments forwarded to ``ipykernel.kernelbase.Kernel``.
+    """
+
     implementation = "quivers"
     implementation_version = "0.1.0"
     language = "qvr"

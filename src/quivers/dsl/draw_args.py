@@ -30,7 +30,6 @@ from quivers.dsl.ast_nodes import (
     DrawArgName,
     DrawArgNamed,
     DrawArgScalar,
-    atom_to_draw_arg as _lift_atom,
 )
 from quivers.dsl.family_schemas import (
     family_parameterizations,
@@ -162,23 +161,4 @@ def matrix_rows(arg: DrawArgList) -> tuple[tuple[Atom, ...], ...]:
     return tuple(rows)
 
 
-def atom_to_draw_arg(value: Atom) -> DrawArg:
-    """Lift a flat wire value into the atomic `DrawArg` it denotes: a
-    string becomes a `DrawArgName`, a number a `DrawArgScalar`."""
-    return _lift_atom(value)
-
-
-__all__ = [
-    "Atom",
-    "atom_to_draw_arg",
-    "atom_value",
-    "bind_family_arguments",
-    "argument_parameter",
-    "argument_value",
-    "encode_index",
-    "is_atom",
-    "is_matrix",
-    "list_atoms",
-    "list_items",
-    "matrix_rows",
-]
+__all__ = []

@@ -42,6 +42,15 @@ class OrderedLogistic(Distribution):
     * Arbitrary leading batch shape is supported; the last axis is
       always the cutpoint axis.
 
+    Log probabilities are computed without forming the difference of
+    sigmoids: with ``a < b`` the two cutpoint offsets bounding a
+    category, ``sigmoid(b) - sigmoid(a)`` equals
+    ``sigmoid(b) * sigmoid(-a) * (1 - exp(a - b))``, so its log is a sum
+    of two log-sigmoids and a ``log(1 - exp(.))`` term, each accurate in
+    both tails. A category far from the predictor thus keeps its exact
+    log probability rather than one floored at the smallest normal
+    float.
+
     Reference: [McCullagh 1980](https://doi.org/10.1111/j.2517-6161.1980.tb01109.x).
     """
 
@@ -104,11 +113,10 @@ class OrderedLogistic(Distribution):
     def log_prob(self, value: Tensor) -> Tensor:
         if self._validate_args:
             self._validate_sample(value)
-        probs = self._category_probs()
+        log_probs = self._category_log_probs()
         idx = value.long().unsqueeze(-1)
-        idx = idx.expand(*probs.shape[:-1], 1)
-        selected = probs.gather(-1, idx).squeeze(-1)
-        return selected.clamp_min(torch.finfo(selected.dtype).tiny).log()
+        idx = idx.expand(*log_probs.shape[:-1], 1)
+        return log_probs.gather(-1, idx).squeeze(-1)
 
     def sample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:
         # `torch.distributions.Distribution.sample` accepts any
@@ -126,14 +134,63 @@ class OrderedLogistic(Distribution):
             return draws[..., 0].reshape(self.batch_shape)
         return draws.t().reshape(*sample_shape, *self.batch_shape)
 
+    def _category_log_probs(self) -> Tensor:
+        """Log probability of every category.
+
+        Returns
+        -------
+        Tensor
+            Shape ``(*batch_shape, num_categories)``.
+        """
+        offsets = self.cutpoints - self.predictor.unsqueeze(-1)
+        below = torch.full_like(offsets[..., :1], -torch.inf)
+        above = torch.full_like(offsets[..., :1], torch.inf)
+        bounds = torch.cat([below, offsets, above], dim=-1)
+        lower = bounds[..., :-1]
+        upper = bounds[..., 1:]
+        # Out-of-order cutpoints give a category no mass.
+        gap = (lower - upper).clamp(max=0.0)
+        return (
+            torch.nn.functional.logsigmoid(upper)
+            + torch.nn.functional.logsigmoid(-lower)
+            + _log1mexp(gap)
+        )
+
     def _category_probs(self) -> Tensor:
-        """Return ``(*batch_shape, num_categories)`` probabilities."""
-        eta = self.predictor.unsqueeze(-1)
-        cdf = torch.sigmoid(self.cutpoints - eta)
-        zero = torch.zeros_like(cdf[..., :1])
-        one = torch.ones_like(cdf[..., :1])
-        padded = torch.cat([zero, cdf, one], dim=-1)
-        return padded[..., 1:] - padded[..., :-1]
+        """Probability of every category.
+
+        Returns
+        -------
+        Tensor
+            Shape ``(*batch_shape, num_categories)``.
+        """
+        return self._category_log_probs().exp()
+
+
+def _log1mexp(x: Tensor) -> Tensor:
+    """``log(1 - exp(x))`` for ``x <= 0``, accurate across its range.
+
+    Uses ``log(-expm1(x))`` near zero and ``log1p(-exp(x))`` below
+    ``-log 2``, following [Maechler 2012](https://cran.r-project.org/web/packages/Rmpfr/vignettes/log1mexp-note.pdf).
+
+    Parameters
+    ----------
+    x : Tensor
+        Non-positive values.
+
+    Returns
+    -------
+    Tensor
+        ``log(1 - exp(x))``, ``-inf`` at zero and zero at ``-inf``.
+    """
+    near_zero = x > -0.6931471805599453
+    safe_near = torch.where(near_zero, x, torch.full_like(x, -1.0))
+    safe_far = torch.where(near_zero, torch.full_like(x, -1.0), x)
+    return torch.where(
+        near_zero,
+        torch.log(-torch.expm1(safe_near)),
+        torch.log1p(-torch.exp(safe_far)),
+    )
 
 
 __all__ = ["OrderedLogistic"]

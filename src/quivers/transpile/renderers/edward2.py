@@ -26,11 +26,11 @@ appears here.
 
 from __future__ import annotations
 
-import dataclasses
 import pathlib
 
 import panproto
 
+from quivers.dsl.ast_nodes import Expr, MorphismDecl
 from quivers.transpile._api import UnsupportedConstruct
 from quivers.transpile._pipeline import EmitPretty, target_protocol
 from quivers.transpile.renderers._python_helpers import (
@@ -104,7 +104,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dangling_refs,
     assert_no_dropped_param_map,
     ir_uses_family,
@@ -127,20 +127,33 @@ _BACKEND_KEY = f"qvr-{_TARGET}"
 _FACTOR_HELPER = pathlib.Path(__file__).parent.parent / "runtime_factor_edward2.py"
 
 
-@dataclasses.dataclass
-class _Edward2Ctx(_RenderCtx):
+class _Edward2Ctx(RenderContext):
     """The render context with the module the plan's calls read.
 
     Parameters
     ----------
+    sb : panproto.SchemaBuilder
+        The schema builder the renderer emits into.
+    morphisms : dict[str, MorphismDecl]
+        The module's morphism declarations, by name.
+    defines : dict[str, Expr]
+        The module's define expressions, by name.
     module : IRQiecModule
         The checked module the plan was derived from.
-    operations_bound : set[str]
-        The bodies whose native operation table is already bound.
     """
 
-    module: IRQiecModule = dataclasses.field(kw_only=True)
-    operations_bound: set[str] = dataclasses.field(default_factory=set, kw_only=True)
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        morphisms: dict[str, MorphismDecl],
+        defines: dict[str, Expr],
+        *,
+        module: IRQiecModule,
+    ) -> None:
+        super().__init__(sb=sb, morphisms=morphisms, defines=defines)
+        self.module = module
+        #: The bodies whose native operation table is already bound.
+        self.operations_bound: set[str] = set()
 
 
 #: Edward2-side argument injection for QVR families whose underlying
@@ -217,7 +230,7 @@ class Edward2Renderer(RendererBase):
     ```
 
     The walk overrides
-    [`RendererBase.render`][quivers.transpile.renderers._base.RendererBase.render]
+    [`RendererBase.render`][quivers.transpile.renderers.RendererBase.render]
     because Edward2's program shape (single function, no block
     structure) does not map onto the inherited block-by-block default
     walk.
@@ -226,6 +239,13 @@ class Edward2Renderer(RendererBase):
     target: str = _TARGET
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("python")
 
     # ------------------------------------------------------------------
@@ -233,6 +253,18 @@ class Edward2Renderer(RendererBase):
     # ------------------------------------------------------------------
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        """Render a program to the target's panproto schema.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
@@ -314,7 +346,18 @@ class Edward2Renderer(RendererBase):
         return sb.build()
 
     def emit_bytes(self, ir: IRProgram) -> bytes:
-        """Convenience: render `ir` and run `emit_pretty` to bytes."""
+        """Convenience: render `ir` and run `emit_pretty` to bytes.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        bytes
+            The target program's source.
+        """
         schema = self.render(ir)
         return EmitPretty("python")(schema)
 
@@ -576,10 +619,10 @@ class Edward2Renderer(RendererBase):
         the model function body.
 
         Edward2 dispatches its own IR walk through
-        [`_emit_node`][quivers.transpile.renderers.edward2.Edward2Renderer._emit_node]
+        `_emit_node`
         rather than the base walker, so this carries the schema
         context the walk threads (`py`, `body_vid`) instead of the
-        `_RenderCtx` signature the base class declares.
+        `RenderContext` signature the base class declares.
         """
         if not names:
             return
@@ -599,7 +642,7 @@ class Edward2Renderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -611,13 +654,31 @@ class Edward2Renderer(RendererBase):
         Data inputs are emitted as function parameters by ``render``;
         sample / observe declarations are subsumed into the
         ``edward2.<Family>(...)`` call assigned to the bound name.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -634,6 +695,30 @@ class Edward2Renderer(RendererBase):
         function parameters and conditioning via the caller's
         interceptor mechanism, so ``observed`` does not change the
         emitted call.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del constraint, observed
         py = PyCtx(ctx.sb, target="edward2")
@@ -651,12 +736,25 @@ class Edward2Renderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """No-op at the protocol dispatch point: the renderer drives
         the enumeration through `_emit_marginalize`, which needs the
-        binding tables the top-level walk threads."""
+        binding tables the top-level walk threads.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, node
         return ""
 
@@ -909,7 +1007,7 @@ class Edward2Renderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
@@ -918,6 +1016,20 @@ class Edward2Renderer(RendererBase):
         1D targets render as ``tf.fill([K], <value>)``; 2D as
         ``tf.fill([R, C], <value>)``. The shape literal is a plain
         Python list (Edward2 / TF accept it).
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         py = PyCtx(ctx.sb, target="edward2")
         return self._broadcast(py, value, target_shape, {}, {})

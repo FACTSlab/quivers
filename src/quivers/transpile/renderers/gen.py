@@ -17,7 +17,7 @@ end
 ```
 
 The renderer inherits the target-independent IR walk from
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase] and
+[`RendererBase`][quivers.transpile.renderers.RendererBase] and
 implements `declare`, `sample`, `marginalize`, and `broadcast` per the
 Gen.jl idiom. `marginalize` lowers
 [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] to an explicit
@@ -101,7 +101,7 @@ from quivers.transpile.renderers._base import (
     BlockKind,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dangling_refs,
     assert_no_dropped_param_map,
     mixture_normal_components,
@@ -128,7 +128,7 @@ from quivers.transpile.renderers._qiec import (
 class _GenCtx:
     """Per-render Julia schema-construction carrier.
 
-    Wraps the panproto [`SchemaBuilder`][panproto.SchemaBuilder] with a
+    Wraps the panproto `SchemaBuilder` with a
     fresh-id counter, the accumulators the IR walk fills in for the
     function signature (parameters) and body (statements), and the
     cross-step tables the renderer consults when threading batch
@@ -197,9 +197,9 @@ class _GenCtx:
 
 
 class _JlCtxAdapter:
-    """Adapt a [`_GenCtx`][quivers.transpile.renderers.gen._GenCtx] to
+    """Adapt a `_GenCtx` to
     the protocol expected by
-    [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia].
+    `render_let_expr_julia`.
 
     The shared Julia let-expression helper expects a ctx with explicit
     `v(vid, kind)` / `e(src, tgt, kind=child_of)` / `lit(vid, text)` /
@@ -1004,7 +1004,7 @@ class GenRenderer(RendererBase):
     """Render an IR program as a Gen.jl `@gen function` definition.
 
     Inherits the IR-walk dispatch from
-    [`RendererBase`][quivers.transpile.renderers._base.RendererBase].
+    [`RendererBase`][quivers.transpile.renderers.RendererBase].
     Overrides the per-node dispatch in `render` to collect declarations
     plus statements into the `@gen function` envelope; implements
     `declare`, `sample`, `marginalize`, `broadcast` per the Gen.jl
@@ -1018,6 +1018,13 @@ class GenRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("julia")
 
     # ------------------------------------------------------------------
@@ -1025,6 +1032,18 @@ class GenRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        """Render a program to the target's panproto schema.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
@@ -1046,10 +1065,10 @@ class GenRenderer(RendererBase):
             gx.inputs_by_name[inp.name] = inp
             gx.decl_axes[inp.name] = inp.plate.batch_dims
 
-        # `_RenderCtx` is the inherited carrier; we re-use it for the
+        # `RenderContext` is the inherited carrier; we re-use it for the
         # required dispatch signatures but the per-render scratch
         # lives on `_GenCtx`.
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        ctx = RenderContext(sb=sb, morphisms={}, defines={})
         blk = gx.v("block", "body")
         gx.body = blk
         self._gx = gx
@@ -1107,7 +1126,7 @@ class GenRenderer(RendererBase):
     # Per-IRNode dispatch
     # ------------------------------------------------------------------
 
-    def _emit_node(self, ctx: _RenderCtx, node: IRNode) -> None:
+    def _emit_node(self, ctx: RenderContext, node: IRNode) -> None:
         if isinstance(node, IRDataInput):
             return
         if isinstance(node, IRSample):
@@ -1528,7 +1547,7 @@ class GenRenderer(RendererBase):
     # Marginalize: lower to IRSample + scope inline
     # ------------------------------------------------------------------
 
-    def _emit_marginalize(self, ctx: _RenderCtx, node: IRMarginalize) -> None:
+    def _emit_marginalize(self, ctx: RenderContext, node: IRMarginalize) -> None:
         """Integrate a finite latent out and trace the reduced density.
 
         The atoms are scored through Distributions.jl, which the
@@ -1540,7 +1559,7 @@ class GenRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRMarginalize
             The block.
@@ -1602,7 +1621,7 @@ class GenRenderer(RendererBase):
     # Score: bind value, then `@addlogprob!`
     # ------------------------------------------------------------------
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+    def _emit_score(self, ctx: RenderContext, node: IRScore) -> None:
         """``<name> = <expr>; @trace(_qvr_qiec_factor(<name>), :<name>)``.
 
         Gen scores the choices a trace holds, so the weight is traced
@@ -1661,19 +1680,39 @@ class GenRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
         *,
         block: BlockKind,
     ) -> SchemaFragment:
+        """Emit the declaration of a named variable in ``block``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -1682,6 +1721,32 @@ class GenRenderer(RendererBase):
         plate: Plate,
         observed: bool,
     ) -> SchemaFragment:
+        """Emit the ``~`` statement of a sample or observe step.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del (
             ctx,
             name,
@@ -1696,18 +1761,48 @@ class GenRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
+        """Emit the scope integrating a discrete latent out.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         self._emit_marginalize(ctx, node)
         return ""
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
+        """Emit the target's broadcast of ``value`` to ``target_shape``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx
         gx = self._gx
         value_vid = _render_arg(gx, value, arg_ctx=_ArgCtx())

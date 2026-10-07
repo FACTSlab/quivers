@@ -418,3 +418,14 @@ class EilenbergMooreCategory:
 
     def __repr__(self) -> str:
         return f"EilenbergMooreCategory({self._monad!r})"
+
+
+__all__ = [
+    "Algebra",
+    "FreeAlgebra",
+    "ObservedAlgebra",
+    "Coalgebra",
+    "CofreeCoalgebra",
+    "ObservedCoalgebra",
+    "EilenbergMooreCategory",
+]

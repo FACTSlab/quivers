@@ -66,7 +66,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dangling_refs,
     assert_no_dropped_param_map,
     mixture_component_count,
@@ -98,8 +98,8 @@ _OPERATIONS = "_qvr_qiec_operations"
 
 
 class _JsLetCtx:
-    """Bridge `_RenderCtx.sb` to the
-    [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+    """Bridge `RenderContext.sb` to the
+    `render_let_expr_javascript`
     helper's protocol (`v`, `e`, `lit`, `constraint`, `fresh`).
 
     Carries the object-name -> static-cardinality map consulted when
@@ -107,9 +107,9 @@ class _JsLetCtx:
     and the `target` tag used in error messages.
 
     The WebPPL IR-walk operates over
-    [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]; the
+    [`RenderContext`][quivers.transpile.renderers.RenderContext]; the
     let-expression helper expects a small carrier exposing
-    [`panproto.SchemaBuilder`][panproto.SchemaBuilder] operations
+    `panproto.SchemaBuilder` operations
     under terse method names. The shim keeps the helper independent
     of any specific renderer class.
     """
@@ -145,10 +145,10 @@ class _JsLetCtx:
 
 class WebPPLRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
-    WebPPL [`panproto.Schema`][panproto.Schema].
+    WebPPL `panproto.Schema`.
 
     Subclasses
-    [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    [`RendererBase`][quivers.transpile.renderers.RendererBase]
     and overrides the four dispatch points
     (`declare`, `sample`, `marginalize`, `broadcast`) plus the two
     list / matrix arg helpers per the spec.
@@ -232,6 +232,13 @@ class WebPPLRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("javascript")
 
     # ----- the full render override -----
@@ -242,13 +249,23 @@ class WebPPLRenderer(RendererBase):
         Override of the base `render` so the program-level shape
         (a single `var model = function(<inputs>) { ... };`
         declaration) is built once per call.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
-        ctx = _RenderCtx(sb=sb, morphisms=morphisms, defines=lets)
+        ctx = RenderContext(sb=sb, morphisms=morphisms, defines=lets)
         # Reset per-render state.
         self._fresh_n = 0
         self._binding_plates = {}
@@ -332,7 +349,7 @@ class WebPPLRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -344,6 +361,24 @@ class WebPPLRenderer(RendererBase):
         the name's binding plate / support into the renderer's
         bookkeeping so later sample steps can index into the name
         correctly.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del ctx, block
         self._binding_plates[name] = plate
@@ -354,7 +389,7 @@ class WebPPLRenderer(RendererBase):
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -376,6 +411,30 @@ class WebPPLRenderer(RendererBase):
         `mapIndexed(function(n, <obs>_n) { observe(<dist>, <obs>_n);
         }, <obs>);` when batched; the unbatched case emits a bare
         `observe(<dist>, <obs>);` statement.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del constraint  # Constraint shaped the (no-op) declaration.
         meta = FAMILY_META.get(family)
@@ -419,7 +478,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_mixture_normal(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         args: tuple[IRArg, ...],
         arg_names: tuple[str, ...],
@@ -479,7 +538,7 @@ class WebPPLRenderer(RendererBase):
 
     def _mixture_component_array(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         loc: IRArg,
         scale: IRArg,
         components: int,
@@ -525,7 +584,7 @@ class WebPPLRenderer(RendererBase):
             ctx.sb.edge(arr, entry, "child_of")
         return arr
 
-    def _mixture_vector_ref(self, ctx: _RenderCtx, arg: IRArg) -> str:
+    def _mixture_vector_ref(self, ctx: RenderContext, arg: IRArg) -> str:
         """Render one of a `MixtureNormal` call's per-component vectors.
 
         The component axis belongs to the mixture rather than to the
@@ -547,7 +606,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_prepared_site(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         plate: Plate,
         *,
@@ -603,7 +662,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_gp_block(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node,
     ) -> None:
         """Emit a Gaussian-process sample as three WebPPL var-decls:
@@ -681,7 +740,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         meta: FamilyMeta,
         webppl_name: str,
@@ -721,7 +780,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_observe(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         meta: FamilyMeta,
         webppl_name: str,
@@ -808,7 +867,7 @@ class WebPPLRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Integrate an
@@ -840,6 +899,18 @@ class WebPPLRenderer(RendererBase):
         the same block. No site is declared for the latent: the atoms
         replace it, and the emitted program denotes the same measure
         the QVR reference integrates.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         plates = dict(self._binding_plates)
         atoms = self.marginal_atoms(
@@ -943,7 +1014,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_atom_scope(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
         atom: IRMarginalAtom,
         prefix: str,
@@ -984,7 +1055,7 @@ class WebPPLRenderer(RendererBase):
         )
         return term
 
-    def _atom_score_expression(self, ctx: _RenderCtx, observe: IRObserve) -> str:
+    def _atom_score_expression(self, ctx: RenderContext, observe: IRObserve) -> str:
         """The per-row log-density of one atom's scored site.
 
         Batched sites map over the observed array so the result keeps
@@ -1068,7 +1139,7 @@ class WebPPLRenderer(RendererBase):
 
     def _atom_score_of(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         family: str,
         webppl_name: str,
         params: tuple[tuple[str, str], ...],
@@ -1080,7 +1151,7 @@ class WebPPLRenderer(RendererBase):
         Three conventions:
 
         * a family in
-          [`_WEBPPL_BOUNDARY_SAFE_SCORERS`][quivers.transpile.renderers.webppl._WEBPPL_BOUNDARY_SAFE_SCORERS]
+          `_WEBPPL_BOUNDARY_SAFE_SCORERS`
           scores through a runtime helper that takes the parameter
           object directly, because WebPPL's constructor rejects a
           parameter value the reference measure admits;
@@ -1114,7 +1185,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_atom_weights(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
         raw: MarginalizeBody,
         atoms: tuple[IRMarginalAtom, ...],
@@ -1226,7 +1297,7 @@ class WebPPLRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
@@ -1238,6 +1309,20 @@ class WebPPLRenderer(RendererBase):
         a precise kind tag for rank > 2 because the canonical
         WebPPL Dirichlet / MVN call shapes only exercise rank-1 and
         rank-2 broadcast positions.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         if len(target_shape) == 0:
             return self._render_arg(ctx, value)
@@ -1264,11 +1349,11 @@ class WebPPLRenderer(RendererBase):
             )
         return current
 
-    # ----- arg rendering helpers (render_list, render_matrix) -----
+    # ----- arg rendering helpers (_render_list, _render_matrix) -----
 
-    def render_list(
+    def _render_list(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgList,
     ) -> SchemaFragment:
         """Per §10.9 of the spec, WebPPL list args render as a JS
@@ -1281,9 +1366,9 @@ class WebPPLRenderer(RendererBase):
             ctx.sb.edge(arr, child_vid, "child_of")
         return arr
 
-    def render_matrix(
+    def _render_matrix(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgMatrix,
     ) -> SchemaFragment:
         """Per §10.9 of the spec, WebPPL matrix args render as nested
@@ -1292,7 +1377,7 @@ class WebPPLRenderer(RendererBase):
         outer = self._fresh(ctx, "arr")
         ctx.sb.vertex(outer, "array")
         for row in arg.rows:
-            row_vid = self.render_list(ctx, row)
+            row_vid = self._render_list(ctx, row)
             ctx.sb.edge(outer, row_vid, "child_of")
         return outer
 
@@ -1301,7 +1386,7 @@ class WebPPLRenderer(RendererBase):
     # observe's `via` fibration through to ref-rendering.
     # ------------------------------------------------------------------
 
-    def _dispatch_node(self, ctx: _RenderCtx, node: IRNode) -> None:
+    def _dispatch_node(self, ctx: RenderContext, node: IRNode) -> None:
         """WebPPL-specific dispatch.
 
         Tracks the active observe's `via` fibration so ref rendering
@@ -1371,7 +1456,7 @@ class WebPPLRenderer(RendererBase):
             [f"node:{type(node).__name__}"],
         )
 
-    def _emit_call(self, ctx: _RenderCtx, node: IRCall) -> None:
+    def _emit_call(self, ctx: RenderContext, node: IRCall) -> None:
         """Place a call of a module computation in the model body.
 
         The first call in a body binds the native operation table,
@@ -1381,7 +1466,7 @@ class WebPPLRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRCall
             The call.
@@ -1421,14 +1506,14 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_deterministic(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRDeterministic,
     ) -> None:
         """Emit `var <name> = <expr>;` for a deterministic let-binding.
 
         Lowers [`node.expr`][quivers.transpile.ir.IRDeterministic.expr]
         through
-        [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+        `render_let_expr_javascript`
         so binary ops, calls, indices, lambdas, list literals, and
         method calls reach the emitter as real JavaScript expression
         vertices rather than a self-referential identifier.
@@ -1572,7 +1657,7 @@ class WebPPLRenderer(RendererBase):
         renderer's function-parameters set and is not also bound as
         an IR sample / observe / let / score / marginalize name. The
         result drives the `mapIndexed` pivot choice in
-        [`_emit_deterministic`][quivers.transpile.renderers.webppl.WebPPLRenderer._emit_deterministic].
+        `_emit_deterministic`.
         """
         ordered: list[str] = []
         seen: set[str] = set()
@@ -1651,7 +1736,7 @@ class WebPPLRenderer(RendererBase):
         """
         return _substitute_array_refs(expr, set(array_inputs), loop_var)
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+    def _emit_score(self, ctx: RenderContext, node: IRScore) -> None:
         """Emit `var <name> = <expr>; factor(<name>);` for a score
         increment.
 
@@ -1659,7 +1744,7 @@ class WebPPLRenderer(RendererBase):
         the convention is to bind the expression to a local var
         first so the factor reads a name. The expression is rendered
         through
-        [`render_let_expr_javascript`][quivers.transpile.renderers._javascript_helpers.render_let_expr_javascript]
+        `render_let_expr_javascript`
         so the bound value is a real JavaScript expression.
         """
         rhs = render_let_expr_javascript(
@@ -1676,7 +1761,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_return(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         names: tuple[str, ...],
     ) -> None:
         """Emit `return <var>;` for a single return; `return [a, b,
@@ -1703,7 +1788,7 @@ class WebPPLRenderer(RendererBase):
 
     def _render_arg_tuple(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         args: tuple[IRArg, ...],
         arg_names: tuple[str, ...],
         meta: FamilyMeta,
@@ -2050,7 +2135,7 @@ class WebPPLRenderer(RendererBase):
         first = plate.batch_dims[0]
         return f"m_{first.name}_{sample_name}"
 
-    def _wrap_in_repeat(self, ctx: _RenderCtx, inner_value: str, dim: Dim) -> str:
+    def _wrap_in_repeat(self, ctx: RenderContext, inner_value: str, dim: Dim) -> str:
         """`repeat(<|dim|>, function () { return <inner_value>; })`.
 
         The iid-replication idiom, shared by the batch-axis wrapper
@@ -2063,7 +2148,7 @@ class WebPPLRenderer(RendererBase):
         lam = self._function_expression(ctx, (), body)
         return self._call(ctx, self._ident(ctx, "repeat"), (size_vid, lam))
 
-    def _zero_array(self, ctx: _RenderCtx, size_vid: str) -> str:
+    def _zero_array(self, ctx: RenderContext, size_vid: str) -> str:
         """`repeat(<size>, function () { return 0; })`.
 
         The array an index-carrying `mapIndexed` walks when the
@@ -2083,7 +2168,7 @@ class WebPPLRenderer(RendererBase):
 
     def _wrap_for_batch(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         inner_value: str,
         plate: Plate,
         loop_name: str | None,
@@ -2097,7 +2182,7 @@ class WebPPLRenderer(RendererBase):
         `mapIndexed` is the only WebPPL combinator that hands its
         callback the position, and it walks an array rather than a
         count, so the index-dependent form needs a length-`N` array
-        to walk: [`_zero_array`][quivers.transpile.renderers.webppl.WebPPLRenderer._zero_array]
+        to walk: `_zero_array`
         builds one.
 
         The unbatched case returns `inner_value` unchanged.
@@ -2142,7 +2227,7 @@ class WebPPLRenderer(RendererBase):
 
     def _render_arg(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArg,
     ) -> SchemaFragment:
         """Render any [`IRArg`][quivers.transpile.ir.IRArg] to a JS
@@ -2154,9 +2239,9 @@ class WebPPLRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self.broadcast(ctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(ctx, arg)
+            return self._render_list(ctx, arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(ctx, arg)
+            return self._render_matrix(ctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref(ctx, arg)
         raise UnsupportedConstruct(
@@ -2164,7 +2249,7 @@ class WebPPLRenderer(RendererBase):
             [f"arg:unknown:{type(arg).__name__}"],
         )
 
-    def _render_reciprocal(self, ctx: _RenderCtx, arg: IRArg) -> SchemaFragment:
+    def _render_reciprocal(self, ctx: RenderContext, arg: IRArg) -> SchemaFragment:
         """Render ``1 / <arg>`` as a JS `binary_expression`.
 
         WebPPL's `Gamma({shape, scale})` is scale-parameterised, but
@@ -2188,7 +2273,7 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.edge(be, inner_vid, "right")
         return be
 
-    def _paren(self, ctx: _RenderCtx, inner_vid: str, inner_kind: str) -> str:
+    def _paren(self, ctx: RenderContext, inner_vid: str, inner_kind: str) -> str:
         """Wrap `inner_vid` in a `parenthesized_expression` vertex."""
         paren = self._fresh(ctx, "paren")
         ctx.sb.vertex(paren, "parenthesized_expression")
@@ -2199,7 +2284,7 @@ class WebPPLRenderer(RendererBase):
 
     def _js_kind_of(self, arg: IRArg) -> str:
         """Return the JS vertex kind
-        [`_render_arg`][quivers.transpile.renderers.webppl.WebPPLRenderer._render_arg]
+        `_render_arg`
         produces for ``arg``.
 
         Used to populate the ``chose-alt-child-kinds`` constraint of a
@@ -2220,10 +2305,10 @@ class WebPPLRenderer(RendererBase):
             [f"reciprocal:arg-kind:{type(arg).__name__}"],
         )
 
-    def _render_number(self, ctx: _RenderCtx, value: float) -> str:
+    def _render_number(self, ctx: RenderContext, value: float) -> str:
         return self._number_literal(ctx, value)
 
-    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
+    def _render_ref(self, ctx: RenderContext, arg: IRArgRef) -> SchemaFragment:
         """Render an IRArgRef. Bare-name refs emit an identifier;
         indexed refs build `subscript_expression` chains."""
         base = self._ident(ctx, arg.name)
@@ -2237,7 +2322,7 @@ class WebPPLRenderer(RendererBase):
 
     def _render_family_ref(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgFamilyRef,
     ) -> SchemaFragment:
         """Resolve an
@@ -2293,7 +2378,7 @@ class WebPPLRenderer(RendererBase):
 
     def _render_init_family_arg(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         raw: object,
     ) -> SchemaFragment:
         """Render an `init_family` raw arg.
@@ -2325,19 +2410,19 @@ class WebPPLRenderer(RendererBase):
     # Low-level JS schema builders.
     # ------------------------------------------------------------------
 
-    def _ident(self, ctx: _RenderCtx, text: str) -> str:
+    def _ident(self, ctx: RenderContext, text: str) -> str:
         vid = self._fresh(ctx, "id")
         ctx.sb.vertex(vid, "identifier")
         ctx.sb.constraint(vid, "literal-value", text)
         return vid
 
-    def _prop_ident(self, ctx: _RenderCtx, text: str) -> str:
+    def _prop_ident(self, ctx: RenderContext, text: str) -> str:
         vid = self._fresh(ctx, "pid")
         ctx.sb.vertex(vid, "property_identifier")
         ctx.sb.constraint(vid, "literal-value", text)
         return vid
 
-    def _string_literal(self, ctx: _RenderCtx, text: str) -> str:
+    def _string_literal(self, ctx: RenderContext, text: str) -> str:
         """Build a double-quoted JS `string` wrapping a
         `string_fragment` child."""
         vid = self._fresh(ctx, "str")
@@ -2351,7 +2436,7 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.edge(vid, frag, "child_of")
         return vid
 
-    def _number_literal(self, ctx: _RenderCtx, value: int | float) -> str:
+    def _number_literal(self, ctx: RenderContext, value: int | float) -> str:
         vid = self._fresh(ctx, "num")
         ctx.sb.vertex(vid, "number")
         text = str(int(value)) if float(value).is_integer() else repr(float(value))
@@ -2360,7 +2445,7 @@ class WebPPLRenderer(RendererBase):
 
     def _object_literal(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         entries: tuple[tuple[str, str], ...],
     ) -> str:
         """Build a JS object literal `{k1: v1, k2: v2, ...}`."""
@@ -2376,7 +2461,7 @@ class WebPPLRenderer(RendererBase):
 
     def _call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         callee_vid: str,
         positional: tuple[str, ...],
     ) -> str:
@@ -2393,7 +2478,7 @@ class WebPPLRenderer(RendererBase):
 
     def _function_expression(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         params: tuple[str, ...],
         body_vid: str,
     ) -> str:
@@ -2410,7 +2495,7 @@ class WebPPLRenderer(RendererBase):
 
     def _subscript(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         object_vid: str,
         index_vid: str,
     ) -> str:
@@ -2423,7 +2508,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_var_decl(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         parent_vid: str,
         name: str,
         value_vid: str,
@@ -2441,7 +2526,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_expression_statement(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         parent_vid: str,
         expr_vid: str,
     ) -> str:
@@ -2454,7 +2539,7 @@ class WebPPLRenderer(RendererBase):
 
     def _emit_return_statement(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         parent_vid: str,
         value_vid: str,
     ) -> str:
@@ -2465,7 +2550,7 @@ class WebPPLRenderer(RendererBase):
         ctx.sb.edge(parent_vid, rs, "child_of")
         return rs
 
-    def _dim_size_value(self, ctx: _RenderCtx, dim: Dim) -> str:
+    def _dim_size_value(self, ctx: RenderContext, dim: Dim) -> str:
         """Render a plate dim's size as a JS expression.
 
         Static dims emit an integer literal; dynamic dims emit the
@@ -2481,11 +2566,11 @@ class WebPPLRenderer(RendererBase):
             [f"dim:unknown:{type(dim).__name__}"],
         )
 
-    def _fresh(self, ctx: _RenderCtx, prefix: str) -> str:
+    def _fresh(self, ctx: RenderContext, prefix: str) -> str:
         """Return a fresh vertex id with `prefix`.
 
         Renderer-internal counter; the base's
-        `_RenderCtx.fresh_counter` is left untouched so per-walk
+        `RenderContext.fresh_counter` is left untouched so per-walk
         node IDs stay stable across renderer instances.
         """
         del ctx
@@ -2538,7 +2623,7 @@ class WebPPLRenderer(RendererBase):
 
 def _first_observe_plate_in_node(node: IRNode) -> Plate | None:
     """Recursive worker for
-    [`_first_observe_plate`][quivers.transpile.renderers.webppl.WebPPLRenderer._first_observe_plate].
+    `_first_observe_plate`.
     """
     if isinstance(node, IRObserve):
         if node.plate.batch_dims:
@@ -2987,7 +3072,7 @@ def _ir_emits_qvr_bcast(ir: IRProgram, array_names: frozenset[str]) -> bool:
     pivot: a binding that references a data-input array is lifted
     through ``mapIndexed`` instead (per-element scalar indexing), so it
     needs no broadcast helper. This mirrors the emission decision in
-    [`_emit_deterministic`][quivers.transpile.renderers.webppl.WebPPLRenderer._emit_deterministic]
+    `_emit_deterministic`
     so the graft fires exactly when the helper is used, rather than
     prepending the whole runtime for a binding that lowers to a plain
     ``mapIndexed``.
@@ -3062,7 +3147,7 @@ def _body_emits_qvr_bcast(
     input_names: frozenset[str],
 ) -> bool:
     """Recursive worker for
-    [`_ir_emits_qvr_bcast`][quivers.transpile.renderers.webppl._ir_emits_qvr_bcast],
+    `_ir_emits_qvr_bcast`,
     descending into marginalize scopes."""
     for node in body:
         if isinstance(node, IRDeterministic):

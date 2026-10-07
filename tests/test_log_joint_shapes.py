@@ -12,6 +12,7 @@ import torch
 
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
 
@@ -25,8 +26,8 @@ def _chained_continuous_model() -> MonadicProgram:
         unit,
         r,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",)),
+            Draw(names=("z",), morphism=prior),
+            Draw(names=("y",), morphism=likelihood, args=("z",)),
         ],
         return_vars=("y",),
     )
@@ -53,8 +54,7 @@ def test_log_joint_rsample_round_trip() -> None:
     model = _chained_continuous_model()
     batch = 10
     x = torch.zeros(batch, dtype=torch.long)
-    prior_name = model._step_specs[0].morphism_name
-    prior = getattr(model, prior_name)
+    prior = model.step_module(model.steps[0])
     z = prior.rsample(x)
     y = torch.randn(batch, 1)
     out = model.log_joint(x, {"z": z, "y": y})

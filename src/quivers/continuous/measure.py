@@ -543,7 +543,7 @@ class Mixture(Measure):
 class Independent(Measure):
     """Reinterpret the last `reinterpreted_batch_ndims` batch dims
     of `base` as event dims. Wraps PyTorch's
-    [`Independent`][torch.distributions.Independent].
+    [`Independent`][torch.distributions.independent.Independent].
 
     The log-density sums `base.log_prob(value)` over the
     reinterpreted dims; the log-normaliser sums in the same

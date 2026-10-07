@@ -38,7 +38,12 @@ import torch
 
 from quivers.core.objects import SetObject, FinSet
 from quivers.core.morphisms import Morphism
-from quivers.core.algebras import PRODUCT_FUZZY, Algebra
+from quivers.core.algebras import (
+    PRODUCT_FUZZY,
+    Algebra,
+    BooleanAlgebra,
+    ProductFuzzyAlgebra,
+)
 
 
 @dataclass
@@ -450,8 +455,6 @@ def _internal_hom_scalar(
     torch.Tensor
         The internal hom tensor [w, x].
     """
-    from quivers.core.algebras import ProductFuzzyAlgebra, BooleanAlgebra
-
     w_t = torch.as_tensor(w, dtype=x.dtype)
 
     if isinstance(algebra, ProductFuzzyAlgebra):
@@ -469,3 +472,15 @@ def _internal_hom_scalar(
     else:
         # general fallback: ¬(w ⊗ ¬x)
         return algebra.negate(algebra.tensor_op(w_t, algebra.negate(x)))
+
+
+__all__ = [
+    "Weight",
+    "Diagram",
+    "weighted_limit",
+    "weighted_colimit",
+    "weighted_limit_morphisms",
+    "weighted_colimit_morphisms",
+    "representable_weight",
+    "terminal_weight",
+]

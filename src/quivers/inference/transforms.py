@@ -11,34 +11,34 @@ pipelines, and interop cleanly with
 Coverage
 ========
 
-* `AffineCouplingTransform` — RealNVP coupling layer
+* `AffineCouplingTransform`: RealNVP coupling layer
   (Dinh, Sohl-Dickstein, Bengio 2017,
   `doi:10.48550/arXiv.1605.08803 <https://doi.org/10.48550/arXiv.1605.08803>`_).
   Splits the input into two halves, scales / shifts one half
   conditional on the other.
-* `MaskedAutoregressiveTransform` — MAF
+* `MaskedAutoregressiveTransform`: MAF
   (Papamakarios, Pavlakou, Murray 2017,
   `doi:10.48550/arXiv.1705.07057 <https://doi.org/10.48550/arXiv.1705.07057>`_).
   Forward pass is parallel (single masked MLP call); inverse is
   sequential (per-coordinate). The mass-density form used by
   variational inference.
-* `InverseAutoregressiveTransform` — IAF
+* `InverseAutoregressiveTransform`: IAF
   (Kingma, Salimans, Jozefowicz et al. 2016,
   `doi:10.48550/arXiv.1606.04934 <https://doi.org/10.48550/arXiv.1606.04934>`_).
-  The dual of MAF — sampling is parallel, density evaluation is
+  The dual of MAF: sampling is parallel, density evaluation is
   sequential. Preferred when you sample more often than score
   (which is true for variational guides).
-* `NeuralSplineCouplingTransform` — monotone rational-quadratic
+* `NeuralSplineCouplingTransform`: monotone rational-quadratic
   spline coupling (Durkan, Bekasov, Murray, Papamakarios 2019,
   `doi:10.48550/arXiv.1906.04032 <https://doi.org/10.48550/arXiv.1906.04032>`_).
   Strictly more expressive than affine coupling at the same
   parameter budget.
-* `LULinearTransform` — LU-decomposed linear permutation
+* `LULinearTransform`: LU-decomposed linear permutation
   (Kingma, Dhariwal 2018 Glow,
   `doi:10.48550/arXiv.1807.03039 <https://doi.org/10.48550/arXiv.1807.03039>`_).
   Cheap learnable invertible linear layer; the standard inter-
   coupling-layer mixer.
-* `BatchNormTransform` — running-statistics-based BN as a
+* `BatchNormTransform`: running-statistics-based BN as a
   normalizing-flow transform (Dinh, Sohl-Dickstein, Bengio 2017,
   same paper as RealNVP).
 
@@ -70,7 +70,7 @@ class TransformModule(Transform, nn.Module):
     `torch.nn.Module`, so subclassing both is required for
     any flow primitive that holds learnable parameters or buffers
     (every primitive in this module). The cooperative base calls
-    both ``__init__``\\ s in MRO order — `nn.Module` first
+    both ``__init__``\\ s in MRO order, `nn.Module` first
     so attribute storage is set up before `Transform`
     populates the cache-size machinery.
     """
@@ -336,7 +336,7 @@ class MADE(nn.Module):
 class MaskedAutoregressiveTransform(TransformModule):
     """Masked Autoregressive Flow (MAF) layer.
 
-    Forward (density) is parallel — one MADE call. Inverse
+    Forward (density) is parallel, one MADE call. Inverse
     (sampling) is sequential in the autoregressive order.
 
     Parameters
@@ -881,6 +881,7 @@ def half_mask(dim: int, *, first_half_true: bool = True) -> torch.Tensor:
 
 
 __all__ = [
+    "TransformModule",
     "AffineCouplingTransform",
     "MaskedAutoregressiveTransform",
     "InverseAutoregressiveTransform",

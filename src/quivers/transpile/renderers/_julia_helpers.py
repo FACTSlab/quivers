@@ -48,7 +48,7 @@ can build the `chose-alt-child-kinds` string from real child kinds.
 Static cardinalities for binder axes come from the ctx's `cards` map
 (populated from [`IRProgram.cards`][quivers.transpile.ir.IRProgram.cards]).
 When an axis size is missing, the helper raises
-[`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+`UnsupportedConstruct`
 tagged with the ctx's `target` ("turing" / "gen") rather than emitting
 a placeholder.
 """
@@ -111,7 +111,7 @@ class _JlEmitCtx(Protocol):
 
     Array-shape knowledge is *not* part of this protocol. It travels
     separately in a
-    [`JuliaShapes`][quivers.transpile.renderers._julia_helpers.JuliaShapes],
+    `JuliaShapes`,
     so a caller that only wants an expression rendered (with no IR
     program behind it) needs to supply nothing beyond the emission
     surface.
@@ -184,7 +184,7 @@ class _JlShapeView(Protocol):
     """The two rank tables the shape-inference walks read.
 
     Satisfied by both
-    [`JuliaShapes`][quivers.transpile.renderers._julia_helpers.JuliaShapes]
+    `JuliaShapes`
     (which the renderers hand to the public inference entry points)
     and `_JlState` (which the emitters carry).
     """
@@ -273,7 +273,7 @@ def render_let_expr_julia(
     Pass ``dotted=True`` when the caller does not wrap the emitted
     binding in Julia's ``@.`` macro and still wants elementwise
     arithmetic; see
-    [`let_expr_has_axis_reduction`][quivers.transpile.renderers._julia_helpers.let_expr_has_axis_reduction]
+    `let_expr_has_axis_reduction`
     for the case that forces it.
     """
     vid, _kind = _render(_JlState(ctx, shapes, dotted=dotted), expr)
@@ -569,7 +569,7 @@ def _maybe_paren(
     rendered: tuple[str, str],
 ) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthesized_expression` if its vertex
-    kind is in [`_JL_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._julia_helpers._JL_PAREN_REQUIRED_OPERAND_KINDS]."""
+    kind is in `_JL_PAREN_REQUIRED_OPERAND_KINDS`."""
     vid, kind = rendered
     if kind not in _JL_PAREN_REQUIRED_OPERAND_KINDS:
         return rendered
@@ -668,7 +668,7 @@ def _emit_call(
 
     A reduction primitive applied to an argument of positive event
     rank routes to
-    [`_emit_axis_reduction`][quivers.transpile.renderers._julia_helpers._emit_axis_reduction]
+    `_emit_axis_reduction`
     so it collapses the innermost axes instead of the whole array.
     Every other call emits `f.(args)` under `ctx.dotted` and `f(args)`
     otherwise.
@@ -815,7 +815,7 @@ def _emit_index(ctx: _JlState, expr: LetExprIndex) -> tuple[str, str]:
     `arr[i,j]` -> `index_expression(arr, vector_expression(i, j))`
     where the inner `vector_expression` carries the comma-separated
     index list. Array callees whose vertex kind is outside
-    [`_JL_INDEX_CALLEE_KINDS`][quivers.transpile.renderers._julia_helpers._JL_INDEX_CALLEE_KINDS]
+    `_JL_INDEX_CALLEE_KINDS`
     must be wrapped in `parenthesized_expression`; otherwise the
     pretty-printer drops them and the `index_expression` collapses.
 
@@ -1215,7 +1215,7 @@ def _factor_axis_size(ctx: _JlState, binder: LetFactorBinder) -> int:
     """Resolve a factor binder's axis to a static integer size.
 
     Looks up the binder's index expression in ``ctx.cards``. Raises
-    [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+    `UnsupportedConstruct`
     when the axis is a constructor with no static size or when the
     name is unknown.
     """

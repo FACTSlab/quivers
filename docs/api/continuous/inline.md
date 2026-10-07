@@ -1,11 +1,12 @@
 # Inline Distribution Builders
 
-`quivers.continuous.inline` defines distribution families for inline
-use in program bodies, as in `sample x <- Family(args)`. These builders
-are distinct from parametric kernel families. The module includes
-`Normal`, `Beta`, `Exponential`, `Gamma`, `HalfCauchy`, `HalfNormal`,
-and `LogNormal`, together with the `FixedDistribution` wrapper used by
-[`bayesian_lift_parameters`](../inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters)
-to declare prior morphisms.
+The morphisms the DSL compiler emits for an inline family call such as
+`sample x <- Normal(loc=mu, scale=1.0)`. A call whose arguments are all
+literals becomes a [`FixedDistribution`](#quivers.continuous.inline.FixedDistribution),
+built by a `make_fixed_*` factory; a call with at least one bound
+argument becomes a
+[`MixedInlineDistribution`](#quivers.continuous.inline.MixedInlineDistribution),
+which reads the bound arguments from its stacked input and fills in the
+literals. Both can be constructed directly to build a program in Python.
 
 ::: quivers.continuous.inline

@@ -32,6 +32,7 @@ type PrimitiveCapability = Literal[
     "activation",
     "weight",
 ]
+"""The feature a target must support to render a primitive."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,16 +435,19 @@ _ENTRIES: tuple[tuple[PrimitiveSignature, Callable[..., object]], ...] = (
     ),
 )
 
-#: Every primitive by name. The mapping is closed: a name absent here is
-#: not a primitive, and no backend may resolve one dynamically.
 PRIMITIVES: Mapping[str, PrimitiveSignature] = MappingProxyType(
     {signature.name: signature for signature, _ in _ENTRIES}
 )
+"""Every primitive by name.
 
-#: The reference evaluator's implementation of every primitive, by name.
+The mapping is closed: a name absent here is not a primitive, and no backend
+may resolve one dynamically.
+"""
+
 IMPLEMENTATIONS: Mapping[str, Callable[..., object]] = MappingProxyType(
     {signature.name: implementation for signature, implementation in _ENTRIES}
 )
+"""The reference evaluator's implementation of every primitive, by name."""
 
 
 def primitive(name: str) -> PrimitiveSignature:

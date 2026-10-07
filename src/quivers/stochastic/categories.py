@@ -8,24 +8,24 @@ primitives.
 
 Atomic categories
 -----------------
-``AtomicCategory(name="S")`` — a basic category like S, NP, N, PP.
+``AtomicCategory(name="S")``: a basic category like S, NP, N, PP.
 
 Slash categories (internal homs)
 --------------------------------
-``SlashCategory(result=R, argument=A, direction="/")``  — right residual: R/A
-``SlashCategory(result=R, argument=A, direction="\\")`` — left residual: R\\A
+``SlashCategory(result=R, argument=A, direction="/")``: the right residual R/A
+``SlashCategory(result=R, argument=A, direction="\\")``: the left residual R\\A
 
 Product categories (tensor product)
 ------------------------------------
-``ProductCategory(left=L, right=R)`` — tensor: L ⊗ R
+``ProductCategory(left=L, right=R)``: the tensor L ⊗ R
 
 Unit category (monoidal unit)
 -----------------------------
-``UnitCategory()`` — the monoidal unit I satisfying I ⊗ A ≅ A ≅ A ⊗ I.
+``UnitCategory()``: the monoidal unit I satisfying I ⊗ A ≅ A ≅ A ⊗ I.
 
 Modal categories (unary type constructors)
 ------------------------------------------
-``ModalCategory(modality="◇", inner=A)`` — a modality applied to a category.
+``ModalCategory(modality="◇", inner=A)``: a modality applied to a category.
 
 Category systems
 ----------------
@@ -202,11 +202,13 @@ _BUILTIN_CONSTRUCTORS: dict[str, Callable[[list[Category]], list[Category]]] = {
     "box": _modal_constructor("□"),
 }
 
-#: Every constructor name `CategorySystem.from_generators` accepts.
-#: Callers that build a residuated universe (the DSL's
-#: ``FreeResiduated`` declaration, for instance) validate against
-#: this set before the universe is enumerated.
 BUILTIN_CONSTRUCTOR_NAMES: frozenset[str] = frozenset(_BUILTIN_CONSTRUCTORS)
+"""Every constructor name `CategorySystem.from_generators` accepts.
+
+Callers that build a residuated universe (the DSL's
+``FreeResiduated`` declaration, for instance) validate against this
+set before the universe is enumerated.
+"""
 
 # Rejected names an author is likely to reach for, each paired with
 # the reason the closure does not offer it. ``slash`` is the whole
@@ -270,7 +272,18 @@ class CategorySystem:
 
     @classmethod
     def from_atoms(cls, names: list[str]) -> "CategorySystem":
-        """Create a category system from atomic category names."""
+        """Create a category system from atomic category names.
+
+        Parameters
+        ----------
+        names : list of str
+            The atomic category names, in index order.
+
+        Returns
+        -------
+        CategorySystem
+            A system holding one `AtomicCategory` per name.
+        """
         cats: list[Category] = [AtomicCategory(name=name) for name in names]
         return cls(cats)
 
@@ -282,6 +295,22 @@ class CategorySystem:
     ) -> "CategorySystem":
         """Create a category system with atomic categories and all
         slash combinations up to a given depth.
+
+        Each round adds ``A/B`` and ``A\\B`` for every pair of
+        categories already in the system.
+
+        Parameters
+        ----------
+        names : list of str
+            The atomic category names.
+        max_depth : int
+            The number of slash-closure rounds; below 1, only the
+            atoms are returned.
+
+        Returns
+        -------
+        CategorySystem
+            The closed category system.
         """
         system = cls.from_atoms(names)
         if max_depth < 1:
@@ -309,11 +338,31 @@ class CategorySystem:
 
         Built-in constructor names:
 
-        - ``"slash"`` — generates all A/B and A\\B
-        - ``"product"`` — generates all A⊗B
-        - ``"unit"`` — adds the monoidal unit I
-        - ``"diamond"`` — generates ◇A for all A
-        - ``"box"`` — generates □A for all A
+        - ``"slash"``: generates all A/B and A\\B
+        - ``"product"``: generates all A⊗B
+        - ``"unit"``: adds the monoidal unit I
+        - ``"diamond"``: generates ◇A for all A
+        - ``"box"``: generates □A for all A
+
+        Parameters
+        ----------
+        atoms : list of str
+            The atomic category names.
+        constructors : list of str or None
+            The constructor names to close under, each one of
+            `BUILTIN_CONSTRUCTOR_NAMES`; ``None`` means ``["slash"]``.
+        max_depth : int
+            The number of closure rounds.
+
+        Returns
+        -------
+        CategorySystem
+            The atoms closed under the constructors.
+
+        Raises
+        ------
+        ValueError
+            If a constructor name is not a built-in constructor.
         """
         if constructors is None:
             constructors = ["slash"]
@@ -333,7 +382,19 @@ class CategorySystem:
         return system
 
     def add(self, cat: Category) -> int:
-        """Add a category to the system; return its index."""
+        """Add a category to the system; return its index.
+
+        Parameters
+        ----------
+        cat : Category
+            The category to add. A category already present keeps
+            its index.
+
+        Returns
+        -------
+        int
+            The category's index.
+        """
         if cat in self._index:
             return self._index[cat]
         idx = len(self._cats)
@@ -347,7 +408,22 @@ class CategorySystem:
         argument: Category,
         direction: Literal["/", "\\"],
     ) -> int:
-        """Add a slash category and return its index."""
+        """Add a slash category and return its index.
+
+        Parameters
+        ----------
+        result : Category
+            The result category of the slash.
+        argument : Category
+            The argument category of the slash.
+        direction : {"/", "\\"}
+            ``"/"`` for the right residual, ``"\\"`` for the left.
+
+        Returns
+        -------
+        int
+            The slash category's index.
+        """
         cat = SlashCategory(result=result, argument=argument, direction=direction)
         return self.add(cat)
 
@@ -380,7 +456,23 @@ class CategorySystem:
         raise TypeError(f"invalid key type: {type(key).__name__}")
 
     def index(self, cat: Category) -> int:
-        """Get the integer index of a category."""
+        """Get the integer index of a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The category to look up.
+
+        Returns
+        -------
+        int
+            The category's index.
+
+        Raises
+        ------
+        KeyError
+            If the category is not in the system.
+        """
         if cat not in self._index:
             raise KeyError(f"category {cat!r} not in system")
         return self._index[cat]
@@ -396,3 +488,15 @@ class CategorySystem:
         if len(self._cats) > 10:
             cats_str += f", ... ({len(self._cats)} total)"
         return f"CategorySystem([{cats_str}])"
+
+
+__all__ = [
+    "Category",
+    "AtomicCategory",
+    "SlashCategory",
+    "ProductCategory",
+    "UnitCategory",
+    "ModalCategory",
+    "BUILTIN_CONSTRUCTOR_NAMES",
+    "CategorySystem",
+]

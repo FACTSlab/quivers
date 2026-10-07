@@ -11,6 +11,10 @@ to finite sets, where:
 - Composition is standard matrix multiplication.
 - Identity is the Kronecker delta.
 
+The package also re-exports `MarkovAlgebra` and its singleton
+`MARKOV` from `quivers.core.algebras`, the algebra these morphisms
+compose under.
+
 Submodules
 ----------
 morphisms : StochasticMorphism, CategoricalMorphism
@@ -18,17 +22,22 @@ families : Discretized distribution families
 transforms : condition, mix, factor, normalize
 queries : prob, marginal_prob, expectation
 giry : GiryMonad, FinStoch
-deduction : Abstract weighted deductive system framework
-schema : Composable rule schemas (functors CategorySystem -> RuleSystem)
-span : Span-based CKY components (LexicalAxiom, BinarySpanDeduction, etc.)
-parsers : ChartParser (DeductiveSystem subclass)
-semiring : Chart semiring abstractions (LogProb, Viterbi, Boolean, Counting)
 categories : Category types including atoms, slashes, products, unit, modals
+semiring : Chart semiring abstractions (LogProb, Viterbi, Boolean, Counting)
+schema : Composable rule schemas (functors CategorySystem -> RuleSystem)
+rules : Rule systems and the CCG / Lambek presets
+span : Span-based CKY components (LexicalAxiom, BinarySpanDeduction, etc.)
+parsers, ccg, lambek : Chart parsers
+inside : The inside algorithm over a rule system
+agenda : The agenda-driven weighted-deduction engine
+effect_lifts : Effect-lifted rule schemas for deduction systems
+deduction : Abstract weighted deductive system framework and its operations
+stdlib : Pre-registered deduction systems
 """
 
 from __future__ import annotations
 
-from quivers.core.algebras import MarkovAlgebra, MARKOV
+from quivers.core.algebras import MARKOV, MarkovAlgebra
 from quivers.stochastic.morphisms import (
     StochasticMorphism,
     CategoricalMorphism,
@@ -50,15 +59,23 @@ from quivers.stochastic.transforms import (
     NormalizedMorphism,
     normalize,
 )
-from quivers.stochastic.queries import prob, marginal_prob, expectation
-from quivers.stochastic.giry import GiryMonad, FinStoch
-from quivers.stochastic.inside import InsideAlgorithm
+from quivers.stochastic.queries import (
+    prob,
+    marginal_prob,
+    expectation,
+)
+from quivers.stochastic.giry import (
+    GiryMonad,
+    FinStoch,
+)
 from quivers.stochastic.categories import (
+    Category,
     AtomicCategory,
     SlashCategory,
     ProductCategory,
     UnitCategory,
     ModalCategory,
+    BUILTIN_CONSTRUCTOR_NAMES,
     CategorySystem,
 )
 from quivers.stochastic.semiring import (
@@ -72,24 +89,12 @@ from quivers.stochastic.semiring import (
     BOOLEAN,
     COUNTING,
 )
-
-# abstract deduction framework
-from quivers.stochastic.deduction import (
-    Axiom,
-    Deduction,
-    Goal,
-    Schedule,
-    DeductiveSystem,
-)
-
-# rule schemas (composable functors CategorySystem -> RuleSystem)
 from quivers.stochastic.schema import (
     RuleSchema,
-    BinaryRuleSchema,
-    UnaryRuleSchema,
     UnionSchema,
     WeightedSchema,
-    # atomic binary schemas
+    BinaryRuleSchema,
+    UnaryRuleSchema,
     ForwardApplication,
     BackwardApplication,
     ForwardComposition,
@@ -102,7 +107,6 @@ from quivers.stochastic.schema import (
     LeftUnitElimination,
     RightUnitElimination,
     ModalApplication,
-    # atomic unary schemas
     RightLifting,
     LeftLifting,
     LeftProjection,
@@ -111,7 +115,8 @@ from quivers.stochastic.schema import (
     ModalInjection,
     ModalProjection,
     GeneralizedComposition,
-    # bundled schemas
+    PatternBinarySchema,
+    PatternUnarySchema,
     EVALUATION,
     HARMONIC_COMPOSITION,
     CROSSED_COMPOSITION,
@@ -124,40 +129,87 @@ from quivers.stochastic.schema import (
     MODAL_INTRODUCTION,
     MODAL_ELIMINATION,
     MODAL_APPLICATION,
-    # grammar presets
+    generalized_composition,
     CCG,
     LAMBEK,
     NL,
     LP,
     SCHEMA_REGISTRY,
 )
-
-# span-based CKY components
+from quivers.stochastic.rules import (
+    RuleSystem,
+    ccg_rules,
+    lambek_rules,
+    custom_rules,
+)
 from quivers.stochastic.span import (
     LexicalAxiom,
+    SpanChart,
     BinarySpanDeduction,
     UnarySpanDeduction,
     SpanGoal,
     CKYSchedule,
 )
-
-# rule systems and parsers
-from quivers.stochastic._rule_system import RuleSystem
-from quivers.stochastic.rules import ccg_rules, lambek_rules, custom_rules
-from quivers.stochastic.parsers import ChartParser
-from quivers.stochastic.ccg import CCGParser
-from quivers.stochastic.lambek import LambekParser
+from quivers.stochastic.parsers import (
+    ChartParser,
+)
+from quivers.stochastic.ccg import (
+    CCGParser,
+)
+from quivers.stochastic.lambek import (
+    LambekParser,
+)
+from quivers.stochastic.inside import (
+    InsideAlgorithm,
+)
+from quivers.stochastic.agenda import (
+    Item,
+    Wildcard,
+    make_wildcard,
+    Pattern,
+    Bindings,
+    InferenceRule,
+    instantiate,
+    match,
+    Chart,
+    HashChart,
+    ChartView,
+    Agenda,
+    FIFOAgenda,
+    LIFOAgenda,
+    PriorityQueueAgenda,
+    AgendaResult,
+    run_agenda,
+    DeductionSystem,
+    cky_agenda,
+    earley_agenda,
+    viterbi_agenda,
+    astar_agenda,
+    knuth_agenda,
+    depth_first_agenda,
+    semi_naive_agenda,
+)
+from quivers.stochastic.effect_lifts import (
+    class_directed_lifts,
+    make_swap_schema,
+    swap_rule_set,
+    lift_rule_set,
+)
 
 __all__ = [
+    # core.algebras
     "MarkovAlgebra",
     "MARKOV",
+    # morphisms
     "StochasticMorphism",
     "CategoricalMorphism",
     "stochastic",
+    # families
     "DiscretizedNormal",
     "DiscretizedLogitNormal",
     "DiscretizedBeta",
     "DiscretizedTruncatedNormal",
+    # transforms
     "ConditionedMorphism",
     "condition",
     "MixtureMorphism",
@@ -166,20 +218,23 @@ __all__ = [
     "factor",
     "NormalizedMorphism",
     "normalize",
+    # queries
     "prob",
     "marginal_prob",
     "expectation",
+    # giry
     "GiryMonad",
     "FinStoch",
-    "InsideAlgorithm",
-    # category types
+    # categories
+    "Category",
     "AtomicCategory",
     "SlashCategory",
     "ProductCategory",
     "UnitCategory",
     "ModalCategory",
+    "BUILTIN_CONSTRUCTOR_NAMES",
     "CategorySystem",
-    # semirings
+    # semiring
     "ChartSemiring",
     "LogProbSemiring",
     "ViterbiSemiring",
@@ -189,18 +244,12 @@ __all__ = [
     "VITERBI",
     "BOOLEAN",
     "COUNTING",
-    # abstract deduction framework
-    "Axiom",
-    "Deduction",
-    "Goal",
-    "Schedule",
-    "DeductiveSystem",
-    # rule schemas
+    # schema
     "RuleSchema",
-    "BinaryRuleSchema",
-    "UnaryRuleSchema",
     "UnionSchema",
     "WeightedSchema",
+    "BinaryRuleSchema",
+    "UnaryRuleSchema",
     "ForwardApplication",
     "BackwardApplication",
     "ForwardComposition",
@@ -221,7 +270,8 @@ __all__ = [
     "ModalInjection",
     "ModalProjection",
     "GeneralizedComposition",
-    # bundled schemas
+    "PatternBinarySchema",
+    "PatternUnarySchema",
     "EVALUATION",
     "HARMONIC_COMPOSITION",
     "CROSSED_COMPOSITION",
@@ -234,24 +284,61 @@ __all__ = [
     "MODAL_INTRODUCTION",
     "MODAL_ELIMINATION",
     "MODAL_APPLICATION",
-    # grammar presets
+    "generalized_composition",
     "CCG",
     "LAMBEK",
     "NL",
     "LP",
     "SCHEMA_REGISTRY",
-    # span-based CKY components
-    "LexicalAxiom",
-    "BinarySpanDeduction",
-    "UnarySpanDeduction",
-    "SpanGoal",
-    "CKYSchedule",
-    # rule systems and parsers
+    # rules
     "RuleSystem",
     "ccg_rules",
     "lambek_rules",
     "custom_rules",
+    # span
+    "LexicalAxiom",
+    "SpanChart",
+    "BinarySpanDeduction",
+    "UnarySpanDeduction",
+    "SpanGoal",
+    "CKYSchedule",
+    # parsers
     "ChartParser",
+    # ccg
     "CCGParser",
+    # lambek
     "LambekParser",
+    # inside
+    "InsideAlgorithm",
+    # agenda
+    "Item",
+    "Wildcard",
+    "make_wildcard",
+    "Pattern",
+    "Bindings",
+    "InferenceRule",
+    "instantiate",
+    "match",
+    "Chart",
+    "HashChart",
+    "ChartView",
+    "Agenda",
+    "FIFOAgenda",
+    "LIFOAgenda",
+    "PriorityQueueAgenda",
+    "AgendaResult",
+    "run_agenda",
+    "DeductionSystem",
+    "cky_agenda",
+    "earley_agenda",
+    "viterbi_agenda",
+    "astar_agenda",
+    "knuth_agenda",
+    "depth_first_agenda",
+    "semi_naive_agenda",
+    # effect_lifts
+    "class_directed_lifts",
+    "make_swap_schema",
+    "swap_rule_set",
+    "lift_rule_set",
 ]

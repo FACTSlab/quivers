@@ -268,7 +268,7 @@ def test_dsl_dagger_chained_with_compose() -> None:
 def test_dagger_round_trip_via_change_base_preserves_shape() -> None:
     """``f.change_base(phi).dagger`` produces the right shape and
     algebra for the chained transformation."""
-    from quivers.core.algebra_morphisms import LOG_PROB as LOG_PROB_HOM
+    from quivers.core.algebra_morphisms import LOG_PROB_HOM
 
     A = FinSet(name="A", cardinality=3)
     B = FinSet(name="B", cardinality=4)

@@ -82,7 +82,11 @@ from quivers.qiec.module import inferred_computation_type
 from quivers.lsp.document import DocumentState, decl_names
 
 SERVER_NAME = "qvr-lsp"
+"""The server name reported to clients and attached to diagnostics."""
+
 SERVER_VERSION = "0.3.0"
+"""The server version reported to clients in the initialize response."""
+
 _TARGET_UNCHANGED = object()
 
 
@@ -107,7 +111,22 @@ def _target_from_settings(settings: object) -> str | None | object:
 
 
 def build_server(*, target: str | None = None) -> LanguageServer:
-    """Return a configured `pygls.server.LanguageServer`."""
+    """Build a QVR language server with every feature registered.
+
+    Parameters
+    ----------
+    target : str or None
+        A transpile target whose missing capabilities are published as
+        ``qiec:capability:*`` diagnostics; ``None`` disables them. A
+        client may change it later through
+        ``workspace/didChangeConfiguration``.
+
+    Returns
+    -------
+    LanguageServer
+        The configured pygls server, ready for ``start_io`` or
+        ``start_tcp``.
+    """
     server = LanguageServer(name=SERVER_NAME, version=SERVER_VERSION)
     docs: dict[str, DocumentState] = {}
     selected_target = target

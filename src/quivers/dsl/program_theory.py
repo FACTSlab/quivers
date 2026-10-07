@@ -99,8 +99,6 @@ Constraint sorts carry the per-vertex scalar metadata: ``name``,
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
-
 import panproto
 
 from quivers.continuous.boundaries import Discretize, Embed
@@ -123,6 +121,7 @@ from quivers.core.objects import (
     SetObject,
 )
 from quivers.dsl.ast_nodes import ExprIdent, ExprIdentity
+from quivers.dsl.compiler import Compiler
 from quivers.qiec.effects import EffectRow, HandlerDef
 from quivers.qiec.module import NamedComputation, QiecModule
 from quivers.qiec.programs import ProgramEntry
@@ -139,9 +138,6 @@ from quivers.qiec.terms import (
 )
 from quivers.qiec.types import render_static
 from quivers.stochastic.morphisms import StochasticMorphism
-
-if TYPE_CHECKING:
-    from quivers.dsl.compiler import Compiler
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +370,12 @@ QVR_PROGRAM_PROTOCOL: panproto.Protocol = panproto.define_protocol(
         "constraint_sorts": _CONSTRAINT_SORTS,
     }
 )
+"""Panproto protocol for a compiled QVR program.
+
+`extract_program_schema` writes schemas in this protocol. The vertex
+kinds, edge rules, and constraint sorts are the ones the module
+docstring lists.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -867,7 +869,7 @@ class _KernelWriter:
 # ---------------------------------------------------------------------------
 
 
-def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
+def extract_program_schema(compiler: Compiler) -> panproto.Schema:
     """Produce a `panproto.Schema` for a compiled program.
 
     Walks the compiler's resolved environment (objects, spaces, morphisms)
@@ -880,7 +882,7 @@ def extract_program_schema(compiler: "Compiler") -> panproto.Schema:
 
     Parameters
     ----------
-    compiler
+    compiler : Compiler
         A [`quivers.dsl.compiler.Compiler`][quivers.dsl.compiler.Compiler] after `compile_env`
         (or `compile`) has populated the resolved environments.
 
@@ -1069,7 +1071,7 @@ correspond to specializations of deduction systems
 """
 
 
-def extract_deduction_schema(compiler: "Compiler") -> panproto.Schema:
+def extract_deduction_schema(compiler: Compiler) -> panproto.Schema:
     """Produce a `panproto.Schema` for the compiler's
     deduction-system environment.
 
@@ -1114,3 +1116,11 @@ def extract_deduction_schema(compiler: "Compiler") -> panproto.Schema:
             builder.constraint(conc_vid, "pattern", repr(rule.conclusion))
             builder.edge(rule_vid, conc_vid, "conclusion")
     return builder.build()
+
+
+__all__ = [
+    "QVR_DEDUCTION_PROTOCOL",
+    "QVR_PROGRAM_PROTOCOL",
+    "extract_deduction_schema",
+    "extract_program_schema",
+]

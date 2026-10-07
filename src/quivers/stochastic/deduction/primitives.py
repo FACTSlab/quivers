@@ -17,11 +17,11 @@ computations from the same rules.
 
 The five abstract primitives are:
 
-- ``Axiom`` — creates and populates the initial chart.
-- ``Deduction`` — a single weighted inference step (chart -> chart).
-- ``Goal`` — extracts the result from a completed chart.
-- ``Schedule`` — evaluation strategy (ordering of deductions).
-- ``DeductiveSystem`` — ties axiom, deductions, goal, schedule,
+- ``Axiom``: creates and populates the initial chart.
+- ``Deduction``: a single weighted inference step (chart -> chart).
+- ``Goal``: extracts the result from a completed chart.
+- ``Schedule``: evaluation strategy (ordering of deductions).
+- ``DeductiveSystem``: ties axiom, deductions, goal, schedule,
   and semiring into a single nn.Module.
 """
 
@@ -221,3 +221,12 @@ class DeductiveSystem(nn.Module):
         chart = self.axiom(input, self._semiring)
         chart = self._schedule.run(chart, self.deductions, self._semiring)
         return self.goal(chart)
+
+
+__all__ = [
+    "Axiom",
+    "Deduction",
+    "Goal",
+    "Schedule",
+    "DeductiveSystem",
+]

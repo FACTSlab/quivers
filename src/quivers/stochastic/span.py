@@ -63,7 +63,22 @@ class LexicalAxiom(Axiom):
         """Log-probability lexicon, shape (n_terminals, n_categories)."""
         return torch.log_softmax(self.lexicon_logits, dim=-1)
 
-    def forward(self, tokens: torch.Tensor, semiring: ChartSemiring) -> _SpanChart:  # type: ignore[override]
+    def forward(self, tokens: torch.Tensor, semiring: ChartSemiring) -> SpanChart:  # type: ignore[override]
+        """Fill the length-1 spans from the lexicon.
+
+        Parameters
+        ----------
+        tokens : torch.Tensor
+            Integer terminal indices of shape ``(batch, seq_len)``.
+        semiring : ChartSemiring
+            The scoring semiring, recorded on the chart.
+
+        Returns
+        -------
+        SpanChart
+            A chart whose cells ``(i, i + 1)`` hold the lexical
+            log-probabilities of each token.
+        """
         batch, seq_len = tokens.shape
         log_lex = self.log_lexicon[tokens]  # (batch, seq_len, C)
 
@@ -75,7 +90,7 @@ class LexicalAxiom(Axiom):
             chart_cells[(i, i + 1)] = log_lex[:, i, :]  # (batch, C)
 
         # pack into metadata for the schedule
-        return _SpanChart(
+        return SpanChart(
             cells=chart_cells,
             batch=batch,
             seq_len=seq_len,
@@ -85,12 +100,28 @@ class LexicalAxiom(Axiom):
         )
 
 
-class _SpanChart:
-    """Internal chart representation using functional (non-in-place) cells.
+class SpanChart:
+    """A span-indexed chart held as functional (non-in-place) cells.
 
     This wraps a dict of ``(i, j) -> (batch, C)`` tensors. The
     schedule fills cells bottom-up, and ``to_tensor()`` assembles
     them into a dense ``(batch, C, seq_len, seq_len+1)`` tensor.
+
+    Parameters
+    ----------
+    cells : dict of (int, int) to torch.Tensor
+        The filled cells, keyed by span ``(i, j)``, each of shape
+        ``(batch, n_categories)``.
+    batch : int
+        The batch size.
+    seq_len : int
+        The sentence length.
+    n_categories : int
+        The number of categories.
+    device : torch.device
+        The device the dense chart is built on.
+    semiring : ChartSemiring
+        The scoring semiring; its ``zero`` fills unfilled cells.
     """
 
     __slots__ = ("cells", "batch", "seq_len", "n_categories", "device", "semiring")
@@ -205,11 +236,29 @@ class BinarySpanDeduction(Deduction):
         else:
             self.register_buffer("weights", weights)
 
-    def forward(self, chart, semiring, **context):
+    def forward(
+        self,
+        chart: torch.Tensor | None,
+        semiring: ChartSemiring,
+        **context,
+    ) -> torch.Tensor:
         """Apply binary rules for one span cell (i, j).
 
-        Expected context keys: ``i``, ``j``, ``chart_cells``.
-        Returns the (batch, C) tensor for cell (i, j).
+        Parameters
+        ----------
+        chart : torch.Tensor or None
+            Unused; the cells are read from ``chart_cells``.
+        semiring : ChartSemiring
+            The scoring semiring.
+        **context
+            ``i`` and ``j`` (the span bounds), ``chart_cells`` (the
+            filled cells keyed by span), and ``n_categories``.
+
+        Returns
+        -------
+        torch.Tensor
+            The ``(batch, C)`` scores for cell ``(i, j)``, aggregated
+            over every split point.
         """
         i = context["i"]
         j = context["j"]
@@ -311,11 +360,28 @@ class UnarySpanDeduction(Deduction):
         """Whether this deduction has any unary rules."""
         return self._n_rules > 0
 
-    def forward(self, chart, semiring, **context):
+    def forward(
+        self,
+        chart: torch.Tensor,
+        semiring: ChartSemiring,
+        **context,
+    ) -> torch.Tensor:
         """Apply unary rules to a cell tensor.
 
-        Expects ``chart`` to be a (batch, C) cell tensor.
-        Returns updated (batch, C) tensor.
+        Parameters
+        ----------
+        chart : torch.Tensor
+            A ``(batch, C)`` cell tensor.
+        semiring : ChartSemiring
+            The scoring semiring.
+        **context
+            Unused.
+
+        Returns
+        -------
+        torch.Tensor
+            The updated ``(batch, C)`` cell after the configured
+            number of unary iterations.
         """
         cell = chart
 
@@ -367,8 +433,19 @@ class SpanGoal(Goal):
         super().__init__()
         self._start_idx = start_idx
 
-    def forward(self, chart):
-        # chart is (batch, C, seq_len, seq_len+1)
+    def forward(self, chart: torch.Tensor) -> torch.Tensor:
+        """Read the start category's score over the whole sentence.
+
+        Parameters
+        ----------
+        chart : torch.Tensor
+            The dense chart of shape ``(batch, C, seq_len, seq_len+1)``.
+
+        Returns
+        -------
+        torch.Tensor
+            The ``(batch,)`` scores at ``chart[:, start, 0, seq_len]``.
+        """
         seq_len = chart.shape[2]
         return chart[:, self._start_idx, 0, seq_len]
 
@@ -386,9 +463,31 @@ class CKYSchedule(Schedule):
       2. Apply unary deductions to the resulting cell.
     """
 
-    def run(self, chart, deductions, semiring):
-        # chart is a _SpanChart
-        span_chart = cast(_SpanChart, chart)
+    def run(  # type: ignore[override]
+        self,
+        chart: SpanChart,
+        deductions: nn.ModuleList,
+        semiring: ChartSemiring,
+    ) -> torch.Tensor:
+        """Fill the chart bottom-up and return it as a dense tensor.
+
+        Parameters
+        ----------
+        chart : SpanChart
+            The chart `LexicalAxiom` produced, with its length-1
+            cells filled.
+        deductions : nn.ModuleList
+            The `BinarySpanDeduction` and `UnarySpanDeduction`
+            steps; other deductions are ignored.
+        semiring : ChartSemiring
+            The scoring semiring.
+
+        Returns
+        -------
+        torch.Tensor
+            The dense chart of shape ``(batch, C, seq_len, seq_len+1)``.
+        """
+        span_chart = chart
         cells = span_chart.cells
         seq_len = span_chart.seq_len
         n_categories = span_chart.n_categories
@@ -447,3 +546,13 @@ class CKYSchedule(Schedule):
 
         # assemble into dense tensor
         return span_chart.to_tensor()
+
+
+__all__ = [
+    "LexicalAxiom",
+    "SpanChart",
+    "BinarySpanDeduction",
+    "UnarySpanDeduction",
+    "SpanGoal",
+    "CKYSchedule",
+]

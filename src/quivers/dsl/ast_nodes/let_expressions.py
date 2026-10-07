@@ -33,6 +33,7 @@ type LetBinaryOperator = Literal[
     "&&",
     "||",
 ]
+"""The operator of a binary let expression: arithmetic, comparison, or boolean."""
 
 
 class LetExprBinOp(LetExprNode):

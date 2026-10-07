@@ -217,6 +217,14 @@ Maintain compatibility with Python 3.14 and later. Use modern features:
 - Type union syntax: `X | None` instead of `Union[X, None]`
 - Positional-only parameters: `def func(a, /, b)`
 
+### Exports
+
+What a module exports, and where users import it from, follows the
+[export policy](docs/developer/public-api.md): every public module declares `__all__`, each
+package re-exports its modules' public names, public signatures name
+only public types, and every public name renders in the API reference.
+`tests/test_public_api.py` and `tools/check_api_reference.py` enforce it.
+
 ## The DSL Pipeline
 
 The QVR DSL processes `.qvr` files through these stages:

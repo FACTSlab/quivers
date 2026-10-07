@@ -5,14 +5,14 @@ in ``pyproject.toml``.
 
 Subcommands:
 
-- ``qvr check FILES...`` — parse + compile every supplied ``.qvr``
+- ``qvr check FILES...``: parse and compile every supplied ``.qvr``
   file, emitting structured diagnostics. Exits 0 on full success,
   non-zero when any file produces an error.
-- ``qvr migrate --from VER --to VER PATHS...`` — lower ``.qvr``
+- ``qvr migrate --from VER --to VER PATHS...``: lower ``.qvr``
   source files from one tagged grammar revision to another, via
   panproto migrations composed from the in-tree
   ``grammars/qvr/vcs`` chain.
-- ``qvr run FILE COMPUTATION [ARGS...]`` — execute one checked QIEC
+- ``qvr run FILE COMPUTATION [ARGS...]``: execute one checked QIEC
   computation with JSON value arguments and an explicit runtime configuration.
 
 Output format: human-readable by default, structured JSON when
@@ -24,12 +24,87 @@ Output format: human-readable by default, structured JSON when
 - ``code``: stable diagnostic code (``parse``, ``compile``,
   ``effect_constraint``, ``residuated_constraint``),
 - ``message``: human-readable description.
+
+The Python surface beside `main` is the tooling the subcommands share:
+`check_file` and `CheckDiagnostic` for checking, and `ReplSession`
+with its completion, highlighting, and front-end helpers for driving
+a REPL session from Python. `run_tui` binds lazily because its
+Textual front end is an optional dependency.
 """
 
+from __future__ import annotations
+
+import importlib
+from typing import TYPE_CHECKING, Callable
+
+from quivers.cli.check import CheckDiagnostic, CheckSeverity, check_file
 from quivers.cli.check import main as check_main
+from quivers.cli.repl_session import (
+    Diagnostic,
+    ReplResponse,
+    ReplSession,
+    SessionOptions,
+    render_qiec_signature,
+    render_signature,
+)
+from quivers.cli.repl_complete import (
+    Completion,
+    all_completions,
+    public_meta_commands,
+)
+from quivers.cli.repl_highlight import (
+    SEMANTIC_TOKEN_MODIFIERS,
+    SEMANTIC_TOKEN_TYPES,
+    STYLE_TABLE,
+    Span,
+    to_pygments_pairs,
+    to_rich_text,
+    to_semantic_token_data,
+    to_semantic_token_legend,
+    tokenize,
+)
+from quivers.cli.repl_prompt import run_plain
+
+if TYPE_CHECKING:
+    from quivers.cli.repl_tui import run_tui
+
+
+def __getattr__(name: str) -> Callable[[ReplSession], int]:
+    """Bind the re-exports whose modules need optional dependencies.
+
+    Importing `run_tui` loads Textual, which only the ``repl`` extra
+    installs, so the package binds it on first access rather than at
+    import time.
+
+    Parameters
+    ----------
+    name : str
+        The attribute being looked up.
+
+    Returns
+    -------
+    Callable[[ReplSession], int]
+        The lazily bound front end.
+
+    Raises
+    ------
+    AttributeError
+        When ``name`` is not a lazily bound re-export.
+    """
+    if name == "run_tui":
+        repl_tui = importlib.import_module("quivers.cli.repl_tui")
+        return repl_tui.run_tui
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def main() -> int:
+    """Run the ``qvr`` command line on ``sys.argv``.
+
+    Returns
+    -------
+    int
+        The process exit status of the selected subcommand.
+    """
     import argparse
     import sys
 
@@ -320,4 +395,29 @@ def main() -> int:
     return 2
 
 
-__all__ = ["main"]
+__all__ = [
+    "main",
+    "CheckDiagnostic",
+    "CheckSeverity",
+    "check_file",
+    "Diagnostic",
+    "ReplResponse",
+    "ReplSession",
+    "SessionOptions",
+    "render_qiec_signature",
+    "render_signature",
+    "Completion",
+    "all_completions",
+    "public_meta_commands",
+    "SEMANTIC_TOKEN_MODIFIERS",
+    "SEMANTIC_TOKEN_TYPES",
+    "STYLE_TABLE",
+    "Span",
+    "to_pygments_pairs",
+    "to_rich_text",
+    "to_semantic_token_data",
+    "to_semantic_token_legend",
+    "tokenize",
+    "run_plain",
+    "run_tui",
+]

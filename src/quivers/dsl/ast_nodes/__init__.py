@@ -141,7 +141,7 @@ from quivers.dsl.ast_nodes.program_steps import (
     SampleStep,
     ScoreStep,
     VectorisedObserveStep,
-    _to_draw_arg as atom_to_draw_arg,
+    atom_to_draw_arg,
 )
 from quivers.dsl.ast_nodes.qiec import (
     QiecBindComputation,

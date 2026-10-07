@@ -97,6 +97,7 @@ from quivers.qiec.types import (
 
 
 type TraceObserver = Callable[["ExecutionTraceEvent"], None]
+"""A callback receiving each event an execution emits, in order."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +143,7 @@ class ExecutionTraceEvent:
 
 
 @dataclass(slots=True)
-class TraceRecorder:
+class ExecutionTraceRecorder:
     """Collect events while also satisfying the :class:`TraceObserver` API.
 
     Parameters
@@ -1234,6 +1235,7 @@ class CoreRuntimeProvider:
 
 
 type RuntimeProviderFactory = Callable[[Mapping[str, object]], RuntimeProvider]
+"""Build a runtime provider from the options its configuration entry records."""
 
 
 _PROVIDER_FACTORIES: dict[str, RuntimeProviderFactory] = {
@@ -1727,7 +1729,7 @@ def run_named(
         )
     assert selected is not None
     config = runtime or RuntimeConfiguration()
-    recorder = TraceRecorder()
+    recorder = ExecutionTraceRecorder()
     sequence = 0
 
     def emit(event: str, detail: Mapping[str, object] | None = None) -> None:
@@ -2650,11 +2652,12 @@ __all__ = [
     "ExecutionFailure",
     "ExecutionResult",
     "ExecutionTraceEvent",
+    "ExecutionTraceRecorder",
     "RuntimeConfiguration",
     "RuntimeProvider",
+    "RuntimeProviderFactory",
     "RuntimeSelection",
     "TraceObserver",
-    "TraceRecorder",
     "available_runtime_providers",
     "load_runtime_configuration",
     "parse_static_arguments",

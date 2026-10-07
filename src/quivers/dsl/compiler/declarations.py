@@ -1426,4 +1426,4 @@ def _filter_kwargs_for(cls: type, kwargs: dict) -> dict:
     return {k: v for k, v in kwargs.items() if k in accepted}
 
 
-__all__ = ["_DeclarationsMixin", "_apply_auto_init"]
+__all__ = []

@@ -283,7 +283,7 @@ def _render_factor(ctx, expr: LetExprFactor) -> str:
     3. Anything else (multi-axis form, ``TypeName`` binder whose size
        the helper cannot resolve from the AST alone, mixed binders
        across axes) raises
-       [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+       `UnsupportedConstruct`
        with a precise ``let-expr:LetExprFactor:<reason>`` kind so the
        caller can decide whether to surface the construct as a real
        failure or skip the cell in a backend-matrix test.
@@ -368,7 +368,7 @@ def _binder_static_size(binder: LetFactorBinder) -> str | None:
     ``str(N)``; every other shape (``TypeName`` referencing a named
     object, ``FinSet`` whose argument is not a literal integer, any
     non-discrete constructor) returns ``None`` so the caller raises
-    [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+    `UnsupportedConstruct`
     with the appropriate reason. Resolving named-type sizes would
     require threading the module symbol table through every renderer's
     let-expression helper; the helper deliberately stays

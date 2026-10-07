@@ -31,7 +31,7 @@ from typing import Literal
 import didactic.api as dx
 import pytest
 
-from quivers.continuous.program_steps import _LetSpec, _ScoreSpec
+from quivers.continuous import Draw
 from tests.transpile import (
     _equivalence,
     _gallery_data,
@@ -447,10 +447,9 @@ def _latent_site_names(
     if monadic is None:
         return ()
     names: list[str] = []
-    for spec in monadic._step_specs:
-        if isinstance(spec, (_LetSpec, _ScoreSpec)) or spec.is_observed:
-            continue
-        names.extend(spec.vars)
+    for spec in monadic.steps:
+        if isinstance(spec, Draw):
+            names.extend(spec.names)
     return tuple(names)
 
 

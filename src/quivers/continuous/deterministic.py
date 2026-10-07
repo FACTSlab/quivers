@@ -2,8 +2,9 @@
 
 Each builder returns a `ContinuousMorphism` whose runtime
 realisation is a Dirac kernel concentrated on a deterministic
-image: ``cumsum`` for ordinal monotone splines, ``softmax`` for
-the standard simplex projection, ``cholesky_quad_form`` for
+image: ``cumsum_morphism`` for ordinal monotone splines,
+``softmax_morphism`` for the standard simplex projection,
+``cholesky_quad_form_morphism`` for
 covariance reconstruction from a correlation Cholesky factor and
 a positive-scale vector.
 
@@ -32,7 +33,7 @@ from quivers.continuous.spaces import (
 )
 
 
-class _DeterministicMorphism(ContinuousMorphism):
+class DeterministicMorphism(ContinuousMorphism):
     """Helper base for deterministic morphisms ``f : X → Y``.
 
     A deterministic morphism in :math:`\\mathbf{Kern}` is a Dirac
@@ -85,7 +86,7 @@ class _DeterministicMorphism(ContinuousMorphism):
         return f"{self._name}({self.domain!s} → {self.codomain!s})"
 
 
-def cumsum(dim: int) -> _DeterministicMorphism:
+def cumsum_morphism(dim: int) -> DeterministicMorphism:
     """Cumulative sum ``cumsum : Euclidean(dim) → Euclidean(dim)``.
 
     Maps :math:`(x_1, \\dots, x_K)` to
@@ -96,12 +97,12 @@ def cumsum(dim: int) -> _DeterministicMorphism:
     ordered levels).
     """
     space = Euclidean(name="cumsum", dim=dim)
-    return _DeterministicMorphism(
+    return DeterministicMorphism(
         space, space, lambda x: torch.cumsum(x, dim=-1), name="cumsum"
     )
 
 
-def softmax(dim: int) -> _DeterministicMorphism:
+def softmax_morphism(dim: int) -> DeterministicMorphism:
     """Softmax ``softmax : Euclidean(dim) → Simplex(dim)``.
 
     The standard exponential normalizer onto the probability
@@ -111,12 +112,12 @@ def softmax(dim: int) -> _DeterministicMorphism:
     """
     src = Euclidean(name="softmax_in", dim=dim)
     tgt = Simplex(name="softmax_out", dim=dim)
-    return _DeterministicMorphism(
+    return DeterministicMorphism(
         src, tgt, lambda x: torch.softmax(x, dim=-1), name="softmax"
     )
 
 
-def cholesky_quad_form(dim: int) -> ContinuousMorphism:
+def cholesky_quad_form_morphism(dim: int) -> ContinuousMorphism:
     """Covariance reconstruction ``(L, s) -> diag(s) L L^T diag(s)``.
 
     Given a Cholesky factor :math:`L` of a :math:`K \\times K`
@@ -155,4 +156,12 @@ def cholesky_quad_form(dim: int) -> ContinuousMorphism:
         cov = D @ R @ D
         return cov.reshape(batch, dim * dim)
 
-    return _DeterministicMorphism(source, target, _apply, name="cholesky_quad_form")
+    return DeterministicMorphism(source, target, _apply, name="cholesky_quad_form")
+
+
+__all__ = [
+    "DeterministicMorphism",
+    "cholesky_quad_form_morphism",
+    "cumsum_morphism",
+    "softmax_morphism",
+]

@@ -31,6 +31,41 @@ Schemas compose via `|` (union) and can carry default weights via `.weighted(w)`
 The ~20 atomic schemas (e.g. `ForwardApplication`, `BackwardApplication`) compose into 13 bundled schemas (e.g. `EVALUATION`, `HARMONIC_COMPOSITION`), which compose into grammar presets (`CCG`, `LAMBEK`, `NL`, `LP`).
 
 ::: quivers.stochastic.schema
+    options:
+      filters: ["!^_", "!^[A-Z][A-Z_]+$"]
+
+## Bundled schemas
+
+::: quivers.stochastic
+    options:
+      members:
+        - EVALUATION
+        - HARMONIC_COMPOSITION
+        - CROSSED_COMPOSITION
+        - COMMUTATIVE_EVALUATION
+        - ADJUNCTION_UNITS
+        - TENSOR_INTRODUCTION
+        - TENSOR_PROJECTION
+        - UNIT_INTRODUCTION
+        - UNIT_ELIMINATION
+        - MODAL_INTRODUCTION
+        - MODAL_ELIMINATION
+        - MODAL_APPLICATION
+      show_root_heading: false
+      show_root_toc_entry: false
+
+## Grammar presets and the schema registry
+
+::: quivers.stochastic
+    options:
+      members:
+        - CCG
+        - LAMBEK
+        - NL
+        - LP
+        - SCHEMA_REGISTRY
+      show_root_heading: false
+      show_root_toc_entry: false
 
 ## Span-Based CKY Components
 

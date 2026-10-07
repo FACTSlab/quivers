@@ -4,7 +4,7 @@ QVR [`quivers.dsl.ast_nodes.Module`][quivers.dsl.ast_nodes.Module] AST.
 The compilation from a formula to a QVR program is a panproto-style
 *lens* whose complement is the strict subset of `Formula`
 fields that are not recoverable from the emitted
-`Module` — packaged as `FormulaData`. The forward
+`Module`, packaged as `FormulaData`. The forward
 direction produces ``(module, formula_data)`` where the structural
 fields of the formula (which columns exist, intercept flag, random
 effect group / slope structure, response identifier) are encoded as
@@ -16,7 +16,7 @@ presentation labels, the original formula string) ride in
 by calling `_decode_module` on the target and fuses it with the
 complement.
 
-The lens never touches strings — the target is a `Module`
+The lens never touches strings: the target is a `Module`
 that the existing [`quivers.dsl.compiler.Compiler`][quivers.dsl.compiler.Compiler] consumes
 directly, identical in shape to one produced by
 [`quivers.dsl.parser.parse`][quivers.dsl.parser.parse].
@@ -333,18 +333,18 @@ def _decode_module(module: Module) -> dict:
     Returns a dict carrying the fields the lens forward can deterministically
     produce from a `Formula`:
 
-    * ``n_obs`` — the ``Resp`` cardinality.
-    * ``group_cardinalities`` — ``{qvr_group_name: K}`` for each
+    * ``n_obs``: the ``Resp`` cardinality.
+    * ``group_cardinalities``: ``{qvr_group_name: K}`` for each
       ``object G : K`` declaration preceding the program block.
-    * ``fixed_qvr_names`` — list of ``(qvr_name, is_intercept)`` in
+    * ``fixed_qvr_names``: list of ``(qvr_name, is_intercept)`` in
       emission order, recovered from the latent ``intercept`` /
       ``beta_<qvr_name>`` declarations.
-    * ``random_terms_qvr`` — list of ``(qvr_group_name, slope_qvr_or_intercept)``
+    * ``random_terms_qvr``: list of ``(qvr_group_name, slope_qvr_or_intercept)``
       in emission order, recovered from the
       ``sigma_<g>_<slope>`` + ``alpha_<g>``/``beta_<g>_<slope>`` pattern.
-    * ``response_qvr_name`` — the QVR-legal identifier of the
+    * ``response_qvr_name``: the QVR-legal identifier of the
       observe step's target.
-    * ``observe_family`` — the family name on the observe step.
+    * ``observe_family``: the family name on the observe step.
 
     The decoder is intentionally narrow: it knows the canonical
     emission shape of `FormulaToQVRModule` and recognises that
@@ -540,6 +540,15 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
     predictor_name : str or None
         Host-data name for an external differentiable predictor.
 
+    Raises
+    ------
+    ValueError
+        If an option is out of range or does not apply to ``family``:
+        ``thresholds_by`` outside the cumulative family,
+        ``binomial_trials`` outside the binomial family or below one,
+        ``mixture_components`` below two or outside the mixture
+        family, or an unknown ``reparameterize`` value.
+
     Notes
     -----
     GetPut: `backward` ``(forward(f))`` ``=`` ``f`` for every
@@ -612,6 +621,27 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         self._reparameterize = reparameterize
 
     def forward(self, formula: Formula, /) -> tuple[Module, FormulaData]:
+        """Compile a formula to a QVR module and its complement.
+
+        Parameters
+        ----------
+        formula : Formula
+            The parsed formula with its design data.
+
+        Returns
+        -------
+        tuple[Module, FormulaData]
+            The emitted QVR module AST, and the fields of ``formula``
+            the module does not encode.
+
+        Raises
+        ------
+        ValueError
+            If the response is incompatible with the family (for
+            instance non-integer or non-contiguous category labels
+            for a categorical or cumulative family), or a prior does
+            not parse as ``"Family(arg, ...)"``.
+        """
         module = self._build_module(formula)
         complement = FormulaData(
             formula=formula.formula,
@@ -632,6 +662,24 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         return module, complement
 
     def backward(self, target: Module, complement: FormulaData, /) -> Formula:
+        """Recover a formula from a QVR module and its complement.
+
+        The column, intercept, and random-term structure is decoded
+        from ``target``; the data arrays and presentation labels come
+        from ``complement``.
+
+        Parameters
+        ----------
+        target : Module
+            A QVR module in the image of `forward`.
+        complement : FormulaData
+            The complement `forward` returned with that module.
+
+        Returns
+        -------
+        Formula
+            The reconstructed formula.
+        """
         decoded = _decode_module(target)
         fixed_column_names = complement.fixed_column_names
         fixed_column_data = complement.fixed_column_data
@@ -697,6 +745,17 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         """Per-column free-variable bindings for the host-data
         channel.  One entry per non-intercept fixed column, shape
         ``(N,)``.
+
+        Parameters
+        ----------
+        formula : Formula
+            The formula whose fixed-effect columns are bound.
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            Each non-intercept column's ``float32`` data, keyed by its
+            QVR name.
         """
         obs: dict[str, torch.Tensor] = {}
         for col in formula.fixed_columns:
@@ -1530,3 +1589,8 @@ class FormulaToQVRModule(dx.Lens[Formula, Module, FormulaData]):
         statements.append(program_decl)
         statements.append(ExportDecl(expr=ExprIdent(name="model")))
         return Module(statements=tuple(statements))
+
+
+__all__ = [
+    "FormulaToQVRModule",
+]

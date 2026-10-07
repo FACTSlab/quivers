@@ -4,8 +4,8 @@ DAIS sits between variational inference and MCMC: it runs a short
 chain of HMC-like leapfrog steps along an annealing path between
 a tractable base distribution :math:`q_0` (typically
 `AutoNormalGuide`) and the target posterior. The
-trajectory's per-step parameters — step size, base mean / scale,
-and the inverse-temperature schedule — are *all variational
+trajectory's per-step parameters (step size, base mean / scale,
+and the inverse-temperature schedule) are *all variational
 parameters* trained by SVI. Concretely, every leapfrog operation
 is reparameterized through the momentum and position so gradients
 flow end-to-end through the trajectory.

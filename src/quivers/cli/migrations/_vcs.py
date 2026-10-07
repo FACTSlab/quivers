@@ -77,7 +77,21 @@ def commit_id_for(ref: str) -> str:
 @dataclass(frozen=True)
 class DiffCoverageReport:
     """The schema diff between two revisions, classified against a
-    hop's declared converter dispatch table."""
+    hop's declared converters.
+
+    Parameters
+    ----------
+    from_ref : str
+        The source release.
+    to_ref : str
+        The target release.
+    added_rules : tuple[str, ...]
+        Grammar rules present at ``to_ref`` but not at ``from_ref``.
+    removed_rules : tuple[str, ...]
+        Grammar rules present at ``from_ref`` but not at ``to_ref``.
+    uncovered_removed : tuple[str, ...]
+        The removed rules that the hop declares no converter for.
+    """
 
     from_ref: str
     to_ref: str
@@ -86,16 +100,24 @@ class DiffCoverageReport:
     uncovered_removed: tuple[str, ...]
     """Rules removed at the target revision that are also absent
     from ``declared_converters``. Each one is a source-side vertex
-    kind that the migrator's dispatch will silently pass through as
-    a structural clone — and ``emit_pretty`` will then either
-    misrender or drop. These are the actionable misses."""
+    kind that the migrator's dispatch passes through as a structural
+    clone, which ``emit_pretty`` then misrenders or drops. These are
+    the actionable misses."""
 
     @property
     def is_complete(self) -> bool:
+        """Whether every removed rule has a converter."""
         return not self.uncovered_removed
 
     def format(self) -> str:
-        """Render the report for CLI display."""
+        """Render the report for CLI display.
+
+        Returns
+        -------
+        str
+            A multi-line summary of the added, removed, and uncovered
+            rules.
+        """
         lines = [f"{self.from_ref} -> {self.to_ref}:"]
         if not self.added_rules and not self.removed_rules:
             lines.append("    (grammar identical; no diff)")
@@ -119,19 +141,28 @@ def diff_coverage(
     to_ref: str,
     declared_converters: frozenset[str],
 ) -> DiffCoverageReport:
-    """Compute the schema diff between ``from_ref`` and ``to_ref``
-    in the VCS, classified against the set of source-side rule
-    names the migrator declares it can handle.
+    """Diff two revisions' grammar schemas against a hop's converters.
 
-    A rule appearing in ``from_ref``'s schema but not in
-    ``to_ref``'s is a "removed" rule. If a removed rule is a top-
-    level declaration kind that the migrator's
-    ``_DECL_CONVERTERS`` dict does not list, the migrator will
-    silently pass it through (likely producing incorrect output);
-    these surface in ``uncovered_removed``.
+    A rule appearing in ``from_ref``'s schema but not in ``to_ref``'s
+    is a removed rule. A removed rule that ``declared_converters``
+    does not list would pass through the migrator unconverted, likely
+    producing incorrect output; such rules surface in
+    ``uncovered_removed``. Identity hops, whose revisions share a
+    commit, report no diff.
 
-    Identity hops (where ``from_ref`` and ``to_ref`` share a
-    commit) report no diff.
+    Parameters
+    ----------
+    from_ref : str
+        The source release.
+    to_ref : str
+        The target release.
+    declared_converters : frozenset[str]
+        The source-side rule names the hop declares it converts.
+
+    Returns
+    -------
+    DiffCoverageReport
+        The classified diff.
     """
     repo = _open_repo()
     from_id = commit_id_for(from_ref) or _resolve_via_chain(repo, from_ref)
@@ -240,12 +271,22 @@ def check_chain_coverage(
     chain: tuple[str, ...],
     converters_by_pair: dict[tuple[str, str], frozenset[str]],
 ) -> list[DiffCoverageReport]:
-    """Run `diff_coverage` on every adjacent pair in
-    ``chain``. ``converters_by_pair`` maps each ``(from, to)`` pair
-    to the set of source-side rule names that hop's
-    ``_DECL_CONVERTERS`` declares; pairs not present in the map are
-    treated as having an empty converter set (so every removed rule
-    will surface as uncovered)."""
+    """Run `diff_coverage` on every adjacent pair of a chain.
+
+    Parameters
+    ----------
+    chain : tuple[str, ...]
+        Releases in chronological order.
+    converters_by_pair : dict[tuple[str, str], frozenset[str]]
+        The source-side rule names each ``(from, to)`` hop declares it
+        converts. A pair absent from the map has no converters, so
+        every rule it removes surfaces as uncovered.
+
+    Returns
+    -------
+    list[DiffCoverageReport]
+        One report per adjacent pair, in chain order.
+    """
     reports: list[DiffCoverageReport] = []
     for i in range(len(chain) - 1):
         from_ref = chain[i]
@@ -263,8 +304,22 @@ def check_chain_coverage(
 
 @dataclass(frozen=True)
 class BlameReport:
-    """Where in the grammar's history a rule first appeared (or was
-    last seen)."""
+    """Where in the grammar's history a rule first appeared or was
+    last seen.
+
+    Parameters
+    ----------
+    rule : str
+        The tree-sitter rule name.
+    introduced_at_commit : str or None
+        The commit that introduced the rule, when the VCS records one.
+    introduced_at_tag : str or None
+        The release tag of that commit, when it has one.
+    last_present_at_commit : str or None
+        The newest commit whose schema contains the rule.
+    last_present_at_tag : str or None
+        The release tag of that commit, when it has one.
+    """
 
     rule: str
     introduced_at_commit: str | None
@@ -274,10 +329,22 @@ class BlameReport:
 
 
 def blame_kind(rule: str) -> BlameReport:
-    """Report when a tree-sitter rule was introduced or removed in
-    the grammar's VCS history. Used by the migrator's failure
-    path to point the user at the specific release that needs a
-    new converter."""
+    """Report when a tree-sitter rule was introduced or removed.
+
+    The migrators' failure path uses this to point at the release that
+    needs a new converter.
+
+    Parameters
+    ----------
+    rule : str
+        The tree-sitter rule name.
+
+    Returns
+    -------
+    BlameReport
+        The rule's introduction and last appearance in the grammar's
+        VCS history.
+    """
     repo = _open_repo()
     head = repo.head() or ""
 

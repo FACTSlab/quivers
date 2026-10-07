@@ -33,10 +33,6 @@ from quivers.stochastic.schema import (
 )
 from quivers.stochastic.categories import CategorySystem
 
-# re-export RuleSystem so existing imports keep working
-__all__ = ["RuleSystem"]
-
-
 # ================================================================
 # CCG: a specific combination of biclosed monoidal primitives
 # ================================================================
@@ -193,3 +189,11 @@ def custom_rules(
         n_categories=n_categories,
         description=description,
     )
+
+
+__all__ = [
+    "RuleSystem",
+    "ccg_rules",
+    "lambek_rules",
+    "custom_rules",
+]

@@ -1,40 +1,48 @@
-"""Public surface for `quivers.transpile`.
+"""The refusal error and support tiers of `quivers.transpile`.
 
 Defines the [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
 error raised when a backend cannot represent a QVR construct, and the
-support-tier frozensets every backend declares.
+support-tier frozensets every backend declares. The module imports
+nothing from the DSL, so every transpile module can import it while the
+DSL package is still initializing.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, Protocol
 
 from quivers.transpile._diagnostics import (
     RefusedDeclaration,
     user_facing_message,
 )
 
-if TYPE_CHECKING:
-    from quivers.dsl.ast_nodes import Module, Statement
-
 
 class UnsupportedConstruct(Exception):
     """Raised when a backend cannot transpile one or more QVR constructs.
+
+    The exception message describes the unsupported constructs and possible
+    replacements. The structured identifiers remain available in ``kinds``.
+
+    Parameters
+    ----------
+    target
+        Backend name, such as ``"qvr-stan"``.
+    kinds
+        Construct identifiers suitable for programmatic matching; they are
+        sorted and deduplicated on construction.
+    declarations
+        Affected top-level declarations, when applicable.
+    module_has_program
+        Whether the refused module declares a probabilistic program.
 
     Attributes
     ----------
     target
         Backend name, such as ``"qvr-stan"``.
     kinds
-        Sorted, deduplicated construct identifiers suitable for programmatic
-        matching.
+        Sorted, deduplicated construct identifiers.
     declarations
         Affected top-level declarations, when applicable.
     module_has_program
         Whether the refused module declares a probabilistic program.
-
-    The exception message describes the unsupported constructs and possible
-    replacements. The structured identifiers remain available in ``kinds``.
     """
 
     def __init__(
@@ -77,10 +85,6 @@ _NO_TARGET_HEADS: frozenset[str] = frozenset(
 )
 
 
-#: Statement kinds every PPL backend accepts: the probabilistic-program
-#: surface (declarations + program bodies of sample / observe / let /
-#: score / return / marginalize). Excludes categorical-algebra and
-#: neural-network declarations.
 STAN_LIKE: frozenset[str] = frozenset(
     {
         "object_decl",
@@ -90,13 +94,13 @@ STAN_LIKE: frozenset[str] = frozenset(
         "export_decl",
     }
 )
+"""Statement kinds every PPL backend accepts.
 
-#: Categorical-metadata declarations a backend's walker may silently
-#: ignore when a `program_decl` is present alongside them. When a
-#: module carries ONLY these declarations and no `program_decl`, the
-#: walker still raises `UnsupportedConstruct` listing the kinds (so
-#: the construct-matrix test continues to verify rejection of
-#: standalone categorical declarations).
+The probabilistic-program surface: declarations and program bodies of
+sample, observe, let, score, return, and marginalize steps. It excludes
+categorical-algebra and neural-network declarations.
+"""
+
 CATEGORICAL_METADATA_IGNORABLE: frozenset[str] = frozenset(
     {
         "category_decl",
@@ -115,12 +119,6 @@ A module carrying only these declarations still raises ``UnsupportedConstruct``
 naming them, so standalone categorical declarations remain rejected.
 """
 
-#: QIEC declarations admitted after the shared QIEC boundary has checked the
-#: complete QIEC submodule.  Unlike categorical metadata, these forms are
-#: first-class inputs to the structural IR and need no accompanying
-#: ``program_decl``.  Individual renderers apply their QIEC capability policy
-#: after lowering, where diagnostics can name the exact computation and
-#: unsupported feature.
 QIEC_SURFACE: frozenset[str] = frozenset(
     {
         "index_decl",
@@ -143,95 +141,17 @@ STRUCTURAL_QIEC: frozenset[str] = frozenset(
 )
 """Structural declarations elaborated as host-backed QIEC computations."""
 
-#: Adds encoder/decoder declarations for backends with a deep-learning
-#: idiom (Pyro modules, NumPyro/Flax modules, Edward2/TF, PyMC custom
-#: dists).
 PYTHON_DEEP: frozenset[str] = STAN_LIKE | frozenset({"encoder_decl", "decoder_decl"})
+"""[`STAN_LIKE`][quivers.transpile.STAN_LIKE] plus encoder and decoder declarations.
 
-#: Probabilistic subset; Church/WebPPL realise `marginalize` as a
-#: continuation-style `Infer` / `enumerate-query`.
+The tier of backends with a deep-learning idiom: Pyro and NumPyro
+modules.
+"""
+
 CHURCH_LIKE: frozenset[str] = STAN_LIKE
+"""The probabilistic subset Church and WebPPL accept.
 
-
-class Backend(Protocol):
-    """The protocol every backend module satisfies.
-
-    Backends register themselves via
-    `didactic.codegen.emitter` under a
-    ``"qvr-<name>"`` key. Quivers' top-level
-    [`transpile`][quivers.transpile.transpile] dispatches by looking up
-    the registered emitter, then delegates to its
-    `emit_instance`.
-
-    Attributes
-    ----------
-    file_extension
-        Canonical filename extension (``"stan"``, ``"py"``, ``"jl"``,
-        ``"js"``, ``"scm"``).
-    grammar
-        The tree-sitter grammar name backing this backend, as accepted by
-        `panproto.AstParserRegistry.parse_with_protocol`.
-    support
-        The probabilistic-subset support tier accepted by this backend.
-    """
-
-    file_extension: str
-    grammar: str
-    support: frozenset[str]
-
-    def emit_instance(self, module: Module) -> bytes:
-        """Transpile a parsed QVR module to bytes."""
-        ...
-
-
-def unsupported_for(target: str, module: Module, *, allow: frozenset[str]) -> None:
-    """Raise [`UnsupportedConstruct`][quivers.transpile.UnsupportedConstruct]
-    if ``module`` contains statement kinds outside ``allow``.
-
-    Walks the module's top-level statements; the ``kind`` field is the
-    didactic `TaggedUnion` discriminator
-    (``"program_decl"``, ``"morphism_decl"``, etc.). Any kind not in
-    ``allow`` is collected; if the resulting set is non-empty, raises.
-
-    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile.CATEGORICAL_METADATA_IGNORABLE]
-    kinds (``composition_decl``, ``category_decl``, ``schema_decl``,
-    ``bundle_decl``, ``rule_decl``, ``contraction_decl``,
-    ``signature_decl``, ``deduction_decl``) are accepted ALONGSIDE a
-    ``program_decl``. The QIEC forms in
-    [`QIEC_SURFACE`][quivers.transpile.QIEC_SURFACE]
-    are always admitted because the caller has already lowered and checked the
-    complete QIEC submodule. Renderer-level capability analysis decides which
-    executable QIEC features the selected target can preserve.
-    """
-    kinds = {cast_kind(s) for s in module.statements}
-    has_program = "program_decl" in kinds
-    has_schema_parser = any(
-        cast_kind(statement) == "define_decl"
-        and str(getattr(getattr(statement, "expr", None), "kind", "")) == "expr_parser"
-        for statement in module.statements
-    )
-    has_structural = "signature_decl" in kinds and bool(
-        kinds & {"encoder_decl", "decoder_decl"}
-    )
-    effective_allow = allow | QIEC_SURFACE
-    if has_program or has_schema_parser:
-        effective_allow |= CATEGORICAL_METADATA_IGNORABLE
-    if has_structural:
-        effective_allow |= STRUCTURAL_QIEC
-    bad: set[str] = set()
-    for statement in module.statements:
-        kind = cast_kind(statement)
-        if kind not in effective_allow:
-            bad.add(kind)
-    if bad:
-        raise UnsupportedConstruct(target, sorted(bad))
-
-
-def cast_kind(statement: Statement) -> str:
-    """Return ``statement.kind`` as a string.
-
-    The didactic `TaggedUnion` discriminator
-    is typed `Literal[...]`; the cast is a single boundary line so the
-    caller stays free of literal-narrowing noise.
-    """
-    return str(getattr(statement, "kind"))
+The same kinds as [`STAN_LIKE`][quivers.transpile.STAN_LIKE]; these
+targets realise ``marginalize`` as a continuation-style ``Infer`` or
+``enumerate-query``.
+"""

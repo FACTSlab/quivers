@@ -271,4 +271,4 @@ def main(args: argparse.Namespace) -> int:
     return 0
 
 
-__all__ = ["MigrateError", "main"]
+__all__ = []

@@ -72,6 +72,11 @@ class CCGParser(ChartParser):
         Enable type raising (>T, <T). Default False.
     generalized_composition_depth : int
         Maximum depth for generalized composition. Default 1.
+
+    Raises
+    ------
+    ValueError
+        If the start category is not in ``category_system``.
     """
 
     def __init__(
@@ -117,3 +122,8 @@ class CCGParser(ChartParser):
             f"binary_rules={self._n_rules}, "
             f"unary_rules={self._n_unary})"
         )
+
+
+__all__ = [
+    "CCGParser",
+]

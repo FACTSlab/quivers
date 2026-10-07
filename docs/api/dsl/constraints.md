@@ -5,12 +5,8 @@ well-formedness violations (residuated context, effect-name
 convention, bundle-member resolvability) without invoking the full
 compiler.
 
-Import from the submodule directly:
-
 ```python
-from quivers.dsl.constraints import check_constraints, Violation
+from quivers.dsl import Violation, check_constraints
 ```
-
-These names are not re-exported from `quivers.dsl`.
 
 ::: quivers.dsl.constraints

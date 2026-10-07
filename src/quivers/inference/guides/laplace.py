@@ -11,8 +11,8 @@ maximum a posteriori (MAP) point in unconstrained space:
 where :math:`z^\\star` is the MAP and ``H`` is the Hessian of the
 log-joint evaluated at :math:`z^\\star`. The Laplace posterior is
 then :math:`\\mathcal{N}(z^\\star, -H^{-1})`. This is the cheapest
-non-trivial covariance estimate available — a single Hessian
-computation gives a full posterior covariance — and matches the
+non-trivial covariance estimate available (a single Hessian
+computation gives a full posterior covariance) and matches the
 canonical "fit a Gaussian to the posterior at its mode"
 construction (MacKay 2003, *Information Theory, Inference and
 Learning Algorithms*, ch. 27; Tierney-Kadane 1986,
@@ -25,7 +25,7 @@ Usage pattern
 `AutoLaplaceApproximation` is a two-phase guide:
 
 1. **MAP phase.** Until `fit_hessian` is called the guide
-   behaves like `AutoDeltaGuide` — variational parameters
+   behaves like `AutoDeltaGuide`: variational parameters
    are a single unconstrained-space point estimate, and SVI with
    this guide does MAP optimisation.
 2. **Hessian phase.** Once `fit_hessian` is invoked the

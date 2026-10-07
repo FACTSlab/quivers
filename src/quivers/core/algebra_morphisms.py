@@ -68,7 +68,9 @@ import torch
 from quivers.core.algebras import (
     COUNTING,
     GODEL,
+    LOG_PROB,
     MARKOV,
+    MAX_PLUS,
     PROBABILITY,
     REAL,
 )
@@ -214,8 +216,6 @@ class LogProb(AlgebraHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.algebras import LOG_PROB
-
         self._source = PRODUCT_FUZZY
         self._target = LOG_PROB
 
@@ -249,8 +249,6 @@ class MaxPlus(AlgebraHomomorphism):
     """
 
     def __init__(self) -> None:
-        from quivers.core.algebras import MAX_PLUS
-
         self._source = PRODUCT_FUZZY
         self._target = MAX_PLUS
 
@@ -337,20 +335,46 @@ class MaterialImplication(AlgebraHomomorphism):
 # singletons. Users compose with ``f.change_base(EXPECTATION)`` to
 # perform the change of base.
 EXPECTATION = Expectation()
-LOG_PROB = LogProb()
-MAX_PLUS = MaxPlus()
+"""The `Expectation` homomorphism singleton, Markov to ProductFuzzy."""
+LOG_PROB_HOM = LogProb()
+"""The `LogProb` homomorphism singleton, ProductFuzzy to LogProb."""
+MAX_PLUS_HOM = MaxPlus()
+"""The `MaxPlus` homomorphism singleton, ProductFuzzy to MaxPlus."""
 MATERIAL_IMPLICATION = MaterialImplication()
+"""The `MaterialImplication` homomorphism singleton, ProductFuzzy to Godel."""
 
 
 def threshold(tau: float = 0.5) -> Threshold:
-    """Build a `Threshold` homomorphism at the given
-    threshold value."""
+    """Build a `Threshold` homomorphism at the given threshold value.
+
+    Parameters
+    ----------
+    tau : float
+        The threshold; entries strictly above it map to true.
+
+    Returns
+    -------
+    Threshold
+        The ProductFuzzy-to-Boolean homomorphism at ``tau``.
+    """
     return Threshold(tau)
 
 
 def embedding(source: Algebra, target: Algebra) -> Embedding:
-    """Build an `Embedding` homomorphism (sub → super
-    algebra inclusion)."""
+    """Build an `Embedding` homomorphism, a sub-algebra inclusion.
+
+    Parameters
+    ----------
+    source : Algebra
+        The sub-algebra.
+    target : Algebra
+        The super-algebra that ``source`` includes into.
+
+    Returns
+    -------
+    Embedding
+        The inclusion ``source → target``.
+    """
     return Embedding(source, target)
 
 
@@ -450,19 +474,19 @@ class CountingToReal(AlgebraHomomorphism):
 
 
 PROBABILITY_CLAMP = ProbabilityClamp()
+"""The `ProbabilityClamp` homomorphism singleton, Real to Probability."""
 COUNTING_FROM_REAL = CountingFromReal()
+"""The `CountingFromReal` homomorphism singleton, Real to Counting."""
 PROBABILITY_TO_REAL = ProbabilityToReal()
+"""The `ProbabilityToReal` homomorphism singleton, Probability to Real."""
 COUNTING_TO_REAL = CountingToReal()
+"""The `CountingToReal` homomorphism singleton, Counting to Real."""
 
 
-# Registry of canonical homomorphisms keyed by
-# ``(source.name, target.name)``. The compiler / user code can
-# look up the standard bridge between two algebras rather than
-# constructing one by hand.
 HOMOMORPHISM_REGISTRY: dict[tuple[str, str], AlgebraHomomorphism] = {
     ("Markov", "ProductFuzzy"): EXPECTATION,
-    ("ProductFuzzy", "LogProb"): LOG_PROB,
-    ("ProductFuzzy", "MaxPlus"): MAX_PLUS,
+    ("ProductFuzzy", "LogProb"): LOG_PROB_HOM,
+    ("ProductFuzzy", "MaxPlus"): MAX_PLUS_HOM,
     ("ProductFuzzy", "Boolean"): Threshold(0.5),
     ("ProductFuzzy", "Godel"): MATERIAL_IMPLICATION,
     ("Boolean", "ProductFuzzy"): Embedding(BOOLEAN, PRODUCT_FUZZY),
@@ -471,14 +495,29 @@ HOMOMORPHISM_REGISTRY: dict[tuple[str, str], AlgebraHomomorphism] = {
     ("Probability", "Real"): PROBABILITY_TO_REAL,
     ("Counting", "Real"): COUNTING_TO_REAL,
 }
+"""The canonical homomorphisms keyed by ``(source.name, target.name)``,
+so compiler and user code can look up the standard bridge between two
+algebras rather than construct one by hand."""
 
 
 def lookup_homomorphism(source: Algebra, target: Algebra) -> AlgebraHomomorphism | None:
-    """Return the registered homomorphism ``source → target`` or
-    ``None`` if no canonical bridge is known.
+    """Look up the canonical homomorphism ``source → target``.
 
-    Identity is always available: ``source == target`` returns
+    Identity is always available: algebras of one type yield
     ``IdentityHom(source)``.
+
+    Parameters
+    ----------
+    source : Algebra
+        The algebra to map from.
+    target : Algebra
+        The algebra to map to.
+
+    Returns
+    -------
+    AlgebraHomomorphism or None
+        The registered bridge from `HOMOMORPHISM_REGISTRY`, or
+        ``None`` when no canonical bridge is known.
     """
     if type(source) is type(target):
         return IdentityHom(source)
@@ -499,8 +538,8 @@ __all__ = [
     "ProbabilityToReal",
     "CountingToReal",
     "EXPECTATION",
-    "LOG_PROB",
-    "MAX_PLUS",
+    "LOG_PROB_HOM",
+    "MAX_PLUS_HOM",
     "MATERIAL_IMPLICATION",
     "PROBABILITY_CLAMP",
     "COUNTING_FROM_REAL",

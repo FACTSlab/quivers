@@ -22,7 +22,7 @@ under the backend name and it becomes visible to every renderer
 that walks the argument tree through the registry.
 
 The registry composes with
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase]:
+[`RendererBase`][quivers.transpile.renderers.RendererBase]:
 backends can subclass `RendererBase` and hard-code their emit
 tables, or drive dispatch through this registry. Both paths are
 supported.
@@ -38,6 +38,8 @@ from quivers.transpile.ir import IRArg, IRNode
 
 
 EmitFn = Callable[..., Any]
+"""An emit function: called with the renderer, its context, and one IR
+node or argument, returning the backend's fragment for it."""
 
 
 class RendererLookupError(LookupError):
@@ -76,6 +78,26 @@ def emit_hook(
     Left unset, a second registration for the same key raises
     :class:`RendererDuplicateError` so a user does not silently
     shadow a built-in emit.
+
+    Parameters
+    ----------
+    backend_name
+        The backend the emit renders for.
+    node_type
+        The IR node or argument class the emit handles.
+    replace
+        Whether to overwrite an existing registration.
+
+    Returns
+    -------
+    Callable[[EmitFn], EmitFn]
+        A decorator that registers its argument and returns it unchanged.
+
+    Raises
+    ------
+    RendererDuplicateError
+        From the decorator, if the combination is registered and
+        ``replace`` is false.
     """
 
     def decorator(fn: EmitFn) -> EmitFn:
@@ -96,6 +118,23 @@ def get_emit(backend_name: str, node_type: type) -> EmitFn:
     """Look up the registered emit for a `(backend_name, node_type)`
     combination. Raises :class:`RendererLookupError` with the list
     of registered types for the backend when no emit is present.
+
+    Parameters
+    ----------
+    backend_name
+        The backend to look in.
+    node_type
+        The IR node or argument class to look up.
+
+    Returns
+    -------
+    EmitFn
+        The registered emit function.
+
+    Raises
+    ------
+    RendererLookupError
+        If the backend has no registrations, or none for ``node_type``.
     """
     backend_table = _REGISTRY.get(backend_name)
     if backend_table is None:
@@ -114,13 +153,29 @@ def get_emit(backend_name: str, node_type: type) -> EmitFn:
 
 
 def registered_backends() -> list[str]:
-    """List every backend that has at least one registered emit."""
+    """List every backend that has at least one registered emit.
+
+    Returns
+    -------
+    list[str]
+        The backend names, sorted.
+    """
     return sorted(_REGISTRY)
 
 
 def registered_node_types(backend_name: str) -> list[str]:
     """List the class names of every node type registered for
     ``backend_name``.
+
+    Parameters
+    ----------
+    backend_name
+        The backend to list.
+
+    Returns
+    -------
+    list[str]
+        The registered class names, sorted; empty for an unknown backend.
     """
     table = _REGISTRY.get(backend_name, {})
     return sorted(t.__name__ for t in table)
@@ -129,6 +184,13 @@ def registered_node_types(backend_name: str) -> list[str]:
 def unregister(backend_name: str, node_type: type) -> None:
     """Remove a registration. Used by tests to reset state; not
     typically called in production code.
+
+    Parameters
+    ----------
+    backend_name
+        The backend the registration belongs to.
+    node_type
+        The IR node or argument class to remove.
     """
     if backend_name in _REGISTRY and node_type in _REGISTRY[backend_name]:
         del _REGISTRY[backend_name][node_type]
@@ -156,12 +218,48 @@ class BackendRenderer(ABC):
     backend_name: str
 
     def emit_node(self, ctx, node: IRNode):
-        """Dispatch a top-level IR node through the registry."""
+        """Dispatch a top-level IR node through the registry.
+
+        Parameters
+        ----------
+        ctx
+            The renderer's emission context, passed through to the emit.
+        node
+            The IR node to emit.
+
+        Returns
+        -------
+        object
+            Whatever the registered emit returns.
+
+        Raises
+        ------
+        RendererLookupError
+            If no emit is registered for the node's class.
+        """
         emit_fn = get_emit(self.backend_name, type(node))
         return emit_fn(self, ctx, node)
 
     def emit_arg(self, ctx, arg: IRArg):
-        """Dispatch an IR argument through the registry."""
+        """Dispatch an IR argument through the registry.
+
+        Parameters
+        ----------
+        ctx
+            The renderer's emission context, passed through to the emit.
+        arg
+            The IR argument to emit.
+
+        Returns
+        -------
+        object
+            Whatever the registered emit returns.
+
+        Raises
+        ------
+        RendererLookupError
+            If no emit is registered for the argument's class.
+        """
         emit_fn = get_emit(self.backend_name, type(arg))
         return emit_fn(self, ctx, arg)
 

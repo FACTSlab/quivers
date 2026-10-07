@@ -44,7 +44,6 @@ from quivers.continuous.programs import MonadicProgram
 from quivers.inference.mcmc.adapt import (
     DualAveraging,
     WelfordCovariance,
-    find_reasonable_step_size,
 )
 from quivers.inference.mcmc.kernel import (
     KernelState,
@@ -55,6 +54,9 @@ from quivers.inference.registry import LatentRegistry
 
 
 MassMatrixKind = Literal["identity", "diagonal", "dense"]
+"""The mass-matrix structure an HMC or NUTS kernel adapts during warmup:
+``"identity"`` keeps the unit metric, ``"diagonal"`` adapts per-coordinate
+variances, and ``"dense"`` adapts a full covariance."""
 
 
 class _MassMatrix:
@@ -663,7 +665,7 @@ class NUTSKernel(MCMCKernel):
         p = self._mass.sample_momentum()
         h0 = float(-ld + self._mass.kinetic(p))
         eps = self.step_size
-        # Slice variable for multinomial sampling — use Hoffman-Gelman's
+        # Slice variable for multinomial sampling; use Hoffman-Gelman's
         # numerical-stability trick of subtracting the energy at start.
         log_u = -float("inf")  # Unused in pure-multinomial variant.
         z_minus = z
@@ -771,5 +773,4 @@ __all__ = [
     "HMCKernel",
     "NUTSKernel",
     "MassMatrixKind",
-    "find_reasonable_step_size",
 ]

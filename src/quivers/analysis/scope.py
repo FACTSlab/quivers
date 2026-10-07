@@ -58,9 +58,6 @@ from quivers.dsl.ast_nodes import (
     SampleStep,
 )
 
-# The categorical kind tag carried by every ``ScopedRef``. Used for
-# pretty-printing, click-target classification, and the ``:browse``
-# section grouping.
 ScopeKind = Literal[
     "object",
     "space",
@@ -101,11 +98,9 @@ ScopeKind = Literal[
     "composition-entry",
     "bundle-member",
 ]
+"""The kind tag carried by every `ScopedRef`, used for pretty-printing,
+click-target classification, and the ``:browse`` section grouping."""
 
-# Top-level container kinds — those reachable directly from
-# ``Compiler``'s public accessors. The order is also the order
-# ``ReplSession.browse()`` walks for output, so listing here keeps
-# the two surfaces in sync.
 TOP_LEVEL_KINDS: tuple[ScopeKind, ...] = (
     "object",
     "space",
@@ -122,6 +117,9 @@ TOP_LEVEL_KINDS: tuple[ScopeKind, ...] = (
     "composition",
     "category",
 )
+"""The top-level container kinds, those reachable directly from the
+compiler's public accessors, in the order ``ReplSession.browse()``
+walks them for output."""
 
 
 class ScopedRef(dx.Model):
@@ -538,6 +536,16 @@ def scope_children(ref: ScopedRef) -> Mapping[str, ScopedRef]:
     fields exposed on each declaration shape, so adding a new
     declaration kind requires registering one entry in
     ``_SCOPE_DISPATCH``.
+
+    Parameters
+    ----------
+    ref : ScopedRef
+        The binding whose scope is listed.
+
+    Returns
+    -------
+    Mapping[str, ScopedRef]
+        The child bindings, keyed by name.
     """
     builder = _SCOPE_DISPATCH.get(ref.kind)
     if builder is None:
@@ -551,12 +559,25 @@ def scope_children(ref: ScopedRef) -> Mapping[str, ScopedRef]:
 
 
 SCOPE_SEPARATOR = "::"
+"""The separator between the segments of a scoped path such as
+``"prog::x"``."""
 
 
 def split_path(path: str) -> list[str]:
     """Split ``"a::b::c"`` into ``["a", "b", "c"]``. Leading or
     trailing separators yield empty segments, which the resolver
-    rejects."""
+    rejects.
+
+    Parameters
+    ----------
+    path : str
+        A `SCOPE_SEPARATOR`-separated path.
+
+    Returns
+    -------
+    list[str]
+        The path's segments, in order.
+    """
     return path.split(SCOPE_SEPARATOR)
 
 
@@ -600,6 +621,18 @@ def find_all_references(compiler, name: str) -> list[ScopedRef]:  # type: ignore
     Returns refs sorted by depth (top-level first) then by path
     lexicographic order. Used by ``:where NAME`` to surface every
     scope a bare name appears in.
+
+    Parameters
+    ----------
+    compiler : Compiler
+        A `quivers.dsl.Compiler` whose module has been compiled.
+    name : str
+        The bare name to search for.
+
+    Returns
+    -------
+    list[ScopedRef]
+        Every binding whose final path segment is ``name``.
     """
     hits: list[ScopedRef] = []
     # Walk every top-level binding and recursively visit scopes.

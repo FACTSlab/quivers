@@ -2,15 +2,15 @@
 
 A `Decoder` is a ``torch.nn.Module`` exposing two operations:
 
-* `sample` — draws a single `Term` from the
+* `sample`: draws a single `Term` from the
   distribution induced by an input vector.
-* `log_prob` — scores an observed term under the same
+* `log_prob`: scores an observed term under the same
   distribution.
 
 The corecursion structure over a signature Σ is:
 
 1. At each sort position, the decoder produces logits over its
-   *choice set* — every constructor and binder whose codomain is
+   *choice set*: every constructor and binder whose codomain is
    that sort, plus the built-in `BOUND_VAR_OP` whenever the
    context Γ contains at least one in-scope variable of that sort.
 2. For the chosen op, the parent vector is split into per-child
@@ -58,12 +58,11 @@ def _categorical(logits: torch.Tensor) -> torch.distributions.Categorical:
 class Decoder(nn.Module):
     """A Kleisli coalgebraic decoder over a signature.
 
-    Construction parameters
-    -----------------------
-
+    Parameters
+    ----------
     name : str
         Identifier used in diagnostics.
-    signature : `Signature`
+    signature : Signature
         The Σ whose terms this decoder generates.
     sort_dims : dict[str, int]
         Per-sort embedding dimension.
@@ -87,6 +86,15 @@ class Decoder(nn.Module):
     data_vocab : dict[str, list]
         Per-data-sort closed vocabulary aligned with the column
         order of the corresponding ``primitive_fns`` output.
+    modules_owned : list[nn.Module] or None
+        Modules holding the parameters of the logit producers and
+        projections, registered as submodules so their parameters
+        train.
+
+    Raises
+    ------
+    ValueError
+        If ``depth`` is not positive.
     """
 
     def __init__(
@@ -138,6 +146,31 @@ class Decoder(nn.Module):
         ctx: Context | None = None,
         sort: str | None = None,
     ) -> Term:
+        """Draw one term from the decoder's distribution.
+
+        Parameters
+        ----------
+        vec : torch.Tensor
+            The embedding to decode from.
+        ctx : Context or None
+            The scope of in-scope bound variables; `EMPTY_CONTEXT`
+            when omitted.
+        sort : str or None
+            The sort of the term to draw; the first declared object
+            sort when omitted.
+
+        Returns
+        -------
+        Term
+            The sampled term.
+
+        Raises
+        ------
+        RuntimeError
+            If no sort is given and the signature has no object sort,
+            or the decoder lacks a function, vocabulary, or candidate
+            it needs at some position.
+        """
         return self._decode_object(
             vec,
             ctx or EMPTY_CONTEXT,
@@ -422,6 +455,36 @@ class Decoder(nn.Module):
         ctx: Context | None = None,
         sort: str | None = None,
     ) -> torch.Tensor:
+        """Score an observed term under the decoder's distribution.
+
+        Parameters
+        ----------
+        term : Term
+            The observed term.
+        vec : torch.Tensor
+            The embedding the term is decoded from.
+        ctx : Context or None
+            The scope of in-scope bound variables; `EMPTY_CONTEXT`
+            when omitted.
+        sort : str or None
+            The sort of ``term``; the first declared object sort when
+            omitted.
+
+        Returns
+        -------
+        torch.Tensor
+            The scalar log-probability of ``term``.
+
+        Raises
+        ------
+        TypeError
+            If ``term`` is not a `Term`, or an argument does not match
+            the kind of its sort.
+        RuntimeError
+            If the term's shape is outside the decoder's support, for
+            instance an operation not in the choice set of its sort or
+            a data value outside the closed vocabulary.
+        """
         if not isinstance(term, Term):
             raise TypeError(
                 f"decoder {self.name!r}: log_prob expects a Term, got "
@@ -633,3 +696,8 @@ class Decoder(nn.Module):
                 f"variables"
             )
         return torch.log_softmax(logits, dim=-1)[choices.index(index)]
+
+
+__all__ = [
+    "Decoder",
+]

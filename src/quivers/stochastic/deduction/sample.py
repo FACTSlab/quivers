@@ -47,6 +47,18 @@ def sample_corpus(
         Number of sentences to draw.
     seed : int, optional
         Seed for the multinomial draws.
+
+    Returns
+    -------
+    list of list of str
+        ``n_samples`` yields, each a list of ``length`` words, drawn
+        with replacement in proportion to their goal weights.
+
+    Raises
+    ------
+    ValueError
+        If the deduction's vocabulary cannot be determined, or if no
+        yield of length ``length`` parses.
     """
     vocab = _vocabulary(ded)
     if not vocab:

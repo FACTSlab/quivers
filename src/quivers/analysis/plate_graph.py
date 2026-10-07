@@ -55,6 +55,7 @@ from quivers.dsl.ast_nodes import (
 )
 
 NodeKind = Literal["latent", "observed", "marginalized", "deterministic"]
+"""The kind tag of a `PlateNode`, which selects how a renderer draws it."""
 
 
 class Edge(dx.Model):
@@ -370,6 +371,20 @@ def build_plate_graph(  # type: ignore[no-untyped-def]
     (the variable bound by the marginalize header) get
     ``kind="marginalized"`` so renderers can shade them
     differently from a plain ``"latent"``.
+
+    Parameters
+    ----------
+    compiler : Compiler
+        A `quivers.dsl.Compiler` that has compiled the module holding
+        the program.
+    program_name : str
+        The name of the program to diagram.
+
+    Returns
+    -------
+    PlateGraph or None
+        The program's plate graph, or ``None`` when no program of that
+        name is registered.
     """
     # Locate the program declaration. Parametric programs live on
     # ``compiler.programs`` (the template registry); non-parametric
@@ -510,6 +525,7 @@ def build_plate_graph(  # type: ignore[no-untyped-def]
 
 
 __all__ = [
+    "Edge",
     "NodeKind",
     "Plate",
     "PlateGraph",

@@ -35,7 +35,7 @@ A program is an
 that, when called, executes forward ancestral sampling:
 
 ```python
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, MonadicProgram
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
@@ -51,8 +51,8 @@ program = MonadicProgram(
     Unit,
     R1,
     steps=[
-        (("x",), prior, None),                      # x <- prior
-        (("y",), likelihood, ("x",)),               # y <- likelihood(x)
+        Draw(names=("x",), morphism=prior),  # x <- prior
+        Draw(names=("y",), morphism=likelihood, args=("x",)),  # y <- likelihood(x)
     ],
     return_vars=("y",),
 )
@@ -240,7 +240,7 @@ program = MonadicProgram(
     A * B,
     Z,
     steps=[
-        (("x",), f, ("a", "b")),                    # x <- f(a, b)
+        Draw(names=("x",), morphism=f, args=("a", "b")),  # x <- f(a, b)
     ],
     return_vars=("x",),
     params=("a", "b"),
@@ -254,7 +254,7 @@ runtime and binds each slice to the corresponding name in `params`.
 
 ```python
 import torch
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, MonadicProgram
 from quivers.continuous.families import (
     ConditionalNormal,
     ConditionalLogitNormal,
@@ -274,9 +274,9 @@ program = MonadicProgram(
     Unit,
     R1,
     steps=[
-        (("mu",),    prior_mu,    None),
-        (("sigma",), prior_sigma, None),
-        (("y",),     likelihood,  ("mu", "sigma")),
+        Draw(names=("mu",), morphism=prior_mu),
+        Draw(names=("sigma",), morphism=prior_sigma),
+        Draw(names=("y",), morphism=likelihood, args=("mu", "sigma")),
     ],
     return_vars=("y",),
 )
@@ -336,6 +336,133 @@ program f(x_val, y_val) : (X * Y) -> Z
 The bare-identifier parameters `x_val`, `y_val` name the
 projections of the product domain. Internally, the domain tensor
 is reshaped to match.
+
+## Building programs in Python
+
+Every program the DSL compiles is assembled from objects the
+[`quivers.continuous`](../api/continuous/programs.md) package exports, so
+a program can be built in Python without writing QVR source. The step
+records are the contract:
+
+| Record | Source form | Fields |
+|---|---|---|
+| [`Draw`](../api/continuous/program_steps.md#quivers.continuous.program_steps.Draw) | `sample x <- f(a, b)` | `names`, `morphism`, `args` |
+| [`Observe`](../api/continuous/program_steps.md#quivers.continuous.program_steps.Observe) | `observe y <- f(a, b)` | `names`, `morphism`, `args` |
+| [`Let`](../api/continuous/program_steps.md#quivers.continuous.program_steps.Let) | `let w = expression` | `name`, `value` |
+| [`Score`](../api/continuous/program_steps.md#quivers.continuous.program_steps.Score) | a `marginalize` block | `name`, `score` |
+
+A draw's `args` are binding names, or
+[`Indexed`](../api/continuous/program_steps.md#quivers.continuous.program_steps.Indexed)
+gathers such as `mu[group]`; `None` reads the program input. A let's
+`value` is a constant, the name of an earlier binding, or a function
+of the environment, which may declare the names it reads through
+[`reading`](../api/continuous/program_steps.md#quivers.continuous.program_steps.reading).
+The morphisms are the ones the compiler emits: a fixed-parameter
+family comes from a `make_fixed_*` factory such as
+[`make_fixed_normal`](../api/continuous/inline.md#quivers.continuous.inline.make_fixed_normal);
+a family whose parameters are bindings is a
+[`MixedInlineDistribution`](../api/continuous/inline.md#quivers.continuous.inline.MixedInlineDistribution)
+over the stacked arguments; an indexed draw `sample v : A <- F(...)` is a
+[`PlateDraw`](../api/continuous/plate.md#quivers.continuous.plate.PlateDraw)
+of one draw per element of `A`; and an indexed observe is a
+[`VectorisedObserve`](../api/continuous/plate.md#quivers.continuous.plate.VectorisedObserve).
+
+The program below is a hierarchical Normal model with one mean per
+group, built twice: once from source, and once from the records. The
+two score every value identically.
+
+```python
+import torch
+import torch.distributions as D
+
+from quivers.continuous import (
+    Draw,
+    Euclidean,
+    Indexed,
+    MixedInlineDistribution,
+    MonadicProgram,
+    Observe,
+    PlateDraw,
+    ProductSpace,
+    VectorisedObserve,
+    make_fixed_halfnormal,
+    make_fixed_normal,
+)
+from quivers.core import FinSet, Unit
+from quivers.dsl import loads
+
+compiled = loads("""
+object Group : FinSet 3
+object Row : FinSet 6
+object Val : Real 1
+
+program model : Row -> Val
+    sample mu : Group <- Normal(loc=0.0, scale=1.0)
+    sample sigma <- HalfNormal(scale=1.0)
+    let m = mu[group]
+    observe y : Row <- Normal(loc=m, scale=sigma)
+    return y
+
+export model
+""").morphism
+
+Row = FinSet(name="Row", cardinality=6)
+Val = Euclidean(name="Val", dim=1)
+
+likelihood = MixedInlineDistribution(
+    ProductSpace(components=(Val, Val)),
+    Val,
+    param_spec=[("var", 1), ("var", 1)],
+    dist_builder=lambda params: D.Normal(params[0], params[1]),
+)
+built = MonadicProgram(
+    Row,
+    Val,
+    steps=[
+        # sample mu : Group <- Normal(0, 1), one mean per group
+        Draw(
+            names=("mu",),
+            morphism=PlateDraw(3, make_fixed_normal(0.0, 1.0, Val), domain=Unit),
+        ),
+        # sample sigma <- HalfNormal(1)
+        Draw(names=("sigma",), morphism=make_fixed_halfnormal(1.0, Val)),
+        # observe y : Row <- Normal(mu[group], sigma)
+        Observe(
+            names=("y",),
+            morphism=VectorisedObserve(likelihood, torch.zeros(6)),
+            args=(Indexed(name="mu", indices=("group",)), "sigma"),
+        ),
+    ],
+    return_vars=("y",),
+)
+
+values = {
+    "mu": torch.randn(3, 1),
+    "sigma": torch.rand(1, 1) + 0.5,
+    "y": torch.randn(6),
+    "group": torch.tensor([0, 0, 1, 1, 2, 2]),
+}
+x = torch.arange(6)
+torch.testing.assert_close(compiled.log_joint(x, values), built.log_joint(x, values))
+```
+
+A group-level correlation structure follows the same pattern. A
+`PlateDraw` over an LKJ prior on Cholesky factors draws one factor per
+group, whether the prior is the inline family
+([`make_fixed_lkj_cholesky`](../api/continuous/inline.md#quivers.continuous.inline.make_fixed_lkj_cholesky))
+or the [`LKJCorrelationFactor`](../api/continuous/families.md#quivers.continuous.families.LKJCorrelationFactor)
+morphism:
+
+```python
+from quivers.continuous import CholeskyFactor, make_fixed_lkj_cholesky
+
+factors = PlateDraw(
+    3, make_fixed_lkj_cholesky(2.0, CholeskyFactor(name="L", dim=4)), domain=Unit
+)
+draw = factors.rsample(torch.zeros(1, dtype=torch.long))  # (3, 16): one factor per group
+reference = D.LKJCholesky(4, torch.tensor(2.0)).log_prob(draw.reshape(3, 4, 4)).sum()
+torch.testing.assert_close(factors.log_prob(torch.zeros(1), draw).squeeze(), reference)
+```
 
 ## Integration with the DSL
 

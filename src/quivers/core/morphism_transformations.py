@@ -336,17 +336,50 @@ class BayesInvert(MorphismTransformation):
 
 
 def softmax(axis_object: SetObject) -> Softmax:
-    """Build a `Softmax` transformation along ``axis_object``."""
+    """Build a `Softmax` transformation along ``axis_object``.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis the softmax is taken over.
+
+    Returns
+    -------
+    Softmax
+        The ProductFuzzy-to-Markov transformation.
+    """
     return Softmax(axis_object)
 
 
 def l1_normalize(axis_object: SetObject) -> L1Normalize:
-    """Build an `L1Normalize` transformation along ``axis_object``."""
+    """Build an `L1Normalize` transformation along ``axis_object``.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis is normalized.
+
+    Returns
+    -------
+    L1Normalize
+        The Real-to-Markov transformation.
+    """
     return L1Normalize(axis_object)
 
 
 def l2_normalize(axis_object: SetObject) -> L2Normalize:
-    """Build an `L2Normalize` transformation along ``axis_object``."""
+    """Build an `L2Normalize` transformation along ``axis_object``.
+
+    Parameters
+    ----------
+    axis_object : SetObject
+        The object whose axis is normalized.
+
+    Returns
+    -------
+    L2Normalize
+        The Real-to-Real transformation.
+    """
     return L2Normalize(axis_object)
 
 
@@ -360,6 +393,25 @@ def bayes_invert(prior) -> BayesInvert:
     [`quivers.core.morphisms`][quivers.core.morphisms] and this module. The morphism
     form is what the DSL feeds in when the user writes
     ``change_base(bayes_invert(prior_morph))``.
+
+    Parameters
+    ----------
+    prior : torch.Tensor or Morphism
+        The prior over the kernel's domain, as a tensor or as a
+        morphism whose ``tensor`` holds it. A prior that does not sum
+        to 1 is clamped to be non-negative and renormalized.
+
+    Returns
+    -------
+    BayesInvert
+        The Bayes-inversion transformation under ``prior``.
+
+    Raises
+    ------
+    TypeError
+        If ``prior`` is neither a tensor nor carries a ``tensor``.
+    ValueError
+        If ``prior`` sums to zero.
     """
     if isinstance(prior, torch.Tensor):
         tensor = prior

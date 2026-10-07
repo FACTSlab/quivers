@@ -1611,6 +1611,18 @@ def finite_enumerable_at_call_site(
     still integrable over the two atoms 0 and 1; ask
     [`marginalize_support`][quivers.transpile.family_meta.marginalize_support]
     for that.
+
+    Parameters
+    ----------
+    family_meta
+        The latent's family metadata.
+    args
+        The latent's IR arguments, in family order.
+
+    Returns
+    -------
+    bool
+        Whether the marginalize index sizes the family's own support.
     """
     name = family_meta.qvr_name
     if name in _ALWAYS_ENUMERABLE:
@@ -1664,7 +1676,18 @@ def class_index_outcome(
     """Return the
     [`ClassIndexOutcome`][quivers.transpile.family_meta.ClassIndexOutcome]
     for `family_meta`, or `None` when the family's value is not a
-    subscript into an alphabet."""
+    subscript into an alphabet.
+
+    Parameters
+    ----------
+    family_meta
+        The family metadata.
+
+    Returns
+    -------
+    ClassIndexOutcome or None
+        How the family's value indexes an alphabet, or ``None``.
+    """
     return _CLASS_INDEX_OUTCOMES.get(family_meta.qvr_name)
 
 
@@ -1673,8 +1696,12 @@ def class_index_outcome(
 # ---------------------------------------------------------------------------
 
 
-#: How a marginalized latent's atoms are enumerated.
 type MarginalizeAtomSet = Literal["binary", "class_index"]
+"""How a marginalized latent's atoms are enumerated.
+
+``"binary"`` integrates over the two atoms 0 and 1; ``"class_index"``
+integrates over every index of the family's support.
+"""
 
 
 class MarginalizeSupport(dx.Model):
@@ -1746,6 +1773,17 @@ def marginalize_support(
     the QVR compiler refuses the same families, so a renderer that
     substituted a live draw would score a different measure than the
     reference.
+
+    Parameters
+    ----------
+    family_meta
+        The latent's family metadata.
+
+    Returns
+    -------
+    MarginalizeSupport or None
+        The atoms the reduction integrates over, or ``None`` when the
+        family has no agreed finite marginal.
     """
     return _MARGINALIZE_SUPPORT.get(family_meta.qvr_name)
 

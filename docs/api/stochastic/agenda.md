@@ -9,4 +9,20 @@ presheaf.
 For fitting, sampling, and the NUTS wrapper, see
 [`api/stochastic/deduction`](deduction.md).
 
+## Item algebra
+
+Items, patterns, and bindings are plain tuples and dictionaries; these
+aliases name their roles in the signatures below.
+
+::: quivers.stochastic
+    options:
+      members:
+        - Item
+        - Pattern
+        - Bindings
+      show_root_heading: false
+      show_root_toc_entry: false
+
 ::: quivers.stochastic.agenda
+    options:
+      filters: ["!^_", "!^(Item|Pattern|Bindings)$"]

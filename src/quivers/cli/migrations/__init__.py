@@ -59,22 +59,6 @@ from quivers.cli.migrations._vcs import (
     diff_coverage,
 )
 
-__all__ = [
-    "BlameReport",
-    "DiffCoverageReport",
-    "CHAIN",
-    "MIGRATORS",
-    "COVERAGE",
-    "IDENTITY_PAIRS",
-    "MigrationError",
-    "blame_kind",
-    "check_chain_coverage",
-    "commit_id_for",
-    "compose_migration",
-    "diff_coverage",
-    "vcs_coverage_report",
-]
-
 
 _Migrator = Callable[[bytes], bytes]
 
@@ -97,6 +81,8 @@ CHAIN: tuple[str, ...] = (
     "v0.19.0",
     "HEAD",
 )
+"""The QVR grammar releases a migration can start or end at, oldest
+first, with ``"HEAD"`` (the current grammar) always last."""
 
 
 MIGRATORS: dict[tuple[str, str], _Migrator] = {
@@ -116,11 +102,9 @@ MIGRATORS: dict[tuple[str, str], _Migrator] = {
     ("v0.18.0", "v0.19.0"): _hop_18_19.migrate,
     ("v0.19.0", "HEAD"): _hop_19_head.migrate,
 }
+"""The one-hop migrator registered for each adjacent pair of `CHAIN`,
+a ``bytes -> bytes`` rewrite of ``.qvr`` source."""
 
-# Per-hop coverage declarations: source-side rule names each hop's
-# converter dispatch table covers. Used by
-# `vcs_coverage_report` to validate the migration system
-# against the panproto VCS schema diff between adjacent revisions.
 COVERAGE: dict[tuple[str, str], frozenset[str]] = {
     ("v0.2.0", "v0.3.0"): _hop_2_3.SOURCE_RULE_COVERAGE,
     ("v0.3.0", "v0.4.0"): _hop_3_4.SOURCE_RULE_COVERAGE,
@@ -138,6 +122,9 @@ COVERAGE: dict[tuple[str, str], frozenset[str]] = {
     ("v0.18.0", "v0.19.0"): _hop_18_19.SOURCE_RULE_COVERAGE,
     ("v0.19.0", "HEAD"): _hop_19_head.SOURCE_RULE_COVERAGE,
 }
+"""The source-side grammar rules each hop's converters cover, keyed by
+adjacent pair of `CHAIN`. `vcs_coverage_report` checks these against
+the schema diff between the two revisions."""
 
 
 def _declared_identity_pairs() -> frozenset[tuple[str, str]]:
@@ -157,6 +144,8 @@ def _declared_identity_pairs() -> frozenset[tuple[str, str]]:
 
 
 IDENTITY_PAIRS: frozenset[tuple[str, str]] = _declared_identity_pairs()
+"""The adjacent pairs of `CHAIN` whose grammars are identical, so that
+their registered migrator returns its source unchanged."""
 
 
 def _validate_registry() -> frozenset[tuple[str, str]]:
@@ -220,20 +209,51 @@ def _build_commit_index() -> dict[str, str]:
 
 
 def commit_id(ref: str) -> str:
-    """Resolve a release name to its panproto VCS commit id. Cached."""
+    """Resolve a release name to its pinned panproto VCS commit id.
+
+    The commit ids come from the schema-commit manifest and are
+    computed once, on first call.
+
+    Parameters
+    ----------
+    ref : str
+        A release name in `CHAIN`, such as ``"v0.19.0"`` or ``"HEAD"``.
+
+    Returns
+    -------
+    str
+        The commit id, or ``""`` when ``ref`` is not in `CHAIN`.
+
+    Raises
+    ------
+    MigrationError
+        When the manifest disagrees with `CHAIN` or with the VCS tags.
+    """
     if not _COMMIT_IDS:
         _COMMIT_IDS.update(_build_commit_index())
     return _COMMIT_IDS.get(ref, "")
 
 
 def vcs_coverage_report() -> list[DiffCoverageReport]:
-    """Run the panproto-VCS-driven coverage check across every
-    adjacent pair in `CHAIN`. Each report carries the schema
-    diff and the set of removed source rules not covered by the
-    corresponding hop's ``SOURCE_RULE_COVERAGE``.
+    """Check every registered hop against the grammar's schema diff.
 
-    Use this from ``qvr migrate --check`` (CLI) or from a CI test
-    to catch migrators that drift behind grammar changes."""
+    For each adjacent pair of `CHAIN`, the report carries the schema
+    diff between the two revisions and the removed source rules that
+    the hop's `COVERAGE` entry does not cover. ``qvr migrate --check``
+    runs this, and a CI test can run it to catch a migrator that has
+    fallen behind a grammar change.
+
+    Returns
+    -------
+    list[DiffCoverageReport]
+        One report per adjacent pair of `CHAIN`, in chain order.
+
+    Raises
+    ------
+    MigrationError
+        When `MIGRATORS`, `COVERAGE`, or `IDENTITY_PAIRS` disagree with
+        `CHAIN` or with the grammar manifest.
+    """
     identity_pairs = _validate_registry()
     reports: list[DiffCoverageReport] = []
     for i in range(len(CHAIN) - 1):
@@ -312,9 +332,28 @@ def _chain_slice(from_ref: str, to_ref: str) -> list[tuple[str, str]]:
 
 
 def compose_migration(from_ref: str, to_ref: str) -> _Migrator:
-    """Return a single ``bytes -> bytes`` callable that composes
-    every adjacent-pair migrator between ``from_ref`` and ``to_ref``
-    on `CHAIN`."""
+    """Compose the hops between two releases into one migrator.
+
+    Parameters
+    ----------
+    from_ref : str
+        The source release, a member of `CHAIN`.
+    to_ref : str
+        The target release, a member of `CHAIN` no earlier than
+        ``from_ref``.
+
+    Returns
+    -------
+    Callable[[bytes], bytes]
+        A rewrite of ``.qvr`` source from ``from_ref``'s grammar to
+        ``to_ref``'s, applying every registered hop in between.
+
+    Raises
+    ------
+    MigrationError
+        When either release is not in `CHAIN`, when ``to_ref`` precedes
+        ``from_ref``, or when a hop between them has no migrator.
+    """
     pairs = _chain_slice(from_ref, to_ref)
     if not pairs:
         return _identity.migrator(from_ref, to_ref)
@@ -335,8 +374,19 @@ def compose_migration(from_ref: str, to_ref: str) -> _Migrator:
 
 
 def available_targets(from_ref: str) -> tuple[str, ...]:
-    """Return every revision reachable forward from ``from_ref`` on
-    `CHAIN` (inclusive of ``from_ref`` itself)."""
+    """List the releases a migration from ``from_ref`` can target.
+
+    Parameters
+    ----------
+    from_ref : str
+        The source release.
+
+    Returns
+    -------
+    tuple[str, ...]
+        ``from_ref`` and every later release of `CHAIN`, or the empty
+        tuple when ``from_ref`` is not in `CHAIN`.
+    """
     if from_ref not in CHAIN:
         return ()
     i = CHAIN.index(from_ref)
@@ -353,6 +403,7 @@ __all__ = [
     "MigrationError",
     "available_targets",
     "blame_kind",
+    "check_chain_coverage",
     "commit_id",
     "compose_migration",
     "diff_coverage",

@@ -111,7 +111,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
@@ -442,7 +442,7 @@ class TuringRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] as a
     Turing.jl model.
 
-    Overrides [`render`][quivers.transpile.renderers._base.RendererBase.render]
+    Overrides [`render`][quivers.transpile.renderers.RendererBase.render]
     to wrap the IR-walk with the `@model function model(...) ... end`
     prologue / epilogue Turing.jl requires. The per-node dispatches
     (`declare`, `sample`, `marginalize`, `broadcast`) accumulate Julia
@@ -469,6 +469,13 @@ class TuringRenderer(RendererBase):
         default to empty so callers driving a synthetic
         [`IRProgram`][quivers.transpile.ir.IRProgram] (tests) can
         instantiate the renderer with no surface context.
+
+        Parameters
+        ----------
+        morphisms
+            The module's morphism declarations, by name.
+        lets
+            The module's define expressions, by name.
         """
         self._morphisms: dict = morphisms or {}
         self._lets: dict = lets or {}
@@ -476,11 +483,30 @@ class TuringRenderer(RendererBase):
     # ----- protocol / context plumbing -----
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("julia")
 
     # ----- top-level render -----
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        """Render a program to the target's panproto schema.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
@@ -647,7 +673,7 @@ class TuringRenderer(RendererBase):
         [`runtime_turing.jl`][quivers.transpile.runtime_turing] and
         is grafted onto the emit when GP is in the IR (handled by
         the existing
-        [`_graft_runtime_turing_helper`][quivers.transpile.renderers.turing._graft_runtime_turing_helper]
+        `_graft_runtime_turing_helper`
         path with GP added to the helper-family set).
         """
         if len(node.args) != 2 or not isinstance(node.args[1], IRArgKernel):
@@ -720,7 +746,7 @@ class TuringRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -729,7 +755,26 @@ class TuringRenderer(RendererBase):
     ) -> SchemaFragment:
         """No-op: in Turing.jl, declarations are the `~` statements
         themselves. The function signature is populated from the
-        IRDataInput list in [`render`][TuringRenderer.render]."""
+        IRDataInput list in [`render`][quivers.transpile.renderers.TuringRenderer.render].
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, constraint, plate, block
         return ""
 
@@ -737,7 +782,7 @@ class TuringRenderer(RendererBase):
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -758,6 +803,32 @@ class TuringRenderer(RendererBase):
           broadcast-dot form `name .~ Family.(idx_args)`, or the
           `arraydist([Family(args[i]) for i in 1:B])` fallback when no
           via is present.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+        via
+            The fibration an observe gathers its rows through, or ``None``.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del constraint  # output support already encoded in the family choice
         assert isinstance(ctx, _TuringCtx)
@@ -1085,7 +1156,7 @@ class TuringRenderer(RendererBase):
 
     # ----- marginalize: the integrated-density lowering -----
 
-    def marginalize(self, ctx: _RenderCtx, node: IRMarginalize) -> SchemaFragment:
+    def marginalize(self, ctx: RenderContext, node: IRMarginalize) -> SchemaFragment:
         """Integrate an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         latent out, adding the reduced density to the model's
         log-joint with `Turing.@addlogprob!`.
@@ -1111,6 +1182,18 @@ class TuringRenderer(RendererBase):
         what `using Turing` already brings into scope. No site is
         declared for the latent: the atoms replace it, and the emitted
         program denotes the same measure the QVR reference integrates.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         refuse_ungrouped_row_marginalize(f"qvr-{self.target}", node)
         assert isinstance(ctx, _TuringCtx)
@@ -1456,10 +1539,26 @@ class TuringRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
+        """Emit the target's broadcast of ``value`` to ``target_shape``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         value_vid = _arg_to_julia(ctx, value)
@@ -1484,7 +1583,7 @@ class TuringRenderer(RendererBase):
         """Render `args` and build the family's scalar call expression.
 
         The composition itself lives in
-        [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr],
+        `_dist_expr`,
         which every emission path shares; this wrapper only supplies
         the rendered arguments and the site's own event axes (the
         `LKJCholesky` matrix dimension).
@@ -1565,7 +1664,7 @@ class TuringRenderer(RendererBase):
         stmt = _assignment(sb, counter, lhs, rhs)
         sb.edge(ctx.body, stmt, "child_of")
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+    def _emit_score(self, ctx: RenderContext, node: IRScore) -> None:
         """Bind the score expression then add it to the log-joint via
         `Turing.@addlogprob!`."""
         assert isinstance(ctx, _TuringCtx)
@@ -1583,7 +1682,7 @@ class TuringRenderer(RendererBase):
         )
         sb.edge(ctx.body, mac, "child_of")
 
-    def _emit_return(self, ctx: _RenderCtx, names: tuple[str, ...]) -> None:
+    def _emit_return(self, ctx: RenderContext, names: tuple[str, ...]) -> None:
         assert isinstance(ctx, _TuringCtx)
         sb, counter = ctx.sb, ctx.counter
         if not names:
@@ -1708,7 +1807,7 @@ def _transform_rhs_args(
     (Weibull). Structural rewrites that change the call shape
     (StudentT affine, LKJCholesky dimension prepend, half-truncated
     wrapping) sit beside these in
-    [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr],
+    `_dist_expr`,
     which is the sole caller: these arg transforms preserve the
     rendered arg strings themselves and are safe to apply on every
     path that renders a family's args, whether the call is scalar,
@@ -1913,11 +2012,11 @@ def _invert_rate_arg(
 
 
 # ---------------------------------------------------------------------------
-# Renderer context: extends _RenderCtx with Turing-specific carriers.
+# Renderer context: extends RenderContext with Turing-specific carriers.
 # ---------------------------------------------------------------------------
 
 
-class _TuringCtx(_RenderCtx):
+class _TuringCtx(RenderContext):
     """Turing-renderer-internal context. Adds the function-body block
     vid and the plate tables a `~` emission needs to detect index
     dependence between args and surrounding batch axes.
@@ -1976,13 +2075,13 @@ class _TuringCtx(_RenderCtx):
 
 
 # `_JlCtxShim` lets us reuse
-# [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
+# `render_let_expr_julia`
 # (which expects a `JlCtx` exposing `v`, `e`, `lit`, `fresh`,
 # `constraint`, `cards`, `target`) without pulling in the legacy
 # backend's whole helper module.
 class _JlCtxShim:
     """Minimal adapter exposing the methods
-    [`render_let_expr_julia`][quivers.transpile.renderers._julia_helpers.render_let_expr_julia]
+    `render_let_expr_julia`
     reads off its ctx parameter.
 
     Carries the static-axis-size table `cards` so
@@ -2188,7 +2287,7 @@ def _arg_to_julia(
     into `eachrow(name)[z[via]]` form when the indexed parent has
     event_dim > 0 (a matrix-shaped distribution result); plain
     `name[z[via]]` when it is a vector. The detection consults
-    [`ctx.sample_plates`][TuringRenderer] for the parent's event_dims.
+    `ctx.sample_plates` for the parent's event_dims.
 
     `family` reserved for future per-family arg rewriting (none today).
     """
@@ -2345,7 +2444,7 @@ def _args_have_batch_index(
     nonempty batch axis (i.e. an index-dependent call site for the
     surrounding step's plate).
 
-    Used by [`sample`][TuringRenderer.sample] to choose between the
+    Used by [`sample`][quivers.transpile.renderers.TuringRenderer.sample] to choose between the
     `filldist(...)` form (no dependence) and the `arraydist(...)` /
     broadcast-dot form (dependence). The `batch_shaped_names` set
     additionally flags direct (un-indexed) references to a
@@ -2565,7 +2664,7 @@ def render_module(module: Module) -> bytes:
 
     Convenience wrapper around the `Module -> IRProgram -> Schema ->
     bytes` pipeline. Tests and the CLI driver call this; the renderer
-    is composable directly via [`TuringRenderer.render`][TuringRenderer.render]
+    is composable directly via [`TuringRenderer.render`][quivers.transpile.renderers.TuringRenderer.render]
     for callers that already hold an IRProgram.
     """
     # `target="stan"` keeps `MarginalizeStep` intact through composite
@@ -2638,7 +2737,7 @@ _RUNTIME_TURING_PATH = (
 #:
 #: `HalfStudentT` is deliberately absent. Distributions.jl has no such
 #: type either, but it does have every piece the fold is built from, so
-#: [`_dist_expr`][quivers.transpile.renderers.turing._dist_expr]
+#: `_dist_expr`
 #: composes `truncated(scale * TDist(df), 0, Inf)` out of the library's
 #: own combinators rather than paying for a grafted scorer. Composing
 #: keeps the emitted file a single top-level `@model` macrocall, which
@@ -2758,7 +2857,4 @@ def _graft_runtime_turing_helper(
         sb.edge(source_vid, id_map[child_old], "child_of")
 
 
-__all__ = [
-    "TuringRenderer",
-    "render_module",
-]
+__all__ = ["TuringRenderer"]

@@ -39,7 +39,7 @@ from collections.abc import Callable, Sequence
 
 import torch
 
-from quivers.continuous.program_steps import reading
+from quivers.continuous.program_steps import Draw, Score, Step, reading
 from quivers.continuous.programs import MonadicProgram
 from quivers.core.objects import Unit
 from quivers.stochastic.deduction._internal import build_locator, materialise_parameters
@@ -88,6 +88,11 @@ def nuts_program_from_deduction(
         The lifted program plus a ``(1, 1)`` placeholder input and
         an empty observation dict, ready to feed to
         [`quivers.inference.MCMC`][quivers.inference.MCMC] ``.run``.
+
+    Raises
+    ------
+    ValueError
+        If the deduction has no learnable parameters.
     """
     materialise_parameters(ded, corpus)
     locator, paths, _ = build_locator(ded)
@@ -103,7 +108,9 @@ def nuts_program_from_deduction(
         site_names.append(f"{site_prefix}__{safe}")
 
     prior_morph = _make_normal_prior_morphism(prior_scale)
-    steps: list[tuple] = [((site,), prior_morph, None) for site in site_names]
+    steps: list[Step] = [
+        Draw(names=(site,), morphism=prior_morph) for site in site_names
+    ]
 
     def _score_fn(
         env: dict[str, torch.Tensor],
@@ -125,7 +132,7 @@ def nuts_program_from_deduction(
                 out[b] = log_z
         return out
 
-    steps.append((("log_Z",), None, reading(_score_fn, site_names), True))
+    steps.append(Score(name="log_Z", score=reading(_score_fn, site_names)))
     model = MonadicProgram(
         domain=Unit,
         codomain=Unit,

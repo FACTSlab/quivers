@@ -208,8 +208,17 @@ and `--prefix PREFIX` selects an explicit Jupyter prefix.
 
 ## Module reference
 
+The `quivers.cli` package exports the `qvr` entry point together with
+the tooling its subcommands share: per-file checking, the REPL session
+and its front ends, completion, and highlighting.
+`quivers.cli.migrations` exports the grammar migration chain, the
+language server is built by `quivers.lsp`, and the Jupyter kernel
+lives in `quivers.kernel`.
+
 ::: quivers.cli
-::: quivers.cli.check
-::: quivers.cli.run
-::: quivers.cli.migrate
+
 ::: quivers.cli.migrations
+
+::: quivers.lsp
+
+::: quivers.kernel

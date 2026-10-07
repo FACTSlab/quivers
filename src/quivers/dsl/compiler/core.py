@@ -523,3 +523,6 @@ class Compiler(
             self._compile_loss(stmt)
         else:
             raise CompileError(f"unknown statement type: {type(stmt).__name__}")
+
+
+__all__ = ["Compiler"]

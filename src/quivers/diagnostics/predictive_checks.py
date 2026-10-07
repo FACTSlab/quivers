@@ -16,7 +16,6 @@ import numpy as np
 import xarray as xr
 
 
-#: Built-in scalar test statistics ``T(y) -> scalar``.
 STATISTICS: dict[str, Callable[[np.ndarray], float]] = {
     "mean": lambda y: float(np.mean(y)),
     "median": lambda y: float(np.median(y)),
@@ -27,6 +26,8 @@ STATISTICS: dict[str, Callable[[np.ndarray], float]] = {
     "q05": lambda y: float(np.quantile(y, 0.05)),
     "q95": lambda y: float(np.quantile(y, 0.95)),
 }
+"""The built-in scalar test statistics ``T(y) -> scalar``, keyed by the
+name `posterior_predictive_check` accepts for its ``statistic`` argument."""
 
 
 def posterior_predictive_check(
@@ -124,11 +125,28 @@ def loo_pit(
     idata: xr.DataTree,
     *,
     observed_name: str,
-):
+) -> xr.Dataset:
     """Leave-one-out probability-integral-transform calibration.
 
-    Delegates to `arviz.loo_pit`.  Returns the PIT values; the
-    canonical use is `arviz.plot_loo_pit` for the calibration
-    diagnostic plot.
+    Delegates to `arviz.loo_pit`. The canonical use of the PIT values
+    is `arviz.plot_loo_pit` for the calibration diagnostic plot.
+
+    Parameters
+    ----------
+    idata : xr.DataTree
+        Fit produced by [`quivers.diagnostics.to_datatree`][quivers.diagnostics.to_datatree],
+        with ``posterior_predictive``, ``log_likelihood``, and
+        ``observed_data`` groups populated.
+    observed_name : str
+        Name of the observed site, which must appear in those groups.
+
+    Returns
+    -------
+    xr.Dataset
+        The LOO-PIT value at each observed data point, under the
+        variable ``observed_name``.
     """
-    return az.loo_pit(idata, y=observed_name)
+    return az.loo_pit(idata, var_names=observed_name)
+
+
+__all__ = ["STATISTICS", "loo_pit", "posterior_predictive_check"]

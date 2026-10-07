@@ -26,7 +26,8 @@ from quivers.arrows.typeclasses import Arrow, ArrowApply, Category_
 from quivers.core._factories import parallel
 from quivers.core.morphisms import Morphism
 from quivers.core.morphisms import identity as id_morph
-from quivers.core.objects import ProductSet, SetObject
+from quivers.core.objects import CoproductSet, FreeMonoid, ProductSet, SetObject
+from quivers.monadic.comonads import Comonad
 from quivers.monadic.typeclasses import Monad
 
 
@@ -172,8 +173,6 @@ def _recover_value_type(m, mB: SetObject) -> SetObject:
     State's image is a function-space whose codomain is ``A × σ``
     so the preimage is the product's first factor; etc.
     """
-    from quivers.core.objects import CoproductSet, FreeMonoid
-
     # If fmap_obj is identity, return as-is.
     candidate = m.fmap_obj(mB)
     if candidate == mB:
@@ -266,13 +265,35 @@ class ArrowMonad(dx.Model):
 Monad.register(ArrowMonad)
 
 
-def kleisli(monad) -> Kleisli:
-    """Wrap a Monad as a Kleisli arrow."""
+def kleisli(monad: Monad) -> Kleisli:
+    """Wrap a Monad as a Kleisli arrow.
+
+    Parameters
+    ----------
+    monad : Monad
+        The monad whose Kleisli category the arrow realises.
+
+    Returns
+    -------
+    Kleisli
+        The Kleisli arrow of ``monad``.
+    """
     return Kleisli(monad=monad)
 
 
-def arrow_monad(arrow) -> ArrowMonad:
-    """Wrap an `ArrowApply` arrow as a Monad."""
+def arrow_monad(arrow: ArrowApply) -> ArrowMonad:
+    """Wrap an `ArrowApply` arrow as a Monad.
+
+    Parameters
+    ----------
+    arrow : ArrowApply
+        The arrow whose ``app`` supplies the monad's ``join``.
+
+    Returns
+    -------
+    ArrowMonad
+        The monad of ``arrow``.
+    """
     return ArrowMonad(arrow=arrow)
 
 
@@ -335,12 +356,22 @@ class CoKleisli(dx.Model):
         return costrength >> parallel(f, id_morph(C))
 
 
-def cokleisli(comonad) -> CoKleisli:
+def cokleisli(comonad: Comonad) -> CoKleisli:
     """Wrap a Comonad as a CoKleisli category.
 
     The result is registered as `Category_` (always) but not
     `Arrow`; promoting to an Arrow requires the user-supplied
     costrength routed through `CoKleisli.first_via_costrength`.
+
+    Parameters
+    ----------
+    comonad : Comonad
+        The comonad whose CoKleisli category is built.
+
+    Returns
+    -------
+    CoKleisli
+        The CoKleisli category of ``comonad``.
     """
     return CoKleisli(comonad=comonad)
 

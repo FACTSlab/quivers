@@ -91,6 +91,17 @@ def saturation_warnings(module: Module) -> tuple[SaturationWarning, ...]:
     via the DSL surface (when available) or apply the recommended
     init programmatically via
     [`quivers.analysis.init_spec.apply_init_spec`][quivers.analysis.init_spec.apply_init_spec].
+
+    Parameters
+    ----------
+    module : Module
+        The parsed QVR module whose program is analysed.
+
+    Returns
+    -------
+    tuple[SaturationWarning, ...]
+        One warning per latent whose recommended init departs from the
+        default; empty when the module declares no governing algebra.
     """
     shape = ChainShape.from_module(module)
     algebra = shape.algebra

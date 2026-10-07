@@ -509,3 +509,6 @@ def migrate(source: bytes) -> bytes:
         "assembled migration output does not parse under",
     )
     return result
+
+
+__all__ = []

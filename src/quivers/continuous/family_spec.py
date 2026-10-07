@@ -4,7 +4,7 @@ the quivers stack supports.
 A `FamilySpec` carries everything the three call paths need:
 
 * the **conditional** path
-  ([`quivers.continuous.families._IndependentConditional`][quivers.continuous.families._IndependentConditional])
+  (`quivers.continuous.families._IndependentConditional`)
   consumes ``params`` to know how to transform unbounded MLP outputs
   and how to instantiate a `torch.distributions` object;
 * the **fixed inline** path
@@ -87,7 +87,7 @@ def _validate_transform(value: str | Bijector) -> str | Bijector:
     """Validate a `ParamSpec.transform` argument.
 
     String values must be registered in
-    [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR];
+    `TRANSFORM_TO_BIJECTOR`;
     `Bijector` instances pass through. Any other type raises.
     """
     if isinstance(value, Bijector):
@@ -110,7 +110,7 @@ class ParamSpec:
     """Spec for a single parameter of a distribution family.
 
     A plain frozen dataclass rather than a
-    [`dx.Model`][didactic.api.Model] because `transform` accepts a
+    `dx.Model` because `transform` accepts a
     [`Bijector`][quivers.continuous.bijectors.Bijector] instance,
     and the didactic model surface admits only registered scalar
     types in a union field. String-typed transforms retain a stable
@@ -123,7 +123,7 @@ class ParamSpec:
         ``Distribution`` constructor.
     transform : str | Bijector
         Either a string key registered in
-        [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR]
+        `TRANSFORM_TO_BIJECTOR`
         or a `Bijector` instance. The bijector's `forward` is
         applied to the raw parameter tensor on the conditional
         path; its full four-primitive interface is available to
@@ -148,7 +148,7 @@ class ParamSpec:
         for this parameter.
 
         For a string-typed `transform`, looks the key up in
-        [`TRANSFORM_TO_BIJECTOR`][quivers.continuous.param_transforms.TRANSFORM_TO_BIJECTOR];
+        `TRANSFORM_TO_BIJECTOR`;
         for a `Bijector`-typed `transform`, returns it unchanged.
         """
         return resolve_transform(self.transform)
@@ -166,7 +166,7 @@ class ParamSpec:
     def inline_clamp(self) -> Callable[[torch.Tensor], torch.Tensor]:
         """Inline safety-clamp callable for user-supplied literal
         or runtime parameters, sourced from
-        [`resolve_inline_clamp`][quivers.continuous.param_transforms.resolve_inline_clamp].
+        `resolve_inline_clamp`.
         """
         return resolve_inline_clamp(self.transform).forward
 
@@ -180,7 +180,7 @@ class ParamSpec:
         """
         if isinstance(self.transform, str):
             return self.transform
-        return f"<bijector:{type(self.transform).__name__}>"
+        return f"<bijector:{type(self.transform).__name__.removesuffix('Bijector')}>"
 
 
 type OutputKind = Literal[
@@ -215,7 +215,7 @@ class FamilySpec:
 
     Used by:
 
-    * [`quivers.continuous.families._IndependentConditional`][quivers.continuous.families._IndependentConditional]
+    * `quivers.continuous.families._IndependentConditional`
       and the standalone ``ConditionalX`` classes for the
       learnable-parameter path;
     * [`quivers.continuous.inline.FixedDistribution`][quivers.continuous.inline.FixedDistribution] and
@@ -267,9 +267,10 @@ class FamilySpec:
 
 # Global mutable registry.  Populated by `register` at import time.
 FAMILY_REGISTRY: dict[str, FamilySpec] = {}
+"""Every registered family specification, keyed by its DSL name."""
 
 
-def register(spec: FamilySpec) -> FamilySpec:
+def register_family(spec: FamilySpec) -> FamilySpec:
     """Register a `FamilySpec` under its name; idempotent on
     re-registration of the same name to support hot-reload during
     development.
@@ -278,12 +279,12 @@ def register(spec: FamilySpec) -> FamilySpec:
     return spec
 
 
-def get(name: str) -> FamilySpec | None:
+def get_family_spec(name: str) -> FamilySpec | None:
     """Look up a registered family by DSL name; ``None`` if absent."""
     return FAMILY_REGISTRY.get(name)
 
 
-def names() -> tuple[str, ...]:
+def family_names() -> tuple[str, ...]:
     """Sorted tuple of every registered family name."""
     return tuple(sorted(FAMILY_REGISTRY))
 
@@ -322,12 +323,12 @@ def clamp_param(spec: FamilySpec, name: str, value: torch.Tensor) -> torch.Tenso
 __all__ = [
     "FAMILY_REGISTRY",
     "FamilySpec",
+    "OutputKind",
     "ParamKind",
     "ParamSpec",
-    "OutputKind",
     "build_torch_distribution",
     "clamp_param",
-    "get",
-    "names",
-    "register",
+    "family_names",
+    "get_family_spec",
+    "register_family",
 ]

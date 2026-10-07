@@ -98,3 +98,6 @@ def _extension_for(target: str) -> str:
     if emitter is None:
         return target
     return getattr(emitter, "file_extension", target)
+
+
+__all__ = []

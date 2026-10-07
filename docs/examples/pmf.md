@@ -77,7 +77,7 @@ import torch
 import torch.distributions as D
 
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Let, MonadicProgram, Observe
 from quivers.continuous.spaces import Euclidean
 from quivers.core.morphisms import ObservedMorphism
 from quivers.core.objects import Unit
@@ -140,17 +140,18 @@ model = MonadicProgram(
     domain=Euclidean(name="Ix", dim=1),
     codomain=Euclidean(name="Rating", dim=n_movie),
     steps=[
-        (("U",), FactorPrior(K, n_user), None, False),
-        (("V",), FactorPrior(K, n_movie), None, False),
-        (
-            ("mu",),
-            None,
-            lambda env: bilinear_score(
+        Draw(names=("U",), morphism=FactorPrior(K, n_user)),
+        Draw(names=("V",), morphism=FactorPrior(K, n_movie)),
+        Let(
+            name="mu",
+            value=lambda env: bilinear_score(
                 env["U"].reshape(K, n_user),
                 env["V"].reshape(K, n_movie),
             ),
         ),
-        (("rating",), RatingLikelihood(sigma), ("mu",), True),
+        Observe(
+            names=("rating",), morphism=RatingLikelihood(sigma), args=("mu",)
+        ),
     ],
     return_vars=("rating",),
 )

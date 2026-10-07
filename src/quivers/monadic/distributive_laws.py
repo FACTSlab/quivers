@@ -145,3 +145,9 @@ class FreeMonoidPowersetLaw(DistributiveLaw):
         data = torch.block_diag(*blocks)
 
         return observed(fm, fm, data, algebra=self._algebra)
+
+
+__all__ = [
+    "DistributiveLaw",
+    "FreeMonoidPowersetLaw",
+]

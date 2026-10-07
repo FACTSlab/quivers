@@ -1,7 +1,7 @@
 """Posterior predictive sampling.
 
-Given a trained posterior representation — either a variational
-guide or an MCMC chain — `Predictive` repeatedly samples
+Given a trained posterior representation (either a variational
+guide or an MCMC chain), `Predictive` repeatedly samples
 latents from the posterior and traces the model forward to produce
 posterior predictive draws of every site.
 """

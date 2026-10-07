@@ -33,7 +33,7 @@ Key bindings (chosen to work uniformly on macOS, Linux, and Windows):
 - ``f1``          help
 
 The widgets all draw from a single `ReplSession` instance.
-Highlighting is driven by [`quivers.cli.repl_highlight`][quivers.cli.repl_highlight], so the
+Highlighting is driven by [`tokenize`][quivers.cli.tokenize], so the
 TUI tracks the live grammar and the live env.
 """
 
@@ -81,7 +81,18 @@ _HISTORY_PATH = (
 
 
 def run_tui(session: ReplSession) -> int:
-    """Run the Textual REPL App on ``session``."""
+    """Run the Textual REPL front end on ``session``.
+
+    Parameters
+    ----------
+    session : ReplSession
+        The session that evaluates each input.
+
+    Returns
+    -------
+    int
+        The process exit status, ``0`` once the app exits.
+    """
     app = _build_tui_app(session)
     app.run()  # type: ignore[attr-defined]
     return 0
@@ -161,7 +172,7 @@ def _build_tui_app(session: ReplSession) -> object:
             self._HELP_CATEGORIES = HELP_CATEGORIES
             self._KEY_BINDINGS = KEY_BINDINGS
             with Vertical(id="help-frame"):
-                yield Static("qvr repl — help (Esc to close)", id="help-title")
+                yield Static("qvr repl: help (Esc to close)", id="help-title")
                 yield Input(placeholder="filter… (substring match)", id="help-filter")
                 yield RichLog(id="help-body", highlight=False, markup=False)
 

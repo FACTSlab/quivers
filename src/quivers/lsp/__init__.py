@@ -1,17 +1,16 @@
 """QVR Language Server.
 
 Public entry: `build_server` returns a configured pygls
-``LanguageServer`` that speaks LSP 3.17 over stdio. The
-[`quivers.cli.lsp.main`][quivers.cli.lsp.main] CLI subcommand wraps this with stdio /
-TCP plumbing.
+``LanguageServer`` that speaks LSP 3.17 over stdio. The ``qvr lsp``
+subcommand wraps it with stdio and TCP plumbing.
 
-The server reuses every analytic component the REPL uses:
-[`quivers.cli.repl_session.ReplSession`][quivers.cli.repl_session.ReplSession]-style state per document,
-[`quivers.cli.repl_highlight`][quivers.cli.repl_highlight] for semantic tokens,
-[`quivers.cli.repl_complete`][quivers.cli.repl_complete] for completion. There is no duplicate
-parser, type-checker, or token vocabulary.
+The server reuses every analytic component the REPL uses: per-document
+state in the style of [`ReplSession`][quivers.cli.ReplSession],
+[`tokenize`][quivers.cli.tokenize] for semantic tokens, and
+[`all_completions`][quivers.cli.all_completions] for completion. There
+is no duplicate parser, type-checker, or token vocabulary.
 """
 
-from quivers.lsp.server import build_server
+from quivers.lsp.server import SERVER_NAME, SERVER_VERSION, build_server
 
-__all__ = ["build_server"]
+__all__ = ["SERVER_NAME", "SERVER_VERSION", "build_server"]

@@ -454,3 +454,12 @@ def partial_trace(
         ext_cod = ProductSet(components=tuple(external_cod_comps))
 
     return observed(ext_dom, ext_cod, result, algebra=q)
+
+
+__all__ = [
+    "TracedMonoidal",
+    "CartesianTrace",
+    "IterativeTrace",
+    "trace",
+    "partial_trace",
+]

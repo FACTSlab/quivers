@@ -3,12 +3,12 @@
 Each Hughes-style arrow typeclass corresponds to a panproto theory
 that declares the operations and laws the typeclass requires:
 
-- `ThCategory_` — composition + identity, with the three
+- `ThCategory_`: composition and identity, with the three
   category laws.
-- `ThArrow` — adds ``arr`` and ``first``; the seven Hughes
+- `ThArrow`: adds ``arr`` and ``first``, with the seven Hughes
   arrow laws.
 - `ThArrowChoice`, `ThArrowApply`, `ThArrowLoop`,
-  `ThArrowZero`, `ThArrowPlus` — the additional
+  `ThArrowZero`, `ThArrowPlus`: the additional
   operations and laws of each extension.
 
 The bridges in [`quivers.monadic.bridges`][quivers.monadic.bridges] correspond to panproto
@@ -19,10 +19,10 @@ the identity on the appropriate theory image.
 
 from __future__ import annotations
 
-from quivers.monadic.theories import _TheoryStub
+from quivers.monadic.theories import TypeclassTheory
 
 
-ThCategory_ = _TheoryStub(
+ThCategory_ = TypeclassTheory(
     name="ThCategory_",
     sorts=("Object", "Arr"),
     operations=(
@@ -35,8 +35,9 @@ ThCategory_ = _TheoryStub(
         "compose(compose(f, g), h) = compose(f, compose(g, h))",
     ),
 )
+"""The theory of `Category_`."""
 
-ThArrow = _TheoryStub(
+ThArrow = TypeclassTheory(
     name="ThArrow",
     operations=(
         "arr : (Object → Object) → Arr",
@@ -53,8 +54,9 @@ ThArrow = _TheoryStub(
     ),
     extends=("ThCategory_",),
 )
+"""The theory of `Arrow`."""
 
-ThArrowChoice = _TheoryStub(
+ThArrowChoice = TypeclassTheory(
     name="ThArrowChoice",
     operations=("left_arr : Arr → Arr",),
     equations=(
@@ -63,15 +65,17 @@ ThArrowChoice = _TheoryStub(
     ),
     extends=("ThArrow",),
 )
+"""The theory of `ArrowChoice`."""
 
-ThArrowApply = _TheoryStub(
+ThArrowApply = TypeclassTheory(
     name="ThArrowApply",
     operations=("app : (Arr ⊗ Object) → Object",),
     equations=("compose(arr(λx. (arr(λy. (x, y)), z)), app) ≡ id",),
     extends=("ThArrow",),
 )
+"""The theory of `ArrowApply`."""
 
-ThArrowLoop = _TheoryStub(
+ThArrowLoop = TypeclassTheory(
     name="ThArrowLoop",
     operations=("loop_arr : Arr → Arr",),
     equations=(
@@ -83,14 +87,16 @@ ThArrowLoop = _TheoryStub(
     ),
     extends=("ThArrow",),
 )
+"""The theory of `ArrowLoop`."""
 
-ThArrowZero = _TheoryStub(
+ThArrowZero = TypeclassTheory(
     name="ThArrowZero",
     operations=("zero_arr : Arr",),
     extends=("ThArrow",),
 )
+"""The theory of `ArrowZero`."""
 
-ThArrowPlus = _TheoryStub(
+ThArrowPlus = TypeclassTheory(
     name="ThArrowPlus",
     operations=("alt_arr : Arr ⊗ Arr → Arr",),
     equations=(
@@ -100,6 +106,7 @@ ThArrowPlus = _TheoryStub(
     ),
     extends=("ThArrowZero",),
 )
+"""The theory of `ArrowPlus`."""
 
 
 __all__ = [

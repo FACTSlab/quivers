@@ -157,3 +157,8 @@ class Profunctor:
 
     def __repr__(self) -> str:
         return f"Profunctor({self._contra!r} ↛ {self._co!r})"
+
+
+__all__ = [
+    "Profunctor",
+]

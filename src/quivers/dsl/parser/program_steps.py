@@ -364,15 +364,4 @@ def _walk_program_param(t: _Tree, vid: str) -> ProgramParam:
     raise ParseError(f"unexpected _program_param kind: {k}")
 
 
-__all__ = [
-    "_walk_call_step",
-    "_walk_let_step",
-    "_walk_marginalize_step",
-    "_walk_observe_step",
-    "_walk_program_param",
-    "_walk_program_step",
-    "_walk_return_pattern",
-    "_walk_return_step",
-    "_walk_sample_step",
-    "_walk_var_pattern",
-]
+__all__ = []

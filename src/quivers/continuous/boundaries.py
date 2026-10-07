@@ -297,3 +297,9 @@ class Embed(ContinuousMorphism):
         )
 
         return mu + sigma * eps
+
+
+__all__ = [
+    "Discretize",
+    "Embed",
+]

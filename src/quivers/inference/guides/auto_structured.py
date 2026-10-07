@@ -60,8 +60,19 @@ from quivers.inference.registry import LatentSite
 
 
 type DependencyKind = str | Callable[[torch.Tensor], torch.Tensor]
+"""One dependency edge of an `AutoStructured` guide: the string
+``"linear"`` for a learned linear shift, or a callable mapping the
+parent's unconstrained flat draw to a shift on the child's
+unconstrained flat location."""
+
 type ConditionalSpec = str | Mapping[str, str]
+"""The per-site marginal families of an `AutoStructured` guide: one
+family name (``"delta"``, ``"normal"``, or ``"mvn"``) for every site,
+or a mapping from site name to family name."""
+
 type DependencySpec = Mapping[str, Mapping[str, DependencyKind]]
+"""The dependency edges of an `AutoStructured` guide, keyed first by
+child site and then by parent site."""
 
 
 _ALLOWED_CONDITIONALS: frozenset[str] = frozenset({"delta", "normal", "mvn"})
@@ -144,10 +155,10 @@ class AutoStructured(Guide):
         site to the same family. A dict maps site name to family.
         Allowed families:
 
-        * `"delta"` — Dirac mass at a learnable location
+        * `"delta"`: Dirac mass at a learnable location
           (analogous to `AutoDeltaGuide`).
-        * `"normal"` — independent-Normal marginal.
-        * `"mvn"` — the site is part of a joint multivariate
+        * `"normal"`: independent-Normal marginal.
+        * `"mvn"`: the site is part of a joint multivariate
           Normal block. Every `"mvn"` site shares one Cholesky
           factor sized to the sum of every `"mvn"` site's flat
           length. This matches Pyro's convention.
@@ -445,4 +456,9 @@ class AutoStructured(Guide):
         return total_scalar.expand(batch)
 
 
-__all__ = ["AutoStructured", "DependencyKind"]
+__all__ = [
+    "AutoStructured",
+    "ConditionalSpec",
+    "DependencyKind",
+    "DependencySpec",
+]

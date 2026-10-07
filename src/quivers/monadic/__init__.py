@@ -9,7 +9,6 @@ implementations (``FuzzyPowersetMonad``, ``FreeMonoidMonad``,
 classes for the Eilenberg–Moore vocabulary.
 """
 
-# Typeclass tower.
 from quivers.monadic.typeclasses import (
     Functor,
     Applicative,
@@ -20,12 +19,10 @@ from quivers.monadic.typeclasses import (
     Traversable,
     MonadTrans,
 )
-
-# Concrete monad instances of the tower.
 from quivers.monadic.monads import (
-    KleisliCategory,
     FuzzyPowersetMonad,
     FreeMonoidMonad,
+    KleisliCategory,
 )
 from quivers.monadic.comonads import (
     Comonad,
@@ -46,8 +43,6 @@ from quivers.monadic.distributive_laws import (
     DistributiveLaw,
     FreeMonoidPowersetLaw,
 )
-
-# Stdlib effect instances and adjacent infrastructure.
 from quivers.monadic.instances import (
     Identity,
     Maybe,
@@ -56,7 +51,7 @@ from quivers.monadic.instances import (
     State,
     Reader,
     Writer,
-    List as ListMonad,
+    ListMonad,
 )
 from quivers.monadic.transformers import (
     StateT,
@@ -74,13 +69,29 @@ from quivers.monadic.algebraic import (
 from quivers.monadic.bridges import (
     Kleisli,
     ArrowMonad,
+    CoKleisli,
     kleisli,
     arrow_monad,
+    cokleisli,
+)
+from quivers.monadic.laws import (
+    check_functor_laws,
+    check_monad_laws,
+)
+from quivers.monadic.theories import (
+    TypeclassTheory,
+    ThFunctor,
+    ThApplicative,
+    ThMonad,
+    ThAlternative,
+    ThMonadPlus,
+    ThMonadTrans,
+    ThFoldable,
+    ThTraversable,
 )
 
-
 __all__ = [
-    # Typeclasses
+    # typeclasses
     "Functor",
     "Applicative",
     "Monad",
@@ -89,16 +100,16 @@ __all__ = [
     "Foldable",
     "Traversable",
     "MonadTrans",
-    # Concrete monads
-    "KleisliCategory",
+    # monads
     "FuzzyPowersetMonad",
     "FreeMonoidMonad",
-    # Comonads
+    "KleisliCategory",
+    # comonads
     "Comonad",
     "CoKleisliCategory",
     "DiagonalComonad",
     "CofreeComonad",
-    # Algebras
+    # algebras
     "Algebra",
     "FreeAlgebra",
     "ObservedAlgebra",
@@ -106,10 +117,10 @@ __all__ = [
     "CofreeCoalgebra",
     "ObservedCoalgebra",
     "EilenbergMooreCategory",
-    # Distributive laws
+    # distributive_laws
     "DistributiveLaw",
     "FreeMonoidPowersetLaw",
-    # Stdlib effect instances
+    # instances
     "Identity",
     "Maybe",
     "Alternative_",
@@ -118,20 +129,35 @@ __all__ = [
     "Reader",
     "Writer",
     "ListMonad",
-    # Transformers
+    # transformers
     "StateT",
     "ReaderT",
     "MaybeT",
     "ContT",
     "WriterT",
-    # Algebraic effects
+    # algebraic
     "Operation",
     "EffectSignature",
     "Handler",
     "FreeMonad",
-    # Bridges
+    # bridges
     "Kleisli",
     "ArrowMonad",
+    "CoKleisli",
     "kleisli",
     "arrow_monad",
+    "cokleisli",
+    # laws
+    "check_functor_laws",
+    "check_monad_laws",
+    # theories
+    "TypeclassTheory",
+    "ThFunctor",
+    "ThApplicative",
+    "ThMonad",
+    "ThAlternative",
+    "ThMonadPlus",
+    "ThMonadTrans",
+    "ThFoldable",
+    "ThTraversable",
 ]

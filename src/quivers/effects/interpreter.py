@@ -24,8 +24,6 @@ outer one gives.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import weakref
 from collections.abc import Callable, Mapping
 
@@ -33,11 +31,10 @@ import torch
 
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.core.morphisms import extract_morphism
-from quivers.continuous.program_steps import _LetSpec, _ScoreSpec, _StepSpec
+from quivers.continuous.program_steps import Draw, Let, Observe, Score
 from quivers.continuous.programs import install_evaluator
 
-if TYPE_CHECKING:
-    from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.programs import MonadicProgram
 from quivers.effects.base import (
     Contribution,
     EffectHandler,
@@ -277,12 +274,12 @@ def _split_observations(
     """
     declared: dict[str, str] = {}
     computed: set[str] = set()
-    for spec in program._step_specs:
-        if isinstance(spec, _LetSpec | _ScoreSpec):
-            computed.add(spec.var)
-        else:
-            label = ",".join(spec.vars)
-            for name in spec.vars:
+    for spec in program.steps:
+        if isinstance(spec, Let | Score):
+            computed.add(spec.name)
+        elif isinstance(spec, Draw | Observe):
+            label = ",".join(spec.names)
+            for name in spec.names:
                 declared[name] = label
     sites: dict[str, torch.Tensor] = {}
     supplied: dict[str, torch.Tensor] = {}
@@ -451,9 +448,9 @@ class _HostSteps:
             ``param`` handlers answered.
         """
         spec = step.spec
-        assert isinstance(spec, _StepSpec)
+        assert isinstance(spec, Draw | Observe)
         env = _environment(step, argument)
-        morphism = self.program._modules[spec.morphism_name]
+        morphism = self.program.step_module(spec)
         assert isinstance(morphism, ContinuousMorphism)
         inp = self.program._resolve_input(spec, self.x, env)
         assert step.site is not None
@@ -528,9 +525,9 @@ class _HostSteps:
             The morphism's action on the batched input.
         """
         spec = step.spec
-        assert isinstance(spec, _StepSpec)
+        assert isinstance(spec, Draw | Observe)
         env = _environment(step, argument)
-        module = self.program._modules[spec.morphism_name]
+        module = self.program.step_module(spec)
         assert module is not None
         categorical = extract_morphism(module)
         assert categorical is not None
@@ -555,12 +552,12 @@ class _HostSteps:
             One tensor per bound variable.
         """
         spec = step.spec
-        assert isinstance(spec, _StepSpec)
+        assert isinstance(spec, Draw | Observe)
         env = _environment(step, argument)
-        result = env[",".join(spec.vars)]
+        result = env[",".join(spec.names)]
         scratch: dict[str, torch.Tensor] = {}
         self.program._bind_result(spec, result, scratch)
-        return tuple(scratch[name] for name in spec.vars)
+        return tuple(scratch[name] for name in spec.names)
 
     def _let(self, step: HostStep, argument: object) -> object:
         """Compute a let binding.
@@ -579,8 +576,8 @@ class _HostSteps:
             broadcast over the batch.
         """
         spec = step.spec
-        assert isinstance(spec, _LetSpec)
-        supplied = self.run.supplied.get(spec.var)
+        assert isinstance(spec, Let)
+        supplied = self.run.supplied.get(spec.name)
         if supplied is not None:
             return supplied
         env = _environment(step, argument)
@@ -606,7 +603,7 @@ class _HostSteps:
             The contribution.
         """
         spec = step.spec
-        assert isinstance(spec, _ScoreSpec)
+        assert isinstance(spec, Score)
         return spec.score(_environment(step, argument))
 
 
@@ -799,13 +796,14 @@ def run_program(
     if sites:
         clamped = {
             label: _canonical(
-                steps.program._modules[
+                steps.program.step_module(
                     next(
-                        spec.morphism_name
-                        for spec in program._step_specs
-                        if isinstance(spec, _StepSpec) and ",".join(spec.vars) == label
+                        spec
+                        for spec in program.steps
+                        if isinstance(spec, Draw | Observe)
+                        and ",".join(spec.names) == label
                     )
-                ],  # type: ignore[arg-type]
+                ),  # type: ignore[arg-type]
                 value,
             )
             for label, value in sites.items()
@@ -829,8 +827,8 @@ def run_program(
     for step in kernel.steps:
         if step.kind != "draw" or step.site is None:
             continue
-        assert isinstance(step.spec, _StepSpec)
-        morphism = program._modules[step.spec.morphism_name]
+        assert isinstance(step.spec, Draw | Observe)
+        morphism = program.step_module(step.spec)
         assert isinstance(morphism, ContinuousMorphism)
         for name, parameter in morphism.named_parameters():
             store[f"{step.site}.{name}"] = parameter
@@ -1066,7 +1064,6 @@ def log_joint(
                 values[name] = values[label]
     with TraceHandler() as handler:
         run_program(program, x, values)
-    total = torch.zeros(x.shape[0], device=x.device)
     for name, site in handler.trace.sites.items():
         if (
             site.sampleable is not None
@@ -1074,6 +1071,15 @@ def log_joint(
             and not site.is_deterministic
         ):
             raise KeyError(name)
+    # The accumulator takes the widest dtype among the densities: a
+    # zero-dimensional float64 density added to a float32 batch of zeros
+    # would otherwise be demoted to float32.
+    dtype = torch.get_default_dtype()
+    for site in handler.trace.sites.values():
+        if site.log_prob.is_floating_point():
+            dtype = torch.promote_types(dtype, site.log_prob.dtype)
+    total = torch.zeros(x.shape[0], device=x.device, dtype=dtype)
+    for site in handler.trace.sites.values():
         total = total + site.log_prob
     return total
 
@@ -1135,4 +1141,6 @@ class _ReferenceEvaluator:
 
 install_evaluator(_ReferenceEvaluator())
 
-__all__ = ["RUN", "host_value", "log_joint", "run_program", "sample_program"]
+__all__ = [
+    "run_program",
+]

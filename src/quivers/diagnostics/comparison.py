@@ -60,3 +60,6 @@ def compare(
         var_name=var_name,
         reference=reference,
     )
+
+
+__all__ = ["compare"]

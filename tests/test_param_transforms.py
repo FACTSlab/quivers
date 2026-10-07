@@ -29,11 +29,11 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from quivers.continuous.bijectors import (
-    Affine,
+    AffineBijector,
     Bijector,
-    Compose,
-    Identity,
-    Softplus,
+    ComposeBijector,
+    IdentityBijector,
+    SoftplusBijector,
 )
 from quivers.continuous.family_spec import ParamSpec
 from quivers.continuous.param_transforms import (
@@ -127,7 +127,7 @@ def test_resolve_transform_string() -> None:
 
 
 def test_resolve_transform_passes_bijector_through() -> None:
-    bij = Softplus()
+    bij = SoftplusBijector()
     assert resolve_transform(bij) is bij
 
 
@@ -145,8 +145,8 @@ def test_resolve_inline_clamp_bijector_returns_identity() -> None:
     """A user-supplied bijector transform gets the identity clamp;
     the bijector's forward is trusted to land in-support.
     """
-    clamp = resolve_inline_clamp(Softplus())
-    assert isinstance(clamp, Identity)
+    clamp = resolve_inline_clamp(SoftplusBijector())
+    assert isinstance(clamp, IdentityBijector)
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ def test_paramspec_accepts_string_transform() -> None:
 
 
 def test_paramspec_accepts_bijector_transform() -> None:
-    bij = Softplus()
+    bij = SoftplusBijector()
     p = ParamSpec(name="scale", transform=bij)
     assert p.bijector is bij
     x = torch.tensor([-1.0, 0.0, 1.0])
@@ -186,7 +186,7 @@ def test_paramspec_transform_name_for_string() -> None:
 
 
 def test_paramspec_transform_name_for_bijector() -> None:
-    p = ParamSpec(name="rate", transform=Softplus())
+    p = ParamSpec(name="rate", transform=SoftplusBijector())
     assert p.transform_name == "<bijector:Softplus>"
 
 
@@ -206,7 +206,7 @@ def test_paramspec_inline_clamp_string_sigmoid_bounds_unit_interval() -> None:
 
 
 def test_paramspec_inline_clamp_bijector_is_identity() -> None:
-    p = ParamSpec(name="scale", transform=Softplus())
+    p = ParamSpec(name="scale", transform=SoftplusBijector())
     x = torch.tensor([-3.0, 0.0, 3.0])
     torch.testing.assert_close(p.inline_clamp(x), x)
 
@@ -251,7 +251,9 @@ def test_custom_bijector_composes_with_registry_entries() -> None:
     """A user-supplied bijector composed with a registry
     bijector using `Compose` still routes through `resolve_transform`.
     """
-    composite = Compose(Affine(scale=2.0, shift=1.0), Softplus())
+    composite = ComposeBijector(
+        AffineBijector(scale=2.0, shift=1.0), SoftplusBijector()
+    )
     p = ParamSpec(name="rate", transform=composite)
     x = torch.tensor([-1.0, 0.0, 1.0])
     expected = 2.0 * F.softplus(x) + 1.0
@@ -267,7 +269,7 @@ def test_custom_bijector_in_family_factory() -> None:
     from quivers.continuous.families import _make_family
     import torch.distributions as D
 
-    custom = Softplus()
+    custom = SoftplusBijector()
     cls = _make_family(
         "ConditionalCustomExponential",
         D.Exponential,
@@ -351,7 +353,7 @@ def test_softplus_shifted_jacobian_matches_softplus_jacobian() -> None:
     leaves the log-det-Jacobian unchanged: `log|scale| = 0`.
     """
     bij_shifted = TRANSFORM_TO_BIJECTOR["softplus_shifted"]
-    bare = Softplus()
+    bare = SoftplusBijector()
     x = torch.linspace(-2.0, 2.0, 11)
     torch.testing.assert_close(
         bij_shifted.forward_log_det_jacobian(x),
