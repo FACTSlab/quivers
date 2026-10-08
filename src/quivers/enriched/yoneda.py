@@ -320,3 +320,14 @@ def verify_yoneda_fully_faithful(
     y_composed = y_f.compose(y_g)
 
     return torch.allclose(y_fg.tensor, y_composed.tensor, atol=atol)
+
+
+__all__ = [
+    "Presheaf",
+    "representable_profunctor",
+    "corepresentable_profunctor",
+    "yoneda_embedding",
+    "yoneda_lemma",
+    "yoneda_density",
+    "verify_yoneda_fully_faithful",
+]

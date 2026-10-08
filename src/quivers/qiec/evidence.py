@@ -49,6 +49,11 @@ class BranchGiven:
 
 
 type EqualityEvidence = Reflexivity | BranchGiven
+"""Kernel-generated evidence of a static equality: reflexivity or a branch's given."""
 
 
-__all__ = ["BranchGiven", "EqualityEvidence", "Reflexivity"]
+__all__ = [
+    "BranchGiven",
+    "EqualityEvidence",
+    "Reflexivity",
+]

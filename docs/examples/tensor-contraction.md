@@ -92,7 +92,7 @@ import torch
 import torch.distributions as D
 
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Let, MonadicProgram, Observe
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import Unit
 from quivers.dsl.compiler import Compiler
@@ -154,19 +154,20 @@ model = MonadicProgram(
     domain=Euclidean(name="Ix", dim=1),
     codomain=Euclidean(name="Judgment", dim=n_judgment),
     steps=[
-        (("pred_embed",), EntrywisePrior(pred_shape), None, False),
-        (("arg_embed",), EntrywisePrior(arg_shape), None, False),
-        (("interaction",), EntrywisePrior(inter_shape), None, False),
-        (
-            ("mu",),
-            None,
-            lambda env: bilinear_score(
+        Draw(names=("pred_embed",), morphism=EntrywisePrior(pred_shape)),
+        Draw(names=("arg_embed",), morphism=EntrywisePrior(arg_shape)),
+        Draw(names=("interaction",), morphism=EntrywisePrior(inter_shape)),
+        Let(
+            name="mu",
+            value=lambda env: bilinear_score(
                 env["pred_embed"].reshape(pred_shape),
                 env["arg_embed"].reshape(arg_shape),
                 env["interaction"].reshape(inter_shape),
             ),
         ),
-        (("judgment",), JudgmentLikelihood(sigma), ("mu",), True),
+        Observe(
+            names=("judgment",), morphism=JudgmentLikelihood(sigma), args=("mu",)
+        ),
     ],
     return_vars=("judgment",),
 )

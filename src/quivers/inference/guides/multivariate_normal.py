@@ -20,7 +20,7 @@ parameterize a joint Gaussian over it:
 After sampling in unconstrained space the per-site bijector
 pushes each site to its constrained support, and the Jacobian
 correction is added to the variational log-density. Plate sites
-are handled by the registry's flatten / unflatten machinery —
+are handled by the registry's flatten / unflatten machinery;
 the guide itself sees only the flat vector.
 """
 
@@ -169,7 +169,7 @@ class AutoMultivariateNormalGuide(_MVNCommon):
     Parameterises a joint Gaussian over the registry's flat
     unconstrained vector with a learnable lower-triangular Cholesky
     factor. Captures every pairwise posterior correlation across
-    every latent site — the right choice when posterior couplings
+    every latent site, the right choice when posterior couplings
     are strong (hierarchical regression with crossed random effects,
     parameter pairs with multiplicative interaction).
 

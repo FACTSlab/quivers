@@ -36,8 +36,8 @@ jobs:
       # linter release adds rules and every branch goes red at
       # once, for a change nobody in this repository made.
       - run: pip install 'ruff>=0.15,<0.16'
-      - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
-      - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py
+      - run: ruff check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py tools/check_api_reference.py
+      - run: ruff format --check src/ tests/ hatch_build.py tools/release_wheel_smoke.py tools/check_editor_release.py tools/check_api_reference.py
       - run: python tools/docstring_audit.py --check src/quivers/qiec
       - name: Recompile VS Code extension from its lockfile
         working-directory: editors/vscode-qvr
@@ -46,6 +46,22 @@ jobs:
         run: git diff --exit-code -- editors/vscode-qvr/out
       - name: Verify editor source/archive parity
         run: python tools/check_editor_release.py --full
+
+  # The export policy's documentation rule: every public name renders
+  # in the API reference. The site build is strict, so a broken
+  # cross-reference fails here too rather than at deploy time.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      # The checker imports every public package, so the optional
+      # runtime dependencies are installed alongside the docs toolchain.
+      - run: pip install -e ".[docs,data,diagnostics,formulas,repl,lsp]"
+      - run: mkdocs build --strict
+      - run: python tools/check_api_reference.py site
 
   typecheck:
     runs-on: ubuntu-latest

@@ -147,10 +147,12 @@ from quivers.qiec.types import (
 
 
 QIEC_WIRE_FORMAT = "qiec-json/v1"
+"""The format tag every encoded document carries, checked on decoding."""
 
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 )
+"""A JSON document as ``json.loads`` returns it and ``json.dumps`` accepts it."""
 
 
 class SerializationError(ValueError):

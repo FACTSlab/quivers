@@ -19,6 +19,7 @@ import xarray as xr
 
 from quivers.diagnostics import (
     compare,
+    loo_pit,
     posterior_predictive_check,
     to_datatree,
 )
@@ -200,3 +201,24 @@ class TestPosteriorPredictiveCheck:
         )
         with pytest.raises(ValueError, match="unknown statistic"):
             posterior_predictive_check(dt, observed_name="y", statistic="nonexistent")
+
+
+class TestLooPit:
+    def test_pit_values_lie_in_unit_interval(self):
+        torch.manual_seed(0)
+        y = torch.randn(20)
+        n_chains, n_draws = 2, 200
+        pp = torch.randn(n_chains, n_draws, 20)
+        log_lik = -0.5 * (y - torch.randn(n_chains, n_draws, 1)) ** 2
+        samples = {"theta": torch.randn(n_chains, n_draws)}
+        dt = to_datatree(
+            _make_result(samples),
+            observed_data={"y": y},
+            posterior_predictive={"y": pp},
+            log_likelihood={"y": log_lik},
+        )
+        result = loo_pit(dt, observed_name="y")
+        assert isinstance(result, xr.Dataset)
+        values = np.asarray(result["y"])
+        assert values.shape == (20,)
+        assert np.all((values >= 0.0) & (values <= 1.0))

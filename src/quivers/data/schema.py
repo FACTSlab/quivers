@@ -248,3 +248,6 @@ def compose(qvr_body: str, schema: DatasetSchema, **kwargs):
     if prelude:
         prelude += "\n\n"
     return loads(prelude + qvr_body, **kwargs)
+
+
+__all__ = ["DatasetSchema", "compose"]

@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 
 EPS: float = 1e-7
+"""The default margin by which `clamp_probs` keeps probabilities away
+from 0 and 1."""
 
 
 def clamp_probs(x: torch.Tensor, eps: float = EPS) -> torch.Tensor:

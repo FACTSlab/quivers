@@ -5,7 +5,7 @@ Covers:
 * Per-primitive unit tests for the building blocks in
   :mod:`quivers.continuous.plate` (PlateDraw, VectorisedObserve,
   marginalize_categorical), :mod:`quivers.continuous.deterministic`
-  (cumsum, softmax, cholesky_quad_form), and
+  (cumsum_morphism, softmax_morphism, cholesky_quad_form_morphism), and
   :mod:`quivers.continuous.families` (LKJCorrelationFactor,
   Truncated).
 * DSL parse / compile round-trips for the hierarchical-Bayesian
@@ -21,6 +21,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+from quivers.continuous import Draw, Observe
+
 
 # ---------------------------------------------------------------------------
 # Primitive smoke tests
@@ -29,7 +31,7 @@ import torch
 
 class TestPrimitives:
     def test_cumsum(self):
-        from quivers.continuous.deterministic import cumsum
+        from quivers.continuous import cumsum_morphism as cumsum
 
         cm = cumsum(5)
         x = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
@@ -38,7 +40,7 @@ class TestPrimitives:
         assert torch.allclose(out, expected)
 
     def test_softmax(self):
-        from quivers.continuous.deterministic import softmax
+        from quivers.continuous import softmax_morphism as softmax
 
         sm = softmax(3)
         out = sm.rsample(torch.zeros(2, 3))
@@ -137,7 +139,7 @@ class TestPrimitives:
     def test_cholesky_quad_form_via_let(self):
         # The deterministic morphism is exposed both as a Python helper
         # and as a let-builtin; here we exercise the helper directly.
-        from quivers.continuous.deterministic import cholesky_quad_form
+        from quivers.continuous import cholesky_quad_form_morphism as cholesky_quad_form
 
         cqf = cholesky_quad_form(3)
         # input is (cholesky_flat, scale) concatenated
@@ -255,11 +257,11 @@ class TestDSLSurface:
         # Each call site contributed its own scale + plate latents.
         prog = c._morphisms["demo"]
         latent_names: set[str] = set()
-        for spec in prog._step_specs:
-            if hasattr(spec, "vars"):
-                latent_names.update(spec.vars)
-            elif hasattr(spec, "var"):
-                latent_names.add(spec.var)
+        for spec in prog.steps:
+            if isinstance(spec, Draw | Observe):
+                latent_names.update(spec.names)
+            else:
+                latent_names.add(spec.name)
         # Two scales, two plate-draws — namespaced by call binding.
         assert "by_subj$sigma" in latent_names
         assert "by_subj" in latent_names

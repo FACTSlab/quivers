@@ -31,17 +31,31 @@ References
 """
 
 from quivers.arrows.typeclasses import (
-    Arrow,
-    ArrowApply,
-    ArrowChoice,
-    ArrowLoop,
-    ArrowPlus,
-    ArrowZero,
     Category_,
+    Arrow,
+    ArrowChoice,
+    ArrowApply,
+    ArrowLoop,
+    ArrowZero,
+    ArrowPlus,
+)
+from quivers.arrows.theories import (
+    ThCategory_,
+    ThArrow,
+    ThArrowChoice,
+    ThArrowApply,
+    ThArrowLoop,
+    ThArrowZero,
+    ThArrowPlus,
+)
+from quivers.arrows.instances import (
+    VRel,
+    Function,
+    Stochastic,
 )
 
-
 __all__ = [
+    # typeclasses
     "Category_",
     "Arrow",
     "ArrowChoice",
@@ -49,4 +63,16 @@ __all__ = [
     "ArrowLoop",
     "ArrowZero",
     "ArrowPlus",
+    # theories
+    "ThCategory_",
+    "ThArrow",
+    "ThArrowChoice",
+    "ThArrowApply",
+    "ThArrowLoop",
+    "ThArrowZero",
+    "ThArrowPlus",
+    # instances
+    "VRel",
+    "Function",
+    "Stochastic",
 ]

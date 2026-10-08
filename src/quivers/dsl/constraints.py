@@ -50,12 +50,22 @@ from quivers.stochastic.schema import SCHEMA_REGISTRY
 class Violation(dx.Model):
     """One constraint-solver finding.
 
-    ``severity`` defaults to ``"error"`` for backward compatibility:
-    legacy diagnostics emitted by `check_constraints` are always
-    errors. Compiler-emitted diagnostics (such as the
-    ``implicit-family-defaults`` deprecation) set ``severity`` to
-    ``"warning"`` so they surface in ``qvr check`` output without
-    failing the compile.
+    Every finding `check_constraints` reports is an error. Compiler
+    diagnostics that should surface in ``qvr check`` output without
+    failing the compile set ``severity`` to ``"warning"``.
+
+    Parameters
+    ----------
+    code : str
+        The stable diagnostic code.
+    message : str
+        What is wrong.
+    line : int
+        The one-based source line.
+    col : int
+        The source column.
+    severity : str
+        ``"error"`` or ``"warning"``.
     """
 
     code: str
@@ -72,6 +82,16 @@ def check_constraints(module: Module) -> list[Violation]:
     tables (residuated universes, enum sets, free monoids, declared
     rule / schema / bundle names) incrementally so that out-of-order
     references are flagged.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module to check.
+
+    Returns
+    -------
+    list[Violation]
+        The findings in source order, empty for a well-formed module.
     """
     out: list[Violation] = []
 

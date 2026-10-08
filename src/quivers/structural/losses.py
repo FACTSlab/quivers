@@ -15,15 +15,19 @@ import torch
 
 
 type LossBody = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
+"""A loss term: maps the training environment to a scalar loss."""
+
 type LossWeight = Callable[[Mapping[str, "TrainEnv"]], torch.Tensor]
+"""A loss weight: maps the training environment to a scalar multiplier."""
 
 
-# Anything that a loss body might pluck out of the environment dict:
-# a compiled encoder / decoder / deduction (each a torch.nn.Module
-# in practice), an input tensor, a structured-term observation, or a
-# raw scalar/tensor target. The union is open at the boundary; we
-# alias it precisely so we never silently widen to `Any`.
 type TrainEnv = torch.nn.Module | torch.Tensor | int | float | str | list | tuple | dict
+"""A value of the training environment a loss body reads.
+
+The environment holds compiled encoders, decoders, and deductions
+(each an ``nn.Module``), input tensors, structured-term
+observations, and raw scalar or tensor targets.
+"""
 
 
 type AttachmentKind = Literal[
@@ -35,6 +39,7 @@ type AttachmentKind = Literal[
     "rule",
     "chart",
 ]
+"""The kind of construct a registered loss is attached to."""
 
 
 @dataclass
@@ -69,11 +74,24 @@ class LossEntry:
 
 @dataclass
 class LossRegistry:
-    """All losses declared in a compiled module."""
+    """All losses declared in a compiled module.
+
+    Attributes
+    ----------
+    entries : list[LossEntry]
+        The registered losses in registration order.
+    """
 
     entries: list[LossEntry] = field(default_factory=list)
 
     def add(self, entry: LossEntry) -> None:
+        """Register a loss.
+
+        Parameters
+        ----------
+        entry : LossEntry
+            The loss to append to the registry.
+        """
         self.entries.append(entry)
 
     def by_attachment(
@@ -81,6 +99,21 @@ class LossRegistry:
         kind: AttachmentKind,
         target: str | None = None,
     ) -> list[LossEntry]:
+        """Return the losses attached to a kind of construct.
+
+        Parameters
+        ----------
+        kind : AttachmentKind
+            The attachment kind to select.
+        target : str or None
+            When given, only losses attached to the target of this
+            name are returned.
+
+        Returns
+        -------
+        list[LossEntry]
+            The matching losses in registration order.
+        """
         return [
             e
             for e in self.entries
@@ -91,7 +124,19 @@ class LossRegistry:
         self,
         env: Mapping[str, TrainEnv] | None = None,
     ) -> torch.Tensor:
-        """Sum all registered losses, weighted, under ``env``."""
+        """Sum all registered losses, weighted, under ``env``.
+
+        Parameters
+        ----------
+        env : Mapping[str, TrainEnv] or None
+            The training-step environment passed to every loss body
+            and weight; empty when omitted.
+
+        Returns
+        -------
+        torch.Tensor
+            The scalar weighted sum of the losses.
+        """
         return self._weighted_sum(self.entries, env or {})
 
     def evaluate_on(
@@ -107,6 +152,24 @@ class LossRegistry:
         attachment target (the program / deduction / encoder /
         decoder / rule name); ``rule_deduction`` further narrows the
         ``"rule"`` kind to a specific enclosing deduction.
+
+        Parameters
+        ----------
+        kind : AttachmentKind
+            The attachment kind to select.
+        target : str or None
+            When given, the attachment target the losses must name.
+        env : Mapping[str, TrainEnv] or None
+            The training-step environment passed to every loss body
+            and weight; empty when omitted.
+        rule_deduction : str or None
+            When given, the enclosing deduction a ``"rule"`` loss must
+            name.
+
+        Returns
+        -------
+        torch.Tensor
+            The scalar weighted sum of the matching losses.
         """
         matching = []
         for e in self.entries:
@@ -136,3 +199,13 @@ class LossRegistry:
                 val = val * w
             total = total + val
         return total
+
+
+__all__ = [
+    "LossBody",
+    "LossWeight",
+    "TrainEnv",
+    "AttachmentKind",
+    "LossEntry",
+    "LossRegistry",
+]

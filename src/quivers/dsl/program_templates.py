@@ -574,9 +574,4 @@ def _rename_expr(
     return expr.with_(**changes)
 
 
-__all__ = [
-    "TemplateBindings",
-    "TemplateError",
-    "instantiate_program",
-    "template_bindings",
-]
+__all__ = []

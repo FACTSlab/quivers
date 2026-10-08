@@ -6,7 +6,7 @@ vertex id for the constructed sub-AST. Vertex kinds match Python's
 tree-sitter `node-types.json` exactly.
 
 This module also exposes
-[`render_let_expr_python`][quivers.transpile.renderers._python_helpers.render_let_expr_python]
+`render_let_expr_python`
 which lowers a [`LetExprNode`][quivers.dsl.ast_nodes.LetExprNode]
 sub-tree into the same Python schema, used by every Python-grammar
 renderer to emit `let <name> = <expr>` as a deterministic
@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 
 
 class PyCtx:
-    """Owns a [`panproto.SchemaBuilder`][panproto.SchemaBuilder] plus
+    """Owns a `panproto.SchemaBuilder` plus
     a fresh-id counter and the per-render
     [`IRProgram.cards`][quivers.transpile.ir.IRProgram.cards] map.
 
@@ -187,7 +187,7 @@ def float_literal(ctx: PyCtx, value: float) -> str:
     """Emit a ``float`` vertex, keeping the decimal point on a whole
     number.
 
-    [`number_literal`][quivers.transpile.renderers._python_helpers.number_literal]
+    `number_literal`
     prints a whole-valued float as an integer, which is the right
     spelling almost everywhere. It is the wrong spelling for the value
     that fills a real-valued tensor: `tf.fill` and `np.full` read the
@@ -674,7 +674,7 @@ def _resolve_python_call(ctx: PyCtx, func: str) -> str:
     import the symbol needs on ``ctx.required_imports``. When ``func`` is
     a math builtin with no symbol for this target (e.g. a reduction that
     needs a ``dim`` argument), raise
-    [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+    `UnsupportedConstruct`
     rather than emit an undefined name. Any other callee (a domain
     function such as a chart-parser ``parse``, or a user helper) is
     emitted verbatim, as before.
@@ -708,7 +708,7 @@ def _render_python_operand(
     A nested [`LetExprBinOp`][quivers.dsl.ast_nodes.LetExprBinOp] or
     [`LetExprUnaryOp`][quivers.dsl.ast_nodes.LetExprUnaryOp] operand is
     wrapped in a `parenthesized_expression` via
-    [`python_paren`][quivers.transpile.renderers._python_helpers.python_paren].
+    `python_paren`.
     The Python pretty printer drops parens around nested
     `binary_operator` children, so ``(a + b) * c`` would otherwise print
     as ``a + b * c`` and reassociate under Python's precedence. Wrapping
@@ -731,7 +731,7 @@ def _is_factor_tower(ctx: PyCtx, expr: LetExprNode) -> bool:
     Either the expression is the factor itself, or it names a
     deterministic bound to one (`PyCtx.factor_towers`, populated from
     the IR by
-    [`factor_tower_names`][quivers.transpile.renderers._python_helpers.factor_tower_names]).
+    `factor_tower_names`).
     """
     if isinstance(expr, LetExprFactor):
         return True
@@ -742,7 +742,7 @@ def render_let_expr_python(
     ctx: PyCtx, expr: LetExprNode, *, index_slot: bool = False
 ) -> str:
     """Recursively build a Python expression schema for `expr` in
-    `ctx` (a [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx]).
+    `ctx` (a `PyCtx`).
     Returns the root vertex id.
 
     `index_slot` marks the subscript position. A
@@ -1028,7 +1028,7 @@ def _render_affine_map_python(ctx: PyCtx, expr: LetExprAffineMap) -> str:
 
     Most Python array backends spell the contraction ``@``; a target
     listed in
-    [`_PY_MATVEC_SYMBOLS`][quivers.transpile.renderers._python_helpers._PY_MATVEC_SYMBOLS]
+    `_PY_MATVEC_SYMBOLS`
     spells it as a named call instead. Either way the whole head is
     one product rather than a row per codomain coordinate, and the
     row block is a plain slice: Python's index origin is QVR's own,
@@ -1123,7 +1123,7 @@ def name_event_rank_map(ir: IRProgram) -> dict[str, int]:
     [`IRObserve`][quivers.transpile.ir.IRObserve], and
     [`IRDeterministic`][quivers.transpile.ir.IRDeterministic] in the
     program. Each Python renderer threads the result into its
-    [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx] so the
+    `PyCtx` so the
     let-expression walk can decide whether a reducing call
     (``sum(z_row * w_row)``) collapses a genuine event axis and thus
     needs the backend's per-axis aggregator.
@@ -1304,7 +1304,7 @@ def _render_factor_python(ctx: PyCtx, expr: LetExprFactor) -> str:
     arrays are 0-based, matching QVR's surface convention) and
     unroll into a nested list literal of shape
     (|b0|, |b1|, ..., |bn-1|). The shared
-    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    `_substitute_let_expr`
     walk takes the same value for both `index_value` and
     `scalar_value` because no index-base shift is needed here.
     """

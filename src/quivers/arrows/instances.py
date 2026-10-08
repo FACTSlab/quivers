@@ -10,14 +10,14 @@ transparently for the chart-parser's arrow-side dispatch.
 
 Realisations:
 
-- `VRel` — the canonical V-enriched-relation arrow. ``compose``
+- `VRel`: the canonical V-enriched-relation arrow. ``compose``
   is the V-Rel ``>>`` operator; ``arr`` is the identity embedding;
   ``first`` is the parallel-product factory; ``left_arr`` is the
   coproduct functorial action; ``loop_arr`` is the V-algebra iterative
   trace on the recurrent component.
-- `Function` — restricts to deterministic V-relations (functions
+- `Function`: restricts to deterministic V-relations (functions
   with point-mass tensors). Pure-functional operations.
-- `Stochastic` — Stochastic-matrix arrows where ``first``,
+- `Stochastic`: stochastic-matrix arrows where ``first``,
   ``left_arr``, and ``loop_arr`` are the corresponding row-stochastic
   realisations.
 """
@@ -42,7 +42,7 @@ from quivers.core._factories import (
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.morphisms import identity as id_morph
 from quivers.core.objects import ProductSet, SetObject
-from quivers.core.algebras import PRODUCT_FUZZY
+from quivers.monadic.instances import _evaluation_morphism
 
 
 def _iter_indices(shape: tuple[int, ...]):
@@ -169,8 +169,6 @@ class Function(dx.Model):
 
     def app(self, A: SetObject, B: SetObject) -> Morphism:
         """ArrowApply.app for Function — the standard evaluation."""
-        from quivers.monadic.instances import _evaluation_morphism
-
         return _evaluation_morphism(A, B)
 
 
@@ -232,6 +230,3 @@ __all__ = [
     "Function",
     "Stochastic",
 ]
-
-
-_ = PRODUCT_FUZZY  # imported for symmetry with the rest of the package

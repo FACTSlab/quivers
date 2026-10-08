@@ -102,7 +102,7 @@ For probabilistic computations with continuous and discrete variables, use [**mo
 from quivers import FinSet
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.families import ConditionalNormal
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, MonadicProgram
 import torch
 
 # Define spaces.
@@ -116,7 +116,7 @@ family = ConditionalNormal(X, R)
 program = MonadicProgram(
     domain=X,
     codomain=R,
-    steps=[(("y",), family, None)],
+    steps=[Draw(names=("y",), morphism=family)],
     return_vars=("y",),
 )
 

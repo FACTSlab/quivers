@@ -33,6 +33,16 @@ def render_table(graph: PlateGraph):  # type: ignore[no-untyped-def]
 
     The caller is responsible for printing it (`Console.print` for
     the plain prompt; `RichLog.write` for the Textual TUI).
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to tabulate.
+
+    Returns
+    -------
+    rich.table.Table
+        One row per node, with its kind, family, plates, and parents.
     """
     from rich.table import Table
     from rich.text import Text
@@ -77,6 +87,16 @@ def render_table_plain(graph: PlateGraph) -> str:
 
     Used by `:plate` from `qvr repl --plain` and from the Jupyter
     kernel.
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to tabulate.
+
+    Returns
+    -------
+    str
+        The table as aligned plain text.
     """
     parents_by_dst: dict[str, list[str]] = {}
     for e in graph.edges:
@@ -157,6 +177,16 @@ def render_mermaid(graph: PlateGraph) -> str:
     subgraph blocks approximate it well enough that
     GitHub-rendered markdown and mermaid.live both display the
     structure.
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to draw.
+
+    Returns
+    -------
+    str
+        Mermaid ``graph TD`` source.
     """
     lines: list[str] = []
     lines.append("graph TD")
@@ -218,7 +248,18 @@ def render_mermaid(graph: PlateGraph) -> str:
 
 def render_dot(graph: PlateGraph) -> str:
     """Return Graphviz DOT source. Plates become ``cluster_*``
-    subgraphs; nodes carry shape attributes based on kind."""
+    subgraphs; nodes carry shape attributes based on kind.
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to draw.
+
+    Returns
+    -------
+    str
+        Graphviz DOT source.
+    """
     shape_for: dict[str, str] = {
         "latent": "circle",
         "observed": "doublecircle",
@@ -290,7 +331,18 @@ def render_tikz(graph: PlateGraph) -> str:
     """Return a LaTeX snippet using ``tikz`` and the ``bayesnet``
     package conventions. Computes positions by laying nodes out
     in columns (one per depth level) and rows (one per plate
-    stack); good enough for diagrams up to ~20 nodes."""
+    stack); good enough for diagrams up to ~20 nodes.
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to draw.
+
+    Returns
+    -------
+    str
+        A LaTeX ``tikzpicture`` snippet.
+    """
     # Topological depth = longest path of edges into a node.
     depth: dict[str, int] = {}
     for n in graph.nodes:
@@ -373,7 +425,18 @@ def render_daft(graph: PlateGraph) -> str:
     """Return a Python script that uses ``daft`` to render the
     plate diagram. The script defines a ``build_pgm()`` function
     returning a ``daft.PGM`` instance, ready for the user to
-    ``render()`` and save."""
+    ``render()`` and save.
+
+    Parameters
+    ----------
+    graph : PlateGraph
+        The plate graph to draw.
+
+    Returns
+    -------
+    str
+        Python source defining ``build_pgm()``.
+    """
     # Topological depth -> column position.
     depth: dict[str, int] = {n.name: 0 for n in graph.nodes}
     changed = True

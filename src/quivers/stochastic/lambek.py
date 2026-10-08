@@ -94,6 +94,11 @@ class LambekParser(ChartParser):
         Enable Lambek lifting rules (default True).
     enable_product : bool
         Enable product introduction (default True).
+
+    Raises
+    ------
+    ValueError
+        If the start category is not in ``category_system``.
     """
 
     def __init__(
@@ -153,3 +158,8 @@ class LambekParser(ChartParser):
             f"unary_rules={self._n_unary}"
             f"{variant_str})"
         )
+
+
+__all__ = [
+    "LambekParser",
+]

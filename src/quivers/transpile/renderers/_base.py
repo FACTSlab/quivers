@@ -9,7 +9,6 @@ declaration, sampling, marginalization, and broadcast forms.
 from __future__ import annotations
 
 import abc
-import dataclasses
 from typing import Literal, Protocol, runtime_checkable
 
 import didactic.api as dx
@@ -64,9 +63,6 @@ from quivers.transpile.ir import (
 )
 
 
-#: Where a declaration lands in the target's program structure. Each
-#: backend interprets the kind per its own program layout (Stan has
-#: actual blocks; NumPyro's "block" is the function body).
 type BlockKind = Literal[
     "data",
     "parameters",
@@ -75,11 +71,19 @@ type BlockKind = Literal[
     "generated_quantities",
     "function_body",
 ]
+"""Where a declaration lands in the target's program structure.
+
+Each backend interprets the kind per its own program layout: Stan has
+actual blocks, while NumPyro's block is the function body.
+"""
 
 
-#: One panproto schema fragment: either an opaque vertex id, or the
-#: empty string when the dispatch point emits nothing of its own.
 type SchemaFragment = str
+"""One panproto schema fragment.
+
+Either an opaque vertex id, or the empty string when the dispatch point
+emits nothing of its own.
+"""
 
 
 #: The class of `torch.distributions.constraints.simplex`. Torch
@@ -89,24 +93,58 @@ type SchemaFragment = str
 _SIMPLEX_CONSTRAINT: type[Constraint] = type(simplex)
 
 
-@dataclasses.dataclass
-class _RenderCtx:
-    """Renderer-internal mutable carrier for the panproto
-    `SchemaBuilder`, fresh-id counter, and resolved morphism / define
-    tables.
+class RenderContext:
+    """The mutable state of one `render` call.
 
-    One per `render` call. Threaded through the IR-walk dispatch
-    and helpers as the first positional argument. The IR uses
-    `dx.Model` exclusively; this `@dataclasses.dataclass` is the
-    documented exception in the spec because it carries
-    renderer-internal mutable state that does not round-trip.
+    A renderer creates one per call and threads it through the IR-walk
+    dispatch and its helpers as the first positional argument. It holds
+    the panproto schema builder the target program is assembled in, the
+    resolved morphism and define tables, a counter for fresh vertex
+    names, and the cardinality table. Unlike the IR it is mutable and
+    does not round-trip.
+
+    Parameters
+    ----------
+    sb
+        The schema builder the renderer emits into.
+    morphisms
+        The module's morphism declarations, by name.
+    defines
+        The module's define expressions, by name.
+    fresh_counter
+        The next fresh-name ordinal.
+    cards
+        The cardinality of each finite object, by name; empty when not
+        supplied.
+
+    Attributes
+    ----------
+    sb
+        The schema builder the renderer emits into.
+    morphisms
+        The module's morphism declarations, by name.
+    defines
+        The module's define expressions, by name.
+    fresh_counter
+        The next fresh-name ordinal; helpers increment it as they mint
+        names.
+    cards
+        The cardinality of each finite object, by name.
     """
 
-    sb: panproto.SchemaBuilder
-    morphisms: dict[str, MorphismDecl]
-    defines: dict[str, Expr]
-    fresh_counter: int = 0
-    cards: dict[str, int] = dataclasses.field(default_factory=dict)
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        morphisms: dict[str, MorphismDecl],
+        defines: dict[str, Expr],
+        fresh_counter: int = 0,
+        cards: dict[str, int] | None = None,
+    ) -> None:
+        self.sb = sb
+        self.morphisms = morphisms
+        self.defines = defines
+        self.fresh_counter = fresh_counter
+        self.cards: dict[str, int] = {} if cards is None else cards
 
 
 class IRArgTransform(IRArg):
@@ -126,8 +164,19 @@ class IRArgTransform(IRArg):
     concentration argument as the exponent, so the reorder helper
     threads it in as `operand`.
 
-    `IRArgTransform` is a renderer-internal IR extension. `Lower`
+    `IRArgTransform` is a renderer-side IR extension. `Lower`
     never constructs it.
+
+    Parameters
+    ----------
+    inner
+        The argument transformed.
+    transform
+        The transform applied.
+    operand
+        The second operand of ``pow_neg``; ``None`` otherwise.
+    kind
+        The discriminator; always ``"transform"``.
     """
 
     inner: IRArg
@@ -139,7 +188,7 @@ class IRArgTransform(IRArg):
 class IRMarginalAtom(dx.Model):
     """One atom of a marginalized latent's finite support.
 
-    [`RendererBase.marginal_atoms`][quivers.transpile.renderers._base.RendererBase.marginal_atoms]
+    [`RendererBase.marginal_atoms`][quivers.transpile.renderers.RendererBase.marginal_atoms]
     returns one of these per support point of an
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]. Together
     they carry the whole integrated density: writing `L_a` for the
@@ -159,8 +208,22 @@ class IRMarginalAtom(dx.Model):
     enumerates, so `weight_family` reads `"Bernoulli"` and
     `weight_args` carries only the probability argument.
 
-    `IRMarginalAtom` is a renderer-internal IR extension. `Lower`
+    `IRMarginalAtom` is a renderer-side IR extension. `Lower`
     never constructs it.
+
+    Parameters
+    ----------
+    value
+        The support point.
+    weight_family
+        The family whose log-density at ``value`` is the atom's log-prior
+        weight.
+    weight_args
+        The arguments ``weight_family`` is evaluated with.
+    weight_arg_names
+        The parameter name of each of ``weight_args``.
+    scope
+        The block's body with the latent replaced by ``value``.
     """
 
     value: IRArgNumber
@@ -172,30 +235,67 @@ class IRMarginalAtom(dx.Model):
 
 @runtime_checkable
 class Renderer(Protocol):
-    """The protocol every backend renderer satisfies."""
+    """The protocol every backend renderer satisfies.
+
+    [`transpile`][quivers.transpile.transpile] calls `render` on a lowered
+    [`IRProgram`][quivers.transpile.IRProgram]; the four dispatch points
+    are what the shared IR walk of
+    [`RendererBase`][quivers.transpile.renderers.RendererBase] calls per
+    node.
+    """
 
     @abc.abstractmethod
     def render(self, ir: IRProgram) -> panproto.Schema:
-        """Render an `IRProgram` to a per-backend panproto schema."""
+        """Render a program to the target's panproto schema.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         ...
 
     @abc.abstractmethod
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
         *,
         block: BlockKind,
     ) -> SchemaFragment:
-        """Emit the declaration of a named variable in `block`."""
+        """Emit the declaration of a named variable in ``block``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         ...
 
     @abc.abstractmethod
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -204,27 +304,79 @@ class Renderer(Protocol):
         plate: Plate,
         observed: bool,
     ) -> SchemaFragment:
-        """Emit the `~` statement for a sample / observe step."""
+        """Emit the ``~`` statement of a sample or observe step.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The site's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The site's support.
+        plate
+            The site's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         ...
 
     @abc.abstractmethod
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
-        """Emit the discrete-latent integration scope."""
+        """Emit the scope integrating a discrete latent out.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         ...
 
     @abc.abstractmethod
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
-        """Emit the target's broadcast op for `value` to
-        `target_shape`."""
+        """Emit the target's broadcast of ``value`` to ``target_shape``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         ...
 
 
@@ -297,25 +449,52 @@ class RendererBase(abc.ABC):
 
     @abc.abstractmethod
     def target_protocol(self) -> panproto.Protocol:
-        """Return the panproto protocol for the renderer's target
-        language. Each renderer instantiates its own
-        `panproto.SchemaBuilder(target_protocol())`."""
+        """Return the panproto protocol for the renderer's target language.
+
+        Each renderer builds its schema from this protocol's
+        `schema()` builder.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
 
     @abc.abstractmethod
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
         *,
         block: BlockKind,
-    ) -> SchemaFragment: ...
+    ) -> SchemaFragment:
+        """Emit the declaration of a named variable in ``block``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
 
     @abc.abstractmethod
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -323,22 +502,78 @@ class RendererBase(abc.ABC):
         constraint: ConstraintSpec,
         plate: Plate,
         observed: bool,
-    ) -> SchemaFragment: ...
+    ) -> SchemaFragment:
+        """Emit the ``~`` statement of a sample or observe step.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The site's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The site's support.
+        plate
+            The site's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
 
     @abc.abstractmethod
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
-    ) -> SchemaFragment: ...
+    ) -> SchemaFragment:
+        """Emit the scope integrating a discrete latent out.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
 
     @abc.abstractmethod
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
-    ) -> SchemaFragment: ...
+    ) -> SchemaFragment:
+        """Emit the target's broadcast of ``value`` to ``target_shape``.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
 
     # ----- IR walk -----
 
@@ -359,22 +594,32 @@ class RendererBase(abc.ABC):
 
         Subclasses may override `render` to wrap the walk with
         their own block prologue / epilogue.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_lists(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        ctx = RenderContext(sb=sb, morphisms={}, defines={})
         self._walk(ctx, ir)
         return sb.build()
 
-    def _walk(self, ctx: _RenderCtx, ir: IRProgram) -> None:
+    def _walk(self, ctx: RenderContext, ir: IRProgram) -> None:
         for inp in ir.inputs:
             self.declare(ctx, inp.name, inp.constraint, inp.plate, block="data")
         for node in ir.body:
             self._dispatch_node(ctx, node)
 
-    def _dispatch_node(self, ctx: _RenderCtx, node: IRNode) -> None:
+    def _dispatch_node(self, ctx: RenderContext, node: IRNode) -> None:
         if isinstance(node, IRDataInput):
             self.declare(ctx, node.name, node.constraint, node.plate, block="data")
             return
@@ -438,12 +683,24 @@ class RendererBase(abc.ABC):
 
     # ----- index-substitution helpers -----
 
-    def index_for(self, ctx: _RenderCtx, plate: Plate) -> tuple[str, ...]:
+    def index_for(self, ctx: RenderContext, plate: Plate) -> tuple[str, ...]:
         """Return loop-index names for the plate's batch_dims.
 
         Returns one name per batch_dim, generated via
         `ctx.fresh_counter`. Renderers pair these with each batch
         dim's size to emit nested `for (m_i in 1:B_i)` loops.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        plate
+            The plate whose batch dimensions are looped over.
+
+        Returns
+        -------
+        tuple[str, ...]
+            One index name per batch dimension, outermost first.
         """
         del ctx
         return tuple(f"m_{dim.name}" for dim in plate.batch_dims)
@@ -456,6 +713,19 @@ class RendererBase(abc.ABC):
         surrounding plate's loop variables through an
         [`IRArgRef`][quivers.transpile.ir.IRArgRef]'s index list so
         the emitted call form is `name[m_0, m_1, ...]`.
+
+        Parameters
+        ----------
+        arg
+            The argument whose index list is rewritten.
+        names
+            The surrounding plate's loop-index names.
+
+        Returns
+        -------
+        IRArg
+            The argument with its nested indices substituted; any other
+            argument unchanged.
         """
         if isinstance(arg, IRArgRef) and arg.indices:
             new_indices = tuple(
@@ -478,9 +748,27 @@ class RendererBase(abc.ABC):
         `node.scope`. The renderer combines each atom's weight with its scope
         log density and reduces the result with `node.reduction`.
 
-        `support_size` gives the class count for a ``"class_index"` atom set;
-        binary atom sets ignore it. Raises `UnsupportedConstruct` when the
-        family has no supported marginal or the class count is unresolved.
+        `support_size` gives the class count for a ``"class_index"`` atom set;
+        binary atom sets ignore it.
+
+        Parameters
+        ----------
+        node
+            The marginalize block.
+        support_size
+            The class count of a ``"class_index"`` atom set, when the family
+            does not fix it.
+
+        Returns
+        -------
+        tuple[IRMarginalAtom, ...]
+            One atom per support point, in support order.
+
+        Raises
+        ------
+        UnsupportedConstruct
+            If the family is unknown, has no supported marginal, or its
+            class count is unresolved.
         """
         meta = FAMILY_META.get(node.family)
         if meta is None:
@@ -537,7 +825,7 @@ class RendererBase(abc.ABC):
 
     # ----- score / return defaults -----
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+    def _emit_score(self, ctx: RenderContext, node: IRScore) -> None:
         """Default: subclasses override to emit `target +=` /
         `numpyro.factor` / similar idiom for the renderer's target.
         """
@@ -547,7 +835,7 @@ class RendererBase(abc.ABC):
             ["node:IRScore: renderer does not implement score"],
         )
 
-    def _emit_return(self, ctx: _RenderCtx, names: tuple[str, ...]) -> None:
+    def _emit_return(self, ctx: RenderContext, names: tuple[str, ...]) -> None:
         """Default: subclasses override to emit `return ...` / Stan
         generated-quantities aliasing / similar.
         """
@@ -1256,6 +1544,7 @@ __all__ = [
     "BlockKind",
     "IRArgTransform",
     "IRMarginalAtom",
+    "RenderContext",
     "Renderer",
     "RendererBase",
     "SchemaFragment",

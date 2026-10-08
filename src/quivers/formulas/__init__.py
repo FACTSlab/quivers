@@ -23,31 +23,47 @@ into a typed `Formula` `didactic.api.Model`.
 The frontend is the formula→QVR direction of a panproto lens; the
 QVR DSL is the canonical source of truth, and the formula compiler
 is a structure-preserving translation from the smaller formula
-language to the QVR DSL.  Future versions will register the
-formula schema as a panproto protocol so the get/put bidirectional
-machinery applies.
+language to the QVR DSL.
 """
 
-from quivers.formulas.compile import FormulaToQVRModule
+from __future__ import annotations
+
+from quivers.formulas.formula import (
+    FixedColumn,
+    RandomTerm,
+    Formula,
+    FormulaData,
+    formula_from_data,
+)
 from quivers.formulas.family import (
-    Family,
     Link,
-    families,
+    AuxParam,
+    Family,
     links,
+    families,
+)
+from quivers.formulas.compile import (
+    FormulaToQVRModule,
 )
 from quivers.formulas._fit import BayesianFit, fit, formula_to_qvr
-from quivers.formulas.formula import Formula, RandomTerm, formula_from_data
 
 __all__ = [
-    "BayesianFit",
-    "Family",
-    "Formula",
-    "FormulaToQVRModule",
-    "Link",
+    # formula
+    "FixedColumn",
     "RandomTerm",
-    "fit",
-    "families",
-    "formula_to_qvr",
-    "links",
+    "Formula",
+    "FormulaData",
     "formula_from_data",
+    # family
+    "Link",
+    "AuxParam",
+    "Family",
+    "links",
+    "families",
+    # compile
+    "FormulaToQVRModule",
+    # _fit
+    "BayesianFit",
+    "fit",
+    "formula_to_qvr",
 ]

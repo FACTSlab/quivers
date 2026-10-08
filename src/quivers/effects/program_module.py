@@ -20,20 +20,21 @@ compose by the kernel's own rules.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from quivers.continuous.program_steps import (
-    _LetSpec,
-    _ScoreSpec,
-    _StepSpec,
+    Indexed,
+    StepArgument,
+    Draw,
+    Let,
+    Observe,
+    Score,
+    Step,
     reads_of,
 )
 
-if TYPE_CHECKING:
-    from quivers.continuous.programs import MonadicProgram
+from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.spaces import ContinuousSpace, ProductSpace
 from quivers.core.morphisms import extract_morphism
@@ -134,7 +135,7 @@ class HostStep:
     instance: EffectInstanceId
     effect: EffectRef
     kind: str
-    spec: _StepSpec | _LetSpec | _ScoreSpec | None
+    spec: Step | None
     environment: tuple[str, ...]
     answer_type: TypeExpr
     site: str | None = None
@@ -225,12 +226,12 @@ def _origin(path: tuple[str | int, ...], role: str, module: str) -> SourceOrigin
     return SourceOrigin(module, path, role, SOURCE_PROTOCOL)
 
 
-def _arg_reads(args: tuple[object, ...] | None) -> tuple[str, ...]:
+def _arg_reads(args: tuple[StepArgument, ...] | None) -> tuple[str, ...]:
     """The environment names a draw's arguments read.
 
     Parameters
     ----------
-    args : tuple[object, ...] | None
+    args : tuple[StepArgument, ...] | None
         The draw's arguments: bound names, indexed references, or
         ``None`` for the program input.
 
@@ -244,24 +245,20 @@ def _arg_reads(args: tuple[object, ...] | None) -> tuple[str, ...]:
         return (INPUT_NAME,)
     names: list[str] = []
     for arg in args:
-        if isinstance(arg, str):
-            names.append(arg)
-        elif getattr(arg, "kind", None) == "index":
-            names.append(getattr(arg, "name"))
-            names.extend(getattr(arg, "indices"))
+        if isinstance(arg, Indexed):
+            names.append(arg.name)
+            names.extend(arg.indices)
         else:
-            text = getattr(arg, "text", None)
-            if isinstance(text, str):
-                names.append(text)
+            names.append(arg)
     return tuple(names)
 
 
-def _let_reads(spec: _LetSpec) -> tuple[str, ...] | None:
+def _let_reads(spec: Let) -> tuple[str, ...] | None:
     """The environment names a let step reads.
 
     Parameters
     ----------
-    spec : _LetSpec
+    spec : Let
         The step.
 
     Returns
@@ -278,12 +275,12 @@ def _let_reads(spec: _LetSpec) -> tuple[str, ...] | None:
     return ()
 
 
-def _step_sites(spec: _StepSpec) -> str:
+def _step_sites(spec: Draw | Observe) -> str:
     """The site label of a draw step.
 
     Parameters
     ----------
-    spec : _StepSpec
+    spec : Draw | Observe
         The step.
 
     Returns
@@ -292,7 +289,7 @@ def _step_sites(spec: _StepSpec) -> str:
         The bound name, or the bound names joined by commas for a
         destructuring draw, which is one draw of the joint.
     """
-    return ",".join(spec.vars)
+    return ",".join(spec.names)
 
 
 def _module_name(program: MonadicProgram) -> str:
@@ -429,7 +426,7 @@ class _Builder:
         self,
         name: str,
         kind: str,
-        spec: _StepSpec | _LetSpec | _ScoreSpec | None,
+        spec: Step | None,
         answer_type: TypeExpr,
         site: str | None = None,
         reads: Sequence[str] | None = None,
@@ -442,7 +439,7 @@ class _Builder:
             The name of the local the result binds.
         kind : str
             The step's kind.
-        spec : _StepSpec | _LetSpec | _ScoreSpec | None
+        spec : Step | None
             The program's step record.
         answer_type : TypeExpr
             The type the host part returns.
@@ -571,16 +568,21 @@ class _Builder:
                     components[index],
                     Return(Projection(Var(split), index, components[index])),
                 )
-        for position, spec in enumerate(program._step_specs):
-            if isinstance(spec, _LetSpec):
-                self._host(spec.var, "let", spec, REAL, reads=_let_reads(spec))
-            elif isinstance(spec, _ScoreSpec):
-                weight = self._host(
-                    spec.var, "score", spec, LOG_WEIGHT, reads=reads_of(spec.score)
-                )
-                self._add_score(weight, position)
-            else:
-                self._draw(spec)
+        for position, spec in enumerate(program.steps):
+            match spec:
+                case Let():
+                    self._host(spec.name, "let", spec, REAL, reads=_let_reads(spec))
+                case Score():
+                    weight = self._host(
+                        spec.name,
+                        "score",
+                        spec,
+                        LOG_WEIGHT,
+                        reads=reads_of(spec.score),
+                    )
+                    self._add_score(weight, position)
+                case Draw() | Observe():
+                    self._draw(spec)
         result, result_type = self._result()
         body: Computation = Return(result)
         performed: list[RowEntry] = []
@@ -643,15 +645,15 @@ class _Builder:
             return tensor_type(REAL, (IndexLiteral(program._param_dims[index], NAT),))
         return INT
 
-    def _draw(self, spec: _StepSpec) -> None:
+    def _draw(self, spec: Draw | Observe) -> None:
         """Encode a draw step: its host sampleable and its sample request.
 
         Parameters
         ----------
-        spec : _StepSpec
+        spec : Draw | Observe
             The step.
         """
-        morphism = self.program._modules[spec.morphism_name]
+        morphism = self.program.step_module(spec)
         assert morphism is not None
         label = _step_sites(spec)
         reads = _arg_reads(spec.args)
@@ -676,15 +678,15 @@ class _Builder:
             reads=reads,
         )
         drawn = self._sample(label, sampleable, type_)
-        if len(spec.vars) > 1:
+        if len(spec.names) > 1:
             parts = self._host(
                 f"__parts_{label}",
                 "bind",
                 spec,
-                product_type(*(REAL for _ in spec.vars)),
+                product_type(*(REAL for _ in spec.names)),
                 reads=(label,),
             )
-            for index, name in enumerate(spec.vars):
+            for index, name in enumerate(spec.names):
                 self._bind(name, REAL, Return(Projection(Var(parts), index, REAL)))
         del drawn
 
@@ -726,14 +728,7 @@ def program_kernel(program: MonadicProgram, data: Sequence[str] = ()) -> Program
 
 
 __all__ = [
-    "INPUT_NAME",
-    "ENTRY",
-    "PARAM_INSTANCE",
-    "RANDOM_INSTANCE",
-    "SCORE_INSTANCE",
-    "SOURCE_PROTOCOL",
     "HostStep",
     "ProgramKernel",
     "program_kernel",
-    "space_type",
 ]

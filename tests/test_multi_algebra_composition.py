@@ -49,9 +49,9 @@ from quivers.core.morphisms import (
 from quivers.core.objects import FinSet
 from quivers.core.algebra_morphisms import (
     IdentityHom,
-    LOG_PROB as LOG_PROB_HOM,
+    LOG_PROB_HOM,
     MATERIAL_IMPLICATION,
-    MAX_PLUS as MAX_PLUS_HOM,
+    MAX_PLUS_HOM,
     Threshold,
     embedding,
     lookup_homomorphism,

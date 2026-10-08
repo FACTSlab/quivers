@@ -13,7 +13,7 @@ from quivers.cli.migrations import _grammar as migration_grammar
 from quivers.dsl import parse
 from quivers.dsl import _grammar_build as grammar_build
 from quivers.dsl.pygments_lexer import QvrLexer
-from quivers.cli.check import _check_one as check_one
+from quivers.cli import check_file as check_one
 from quivers.dsl import Compiler
 from quivers.qiec import invoke_entry
 from quivers.transpile import available_targets, transpile

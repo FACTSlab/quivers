@@ -21,6 +21,7 @@ import torch.nn as nn
 
 from quivers.continuous.inline import FixedDistribution
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Observe, step_key
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import Unit
 from quivers.inference import (
@@ -179,29 +180,29 @@ def test_bayesian_lift_with_additional_latents_cancels_placeholder():
     )
     # Build matching envs: zero theta, latent y = 2.0
     env_keys_1 = [
-        spec.morphism_name
-        for spec in lifted._step_specs
-        if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))
+        step_key(spec)
+        for spec in lifted.steps
+        if isinstance(spec, Draw) and spec.names[0].startswith(("theta", "latent"))
     ]
     env_keys_2 = [
-        spec.morphism_name
-        for spec in lifted2._step_specs
-        if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent"))
+        step_key(spec)
+        for spec in lifted2.steps
+        if isinstance(spec, Draw) and spec.names[0].startswith(("theta", "latent"))
     ]
     assert env_keys_1 == env_keys_2  # same step layout
     # Direct log_joint comparison: same args, different placeholder
     # scales → identical scores (within float tolerance).
     env = {}
-    for spec in lifted._step_specs:
-        if hasattr(spec, "vars") and spec.vars[0].startswith(("theta", "latent")):
-            morph = lifted._modules[spec.morphism_name]
+    for spec in lifted.steps:
+        if isinstance(spec, Draw) and spec.names[0].startswith(("theta", "latent")):
+            morph = lifted.step_module(spec)
             d = morph.codomain.dim if hasattr(morph.codomain, "dim") else 1
             v = (
                 torch.full((1, d), 2.0)
-                if spec.vars[0].startswith("latent")
+                if spec.names[0].startswith("latent")
                 else torch.zeros(1, d)
             )
-            env[spec.vars[0]] = v
+            env[spec.names[0]] = v
     s1 = float(lifted.log_joint(lx, env)[0])
     s2 = float(lifted2.log_joint(lx2, env)[0])
     # Score differs only by the prior on theta (same in both), so
@@ -232,8 +233,8 @@ def test_monte_carlo_log_joint_draws_step_site():
         domain=Unit,
         codomain=Unit,
         steps=[
-            (("h",), h_morph, None),
-            (("y",), y_morph, None, True),
+            Draw(names=("h",), morphism=h_morph),
+            Observe(names=("y",), morphism=y_morph),
         ],
         return_vars=("y",),
     )

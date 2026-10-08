@@ -29,14 +29,14 @@ the standard Pyro / NumPyro convention.
 
 This module ships three concrete guides:
 
-* `AutoNormalizingFlow` — user-supplied list of
+* `AutoNormalizingFlow`: user-supplied list of
   [`quivers.inference.transforms.TransformModule`][quivers.inference.transforms.TransformModule]
   instances. Use this when you want a custom architecture.
-* `AutoIAFGuide` — preconfigured stack of
+* `AutoIAFGuide`: preconfigured stack of
   [`quivers.inference.transforms.InverseAutoregressiveTransform`][quivers.inference.transforms.InverseAutoregressiveTransform]
   layers separated by reverse permutations. The default flow
   guide for variational inference (Pyro's flagship NF guide).
-* `AutoNeuralSplineGuide` — preconfigured stack of
+* `AutoNeuralSplineGuide`: preconfigured stack of
   [`quivers.inference.transforms.NeuralSplineCouplingTransform`][quivers.inference.transforms.NeuralSplineCouplingTransform]
   layers with alternating coupling masks. Sharper than IAF for
   posteriors with sharp modes or near-bounded support.

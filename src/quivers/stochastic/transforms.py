@@ -73,6 +73,13 @@ class ConditionedMorphism(Morphism):
         return weighted / z
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return _ConditionedModule(self._inner.module())
 
 
@@ -136,6 +143,11 @@ class MixtureMorphism(Morphism):
     init_logit : float
         Initial value for the unconstrained logit of p.
         Default 0.0 (p = 0.5).
+
+    Raises
+    ------
+    TypeError
+        If ``left`` and ``right`` differ in domain or codomain.
     """
 
     def __init__(
@@ -184,6 +196,13 @@ class MixtureMorphism(Morphism):
         return p * self._left.tensor + (1.0 - p) * self._right.tensor
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._mix_module
 
 
@@ -232,7 +251,7 @@ class FactoredMorphism(Morphism):
 
         factor(f, w)(a, b) = f(a, b) · w(b)
 
-    This is unnormalized — the result is not necessarily row-stochastic.
+    This is unnormalized: the result is not necessarily row-stochastic.
     Use ``normalize`` afterward if normalization is needed.
 
     Parameters
@@ -268,6 +287,13 @@ class FactoredMorphism(Morphism):
         return t * w
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return _FactoredModule(self._inner.module())
 
 
@@ -331,6 +357,13 @@ class NormalizedMorphism(Morphism):
         return t / z
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return _NormalizedModule(self._inner.module())
 
 
@@ -348,3 +381,15 @@ def normalize(f: Morphism) -> NormalizedMorphism:
         The row-normalized morphism.
     """
     return NormalizedMorphism(f)
+
+
+__all__ = [
+    "ConditionedMorphism",
+    "condition",
+    "MixtureMorphism",
+    "mix",
+    "FactoredMorphism",
+    "factor",
+    "NormalizedMorphism",
+    "normalize",
+]

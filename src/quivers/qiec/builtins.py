@@ -131,7 +131,9 @@ def _operation_id(effect: EffectRef, name: str) -> OperationId:
 
 
 RANDOM = _effect_ref("Random")
+"""``Random``: the prelude interface for drawing a value at a sample site."""
 RANDOM_SAMPLE = _operation_id(RANDOM, "sample")
+"""``Random.sample``: draw a value of type ``A`` at a site from a ``Sampleable[A]``."""
 RANDOM_EFFECT = EffectDef(
     RANDOM,
     (),
@@ -145,18 +147,25 @@ RANDOM_EFFECT = EffectDef(
         ),
     ),
 )
+"""The declaration of :data:`RANDOM`."""
 
 SCORE = _effect_ref("Score")
+"""``Score``: the prelude interface for adding a log-density contribution."""
 SCORE_ADD = _operation_id(SCORE, "add")
+"""``Score.add``: add one ``LogWeight`` to the running score."""
 SCORE_EFFECT = EffectDef(
     SCORE,
     (),
     (OperationDef(SCORE_ADD, "add", (), (ArgumentDef("weight", LOG_WEIGHT),), UNIT),),
 )
+"""The declaration of :data:`SCORE`."""
 
 STATE_EFFECT_REF = _effect_ref("State")
+"""``State[S]``: the prelude interface for one mutable cell of type ``S``."""
 STATE_GET = _operation_id(STATE_EFFECT_REF, "get")
+"""``State.get``: read the cell."""
 STATE_PUT = _operation_id(STATE_EFFECT_REF, "put")
+"""``State.put``: overwrite the cell."""
 STATE_EFFECT = EffectDef(
     STATE_EFFECT_REF,
     (_S_BINDER,),
@@ -171,9 +180,12 @@ STATE_EFFECT = EffectDef(
         ),
     ),
 )
+"""The declaration of :data:`STATE_EFFECT_REF`; :func:`state_effect` applies it."""
 
 ABORT = _effect_ref("Abort")
+"""``Abort[P]``: the prelude interface for stopping with a payload of type ``P``."""
 ABORT_ABORT = _operation_id(ABORT, "abort")
+"""``Abort.abort``: stop the computation with an error payload."""
 ABORT_EFFECT = EffectDef(
     ABORT,
     (_P_BINDER,),
@@ -187,9 +199,12 @@ ABORT_EFFECT = EffectDef(
         ),
     ),
 )
+"""The declaration of :data:`ABORT`; :func:`abort_effect` applies it."""
 
 CHOOSE = _effect_ref("Choose")
+"""``Choose``: the prelude interface for nondeterministic choice."""
 CHOOSE_CHOOSE = _operation_id(CHOOSE, "choose")
+"""``Choose.choose``: pick one of a collection of alternatives."""
 CHOOSE_EFFECT = EffectDef(
     CHOOSE,
     (),
@@ -203,9 +218,12 @@ CHOOSE_EFFECT = EffectDef(
         ),
     ),
 )
+"""The declaration of :data:`CHOOSE`."""
 
 WEIGHT = _effect_ref("Weight")
+"""``Weight[K]``: the prelude interface for accumulating a semiring weight of type ``K``."""
 WEIGHT_ADD = _operation_id(WEIGHT, "add")
+"""``Weight.add``: fold one weight into the running total in the handler's semiring."""
 WEIGHT_EFFECT = EffectDef(
     WEIGHT,
     (_K_BINDER,),
@@ -219,12 +237,15 @@ WEIGHT_EFFECT = EffectDef(
         ),
     ),
 )
+"""The declaration of :data:`WEIGHT`; :func:`weight_effect` applies it."""
 
 _X_BINDER = TypeBinder("input")
 INPUT = TypeVariable("input")
 
 COMPUTE = _effect_ref("Compute")
+"""``Compute[X, A]``: the prelude interface for a host computation; see :data:`COMPUTE_EFFECT`."""
 COMPUTE_APPLY = _operation_id(COMPUTE, "apply")
+"""``Compute.apply``: run the host computation on an argument of type ``X``."""
 COMPUTE_EFFECT = EffectDef(
     COMPUTE,
     (_X_BINDER, _ANSWER_BINDER),
@@ -247,7 +268,9 @@ provider supplies, so the dependence is explicit in the row.
 """
 
 PARAM = _effect_ref("Param")
+"""``Param``: the prelude interface for learned parameter lookup; see :data:`PARAM_EFFECT`."""
 PARAM_GET = _operation_id(PARAM, "get")
+"""``Param.get``: read a learned parameter by name."""
 PARAM_EFFECT = EffectDef(
     PARAM,
     (),
@@ -278,6 +301,8 @@ BUILTIN_EFFECTS = (
     COMPUTE_EFFECT,
     PARAM_EFFECT,
 )
+"""Every prelude interface declaration, which every module may name without
+declaring."""
 
 _RUNTIME_ADD = cast(Callable[[object, object], object], operator.add)
 
@@ -2460,8 +2485,8 @@ def choose_handler(
     )
 
 
-#: The semiring additions a search handler may combine its shots by.
 SEARCH_REDUCTIONS: tuple[str, ...] = ("logsumexp", "max", "or", "sum")
+"""The semiring additions :func:`search_handler` may combine its shots by."""
 
 
 def _search_combine(reduction: str, weights: list[object]) -> object:
@@ -3353,44 +3378,30 @@ def param_handler(
 
 
 __all__ = [
-    "A",
-    "add_weights",
-    "enumerate_handler",
-    "search_handler",
-    "SEARCH_REDUCTIONS",
     "ABORT",
     "ABORT_ABORT",
     "ABORT_EFFECT",
-    "ANSWER",
     "Aborted",
     "BUILTIN_EFFECTS",
     "CHOOSE",
     "CHOOSE_CHOOSE",
     "CHOOSE_EFFECT",
-    "CHOICES_A",
-    "CHOICE_RESULTS_A",
     "COMPUTE",
     "COMPUTE_APPLY",
     "COMPUTE_EFFECT",
-    "INPUT",
+    "ExtraValuePolicy",
+    "MissingValuePolicy",
     "PARAM",
     "PARAM_EFFECT",
     "PARAM_GET",
-    "ExtraValuePolicy",
-    "K",
-    "LOG_WEIGHT",
-    "MissingValuePolicy",
-    "PAYLOAD",
     "RANDOM",
     "RANDOM_EFFECT",
     "RANDOM_SAMPLE",
     "ReplayPolicy",
-    "SAMPLEABLE_A",
     "SCORE",
     "SCORE_ADD",
     "SCORE_EFFECT",
-    "SITE_A",
-    "STATE",
+    "SEARCH_REDUCTIONS",
     "STATE_EFFECT",
     "STATE_EFFECT_REF",
     "STATE_GET",
@@ -3403,22 +3414,25 @@ __all__ = [
     "WEIGHT_ADD",
     "WEIGHT_EFFECT",
     "WeightAccumulator",
-    "abort_handler",
     "abort_effect",
+    "abort_handler",
+    "add_weights",
     "block_handler",
     "choose_handler",
     "compute_handler",
     "condition_handler",
     "draw_handler",
     "draw_scoring_handler",
+    "enumerate_handler",
     "intervene_handler",
     "param_handler",
-    "reweight_handler",
     "replay_handler",
+    "reweight_handler",
     "score_handler",
-    "state_handler",
+    "search_handler",
     "state_effect",
+    "state_handler",
     "trace_handler",
-    "weight_handler",
     "weight_effect",
+    "weight_handler",
 ]

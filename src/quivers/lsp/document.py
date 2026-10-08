@@ -669,3 +669,6 @@ def _extract_position(msg: str) -> tuple[int, int]:
     if m:
         return int(m.group(1)), int(m.group(2))
     return 0, 0
+
+
+__all__ = []

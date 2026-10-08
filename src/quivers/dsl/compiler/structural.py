@@ -35,7 +35,7 @@ from quivers.dsl.compiler._options import (
 )
 from quivers.structural.encoder import (
     Encoder,
-    _PerOpFn,
+    PerOpFn,
     make_default_op_fn,
     make_default_var_init,
 )
@@ -627,7 +627,7 @@ class _StructuralMixin:
         globs = self._lex_globals_for_structural()
 
         modules_owned: list[nn.Module] = []
-        op_fns: dict[str, _PerOpFn] = {}
+        op_fns: dict[str, PerOpFn] = {}
 
         for rule in decl.op_rules:
             op = rule.op
@@ -708,7 +708,7 @@ class _StructuralMixin:
 
                 return call
 
-            op_fns[op] = _PerOpFn(
+            op_fns[op] = PerOpFn(
                 op=op,
                 mode=rule.mode,
                 args=args,
@@ -734,7 +734,7 @@ class _StructuralMixin:
                 out_dim = sort_dims[b.codomain]
             mod, call = make_default_op_fn(op_name, arg_dims, out_dim)
             modules_owned.append(mod)
-            op_fns[op_name] = _PerOpFn(
+            op_fns[op_name] = PerOpFn(
                 op=op_name,
                 mode="plain",
                 args=(),
@@ -1251,3 +1251,6 @@ class _StructuralMixin:
         return {
             s.name: list(s.vocab_values) for s in sig.sorts.values() if s.kind == "data"
         }
+
+
+__all__ = []

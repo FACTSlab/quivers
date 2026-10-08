@@ -76,6 +76,7 @@ CCG = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "span" and item[1] == "S",
     agenda_factory=cky_agenda,
 )
+"""Combinatory categorial grammar recognition: forward and backward application over ``slash`` items, log-probability semiring, CKY agenda."""
 
 
 def _lambek_rules() -> list[InferenceRule]:
@@ -107,6 +108,7 @@ Lambek = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "span" and item[1] == "S",
     agenda_factory=cky_agenda,
 )
+"""Lambek calculus recognition: forward and backward application, log-probability semiring, CKY agenda."""
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +150,7 @@ STLC = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] in ("synth", "check"),
     agenda_factory=depth_first_agenda,
 )
+"""Bidirectional type checking for the simply-typed lambda calculus, Boolean semiring."""
 
 
 def _term_depth(t) -> int:
@@ -174,7 +177,7 @@ def _mltt_rules() -> list[InferenceRule]:
     Items: ('judges', ctx, term, type) under a context Γ.
 
     The application rule carries a side condition bounding the
-    derived term's depth — required to terminate the agenda on
+    derived term's depth, required to terminate the agenda on
     cyclic application chains (``f (f (f x))``) where each new
     item is structurally distinct from its predecessors.
     """
@@ -224,6 +227,7 @@ MLTT = DeductionSystem(
     agenda_factory=depth_first_agenda,
     max_iterations=10_000,
 )
+"""Bidirectional type checking for a fragment of Martin-Löf dependent type theory, Boolean semiring, with a bound on term depth."""
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +263,7 @@ Datalog = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "reach",
     agenda_factory=semi_naive_agenda,
 )
+"""Transitive closure of an ``edge`` relation by semi-naive Datalog evaluation, Boolean semiring."""
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +307,7 @@ Dijkstra = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "dist",
     agenda_factory=knuth_agenda,
 )
+"""Single-source shortest paths by Knuth's generalization of Dijkstra's algorithm, Viterbi semiring."""
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +348,9 @@ HMM = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "alpha",
     agenda_factory=cky_agenda,
 )
+"""The hidden Markov model forward algorithm over ``alpha`` items, log-probability semiring."""
 
 
-# Convenience aliases
 ViterbiHMM = DeductionSystem(
     rules=tuple(_hmm_forward_rules()),
     semiring=VITERBI,
@@ -352,6 +358,7 @@ ViterbiHMM = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "alpha",
     agenda_factory=cky_agenda,
 )
+"""The hidden Markov model Viterbi algorithm: the `HMM` rules under the Viterbi semiring."""
 
 
 # ---------------------------------------------------------------------------
@@ -387,10 +394,11 @@ EditDistance = DeductionSystem(
     goal=lambda item: isinstance(item, tuple) and item[0] == "dist",
     agenda_factory=cky_agenda,
 )
+"""Levenshtein edit distance over ``dist`` alignment items, Viterbi semiring."""
 
 
 # ---------------------------------------------------------------------------
-# Registry — the public surface
+# Registry
 # ---------------------------------------------------------------------------
 
 
@@ -407,8 +415,8 @@ STDLIB_DEDUCTIONS: dict[str, DeductionSystem] = {
 }
 """Mapping from name to pre-registered deduction system.
 
-Compilation of a ``parse(NAME)`` expression in the DSL — or a
-direct call from Python — resolves the name against this dict
+Compilation of a ``parse(NAME)`` expression in the DSL, or a
+direct call from Python, resolves the name against this dict
 first, then against any user-declared deductions in the
 compiler's environment.
 """

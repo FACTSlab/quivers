@@ -1241,3 +1241,6 @@ class _DeductionsMixin:
                 )
             system._item_encoder = comps[item_encoder]  # type: ignore[attr-defined]
         self._deductions[decl.name] = system
+
+
+__all__ = []

@@ -37,7 +37,8 @@ import torch.nn as nn
 from torch.distributions import constraints as _constraints
 
 from quivers.continuous.inline import FixedDistribution
-from quivers.continuous.program_steps import reading
+from quivers.continuous.program_steps import Draw, Observe, Score, Step, reading
+from quivers.continuous.programs import step_key
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import Unit
@@ -243,21 +244,19 @@ def bayesian_lift_parameters(
             latent_flat_dims.append(flat)
             latent_sites.append(f"latent__{name}")
 
-    steps: list[tuple] = []
+    steps: list[Step] = []
     for site, dim in zip(param_sites, flat_dims):
         steps.append(
-            (
-                (site,),
-                _make_normal_prior_morphism(prior_scale, dim=dim),
-                None,
+            Draw(
+                names=(site,),
+                morphism=_make_normal_prior_morphism(prior_scale, dim=dim),
             )
         )
     for site, dim in zip(latent_sites, latent_flat_dims):
         steps.append(
-            (
-                (site,),
-                _make_normal_prior_morphism(latent_placeholder_scale, dim=dim),
-                None,
+            Draw(
+                names=(site,),
+                morphism=_make_normal_prior_morphism(latent_placeholder_scale, dim=dim),
             )
         )
 
@@ -311,7 +310,7 @@ def bayesian_lift_parameters(
         return out
 
     steps.append(
-        (("log_lik",), None, reading(_score_fn, [*param_sites, *latent_sites]), True)
+        Score(name="log_lik", score=reading(_score_fn, [*param_sites, *latent_sites]))
     )
     lifted = MonadicProgram(
         domain=Unit,
@@ -581,7 +580,7 @@ def monte_carlo_log_joint(
 
     Implementation: for each name in ``sample_sites`` the wrapper
     resolves the site's morphism (through the inner's
-    ``_step_specs`` or, as a fallback, ``inner._modules`` under the
+    ``steps`` or, as a fallback, ``inner._modules`` under the
     conventional ``_step_<site>`` / ``<site>`` keys), draws
     :math:`\\mathbf{z}_* = \\mathrm{morphism.rsample}(x)`, merges
     the draws into the observation dict, calls
@@ -654,7 +653,7 @@ def monte_carlo_log_joint(
             )
             inner = self._inner
             modules = inner._modules
-            step_specs = getattr(inner, "_step_specs", None)
+            program_steps = getattr(inner, "steps", None)
             log_prior_correction = torch.zeros(
                 x.shape[0],
                 device=x.device,
@@ -662,20 +661,17 @@ def monte_carlo_log_joint(
             )
             for site in sample_sites:
                 morph = None
-                if step_specs is not None:
-                    for spec in step_specs:
-                        vars_ = getattr(spec, "vars", None)
-                        if vars_ and site in vars_:
-                            mname = getattr(spec, "morphism_name", None)
-                            if mname is not None:
-                                morph = modules.get(mname)
-                                break
+                if program_steps is not None:
+                    for spec in program_steps:
+                        if isinstance(spec, Draw | Observe) and site in spec.names:
+                            morph = modules.get(step_key(spec))
+                            break
                 if morph is None:
                     morph = modules.get(f"_step_{site}") or modules.get(site)
                 if morph is None:
                     raise KeyError(
                         f"monte_carlo_log_joint: site {site!r} not "
-                        f"resolvable via _step_specs or _modules"
+                        f"resolvable via steps or _modules"
                     )
                 draw = morph.rsample(x)
                 merged[site] = draw

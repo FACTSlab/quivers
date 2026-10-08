@@ -31,18 +31,7 @@ import torch.distributions.constraints as _constraints
 from torch.distributions.constraints import Constraint
 
 from quivers.dsl.ast_nodes.let_expressions import (
-    LetExprBinOp,
-    LetExprCall,
-    LetExprFactor,
-    LetExprIndex,
-    LetExprLambda,
-    LetExprList,
-    LetExprLiteral,
-    LetExprMethodCall,
     LetExprNode,
-    LetExprString,
-    LetExprUnaryOp,
-    LetExprVar,
 )
 from quivers.transpile.qiec_ir import IRQiecModule, IRQiecStatic, IRQiecValue
 
@@ -130,7 +119,18 @@ class LetExprAffineMap(LetExprNode):
 
 
 def affine_domain_width(expr: LetExprAffineMap) -> int:
-    """Total column count of an affine map's conditioning row."""
+    """Total column count of an affine map's conditioning row.
+
+    Parameters
+    ----------
+    expr
+        The affine map.
+
+    Returns
+    -------
+    int
+        The summed width of the map's sources.
+    """
     return sum(source.width for source in expr.sources)
 
 
@@ -143,6 +143,17 @@ def affine_column_offsets(
     vector slices the weight column-block-wise instead, and this
     gives it the block boundaries without recomputing the running
     sum.
+
+    Parameters
+    ----------
+    expr
+        The affine map.
+
+    Returns
+    -------
+    tuple[tuple[LetAffineSource, int], ...]
+        Each source with the zero-based column its block starts at, in
+        source order.
     """
     out: list[tuple[LetAffineSource, int]] = []
     column = 0
@@ -318,6 +329,21 @@ def from_constraint(c: Constraint) -> ConstraintSpec:
     Used by `Lower` to encode the family's reported support /
     arg_constraint into the IR. Unknown constraint subclasses raise
     so silent type-erasure cannot happen.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    ConstraintSpec
+        The structural variant mirroring ``c``.
+
+    Raises
+    ------
+    ValueError
+        If ``c`` is a constraint kind with no structural variant.
     """
     if isinstance(c, _constraints._Real):
         return CSReal()
@@ -420,7 +446,18 @@ def _is_independent(c: Constraint, n: int) -> bool:
 
 
 def is_real_scalar(c: Constraint) -> bool:
-    """`Real()` or any interval that spans the full real line."""
+    """`Real()` or any interval that spans the full real line.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is the whole real line.
+    """
     if isinstance(c, _constraints._Real):
         return True
     if isinstance(c, _constraints._Interval):
@@ -429,7 +466,18 @@ def is_real_scalar(c: Constraint) -> bool:
 
 
 def is_real_positive(c: Constraint) -> bool:
-    """`GreaterThan(0)`, `Positive()`, `GreaterThanEq(0)`."""
+    """`GreaterThan(0)`, `Positive()`, `GreaterThanEq(0)`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is the positive or nonnegative half-line.
+    """
     if isinstance(c, _constraints._GreaterThan):
         return float(c.lower_bound) == 0.0
     if isinstance(c, _constraints._GreaterThanEq):
@@ -438,7 +486,18 @@ def is_real_positive(c: Constraint) -> bool:
 
 
 def is_real_unit_interval(c: Constraint) -> bool:
-    """`Interval(0, 1)` / `UnitInterval()`."""
+    """`Interval(0, 1)` / `UnitInterval()`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is the unit interval.
+    """
     if isinstance(c, _constraints._Interval):
         return float(c.lower_bound) == 0.0 and float(c.upper_bound) == 1.0
     return False
@@ -450,6 +509,16 @@ def is_real_bounded_interval(c: Constraint) -> bool:
     Distinguishes `Uniform(-1, 1)`-style supports from `UnitInterval`
     so the type emitter can produce `real <lower=lo, upper=hi>` rather
     than falling through to the unsupported-support fallback.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a finite interval other than the unit interval.
     """
     if not isinstance(c, _constraints._Interval):
         return False
@@ -463,13 +532,35 @@ def is_real_bounded_interval(c: Constraint) -> bool:
 
 
 def real_interval_bounds(c: Constraint) -> tuple[float, float]:
-    """The (lo, hi) bounds of a bounded-interval support."""
+    """The (lo, hi) bounds of a bounded-interval support.
+
+    Parameters
+    ----------
+    c
+        An interval constraint.
+
+    Returns
+    -------
+    tuple[float, float]
+        The lower and upper bound.
+    """
     assert isinstance(c, _constraints._Interval)
     return float(c.lower_bound), float(c.upper_bound)
 
 
 def is_real_vector(c: Constraint) -> bool:
-    """`IndependentConstraint(Real(), 1)` (a vector of real scalars)."""
+    """`IndependentConstraint(Real(), 1)` (a vector of real scalars).
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a vector of unconstrained reals.
+    """
     if not _is_independent(c, 1):
         return False
     base = c.base_constraint
@@ -477,12 +568,35 @@ def is_real_vector(c: Constraint) -> bool:
 
 
 def is_real_simplex(c: Constraint) -> bool:
-    """`Simplex()`."""
+    """`Simplex()`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is the probability simplex.
+    """
     return isinstance(c, _constraints._Simplex)
 
 
 def is_real_cov_matrix(c: Constraint) -> bool:
-    """`PositiveDefinite()` / `PositiveSemiDefinite()`."""
+    """`PositiveDefinite()` / `PositiveSemiDefinite()`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a positive-definite or positive-semidefinite
+        matrix.
+    """
     if isinstance(c, _constraints._PositiveDefinite):
         return True
     if isinstance(c, _constraints._PositiveSemidefinite):
@@ -495,6 +609,16 @@ def is_real_corr_chol(c: Constraint) -> bool:
 
     The predicate covers any lower-triangular Cholesky factor;
     correlation Cholesky is the constrained subcase.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a lower-triangular Cholesky factor.
     """
     if isinstance(c, _constraints._CorrCholesky):
         return True
@@ -504,7 +628,18 @@ def is_real_corr_chol(c: Constraint) -> bool:
 
 
 def is_real_matrix(c: Constraint) -> bool:
-    """`IndependentConstraint(Real(), 2)`."""
+    """`IndependentConstraint(Real(), 2)`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a matrix of unconstrained reals.
+    """
     if not _is_independent(c, 2):
         return False
     base = c.base_constraint
@@ -515,12 +650,33 @@ def is_real_one_hot(c: Constraint) -> bool:
     """`OneHot()` (the one-hot vector support of `OneHotCategorical`).
 
     Degenerate elements of the simplex.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is the one-hot vector support.
     """
     return isinstance(c, _constraints._OneHot)
 
 
 def is_int_bit(c: Constraint) -> bool:
-    """`Boolean()` or `IntegerInterval(0, 1)`."""
+    """`Boolean()` or `IntegerInterval(0, 1)`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` admits exactly 0 and 1.
+    """
     if isinstance(c, _constraints._Boolean):
         return True
     if isinstance(c, _constraints._IntegerInterval):
@@ -529,7 +685,18 @@ def is_int_bit(c: Constraint) -> bool:
 
 
 def is_int_category(c: Constraint) -> bool:
-    """`IntegerInterval(0, K-1)` with `K > 2`, or `IntegerInterval(1, K)`."""
+    """`IntegerInterval(0, K-1)` with `K > 2`, or `IntegerInterval(1, K)`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is a finite range of category indices.
+    """
     if not isinstance(c, _constraints._IntegerInterval):
         return False
     lo = int(c.lower_bound)
@@ -542,14 +709,36 @@ def is_int_category(c: Constraint) -> bool:
 
 
 def is_int_count(c: Constraint) -> bool:
-    """`NonnegativeInteger()`, `PositiveInteger()`, `IntegerGreaterThan(0)`."""
+    """`NonnegativeInteger()`, `PositiveInteger()`, `IntegerGreaterThan(0)`.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    bool
+        Whether ``c`` is an integer half-line.
+    """
     if isinstance(c, _constraints._IntegerGreaterThan):
         return True
     return False
 
 
 def event_dim_of(c: Constraint) -> int:
-    """Return the constraint's `event_dim` attribute."""
+    """Return the constraint's `event_dim` attribute.
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+
+    Returns
+    -------
+    int
+        The constraint's ``event_dim``, 0 when it declares none.
+    """
     return int(getattr(c, "event_dim", 0))
 
 
@@ -560,6 +749,18 @@ def event_shape_of(c: Constraint, base_event: tuple[int, ...]) -> tuple[int, ...
     `IndependentConstraint(_, n)` returns `base_event` (the
     independence rank is taken into account by the caller, who
     supplies the per-dim sizes).
+
+    Parameters
+    ----------
+    c
+        A torch support or argument constraint.
+    base_event
+        The event shape before lifting.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The lifted event shape.
     """
     return base_event
 
@@ -927,11 +1128,12 @@ __all__ = [
     "CSRealVector",
     "CSSimplex",
     "CSUnitInterval",
-    "Constraint",
     "ConstraintSpec",
     "Dim",
     "DimDynamic",
     "DimStatic",
+    "DomainGridAxis",
+    "EventAxisSource",
     "IRArg",
     "IRArgBroadcast",
     "IRArgFamilyRef",
@@ -940,32 +1142,26 @@ __all__ = [
     "IRArgMatrix",
     "IRArgNumber",
     "IRArgRef",
+    "IRCall",
     "IRDataInput",
     "IRDeterministic",
-    "IRExpr",
     "IRMarginalize",
     "IRNode",
     "IRObserve",
     "IRProgram",
-    "IRCall",
+    "IRQiecValueExpr",
     "IRReturn",
     "IRSample",
     "IRScore",
     "LetAffineSource",
     "LetExprAffineMap",
-    "LetExprBinOp",
-    "LetExprCall",
-    "LetExprFactor",
-    "LetExprIndex",
-    "LetExprLambda",
-    "LetExprList",
-    "LetExprLiteral",
-    "LetExprMethodCall",
-    "LetExprNode",
-    "LetExprString",
-    "LetExprUnaryOp",
-    "LetExprVar",
+    "OverOrCodomainAxes",
     "Plate",
+    "StructuredArgSpec",
+    "StructuredDataArg",
+    "StructuredKernelArg",
+    "StructuredSampleLowering",
+    "StructuredZeroVectorArg",
     "affine_column_offsets",
     "affine_domain_width",
     "event_dim_of",
@@ -974,15 +1170,15 @@ __all__ = [
     "is_int_bit",
     "is_int_category",
     "is_int_count",
+    "is_real_bounded_interval",
     "is_real_corr_chol",
     "is_real_cov_matrix",
     "is_real_matrix",
     "is_real_one_hot",
-    "is_real_bounded_interval",
     "is_real_positive",
     "is_real_scalar",
     "is_real_simplex",
     "is_real_unit_interval",
-    "real_interval_bounds",
     "is_real_vector",
+    "real_interval_bounds",
 ]

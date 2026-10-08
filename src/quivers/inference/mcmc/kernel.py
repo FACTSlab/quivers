@@ -152,7 +152,7 @@ class PotentialFn:
         doesn't leak into the kernel's accumulated state.
 
         For divergent positions (where the log-density is
-        ``-inf``), returns a zero gradient — the kernel rejects
+        ``-inf``), returns a zero gradient: the kernel rejects
         the trajectory in the Metropolis step anyway, and a zero
         gradient keeps the leapfrog integrator from producing NaN
         downstream.

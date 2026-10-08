@@ -91,12 +91,32 @@ FAMILY_ALIASES: dict[str, str] = {
     "Pushforward": "Transformed",
     "Truncate": "Restrict",
 }
+"""Surface family names that resolve to another family's registry record.
+
+A key is a name a source may write; its value is the family whose
+specification builds the distribution.
+"""
 
 
 def family_parameterizations(
     family: str, canonical: tuple[str, ...]
 ) -> tuple[tuple[str, ...], ...]:
-    """Return every complete keyword schema accepted by ``family``."""
+    """Return every complete keyword schema accepted by ``family``.
+
+    Parameters
+    ----------
+    family : str
+        The family name as written in source.
+    canonical : tuple[str, ...]
+        The parameter names the family's registry record declares,
+        used when no schema for ``family`` is declared here.
+
+    Returns
+    -------
+    tuple[tuple[str, ...], ...]
+        One tuple of keyword names per accepted parameterization, empty
+        when the family takes no parameters.
+    """
     alternatives = _ALTERNATIVE_SCHEMAS.get(family)
     if alternatives is not None:
         return alternatives
@@ -105,7 +125,19 @@ def family_parameterizations(
 
 
 def family_parameter_names(family: str) -> tuple[str, ...] | None:
-    """Return the canonical QVR keyword order for ``family``."""
+    """Return the canonical QVR keyword order for ``family``.
+
+    Parameters
+    ----------
+    family : str
+        The family name as written in source.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        The keyword names in canonical order, or None when no keyword
+        schema is declared for ``family``.
+    """
     return _FAMILY_PARAMETERS.get(family)
 
 
@@ -115,8 +147,7 @@ def render_parameterizations(schemas: tuple[tuple[str, ...], ...]) -> str:
 
 
 __all__ = [
+    "FAMILY_ALIASES",
     "family_parameter_names",
     "family_parameterizations",
-    "FAMILY_ALIASES",
-    "render_parameterizations",
 ]

@@ -610,3 +610,22 @@ class Diagonal(ContinuousSpace):
 
     def __str__(self) -> str:
         return f"Diagonal({self.name!r}, {self.dim})"
+
+
+__all__ = [
+    "Ball",
+    "CholeskyFactor",
+    "ContinuousSpace",
+    "Correlation",
+    "Covariance",
+    "Diagonal",
+    "Euclidean",
+    "LowerTriangular",
+    "Orthogonal",
+    "PositiveReals",
+    "ProductSpace",
+    "Simplex",
+    "Sphere",
+    "Stiefel",
+    "UnitInterval",
+]

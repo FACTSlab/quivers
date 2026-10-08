@@ -17,3 +17,17 @@ top-level names. For a rule-attached loss, it also contains `"rule"`,
 keys populated by the agenda's rule-firing callback.
 
 ::: quivers.structural.losses
+    options:
+      filters: ["!^_", "!^(LossBody|LossWeight|TrainEnv|AttachmentKind)$"]
+
+## Type aliases
+
+::: quivers.structural
+    options:
+      members:
+        - LossBody
+        - LossWeight
+        - TrainEnv
+        - AttachmentKind
+      show_root_heading: false
+      show_root_toc_entry: false

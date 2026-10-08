@@ -19,7 +19,7 @@ from collections.abc import Callable
 import torch
 import torch.nn as nn
 
-from ..encoder import Encoder, _PerOpFn
+from ..encoder import Encoder, PerOpFn
 from ..decoder import Decoder
 from ..signature import (
     DataLeaf,
@@ -31,7 +31,23 @@ from ..signature import (
 
 
 def seq_signature(name: str = "Seq", dim: int = 64) -> Signature:
-    """Return a sequence signature `Seq` with element sort `A` (data)."""
+    """Return a cons-list signature with a data element sort.
+
+    The object sort ``Seq`` has the constructors ``Nil`` and ``Cons``,
+    the latter over an element of data sort ``A`` and a tail.
+
+    Parameters
+    ----------
+    name : str
+        The signature's name.
+    dim : int
+        The embedding dimension of every sort.
+
+    Returns
+    -------
+    Signature
+        The sequence signature.
+    """
     sorts = {
         "Seq": Sort(name="Seq", kind="object", dim=dim),
         "A": Sort(name="A", kind="data", dim=dim),
@@ -82,7 +98,21 @@ def _learnable_nil(dim: int) -> tuple[nn.Module, torch.Tensor]:
 def rnn_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
     """A GRU-cell encoder: ``Cons(head, tail)`` updates a hidden
     state from the tail's compressed vector and the head's element
-    embedding."""
+    embedding.
+
+    Parameters
+    ----------
+    sig : Signature or None
+        A sequence signature with object sort ``Seq`` and data sort
+        ``A``; `seq_signature` at dimension ``dim`` when omitted.
+    dim : int
+        The embedding dimension of both sorts.
+
+    Returns
+    -------
+    Encoder
+        The sequence encoder.
+    """
     sig = sig or seq_signature(dim=dim)
     cell = nn.GRUCell(dim, dim)
     nil_mod, nil_const = _learnable_nil(dim)
@@ -95,8 +125,8 @@ def rnn_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
         return nil_const
 
     op_fns = {
-        "Nil": _PerOpFn("Nil", "plain", (), nil_fn),
-        "Cons": _PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
+        "Nil": PerOpFn("Nil", "plain", (), nil_fn),
+        "Cons": PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
     }
     return Encoder(
         name="RNN",
@@ -112,7 +142,21 @@ def rnn_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
 def transformer_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
     """A transformer-style encoder: each ``Cons`` step combines
     the head's element embedding with the tail's running compressed
-    vector through a learned MLP over the concatenation."""
+    vector through a learned MLP over the concatenation.
+
+    Parameters
+    ----------
+    sig : Signature or None
+        A sequence signature with object sort ``Seq`` and data sort
+        ``A``; `seq_signature` at dimension ``dim`` when omitted.
+    dim : int
+        The embedding dimension of both sorts.
+
+    Returns
+    -------
+    Encoder
+        The sequence encoder.
+    """
     sig = sig or seq_signature(dim=dim)
     head_proj = nn.Linear(dim, dim)
     tail_proj = nn.Linear(dim, dim)
@@ -130,8 +174,8 @@ def transformer_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
         return nil_const
 
     op_fns = {
-        "Nil": _PerOpFn("Nil", "plain", (), nil_fn),
-        "Cons": _PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
+        "Nil": PerOpFn("Nil", "plain", (), nil_fn),
+        "Cons": PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
     }
     return Encoder(
         name="Tfm",
@@ -150,6 +194,19 @@ def bow_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
     Each ``Cons(head, tail)`` step adds the head's element embedding
     to the running tail embedding; ``Nil`` is a learnable zero.
     Equivalent to a bag-of-tokens fixed-length representation.
+
+    Parameters
+    ----------
+    sig : Signature or None
+        A sequence signature with object sort ``Seq`` and data sort
+        ``A``; `seq_signature` at dimension ``dim`` when omitted.
+    dim : int
+        The embedding dimension of both sorts.
+
+    Returns
+    -------
+    Encoder
+        The sequence encoder.
     """
     sig = sig or seq_signature(dim=dim)
     nil_mod, nil_const = _learnable_nil(dim)
@@ -162,8 +219,8 @@ def bow_encoder(sig: Signature | None = None, dim: int = 64) -> Encoder:
         return nil_const
 
     op_fns = {
-        "Nil": _PerOpFn("Nil", "plain", (), nil_fn),
-        "Cons": _PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
+        "Nil": PerOpFn("Nil", "plain", (), nil_fn),
+        "Cons": PerOpFn("Cons", "plain", ("head", "tail"), cons_fn),
     }
     return Encoder(
         name="BoW",
@@ -186,6 +243,28 @@ def ar_decoder(
 
     ``vocab`` is the closed token set the primitive head selects
     from. Required; the runtime raises on an empty vocabulary.
+
+    Parameters
+    ----------
+    sig : Signature or None
+        A sequence signature with object sort ``Seq`` and data sort
+        ``A``; `seq_signature` at dimension ``dim`` when omitted.
+    dim : int
+        The embedding dimension of both sorts.
+    vocab : list[DataLeaf] or None
+        The closed set of element values the decoder emits.
+    depth : int
+        The recursion-depth bound, which caps the sampled length.
+
+    Returns
+    -------
+    Decoder
+        The sequence decoder.
+
+    Raises
+    ------
+    ValueError
+        If ``vocab`` is missing or empty.
     """
     if not vocab:
         raise ValueError("ar_decoder requires a non-empty vocabulary")
@@ -233,7 +312,18 @@ def ar_decoder(
 
 
 def list_to_term(elements: list[DataLeaf]) -> Term:
-    """Convert a Python list to a right-nested ``Cons(..., Nil)`` term."""
+    """Convert a Python list to a right-nested ``Cons(..., Nil)`` term.
+
+    Parameters
+    ----------
+    elements : list[DataLeaf]
+        The sequence elements, in order.
+
+    Returns
+    -------
+    Term
+        The cons-list term over `seq_signature`'s constructors.
+    """
     term = Term(op="Nil", args=())
     for e in reversed(elements):
         term = Term(op="Cons", args=(e, term))
@@ -241,7 +331,19 @@ def list_to_term(elements: list[DataLeaf]) -> Term:
 
 
 def term_to_list(term: Term) -> list[DataLeaf]:
-    """Inverse of `list_to_term`."""
+    """Inverse of `list_to_term`.
+
+    Parameters
+    ----------
+    term : Term
+        A cons-list term.
+
+    Returns
+    -------
+    list[DataLeaf]
+        The heads of the ``Cons`` chain, outermost first; the walk
+        stops at the first term that is not a ``Cons``.
+    """
     out: list[DataLeaf] = []
     cur = term
     while isinstance(cur, Term) and cur.op == "Cons":
@@ -249,3 +351,14 @@ def term_to_list(term: Term) -> list[DataLeaf]:
         out.append(head)
         cur = tail
     return out
+
+
+__all__ = [
+    "seq_signature",
+    "rnn_encoder",
+    "transformer_encoder",
+    "bow_encoder",
+    "ar_decoder",
+    "list_to_term",
+    "term_to_list",
+]

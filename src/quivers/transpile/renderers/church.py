@@ -1,5 +1,5 @@
 """Church renderer: [`IRProgram`][quivers.transpile.ir.IRProgram] to a
-Scheme [`panproto.Schema`][panproto.Schema] under the ``scheme``
+Scheme `panproto.Schema` under the ``scheme``
 tree-sitter grammar.
 
 The Church idiom for a probabilistic program is a top-level
@@ -24,14 +24,14 @@ complete Scheme module.
 The renderer reads
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META] for each
 family's Church distribution name (`target_names["church"]`), reuses
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase] for
+[`RendererBase`][quivers.transpile.renderers.RendererBase] for
 the IR walk and the atom enumeration that integrates an
 [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] latent out
 through the runtime's ``log-sum-exp`` and ``factor``, and dispatches
 the four primitives (`declare`, `sample`, `marginalize`, `broadcast`)
 per `Renderer`. Broadcast scalars emit ``(make-list K <value>)``; list
 literals emit ``(list e0 e1 ...)``; matrix literals raise
-[`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+`UnsupportedConstruct`
 with ``arg:matrix-literal`` since Scheme has no canonical matrix
 form.
 """
@@ -95,7 +95,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     marginalize_row_rank,
 )
@@ -210,7 +210,7 @@ class ChurchRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
     Scheme schema in the Church probabilistic-programming idiom.
 
-    Subclass of [`RendererBase`][quivers.transpile.renderers._base.RendererBase]:
+    Subclass of [`RendererBase`][quivers.transpile.renderers.RendererBase]:
     overrides `render` to wrap the IR walk in a top-level
     ``(define (model <inputs...>) <body...>)`` form, then dispatches
     each [`IRNode`][quivers.transpile.ir.IRNode] through `declare` /
@@ -222,9 +222,28 @@ class ChurchRenderer(RendererBase):
     # ----- top-level wrapper -----
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("scheme")
 
     def render(self, ir: IRProgram) -> panproto.Schema:
+        """Render a program to the target's panproto schema.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         assert_no_dropped_param_map(ir, self.target)
         # Snapshot `IRProgram.cards` for the renderer-local cards map
         # threaded through every `_LetExprCtx`; the Scheme let-expr
@@ -256,7 +275,7 @@ class ChurchRenderer(RendererBase):
         self._value_bindings: set[str] = set()
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={}, cards=self._cards)
+        ctx = RenderContext(sb=sb, morphisms={}, defines={}, cards=self._cards)
         prog_id = _v(ctx, "prog", "program")
         # Every emitted program uses `sample` / `observe` / `factor`
         # and one distribution constructor per family, all defined in
@@ -300,7 +319,7 @@ class ChurchRenderer(RendererBase):
     # ----- IR-node dispatch -----
 
     def _render_body_forms(
-        self, ctx: _RenderCtx, node: IRNode
+        self, ctx: RenderContext, node: IRNode
     ) -> tuple[SchemaFragment, ...]:
         """Render one IR node into one or more sibling body forms.
 
@@ -366,7 +385,7 @@ class ChurchRenderer(RendererBase):
         raise UnsupportedConstruct(_TARGET, [f"node:{type(node).__name__}"])
 
     def _render_call_forms(
-        self, ctx: _RenderCtx, node: IRCall
+        self, ctx: RenderContext, node: IRCall
     ) -> tuple[SchemaFragment, ...]:
         """The body forms calling a module computation.
 
@@ -377,7 +396,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRCall
             The call.
@@ -434,7 +453,7 @@ class ChurchRenderer(RendererBase):
                 self._collect_binding_plates(node.scope)
 
     def _render_deterministic_form(
-        self, ctx: _RenderCtx, node: IRDeterministic
+        self, ctx: RenderContext, node: IRDeterministic
     ) -> SchemaFragment:
         """Emit ``(define <name> <expr>)`` for a deterministic let.
 
@@ -449,7 +468,7 @@ class ChurchRenderer(RendererBase):
         the exception: the per-row lift would wrap a length-`N` list
         in a length-`N` map and bind an `N`-by-`N` table under a name
         every reader indexes once. See
-        [`_denotes_whole_row`][quivers.transpile.renderers.church._denotes_whole_row].
+        `_denotes_whole_row`.
         """
         expr = node.expr
         lift = bool(node.plate.batch_dims) and not _denotes_whole_row(expr, node.plate)
@@ -471,7 +490,7 @@ class ChurchRenderer(RendererBase):
         that aligns with `plate` by ``[<loop_name>]``.
 
         The traversal mirrors
-        [`_substitute_ref_indexing`][quivers.transpile.renderers.church.ChurchRenderer._substitute_ref_indexing]
+        `_substitute_ref_indexing`
         at the let-expression level: only the alignment case applies
         (let bindings carry no `via` fibration).
         """
@@ -514,7 +533,7 @@ class ChurchRenderer(RendererBase):
 
     def _render_gp_forms(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRSample,
     ) -> tuple[SchemaFragment, ...]:
         """Emit three Scheme forms for a Gaussian-process sample:
@@ -696,7 +715,7 @@ class ChurchRenderer(RendererBase):
         return (mean_form, cov_form, sample_form)
 
     def _render_marginalize_forms(
-        self, ctx: _RenderCtx, node: IRMarginalize
+        self, ctx: RenderContext, node: IRMarginalize
     ) -> tuple[SchemaFragment, ...]:
         """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
         to the sibling forms that integrate its latent out.
@@ -732,7 +751,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRMarginalize
             The block.
@@ -831,7 +850,7 @@ class ChurchRenderer(RendererBase):
 
     def _atom_forms(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
         atom: IRMarginalAtom,
         prefix: str,
@@ -841,7 +860,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRMarginalize
             The block.
@@ -876,7 +895,7 @@ class ChurchRenderer(RendererBase):
 
     def _atom_weight_forms(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
         raw: MarginalizeBody,
         atoms: tuple[IRMarginalAtom, ...],
@@ -894,7 +913,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         node : IRMarginalize
             The block.
@@ -1012,7 +1031,7 @@ class ChurchRenderer(RendererBase):
         return tuple(names), tuple(forms)
 
     def _return_form(
-        self, ctx: _RenderCtx, body: tuple[IRNode, ...]
+        self, ctx: RenderContext, body: tuple[IRNode, ...]
     ) -> SchemaFragment | None:
         for node in body:
             if isinstance(node, IRReturn):
@@ -1031,7 +1050,7 @@ class ChurchRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -1044,13 +1063,31 @@ class ChurchRenderer(RendererBase):
         ``(define name (map ...))``; data inputs land in the model
         signature in `render`. This dispatch is a no-op for every
         block.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -1080,6 +1117,32 @@ class ChurchRenderer(RendererBase):
         are indexed by the per-row loop variable; and a scalar family
         stamped with event axes (via ``over=``) wraps an inner map
         over the event dims so each draw is the declared vector.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+        via
+            The fibration an observe gathers its rows through, or ``None``.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del arg_names
         dist_form = self._dist_form(ctx, family, args, plate, via)
@@ -1089,7 +1152,7 @@ class ChurchRenderer(RendererBase):
 
     def _dist_form(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         family: str,
         args: tuple[IRArg, ...],
         plate: Plate,
@@ -1107,7 +1170,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         family : str
             The distribution family.
@@ -1221,7 +1284,7 @@ class ChurchRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Lower [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
@@ -1235,6 +1298,18 @@ class ChurchRenderer(RendererBase):
         ...) ...)`` body. When `marginalize` is invoked as a single
         dispatch point (per the Renderer protocol contract), the
         forms collapse into a ``(begin ...)`` block.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         forms = self._render_marginalize_forms(ctx, node)
         if not forms:
@@ -1245,17 +1320,31 @@ class ChurchRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         """`(make-list K <value>)` for 1-D broadcasts.
 
         Higher-rank broadcasts raise
-        [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+        `UnsupportedConstruct`
         with ``arg:broadcast-rank-2+`` (Church has no canonical
         matrix form, so a rank-2 broadcast has no idiomatic
         rendering).
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         if len(target_shape) != 1:
             raise UnsupportedConstruct(
@@ -1273,7 +1362,7 @@ class ChurchRenderer(RendererBase):
 
     def _build_dist_call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         symbol: str,
         args: tuple[IRArg, ...],
     ) -> SchemaFragment:
@@ -1283,7 +1372,7 @@ class ChurchRenderer(RendererBase):
             children.append(self._render_arg(ctx, arg))
         return _list(ctx, tuple(children))
 
-    def _render_arg(self, ctx: _RenderCtx, arg: IRArg) -> SchemaFragment:
+    def _render_arg(self, ctx: RenderContext, arg: IRArg) -> SchemaFragment:
         """Render one [`IRArg`][quivers.transpile.ir.IRArg] to a
         Scheme schema fragment.
 
@@ -1306,7 +1395,7 @@ class ChurchRenderer(RendererBase):
             return self._render_family_ref(ctx, arg)
         raise UnsupportedConstruct(_TARGET, [f"arg:{type(arg).__name__}"])
 
-    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
+    def _render_ref(self, ctx: RenderContext, arg: IRArgRef) -> SchemaFragment:
         """`x` for a bare reference; `(list-ref x idx)` for one index;
         nested `list-ref` for higher-rank indexing."""
         if not arg.indices:
@@ -1317,18 +1406,18 @@ class ChurchRenderer(RendererBase):
             current = _list(ctx, (_sym(ctx, "list-ref"), current, idx_form))
         return current
 
-    def _render_list(self, ctx: _RenderCtx, arg: IRArgList) -> SchemaFragment:
+    def _render_list(self, ctx: RenderContext, arg: IRArgList) -> SchemaFragment:
         children = [_sym(ctx, "list")]
         for elem in arg.elements:
             children.append(self._render_arg(ctx, elem))
         return _list(ctx, tuple(children))
 
-    def _render_matrix(self, ctx: _RenderCtx, arg: IRArgMatrix) -> SchemaFragment:
+    def _render_matrix(self, ctx: RenderContext, arg: IRArgMatrix) -> SchemaFragment:
         del ctx, arg
         raise UnsupportedConstruct(_TARGET, ["arg:matrix-literal"])
 
     def _render_family_ref(
-        self, ctx: _RenderCtx, arg: IRArgFamilyRef
+        self, ctx: RenderContext, arg: IRArgFamilyRef
     ) -> SchemaFragment:
         """Resolve an [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]
         through the morphism table and emit the inner distribution
@@ -1339,7 +1428,7 @@ class ChurchRenderer(RendererBase):
         distribution as a morphism name; the morphism table maps that
         name to its `~ Family(...)` clause. Church does not expose
         any of those wrappers natively, so the renderer raises
-        [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+        `UnsupportedConstruct`
         on absent morphism data; callers wanting truncated /
         composition / rejection-sampling semantics fold them into the
         outer distribution call before lowering.
@@ -1349,7 +1438,7 @@ class ChurchRenderer(RendererBase):
 
     def _wrap_sample_define(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         dist_form: SchemaFragment,
         plate: Plate,
@@ -1375,7 +1464,7 @@ class ChurchRenderer(RendererBase):
 
     def _wrap_in_maps(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         inner: SchemaFragment,
         batch_dims: tuple[object, ...],
         *,
@@ -1396,7 +1485,7 @@ class ChurchRenderer(RendererBase):
 
     def _one_map_layer(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         inner: SchemaFragment,
         dim: object,
         axis_suffix: str,
@@ -1417,7 +1506,7 @@ class ChurchRenderer(RendererBase):
             (_sym(ctx, "map"), lambda_form, iota_form),
         )
 
-    def _dim_size_form(self, ctx: _RenderCtx, dim: object) -> SchemaFragment:
+    def _dim_size_form(self, ctx: RenderContext, dim: object) -> SchemaFragment:
         """Emit the size form for one plate dim.
 
         Static dims render as their integer cardinality; dynamic dims
@@ -1432,7 +1521,7 @@ class ChurchRenderer(RendererBase):
 
     def _wrap_observe(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         obs_name: str,
         dist_form: SchemaFragment,
         plate: Plate,
@@ -1488,7 +1577,7 @@ class ChurchRenderer(RendererBase):
 
     def _wrap_score_map(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         obs_name: str,
         dist_form: SchemaFragment,
         plate: Plate,
@@ -1502,7 +1591,7 @@ class ChurchRenderer(RendererBase):
 
         Parameters
         ----------
-        ctx : _RenderCtx
+        ctx : RenderContext
             The render context.
         obs_name : str
             The observed data's name.
@@ -1546,34 +1635,34 @@ class ChurchRenderer(RendererBase):
 # ---------------------------------------------------------------------------
 
 
-def _fresh(ctx: _RenderCtx, prefix: str) -> str:
+def _fresh(ctx: RenderContext, prefix: str) -> str:
     ctx.fresh_counter += 1
     return f"{prefix}_{ctx.fresh_counter}"
 
 
-def _v(ctx: _RenderCtx, vid: str, kind: str) -> str:
+def _v(ctx: RenderContext, vid: str, kind: str) -> str:
     ctx.sb.vertex(vid, kind)
     return vid
 
 
-def _e(ctx: _RenderCtx, src: str, tgt: str, kind: str = "child_of") -> None:
+def _e(ctx: RenderContext, src: str, tgt: str, kind: str = "child_of") -> None:
     ctx.sb.edge(src, tgt, kind)
 
 
-def _sym(ctx: _RenderCtx, text: str) -> SchemaFragment:
+def _sym(ctx: RenderContext, text: str) -> SchemaFragment:
     vid = _v(ctx, _fresh(ctx, "sym"), "symbol")
     ctx.sb.constraint(vid, "literal-value", text)
     return vid
 
 
-def _num(ctx: _RenderCtx, value: float) -> SchemaFragment:
+def _num(ctx: RenderContext, value: float) -> SchemaFragment:
     vid = _v(ctx, _fresh(ctx, "num"), "number")
     text = str(int(value)) if value == int(value) else repr(value)
     ctx.sb.constraint(vid, "literal-value", text)
     return vid
 
 
-def _list(ctx: _RenderCtx, children: tuple[SchemaFragment, ...]) -> SchemaFragment:
+def _list(ctx: RenderContext, children: tuple[SchemaFragment, ...]) -> SchemaFragment:
     """A parenthesised Scheme list with `children` in order."""
     lst = _v(ctx, _fresh(ctx, "lst"), "list")
     for child in children:
@@ -1582,7 +1671,7 @@ def _list(ctx: _RenderCtx, children: tuple[SchemaFragment, ...]) -> SchemaFragme
     return lst
 
 
-def _statement(ctx: _RenderCtx, form: SchemaFragment) -> SchemaFragment:
+def _statement(ctx: RenderContext, form: SchemaFragment) -> SchemaFragment:
     """`(define _qvr_stmt_<n> <form>)`: an expression placed among the
     definitions of a body.
 
@@ -1593,7 +1682,7 @@ def _statement(ctx: _RenderCtx, form: SchemaFragment) -> SchemaFragment:
 
     Parameters
     ----------
-    ctx : _RenderCtx
+    ctx : RenderContext
         The render context.
     form : SchemaFragment
         The expression form.
@@ -1606,12 +1695,12 @@ def _statement(ctx: _RenderCtx, form: SchemaFragment) -> SchemaFragment:
     return _define(ctx, _fresh(ctx, "_qvr_stmt"), form)
 
 
-def _define(ctx: _RenderCtx, name: str, value: SchemaFragment) -> SchemaFragment:
+def _define(ctx: RenderContext, name: str, value: SchemaFragment) -> SchemaFragment:
     """`(define <name> <value>)`.
 
     Parameters
     ----------
-    ctx : _RenderCtx
+    ctx : RenderContext
         The render context.
     name : str
         The bound name.
@@ -1628,10 +1717,10 @@ def _define(ctx: _RenderCtx, name: str, value: SchemaFragment) -> SchemaFragment
 
 # ---------------------------------------------------------------------------
 # Bridge adapter: the
-# [`render_let_expr_scheme`][quivers.transpile.renderers._scheme_helpers.render_let_expr_scheme]
+# `render_let_expr_scheme`
 # helper consumes a duck-typed context with `.fresh`, `.v`, `.e`,
 # `.lit`, `.constraint`, `.cards`, `.target` members. The IR renderer's
-# [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx] exposes
+# [`RenderContext`][quivers.transpile.renderers.RenderContext] exposes
 # only the panproto `SchemaBuilder` and the morphism / let / cards
 # tables; this adapter projects the helper's expected surface onto it
 # without rebinding the fresh-id counter, so let / score expressions
@@ -1643,15 +1732,15 @@ def _define(ctx: _RenderCtx, name: str, value: SchemaFragment) -> SchemaFragment
 
 class _LetExprCtx:
     """Duck-typed adapter exposing the
-    [`render_let_expr_scheme`][quivers.transpile.renderers._scheme_helpers.render_let_expr_scheme]
+    `render_let_expr_scheme`
     context protocol (``fresh``, ``v``, ``e``, ``lit``, ``constraint``,
     ``cards``, ``target``) on top of a
-    [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]."""
+    [`RenderContext`][quivers.transpile.renderers.RenderContext]."""
 
     def __init__(
         self,
         sb: panproto.SchemaBuilder,
-        owner: _RenderCtx,
+        owner: RenderContext,
         cards: dict[str, int],
     ) -> None:
         self._sb = sb
@@ -1762,7 +1851,7 @@ _RUNTIME_CHURCH_SUBTREE = _church_subtree_vertex_ids(
 )
 
 
-def _graft_runtime_church_helper(ctx: _RenderCtx, program_vid: str) -> None:
+def _graft_runtime_church_helper(ctx: RenderContext, program_vid: str) -> None:
     """Graft the runtime-helper subtree onto the per-render schema.
 
     Copies every vertex, every constraint, and every internal edge of

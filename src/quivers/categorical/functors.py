@@ -263,6 +263,17 @@ class FreeMonoidFunctor(Functor):
 # -- module-level singletons ------------------------------------------------
 
 IDENTITY = IdentityFunctor()
+"""The `IdentityFunctor` singleton."""
 
-# avoid circular import — import at module level after class definitions
+# ``quivers.core.morphisms`` imports this module, so this import follows
+# every class definition.
 from quivers.core.morphisms import Morphism, FunctorMorphism  # noqa: E402
+
+
+__all__ = [
+    "Functor",
+    "IdentityFunctor",
+    "ComposedFunctor",
+    "FreeMonoidFunctor",
+    "IDENTITY",
+]

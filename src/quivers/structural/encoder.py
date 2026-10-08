@@ -13,12 +13,12 @@ Canonical term form
 A term over Σ has exactly one of three argument shapes at each
 position, determined by the codomain sort's kind:
 
-* **object** — the argument is a `Term` whose ``op`` is a
+* **object**: the argument is a `Term` whose ``op`` is a
   constructor of Σ, a binder of Σ, or the reserved built-in
   ``"BoundVar"``.
-* **data** — the argument is a raw Python value (string, int,
+* **data**: the argument is a raw Python value (string, int,
   float, …) consumed by the encoder's per-data-sort embedder.
-* **index** — the argument is a non-negative integer denoting a
+* **index**: the argument is a non-negative integer denoting a
   de-Bruijn index into the current scope context Γ.
 
 No ``Term("Data", …)`` or other wrappings are accepted at runtime;
@@ -66,16 +66,23 @@ from .signature import (
 )
 
 
-# Reserved built-in op names. The signature compiler forbids these
-# as user-declared constructor or binder names.
 BOUND_VAR_OP = "BoundVar"
+"""The reserved op name of a bound-variable term.
+
+A `Term` whose ``op`` is this name refers to a variable a binder
+introduced. The signature compiler forbids it as a user-declared
+constructor or binder name.
+"""
 
 
 type PerOpMode = Literal["plain", "recurrent", "attention"]
+"""How a `PerOpFn` combines its children: ``"plain"`` applies the
+function once, ``"recurrent"`` left-folds it across a list-shaped
+signature, and ``"attention"`` gives each step the running prefix."""
 
 
 @dataclass(frozen=True)
-class _PerOpFn:
+class PerOpFn:
     """A per-operation parametric function.
 
     ``mode`` is ``"plain"`` (algebra-hom), ``"recurrent"``
@@ -88,6 +95,24 @@ class _PerOpFn:
     Held as a plain dataclass (not a didactic Model) because the
     ``fn`` field is a Python callable that doesn't round-trip
     through panproto's schema translation.
+
+    Parameters
+    ----------
+    op : str
+        The constructor or binder name the function interprets.
+    mode : PerOpMode
+        How the function combines its children.
+    args : tuple[str, ...]
+        The names of the operation's arguments, in positional order.
+    fn : Callable[..., torch.Tensor]
+        The function mapping child embeddings to the operation's
+        embedding.
+    state_var : str or None
+        The name of the threaded state argument in ``"recurrent"``
+        mode.
+    prefix_var : str or None
+        The name of the running-prefix argument in ``"attention"``
+        mode.
     """
 
     op: str
@@ -109,7 +134,29 @@ def make_default_op_fn(
     ``arg_dims`` is the tuple of per-argument dimensions in the
     order in which the children are passed to the function. For
     binders this is ``(annot_dim_1, …, annot_dim_k, scoped_dim_1,
-    …, scoped_dim_m)``.
+    …, scoped_dim_m)``. A nullary operation gets a learned constant
+    vector instead of an MLP.
+
+    Parameters
+    ----------
+    op : str
+        The operation name, used in parameter names and diagnostics.
+    arg_dims : tuple[int, ...]
+        The embedding dimension of each child, in call order.
+    out_dim : int
+        The dimension of the operation's output embedding.
+
+    Returns
+    -------
+    tuple[nn.Module, Callable[..., torch.Tensor]]
+        The module owning the parameters, and the function that maps
+        the child embeddings to the output embedding.
+
+    Raises
+    ------
+    RuntimeError
+        Raised by the returned function when it is called with a
+        number of children other than ``len(arg_dims)``.
     """
     arity = len(arg_dims)
     if arity == 0:
@@ -145,7 +192,21 @@ def make_default_var_init(
     in_dim: int, out_dim: int
 ) -> tuple[nn.Module, Callable[[torch.Tensor], torch.Tensor]]:
     """A parametric `var_init(ty)` function: an MLP mapping a type
-    embedding to a fresh variable embedding."""
+    embedding to a fresh variable embedding.
+
+    Parameters
+    ----------
+    in_dim : int
+        The dimension of the type-annotation embedding.
+    out_dim : int
+        The dimension of the variable embedding.
+
+    Returns
+    -------
+    tuple[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
+        The MLP owning the parameters, and the function that maps a
+        type embedding to a variable embedding.
+    """
     mlp = nn.Sequential(
         nn.Linear(in_dim, max(out_dim, 64)),
         nn.Tanh(),
@@ -162,36 +223,41 @@ class Encoder(nn.Module):
     """An F-algebra homomorphism T_Σ -> Vec_D realised as an
     ``nn.Module``.
 
-    Construction parameters
-    -----------------------
+    The graph-specific parameters (``iterations``, ``init_fns``,
+    ``message_fns``, ``update_fns``, ``readout``) are used only by
+    `forward_graph` on a graph-shaped signature.
 
+    Parameters
+    ----------
     name : str
         Identifier used in diagnostics.
-    signature : `Signature`
+    signature : Signature
         The Σ whose terms this encoder consumes.
     sort_dims : dict[str, int]
         Per-sort embedding dimension.
-    op_fns : dict[str, `_PerOpFn`]
-        One entry per constructor and binder of Σ. The
-        `Compiler` scaffolds defaults for omitted ops.
-    var_init : callable
-        ``(type_embedding) -> variable_embedding``. Called at every
-        binder to mint a fresh variable embedding for each
-        introduced scope variable.
-    data_embedders : dict[str, callable]
+    op_fns : dict[str, PerOpFn]
+        One entry per constructor and binder of Σ. The DSL compiler
+        scaffolds defaults for omitted ops.
+    var_init_fns : dict[tuple[str, str] | str, Callable]
+        Variable initialisers called at every binder to mint a fresh
+        embedding for each introduced variable. An annotated variable
+        is keyed by ``(var_sort, annot_sort)`` and receives the
+        annotation's embedding; an unannotated one is keyed by
+        ``var_sort`` and receives ``None``.
+    data_embedders : dict[str, Callable[[DataLeaf], torch.Tensor]]
         One entry per data sort: ``(raw_value) -> embedding``.
-
-    For graph-shaped signatures, additionally:
-
+    modules_owned : list[nn.Module] or None
+        Modules holding the parameters of the per-op functions,
+        registered as submodules so their parameters train.
     iterations : int
         Number of message-passing rounds in `forward_graph`.
-    init_fns : dict[str, callable]
+    init_fns : dict[str, Callable[[DataLeaf], torch.Tensor]] or None
         Per-vertex-kind initial embedders.
-    message_fns : dict[str, callable]
+    message_fns : dict[str, Callable[..., torch.Tensor]] or None
         Per-edge-kind ``(src_e, tgt_e) -> message`` functions.
-    update_fns : dict[str, callable]
+    update_fns : dict[str, Callable[..., torch.Tensor]] or None
         Per-vertex-kind ``(self_e, aggregated_msg) -> next_e``.
-    readout : callable
+    readout : Callable[[list[torch.Tensor]], torch.Tensor] or None
         ``(list[Vec_D]) -> Vec_D`` reducer.
     """
 
@@ -200,7 +266,7 @@ class Encoder(nn.Module):
         name: str,
         signature: Signature,
         sort_dims: dict[str, int],
-        op_fns: dict[str, _PerOpFn],
+        op_fns: dict[str, PerOpFn],
         var_init_fns: dict[
             tuple[str, str] | str,
             Callable[[torch.Tensor | None], torch.Tensor],
@@ -238,6 +304,30 @@ class Encoder(nn.Module):
     # -----------------------------------------------------------------
 
     def forward(self, term: Term, ctx: Context | None = None) -> torch.Tensor:
+        """Encode a term to its embedding by structural recursion.
+
+        Parameters
+        ----------
+        term : Term
+            The term to encode.
+        ctx : Context or None
+            The scope the term's free bound variables refer to;
+            `EMPTY_CONTEXT` when omitted.
+
+        Returns
+        -------
+        torch.Tensor
+            The embedding of ``term``.
+
+        Raises
+        ------
+        TypeError
+            If ``term`` is not a `Term`, or an argument does not match
+            the kind of its sort.
+        RuntimeError
+            If the term uses an operation, sort, or bound-variable
+            index the encoder cannot interpret.
+        """
         if not isinstance(term, Term):
             raise TypeError(
                 f"encoder {self.name!r}: expected a Term at the root, got "
@@ -479,7 +569,7 @@ class Encoder(nn.Module):
             return self._compress_object(arg, ctx)
         raise RuntimeError(f"encoder {self.name!r}: unknown sort kind {kind!r}")
 
-    def _require_op_fn(self, op: str) -> _PerOpFn:
+    def _require_op_fn(self, op: str) -> PerOpFn:
         rule = self.op_fns.get(op)
         if rule is None:
             raise RuntimeError(f"encoder {self.name!r}: no per-op function for {op!r}")
@@ -494,6 +584,33 @@ class Encoder(nn.Module):
         vertices: list[tuple[str, DataLeaf]],
         edges: list[tuple[str, int, int]],
     ) -> torch.Tensor:
+        """Encode a graph by message passing followed by a readout.
+
+        Each vertex is initialised by its kind's initial embedder;
+        each of ``iterations`` rounds sends a message along every edge
+        (both ways for an undirected edge kind), averages each
+        vertex's inbox, and applies its kind's update function.
+
+        Parameters
+        ----------
+        vertices : list[tuple[str, DataLeaf]]
+            Each vertex's kind and payload.
+        edges : list[tuple[str, int, int]]
+            Each edge's kind, source index, and target index.
+
+        Returns
+        -------
+        torch.Tensor
+            The readout of the final vertex embeddings.
+
+        Raises
+        ------
+        RuntimeError
+            If the signature is not graph-shaped, ``iterations`` is not
+            positive, an edge references an out-of-range vertex or an
+            unknown edge kind, or a needed initial, message, update, or
+            readout function is missing.
+        """
         if not self.signature.is_graph():
             raise RuntimeError(
                 f"encoder {self.name!r}: forward_graph requires a graph signature"
@@ -554,3 +671,13 @@ class Encoder(nn.Module):
                 f"encoder {self.name!r}: graph encoder requires a readout function"
             )
         return self.readout(embeds)
+
+
+__all__ = [
+    "BOUND_VAR_OP",
+    "PerOpMode",
+    "PerOpFn",
+    "make_default_op_fn",
+    "make_default_var_init",
+    "Encoder",
+]

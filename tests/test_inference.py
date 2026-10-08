@@ -17,6 +17,7 @@ from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Let, Observe
 from quivers.inference.trace import trace
 from quivers.inference.conditioning import condition, Conditioned
 from quivers.inference.guides import AutoNormalGuide, AutoDeltaGuide
@@ -52,8 +53,8 @@ def _create_simple_program() -> MonadicProgram:
         Unit,
         R1,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",)),
+            Draw(names=("z",), morphism=prior),
+            Draw(names=("y",), morphism=likelihood, args=("z",)),
         ],
         return_vars=("y",),
     )
@@ -75,9 +76,9 @@ def _create_program_with_let() -> MonadicProgram:
         Unit,
         R1,
         steps=[
-            (("z",), prior, None),
-            (("w",), None, double),  # let binding
-            (("y",), likelihood, ("w",)),
+            Draw(names=("z",), morphism=prior),
+            Let(name="w", value=double),  # let binding
+            Draw(names=("y",), morphism=likelihood, args=("w",)),
         ],
         return_vars=("y",),
     )
@@ -95,8 +96,8 @@ def _create_program_with_observe() -> MonadicProgram:
         Unit,
         R1,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",), True),  # observed=True
+            Draw(names=("z",), morphism=prior),
+            Observe(names=("y",), morphism=likelihood, args=("z",)),  # observed=True
         ],
         return_vars=("y",),
     )
@@ -725,8 +726,8 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
             Unit,
             R1,
             steps=[
-                (("x",), prior, None),
-                (("z",), None, multiply),
+                Draw(names=("x",), morphism=prior),
+                Let(name="z", value=multiply),
             ],
             return_vars=("z",),
         )
@@ -753,9 +754,9 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
             Unit,
             R1,
             steps=[
-                (("x",), prior, None),
-                (("y",), prior, None),
-                (("z",), None, add),
+                Draw(names=("x",), morphism=prior),
+                Draw(names=("y",), morphism=prior),
+                Let(name="z", value=add),
             ],
             return_vars=("z",),
         )
@@ -782,9 +783,9 @@ class TestExpressionLetBindingExecution(unittest.TestCase):
             Unit,
             R1,
             steps=[
-                (("x",), prior, None),
-                (("y",), prior, None),
-                (("z",), None, combined),
+                Draw(names=("x",), morphism=prior),
+                Draw(names=("y",), morphism=prior),
+                Let(name="z", value=combined),
             ],
             return_vars=("z",),
         )

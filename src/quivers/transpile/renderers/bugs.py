@@ -17,6 +17,7 @@ from typing import Callable, Literal
 import panproto
 
 from quivers.dsl.ast_nodes import (
+    Expr,
     MorphismDecl,
     MorphismInitFamily,
 )
@@ -67,7 +68,7 @@ from quivers.transpile.renderers._base import (
     IRArgTransform,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dangling_refs,
     assert_no_dropped_param_map,
     reorder_negbin_args,
@@ -100,7 +101,7 @@ from quivers.transpile.renderers._bugs_helpers import (
 
 class _BugsLetCtx:
     """Bridge ``_BugsCtx.sb`` to the
-    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    `render_let_expr_bugs`
     helper's ctx protocol (``v``, ``e``, ``lit``, ``fresh``,
     ``constraint``) and carry the per-render ``cards`` map (for
     factor unrolling) plus the ``target`` discriminator the helper
@@ -191,7 +192,7 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, str]] = {
 #: different density at every point rather than a constant offset.
 #: The rename feeds the same transform pipeline the ``FAMILY_META``
 #: aliases do, with the ``inv`` transform supplied by
-#: [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.bugs._FAMILY_ALIAS_TRANSFORM_OVERRIDE].
+#: `_FAMILY_ALIAS_TRANSFORM_OVERRIDE`.
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
@@ -302,7 +303,7 @@ _NO_BUGS_FREE_DENSITY_TERM: dict[str, str] = {
 #: to an additive constant.
 #:
 #: (ii) The zeros trick writes the marginal out in closed form (see
-#: [`beta_binomial_log_pmf`][quivers.transpile.renderers._bugs_helpers.beta_binomial_log_pmf])
+#: `beta_binomial_log_pmf`)
 #: and adds it through ``zeros[n] ~ dpois(C - log p(y_n))``, which is
 #: what the JAGS renderer does. It needs ``zeros[n]`` to be *data*,
 #: and JAGS binds it in the ``data { ... }`` block the JAGS renderer
@@ -315,7 +316,7 @@ _NO_BUGS_FREE_DENSITY_TERM: dict[str, str] = {
 #: ``y[n]``'s own relation would put ``y[n]`` on both sides of a
 #: single edge and cycle the graph.
 #:
-#: [`_emit_score_node`][quivers.transpile.renderers.bugs.BUGSRenderer._emit_score_node]
+#: `_emit_score_node`
 #: does emit a host-bound ``zero_<name>``, and the difference is what
 #: the two constructs promise. ``score`` is an explicit request for an
 #: extra log-density term, and the carrier it needs is part of that
@@ -339,9 +340,8 @@ _NO_BUGS_DISTRIBUTION: dict[str, str] = {
 }
 
 
-@dataclasses.dataclass
-class _BugsCtx(_RenderCtx):
-    """BUGS-renderer-internal carrier extending `_RenderCtx`.
+class _BugsCtx(RenderContext):
+    """BUGS-renderer-internal carrier extending `RenderContext`.
 
     Adds the declaration-plate table (axis-name lookup for index
     emission), the current `via` fibration in scope (the active
@@ -349,23 +349,37 @@ class _BugsCtx(_RenderCtx):
     when rendering arg indices), and the enclosing plate / loop-
     name pair so an arg's index expansion can resolve loop
     variables by axis name.
+
+    Parameters
+    ----------
+    sb : panproto.SchemaBuilder
+        The schema builder the renderer emits into.
+    morphisms : dict[str, MorphismDecl]
+        The module's morphism declarations, by name.
+    defines : dict[str, Expr]
+        The module's define expressions, by name.
     """
 
-    decl_plates: dict[str, Plate] = dataclasses.field(default_factory=dict)
-    via: str | None = None
-    enclosing_plate: Plate | None = None
-    enclosing_loop_names: tuple[str, ...] = ()
-    block_id: str = ""
-    broadcast_helpers: dict[tuple[str, int], str] = dataclasses.field(
-        default_factory=dict
-    )
+    def __init__(
+        self,
+        sb: panproto.SchemaBuilder,
+        morphisms: dict[str, MorphismDecl],
+        defines: dict[str, Expr],
+    ) -> None:
+        super().__init__(sb=sb, morphisms=morphisms, defines=defines)
+        self.decl_plates: dict[str, Plate] = {}
+        self.via: str | None = None
+        self.enclosing_plate: Plate | None = None
+        self.enclosing_loop_names: tuple[str, ...] = ()
+        self.block_id: str = ""
+        self.broadcast_helpers: dict[tuple[str, int], str] = {}
 
 
 class BUGSRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to BUGS.
 
     Implements the four
-    [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    [`RendererBase`][quivers.transpile.renderers.RendererBase]
     dispatch points (`declare`, `sample`, `marginalize`, `broadcast`)
     plus `target_protocol` and overrides `render` to install the
     `model { ... }` block prologue and to wire the BUGS-specific
@@ -376,7 +390,13 @@ class BUGSRenderer(RendererBase):
     target: str = "bugs"
 
     def target_protocol(self) -> panproto.Protocol:
-        """Return the panproto protocol for the BUGS tree-sitter grammar."""
+        """Return the panproto protocol for the BUGS tree-sitter grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("bugs")
 
     # ------------------------------------------------------------------
@@ -390,6 +410,16 @@ class BUGSRenderer(RendererBase):
         the emitted bytes are a complete BUGS file. The model_block's
         `ptrace-0 = Tmodel` constraint forces the emitter to render
         the optional `model` keyword.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
@@ -540,20 +570,39 @@ class BUGSRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
         *,
         block: BlockKind,
     ) -> SchemaFragment:
-        """No-op: BUGS has no declaration syntax distinct from `~` / data."""
+        """No-op: BUGS has no declaration syntax distinct from `~` / data.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -568,6 +617,30 @@ class BUGSRenderer(RendererBase):
         syntactic level: the caller's data list pins the value of
         observed variables and the same `~` line carries the
         likelihood factor.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         if not isinstance(ctx, _BugsCtx):
             raise UnsupportedConstruct(
@@ -587,7 +660,7 @@ class BUGSRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Emit an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
@@ -603,6 +676,18 @@ class BUGSRenderer(RendererBase):
         free log-density term to the joint, which is what a general
         `logsumexp` reduction would need, so every scope the collapse
         does not write is refused.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         refuse_ungrouped_row_marginalize("qvr-bugs", node)
         if not isinstance(ctx, _BugsCtx):
@@ -615,7 +700,7 @@ class BUGSRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
@@ -628,6 +713,20 @@ class BUGSRenderer(RendererBase):
         Only plate-free scalars can be hoisted outside enclosing plate loops.
         Values that depend on loop indices and broadcasts to ranks other than
         one raise `UnsupportedConstruct`.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         bctx = _as_bugs_ctx(ctx)
         if len(target_shape) != 1:
@@ -738,7 +837,7 @@ class BUGSRenderer(RendererBase):
     # List / matrix literal args: BUGS has no inline literal form.
     # ------------------------------------------------------------------
 
-    def render_list(self, arg: IRArgList) -> SchemaFragment:
+    def _render_list(self, arg: IRArgList) -> SchemaFragment:
         """Raise: BUGS does not parse `[a, b, c]` in arg position."""
         del arg
         raise UnsupportedConstruct(
@@ -746,7 +845,7 @@ class BUGSRenderer(RendererBase):
             ["arg:list-literal"],
         )
 
-    def render_matrix(self, arg: IRArgMatrix) -> SchemaFragment:
+    def _render_matrix(self, arg: IRArgMatrix) -> SchemaFragment:
         """Raise: BUGS does not parse `[[a, b], ...]` in arg position."""
         del arg
         raise UnsupportedConstruct(
@@ -1257,7 +1356,7 @@ class BUGSRenderer(RendererBase):
         """Emit `inprod(<left>, <right>)`.
 
         Both operands are indexed variables:
-        [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
+        `categorical_mixture`
         admits only weights declared over an event axis and a row
         matrix declared over a batch and an event axis, so each side
         carries at least one index.
@@ -1570,7 +1669,7 @@ class BUGSRenderer(RendererBase):
         dim, BUGS-style nesting); the LHS is then indexed by each
         loop variable so the relation populates one element per
         iteration. The RHS expression goes through
-        [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs],
+        `render_let_expr_bugs`,
         which lowers `LetExpr*` nodes to BUGS expression vertices
         (`binary_expression`, `function_call`, `indexed_variable`,
         ...).
@@ -2087,11 +2186,11 @@ class BUGSRenderer(RendererBase):
         family: str,
     ) -> IRArg:
         """If `renames[arg_name]` targets a name with an arithmetic
-        transform in [`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.bugs._ALIAS_TRANSFORMS]
+        transform in `_ALIAS_TRANSFORMS`
         (or the per-family override in
-        [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.bugs._FAMILY_ALIAS_TRANSFORM_OVERRIDE]),
+        `_FAMILY_ALIAS_TRANSFORM_OVERRIDE`),
         wrap `arg` in
-        [`IRArgTransform`][quivers.transpile.renderers._base.IRArgTransform];
+        [`IRArgTransform`][quivers.transpile.renderers.IRArgTransform];
         otherwise return `arg` unchanged."""
         target_name = renames.get(arg_name)
         if target_name is None:
@@ -2159,9 +2258,9 @@ class BUGSRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self.broadcast(ctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(arg)
+            return self._render_list(arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(arg)
+            return self._render_matrix(arg)
         if isinstance(arg, IRArgFamilyRef):
             raise UnsupportedConstruct(
                 f"qvr-{self.target}",
@@ -2670,8 +2769,8 @@ class BUGSRenderer(RendererBase):
 # ----------------------------------------------------------------------
 
 
-def _as_bugs_ctx(ctx: _RenderCtx) -> _BugsCtx:
-    """Narrow a base `_RenderCtx` to the BUGS extension."""
+def _as_bugs_ctx(ctx: RenderContext) -> _BugsCtx:
+    """Narrow a base `RenderContext` to the BUGS extension."""
     if not isinstance(ctx, _BugsCtx):
         raise UnsupportedConstruct("qvr-bugs", ["ctx:type-mismatch"])
     return ctx

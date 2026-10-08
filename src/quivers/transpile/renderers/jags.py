@@ -94,7 +94,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     ir_uses_family,
     mixture_component_count,
@@ -146,7 +146,7 @@ _FAMILY_ALIAS_TRANSFORM_OVERRIDE: dict[str, dict[str, _TransformKind]] = {
 #: rather than a constant offset. The rename feeds the same transform
 #: pipeline the ``FAMILY_META`` aliases do, with the ``inv``
 #: transform supplied by
-#: [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.jags._FAMILY_ALIAS_TRANSFORM_OVERRIDE].
+#: `_FAMILY_ALIAS_TRANSFORM_OVERRIDE`.
 _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
     "Logistic": {"scale": "tau"},
     "LogNormal": {"scale": "tau"},
@@ -156,9 +156,9 @@ _FAMILY_ALIAS_OVERRIDE: dict[str, dict[str, str]] = {
 def _alias_transform_for(family: str, emitted_name: str) -> _TransformKind | None:
     """Resolve the arithmetic transform for an aliased arg, honouring
     the per-family override in
-    [`_FAMILY_ALIAS_TRANSFORM_OVERRIDE`][quivers.transpile.renderers.jags._FAMILY_ALIAS_TRANSFORM_OVERRIDE]
+    `_FAMILY_ALIAS_TRANSFORM_OVERRIDE`
     before falling back to the shared
-    [`_ALIAS_TRANSFORMS`][quivers.transpile.renderers.jags._ALIAS_TRANSFORMS]
+    `_ALIAS_TRANSFORMS`
     table."""
     override = _FAMILY_ALIAS_TRANSFORM_OVERRIDE.get(family)
     if override is not None and emitted_name in override:
@@ -198,7 +198,7 @@ def _reorder_studentt_dt(
 #: rewrites the scale into ``tau = 1/(scale*scale)``. The symmetric
 #: base distribution is restricted back to the family's support by the
 #: one-sided truncation suffix
-#: [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
+#: `half_support_truncation`
 #: supplies.
 _PREPEND_ZERO: frozenset[str] = frozenset({"HalfNormal", "HalfCauchy"})
 
@@ -237,7 +237,7 @@ _ZEROS_TRICK_OFFSET: float = 1.0e6
 #: engine can sample, so at an observed site it is the whole emission,
 #: while a *latent* draw needs a node declaration as well; the
 #: families that can supply one are the entries of
-#: [`_ZEROS_TRICK_LATENT_CARRIER`][quivers.transpile.renderers.jags._ZEROS_TRICK_LATENT_CARRIER].
+#: `_ZEROS_TRICK_LATENT_CARRIER`.
 _ZEROS_TRICK_FAMILIES: frozenset[str] = frozenset(
     {
         "MixtureNormal",
@@ -287,11 +287,11 @@ _UNIT_INTERVAL_CARRIER_ARG_NAMES: tuple[str, ...] = ("low", "high")
 
 #: The zeros-trick families whose closed form is a *density* and so
 #: may exceed zero, which is what obliges the emit to lift the Poisson
-#: rate by [`_ZEROS_TRICK_OFFSET`][quivers.transpile.renderers.jags._ZEROS_TRICK_OFFSET]
+#: rate by `_ZEROS_TRICK_OFFSET`
 #: to keep it in support. ``BetaBinomial`` is deliberately absent: a
 #: mass function is at most one, so its negated log form is already
 #: non-negative and
-#: [`_emit_beta_binomial`][quivers.transpile.renderers.jags.JAGSRenderer._emit_beta_binomial]
+#: `_emit_beta_binomial`
 #: emits it with no lift, which keeps that family's emission equal to
 #: the reference measure on the nose rather than up to a constant.
 #: ``ContinuousBernoulli`` is present for the same reason
@@ -349,7 +349,7 @@ class JAGSRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] as a
     JAGS model source.
 
-    Subclasses [`RendererBase`][quivers.transpile.renderers._base.RendererBase]:
+    Subclasses [`RendererBase`][quivers.transpile.renderers.RendererBase]:
     overrides `render` to wrap the IR walk in a single top-level
     ``model { ... }`` block. The four dispatch points (`declare`,
     `sample`, `marginalize`, `broadcast`) follow the JAGS surface
@@ -363,7 +363,13 @@ class JAGSRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def target_protocol(self) -> panproto.Protocol:
-        """Use the auto-derived ``jags`` tree-sitter protocol."""
+        """Use the auto-derived ``jags`` tree-sitter protocol.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("jags")
 
     def render(self, ir: IRProgram) -> panproto.Schema:
@@ -373,6 +379,16 @@ class JAGSRenderer(RendererBase):
         ``model { ... }`` wrapper around every body statement; the
         wrapper is a single ``model_block`` vertex whose children are
         the statements emitted by `_dispatch_jags_node`.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dropped_param_map(ir, self.target)
         # JAGS has no scalar-to-vector broadcast; lift empty-plate
@@ -426,7 +442,7 @@ class JAGSRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -435,13 +451,32 @@ class JAGSRenderer(RendererBase):
     ) -> SchemaFragment:
         """JAGS variables are declared implicitly by their first ``~``
         or ``<-`` binding; data inputs ride on the host's external
-        ``.data`` file. This dispatch is a no-op for every block."""
+        ``.data`` file. This dispatch is a no-op for every block.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -451,7 +486,32 @@ class JAGSRenderer(RendererBase):
         observed: bool,
     ) -> SchemaFragment:
         """Emit a per-batch-axis ``for (m_<axis> in 1:N_<axis>) { <lhs>
-        ~ d<family>(args) }`` form."""
+        ~ d<family>(args) }`` form.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del constraint
         jctx = _as_jags_ctx(ctx)
         return self._emit_sample(
@@ -466,7 +526,7 @@ class JAGSRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Lower an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
@@ -487,8 +547,20 @@ class JAGSRenderer(RendererBase):
 
         is an ordinary arithmetic expression once the atom count is
         known, and the zeros trick adds its logarithm to the joint.
-        [`_emit_marginal_reduction`][quivers.transpile.renderers.jags.JAGSRenderer._emit_marginal_reduction]
+        `_emit_marginal_reduction`
         writes it.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         refuse_ungrouped_row_marginalize("qvr-jags", node)
         jctx = _as_jags_ctx(ctx)
@@ -817,7 +889,7 @@ class JAGSRenderer(RendererBase):
         itself and atom zero reads its complement.
 
         The probability tensor arrives from
-        [`marginal_weight_probs`][quivers.transpile.renderers._python_helpers.marginal_weight_probs]
+        `marginal_weight_probs`
         already gathered through the observation's `via` fibration
         where one is needed, and stays a named reference so the
         deterministic path re-indexes it against the row loop.
@@ -844,7 +916,7 @@ class JAGSRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
@@ -861,6 +933,20 @@ class JAGSRenderer(RendererBase):
         Only a scalar reference or numeric literal can be repeated; a
         rank other than one has no ``rep`` form and raises rather than
         emitting an invalid parent.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         jctx = _as_jags_ctx(ctx)
         if len(target_shape) != 1:
@@ -984,7 +1070,7 @@ class JAGSRenderer(RendererBase):
             sizes.append(dim.size)
         return tuple(sizes)
 
-    def render_list(self, ctx: _JAGSCtx, arg: IRArgList) -> SchemaFragment:
+    def _render_list(self, ctx: _JAGSCtx, arg: IRArgList) -> SchemaFragment:
         """JAGS does not parse list literals in argument position;
         callers must pre-bind collections via let-decl."""
         del ctx, arg
@@ -993,7 +1079,7 @@ class JAGSRenderer(RendererBase):
             ["arg:list-literal"],
         )
 
-    def render_matrix(self, ctx: _JAGSCtx, arg: IRArgMatrix) -> SchemaFragment:
+    def _render_matrix(self, ctx: _JAGSCtx, arg: IRArgMatrix) -> SchemaFragment:
         """JAGS does not parse matrix literals in argument position;
         callers must pre-bind matrices via let-decl."""
         del ctx, arg
@@ -1964,9 +2050,9 @@ class JAGSRenderer(RendererBase):
                 "function_call",
             )
         if isinstance(arg, IRArgList):
-            return self.render_list(ctx, arg), "indexed_variable"
+            return self._render_list(ctx, arg), "indexed_variable"
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(ctx, arg), "indexed_variable"
+            return self._render_matrix(ctx, arg), "indexed_variable"
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref_with_kind(ctx, arg)
         if isinstance(arg, IRArgTransform):
@@ -2073,7 +2159,7 @@ class JAGSRenderer(RendererBase):
         arg: IRArgTransform,
     ) -> tuple[str, str]:
         """Render an
-        [`IRArgTransform`][quivers.transpile.renderers._base.IRArgTransform]:
+        [`IRArgTransform`][quivers.transpile.renderers.IRArgTransform]:
         ``inv_square(x) -> 1/(x*x)`` etc.
 
         Emits a ``binary_expression`` tree using the JAGS grammar's
@@ -2427,7 +2513,7 @@ class JAGSRenderer(RendererBase):
         """JAGS deterministic relation ``<name> <- <expr>``.
 
         The RHS goes through
-        [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+        `render_let_expr_bugs`
         (BUGS / JAGS share an expression grammar), with a thin
         ctx shim adapting `_JAGSCtx`'s `_fresh` /
         `panproto.SchemaBuilder` to the helper's protocol.
@@ -2502,13 +2588,13 @@ class JAGSRenderer(RendererBase):
         plate: Plate,
     ) -> None:
         """Route one
-        [`_ZEROS_TRICK_FAMILIES`][quivers.transpile.renderers.jags._ZEROS_TRICK_FAMILIES]
+        `_ZEROS_TRICK_FAMILIES`
         site to the emitter that writes its density out.
 
         Both site kinds reach here: an observed draw, whose whole
         emission is the density term, and the density half of a latent
         draw, whose node declaration
-        [`_emit_zeros_trick_latent`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_latent]
+        `_emit_zeros_trick_latent`
         emits first.
         """
         if family == "MixtureNormal":
@@ -2613,9 +2699,9 @@ class JAGSRenderer(RendererBase):
         exponentially-tilted uniform on `(0, 1)`, and the tilt's
         normaliser is a transcendental function of the tilt rather
         than a constant a named family absorbs.
-        [`continuous_bernoulli_log_pdf`][quivers.transpile.renderers._bugs_helpers.continuous_bernoulli_log_pdf]
+        `continuous_bernoulli_log_pdf`
         writes the density out in `log` and `abs` alone and
-        [`_emit_zeros_trick_row`][quivers.transpile.renderers.jags.JAGSRenderer._emit_zeros_trick_row]
+        `_emit_zeros_trick_row`
         adds it to the joint.
 
         A residual event axis on the site would ask each row to carry
@@ -3091,7 +3177,7 @@ class JAGSRenderer(RendererBase):
         """Pin the ``data { ... }`` alternative and its child list.
 
         Mirrors
-        [`_finalise_model_block`][quivers.transpile.renderers.jags.JAGSRenderer._finalise_model_block]:
+        `_finalise_model_block`:
         the auto-derived theory supplies the inter-child layout, and
         the emit only has to name which alternative and which children
         the block carries.
@@ -3239,9 +3325,9 @@ def _has_trailing(indices: tuple[IRArg, ...], suffix: tuple[IRArg, ...]) -> bool
 # ---------------------------------------------------------------------------
 
 
-class _JAGSCtx(_RenderCtx):
+class _JAGSCtx(RenderContext):
     """JAGS-specific extension of
-    [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]
+    [`RenderContext`][quivers.transpile.renderers.RenderContext]
     carrying the active block vertex, emitted plate names, and the
     per-block child-kind list used to assemble `chose-alt-child-kinds`
     constraints after the IR walk."""
@@ -3285,8 +3371,8 @@ class _JAGSCtx(_RenderCtx):
         ] = {}
 
 
-def _as_jags_ctx(ctx: _RenderCtx) -> _JAGSCtx:
-    """Narrow a base `_RenderCtx` to the JAGS extension."""
+def _as_jags_ctx(ctx: RenderContext) -> _JAGSCtx:
+    """Narrow a base `RenderContext` to the JAGS extension."""
     if not isinstance(ctx, _JAGSCtx):
         raise UnsupportedConstruct(f"qvr-{_BACKEND}", ["ctx:type-mismatch"])
     return ctx
@@ -3315,7 +3401,7 @@ def _vertex(ctx: _JAGSCtx, vid: str, kind: str) -> str:
 
 class _JagsLetCtx:
     """Adapter exposing the protocol
-    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    `render_let_expr_bugs`
     expects (``v``, ``e``, ``lit``, ``fresh``, ``constraint``,
     ``target``, ``cards``) on top of a `_JAGSCtx`."""
 
@@ -3403,7 +3489,7 @@ def _number(ctx: _JAGSCtx, value: float) -> str:
 
 def _letexpr_outer_kind(expr: LetExprNode) -> str:
     """Return the JAGS grammar kind of the vertex produced by
-    [`render_let_expr_bugs`][quivers.transpile.renderers._bugs_helpers.render_let_expr_bugs]
+    `render_let_expr_bugs`
     for `expr`.
 
     Used by the score-emission path to wire a

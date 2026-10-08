@@ -49,43 +49,51 @@ PDS-style nested programs::
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
 import torch
+from torch import nn
 
 from quivers.continuous.morphisms import AnySpace, ContinuousMorphism
-from quivers.continuous.program_steps import _LetSpec, _ScoreSpec, _StepSpec
+from quivers.continuous.program_steps import (
+    Draw,
+    Indexed,
+    Let,
+    Observe,
+    Score,
+    Step,
+    StepArgument,
+)
+from quivers.core.morphisms import as_torch_module
 
 
 def _lookup_arg(
-    env: "dict[str, torch.Tensor]",
-    arg,
-) -> "torch.Tensor":
-    """Resolve a draw / observe argument against the environment.
+    env: Mapping[str, torch.Tensor],
+    arg: StepArgument,
+) -> torch.Tensor:
+    """Resolve a draw or observe argument against the environment.
 
-    Two admissible arg shapes:
+    Parameters
+    ----------
+    env : Mapping[str, torch.Tensor]
+        The bindings so far.
+    arg : StepArgument
+        A binding's name, or an
+        [`Indexed`][quivers.continuous.program_steps.Indexed] gather,
+        which indexes the binding at each index binding in turn.
 
-    * A bare identifier string (``"mu"``) returns ``env["mu"]``
-      directly. Legacy compiler-synthesized step specs use this
-      form.
-    * A [`DrawArgIndex`][quivers.dsl.ast_nodes.DrawArgIndex] tagged
-      variant (identified structurally via `arg.kind == "index"`)
-      gathers ``env[arg.name]`` at every index tensor listed in
-      ``arg.indices``. For a single-index reference this is the
-      standard plate-gather (``mu[cls]`` with ``mu`` of shape
-      ``(K, ...)`` and ``cls`` an integer tensor of shape ``(N,)``
-      returns a tensor of shape ``(N, ...)``); multi-index refs
-      apply the gathers left to right.
+    Returns
+    -------
+    torch.Tensor
+        The argument's value.
 
-    The structured `DrawArgIndex` is the AST form the parser
-    produces for the surface ``name[idx]`` notation. Central
-    resolution here keeps every step-spec walker on the same code
-    path. Structural identification (via `kind`) avoids importing
-    the AST-node class from this leaf module and the
-    resulting import cycle through the DSL compiler.
+    Raises
+    ------
+    KeyError
+        If a name the argument reads is unbound.
     """
-    if getattr(arg, "kind", None) == "index":
+    if isinstance(arg, Indexed):
         if arg.name not in env:
             raise KeyError(arg.name)
         tensor = env[arg.name]
@@ -94,9 +102,89 @@ def _lookup_arg(
                 raise KeyError(ix)
             tensor = tensor[env[ix]]
         return tensor
-    if isinstance(arg, str) and arg in env:
+    if arg in env:
         return env[arg]
     raise KeyError(arg)
+
+
+def _bound_names(step: Step) -> tuple[str, ...]:
+    """The names a step binds.
+
+    Parameters
+    ----------
+    step : Step
+        A program step.
+
+    Returns
+    -------
+    tuple[str, ...]
+        A draw's or observe's names, or a let's or score's one name.
+    """
+    if isinstance(step, Draw | Observe):
+        return step.names
+    if isinstance(step, Let | Score):
+        return (step.name,)
+    raise TypeError(f"{type(step).__name__} is not a program step")
+
+
+def _parameter_dtype(parts: Sequence[torch.Tensor]) -> torch.dtype:
+    """The floating dtype stacked parameters are carried in.
+
+    The widest floating dtype among the parts, so a float64 program
+    stays float64; the default floating dtype when every part is an
+    integer or boolean index.
+
+    Parameters
+    ----------
+    parts : Sequence[torch.Tensor]
+        The parameter tensors to stack.
+
+    Returns
+    -------
+    torch.dtype
+        The dtype every part is converted to.
+    """
+    floating = [t.dtype for t in parts if t.is_floating_point()]
+    if not floating:
+        return torch.get_default_dtype()
+    dtype = floating[0]
+    for other in floating[1:]:
+        dtype = torch.promote_types(dtype, other)
+    return dtype
+
+
+def step_key(step: Draw | Observe) -> str:
+    """The submodule name a program registers a draw's morphism under.
+
+    Parameters
+    ----------
+    step : Draw | Observe
+        A draw or observe step.
+
+    Returns
+    -------
+    str
+        ``_step_`` followed by the step's first bound name.
+    """
+    return f"_step_{step.names[0]}"
+
+
+def _argument_text(arg: StepArgument) -> str:
+    """Render a step argument as the source form it stands for.
+
+    Parameters
+    ----------
+    arg : StepArgument
+        A binding's name, or an indexed gather of one.
+
+    Returns
+    -------
+    str
+        ``name`` or ``name[index, ...]``.
+    """
+    if isinstance(arg, Indexed):
+        return f"{arg.name}[{', '.join(arg.indices)}]"
+    return arg
 
 
 class ProgramEvaluator(Protocol):
@@ -210,10 +298,11 @@ class MonadicProgram(ContinuousMorphism):
         The program's input space.
     codomain : SetObject or ContinuousSpace
         The program's output space.
-    steps : list[tuple]
-        Each entry is either (var_names, morphism, arg_names) for draw
-        steps, or (var_names, None, value) for let bindings where
-        value is a float constant or str variable reference.
+    steps : Sequence[Step]
+        The program body, in order: [`Draw`][quivers.continuous.Draw],
+        [`Observe`][quivers.continuous.Observe],
+        [`Let`][quivers.continuous.Let], and
+        [`Score`][quivers.continuous.Score] records.
     return_vars : tuple[str, ...]
         Name(s) of the bound variable(s) whose value(s) are
         the program output.
@@ -225,13 +314,22 @@ class MonadicProgram(ContinuousMorphism):
         Optional labels for tuple return fields. When set, the
         output dict uses these labels as keys instead of the
         variable names. Length must match return_vars.
+    effect_set : frozenset[str] or None
+        The declared effect row (``Sample``, ``Score``, ``Marginal``,
+        ``Pure``), or ``None`` when unannotated.
+
+    Raises
+    ------
+    ValueError
+        If a step binds no name, or two draws or observes bind the
+        same name.
     """
 
     def __init__(
         self,
         domain: AnySpace,
         codomain: AnySpace,
-        steps: list[tuple],
+        steps: Sequence[Step],
         return_vars: tuple[str, ...],
         params: tuple[str, ...] | None = None,
         return_labels: tuple[str, ...] | None = None,
@@ -247,8 +345,6 @@ class MonadicProgram(ContinuousMorphism):
         # (Sample / Score / Marginal / Pure) for introspection by
         # downstream inference / dispatch code.
         self.effect_set: frozenset[str] | None = effect_set
-        self._step_specs: list[_StepSpec | _LetSpec | _ScoreSpec] = []
-
         # compute input component dimensions for param splitting
         if params is not None and len(params) > 1:
             self._param_dims = self._compute_component_dims(domain)
@@ -258,55 +354,62 @@ class MonadicProgram(ContinuousMorphism):
             self._param_dims = None
             self._param_is_continuous = None
 
-        # register each morphism as a named submodule so parameters
-        # are visible to optimizers; let bindings become _LetSpec
+        # Each draw's morphism registers as a named submodule so its
+        # parameters are visible to optimizers.
         for step in steps:
-            # The fourth tuple element is `is_observed` for draw steps
-            # (when morph is not None) and `is_score` for let steps
-            # (when morph is None). The two flags are mutually
-            # exclusive by the morph-None partition, so the slot is
-            # reused without ambiguity.
-            if len(step) == 4:
-                var_names, morph, arg_or_value, fourth_flag = step
+            if not _bound_names(step):
+                raise ValueError(f"{step.kind} step binds no name")
+            if isinstance(step, Draw | Observe):
+                key = step_key(step)
+                if key in self._modules:
+                    raise ValueError(
+                        f"two {step.kind} steps bind {step.names[0]!r}; each "
+                        f"draw or observe binds a name no other one does"
+                    )
+                # A backend-agnostic `Morphism` registers through its
+                # parameter container, which keeps the morphism under
+                # ``_morphism`` for `extract_morphism`.
+                self.add_module(key, as_torch_module(step.morphism))
+        self._steps: tuple[Step, ...] = tuple(steps)
 
-            else:
-                var_names, morph, arg_or_value = step
-                fourth_flag = False
+    @property
+    def steps(self) -> tuple[Step, ...]:
+        """The program body, in order.
 
-            if morph is None:
-                # let-or-score binding: arg_or_value is float | str | callable.
-                # A True `is_score` flag (only meaningful when the value is a
-                # callable) routes the result through `total += score(env)`
-                # in `log_joint` instead of contributing 0.
-                if fourth_flag is True and callable(arg_or_value):
-                    self._step_specs.append(_ScoreSpec(var_names[0], arg_or_value))
+        Returns
+        -------
+        tuple[Step, ...]
+            The records the program was built from.
+        """
+        return self._steps
 
-                else:
-                    self._step_specs.append(_LetSpec(var_names[0], arg_or_value))
+    def step_module(self, step: Draw | Observe) -> nn.Module:
+        """The registered module a draw or observe step applies.
 
-            else:
-                is_observed = fourth_flag
-                key = f"_step_{var_names[0]}"
-                from quivers.core.morphisms import as_torch_module
+        For a [`ContinuousMorphism`][quivers.continuous.ContinuousMorphism]
+        this is the morphism itself; for a backend-agnostic
+        [`Morphism`][quivers.core.Morphism] it is the parameter container
+        [`as_torch_module`][quivers.core.as_torch_module] wraps it in.
 
-                wrapped = as_torch_module(morph)
-                self.add_module(key, wrapped)
-                # The runtime accesses ``morph`` via
-                # ``self._modules[key]`` and expects an object whose
-                # ``rsample`` / ``log_prob`` methods are callable.
-                # When ``morph`` was already an `nn.Module`
-                # (a ContinuousMorphism), the wrapped value is the
-                # morphism itself and those methods are available.
-                # When ``morph`` is a backend-agnostic
-                # `Morphism` (e.g. a ComposedMorphism from
-                # the V-Cat hierarchy), the wrapper exposes the
-                # morphism's parameters; the categorical object is
-                # attached as ``wrapped._morphism`` so a runtime
-                # path that needs it can recover via
-                # `extract_morphism`.
-                self._step_specs.append(
-                    _StepSpec(var_names, key, arg_or_value, is_observed)
-                )
+        Parameters
+        ----------
+        step : Draw | Observe
+            One of the program's steps.
+
+        Returns
+        -------
+        nn.Module
+            The submodule the program registered for the step.
+
+        Raises
+        ------
+        KeyError
+            If the program registered no module for the step.
+        """
+        module = self._modules[step_key(step)]
+        if module is None:
+            raise KeyError(step_key(step))
+        return module
 
     @staticmethod
     def _compute_component_dims(space: AnySpace) -> list[int]:
@@ -340,7 +443,7 @@ class MonadicProgram(ContinuousMorphism):
 
         # non-product: single component
         if isinstance(space, ContinuousSpace):
-            return [space.dim]
+            return [int(space.dim)]
 
         return [1]
 
@@ -368,7 +471,7 @@ class MonadicProgram(ContinuousMorphism):
 
     def _resolve_input(
         self,
-        spec: _StepSpec,
+        spec: Draw | Observe,
         x: torch.Tensor,
         env: dict[str, torch.Tensor],
     ) -> torch.Tensor:
@@ -376,8 +479,8 @@ class MonadicProgram(ContinuousMorphism):
 
         Parameters
         ----------
-        spec : _StepSpec
-            The step specification.
+        spec : Draw | Observe
+            The step.
         x : torch.Tensor
             The raw program input.
         env : dict[str, torch.Tensor]
@@ -391,34 +494,37 @@ class MonadicProgram(ContinuousMorphism):
         if spec.args is None:
             return x
 
-        if len(spec.args) == 1:
-            return self._promote_rank(_lookup_arg(env, spec.args[0]))
-
-        # multiple args: stack along the feature dimension. When the
+        # The arguments stack along the feature dimension. When the
         # morphism declares per-parameter event ranks and dims (an
         # inline distribution), the stacking interprets each argument by
         # its declared role rather than guessing from tensor rank: a
         # rank-0 position is a per-row scalar; a rank->=1 position is a
         # vector feature of its declared dim, arriving either as a
         # shared ``(D,)`` vector or a per-row ``(N, D)`` block.
+        # Any other single argument passes through, promoted to a column
+        # when it is a rank-1 float.
         parts = [_lookup_arg(env, a) for a in spec.args]
-        morph = self._modules.get(spec.morphism_name)
+        morph = self._modules.get(step_key(spec))
         event_ranks = getattr(morph, "_param_event_ranks", None)
         param_spec = getattr(morph, "_param_spec", None)
         if event_ranks is not None and param_spec is not None:
             var_ranks = tuple(
                 event_ranks[i] for i, (k, _) in enumerate(param_spec) if k == "var"
             )
-            var_dims = tuple(int(v) for k, v in param_spec if k == "var")
+            var_dims = tuple(
+                None if v is None else int(v) for k, v in param_spec if k == "var"
+            )
             if len(var_ranks) == len(parts):
                 return self._stack_params(parts, var_ranks, var_dims)
+        if len(parts) == 1:
+            return self._promote_rank(parts[0])
         return self._stack_tensors(parts)
 
     @staticmethod
     def _stack_params(
         parts: list[torch.Tensor],
         event_ranks: tuple[int, ...],
-        dims: tuple[int, ...],
+        dims: tuple[int | None, ...],
     ) -> torch.Tensor:
         """Stack inline-distribution parameters into a single input.
 
@@ -431,12 +537,15 @@ class MonadicProgram(ContinuousMorphism):
         single batch-1 row; the response batch is supplied downstream by
         the observed value.
         """
+        dtype = _parameter_dtype(parts)
         shaped: list[torch.Tensor] = []
         for t, rank, dim in zip(parts, event_ranks, dims, strict=True):
-            tf = t.float()
+            tf = t.to(dtype)
             if rank >= 1:
-                # Vector feature of size ``dim``.
-                if tf.dim() <= 1:
+                # Vector feature of size ``dim``. A tensor holding exactly
+                # one such vector (a ``(dim,)`` vector, or a plate of
+                # ``dim`` scalar rows) is shared by every row.
+                if tf.dim() <= 1 or (dim is not None and dim > 1 and tf.numel() == dim):
                     # Shared vector ``(dim,)`` (or a scalar broadcast to
                     # the vector width): one row.
                     shaped.append(tf.reshape(1, -1))
@@ -520,12 +629,13 @@ class MonadicProgram(ContinuousMorphism):
         torch.Tensor
             Concatenated tensor along dim=-1.
         """
+        dtype = _parameter_dtype(parts)
         expanded = []
         for p in parts:
             if p.dim() == 1:
-                expanded.append(p.unsqueeze(-1).float())
+                expanded.append(p.unsqueeze(-1).to(dtype))
             else:
-                expanded.append(p.float())
+                expanded.append(p.to(dtype))
 
         batch = max(t.shape[0] for t in expanded)
         broadcast = []
@@ -545,7 +655,7 @@ class MonadicProgram(ContinuousMorphism):
 
     def _bind_result(
         self,
-        spec: _StepSpec,
+        spec: Draw | Observe,
         result: torch.Tensor | dict[str, torch.Tensor],
         env: dict[str, torch.Tensor],
     ) -> None:
@@ -553,40 +663,40 @@ class MonadicProgram(ContinuousMorphism):
 
         Parameters
         ----------
-        spec : _StepSpec
-            The step specification.
+        spec : Draw | Observe
+            The step.
         result : torch.Tensor or dict[str, torch.Tensor]
             The morphism output. A dict for tuple-returning
             sub-programs.
         env : dict[str, torch.Tensor]
             Variable environment (mutated in place).
         """
-        if len(spec.vars) == 1:
+        if len(spec.names) == 1:
             # simple binding
             if isinstance(result, dict):
                 # sub-program returned dict but we're binding to single var
                 # — shouldn't happen if types are correct
-                env[spec.vars[0]] = result  # type: ignore[assignment]
+                env[spec.names[0]] = result  # type: ignore[assignment]
 
             else:
-                env[spec.vars[0]] = result
+                env[spec.names[0]] = result
 
         else:
             # destructuring: unpack dict from sub-program
             if isinstance(result, dict):
-                for var_name in spec.vars:
+                for var_name in spec.names:
                     env[var_name] = result[var_name]
 
             else:
                 # tensor result from product-codomain morphism: split
                 # along feature dim
-                morph = self._modules[spec.morphism_name]
+                morph = self._modules[step_key(spec)]
                 assert morph is not None
                 morph_cm = cast(ContinuousMorphism, morph)
                 dims = self._compute_component_dims(morph_cm.codomain)
                 splits = torch.split(result, dims, dim=-1)
 
-                for var_name, chunk in zip(spec.vars, splits):
+                for var_name, chunk in zip(spec.names, splits):
                     env[var_name] = chunk.squeeze(-1) if chunk.shape[-1] == 1 else chunk
 
     @property
@@ -594,9 +704,9 @@ class MonadicProgram(ContinuousMorphism):
         """Return the set of variable names marked as observed in the DSL."""
         names = set()
 
-        for spec in self._step_specs:
-            if isinstance(spec, _StepSpec) and spec.is_observed:
-                for v in spec.vars:
+        for spec in self._steps:
+            if isinstance(spec, Observe):
+                for v in spec.names:
                     names.add(v)
 
         return names
@@ -760,24 +870,18 @@ class MonadicProgram(ContinuousMorphism):
     def __repr__(self) -> str:
         parts = []
 
-        for s in self._step_specs:
-            if isinstance(s, _ScoreSpec):
-                parts.append(f"score {s.var} = {s.score}")
-                continue
-
-            if isinstance(s, _LetSpec):
-                parts.append(f"let {s.var} = {s.value}")
-
-            else:
-                assert isinstance(s, _StepSpec)
-                keyword = "observe" if s.is_observed else "draw"
-                lhs = f"({','.join(s.vars)})" if len(s.vars) > 1 else s.vars[0]  # type: ignore[index]
-                rhs = s.morphism_name.removeprefix("_step_")
-
+        for s in self._steps:
+            if isinstance(s, Score):
+                parts.append(f"score {s.name} = {s.score}")
+            elif isinstance(s, Let):
+                parts.append(f"let {s.name} = {s.value}")
+            elif isinstance(s, Draw | Observe):
+                names: tuple[str, ...] = s.names
+                lhs = f"({','.join(names)})" if len(names) > 1 else names[0]
+                rhs = step_key(s).removeprefix("_step_")
                 if s.args:
-                    rhs += f"({', '.join(s.args)})"
-
-                parts.append(f"{keyword} {lhs} ~ {rhs}")
+                    rhs += f"({', '.join(_argument_text(a) for a in s.args)})"
+                parts.append(f"{s.kind} {lhs} ~ {rhs}")
 
         steps = ", ".join(parts)
         if self._return_labels and not self._return_is_single:
@@ -796,3 +900,9 @@ class MonadicProgram(ContinuousMorphism):
             f"MonadicProgram{params}({self.domain!r} -> {self.codomain!r}, "
             f"[{steps}] -> {ret})"
         )
+
+
+__all__ = [
+    "MonadicProgram",
+    "step_key",
+]

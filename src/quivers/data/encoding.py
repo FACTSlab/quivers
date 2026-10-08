@@ -168,3 +168,6 @@ def encode_column(
         [float("nan") if v is None else float(v) for v in values],
         dtype=torch.float32,
     )
+
+
+__all__ = ["ColumnRole", "MissingPolicy", "encode_column"]

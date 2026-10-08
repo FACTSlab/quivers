@@ -1,49 +1,32 @@
-"""Panproto theories mirroring the typeclass hierarchy.
+"""Theories mirroring the typeclass hierarchy.
 
 For each typeclass in [`quivers.monadic.typeclasses`][quivers.monadic.typeclasses], this module
-declares a corresponding `panproto.Theory`:
+declares a corresponding `TypeclassTheory`, a record of the sorts,
+operations, and laws the typeclass requires:
 
-- `ThFunctor` — sorts: ``Carrier``, ``Hom``; operation: ``fmap``
-  with the two functor laws as equations.
-- `ThApplicative` — extends `ThFunctor` with ``pure`` and
-  ``apply`` and the four applicative laws.
-- `ThMonad` — extends `ThApplicative` with ``join`` (or
-  equivalently ``bind``) and the three monad laws.
-- `ThAlternative`, `ThMonadPlus`, `ThMonadTrans`,
-  `ThTraversable` — likewise.
+- `ThFunctor`: sorts ``Carrier`` and ``Hom``, the operation ``fmap``,
+  and the two functor laws as equations.
+- `ThApplicative`: extends `ThFunctor` with ``pure`` and ``apply``
+  and the four applicative laws.
+- `ThMonad`: extends `ThApplicative` with ``join`` (equivalently
+  ``bind``) and the three monad laws.
+- `ThAlternative`, `ThMonadPlus`, `ThMonadTrans`, `ThFoldable`, and
+  `ThTraversable`: likewise.
 
-Class extension is realised as theory inclusion via `panproto.colimit`.
-Each typeclass instance in [`quivers.monadic.instances`][quivers.monadic.instances] emits a
-panproto theory morphism whose existence panproto can verify (the
-operations are present, the equations hold).
+Class extension is recorded by name in each theory's ``extends``
+field, mirroring theory inclusion via a panproto colimit.
 
 The arrow tower in [`quivers.arrows.theories`][quivers.arrows.theories] mirrors this
 construction for the Hughes-style arrow typeclasses.
-
-Implementation note
--------------------
-This module currently *declares* the theories as Python data
-structures using a thin wrapper around ``panproto.define_theory``.
-Some panproto API surface required for the full encoding (notably
-polymorphic-arity operations and equation-set composition under
-``colimit``) is in flux upstream; the wrapper falls back to a
-record-only representation when the panproto API is unavailable, so
-the typeclass framework remains usable without the panproto theory
-mirrors.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import didactic.api as dx
 
 
-@dataclass(frozen=True)
-class _TheoryStub:
-    """Minimal record-only representation of a typeclass theory.
-
-    Used as a fallback when the upstream panproto API for declaring
-    polymorphic-arity operations and equation-set composition is not
-    yet stable.
+class TypeclassTheory(dx.Model):
+    """A record of the sorts, operations, and laws of one typeclass.
 
     Attributes
     ----------
@@ -52,22 +35,23 @@ class _TheoryStub:
     sorts : tuple of str
         The sorts the theory introduces.
     operations : tuple of str
-        The operations the theory introduces.
+        The operations the theory introduces, each written as a
+        signature such as ``"fmap : Hom → Hom"``.
     equations : tuple of str
         The equations registered with the theory; each is a free-form
         statement of a typeclass law.
     extends : tuple of str
-        Names of theories this one extends (via panproto colimit).
+        Names of the theories this one extends.
     """
 
     name: str
     sorts: tuple[str, ...] = ()
     operations: tuple[str, ...] = ()
     equations: tuple[str, ...] = ()
-    extends: tuple[str, ...] = field(default_factory=tuple)
+    extends: tuple[str, ...] = ()
 
 
-ThFunctor = _TheoryStub(
+ThFunctor = TypeclassTheory(
     name="ThFunctor",
     sorts=("Carrier", "Hom"),
     operations=("fmap_obj : Carrier → Carrier", "fmap : Hom → Hom"),
@@ -76,8 +60,9 @@ ThFunctor = _TheoryStub(
         "fmap(g ∘ f) = fmap(g) ∘ fmap(f)",
     ),
 )
+"""The theory of `Functor`."""
 
-ThApplicative = _TheoryStub(
+ThApplicative = TypeclassTheory(
     name="ThApplicative",
     operations=(
         "pure : Carrier → F(Carrier)",
@@ -91,8 +76,9 @@ ThApplicative = _TheoryStub(
     ),
     extends=("ThFunctor",),
 )
+"""The theory of `Applicative`."""
 
-ThMonad = _TheoryStub(
+ThMonad = TypeclassTheory(
     name="ThMonad",
     operations=("join : F(F(Carrier)) → F(Carrier)",),
     equations=(
@@ -102,8 +88,9 @@ ThMonad = _TheoryStub(
     ),
     extends=("ThApplicative",),
 )
+"""The theory of `Monad`."""
 
-ThAlternative = _TheoryStub(
+ThAlternative = TypeclassTheory(
     name="ThAlternative",
     operations=("empty : 1 → F(Carrier)", "alt : F(Carrier) ⊗ F(Carrier) → F(Carrier)"),
     equations=(
@@ -113,14 +100,16 @@ ThAlternative = _TheoryStub(
     ),
     extends=("ThApplicative",),
 )
+"""The theory of `Alternative`."""
 
-ThMonadPlus = _TheoryStub(
+ThMonadPlus = TypeclassTheory(
     name="ThMonadPlus",
     equations=("bind(empty, k) = empty",),
     extends=("ThMonad", "ThAlternative"),
 )
+"""The theory of `MonadPlus`."""
 
-ThMonadTrans = _TheoryStub(
+ThMonadTrans = TypeclassTheory(
     name="ThMonadTrans",
     operations=("lift : m(Carrier) → t(m)(Carrier)",),
     equations=(
@@ -128,13 +117,15 @@ ThMonadTrans = _TheoryStub(
         "lift(bind_m(x, k)) = bind_{T(m)}(lift(x), lift ∘ k)",
     ),
 )
+"""The theory of `MonadTrans`."""
 
-ThFoldable = _TheoryStub(
+ThFoldable = TypeclassTheory(
     name="ThFoldable",
     operations=("foldr : (Carrier ⊗ B → B) ⊗ B ⊗ F(Carrier) → B",),
 )
+"""The theory of `Foldable`."""
 
-ThTraversable = _TheoryStub(
+ThTraversable = TypeclassTheory(
     name="ThTraversable",
     operations=("traverse : (A → G(B)) ⊗ F(A) → G(F(B))",),
     equations=(
@@ -144,9 +135,11 @@ ThTraversable = _TheoryStub(
     ),
     extends=("ThFunctor", "ThFoldable"),
 )
+"""The theory of `Traversable`."""
 
 
 __all__ = [
+    "TypeclassTheory",
     "ThFunctor",
     "ThApplicative",
     "ThMonad",

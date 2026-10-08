@@ -1,10 +1,10 @@
 """[`StanRenderer`][quivers.transpile.renderers.stan.StanRenderer]: IR to Stan source.
 
 The renderer subclasses
-[`RendererBase`][quivers.transpile.renderers._base.RendererBase] and
+[`RendererBase`][quivers.transpile.renderers.RendererBase] and
 implements the four dispatch points (`declare`, `sample`,
-`marginalize`, `broadcast`) plus the two arg helpers (`render_list`,
-`render_matrix`). Distribution names live in
+`marginalize`, `broadcast`) plus the two arg helpers (`_render_list`,
+`_render_matrix`). Distribution names live in
 [`FAMILY_META`][quivers.transpile.family_meta.FAMILY_META]'s
 `target_names["stan"]`; no per-renderer family table. Support
 classification dispatches on the predicates exported from
@@ -30,7 +30,7 @@ The Stan-specific layout decisions:
 * Sample-step plate loops: every batch dimension on a sample's
   plate becomes a nested `for (m_<axis> in 1:<size>)` loop, with the
   variate and every same-axis-indexed arg rewritten through
-  [`substitute_indices`][quivers.transpile.renderers._base.RendererBase.substitute_indices].
+  [`substitute_indices`][quivers.transpile.renderers.RendererBase.substitute_indices].
 * Truncated families: the retained interval's log-mass is subtracted
   explicitly through `<family>_lcdf` / `<family>_lccdf` and
   `log_diff_exp`, since Stan's `T[low, high]` suffix attaches only to
@@ -48,7 +48,7 @@ The Stan-specific layout decisions:
   list literals; `to_matrix({{<row0>}, {<row1>}, ...})` for matrix
   literals.
 * IRArgFamilyRef: the referenced morphism's `init_family` is read
-  from `_RenderCtx.morphisms`; Stan-side wrappers emit the inner
+  from `RenderContext.morphisms`; Stan-side wrappers emit the inner
   call inline followed by Stan's truncation / wrapper syntax (e.g.
   `normal(0, 1) T[-2, 2]` for `Truncated(base, -2, 2)`).
 """
@@ -133,7 +133,7 @@ from quivers.transpile.renderers._base import (
     BlockKind,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dangling_refs,
     assert_no_dropped_param_map,
     mixture_component_count,
@@ -221,16 +221,16 @@ def _is_infinite_bound(bound: IRArg) -> bool:
 
 
 class _StanLetCtx:
-    """Bridge ``_RenderCtx.sb`` to the
-    [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
+    """Bridge ``RenderContext.sb`` to the
+    `render_let_expr_stan`
     helper interface (`vertex`, `edge`, `literal`, `constraint`,
     `fresh`) and carry the object-name -> static-cardinality map
     consulted when unrolling
     [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor].
 
-    The Stan IR-walk operates over `_RenderCtx`; the let-expression
+    The Stan IR-walk operates over `RenderContext`; the let-expression
     helper expects a small carrier that exposes
-    [`panproto.SchemaBuilder`][panproto.SchemaBuilder] operations
+    `panproto.SchemaBuilder` operations
     under terse method names. The shim keeps the helper independent
     of any specific renderer class.
     """
@@ -264,10 +264,10 @@ class _StanLetCtx:
 
 class StanRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
-    Stan [`panproto.Schema`][panproto.Schema].
+    Stan `panproto.Schema`.
 
     Subclasses
-    [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    [`RendererBase`][quivers.transpile.renderers.RendererBase]
     and overrides the four dispatch points
     (`declare`, `sample`, `marginalize`, `broadcast`) plus the two
     list / matrix arg helpers per the spec.
@@ -309,7 +309,7 @@ class StanRenderer(RendererBase):
         self._marginalize_let_subs: dict[str, LetExprNode] = {}
         # Bookkeeping for redeclaration avoidance.
         self._declared: dict[BlockKind, set[str]] = {}
-        # Fresh counter is renderer-internal; the base's _RenderCtx
+        # Fresh counter is renderer-internal; the base's RenderContext
         # counter remains untouched so per-walk node IDs stay stable.
         self._fresh_n = 0
         # Per-render lookup caches; `render()` clears them on every
@@ -332,6 +332,13 @@ class StanRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("stan")
 
     # ----- the full render override -----
@@ -342,13 +349,23 @@ class StanRenderer(RendererBase):
         Override of the base `render` so the program-level layout
         (the `program` vertex with five child blocks) is built once
         per call.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
         morphisms, lets = self._resolve_morphisms_and_lets()
-        ctx = _RenderCtx(sb=sb, morphisms=morphisms, defines=lets)
+        ctx = RenderContext(sb=sb, morphisms=morphisms, defines=lets)
         # Reset per-render state.
         self._blocks = {}
         self._declared = {
@@ -519,7 +536,7 @@ class StanRenderer(RendererBase):
         `render()`. The
         [`declare`][quivers.transpile.renderers.stan.StanRenderer.declare]
         and
-        [`_emit_deterministic`][quivers.transpile.renderers.stan.StanRenderer._emit_deterministic]
+        `_emit_deterministic`
         paths consult this map to promote scalar real declarations to
         `vector[K]` and to wrap scalar RHS expressions in
         `rep_vector(rhs, K)`.
@@ -695,7 +712,7 @@ class StanRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -708,6 +725,24 @@ class StanRenderer(RendererBase):
         spec, threaded through
         [`ConstraintSpec.to_constraint`][quivers.transpile.ir.ConstraintSpec.to_constraint].
         The table is the §5 Stan table.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         if name in self._declared[block]:
             return ""
@@ -753,7 +788,7 @@ class StanRenderer(RendererBase):
 
     def _emit_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         sup: Constraint,
         event_dims: tuple[Dim, ...],
@@ -822,7 +857,7 @@ class StanRenderer(RendererBase):
 
     def _emit_real_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         *,
         lower: int | float | None,
@@ -836,7 +871,7 @@ class StanRenderer(RendererBase):
 
     def _emit_int_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         *,
         lower: int | float | None,
@@ -850,7 +885,7 @@ class StanRenderer(RendererBase):
 
     def _emit_vector_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
@@ -870,7 +905,7 @@ class StanRenderer(RendererBase):
 
     def _emit_vector_type_of_size(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         size: int,
     ) -> None:
@@ -890,7 +925,7 @@ class StanRenderer(RendererBase):
 
     def _emit_simplex_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
@@ -910,7 +945,7 @@ class StanRenderer(RendererBase):
 
     def _emit_cov_matrix_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
@@ -950,7 +985,7 @@ class StanRenderer(RendererBase):
 
     def _emit_corr_chol_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
@@ -970,7 +1005,7 @@ class StanRenderer(RendererBase):
 
     def _emit_matrix_type(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         tvt_vid: str,
         event_dims: tuple[Dim, ...],
     ) -> None:
@@ -992,7 +1027,7 @@ class StanRenderer(RendererBase):
 
     def _maybe_emit_range_constraint(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         parent: str,
         lower: int | float | None,
         upper: int | float | None,
@@ -1009,7 +1044,7 @@ class StanRenderer(RendererBase):
 
     def _maybe_emit_int_range(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         int_type_vid: str,
         lower: int | float | None,
         upper: int | float | None,
@@ -1023,7 +1058,7 @@ class StanRenderer(RendererBase):
 
     def _build_range_node(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         lower: int | float | None,
         upper: int | float | None,
     ) -> str:
@@ -1060,7 +1095,7 @@ class StanRenderer(RendererBase):
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -1084,6 +1119,30 @@ class StanRenderer(RendererBase):
         Wraps the increment in nested `for (m_<axis> in 1:<size>)`
         loops for each batch dim. Indexes the LHS and every arg whose
         ref-name sits on the plate.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del observed  # The sample emission shape does not differ.
         del constraint  # The constraint shaped the declaration; the
@@ -1174,7 +1233,7 @@ class StanRenderer(RendererBase):
 
     def _emit_mixture_normal(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         *,
         name: str,
         args: tuple[IRArg, ...],
@@ -1264,7 +1323,7 @@ class StanRenderer(RendererBase):
         )
         return outer_block
 
-    def _mixture_component_slice(self, ctx: _RenderCtx, arg: IRArg) -> str:
+    def _mixture_component_slice(self, ctx: RenderContext, arg: IRArg) -> str:
         """Render `<arg>[k]`: the component-`k` entry of one of a
         `MixtureNormal` call's three per-component vectors."""
         if not isinstance(arg, IRArgRef) or arg.indices:
@@ -1281,7 +1340,7 @@ class StanRenderer(RendererBase):
 
     def _apply_truncation_correction(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         density_vid: str,
         stan_name: str,
         family_args: tuple[IRArg, ...],
@@ -1351,7 +1410,7 @@ class StanRenderer(RendererBase):
 
     def _build_tail_mass_call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         function_name: str,
         bound: IRArg,
         family_args: tuple[IRArg, ...],
@@ -1381,7 +1440,7 @@ class StanRenderer(RendererBase):
 
     def _stan_call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         function_name: str,
         arg_vids: tuple[str, ...],
     ) -> str:
@@ -1451,7 +1510,7 @@ class StanRenderer(RendererBase):
 
     def _emit_neg_binomial_2_args(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         stmt: str,
         args: tuple[IRArg, ...],
         plate: Plate,
@@ -1502,7 +1561,7 @@ class StanRenderer(RendererBase):
 
     def _stan_binop(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         left_vid: str,
         op: str,
         right_vid: str,
@@ -1516,7 +1575,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(vid, right_vid, "child_of")
         return vid
 
-    def _stan_paren(self, ctx: _RenderCtx, vid: str) -> str:
+    def _stan_paren(self, ctx: RenderContext, vid: str) -> str:
         """Wrap an already-rendered expression vertex in a
         `parenthized_expression` so its grouping survives Stan's
         left-to-right printer (e.g. the `(1 - probs)` denominator)."""
@@ -1595,7 +1654,7 @@ class StanRenderer(RendererBase):
 
     def _wrap_in_for_loops(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         parent: str,
         batch_dims: tuple[Dim, ...],
         loop_names: tuple[str, ...],
@@ -1627,7 +1686,7 @@ class StanRenderer(RendererBase):
 
     def _build_lhs(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         loop_names: tuple[str, ...],
     ) -> str:
@@ -1668,7 +1727,7 @@ class StanRenderer(RendererBase):
           one [`IRArgRef`][quivers.transpile.ir.IRArgRef] index per
           aligned batch dim, in declaration order. The loop indices
           are 1-based identifiers; the Stan
-          [`indexed_expression`][quivers.transpile.renderers._stan_helpers]
+          `indexed_expression`
           emit takes them verbatim.
 
         This is what the plan's typed plates rely on: a let-bound
@@ -1700,7 +1759,7 @@ class StanRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Emit a marginalized latent.
@@ -1711,6 +1770,18 @@ class StanRenderer(RendererBase):
         become constrained Stan parameters: the renderer adds their prior
         density and emits the scope with that parameter in context. Stan then
         samples the resulting joint model.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         meta = FAMILY_META.get(node.family)
         if meta is None:
@@ -1918,7 +1989,7 @@ class StanRenderer(RendererBase):
 
     def _marginalize_continuous(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
         meta: FamilyMeta,
     ) -> SchemaFragment:
@@ -1978,7 +2049,7 @@ class StanRenderer(RendererBase):
 
     def _dispatch_marginalize_scope(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         node: IRNode,
         parent: IRMarginalize,
@@ -2008,7 +2079,7 @@ class StanRenderer(RendererBase):
 
     def _emit_marginalize_scope_observe(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         node: IRObserve,
         parent: IRMarginalize,
@@ -2109,7 +2180,7 @@ class StanRenderer(RendererBase):
 
     def _emit_unrolled_scope_observe(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         current: str,
         node: IRObserve,
         parent: IRMarginalize,
@@ -2173,7 +2244,7 @@ class StanRenderer(RendererBase):
 
     def _emit_marginalize_scope_sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         node: IRSample,
         parent: IRMarginalize,
@@ -2229,7 +2300,7 @@ class StanRenderer(RendererBase):
 
     def _build_indexed_lhs(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         base_name: str,
         index_exprs: tuple[str, ...],
     ) -> str:
@@ -2259,7 +2330,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(lhs, ilhs, "child_of")
         return lhs
 
-    def _build_index_node(self, ctx: _RenderCtx, expr_text: str) -> str:
+    def _build_index_node(self, ctx: RenderContext, expr_text: str) -> str:
         """Build an `index` node carrying a parsed expression.
 
         Recognises the `<name>[<inner>]` shape and emits an
@@ -2272,7 +2343,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(idx, inner, "child_of")
         return idx
 
-    def _build_expr_from_text(self, ctx: _RenderCtx, expr_text: str) -> str:
+    def _build_expr_from_text(self, ctx: RenderContext, expr_text: str) -> str:
         """Build an expression vertex for a small text form.
 
         Supports bare identifiers, integer literals, and a single
@@ -2306,7 +2377,7 @@ class StanRenderer(RendererBase):
 
     def _build_lpdf_call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         lpdf_name: str,
         observed_var: str,
         batch_dims: tuple[Dim, ...],
@@ -2398,7 +2469,7 @@ class StanRenderer(RendererBase):
 
     def _indexed_expression_text(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         base_name: str,
         index_text: str,
     ) -> str:
@@ -2443,7 +2514,7 @@ class StanRenderer(RendererBase):
         self,
         meta: FamilyMeta,
         node: IRMarginalize,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
     ) -> int | None:
         """Compute the finite-support cardinality K for the latent.
 
@@ -2510,7 +2581,7 @@ class StanRenderer(RendererBase):
 
     def _declare_lps_array(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         lps_name: str,
         batch_dims: tuple[Dim, ...],
@@ -2574,7 +2645,7 @@ class StanRenderer(RendererBase):
 
     def _emit_lps_init(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         lps_name: str,
         batch_dims: tuple[Dim, ...],
@@ -2704,7 +2775,7 @@ class StanRenderer(RendererBase):
 
     def _emit_lps_accumulate(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         scope_block: str,
         lps_name: str,
         batch_dims: tuple[Dim, ...],
@@ -2731,7 +2802,7 @@ class StanRenderer(RendererBase):
 
     def _build_indexed_arg_expression(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         base_name: str,
         index_names: tuple[str, ...],
     ) -> str:
@@ -2750,13 +2821,28 @@ class StanRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         """Emit a Stan broadcast call:
         `rep_vector(<value>, K)` for 1D, `rep_matrix(<value>, R, C)`
-        for 2D."""
+        for 2D.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         if len(target_shape) == 0:
             return self._render_arg(ctx, value)
         if len(target_shape) == 1:
@@ -2788,9 +2874,9 @@ class StanRenderer(RendererBase):
 
     # ----- arg rendering helpers -----
 
-    def render_list(
+    def _render_list(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgList,
     ) -> SchemaFragment:
         """Per §10.9 of the spec, Stan list args render as a vector
@@ -2812,9 +2898,9 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(post, ve, "child_of")
         return post
 
-    def render_matrix(
+    def _render_matrix(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgMatrix,
     ) -> SchemaFragment:
         """Per §10.9 of the spec, Stan matrix args render as
@@ -2843,7 +2929,7 @@ class StanRenderer(RendererBase):
 
     def _render_arg(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArg,
     ) -> SchemaFragment:
         """Render any [`IRArg`][quivers.transpile.ir.IRArg] to a Stan
@@ -2855,9 +2941,9 @@ class StanRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self.broadcast(ctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(ctx, arg)
+            return self._render_list(ctx, arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(ctx, arg)
+            return self._render_matrix(ctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             return self._render_family_ref(ctx, arg)
         if isinstance(arg, IRArgKernel):
@@ -2869,7 +2955,7 @@ class StanRenderer(RendererBase):
 
     def _render_kernel(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgKernel,
     ) -> SchemaFragment:
         """Emit ``gp_exp_quad_cov(x, 1.0, length_scale) +
@@ -2941,7 +3027,7 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(sum_v, diag_fn, "child_of")
         return sum_v
 
-    def _render_number(self, ctx: _RenderCtx, value: float) -> str:
+    def _render_number(self, ctx: RenderContext, value: float) -> str:
         if float(value).is_integer():
             return self._int_literal(ctx, int(value))
         v = self._fresh(ctx, "rl")
@@ -3030,7 +3116,7 @@ class StanRenderer(RendererBase):
                     return b
         return LetExprBinOp(op=expr.op, left=left, right=right)
 
-    def _render_ref(self, ctx: _RenderCtx, arg: IRArgRef) -> SchemaFragment:
+    def _render_ref(self, ctx: RenderContext, arg: IRArgRef) -> SchemaFragment:
         """Render an IRArgRef. Bare-name refs become a
         `variable_expression`; indexed refs nest `indexed_expression`
         nodes. When the ref name resolves to a scope-local
@@ -3078,7 +3164,7 @@ class StanRenderer(RendererBase):
 
     def _render_family_ref(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         arg: IRArgFamilyRef,
     ) -> SchemaFragment:
         """Render an [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]:
@@ -3122,7 +3208,7 @@ class StanRenderer(RendererBase):
 
     def _render_init_family_arg(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         raw: str | float,
     ) -> SchemaFragment:
         """Render an `init_family` wire-form arg.
@@ -3146,7 +3232,7 @@ class StanRenderer(RendererBase):
 
     # ----- shared utilities -----
 
-    def _variable_expression(self, ctx: _RenderCtx, name: str) -> str:
+    def _variable_expression(self, ctx: RenderContext, name: str) -> str:
         ve = self._fresh(ctx, "ve")
         ctx.sb.vertex(ve, "variable_expression")
         ident = self._fresh(ctx, "vid")
@@ -3155,13 +3241,13 @@ class StanRenderer(RendererBase):
         ctx.sb.edge(ve, ident, "child_of")
         return ve
 
-    def _int_literal(self, ctx: _RenderCtx, value: int | float) -> str:
+    def _int_literal(self, ctx: RenderContext, value: int | float) -> str:
         v = self._fresh(ctx, "il")
         ctx.sb.vertex(v, "integer_literal")
         ctx.sb.constraint(v, "literal-value", str(int(value)))
         return v
 
-    def _ensure_block(self, ctx: _RenderCtx, kind: BlockKind) -> str:
+    def _ensure_block(self, ctx: RenderContext, kind: BlockKind) -> str:
         """Lazily emit a top-level Stan block of the given kind.
 
         Blocks are children of the top `program` vertex. Each emit
@@ -3175,7 +3261,7 @@ class StanRenderer(RendererBase):
         self._blocks[kind] = vid
         return vid
 
-    def _dim_size_vertex(self, ctx: _RenderCtx, dim: Dim) -> str:
+    def _dim_size_vertex(self, ctx: RenderContext, dim: Dim) -> str:
         """Materialise an integer literal (for `DimStatic`) or a
         variable reference (for `DimDynamic`) representing the dim's
         size."""
@@ -3188,16 +3274,16 @@ class StanRenderer(RendererBase):
             [f"dim:unknown:{type(dim).__name__}"],
         )
 
-    def _fresh(self, ctx: _RenderCtx, prefix: str) -> str:
+    def _fresh(self, ctx: RenderContext, prefix: str) -> str:
         """Return a fresh vertex id with `prefix`. Renderer-internal
-        counter; doesn't disturb the base's `_RenderCtx.fresh_counter`."""
+        counter; doesn't disturb the base's `RenderContext.fresh_counter`."""
         del ctx
         self._fresh_n += 1
         return f"{prefix}_{self._fresh_n}"
 
     # ----- IR-walk overrides -----
 
-    def _dispatch_node(self, ctx: _RenderCtx, node: IRNode) -> None:
+    def _dispatch_node(self, ctx: RenderContext, node: IRNode) -> None:
         """Stan-specific dispatch. Records simplex cardinalities along
         the walk for marginalize's K-inference; otherwise defers to
         the base behaviour for layout."""
@@ -3290,7 +3376,7 @@ class StanRenderer(RendererBase):
 
     def _emit_deterministic(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRDeterministic,
     ) -> None:
         """Emit a deterministic let-binding into the
@@ -3300,7 +3386,7 @@ class StanRenderer(RendererBase):
         ``<type> <name> = <expr>;`` declaration whose RHS is
         [`node.expr`][quivers.transpile.ir.IRDeterministic.expr]
         rendered through
-        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan].
+        `render_let_expr_stan`.
 
         Non-scalar plate (``batch_dims != ()``): the binding splits
         into a declaration of the array type and a ``for`` loop that
@@ -3317,7 +3403,7 @@ class StanRenderer(RendererBase):
         whose declared plate has the same ``batch_dims`` as the
         surrounding let gets substituted with
         ``<name>[<loop_var>]`` per
-        [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr];
+        `_substitute_let_expr`;
         scalar refs (``a``, ``b``) pass through unchanged.
         """
         parent = self._ensure_block(ctx, "transformed_parameters")
@@ -3438,7 +3524,7 @@ class StanRenderer(RendererBase):
 
     def _wrap_rep_vector(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         inner_vid: str,
         size: int,
     ) -> str:
@@ -3475,7 +3561,7 @@ class StanRenderer(RendererBase):
         ``<name>[<loop_name>]`` (or nested for multi-batch).
 
         Walks the expression collecting candidate names, then calls
-        [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+        `_substitute_let_expr`
         once per name so the substitution preserves the
         single-pass semantics the helper expects.
         """
@@ -3501,12 +3587,12 @@ class StanRenderer(RendererBase):
             )
         return out
 
-    def _emit_score(self, ctx: _RenderCtx, node: IRScore) -> None:
+    def _emit_score(self, ctx: RenderContext, node: IRScore) -> None:
         """Emit ``target += <expr>;`` to the ``model`` block.
 
         Renders
         [`node.expr`][quivers.transpile.ir.IRScore.expr] through
-        [`render_let_expr_stan`][quivers.transpile.renderers._stan_helpers.render_let_expr_stan]
+        `render_let_expr_stan`
         so the increment is a real Stan expression rather than a
         bare-name reference to an undeclared variable.
         """
@@ -3522,7 +3608,7 @@ class StanRenderer(RendererBase):
 
     def _emit_return(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         names: tuple[str, ...],
     ) -> None:
         """Emit `generated quantities { <type> <name>_value = <name>;
@@ -3536,7 +3622,7 @@ class StanRenderer(RendererBase):
         for var in names:
             self._emit_gq_alias(ctx, var)
 
-    def _emit_gq_alias(self, ctx: _RenderCtx, var: str) -> None:
+    def _emit_gq_alias(self, ctx: RenderContext, var: str) -> None:
         decl_name = f"{var}_value"
         if decl_name in self._declared["generated_quantities"]:
             return
@@ -3571,7 +3657,7 @@ class StanRenderer(RendererBase):
         """Look up a previously-declared name's (support, plate) for
         the generated-quantities aliasing emission.
 
-        Raises [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct]
+        Raises `UnsupportedConstruct`
         when the return-var was never declared.
         """
         info = self._declared_shapes.get(var)
@@ -4022,4 +4108,4 @@ def _graft_runtime_stan_helper(
         sb.edge(program_vid, id_map[child_old], "child_of")
 
 
-__all__ = ["StanRenderer", "format_stan"]
+__all__ = ["StanRenderer"]

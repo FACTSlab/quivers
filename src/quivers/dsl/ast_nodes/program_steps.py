@@ -134,8 +134,25 @@ class DrawArgList(DrawArg):
     kind: Literal["list"] = "list"
 
 
-def _to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
-    """Lift a plain Python value into the tagged `DrawArg` shape."""
+def atom_to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
+    """Lift a plain Python value into the `DrawArg` it denotes.
+
+    Parameters
+    ----------
+    value : str | float | int | DrawArg
+        A name, a number, or an argument that is already a `DrawArg`.
+
+    Returns
+    -------
+    DrawArg
+        A `DrawArgName` for a string, a `DrawArgScalar` for a number,
+        and ``value`` itself for a `DrawArg`.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is none of the accepted kinds.
+    """
     if isinstance(value, DrawArg):
         return value
     if isinstance(value, str):
@@ -143,7 +160,7 @@ def _to_draw_arg(value: str | float | int | DrawArg) -> DrawArg:
     if isinstance(value, (int, float)):
         return DrawArgScalar(value=float(value))
     raise TypeError(
-        f"_to_draw_arg: expected str | float | DrawArg, got {type(value).__name__}"
+        f"atom_to_draw_arg: expected str | float | DrawArg, got {type(value).__name__}"
     )
 
 
@@ -467,6 +484,13 @@ class GroupedBodyObserveStep(ProgramStep):
 __all__ = [
     "BindStep",
     "CallStep",
+    "DrawArg",
+    "DrawArgDist",
+    "DrawArgIndex",
+    "DrawArgList",
+    "DrawArgName",
+    "DrawArgNamed",
+    "DrawArgScalar",
     "DrawStep",
     "GroupedBodyObserveStep",
     "GroupedLatentInitStep",
@@ -479,5 +503,7 @@ __all__ = [
     "ProgramStep",
     "ReturnStep",
     "SampleStep",
+    "ScoreStep",
     "VectorisedObserveStep",
+    "atom_to_draw_arg",
 ]

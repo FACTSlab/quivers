@@ -88,4 +88,4 @@ def _walk_option_value(t: _Tree, vid: str) -> OptionValue:
     raise ParseError(f"unexpected option value kind: {k}")
 
 
-__all__ = ["_walk_option_block", "_walk_option_entry", "_walk_option_value"]
+__all__ = []

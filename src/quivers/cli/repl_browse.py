@@ -227,24 +227,4 @@ def _children_for_contraction(name, contr):  # type: ignore[no-untyped-def]
     return name, []
 
 
-__all__ = [
-    "_call_str",
-    "_children_for_bundle",
-    "_children_for_contraction",
-    "_children_for_decoder",
-    "_children_for_deduction",
-    "_children_for_encoder",
-    "_children_for_loss",
-    "_children_for_morphism",
-    "_children_for_object",
-    "_children_for_program",
-    "_children_for_rule",
-    "_children_for_signature",
-    "_children_for_space",
-    "_ctor_line",
-    "_index_suffix",
-    "_pat_str",
-    "_pretty",
-    "_rule_line",
-    "_step_node",
-]
+__all__ = []

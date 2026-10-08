@@ -1,4 +1,4 @@
-"""``qvr check`` — parse + compile .qvr files and report diagnostics.
+"""``qvr check``: parse and compile .qvr files and report diagnostics.
 
 Implementation
 --------------
@@ -19,9 +19,9 @@ mode prints ``"OK file.qvr"``.
 
 Exit codes:
 
-- ``0`` — every file compiled without diagnostics,
-- ``1`` — at least one file produced an ``error`` diagnostic,
-- ``2`` — usage / IO error.
+- ``0``: every file compiled without diagnostics,
+- ``1``: at least one file produced an ``error`` diagnostic,
+- ``2``: usage / IO error.
 """
 
 from __future__ import annotations
@@ -29,9 +29,10 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
+
+import didactic.api as dx
 
 from quivers.dsl import (
     Compiler,
@@ -49,26 +50,45 @@ from quivers.dsl.qiec_tooling import (
 )
 
 
-type Severity = Literal["error", "warning", "note"]
+type CheckSeverity = Literal["error", "warning", "note"]
+"""The severity of a `CheckDiagnostic`."""
 
 
 _PARSE_POSITION = re.compile(r"line\s+(\d+),\s*col\s+(\d+)")
 
 
-@dataclass(frozen=True)
-class Diagnostic:
-    """One structured diagnostic message."""
+class CheckDiagnostic(dx.Model):
+    """One structured diagnostic that ``qvr check`` reports for a file.
+
+    Parameters
+    ----------
+    file : str
+        The path of the checked file.
+    line : int
+        The 1-indexed source line, or ``0`` when the diagnostic has no
+        position.
+    col : int
+        The 1-indexed source column, or ``0`` when the diagnostic has
+        no position.
+    severity : CheckSeverity
+        ``"error"``, ``"warning"``, or ``"note"``.
+    code : str
+        The stable diagnostic code, such as ``"parse"`` or
+        ``"compile"``.
+    message : str
+        The human-readable description.
+    """
 
     file: str
     line: int
     col: int
-    severity: Severity
+    severity: CheckSeverity
     code: str
     message: str
 
 
-def _normalize_severity(value: str) -> Severity:
-    """Coerce a raw severity string into the typed `Severity` literal,
+def _normalize_severity(value: str) -> CheckSeverity:
+    """Coerce a raw severity string into the typed `CheckSeverity` literal,
     raising on an unknown value."""
     if value == "error":
         return "error"
@@ -79,13 +99,32 @@ def _normalize_severity(value: str) -> Severity:
     raise ValueError(f"unknown severity {value!r}")
 
 
-def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
-    """Run the parse + constraint + compile pipeline on a single file."""
+def check_file(path: Path, *, target: str | None = None) -> list[CheckDiagnostic]:
+    """Parse, constraint-check, and compile one ``.qvr`` file.
+
+    This is the per-file pipeline behind ``qvr check``. It reports
+    failures as diagnostics rather than raising, so an unreadable file
+    yields an ``io`` diagnostic and a syntax error a ``parse`` one.
+
+    Parameters
+    ----------
+    path : Path
+        The ``.qvr`` file to check.
+    target : str or None
+        A transpile target whose missing capabilities are also
+        reported, as ``qvr check --target`` does; ``None`` for none.
+
+    Returns
+    -------
+    list[CheckDiagnostic]
+        Every diagnostic the file produces, empty when it checks
+        cleanly.
+    """
     try:
         source = path.read_bytes()
     except OSError as e:
         return [
-            Diagnostic(
+            CheckDiagnostic(
                 file=str(path),
                 line=0,
                 col=0,
@@ -95,7 +134,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
             )
         ]
 
-    diags: list[Diagnostic] = []
+    diags: list[CheckDiagnostic] = []
 
     try:
         module = parse(source, file_path=str(path))
@@ -104,7 +143,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
         line = int(match.group(1)) if match is not None else 0
         col = int(match.group(2)) if match is not None else 0
         diags.append(
-            Diagnostic(
+            CheckDiagnostic(
                 file=str(path),
                 line=line,
                 col=col,
@@ -125,7 +164,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
         qiec_module = compiler.qiec_module
         if qiec_module is not None and qiec_module.gap:
             diags.append(
-                Diagnostic(
+                CheckDiagnostic(
                     file=str(path),
                     line=0,
                     col=0,
@@ -139,7 +178,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
             raise
         diagnostic = qiec_diagnostic(error)
         diags.append(
-            Diagnostic(
+            CheckDiagnostic(
                 file=str(path),
                 line=diagnostic.line,
                 col=diagnostic.col,
@@ -153,7 +192,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
     # Constraint solver runs before compile so users see structural
     # diagnostics even when compilation would also fail.
     diags.extend(
-        Diagnostic(
+        CheckDiagnostic(
             file=str(path),
             line=v.line,
             col=v.col,
@@ -169,7 +208,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
     # ``implicit-family-defaults`` warning and ``family-arg-shape``
     # errors / warnings.
     family_diags = [
-        Diagnostic(
+        CheckDiagnostic(
             file=str(path),
             line=v.line,
             col=v.col,
@@ -192,7 +231,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
         compiler.compile()
     except CompileError as error:
         diags.append(
-            Diagnostic(
+            CheckDiagnostic(
                 file=str(path),
                 line=getattr(error, "line", 0),
                 col=getattr(error, "col", 0),
@@ -211,7 +250,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
         for capability in capabilities:
             origin = capability.origin
             diags.append(
-                Diagnostic(
+                CheckDiagnostic(
                     file=str(path),
                     line=(origin.line or 0) if origin is not None else 0,
                     col=(origin.column or 0) if origin is not None else 0,
@@ -225,7 +264,7 @@ def _check_one(path: Path, *, target: str | None = None) -> list[Diagnostic]:
                 checked_program_plan(compiler.qiec_module, module, target)
             except UnsupportedConstruct as error:
                 diags.extend(
-                    Diagnostic(
+                    CheckDiagnostic(
                         file=str(path),
                         line=0,
                         col=0,
@@ -262,16 +301,16 @@ def main(
         Exit code. 0 on full success; 1 on any error diagnostic.
     """
     paths = [Path(f) for f in files]
-    all_diags: list[Diagnostic] = []
+    all_diags: list[CheckDiagnostic] = []
     for p in paths:
-        all_diags.extend(_check_one(p, target=target))
+        all_diags.extend(check_file(p, target=target))
 
     has_error = any(d.severity == "error" for d in all_diags)
 
     if json_output:
         payload = {
             "files": [str(p) for p in paths],
-            "diagnostics": [asdict(d) for d in all_diags],
+            "diagnostics": [d.model_dump() for d in all_diags],
             "ok": not has_error,
         }
         sys.stdout.write(json.dumps(payload, indent=2))
@@ -294,4 +333,4 @@ def main(
     return 1 if has_error else 0
 
 
-__all__ = ["Diagnostic", "main"]
+__all__ = ["CheckDiagnostic", "CheckSeverity", "check_file"]

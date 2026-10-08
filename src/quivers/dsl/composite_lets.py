@@ -47,7 +47,7 @@ from quivers.dsl.ast_nodes.let_expressions import (
     LetExprVar,
 )
 from quivers.dsl.step_resolution import StepResolutionError
-from quivers.dsl.draw_args import atom_to_draw_arg
+from quivers.dsl.ast_nodes import atom_to_draw_arg
 
 
 class _ChainElem(dx.TaggedUnion, discriminator="kind"):
@@ -1399,4 +1399,4 @@ def _derive_chain_args(
     return (atom_to_draw_arg(prev_var),)
 
 
-__all__ = ["expand_composite_lets"]
+__all__ = []

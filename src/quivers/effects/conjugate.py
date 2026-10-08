@@ -259,6 +259,7 @@ CONJUGATE_SOLVERS: Mapping[tuple[str, str], Solver] = {
     ("Gamma", "Poisson"): gamma_poisson,
     ("Dirichlet", "Categorical"): dirichlet_categorical,
 }
+"""The closed-form solvers, keyed by (prior family, likelihood family)."""
 
 
 def conjugate_solver(parent_family: str, child_family: str) -> Solver:

@@ -42,6 +42,11 @@ def parser_registry() -> _NativeAstParserRegistry:
 
     Construction walks every installed ``panproto.grammars`` entry-point
     pack; doing it once amortises that work across every transpile call.
+
+    Returns
+    -------
+    panproto.AstParserRegistry
+        The registry every renderer parses and emits through.
     """
     global _REGISTRY
     if _REGISTRY is None:
@@ -61,6 +66,16 @@ def target_protocol(grammar: str) -> panproto.Protocol:
     resulting Protocol is suitable for fresh
     `schema()` builders that emit through
     the grammar's auto-derived theory.
+
+    Parameters
+    ----------
+    grammar
+        The tree-sitter grammar name, such as ``"stan"`` or ``"python"``.
+
+    Returns
+    -------
+    panproto.Protocol
+        A protocol whose schemas are built in the grammar's theory.
     """
     # `schema_theory` is documented to accept either a `Theory` instance
     # or a string theory name; the published stub types it as `Theory`
@@ -73,11 +88,32 @@ def target_protocol(grammar: str) -> panproto.Protocol:
 
 
 class EmitPretty(dx.Mapping[panproto.Schema, bytes]):
-    """`Mapping[panproto.Schema, bytes]` over
-    `emit_pretty`."""
+    """The last arrow of the pipeline: a target schema to source bytes.
+
+    A `Mapping[panproto.Schema, bytes]` over the registry's
+    `emit_pretty`, which walks the grammar's productions to print the
+    schema a renderer built.
+
+    Parameters
+    ----------
+    grammar
+        The tree-sitter grammar the schemas are built in.
+    """
 
     def __init__(self, grammar: str) -> None:
         self._grammar = grammar
 
     def forward(self, schema: panproto.Schema) -> bytes:
+        """Print one schema as source.
+
+        Parameters
+        ----------
+        schema
+            A schema in the grammar's theory, as a renderer returns it.
+
+        Returns
+        -------
+        bytes
+            The target program's source.
+        """
         return bytes(parser_registry().emit_pretty(self._grammar, schema))

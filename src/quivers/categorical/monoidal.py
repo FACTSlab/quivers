@@ -223,6 +223,7 @@ class EmptySet(SetObject):
 
 
 EMPTY = EmptySet()
+"""The `EmptySet` singleton, the unit of `CoproductMonoidal`."""
 
 
 class CoproductMonoidal(MonoidalStructure):
@@ -307,3 +308,12 @@ class CoproductMonoidal(MonoidalStructure):
 
     def __repr__(self) -> str:
         return "CoproductMonoidal()"
+
+
+__all__ = [
+    "MonoidalStructure",
+    "CartesianMonoidal",
+    "CoproductMonoidal",
+    "EmptySet",
+    "EMPTY",
+]

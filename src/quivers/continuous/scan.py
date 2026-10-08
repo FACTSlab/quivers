@@ -478,3 +478,8 @@ class ScanMorphism(ContinuousMorphism):
     def __repr__(self) -> str:
         init = f", init={self._init_strategy}" if self._init_strategy != "zeros" else ""
         return f"ScanMorphism({self._cell!r}{init})"
+
+
+__all__ = [
+    "ScanMorphism",
+]

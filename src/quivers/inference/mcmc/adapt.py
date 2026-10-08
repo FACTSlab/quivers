@@ -2,12 +2,12 @@
 
 Two primitives:
 
-* `DualAveraging` — Nesterov's dual averaging for adapting
+* `DualAveraging`: Nesterov's dual averaging for adapting
   the step size to a target Metropolis acceptance probability
   (Hoffman-Gelman 2014, Algorithm 6,
   `doi:10.48550/arXiv.1111.4246
   <https://doi.org/10.48550/arXiv.1111.4246>`_).
-* `WelfordCovariance` — Welford-style online accumulator
+* `WelfordCovariance`: Welford-style online accumulator
   for the empirical covariance of the warmup samples; both the
   diagonal and dense forms are exposed because HMC mass matrices
   are typically one of those two shapes.
@@ -44,7 +44,7 @@ class DualAveraging:
         as the shrinkage anchor :math:`\\mu` per Algorithm 6.
     target_accept : float
         Target Metropolis acceptance probability. Default ``0.8``
-        (NUTS's standard) — somewhat below the optimal 0.65 for HMC
+        (NUTS's standard), somewhat below the optimal 0.65 for HMC
         because NUTS averages acceptance over the tree.
     gamma : float
         Adaptation regularisation. Default ``0.05``.
@@ -116,7 +116,7 @@ class WelfordCovariance:
 
     Tracks the running mean and (co)variance of a stream of
     ``D``-dimensional vectors. Supports both diagonal and dense
-    forms — diagonal sufficient for ill-scaled axis-aligned
+    forms: diagonal is sufficient for ill-scaled axis-aligned
     posteriors, dense needed when off-axis correlations matter.
 
     The dense form follows the standard pairwise update:

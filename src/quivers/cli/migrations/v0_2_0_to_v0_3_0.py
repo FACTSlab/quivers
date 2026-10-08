@@ -36,3 +36,6 @@ def migrate(source: bytes) -> bytes:
 SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(
     {"_cat_pattern", "cat_atom", "cat_paren", "cat_product", "cat_slash"}
 )
+
+
+__all__ = []

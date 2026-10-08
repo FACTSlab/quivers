@@ -14,7 +14,24 @@ from quivers.dsl import ast_nodes as surface
 
 
 def let_expr_children(expr: surface.LetExprNode) -> tuple[surface.LetExprNode, ...]:
-    """Return the immediate expression children of ``expr`` in source order."""
+    """Return the immediate expression children of ``expr`` in source order.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression to take apart.
+
+    Returns
+    -------
+    tuple[LetExprNode, ...]
+        The direct subexpressions, empty for a leaf.
+
+    Raises
+    ------
+    TypeError
+        If ``expr`` is a let-expression variant this function does not
+        cover.
+    """
     if isinstance(
         expr,
         surface.LetExprLiteral
@@ -49,7 +66,23 @@ def let_expr_children(expr: surface.LetExprNode) -> tuple[surface.LetExprNode, .
 
 
 def walk_let_expr(expr: surface.LetExprNode) -> Iterator[surface.LetExprNode]:
-    """Yield ``expr`` and all descendants in preorder."""
+    """Yield ``expr`` and all descendants in preorder.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The root of the walk.
+
+    Yields
+    ------
+    LetExprNode
+        ``expr`` first, then each subexpression before its own children.
+
+    Raises
+    ------
+    TypeError
+        If the walk reaches an unsupported let-expression variant.
+    """
     yield expr
     for child in let_expr_children(expr):
         yield from walk_let_expr(child)
@@ -63,9 +96,28 @@ def free_let_names(
 ) -> tuple[str, ...]:
     """Return free value names in first-use order.
 
-    Lambda parameters and factor indices bind in their bodies.  Call names are
+    Lambda parameters and factor indices bind in their bodies. Call names are
     declarations by default; callers that model a callee as a host value can
     include them explicitly.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression to scan.
+    bound : frozenset[str]
+        Names already bound around ``expr``, which are not free.
+    include_callees : bool
+        Whether the function name of a call counts as a free name.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Each free name once, in the order of its first occurrence.
+
+    Raises
+    ------
+    TypeError
+        If the scan reaches an unsupported let-expression variant.
     """
     found: list[str] = []
 
@@ -105,7 +157,28 @@ def substitute_let_expr(
     expr: surface.LetExprNode,
     substitution: Mapping[str, surface.LetExprNode],
 ) -> surface.LetExprNode:
-    """Capture-avoiding substitution of free variables in ``expr``."""
+    """Substitute expressions for free variables in ``expr`` without capture.
+
+    A lambda parameter or factor binder that would capture a free name of a
+    replacement is renamed to a fresh name first.
+
+    Parameters
+    ----------
+    expr : LetExprNode
+        The expression to rewrite.
+    substitution : Mapping[str, LetExprNode]
+        The replacement for each free variable name.
+
+    Returns
+    -------
+    LetExprNode
+        ``expr`` with every free occurrence of a key replaced.
+
+    Raises
+    ------
+    TypeError
+        If the rewrite reaches an unsupported let-expression variant.
+    """
     occupied = set(free_let_names(expr, include_callees=True))
     for replacement in substitution.values():
         occupied.update(free_let_names(replacement, include_callees=True))

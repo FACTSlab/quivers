@@ -65,10 +65,14 @@ class ArrowKind:
 
 
 type Kind = TypeKind | EffectKind | RowKind | ArrowKind
+"""The kind of a static binder: a type, an effect, a row, or an arrow between kinds."""
 
 TYPE = TypeKind()
+"""The kind of types."""
 EFFECT = EffectKind()
+"""The kind of effect interface applications."""
 ROW = RowKind()
+"""The kind of effect rows."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,9 +213,12 @@ class UserIndexSort:
 
 
 type IndexSort = NatSort | ShapeSort | ContextSort | UserIndexSort
+"""The sort of an index binder: naturals, shapes, contexts, or a declared sort."""
 
 NAT = NatSort()
+"""The sort of natural-number indices."""
 SHAPE = ShapeSort()
+"""The sort of static tensor shapes."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,7 +287,9 @@ class EffectBinder:
 
 
 type TelescopeBinder = TypeBinder | IndexBinder | EffectBinder
+"""One binder of a declaration telescope: a type, an index, or an effect binder."""
 type Telescope = tuple[TelescopeBinder, ...]
+"""The static binders a declaration takes, in order; later binders may mention earlier ones."""
 
 
 def validate_telescope(telescope: Telescope) -> None:

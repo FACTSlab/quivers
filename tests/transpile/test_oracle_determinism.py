@@ -31,6 +31,7 @@ from torch import distributions as td
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.morphisms import ContinuousMorphism
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Observe
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
 from quivers.effects.trace_types import SampleSite, Trace
@@ -168,8 +169,8 @@ def _drawn_marginal_program() -> MonadicProgram:
         _UNIT,
         _R1,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",), True),
+            Draw(names=("z",), morphism=prior),
+            Observe(names=("y",), morphism=likelihood, args=("z",)),
         ],
         return_vars=("y",),
     )

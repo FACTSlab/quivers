@@ -22,3 +22,6 @@ def migrate(source: bytes) -> bytes:
 # check will flag every removed source rule as uncovered until
 # the hop's converters are written.
 SOURCE_RULE_COVERAGE: frozenset[str] = frozenset()
+
+
+__all__ = []

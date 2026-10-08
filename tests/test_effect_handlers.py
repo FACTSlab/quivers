@@ -14,6 +14,7 @@ import torch
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.inline import MixedInlineDistribution, _normal_builder
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Let, Score
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
 from quivers.effects import (
@@ -65,8 +66,8 @@ def _simple_program() -> MonadicProgram:
         Unit,
         R1,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",)),
+            Draw(names=("z",), morphism=prior),
+            Draw(names=("y",), morphism=likelihood, args=("z",)),
         ],
         return_vars=("y",),
     )
@@ -394,10 +395,10 @@ class TestKernelEncoding:
             Unit,
             R1,
             steps=[
-                (("z",), ConditionalNormal(Unit, R1), None),
-                (("twice",), None, lambda env: 2.0 * env["z"]),
-                (("bonus",), None, lambda env: env["z"].sum(dim=-1), True),
-                (("y",), ConditionalNormal(R1, R1), ("z",)),
+                Draw(names=("z",), morphism=ConditionalNormal(Unit, R1)),
+                Let(name="twice", value=lambda env: 2.0 * env["z"]),
+                Score(name="bonus", score=lambda env: env["z"].sum(dim=-1)),
+                Draw(names=("y",), morphism=ConditionalNormal(R1, R1), args=("z",)),
             ],
             return_vars=("y",),
         )
@@ -426,7 +427,10 @@ class TestCollapseHandler:
         prog = MonadicProgram(
             Unit,
             R1,
-            steps=[(("z",), prior, None), (("y",), child, ("z",))],
+            steps=[
+                Draw(names=("z",), morphism=prior),
+                Draw(names=("y",), morphism=child, args=("z",)),
+            ],
             return_vars=("y",),
         )
         x = _batch(4)

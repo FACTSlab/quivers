@@ -131,7 +131,7 @@ def _render(ctx, expr: LetExprNode) -> tuple[str, str]:
         # Two structural prerequisites block that emission:
         #
         # 1. `deduction_decl` belongs to
-        #    [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile._api.CATEGORICAL_METADATA_IGNORABLE],
+        #    `CATEGORICAL_METADATA_IGNORABLE`,
         #    so the IR pipeline elides deductions before the
         #    renderer runs. The atoms, rules, and lexicon needed to
         #    build the inside DP table are not present in the IR
@@ -215,7 +215,7 @@ collapsing to `--x` (which Stan rejects)."""
 def _stan_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthized_expression` vertex. Caller
     must check
-    [`_STAN_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_PAREN_REQUIRED_OPERAND_KINDS]
+    `_STAN_PAREN_REQUIRED_OPERAND_KINDS`
     before calling."""
     vid, kind = rendered
     paren = ctx.vertex(ctx.fresh("paren"), "parenthized_expression")
@@ -227,7 +227,7 @@ def _stan_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
 
 def _stan_maybe_paren(ctx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthized_expression` if its kind is in
-    [`_STAN_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_PAREN_REQUIRED_OPERAND_KINDS];
+    `_STAN_PAREN_REQUIRED_OPERAND_KINDS`;
     otherwise return it unchanged."""
     _vid, kind = rendered
     if kind not in _STAN_PAREN_REQUIRED_OPERAND_KINDS:
@@ -239,7 +239,7 @@ def _emit_infix(ctx, expr: LetExprBinOp) -> tuple[str, str]:
     """Emit an `infix_op_expression` for a binary operator.
 
     Both operands are routed through
-    [`_stan_maybe_paren`][quivers.transpile.renderers._stan_helpers._stan_maybe_paren]
+    `_stan_maybe_paren`
     so a binary sub-expression keeps its grouping (Stan's printer
     emits operands left-to-right without re-grouping; without
     explicit parens `(theta_1 - theta_0)` as the right operand of
@@ -273,7 +273,7 @@ def _emit_prefix(ctx, expr: LetExprUnaryOp) -> tuple[str, str]:
     """Emit a `prefix_op_expression` for the unary minus.
 
     The operand is routed through
-    [`_stan_maybe_paren`][quivers.transpile.renderers._stan_helpers._stan_maybe_paren]
+    `_stan_maybe_paren`
     so a nested unary or binary operand keeps its grouping; without
     that wrap, `-(-x)` would print as `--x`, which Stan's lexer
     rejects, and `-(a + b)` would print as `-a + b` (i.e.
@@ -302,7 +302,7 @@ def _emit_function_expression(
     identifier and `child_of` edge to the `argument_list`.
 
     Applies the
-    [`_STAN_FUNCTION_RENAMES`][quivers.transpile.renderers._stan_helpers._STAN_FUNCTION_RENAMES]
+    `_STAN_FUNCTION_RENAMES`
     table so QVR-named math primitives (`sigmoid`, ...) reach Stan
     under their stdlib identifiers (`inv_logit`, ...).
     """
@@ -320,7 +320,7 @@ def _emit_call_rendered(
     are already rendered.
 
     `func` is the Stan stdlib identifier; the
-    [`_STAN_FUNCTION_RENAMES`][quivers.transpile.renderers._stan_helpers._STAN_FUNCTION_RENAMES]
+    `_STAN_FUNCTION_RENAMES`
     table is applied by the caller that starts from a QVR name.
     """
     vid = ctx.vertex(ctx.fresh("call"), "function_expression")
@@ -398,13 +398,13 @@ def _emit_indexed(ctx, expr: LetExprIndex) -> tuple[str, str]:
 
     When `expr.array` resolves to a kind Stan's `indexed_expression`
     production does not accept directly (every kind outside
-    [`_STAN_INDEXED_CALLEE_KINDS`][quivers.transpile.renderers._stan_helpers._STAN_INDEXED_CALLEE_KINDS]),
+    `_STAN_INDEXED_CALLEE_KINDS`),
     wrap it in `parenthized_expression` so the printer keeps the
     subtree intact instead of bailing to `[]`.
 
     Literal subscripts are rebased from QVR's zero-based origin to
     Stan's one-based one by
-    [`_rebase_literal_index`][quivers.transpile.renderers._stan_helpers._rebase_literal_index],
+    `_rebase_literal_index`,
     the way the Julia and BUGS helpers rebase theirs. Every other
     subscript shape (a loop variable, an arithmetic expression, a
     nested lookup) is already in the host's origin and passes
@@ -562,10 +562,10 @@ def _render_factor(ctx, expr: LetExprFactor) -> tuple[str, str]:
     repeated expression, cases is empty) emits a tower of
     `array_expression` vertices of shape
     `(|b0|, |b1|, ..., |bn-1|)`. The shared
-    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    `_substitute_let_expr`
     walk receives the binder's 0-indexed value in both slots,
     since
-    [`_emit_indexed`][quivers.transpile.renderers._stan_helpers._emit_indexed]
+    `_emit_indexed`
     is the one place that lifts a literal subscript to Stan's
     one-based origin.
     """
@@ -706,7 +706,7 @@ def _substitute_let_expr_walk(
     in_index_slot: bool,
 ) -> LetExprNode:
     """Inner walk for
-    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    `_substitute_let_expr`
     that carries the `in_index_slot` flag.
 
     The flag is set to `True` only when descending into the

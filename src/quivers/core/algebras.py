@@ -697,7 +697,31 @@ def semigroupoid(
     *,
     verify_associative: bool = True,
 ) -> CustomSemigroupoid:
-    """Convenience constructor for `CustomSemigroupoid`."""
+    """Convenience constructor for `CustomSemigroupoid`.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable name.
+    tensor_op : Callable
+        Binary monoidal product.
+    join : Callable
+        Reduction along an axis.
+    verify_associative : bool
+        When ``True`` (default), smoke-tests ``tensor_op`` for
+        associativity on a fixed sample.
+
+    Returns
+    -------
+    CustomSemigroupoid
+        The composition rule built from the callables.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is empty, or if ``verify_associative`` is set and
+        ``tensor_op`` fails the associativity check.
+    """
     return CustomSemigroupoid(
         name, tensor_op, join, verify_associative=verify_associative
     )
@@ -757,7 +781,22 @@ def bilinear_form(
     tensor_op: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     join: Callable[[torch.Tensor, int | tuple[int, ...]], torch.Tensor],
 ) -> CustomBilinearForm:
-    """Convenience constructor for `CustomBilinearForm`."""
+    """Convenience constructor for `CustomBilinearForm`.
+
+    Parameters
+    ----------
+    name : str
+        Human-readable name.
+    tensor_op : Callable
+        Binary product, which need not be associative.
+    join : Callable
+        Reduction along an axis.
+
+    Returns
+    -------
+    CustomBilinearForm
+        The composition rule built from the callables.
+    """
     return CustomBilinearForm(name, tensor_op, join)
 
 
@@ -768,6 +807,11 @@ def material_implication() -> CustomSemigroupoid:
     ``a → b = 1 - a + a*b``; join is the product reduction.
     Associative but lacks an identity, so it's a semigroupoid,
     not an algebra.
+
+    Returns
+    -------
+    CustomSemigroupoid
+        The material-implication composition rule.
     """
 
     def _impl(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -1432,23 +1476,35 @@ class CountingAlgebra(Algebra):
 # ============================================================================
 
 PRODUCT_FUZZY = ProductFuzzyAlgebra()
+"""The `ProductFuzzyAlgebra` singleton, the default algebra of every morphism."""
 BOOLEAN = BooleanAlgebra()
+"""The `BooleanAlgebra` singleton, enriching crisp binary relations."""
 LUKASIEWICZ = LukasiewiczAlgebra()
+"""The `LukasiewiczAlgebra` singleton."""
 GODEL = GodelAlgebra()
+"""The `GodelAlgebra` singleton."""
 TROPICAL = TropicalAlgebra()
+"""The `TropicalAlgebra` singleton, the min-plus enrichment of Lawvere metric spaces."""
 MAX_PLUS = MaxPlusAlgebra()
+"""The `MaxPlusAlgebra` singleton, the Viterbi semiring."""
 LOG_PROB = LogProbAlgebra()
+"""The `LogProbAlgebra` singleton, the log-space sum-product semiring."""
 REAL = RealAlgebra()
+"""The `RealAlgebra` singleton."""
 PROBABILITY = ProbabilityAlgebra()
+"""The `ProbabilityAlgebra` singleton."""
 COUNTING = CountingAlgebra()
+"""The `CountingAlgebra` singleton."""
 
-# Named duals — each ``base.dual()`` is the de-Morgan companion
-# that swaps ``⊗`` and ``⋁``.  ``REICHENBACH`` is the canonical
-# probabilistic-implication composition.
 REICHENBACH = PRODUCT_FUZZY.dual()
+"""The de Morgan dual of `PRODUCT_FUZZY`, the canonical probabilistic-implication
+composition."""
 BOOLEAN_DUAL = BOOLEAN.dual()
+"""The de Morgan dual of `BOOLEAN`, which swaps its tensor and join."""
 DUAL_LUKASIEWICZ = LUKASIEWICZ.dual()
+"""The de Morgan dual of `LUKASIEWICZ`, which swaps its tensor and join."""
 DUAL_GODEL = GODEL.dual()
+"""The de Morgan dual of `GODEL`, which swaps its tensor and join."""
 
 
 # ============================================================================
@@ -1516,3 +1572,45 @@ class MarkovAlgebra(Algebra):
 
 
 MARKOV = MarkovAlgebra()
+"""The `MarkovAlgebra` singleton, composing stochastic matrices."""
+
+
+__all__ = [
+    "CompositionRule",
+    "Semigroupoid",
+    "BilinearForm",
+    "Algebra",
+    "DualAlgebra",
+    "CustomAlgebra",
+    "CustomSemigroupoid",
+    "semigroupoid",
+    "CustomBilinearForm",
+    "bilinear_form",
+    "material_implication",
+    "ProductFuzzyAlgebra",
+    "BooleanAlgebra",
+    "LukasiewiczAlgebra",
+    "GodelAlgebra",
+    "TropicalAlgebra",
+    "MaxPlusAlgebra",
+    "LogProbAlgebra",
+    "RealAlgebra",
+    "ProbabilityAlgebra",
+    "CountingAlgebra",
+    "MarkovAlgebra",
+    "PRODUCT_FUZZY",
+    "BOOLEAN",
+    "LUKASIEWICZ",
+    "GODEL",
+    "TROPICAL",
+    "MAX_PLUS",
+    "LOG_PROB",
+    "REAL",
+    "PROBABILITY",
+    "COUNTING",
+    "MARKOV",
+    "REICHENBACH",
+    "BOOLEAN_DUAL",
+    "DUAL_LUKASIEWICZ",
+    "DUAL_GODEL",
+]

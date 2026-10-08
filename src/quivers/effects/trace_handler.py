@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import torch
 
+from quivers.continuous.program_steps import Let, Score
 from quivers.effects.base import EffectHandler, Installation, RunContext
 from quivers.effects.program_module import HostStep
 from quivers.effects.sites import TorchSampleable
@@ -237,8 +238,8 @@ class TraceHandler(EffectHandler):
             The recorded request and answer.
         """
         step = self._steps[event.instance]
-        assert step.spec is not None
-        name = getattr(step.spec, "var")
+        assert isinstance(step.spec, Let | Score)
+        name = step.spec.name
         value = event.result
         assert isinstance(value, torch.Tensor)
         if step.kind == "score":
@@ -274,7 +275,11 @@ class TraceHandler(EffectHandler):
         torch.Tensor
             The contribution after every transformer on the stack.
         """
-        index = run.kernel.program._step_specs.index(spec)
+        index = next(
+            position
+            for position, step in enumerate(run.kernel.program.steps)
+            if step is spec
+        )
         total: torch.Tensor | None = None
         for item in run.contributions:
             if tuple(item.path[:3]) == ("steps", index, "score"):

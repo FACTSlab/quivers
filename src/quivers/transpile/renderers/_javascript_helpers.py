@@ -31,7 +31,7 @@ case bodies in label order; the uniform-body multi-binder form becomes
 nested `array` vertices populated by substituting each binder through
 its axis's static cardinality (looked up via ``ctx.cards``, populated
 from [`IRProgram.cards`][quivers.transpile.ir.IRProgram.cards]). The
-shared [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+shared `_substitute_let_expr`
 walk from `_stan_helpers` performs the capture-avoiding substitution.
 """
 
@@ -65,8 +65,8 @@ class _JsLetCtx(Protocol):
     """Structural protocol for the helper's ctx parameter.
 
     Mirrors the carrier shape used by
-    [`_bugs_helpers`][quivers.transpile.renderers._bugs_helpers] and
-    [`_stan_helpers`][quivers.transpile.renderers._stan_helpers]:
+    `_bugs_helpers` and
+    `_stan_helpers`:
     bound methods for vertex / edge / literal / constraint emission,
     a fresh-id generator, and the static-cardinality table used when
     unrolling [`LetExprFactor`][quivers.dsl.ast_nodes.LetExprFactor].
@@ -87,7 +87,7 @@ def render_let_expr_javascript(ctx: _JsLetCtx, expr: LetExprNode) -> str:
     ``ctx``.
 
     Returns the root vertex id. Wraps the recursive worker
-    [`_render`][quivers.transpile.renderers._javascript_helpers._render]
+    `_render`
     so external callers see the same signature as the other
     per-target helpers.
     """
@@ -187,7 +187,7 @@ in source order without re-grouping, so an unparenthesised
 def _maybe_paren(ctx: _JsLetCtx, rendered: tuple[str, str]) -> tuple[str, str]:
     """Wrap `rendered` in a `parenthesized_expression` when its vertex
     kind is in
-    [`_JS_PAREN_REQUIRED_OPERAND_KINDS`][quivers.transpile.renderers._javascript_helpers._JS_PAREN_REQUIRED_OPERAND_KINDS]."""
+    `_JS_PAREN_REQUIRED_OPERAND_KINDS`."""
     _vid, kind = rendered
     if kind not in _JS_PAREN_REQUIRED_OPERAND_KINDS:
         return rendered
@@ -445,7 +445,7 @@ def _emit_factor(ctx: _JsLetCtx, expr: LetExprFactor) -> tuple[str, str]:
     shape ``(|b0|, |b1|, ..., |bn-1|)``, with each binder
     substituted for its 0-indexed integer value (JavaScript arrays
     are 0-based, matching QVR's surface convention). The shared
-    [`_substitute_let_expr`][quivers.transpile.renderers._stan_helpers._substitute_let_expr]
+    `_substitute_let_expr`
     walk takes the same value for both `index_value` and
     `scalar_value` because no index-base shift is needed here.
     """
@@ -516,7 +516,7 @@ def _build_nested_array(
     Substitutes each binder for its 1-indexed integer literal once
     the index tuple is fully fixed, then dispatches the substituted
     body through the recursive
-    [`_render`][quivers.transpile.renderers._javascript_helpers._render]
+    `_render`
     worker.
     """
     if len(fixed) == len(binders):

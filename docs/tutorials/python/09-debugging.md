@@ -57,7 +57,7 @@ export regression
 
 program = loads(REGRESSION_SRC)
 print(type(program).__name__)        # Program
-print(program.morphism._step_specs)  # list of compiled step records
+print(program.morphism.steps)  # the compiled step records
 print(program.morphism.domain, "->", program.morphism.codomain)
 for name, p in program.named_parameters():
     print(name, p.shape)
@@ -149,7 +149,7 @@ The full diagnostic semantics live in the [inference guide](../../guides/inferen
 When a fit is misbehaving, follow this order:
 
 1. Run `trace(model, inputs, observations)` and confirm no site returns a `nan` or `-inf` log-density.
-2. Print `program.morphism._step_specs` and verify the compiled steps match what you wrote.
+2. Print `program.morphism.steps` and verify the compiled steps match what you wrote.
 3. Run a short SVI for 100 steps with prints every 10 steps; the ELBO trajectory tells you whether the guide can fit at all.
 4. If SVI looks reasonable but the posterior means are off, switch to NUTS and check `result.r_hat` and `result.total_divergences`.
 5. If NUTS reports divergences on a hierarchical model, reparameterise centered to non-centered ([QVR chapter 3](../qvr/03-hierarchical.md)).

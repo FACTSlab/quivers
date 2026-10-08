@@ -450,3 +450,11 @@ class _StoreFunctor(Functor):
 
     def __repr__(self) -> str:
         return f"StoreFunctor(store={self._store!r})"
+
+
+__all__ = [
+    "Comonad",
+    "CoKleisliCategory",
+    "DiagonalComonad",
+    "CofreeComonad",
+]

@@ -1,7 +1,7 @@
 """Pygments lexer for the QVR domain-specific language.
 
 The lexer drives on the in-tree tree-sitter parser (compiled via
-[`quivers.dsl._grammar_build`][quivers.dsl._grammar_build]) so it always reflects
+`quivers.dsl._grammar_build`) so it always reflects
 the authoritative grammar; there is no regex approximation. When the
 shared library cannot be loaded, lexer construction raises with a
 typed diagnostic so the failure is visible at the rendering site
@@ -280,7 +280,24 @@ class QvrLexer(Lexer):
     def get_tokens_unprocessed(
         self, text: str
     ) -> Iterator[tuple[int, _TokenType, str]]:
-        """Yield ``(index, token_type, text)`` tuples for ``text``."""
+        """Yield ``(index, token_type, text)`` tuples for ``text``.
+
+        Parameters
+        ----------
+        text : str
+            The ``.qvr`` source to tokenize.
+
+        Yields
+        ------
+        tuple[int, _TokenType, str]
+            The character offset, Pygments token type, and text of each
+            leaf of the parse and of the whitespace between leaves.
+
+        Raises
+        ------
+        OSError
+            If the in-tree tree-sitter parser library cannot be loaded.
+        """
         parser, _, _ = _load_parser()
         src_bytes = text.encode("utf-8")
         tree = parser.parse(src_bytes)

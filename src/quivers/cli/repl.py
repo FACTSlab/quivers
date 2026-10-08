@@ -81,4 +81,4 @@ def _format_diag(d: Diagnostic) -> str:
     return f"{d.severity}[{d.code}]{loc}: {d.message}"
 
 
-__all__ = ["main"]
+__all__ = []

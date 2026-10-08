@@ -13,7 +13,11 @@ from quivers.dsl._grammar_build import _parser_artifacts
 
 
 class ParseError(Exception):
-    """Raised when the .qvr source fails to parse or wrap into AST nodes."""
+    """Raised when ``.qvr`` source fails to parse or wrap into AST nodes.
+
+    `parse` and `parse_file` raise it with a message that starts with
+    the file path and locates the first syntax error.
+    """
 
 
 # ---------------------------------------------------------------------------

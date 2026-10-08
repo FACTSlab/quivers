@@ -10,8 +10,8 @@ import subprocess
 import pytest
 
 from quivers.dsl import parse
+from quivers.transpile._entry import _RENDERERS
 from quivers.transpile import (
-    _RENDERERS,
     UnsupportedConstruct,
     available_targets,
     transpile,

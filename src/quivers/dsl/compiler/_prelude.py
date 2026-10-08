@@ -57,9 +57,9 @@ from quivers.core.algebra_morphisms import (
     COUNTING_FROM_REAL,
     COUNTING_TO_REAL,
     EXPECTATION,
-    LOG_PROB as _LOG_PROB_HOM,
+    LOG_PROB_HOM as _LOG_PROB_HOM,
     MATERIAL_IMPLICATION,
-    MAX_PLUS as _MAX_PLUS_HOM,
+    MAX_PLUS_HOM as _MAX_PLUS_HOM,
     PROBABILITY_CLAMP,
     PROBABILITY_TO_REAL,
     embedding as _make_embedding,
@@ -454,6 +454,7 @@ def _get_family_registry() -> dict[str, type]:
     aliases = {
         "LowRankMVN": "ConditionalLowRankMVN",
         "GP": "ConditionalGaussianProcess",
+        "OrderedLogistic": "ConditionalLearnedOrderedLogistic",
     }
     for qvr_name, wrapper_name in aliases.items():
         if qvr_name in FAMILY_META and qvr_name not in out:

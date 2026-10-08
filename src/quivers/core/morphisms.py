@@ -33,17 +33,14 @@ hierarchy itself.
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import cast
 import torch
 import torch.nn as nn
 from quivers.core.morphism_transformations import MorphismTransformation
-from quivers.core.objects import SetObject, ProductSet
+from quivers.core.objects import FinSet, FreeResiduated, SetObject, ProductSet
 from quivers.core.algebra_morphisms import AlgebraHomomorphism
 from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.core.trans import TransSeq
-
-if TYPE_CHECKING:
-    from quivers.categorical.functors import Functor
 
 
 def _build_algebra_homomorphism_transform(phi):
@@ -398,8 +395,6 @@ class Morphism(ABC):
         ObservedMorphism
             Morphism ``X → Y`` (the trace).
         """
-        from quivers.core.objects import ProductSet
-
         if not isinstance(self._domain, ProductSet) or not isinstance(
             self._codomain, ProductSet
         ):
@@ -963,7 +958,6 @@ class CurriedMorphism(Morphism):
     """
 
     def __init__(self, inner: Morphism, direction: str = "right") -> None:
-        from quivers.core.objects import FreeResiduated, ProductSet
         from quivers.stochastic.categories import (
             AtomicCategory,
             SlashCategory,
@@ -1183,6 +1177,16 @@ def extract_morphism(module: nn.Module) -> Morphism | None:
     ``None`` if the module was registered directly (i.e. was
     already an `nn.Module` subclass) and thus has no
     separate categorical object attached.
+
+    Parameters
+    ----------
+    module : nn.Module
+        A module bound into a parameter-tracking context.
+
+    Returns
+    -------
+    Morphism or None
+        The wrapped morphism, or ``None`` when ``module`` wraps none.
     """
     return getattr(module, "_morphism", None)
 
@@ -1217,8 +1221,6 @@ def cup(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
         Morphism ``I → A ⊗ A`` whose tensor is the diagonal of the
         target.
     """
-    from quivers.core.objects import FinSet, ProductSet
-
     q = algebra if algebra is not None else PRODUCT_FUZZY
     diag = q.identity_tensor(obj.shape)
     # Wrap in a leading singleton axis so the morphism's domain is
@@ -1234,11 +1236,47 @@ def cap(obj: SetObject, algebra: Algebra | None = None) -> ObservedMorphism:
     The dual of `cup`. The tensor is the diagonal flattened
     into ``(*A.shape, *A.shape, 1)`` so the trailing axis is the
     unit codomain ``I``.
-    """
-    from quivers.core.objects import FinSet, ProductSet
 
+    Parameters
+    ----------
+    obj : SetObject
+        The object ``A``.
+    algebra : Algebra, optional
+        Override the default (ProductFuzzyAlgebra) algebra.
+
+    Returns
+    -------
+    ObservedMorphism
+        Morphism ``A ⊗ A → I`` whose tensor is the diagonal of the
+        source.
+    """
     q = algebra if algebra is not None else PRODUCT_FUZZY
     diag = q.identity_tensor(obj.shape)
     I = FinSet(name="1", cardinality=1)
     dom = ProductSet(components=(obj, obj))
     return ObservedMorphism(dom, I, diag.unsqueeze(-1), algebra=q)
+
+
+# ``quivers.categorical.functors`` imports this module, so the import
+# resolving the `FunctorMorphism` annotation follows every definition.
+from quivers.categorical.functors import Functor  # noqa: E402
+
+__all__ = [
+    "Morphism",
+    "TransformedMorphism",
+    "ObservedMorphism",
+    "LatentMorphism",
+    "ComposedMorphism",
+    "ProductMorphism",
+    "MarginalizedMorphism",
+    "FunctorMorphism",
+    "RepeatMorphism",
+    "CurriedMorphism",
+    "morphism",
+    "observed",
+    "identity",
+    "as_torch_module",
+    "extract_morphism",
+    "cup",
+    "cap",
+]

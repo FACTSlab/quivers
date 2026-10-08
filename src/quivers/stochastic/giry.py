@@ -10,17 +10,17 @@ This is structurally identical to the fuzzy powerset monad but with
 a different composition rule: sum-product (matrix multiplication)
 instead of noisy-OR.
 
-    η_A: A → A       — the Kronecker delta (deterministic distribution)
-    μ_A: A → A       — identity (flattening nested distributions)
-    f >=> g = f >> g  — Kleisli composition = matrix multiplication
+    η_A: A → A: the Kronecker delta (deterministic distribution)
+    μ_A: A → A: identity (flattening nested distributions)
+    f >=> g = f >> g: Kleisli composition = matrix multiplication
 
 The Kleisli category of the Giry monad on FinSet is exactly FinStoch,
 the category of finite stochastic matrices.
 
 This module provides:
 
-    GiryMonad      — the probability monad (T, η, μ) with MarkovAlgebra
-    FinStoch       — the Kleisli category of GiryMonad
+    GiryMonad: the probability monad (T, η, μ) with MarkovAlgebra
+    FinStoch: the Kleisli category of GiryMonad
 """
 
 from __future__ import annotations
@@ -66,32 +66,118 @@ class GiryMonad(Monad):
 
     # Typeclass interface
     def fmap_obj(self, A: SetObject) -> SetObject:
+        """Act on an object: ``G(A) = A`` at the finite-set level.
+
+        Parameters
+        ----------
+        A : SetObject
+            The finite set.
+
+        Returns
+        -------
+        SetObject
+            ``A`` itself.
+        """
         return A
 
     def fmap(self, A: SetObject, B: SetObject, f: Morphism) -> Morphism:
+        """Act on a morphism: ``G(f) = f`` at the finite-set level.
+
+        Parameters
+        ----------
+        A : SetObject
+            The domain of ``f``.
+        B : SetObject
+            The codomain of ``f``.
+        f : Morphism
+            The morphism to map.
+
+        Returns
+        -------
+        Morphism
+            ``f`` itself.
+        """
         return f
 
     def pure(self, A: SetObject) -> Morphism:
-        """``η_A = δ`` — Kronecker delta (deterministic distribution)."""
-        return identity(A, algebra=MARKOV)
+        """``η_A = δ``, the Kronecker delta (deterministic distribution).
 
-    def join(self, A: SetObject) -> Morphism:
-        """``μ_A`` — flatten nested distributions.
+        Parameters
+        ----------
+        A : SetObject
+            The finite set.
 
-        Since ``G(A) = A`` at the finite-set level, the flattening is
-        the identity.
+        Returns
+        -------
+        Morphism
+            The identity Markov kernel on ``A``.
         """
         return identity(A, algebra=MARKOV)
 
-    # Convenience aliases for the historical Eilenberg–Moore vocabulary.
+    def join(self, A: SetObject) -> Morphism:
+        """``μ_A``: flatten nested distributions.
+
+        Since ``G(A) = A`` at the finite-set level, the flattening is
+        the identity.
+
+        Parameters
+        ----------
+        A : SetObject
+            The finite set.
+
+        Returns
+        -------
+        Morphism
+            The identity Markov kernel on ``A``.
+        """
+        return identity(A, algebra=MARKOV)
+
+    # Aliases in the classical Eilenberg-Moore vocabulary.
     def unit(self, A: SetObject) -> Morphism:
+        """The monad unit ``η_A``, an alias of `pure`.
+
+        Parameters
+        ----------
+        A : SetObject
+            The finite set.
+
+        Returns
+        -------
+        Morphism
+            The identity Markov kernel on ``A``.
+        """
         return self.pure(A)
 
     def multiply(self, A: SetObject) -> Morphism:
+        """The monad multiplication ``μ_A``, an alias of `join`.
+
+        Parameters
+        ----------
+        A : SetObject
+            The finite set.
+
+        Returns
+        -------
+        Morphism
+            The identity Markov kernel on ``A``.
+        """
         return self.join(A)
 
     def kleisli_compose(self, f: Morphism, g: Morphism) -> Morphism:
-        """Kleisli composition via sum-product (matrix multiplication)."""
+        """Kleisli composition via sum-product (matrix multiplication).
+
+        Parameters
+        ----------
+        f : Morphism
+            The first kernel, ``A -> B``.
+        g : Morphism
+            The second kernel, ``B -> C``.
+
+        Returns
+        -------
+        Morphism
+            The composite kernel ``f >> g``, ``A -> C``.
+        """
         return f >> g
 
     def __repr__(self) -> str:
@@ -124,3 +210,9 @@ class FinStoch(KleisliCategory):
 
     def __repr__(self) -> str:
         return "FinStoch()"
+
+
+__all__ = [
+    "GiryMonad",
+    "FinStoch",
+]

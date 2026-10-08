@@ -42,10 +42,34 @@ class IRQiecId(dx.Model):
 
     @property
     def text(self) -> str:
+        """The identifier's ``qiec:<namespace>:<digest>`` spelling."""
         return f"qiec:{self.namespace}:{self.digest}"
 
 
 class IRQiecSourceOrigin(dx.Model):
+    """Mirror of a kernel source origin: a site's structural location.
+
+    Line and column are diagnostic coordinates; the structural path alone
+    locates the site.
+
+    Parameters
+    ----------
+    module
+        The module the site belongs to.
+    structural_path
+        The path of names and positions from the module root to the site.
+    role
+        What the site is, such as ``"sample"`` or ``"call"``.
+    source_protocol
+        The source language or protocol the path is expressed in.
+    file
+        The file the site was read from, if any.
+    line
+        The one-based line of the site, if known.
+    column
+        The one-based column of the site, if known.
+    """
+
     module: str
     structural_path: tuple[IRPathPart, ...]
     role: str
@@ -56,11 +80,41 @@ class IRQiecSourceOrigin(dx.Model):
 
 
 class IRQiecDynamicAddressFrame(dx.Model):
+    """One component of a dynamic effect address.
+
+    Parameters
+    ----------
+    scope
+        What kind of frame this is, such as a call, a handler clause, a
+        resumption, or a local instance.
+    key
+        The frame's position within its scope: a name or an ordinal.
+    """
+
     scope: str
     key: str | int
 
 
 class IRQiecSiteProvenance(dx.Model):
+    """Static and dynamic provenance of an effect request.
+
+    Parameters
+    ----------
+    origin
+        The source site the request was written at.
+    dynamic_path
+        The address frames entered to reach this occurrence of the site,
+        outermost first.
+    resumption_path
+        The ordinal of each resumption taken to reach this occurrence.
+    relation
+        How this request relates to the source site: ``"preserve"`` for the
+        request as written, ``"split"`` or ``"duplicate"`` for a request a
+        handler derived from it, and ``"eliminate"`` for one it discharged.
+    parents
+        The static sites a derived request was generated from.
+    """
+
     origin: IRQiecSourceOrigin
     dynamic_path: tuple[IRQiecDynamicAddressFrame, ...] = ()
     resumption_path: tuple[int, ...] = ()
@@ -73,18 +127,54 @@ class IRQiecKind(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecTypeKind(IRQiecKind):
+    """The kind of types.
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"type"``.
+    """
+
     kind: Literal["type"] = "type"
 
 
 class IRQiecEffectKind(IRQiecKind):
+    """The kind of effect interfaces.
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"effect"``.
+    """
+
     kind: Literal["effect"] = "effect"
 
 
 class IRQiecRowKind(IRQiecKind):
+    """The kind of effect rows.
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"row"``.
+    """
+
     kind: Literal["row"] = "row"
 
 
 class IRQiecArrowKind(IRQiecKind):
+    """The kind of a constructor from one kind to another.
+
+    Parameters
+    ----------
+    domain
+        The kind of the argument.
+    codomain
+        The kind of the result.
+    kind
+        The discriminator; always ``"arrow"``.
+    """
+
     domain: IRQiecKind
     codomain: IRQiecKind
     kind: Literal["arrow"] = "arrow"
@@ -95,20 +185,63 @@ class IRQiecIndexSort(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecNatSort(IRQiecIndexSort):
+    """The sort of natural-number indices.
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"nat"``.
+    """
+
     kind: Literal["nat"] = "nat"
 
 
 class IRQiecShapeSort(IRQiecIndexSort):
+    """The sort of shapes, optionally restricted to a fixed rank.
+
+    Parameters
+    ----------
+    rank
+        The number of dimensions, or ``None`` for any rank.
+    kind
+        The discriminator; always ``"shape"``.
+    """
+
     rank: int | None = None
     kind: Literal["shape"] = "shape"
 
 
 class IRQiecContextSort(IRQiecIndexSort):
+    """The sort of logic-program contexts over a named signature.
+
+    Parameters
+    ----------
+    signature
+        The name of the signature whose contexts inhabit this sort.
+    kind
+        The discriminator; always ``"context"``.
+    """
+
     signature: str
     kind: Literal["context"] = "context"
 
 
 class IRQiecUserIndexSort(IRQiecIndexSort):
+    """A closed user-defined index datatype.
+
+    Parameters
+    ----------
+    name
+        The sort's name, part of its identity.
+    constructors
+        The constructor names, part of the identity.
+    arities
+        The argument count of each constructor, aligned with
+        ``constructors``.
+    kind
+        The discriminator; always ``"user"``.
+    """
+
     name: str
     constructors: tuple[str, ...]
     arities: tuple[int, ...]
@@ -116,21 +249,72 @@ class IRQiecUserIndexSort(IRQiecIndexSort):
 
 
 class IRQiecBinder(dx.TaggedUnion, discriminator="kind"):
+    """A telescope binder for a static argument.
+
+    The subclasses distinguish type, index, and effect binders by the
+    ``kind`` discriminator.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    refinable
+        Whether case analysis may refine the bound argument; true for a
+        family's indices and false for its uniform parameters.
+    """
+
     name: str
     refinable: bool = False
 
 
 class IRQiecTypeBinder(IRQiecBinder):
+    """A telescope binder for a type-kinded static argument.
+
+    Inherits ``name`` and ``refinable`` from
+    [`IRQiecBinder`][quivers.transpile.qiec_ir.IRQiecBinder].
+
+    Parameters
+    ----------
+    type_kind
+        The kind of the bound argument.
+    kind
+        The discriminator; always ``"type"``.
+    """
+
     type_kind: IRQiecKind
     kind: Literal["type"] = "type"
 
 
 class IRQiecIndexBinder(IRQiecBinder):
+    """A telescope binder for an index argument.
+
+    Inherits ``name`` and ``refinable`` from
+    [`IRQiecBinder`][quivers.transpile.qiec_ir.IRQiecBinder].
+
+    Parameters
+    ----------
+    sort
+        The closed index sort of the bound argument.
+    kind
+        The discriminator; always ``"index"``.
+    """
+
     sort: IRQiecIndexSort
     kind: Literal["index"] = "index"
 
 
 class IRQiecEffectBinder(IRQiecBinder):
+    """A telescope binder for an effect argument.
+
+    Inherits ``name`` and ``refinable`` from
+    [`IRQiecBinder`][quivers.transpile.qiec_ir.IRQiecBinder].
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"effect"``.
+    """
+
     kind: Literal["effect"] = "effect"
 
 
@@ -139,6 +323,21 @@ class IRQiecStatic(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecIndexVariable(IRQiecStatic):
+    """A variable standing for an index term.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    sort
+        The closed index sort of the terms it stands for.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    kind
+        The discriminator; always ``"index-variable"``.
+    """
+
     name: str
     sort: IRQiecIndexSort
     identity: IRQiecId | None = None
@@ -146,12 +345,39 @@ class IRQiecIndexVariable(IRQiecStatic):
 
 
 class IRQiecIndexLiteral(IRQiecStatic):
+    """A closed index literal.
+
+    Parameters
+    ----------
+    value
+        A natural number for the nat sort, or a nullary constructor name for
+        a user-defined index sort.
+    sort
+        The sort the literal inhabits.
+    kind
+        The discriminator; always ``"index-literal"``.
+    """
+
     value: int | str
     sort: IRQiecIndexSort
     kind: Literal["index-literal"] = "index-literal"
 
 
 class IRQiecIndexConstructor(IRQiecStatic):
+    """A fully applied constructor of a user-defined index sort.
+
+    Parameters
+    ----------
+    name
+        The constructor's name, which belongs to ``sort``.
+    arguments
+        The constructor's index arguments, in order.
+    sort
+        The sort the constructor builds.
+    kind
+        The discriminator; always ``"index-constructor"``.
+    """
+
     name: str
     arguments: tuple[IRQiecStatic, ...]
     sort: IRQiecIndexSort
@@ -159,11 +385,36 @@ class IRQiecIndexConstructor(IRQiecStatic):
 
 
 class IRQiecShapeIndex(IRQiecStatic):
+    """A shape given by its dimensions.
+
+    Parameters
+    ----------
+    dimensions
+        One index term per dimension, outermost first.
+    kind
+        The discriminator; always ``"shape-index"``.
+    """
+
     dimensions: tuple[IRQiecStatic, ...]
     kind: Literal["shape-index"] = "shape-index"
 
 
 class IRQiecTypeVariable(IRQiecStatic):
+    """A variable standing for a type-kinded static argument.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    type_kind
+        The kind of the arguments it stands for.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    kind
+        The discriminator; always ``"type-variable"``.
+    """
+
     name: str
     type_kind: IRQiecKind
     identity: IRQiecId | None = None
@@ -171,24 +422,79 @@ class IRQiecTypeVariable(IRQiecStatic):
 
 
 class IRQiecTypeConstructor(dx.Model):
+    """A fully qualified type constructor and its kinding telescope.
+
+    Parameters
+    ----------
+    id
+        The constructor's stable identity, which alone determines equality.
+    name
+        The constructor's display name.
+    telescope
+        The binders the constructor's arguments instantiate, in order.
+    """
+
     id: IRQiecId
     name: str
     telescope: tuple[IRQiecBinder, ...] = ()
 
 
 class IRQiecTypeApplication(IRQiecStatic):
+    """A type constructor applied to static arguments.
+
+    Parameters
+    ----------
+    constructor
+        The constructor applied.
+    arguments
+        The arguments instantiating the constructor's telescope, in order;
+        empty for a nullary constructor.
+    kind
+        The discriminator; always ``"type-application"``.
+    """
+
     constructor: IRQiecTypeConstructor
     arguments: tuple[IRQiecStatic, ...] = ()
     kind: Literal["type-application"] = "type-application"
 
 
 class IRQiecFunctionType(IRQiecStatic):
+    """A pure function type.
+
+    An effectful codomain is a
+    [`IRQiecComputationType`][quivers.transpile.qiec_ir.IRQiecComputationType],
+    which keeps the value and computation strata apart.
+
+    Parameters
+    ----------
+    parameter
+        The argument type.
+    result
+        The result type.
+    kind
+        The discriminator; always ``"function-type"``.
+    """
+
     parameter: IRQiecStatic
     result: IRQiecStatic
     kind: Literal["function-type"] = "function-type"
 
 
 class IRQiecEqualityType(IRQiecStatic):
+    """The proposition that two static arguments are equal.
+
+    Parameters
+    ----------
+    classifier
+        The kind or index sort both sides inhabit.
+    left
+        The left side of the equation.
+    right
+        The right side of the equation.
+    kind
+        The discriminator; always ``"equality-type"``.
+    """
+
     classifier: IRQiecKind | IRQiecIndexSort
     left: IRQiecStatic
     right: IRQiecStatic
@@ -196,12 +502,39 @@ class IRQiecEqualityType(IRQiecStatic):
 
 
 class IRQiecEffectVariable(IRQiecStatic):
+    """A variable standing for an effect interface application.
+
+    Parameters
+    ----------
+    name
+        The variable's display name.
+    identity
+        The rigid identity of a case branch's skolem, or ``None`` for a
+        declaration binder matched by name.
+    kind
+        The discriminator; always ``"effect-variable"``.
+    """
+
     name: str
     identity: IRQiecId | None = None
     kind: Literal["effect-variable"] = "effect-variable"
 
 
 class IRQiecEffectRef(IRQiecStatic):
+    """One closed effect interface application.
+
+    Parameters
+    ----------
+    id
+        The stable identity of the interface declaration.
+    name
+        The interface's display name.
+    arguments
+        The arguments instantiating the interface's telescope, in order.
+    kind
+        The discriminator; always ``"effect-ref"``.
+    """
+
     id: IRQiecId
     name: str
     arguments: tuple[IRQiecStatic, ...] = ()
@@ -209,27 +542,80 @@ class IRQiecEffectRef(IRQiecStatic):
 
 
 class IRQiecLocal(dx.Model):
+    """A typed binder for a runtime value.
+
+    Parameters
+    ----------
+    name
+        The binder's display name.
+    type
+        The type of every value bound to it.
+    """
+
     name: str
     type: IRQiecStatic
 
 
 class IRQiecRowVariable(dx.Model):
+    """The open tail of an effect row, with the instances it excludes.
+
+    Parameters
+    ----------
+    name
+        The display name, used in diagnostics only.
+    identity
+        The stable identity, which equality is taken from.
+    lacks
+        The instances the tail is proven not to contain.
+    """
+
     name: str
     identity: IRQiecId
     lacks: tuple[IRQiecId, ...] = ()
 
 
 class IRQiecRowEntry(dx.Model):
+    """One lexical effect instance and the interface it implements.
+
+    Parameters
+    ----------
+    instance
+        The lexical instance, which is the row's key.
+    effect
+        The interface application the instance implements.
+    """
+
     instance: IRQiecId
     effect: IRQiecEffectRef
 
 
 class IRQiecEffectRow(dx.Model):
+    """A finite map from lexical instances to interfaces, plus a tail.
+
+    Parameters
+    ----------
+    entries
+        The instances the row names, each with its interface.
+    tail
+        A row variable standing for further entries, or ``None`` for a
+        closed row.
+    """
+
     entries: tuple[IRQiecRowEntry, ...] = ()
     tail: IRQiecRowVariable | None = None
 
 
 class IRQiecComputationType(dx.Model):
+    """The type of a computation: its effect row and result type.
+
+    Parameters
+    ----------
+    effects
+        The row of effect instances the computation may perform.
+    result
+        The type of the value it returns.
+    """
+
     effects: IRQiecEffectRow
     result: IRQiecStatic
 
@@ -239,11 +625,33 @@ class IRQiecEvidence(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecReflexivity(IRQiecEvidence):
+    """Evidence that an equality holds because both sides are the same term.
+
+    Parameters
+    ----------
+    equality
+        The proposition witnessed.
+    kind
+        The discriminator; always ``"reflexivity"``.
+    """
+
     equality: IRQiecEqualityType
     kind: Literal["reflexivity"] = "reflexivity"
 
 
 class IRQiecBranchGiven(IRQiecEvidence):
+    """Evidence granted by a case branch's constructor refinement.
+
+    Parameters
+    ----------
+    id
+        The stable identity of the given, derived from the branch scope.
+    equality
+        The proposition the branch's constructor makes available.
+    kind
+        The discriminator; always ``"branch-given"``.
+    """
+
     id: IRQiecId
     equality: IRQiecEqualityType
     kind: Literal["branch-given"] = "branch-given"
@@ -254,35 +662,103 @@ class IRQiecLiteral(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecNullLiteral(IRQiecLiteral):
+    """The null literal.
+
+    Parameters
+    ----------
+    kind
+        The discriminator; always ``"null"``.
+    """
+
     kind: Literal["null"] = "null"
 
 
 class IRQiecBoolLiteral(IRQiecLiteral):
+    """A Boolean literal.
+
+    Parameters
+    ----------
+    value
+        The Boolean.
+    kind
+        The discriminator; always ``"bool"``.
+    """
+
     value: bool
     kind: Literal["bool"] = "bool"
 
 
 class IRQiecIntLiteral(IRQiecLiteral):
+    """An integer literal.
+
+    Parameters
+    ----------
+    value
+        The integer.
+    kind
+        The discriminator; always ``"int"``.
+    """
+
     value: int
     kind: Literal["int"] = "int"
 
 
 class IRQiecFloatLiteral(IRQiecLiteral):
+    """A floating-point literal.
+
+    Parameters
+    ----------
+    value
+        The number.
+    kind
+        The discriminator; always ``"float"``.
+    """
+
     value: float
     kind: Literal["float"] = "float"
 
 
 class IRQiecStringLiteral(IRQiecLiteral):
+    """A string literal.
+
+    Parameters
+    ----------
+    value
+        The string.
+    kind
+        The discriminator; always ``"string"``.
+    """
+
     value: str
     kind: Literal["string"] = "string"
 
 
 class IRQiecBytesLiteral(IRQiecLiteral):
+    """A byte-string literal.
+
+    Parameters
+    ----------
+    value
+        The bytes, written as a hexadecimal string.
+    kind
+        The discriminator; always ``"bytes"``.
+    """
+
     value: str
     kind: Literal["bytes"] = "bytes"
 
 
 class IRQiecTupleLiteral(IRQiecLiteral):
+    """A tuple of literals.
+
+    Parameters
+    ----------
+    items
+        The component literals, in order.
+    kind
+        The discriminator; always ``"tuple"``.
+    """
+
     items: tuple[IRQiecLiteral, ...]
     kind: Literal["tuple"] = "tuple"
 
@@ -292,17 +768,55 @@ class IRQiecValue(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecVar(IRQiecValue):
+    """Reference to a bound local.
+
+    Parameters
+    ----------
+    local
+        The binder referenced.
+    kind
+        The discriminator; always ``"var"``.
+    """
+
     local: IRQiecLocal
     kind: Literal["var"] = "var"
 
 
 class IRQiecLiteralValue(IRQiecValue):
+    """A literal host value at a primitive or tuple type.
+
+    Parameters
+    ----------
+    value
+        The literal's data.
+    type
+        The literal's type.
+    kind
+        The discriminator; always ``"literal"``.
+    """
+
     value: IRQiecLiteral
     type: IRQiecStatic
     kind: Literal["literal"] = "literal"
 
 
 class IRQiecConstructorValue(IRQiecValue):
+    """Application of a declared constructor to static and value arguments.
+
+    Parameters
+    ----------
+    constructor
+        The stable identity of the constructor applied.
+    static_arguments
+        The constructor's telescope instantiation, in binder order.
+    fields
+        The field values, in declaration order.
+    result_type
+        The indexed family type the application inhabits.
+    kind
+        The discriminator; always ``"constructor"``.
+    """
+
     constructor: IRQiecId
     static_arguments: tuple[IRQiecStatic, ...]
     fields: tuple[IRQiecValue, ...]
@@ -311,11 +825,33 @@ class IRQiecConstructorValue(IRQiecValue):
 
 
 class IRQiecEvidenceValue(IRQiecValue):
+    """Kernel-checked equality evidence used as a value.
+
+    Parameters
+    ----------
+    evidence
+        The evidence term.
+    kind
+        The discriminator; always ``"evidence"``.
+    """
+
     evidence: IRQiecEvidence
     kind: Literal["evidence"] = "evidence"
 
 
 class IRQiecAttachmentRef(IRQiecValue):
+    """A stable reference to a runtime-owned host value.
+
+    Parameters
+    ----------
+    attachment
+        The identity under which a runtime provider binds the host value.
+    type
+        The type the bound value inhabits.
+    kind
+        The discriminator; always ``"attachment"``.
+    """
+
     attachment: IRQiecId
     type: IRQiecStatic
     kind: Literal["attachment"] = "attachment"
@@ -740,6 +1276,21 @@ class IRQiecComprehension(IRQiecValue):
 
 
 class IRQiecTransportValue(IRQiecValue):
+    """Transport of a value along kernel-checked equality evidence.
+
+    Parameters
+    ----------
+    evidence
+        The equality the value is carried across.
+    value
+        The value at the equality's left type.
+    target_type
+        The type the transported value inhabits, which the equality's right
+        side determines.
+    kind
+        The discriminator; always ``"transport"``.
+    """
+
     evidence: IRQiecEvidence
     value: IRQiecValue
     target_type: IRQiecStatic
@@ -747,6 +1298,26 @@ class IRQiecTransportValue(IRQiecValue):
 
 
 class IRQiecEffectRequest(dx.Model):
+    """A typed request for one effect operation.
+
+    Parameters
+    ----------
+    instance
+        The effect instance the request is addressed to.
+    effect
+        The instance's interface application.
+    operation
+        The operation requested.
+    static_arguments
+        The operation's telescope instantiation, in binder order.
+    arguments
+        The value arguments, one per operation argument.
+    result_type
+        The type of the value the operation returns under the instantiation.
+    origin
+        Where the request was written and how it was reached.
+    """
+
     instance: IRQiecId
     effect: IRQiecEffectRef
     operation: IRQiecId
@@ -761,6 +1332,16 @@ class IRQiecComputation(dx.TaggedUnion, discriminator="kind"):
 
 
 class IRQiecReturn(IRQiecComputation):
+    """Return of a value with no effects.
+
+    Parameters
+    ----------
+    value
+        The value produced.
+    kind
+        The discriminator; always ``"return"``.
+    """
+
     value: IRQiecValue
     kind: Literal["return"] = "return"
 
@@ -804,11 +1385,37 @@ class IRQiecBind(IRQiecComputation):
 
 
 class IRQiecPerform(IRQiecComputation):
+    """Performance of one effect operation.
+
+    Parameters
+    ----------
+    request
+        The operation, its instance, arguments, and result type.
+    kind
+        The discriminator; always ``"perform"``.
+    """
+
     request: IRQiecEffectRequest
     kind: Literal["perform"] = "perform"
 
 
 class IRQiecHandle(IRQiecComputation):
+    """A computation run under a handler installed for one effect instance.
+
+    Parameters
+    ----------
+    instance
+        The effect instance whose operations the handler intercepts.
+    handler
+        The stable identity of the handler installed.
+    computation
+        The handled computation.
+    static_arguments
+        The handler's telescope instantiation, in binder order.
+    kind
+        The discriminator; always ``"handle"``.
+    """
+
     instance: IRQiecId
     handler: IRQiecId
     computation: IRQiecComputation
@@ -817,11 +1424,39 @@ class IRQiecHandle(IRQiecComputation):
 
 
 class IRQiecCaseMotive(dx.Model):
+    """The result family of an indexed case expression.
+
+    Parameters
+    ----------
+    indices
+        The binders abstracting the scrutinee's indices in ``result_type``.
+    result_type
+        The type every branch produces, over ``indices``.
+    """
+
     indices: tuple[IRQiecBinder, ...]
     result_type: IRQiecStatic
 
 
 class IRQiecCaseBranch(dx.Model):
+    """One branch of an indexed case expression.
+
+    Parameters
+    ----------
+    constructor
+        The constructor this branch matches.
+    static_arguments
+        The constructor's static arguments as bound by the pattern, in
+        binder order.
+    fields
+        The locals binding the constructor's fields, in declaration order.
+    body
+        The computation run when the branch is selected.
+    scope
+        The static scope identity under which the branch's skolems and
+        equality evidence are minted.
+    """
+
     constructor: IRQiecId
     static_arguments: tuple[IRQiecStatic, ...]
     fields: tuple[IRQiecLocal, ...]
@@ -830,6 +1465,20 @@ class IRQiecCaseBranch(dx.Model):
 
 
 class IRQiecCase(IRQiecComputation):
+    """Case analysis over an indexed family value.
+
+    Parameters
+    ----------
+    scrutinee
+        The value analyzed.
+    motive
+        The result family, over the scrutinee's indices.
+    branches
+        One branch per constructor considered.
+    kind
+        The discriminator; always ``"case"``.
+    """
+
     scrutinee: IRQiecValue
     motive: IRQiecCaseMotive
     branches: tuple[IRQiecCaseBranch, ...]
@@ -933,11 +1582,40 @@ class IRQiecNewInstance(IRQiecComputation):
 
 
 class IRQiecFieldDef(dx.Model):
+    """One named, typed field of a constructor.
+
+    Parameters
+    ----------
+    name
+        The field's display name.
+    type
+        The field's type, which may mention the constructor's telescope.
+    """
+
     name: str
     type: IRQiecStatic
 
 
 class IRQiecFamilyDecl(dx.Model):
+    """A closed or opaque indexed data family.
+
+    Parameters
+    ----------
+    id
+        The family's stable identity.
+    name
+        The family's source name.
+    parameters
+        The binders uniform across every constructor.
+    indices
+        The binders a constructor result may refine.
+    constructors
+        The constructors the family declares.
+    closed
+        Whether the constructor list is exhaustive, which admits coverage
+        checking.
+    """
+
     id: IRQiecId
     name: str
     parameters: tuple[IRQiecBinder, ...]
@@ -947,6 +1625,26 @@ class IRQiecFamilyDecl(dx.Model):
 
 
 class IRQiecConstructorDecl(dx.Model):
+    """One constructor of an indexed data family.
+
+    Parameters
+    ----------
+    id
+        The constructor's stable identity.
+    family
+        The family the constructor belongs to.
+    name
+        The constructor's source name.
+    telescope
+        The binders local to the constructor, which are rigid while a
+        branch matching it is checked.
+    fields
+        The values the constructor carries.
+    result_indices
+        What the constructor fixes the family's indices to, one per family
+        index.
+    """
+
     id: IRQiecId
     family: IRQiecId
     name: str
@@ -956,11 +1654,37 @@ class IRQiecConstructorDecl(dx.Model):
 
 
 class IRQiecArgumentDef(dx.Model):
+    """One named, typed value argument of an operation.
+
+    Parameters
+    ----------
+    name
+        The argument's display name.
+    type
+        The argument's type, which may mention the operation's telescope.
+    """
+
     name: str
     type: IRQiecStatic
 
 
 class IRQiecOperationDef(dx.Model):
+    """One result-indexed request constructor of an effect interface.
+
+    Parameters
+    ----------
+    id
+        The operation's stable identity.
+    name
+        The operation's source name.
+    telescope
+        The static binders the operation adds to the interface's own.
+    arguments
+        The value arguments the request carries.
+    result_type
+        What resuming the request supplies.
+    """
+
     id: IRQiecId
     name: str
     telescope: tuple[IRQiecBinder, ...]
@@ -969,12 +1693,42 @@ class IRQiecOperationDef(dx.Model):
 
 
 class IRQiecEffectDef(dx.Model):
+    """An effect interface: its telescope and operations.
+
+    Parameters
+    ----------
+    ref
+        The declaration's own reference.
+    telescope
+        The static binders the interface takes.
+    operations
+        The declared operations.
+    """
+
     ref: IRQiecEffectRef
     telescope: tuple[IRQiecBinder, ...]
     operations: tuple[IRQiecOperationDef, ...]
 
 
 class IRQiecHandlerClauseDef(dx.Model):
+    """One operation a handler covers, and how it may resume.
+
+    Parameters
+    ----------
+    operation
+        The operation the clause handles.
+    grade
+        How often the clause may invoke its continuation: never (``"0"``),
+        at most once (``"aff"``), exactly once (``"1"``), or any number of
+        times (``"omega"``).
+    parameters
+        The binders for the operation's value arguments, in declaration
+        order.
+    body
+        What the clause does, or ``None`` for a clause whose implementation
+        a runtime provider supplies.
+    """
+
     operation: IRQiecId
     grade: Literal["0", "aff", "1", "omega"]
     parameters: tuple[IRQiecLocal, ...] = ()
@@ -982,11 +1736,54 @@ class IRQiecHandlerClauseDef(dx.Model):
 
 
 class IRQiecHandlerReturnClauseDef(dx.Model):
+    """What a handler does with a value its computation returns.
+
+    Parameters
+    ----------
+    binder
+        The local naming the returned value inside the body.
+    body
+        What the handler produces from it.
+    """
+
     binder: IRQiecLocal
     body: IRQiecComputation
 
 
 class IRQiecHandlerDef(dx.Model):
+    """The type-and-coverage signature of a handler.
+
+    Parameters
+    ----------
+    id
+        The handler's stable identity.
+    name
+        The handler's display name.
+    effect
+        The interface application the handler handles.
+    clauses
+        One clause per operation the handler covers.
+    input_type
+        The result type of the computation the handler accepts.
+    output_type
+        The type of the handler's answer.
+    introduced
+        The effects the handler's own clauses perform.
+    total
+        Whether the clauses cover every operation of ``effect``.
+    forwards_unknown
+        Whether an operation no clause covers is forwarded outward rather
+        than rejected.
+    telescope
+        The static parameters the handler abstracts over, in order.
+    return_clause
+        How the handler answers the computation's return, or ``None`` to
+        return the value unchanged.
+    implementation
+        ``"authored"`` when every clause carries a body, ``"foreign"`` when
+        a runtime provider supplies the behavior.
+    """
+
     id: IRQiecId
     name: str
     effect: IRQiecEffectRef
@@ -1002,12 +1799,44 @@ class IRQiecHandlerDef(dx.Model):
 
 
 class IRQiecNamedEffectInstance(dx.Model):
+    """A source name for one lexical effect instance.
+
+    Parameters
+    ----------
+    name
+        The name requests resolve through.
+    entry
+        The allocated instance and its interface application.
+    origin
+        Where the instance was declared.
+    """
+
     name: str
     entry: IRQiecRowEntry
     origin: IRQiecSourceOrigin
 
 
 class IRQiecNamedComputation(dx.Model):
+    """One named computation and its checked type.
+
+    Parameters
+    ----------
+    id
+        The computation's stable identity, which calls refer to.
+    name
+        The display name, unique within the module.
+    telescope
+        The static parameters the computation abstracts over, in order.
+    parameters
+        The value parameters, in order.
+    body
+        The computation's body, with the parameters in scope.
+    type
+        The checked effect row and result type of ``body``.
+    origin
+        Where the computation was declared.
+    """
+
     id: IRQiecId
     name: str
     telescope: tuple[IRQiecBinder, ...]
@@ -1740,19 +2569,61 @@ type QiecFeature = Literal[
     "linear-resumption",
     "unrestricted-resumption",
 ]
+"""One QIEC construct a target may or may not preserve.
+
+[`analyze_qiec_capabilities`][quivers.transpile.qiec_ir.analyze_qiec_capabilities]
+names the features a module needs, and a
+[`QiecTargetCapabilities`][quivers.transpile.qiec_ir.QiecTargetCapabilities]
+names the ones a target has.
+"""
 
 
 class QiecTargetCapabilities(dx.Model):
-    """Feature set one target can preserve without semantic erasure."""
+    """Feature set one target can preserve without semantic erasure.
+
+    Parameters
+    ----------
+    features
+        The features the target preserves.
+    """
 
     features: frozenset[QiecFeature] = frozenset({"declarations"})
 
     def supports(self, feature: QiecFeature) -> bool:
+        """Whether the target preserves one feature.
+
+        Parameters
+        ----------
+        feature
+            The feature asked about.
+
+        Returns
+        -------
+        bool
+            ``True`` when ``feature`` is in the set.
+        """
         return feature in self.features
 
 
 class QiecCapabilityDiagnostic(dx.Model):
-    """One precise target mismatch discovered before renderer dispatch."""
+    """One precise target mismatch discovered before renderer dispatch.
+
+    Parameters
+    ----------
+    code
+        The diagnostic code; always ``"qiec-capability"``.
+    target
+        The target that lacks the feature.
+    feature
+        The feature the target lacks.
+    computation
+        The computation that needs the feature, or ``None`` for the module.
+    origin
+        Where the computation was declared, when known.
+    detail
+        Why the target cannot preserve the feature, phrased to follow the
+        target's name, as in ``"has no semantics-preserving lowering"``.
+    """
 
     code: Literal["qiec-capability"] = "qiec-capability"
     target: str
@@ -1763,11 +2634,13 @@ class QiecCapabilityDiagnostic(dx.Model):
 
     @property
     def kind(self) -> str:
+        """The ``qiec:capability:<feature>:<subject>`` refusal identifier."""
         subject = self.computation or "module"
         return f"qiec:capability:{self.feature}:{subject}"
 
     @property
     def message(self) -> str:
+        """The diagnostic as one user-facing sentence."""
         subject = (
             f"QIEC computation `{self.computation}`"
             if self.computation is not None
@@ -1864,6 +2737,16 @@ def capabilities_for_target(target: str) -> QiecTargetCapabilities:
     conditionals, calls, and recursion. BUGS and JAGS admit only
     ``return``/``bind`` computations, which they inline. Unknown targets
     safely retain declaration metadata only.
+
+    Parameters
+    ----------
+    target
+        The target name, with or without the ``qvr-`` prefix.
+
+    Returns
+    -------
+    QiecTargetCapabilities
+        The features the target preserves.
     """
     normalized = target.removeprefix("qvr-").lower()
     if normalized in {
@@ -2400,6 +3283,22 @@ def host_runtime_capability_diagnostics(
     REPL, the TUI, and the language server. Keeping it beside the general
     capability analyzer prevents those surfaces from diagnosing different
     generated helpers for the same source declaration.
+
+    Parameters
+    ----------
+    module_or_ir
+        The checked module or its IR projection.
+    target
+        The target name.
+    capabilities
+        The feature set to check against, else the target's registered
+        one.
+
+    Returns
+    -------
+    tuple[QiecCapabilityDiagnostic, ...]
+        One diagnostic per search or neural host-runtime boundary an entry
+        root reaches that the target cannot provide.
     """
 
     supported = capabilities or capabilities_for_target(target)
@@ -2501,9 +3400,110 @@ def _handled_ids(node: IRQiecComputation) -> set[str]:
 
 
 __all__ = [
-    name for name in globals() if name.startswith("IRQiec") or name.startswith("Qiec")
-]
-__all__ += [
+    "IRQiecId",
+    "IRQiecSourceOrigin",
+    "IRQiecDynamicAddressFrame",
+    "IRQiecSiteProvenance",
+    "IRQiecKind",
+    "IRQiecTypeKind",
+    "IRQiecEffectKind",
+    "IRQiecRowKind",
+    "IRQiecArrowKind",
+    "IRQiecIndexSort",
+    "IRQiecNatSort",
+    "IRQiecShapeSort",
+    "IRQiecContextSort",
+    "IRQiecUserIndexSort",
+    "IRQiecBinder",
+    "IRQiecTypeBinder",
+    "IRQiecIndexBinder",
+    "IRQiecEffectBinder",
+    "IRQiecStatic",
+    "IRQiecIndexVariable",
+    "IRQiecIndexLiteral",
+    "IRQiecIndexConstructor",
+    "IRQiecShapeIndex",
+    "IRQiecTypeVariable",
+    "IRQiecTypeConstructor",
+    "IRQiecTypeApplication",
+    "IRQiecFunctionType",
+    "IRQiecEqualityType",
+    "IRQiecEffectVariable",
+    "IRQiecEffectRef",
+    "IRQiecLocal",
+    "IRQiecRowVariable",
+    "IRQiecRowEntry",
+    "IRQiecEffectRow",
+    "IRQiecComputationType",
+    "IRQiecEvidence",
+    "IRQiecReflexivity",
+    "IRQiecBranchGiven",
+    "IRQiecLiteral",
+    "IRQiecNullLiteral",
+    "IRQiecBoolLiteral",
+    "IRQiecIntLiteral",
+    "IRQiecFloatLiteral",
+    "IRQiecStringLiteral",
+    "IRQiecBytesLiteral",
+    "IRQiecTupleLiteral",
+    "IRQiecValue",
+    "IRQiecVar",
+    "IRQiecLiteralValue",
+    "IRQiecConstructorValue",
+    "IRQiecEvidenceValue",
+    "IRQiecAttachmentRef",
+    "IRQiecPrimitiveApplication",
+    "IRQiecTupleValue",
+    "IRQiecTensorValue",
+    "IRQiecProjection",
+    "IRQiecNamedArgument",
+    "IRQiecPlateAxis",
+    "IRQiecPlateShape",
+    "IRQiecDistributionValue",
+    "IRQiecLogDensity",
+    "IRQiecGather",
+    "IRQiecWeightSum",
+    "IRQiecSegmentSum",
+    "IRQiecKernelMatrix",
+    "IRQiecAffineMap",
+    "IRQiecTableMap",
+    "IRQiecSiteValue",
+    "IRQiecReduction",
+    "IRQiecRowwise",
+    "IRQiecComprehension",
+    "IRQiecTransportValue",
+    "IRQiecEffectRequest",
+    "IRQiecComputation",
+    "IRQiecReturn",
+    "IRQiecBindStep",
+    "IRQiecBind",
+    "IRQiecPerform",
+    "IRQiecHandle",
+    "IRQiecCaseMotive",
+    "IRQiecCaseBranch",
+    "IRQiecCase",
+    "IRQiecIf",
+    "IRQiecCall",
+    "IRQiecResume",
+    "IRQiecNewInstance",
+    "IRQiecFieldDef",
+    "IRQiecFamilyDecl",
+    "IRQiecConstructorDecl",
+    "IRQiecArgumentDef",
+    "IRQiecOperationDef",
+    "IRQiecEffectDef",
+    "IRQiecHandlerClauseDef",
+    "IRQiecHandlerReturnClauseDef",
+    "IRQiecHandlerDef",
+    "IRQiecNamedEffectInstance",
+    "IRQiecNamedComputation",
+    "IRQiecProgramParameter",
+    "IRQiecProgramSite",
+    "IRQiecProgramEntry",
+    "IRQiecModule",
+    "QiecFeature",
+    "QiecTargetCapabilities",
+    "QiecCapabilityDiagnostic",
     "analyze_qiec_capabilities",
     "capabilities_for_target",
     "host_runtime_capability_diagnostics",

@@ -8,9 +8,9 @@ over a finite category inventory.
 
 The two atomic schema types are:
 
-- ``BinaryRuleSchema`` — defined by a match predicate on category
+- ``BinaryRuleSchema``: defined by a match predicate on category
   pairs: ``match(left, right) -> result | None``.
-- ``UnaryRuleSchema`` — defined by a match predicate on single
+- ``UnaryRuleSchema``: defined by a match predicate on single
   categories: ``match(cat, system) -> list[result]``.
 
 Schemas compose via ``|`` (union) and can carry default weights
@@ -80,12 +80,31 @@ class RuleSchema(ABC):
         return self | other
 
     def weighted(self, weight: float) -> RuleSchema:
-        """Attach a default weight to all rules from this schema."""
+        """Attach a default weight to all rules from this schema.
+
+        Parameters
+        ----------
+        weight : float
+            The weight every binary and unary rule receives.
+
+        Returns
+        -------
+        RuleSchema
+            A `WeightedSchema` wrapping this schema.
+        """
         return WeightedSchema(self, weight)
 
 
 class UnionSchema(RuleSchema):
-    """Union of two schemas (composes their rule systems via +)."""
+    """Union of two schemas (composes their rule systems via +).
+
+    Parameters
+    ----------
+    left : RuleSchema
+        The first schema.
+    right : RuleSchema
+        The second schema.
+    """
 
     def __init__(self, left: RuleSchema, right: RuleSchema) -> None:
         self._left = left
@@ -99,7 +118,15 @@ class UnionSchema(RuleSchema):
 
 
 class WeightedSchema(RuleSchema):
-    """Schema wrapper that attaches a default weight to all rules."""
+    """Schema wrapper that attaches a default weight to all rules.
+
+    Parameters
+    ----------
+    inner : RuleSchema
+        The schema whose rules are weighted.
+    weight : float
+        The weight every rule of ``inner`` receives.
+    """
 
     def __init__(self, inner: RuleSchema, weight: float) -> None:
         self._inner = inner
@@ -244,7 +271,22 @@ class ForwardApplication(BinaryRuleSchema):
     def _description(self) -> str:
         return ">"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "/"
@@ -262,7 +304,22 @@ class BackwardApplication(BinaryRuleSchema):
     def _description(self) -> str:
         return "<"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(right, SlashCategory)
             and right.direction == "\\"
@@ -280,7 +337,22 @@ class ForwardComposition(BinaryRuleSchema):
     def _description(self) -> str:
         return ">B"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "/"
@@ -302,7 +374,22 @@ class BackwardComposition(BinaryRuleSchema):
     def _description(self) -> str:
         return "<B"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "\\"
@@ -324,7 +411,22 @@ class ForwardCrossedComposition(BinaryRuleSchema):
     def _description(self) -> str:
         return ">Bx"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "/"
@@ -346,7 +448,22 @@ class BackwardCrossedComposition(BinaryRuleSchema):
     def _description(self) -> str:
         return "<Bx"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "/"
@@ -368,7 +485,22 @@ class CommutativeForwardApplication(BinaryRuleSchema):
     def _description(self) -> str:
         return "comm>"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(right, SlashCategory)
             and right.direction == "/"
@@ -386,7 +518,22 @@ class CommutativeBackwardApplication(BinaryRuleSchema):
     def _description(self) -> str:
         return "comm<"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             isinstance(left, SlashCategory)
             and left.direction == "\\"
@@ -404,7 +551,22 @@ class TensorIntroduction(BinaryRuleSchema):
     def _description(self) -> str:
         return "⊗-intro"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         return ProductCategory(left=left, right=right)
 
 
@@ -415,7 +577,22 @@ class LeftUnitElimination(BinaryRuleSchema):
     def _description(self) -> str:
         return "λ"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if isinstance(left, UnitCategory):
             return right
 
@@ -429,7 +606,22 @@ class RightUnitElimination(BinaryRuleSchema):
     def _description(self) -> str:
         return "ρ"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if isinstance(right, UnitCategory):
             return left
 
@@ -452,7 +644,22 @@ class ModalApplication(BinaryRuleSchema):
     def _description(self) -> str:
         return f"{self._modality}-app"
 
-    def match(self, left, right):
+    def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         if (
             not isinstance(left, ModalCategory)
             or left.modality != self._modality
@@ -495,7 +702,22 @@ class RightLifting(UnaryRuleSchema):
     def _description(self) -> str:
         return "η-right"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         results = []
 
         for c in system:
@@ -517,7 +739,22 @@ class LeftLifting(UnaryRuleSchema):
     def _description(self) -> str:
         return "η-left"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         results = []
 
         for c in system:
@@ -539,7 +776,22 @@ class LeftProjection(UnaryRuleSchema):
     def _description(self) -> str:
         return "π₁"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         if isinstance(cat, ProductCategory) and cat.left in system:
             return [cat.left]
 
@@ -553,7 +805,22 @@ class RightProjection(UnaryRuleSchema):
     def _description(self) -> str:
         return "π₂"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         if isinstance(cat, ProductCategory) and cat.right in system:
             return [cat.right]
 
@@ -568,6 +835,21 @@ class UnitCoercion(UnaryRuleSchema):
         return "unit-elim"
 
     def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         unit = UnitCategory()
 
         if unit in system:
@@ -593,6 +875,21 @@ class ModalInjection(UnaryRuleSchema):
         return f"{self._modality}-intro"
 
     def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         modal = ModalCategory(modality=self._modality, inner=cat)
 
         if modal in system:
@@ -617,7 +914,22 @@ class ModalProjection(UnaryRuleSchema):
     def _description(self) -> str:
         return f"{self._modality}-elim"
 
-    def match(self, cat, system):
+    def match(self, cat: Category, system: CategorySystem) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         if (
             isinstance(cat, ModalCategory)
             and cat.modality == self._modality
@@ -861,11 +1173,11 @@ class PatternBinarySchema(BinaryRuleSchema):
 
     Parameters
     ----------
-    left_pattern
+    left_pattern : quivers.dsl.ast_nodes.ObjectExpr
         Category pattern for the left antecedent.
-    right_pattern
+    right_pattern : quivers.dsl.ast_nodes.ObjectExpr
         Category pattern for the right antecedent.
-    conclusion_pattern
+    conclusion_pattern : quivers.dsl.ast_nodes.ObjectExpr
         Category pattern for the consequent.
     variables : frozenset of str
         Universally quantified pattern variables.
@@ -892,6 +1204,21 @@ class PatternBinarySchema(BinaryRuleSchema):
         return self._name or "pattern-binary"
 
     def match(self, left: Category, right: Category) -> Category | None:
+        """Return the conclusion this rule derives from a pair, if any.
+
+        Parameters
+        ----------
+        left : Category
+            The left antecedent.
+        right : Category
+            The right antecedent.
+
+        Returns
+        -------
+        Category or None
+            The conclusion category, or ``None`` when the pair does
+            not match this rule.
+        """
         bindings: dict[str, Category] = {}
 
         if not _match_pattern(self._left, left, bindings, self._variables):
@@ -915,9 +1242,9 @@ class PatternUnarySchema(UnaryRuleSchema):
 
     Parameters
     ----------
-    premise_pattern
+    premise_pattern : quivers.dsl.ast_nodes.ObjectExpr
         Category pattern for the antecedent.
-    conclusion_pattern
+    conclusion_pattern : quivers.dsl.ast_nodes.ObjectExpr
         Category pattern for the consequent.
     variables : frozenset of str
         Universally quantified pattern variables.
@@ -946,6 +1273,21 @@ class PatternUnarySchema(UnaryRuleSchema):
         cat: Category,
         system: CategorySystem,
     ) -> list[Category]:
+        """Return the conclusions this rule derives from a category.
+
+        Parameters
+        ----------
+        cat : Category
+            The antecedent category.
+        system : CategorySystem
+            The category inventory; conclusions outside it are dropped.
+
+        Returns
+        -------
+        list of Category
+            The conclusion categories, empty when the rule does not
+            apply.
+        """
         bindings: dict[str, Category] = {}
 
         if not _match_pattern(self._premise, cat, bindings, self._variables):
@@ -968,19 +1310,31 @@ class PatternUnarySchema(UnaryRuleSchema):
 # ================================================================
 
 EVALUATION = ForwardApplication() | BackwardApplication()
+"""Forward and backward application, the evaluation maps of a biclosed category."""
 HARMONIC_COMPOSITION = ForwardComposition() | BackwardComposition()
+"""Forward and backward harmonic composition."""
 CROSSED_COMPOSITION = ForwardCrossedComposition() | BackwardCrossedComposition()
+"""Forward and backward crossed composition."""
 COMMUTATIVE_EVALUATION = (
     CommutativeForwardApplication() | CommutativeBackwardApplication()
 )
+"""Application with the argument on either side, for commutative (LP) grammars."""
 ADJUNCTION_UNITS = RightLifting() | LeftLifting()
+"""Right and left type raising, the units of the slash adjunctions."""
 TENSOR_INTRODUCTION = TensorIntroduction()
+"""Product formation, ``A, B -> A*B``."""
 TENSOR_PROJECTION = LeftProjection() | RightProjection()
+"""Left and right projections out of a product category."""
 UNIT_INTRODUCTION = LeftUnitElimination() | RightUnitElimination()
+"""The left and right unitors, ``I*A -> A`` and ``A*I -> A``."""
 UNIT_ELIMINATION = UnitCoercion()
+"""Coercion of any category to the monoidal unit, ``A -> I``."""
 MODAL_INTRODUCTION = ModalInjection()
+"""Modal injection, ``A -> <>A``."""
 MODAL_ELIMINATION = ModalProjection()
+"""Modal projection, ``<>A -> A``."""
 MODAL_APPLICATION = ModalApplication()
+"""Function application under a modality."""
 
 
 def generalized_composition(max_depth: int = 2) -> RuleSchema:
@@ -1004,9 +1358,13 @@ def generalized_composition(max_depth: int = 2) -> RuleSchema:
 # ================================================================
 
 CCG = EVALUATION | HARMONIC_COMPOSITION | CROSSED_COMPOSITION
+"""The combinatory categorial grammar preset: application plus harmonic and crossed composition."""
 LAMBEK = EVALUATION | ADJUNCTION_UNITS | TENSOR_INTRODUCTION | TENSOR_PROJECTION
+"""The Lambek calculus preset: application, type raising, and the product rules."""
 NL = EVALUATION
+"""The non-associative Lambek calculus preset: application only."""
 LP = EVALUATION | COMMUTATIVE_EVALUATION | ADJUNCTION_UNITS
+"""The Lambek calculus with permutation preset: application in both orders and type raising."""
 
 
 # ================================================================
@@ -1028,3 +1386,53 @@ SCHEMA_REGISTRY: dict[str, RuleSchema] = {
     "modal_elimination": MODAL_ELIMINATION,
     "modal_application": MODAL_APPLICATION,
 }
+"""The bundled schemas by the name a DSL ``rules`` clause uses for each."""
+
+
+__all__ = [
+    "RuleSchema",
+    "UnionSchema",
+    "WeightedSchema",
+    "BinaryRuleSchema",
+    "UnaryRuleSchema",
+    "ForwardApplication",
+    "BackwardApplication",
+    "ForwardComposition",
+    "BackwardComposition",
+    "ForwardCrossedComposition",
+    "BackwardCrossedComposition",
+    "CommutativeForwardApplication",
+    "CommutativeBackwardApplication",
+    "TensorIntroduction",
+    "LeftUnitElimination",
+    "RightUnitElimination",
+    "ModalApplication",
+    "RightLifting",
+    "LeftLifting",
+    "LeftProjection",
+    "RightProjection",
+    "UnitCoercion",
+    "ModalInjection",
+    "ModalProjection",
+    "GeneralizedComposition",
+    "PatternBinarySchema",
+    "PatternUnarySchema",
+    "EVALUATION",
+    "HARMONIC_COMPOSITION",
+    "CROSSED_COMPOSITION",
+    "COMMUTATIVE_EVALUATION",
+    "ADJUNCTION_UNITS",
+    "TENSOR_INTRODUCTION",
+    "TENSOR_PROJECTION",
+    "UNIT_INTRODUCTION",
+    "UNIT_ELIMINATION",
+    "MODAL_INTRODUCTION",
+    "MODAL_ELIMINATION",
+    "MODAL_APPLICATION",
+    "generalized_composition",
+    "CCG",
+    "LAMBEK",
+    "NL",
+    "LP",
+    "SCHEMA_REGISTRY",
+]

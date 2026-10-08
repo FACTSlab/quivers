@@ -25,35 +25,29 @@ applications).
 
 from __future__ import annotations
 
-import itertools
-
 import didactic.api as dx
 import torch
 
 from quivers.core._factories import (
-    case,
     constant,
     coproduct_map,
     inj,
     pair,
     parallel,
-    pi,
-    terminal,
 )
 from quivers.core.morphisms import Morphism, observed
 from quivers.core.morphisms import identity as id_morph
 from quivers.core.objects import (
     CoproductSet,
     FinSet,
+    FreeMonoid,
     ProductSet,
     SetObject,
     Unit,
 )
 from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 from quivers.monadic.typeclasses import (
-    Alternative,
     Foldable,
-    Functor,
     Monad,
     MonadPlus,
     Traversable,
@@ -1055,7 +1049,7 @@ Monad.register(Writer)
 # ---------------------------------------------------------------------------
 
 
-class List(dx.Model):
+class ListMonad(dx.Model):
     """The list monad over a bounded length.
 
     ``List(A) = ∐_{k=0}^{max_length} A^k`` realised as a
@@ -1076,8 +1070,6 @@ class List(dx.Model):
         enumeration of A's underlying state space, so all subsequent
         morphism constructions on ``List(A)`` agree on element identity.
         """
-        from quivers.core.objects import FreeMonoid
-
         if isinstance(A, FinSet):
             return FreeMonoid(generators=A, max_length=self.max_length)
         encoded = FinSet(name=f"_flat_{A!s}", cardinality=A.size)
@@ -1087,8 +1079,6 @@ class List(dx.Model):
         # fmap(f)([x_1, ..., x_k]) = [f(x_1), ..., f(x_k)].
         # For deterministic f (function-shaped V-relation), this is the
         # pointwise application of f to each element of the word.
-        from quivers.core.objects import FreeMonoid
-
         f_t = f.tensor.reshape(A.size, B.size)
         f_lookup: dict[int, int] = {}
         for a in range(A.size):
@@ -1112,8 +1102,6 @@ class List(dx.Model):
 
     def pure(self, A: SetObject) -> Morphism:
         # pure(a) = [a], the singleton word.
-        from quivers.core.objects import FreeMonoid
-
         assert isinstance(A, FinSet)
         lA = self.fmap_obj(A)
         assert isinstance(lA, FreeMonoid)
@@ -1127,8 +1115,6 @@ class List(dx.Model):
         # List(A→B) ⊗ List(A) → List(B): cartesian-product of functions
         # and values, evaluated pointwise. Bounded by max_length; the
         # result truncates to keep the carrier finite.
-        from quivers.core.objects import FreeMonoid
-
         fn_space = _function_space(A, B)
         lF = self.fmap_obj(fn_space)
         lA = self.fmap_obj(A)
@@ -1162,8 +1148,6 @@ class List(dx.Model):
         # join : List(List(A)) → List(A) is concatenation of the
         # contained lists. With bounded max_length, the concatenation
         # may exceed the bound — we drop such entries.
-        from quivers.core.objects import FreeMonoid
-
         assert isinstance(A, FinSet)
         lA = self.fmap_obj(A)
         assert isinstance(lA, FreeMonoid)
@@ -1172,9 +1156,7 @@ class List(dx.Model):
         # FreeMonoid(A) as a FinSet of cardinality lA.size and use
         # the standard FreeMonoid-over-FinSet construction.
         list_a_as_finset = FinSet(name=f"_list_atoms_{A!s}", cardinality=lA.size)
-        from quivers.core.objects import FreeMonoid as FM
-
-        llA = FM(generators=list_a_as_finset, max_length=self.max_length)
+        llA = FreeMonoid(generators=list_a_as_finset, max_length=self.max_length)
         data = torch.full((llA.size, lA.size), PRODUCT_FUZZY.zero)
         for outer_flat in range(llA.size):
             outer_word = llA.decode(outer_flat)
@@ -1203,8 +1185,6 @@ class List(dx.Model):
         # liftA2(f) : List(A) ⊗ List(B) → List(C) builds the pointwise
         # cartesian product of the two lists, evaluating f at each pair
         # in lexicographic order. Result length is |xs| · |ys|.
-        from quivers.core.objects import FreeMonoid
-
         assert isinstance(A, FinSet) and isinstance(B, FinSet) and isinstance(C, FinSet)
         lA = self.fmap_obj(A)
         lB = self.fmap_obj(B)
@@ -1238,8 +1218,6 @@ class List(dx.Model):
 
     def empty(self, A: SetObject) -> Morphism:
         # empty : 1 → List(A), the empty list ε.
-        from quivers.core.objects import FreeMonoid
-
         assert isinstance(A, FinSet)
         lA = self.fmap_obj(A)
         assert isinstance(lA, FreeMonoid)
@@ -1251,8 +1229,6 @@ class List(dx.Model):
     def alt(self, A: SetObject) -> Morphism:
         # alt : List(A) ⊗ List(A) → List(A) is concatenation, possibly
         # truncated at max_length.
-        from quivers.core.objects import FreeMonoid
-
         assert isinstance(A, FinSet)
         lA = self.fmap_obj(A)
         assert isinstance(lA, FreeMonoid)
@@ -1272,8 +1248,6 @@ class List(dx.Model):
     def foldr(self, A: SetObject, B: SetObject) -> Morphism:
         # foldr : [A × B → B] × B × List(A) → B. The function-space
         # encoding of the step argument keeps everything finite.
-        from quivers.core.objects import FreeMonoid
-
         AB = ProductSet(components=(A, B))
         step_fn = _function_space(AB, B)
         lA = self.fmap_obj(A)
@@ -1305,8 +1279,6 @@ class List(dx.Model):
     ) -> Morphism:
         # traverse : List(A) → G(List(B)) given f : A → G(B).
         # Realised by repeated lift_a2 on G with the list-cons function.
-        from quivers.core.objects import FreeMonoid
-
         lA = self.fmap_obj(A)
         lB = self.fmap_obj(B)
         assert isinstance(lA, FreeMonoid)
@@ -1401,14 +1373,9 @@ class List(dx.Model):
         return observed(lA, g_lB, data)
 
 
-MonadPlus.register(List)
-Foldable.register(List)
-Traversable.register(List)
-
-
-# ---------------------------------------------------------------------------
-# Re-exports
-# ---------------------------------------------------------------------------
+MonadPlus.register(ListMonad)
+Foldable.register(ListMonad)
+Traversable.register(ListMonad)
 
 
 __all__ = [
@@ -1419,11 +1386,5 @@ __all__ = [
     "State",
     "Reader",
     "Writer",
-    "List",
+    "ListMonad",
 ]
-
-
-# Keep Functor/Alternative imported so users get clean re-exports.
-_ = (Functor, Alternative)
-_ = (pi, case, terminal)  # factory helpers used in surrounding modules
-_ = itertools  # reserved for future denser enumerations

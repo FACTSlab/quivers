@@ -78,3 +78,6 @@ def condition(
         Wrapped model with observations.
     """
     return Conditioned(model, data)
+
+
+__all__ = ["Conditioned", "condition"]

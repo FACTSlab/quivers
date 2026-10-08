@@ -169,7 +169,7 @@ def test_registry_zero_unconstrained_shapes() -> None:
 
 def test_registry_iter_yields_sites_in_declaration_order() -> None:
     """Iterating the registry yields LatentSite objects in the
-    order they appear in the model's _step_specs."""
+    order they appear in the model's steps."""
     from quivers.dsl import loads
     from quivers.inference.registry import LatentRegistry, LatentSite
 

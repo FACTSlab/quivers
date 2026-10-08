@@ -154,6 +154,34 @@ def to_datatree_from_svi(
     *event)` shape ArviZ expects. `log_densities`, when supplied,
     becomes `sample_stats/lp`; ArviZ diagnostic functions (`loo`,
     `waic`, `plot_trace`) work uniformly on the resulting object.
+
+    Parameters
+    ----------
+    samples : Mapping[str, torch.Tensor]
+        Site name to draws of shape ``(num_samples, *site_shape)``;
+        becomes the ``posterior`` group.
+    log_densities : torch.Tensor, optional
+        Per-draw log densities; becomes ``sample_stats/lp``.
+    observed_data : Mapping[str, torch.Tensor], optional
+        Site name to observed tensor; becomes ``observed_data``.
+    posterior_predictive : Mapping[str, torch.Tensor], optional
+        Site name to posterior-predictive draws of shape
+        ``(num_samples, *site_shape)``; becomes
+        ``posterior_predictive``.
+    log_likelihood : Mapping[str, torch.Tensor], optional
+        Site name to per-observation log-likelihood of shape
+        ``(num_samples, *obs_shape)``; becomes ``log_likelihood``.
+    constant_data : Mapping[str, torch.Tensor], optional
+        Site name to fixed covariate tensor; becomes ``constant_data``.
+    coords : Mapping[str, list], optional
+        Coordinate values per named axis, forwarded to ArviZ.
+    dims : Mapping[str, list[str]], optional
+        Per-site axis names, forwarded to ArviZ.
+
+    Returns
+    -------
+    xr.DataTree
+        The ArviZ DataTree, with a chain dimension of size 1.
     """
     data: dict[str, dict] = {}
 
@@ -197,7 +225,9 @@ def to_datatree_from_svi(
 
 
 def to_datatree_any(
-    fit,
+    fit: MCMCResult
+    | Mapping[str, torch.Tensor]
+    | tuple[Mapping[str, torch.Tensor], torch.Tensor],
     *,
     observed_data: Mapping[str, torch.Tensor] | None = None,
     posterior_predictive: Mapping[str, torch.Tensor] | None = None,
@@ -210,17 +240,44 @@ def to_datatree_any(
 
     Accepts:
 
-    * [`MCMCResult`][quivers.inference.MCMCResult] — routes to the
-      original `to_datatree` chain / draw semantics.
-    * A plain dict of `str -> Tensor` (SVI / Predictive draws) —
-      routes to `to_datatree_from_svi` with a single pseudo-chain.
-    * A tuple `(samples, log_densities)` — same as the dict form
-      but populates `sample_stats/lp` from the second entry.
+    * an [`MCMCResult`][quivers.inference.MCMCResult], converted by
+      `to_datatree` with its chain and draw semantics;
+    * a mapping of site name to tensor (SVI or Predictive draws),
+      converted by `to_datatree_from_svi` with a single pseudo-chain;
+    * a tuple ``(samples, log_densities)``, converted like the mapping
+      form with ``sample_stats/lp`` populated from the second entry.
 
-    Consumers with a custom fit-container type can add a case here
-    or call the specific `to_datatree` / `to_datatree_from_svi`
-    entry point directly. The generic dispatch closes issue #43 by
-    giving SVI users a one-line ArviZ export path.
+    Consumers with a custom fit-container type can call the specific
+    `to_datatree` or `to_datatree_from_svi` entry point directly.
+
+    Parameters
+    ----------
+    fit : MCMCResult or Mapping[str, torch.Tensor] or tuple
+        The fit to convert, in one of the forms above.
+    observed_data : Mapping[str, torch.Tensor], optional
+        Site name to observed tensor; becomes ``observed_data``.
+    posterior_predictive : Mapping[str, torch.Tensor], optional
+        Site name to posterior-predictive draws; becomes
+        ``posterior_predictive``.
+    log_likelihood : Mapping[str, torch.Tensor], optional
+        Site name to per-observation log-likelihood; becomes
+        ``log_likelihood``.
+    constant_data : Mapping[str, torch.Tensor], optional
+        Site name to fixed covariate tensor; becomes ``constant_data``.
+    coords : Mapping[str, list], optional
+        Coordinate values per named axis, forwarded to ArviZ.
+    dims : Mapping[str, list[str]], optional
+        Per-site axis names, forwarded to ArviZ.
+
+    Returns
+    -------
+    xr.DataTree
+        The ArviZ DataTree of the fit.
+
+    Raises
+    ------
+    TypeError
+        If ``fit`` is none of the accepted forms.
     """
     if isinstance(fit, MCMCResult):
         return to_datatree(
@@ -260,3 +317,6 @@ def to_datatree_any(
         "Mapping[str, Tensor] (SVI / Predictive), "
         "tuple[Mapping, Tensor] (samples + log-densities)."
     )
+
+
+__all__ = ["to_datatree", "to_datatree_any", "to_datatree_from_svi"]

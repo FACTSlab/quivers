@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from quivers.qiec.identifiers import (
     EffectInstanceId,
@@ -22,9 +22,6 @@ from quivers.qiec.types import (
     check_static_arguments,
     render_static,
 )
-
-if TYPE_CHECKING:
-    from quivers.qiec.terms import Value
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -354,6 +351,7 @@ class EffectRow:
 
 
 EMPTY_ROW = EffectRow()
+"""The row of a computation that performs no effects."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1123,23 +1121,24 @@ __all__ = [
     "EffectRow",
     "HandlerClauseDef",
     "HandlerDef",
+    "HandlerReturnClauseDef",
     "OperationDef",
     "ResumptionGrade",
     "RowEntry",
     "RowSubstitution",
     "RowUnification",
     "RowVariable",
-    "HandlerReturnClauseDef",
     "instantiate_effect",
     "render_instance",
     "render_row",
     "unify_effect_rows",
 ]
 
-# Handler clauses carry computations, and the serializer resolves a
-# record's annotations at runtime, so `Computation` and `Local` have to
-# be real names in this module rather than `TYPE_CHECKING` ones. The
+# Handler clauses carry computations and requests carry values, and the
+# serializer and `typing.get_type_hints` resolve a record's annotations at
+# runtime, so `Computation`, `Local`, and `Value` have to be real names in
+# this module rather than `TYPE_CHECKING` ones. The
 # import sits at the foot of the file because `terms` imports the effect
 # records defined above it: by the time control reaches here they exist,
 # so the cycle closes rather than deadlocking.
-from quivers.qiec.terms import Computation, Local  # noqa: E402
+from quivers.qiec.terms import Computation, Local, Value  # noqa: E402

@@ -24,7 +24,7 @@ from __future__ import annotations
 import didactic.api as dx
 
 from quivers.core.morphisms import Morphism
-from quivers.core.objects import ProductSet, SetObject
+from quivers.core.objects import CoproductSet, FinSet, ProductSet, SetObject
 from quivers.monadic.typeclasses import Monad, MonadTrans
 
 
@@ -94,8 +94,6 @@ class MaybeT(_TransBase):
     """
 
     def fmap_obj(self, A: SetObject) -> SetObject:
-        from quivers.core.objects import CoproductSet, FinSet
-
         nothing = FinSet(name=f"_nothing_{A!s}", cardinality=1)
         return CoproductSet(components=(A, nothing))
 

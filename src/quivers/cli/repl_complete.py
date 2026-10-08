@@ -2,12 +2,12 @@
 
 Completions merge three sources:
 
-1. Env names from the active [`quivers.cli.repl_session.ReplSession`][quivers.cli.repl_session.ReplSession]
+1. Env names from the active [`ReplSession`][quivers.cli.ReplSession]
    (objects, spaces, morphisms, rules).
 2. Keywords pulled live from the QVR Pygments lexer's keyword and
    builtin tables, so adding a new grammar keyword automatically lights
    it up.
-3. Meta-command names from [`quivers.cli.repl_session`][quivers.cli.repl_session].
+3. Meta-command names from the [`ReplSession`][quivers.cli.ReplSession] dispatch table.
 
 Each completion carries an optional one-line documentation string;
 prompt_toolkit and the LSP both expose this to the user.
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import glob
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from quivers.analysis.scope import (
     SCOPE_SEPARATOR,
@@ -25,6 +24,7 @@ from quivers.analysis.scope import (
     scope_children,
 )
 from quivers.cli import repl_session
+from quivers.cli.repl_session import ReplSession
 from quivers.dsl.pygments_lexer import (
     _ALGEBRA_NAMES,
     _BUILTIN_FUNCTION_TOKENS,
@@ -38,9 +38,6 @@ from quivers.dsl.qiec_tooling import (
     qiec_binding_map,
 )
 from quivers.transpile import available_targets
-
-if TYPE_CHECKING:
-    from quivers.cli.repl_session import ReplSession
 
 
 @dataclass(frozen=True)
@@ -58,6 +55,11 @@ def public_meta_commands() -> tuple[str, ...]:
     The dispatch table registers each long spelling before its short aliases.
     Keeping the first name for each handler thus makes completion and the TUI
     palette follow the executable command surface without advertising aliases.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The long spelling of each meta-command, in registration order.
     """
     seen: set[object] = set()
     commands: list[str] = []
@@ -69,11 +71,24 @@ def public_meta_commands() -> tuple[str, ...]:
     return tuple(commands)
 
 
-def all_completions(session: "ReplSession", prefix: str) -> list[Completion]:
+def all_completions(session: ReplSession, prefix: str) -> list[Completion]:
     """Return every candidate whose text starts with ``prefix``.
 
     The caller (prompt_toolkit Completer, LSP completion handler)
     decides which slice to show.
+
+    Parameters
+    ----------
+    session : ReplSession
+        The session whose environment supplies name completions.
+    prefix : str
+        The text typed so far.
+
+    Returns
+    -------
+    list[Completion]
+        Meta-command, transpile-target, environment, keyword, and path
+        candidates, in that order.
     """
     out: list[Completion] = []
     out.extend(_meta_completions(prefix))
@@ -123,7 +138,7 @@ def _meta_completions(prefix: str) -> list[Completion]:
     return out
 
 
-def _env_completions(session: "ReplSession", prefix: str) -> list[Completion]:
+def _env_completions(session: ReplSession, prefix: str) -> list[Completion]:
     """Complete bindings from every populated env bucket.
 
     Two modes:
@@ -162,7 +177,7 @@ def _env_completions(session: "ReplSession", prefix: str) -> list[Completion]:
             )
         return out
 
-    compiler = session._compiler  # noqa: SLF001 — internal but stable
+    compiler = session._compiler  # noqa: SLF001
     if compiler is None:
         return out
 

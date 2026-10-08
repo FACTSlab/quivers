@@ -1,305 +1,208 @@
 """Continuous morphisms: the hybrid discrete-continuous architecture.
 
-This subpackage extends quivers with true continuous distributions,
-enabling morphisms between continuous measurable spaces alongside
-the existing finite tensor infrastructure.
+This package extends quivers with continuous distributions, so that
+morphisms between continuous measurable spaces sit alongside the finite
+tensor infrastructure.
 
-The key abstraction is ContinuousMorphism, which defines a conditional
-distribution p(y | x) via two operations:
+The key abstraction is `ContinuousMorphism`, which defines a conditional
+distribution p(y | x) through two operations:
 
-    log_prob(x, y) — evaluate the log-density/probability
-    rsample(x)     — generate reparameterized samples
+    log_prob(x, y)  evaluate the log density or mass
+    rsample(x)      draw reparameterized samples
 
 Composition uses ancestral sampling (exact for discrete intermediates,
-Monte Carlo for continuous ones), and the >> and @ operators work
-across discrete and continuous morphisms transparently.
+Monte Carlo for continuous ones), and the ``>>`` and ``@`` operators
+work across discrete and continuous morphisms.
 
-Spaces
-------
-Euclidean, UnitInterval, Simplex, PositiveReals, ProductSpace
+The package re-exports every public name of its modules:
 
-Morphisms
----------
-ContinuousMorphism, SampledComposition, DiscreteAsContinuous
-
-Parameterized families
-----------------------
-ConditionalNormal, ConditionalLogitNormal, ConditionalBeta,
-ConditionalTruncatedNormal, ConditionalDirichlet,
-ConditionalGaussianProcess, ConditionalHorseshoe
-
-Boundary morphisms
-------------------
-Discretize, Embed
-
-Normalizing flows
------------------
-ConditionalFlow, AffineCouplingLayer
+- spaces (`Euclidean`, `Simplex`, `ProductSpace`, ...) and morphisms
+  (`ContinuousMorphism`, `SampledComposition`, `FanOutMorphism`, ...);
+- conditional families (`ConditionalNormal`, ...), ordered and
+  zero-inflated families, normalizing flows, and boundary morphisms;
+- the family registry (`FamilySpec`, `register_family`), parameter
+  sources, bijectors, and the compositional measure algebra;
+- the program builders: [`MonadicProgram`][quivers.continuous.MonadicProgram],
+  its step records (`Draw`, `Observe`, `Let`, `Score`), the inline
+  distributions the compiler emits (`FixedDistribution`,
+  `MixedInlineDistribution`, the `make_fixed_*` factories), and the
+  plate steps (`PlateDraw`, `VectorisedObserve`).
 """
 
-from quivers.continuous.spaces import (
-    Ball,
-    CholeskyFactor,
-    ContinuousSpace,
-    Correlation,
-    Covariance,
-    Diagonal,
-    Euclidean,
-    LowerTriangular,
-    Orthogonal,
-    PositiveReals,
-    ProductSpace,
-    Simplex,
-    Sphere,
-    Stiefel,
-    UnitInterval,
+import importlib
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from quivers.continuous import (
+    _ordered,
+    _zip_hurdle,
+    bijectors,
+    boundaries,
+    deterministic,
+    families,
+    family_spec,
+    flows,
+    measure,
+    morphisms,
+    ordered,
+    param_source,
+    param_transforms,
+    plate,
+    program_steps,
+    programs,
+    scan,
+    spaces,
 )
-from quivers.continuous.morphisms import (
-    AnySpace,
-    ContinuousMorphism,
-    SampledComposition,
-    ProductContinuousMorphism,
-    DiscreteAsContinuous,
-)
-from quivers.continuous.families import (
-    # hand-written (backward compatible)
-    ConditionalNormal,
-    ConditionalLogitNormal,
-    ConditionalBeta,
-    ConditionalTruncatedNormal,
-    ConditionalDirichlet,
-    # loc-scale family
-    ConditionalCauchy,
-    ConditionalLaplace,
-    ConditionalGumbel,
-    ConditionalLogNormal,
-    ConditionalStudentT,
-    # positive-valued
-    ConditionalExponential,
-    ConditionalGamma,
-    ConditionalChi2,
-    ConditionalHalfCauchy,
-    ConditionalHalfNormal,
-    ConditionalInverseGamma,
-    ConditionalWeibull,
-    ConditionalPareto,
-    # (0, 1)-valued
-    ConditionalKumaraswamy,
-    ConditionalContinuousBernoulli,
-    # two-df
-    ConditionalFisherSnedecor,
-    # special parameterization
-    ConditionalUniform,
-    # multivariate
-    ConditionalMultivariateNormal,
-    ConditionalLowRankMVN,
-    # relaxed discrete
-    ConditionalRelaxedBernoulli,
-    ConditionalRelaxedOneHotCategorical,
-    # matrix-valued
-    ConditionalWishart,
-    ConditionalInverseWishart,
-    ConditionalMatrixNormal,
-    # non-parametric and shrinkage
-    ConditionalGaussianProcess,
-    ConditionalHorseshoe,
-    # discrete-valued
-    ConditionalBernoulli,
-    ConditionalCategorical,
-    # discrete count families
-    ConditionalPoisson,
-    ConditionalNegativeBinomial,
-    ConditionalGeometric,
-    ConditionalBinomial,
-    # circular / simplex / one-hot / correlation
-    ConditionalVonMises,
-    ConditionalLogisticNormal,
-    ConditionalOneHotCategorical,
-    ConditionalLKJCholesky,
-    # distribution wrappers
-    ConditionalMixture,
-    ConditionalIndependent,
-    ConditionalTransformed,
-    Truncated,
-    LKJCorrelationFactor,
-    # shim distribution families
-    ConditionalBetaBinomial,
-    ConditionalLogistic,
-    ConditionalHalfStudentT,
-    ConditionalZeroInflatedPoisson,
-    ConditionalHurdlePoisson,
-    ConditionalZeroOneInflatedBeta,
-    ConditionalMixtureNormal,
-)
-from quivers.continuous.ordered import (
-    ConditionalOrderedLogistic,
-    ConditionalOrderedProbit,
-)
-from quivers.continuous.programs import (
-    MonadicProgram,
-)
-from quivers.continuous.scan import (
-    ScanMorphism,
-)
-from quivers.continuous.boundaries import (
-    Discretize,
-    Embed,
-)
-from quivers.continuous.flows import (
-    AffineCouplingLayer,
-    ConditionalFlow,
+from quivers.continuous._ordered import *  # noqa: F403
+from quivers.continuous._zip_hurdle import *  # noqa: F403
+from quivers.continuous.bijectors import *  # noqa: F403
+from quivers.continuous.boundaries import *  # noqa: F403
+from quivers.continuous.deterministic import *  # noqa: F403
+from quivers.continuous.families import *  # noqa: F403
+from quivers.continuous.family_spec import *  # noqa: F403
+from quivers.continuous.flows import *  # noqa: F403
+from quivers.continuous.measure import *  # noqa: F403
+from quivers.continuous.morphisms import *  # noqa: F403
+from quivers.continuous.ordered import *  # noqa: F403
+from quivers.continuous.param_source import *  # noqa: F403
+from quivers.continuous.param_transforms import *  # noqa: F403
+from quivers.continuous.plate import *  # noqa: F403
+from quivers.continuous.program_steps import *  # noqa: F403
+from quivers.continuous.programs import *  # noqa: F403
+from quivers.continuous.scan import *  # noqa: F403
+from quivers.continuous.spaces import *  # noqa: F403
+from quivers.continuous.morphisms import ContinuousMorphism
+from quivers.continuous.program_steps import StepArgument
+
+if TYPE_CHECKING:
+    from quivers.continuous.inline import (
+        FixedDistribution,
+        MixedInlineDistribution,
+        get_inline_param_names,
+        get_inline_parameterizations,
+        make_fixed_bernoulli,
+        make_fixed_beta,
+        make_fixed_categorical,
+        make_fixed_dirichlet,
+        make_fixed_exponential,
+        make_fixed_gamma,
+        make_fixed_halfcauchy,
+        make_fixed_halfnormal,
+        make_fixed_lkj_cholesky,
+        make_fixed_logitnormal,
+        make_fixed_lognormal,
+        make_fixed_normal,
+        make_fixed_truncated_normal,
+        make_fixed_uniform,
+        make_inline_distribution,
+        reload_inline_registry,
+    )
+
+# The inline-distribution builders. Their module reads the DSL's argument
+# syntax, and the DSL compiler imports this package, so they bind on first
+# access rather than at import.
+_INLINE_EXPORTS = (
+    "FixedDistribution",
+    "MixedInlineDistribution",
+    "get_inline_param_names",
+    "get_inline_parameterizations",
+    "make_fixed_bernoulli",
+    "make_fixed_beta",
+    "make_fixed_categorical",
+    "make_fixed_dirichlet",
+    "make_fixed_exponential",
+    "make_fixed_gamma",
+    "make_fixed_halfcauchy",
+    "make_fixed_halfnormal",
+    "make_fixed_lkj_cholesky",
+    "make_fixed_logitnormal",
+    "make_fixed_lognormal",
+    "make_fixed_normal",
+    "make_fixed_truncated_normal",
+    "make_fixed_uniform",
+    "make_inline_distribution",
+    "reload_inline_registry",
 )
 
-# Compositional measure-algebra families from main (0.14.x)
-from quivers.continuous._ordered import OrderedLogistic
-from quivers.continuous._zip_hurdle import (
-    HurdlePoisson,
-    MixtureNormal,
-    ZeroInflatedPoisson,
-    ZeroOneInflatedBeta,
-)
-from quivers.continuous.param_source import (
-    AttentionSource,
-    ComposeSource,
-    EmbeddingSource,
-    FunctionSource,
-    IdentitySource,
-    LinearSource,
-    LookupSource,
-    MLPSource,
-    ParamSource,
-    make_param_source,
-    param_source_from_option,
+
+type _InlineExport = (
+    type[ContinuousMorphism]
+    | Callable[
+        ...,
+        ContinuousMorphism
+        | tuple[ContinuousMorphism, tuple[StepArgument, ...] | None]
+        | tuple[str, ...]
+        | tuple[tuple[str, ...], ...]
+        | None,
+    ]
 )
 
-# optional: GeneralizedPareto (torch version dependent)
-try:
-    from quivers.continuous.families import ConditionalGeneralizedPareto as _GPD_cls
 
-    ConditionalGeneralizedPareto = _GPD_cls
+def __getattr__(name: str) -> _InlineExport:
+    """Bind an inline-distribution builder on first access.
 
-except ImportError:
-    pass
+    Parameters
+    ----------
+    name : str
+        The attribute requested.
 
-__all__ = [
-    # spaces
-    "Ball",
-    "CholeskyFactor",
-    "ContinuousSpace",
-    "Correlation",
-    "Covariance",
-    "Diagonal",
-    "Euclidean",
-    "LowerTriangular",
-    "Orthogonal",
-    "PositiveReals",
-    "ProductSpace",
-    "Simplex",
-    "Sphere",
-    "Stiefel",
-    "UnitInterval",
-    # morphisms
-    "AnySpace",
-    "ContinuousMorphism",
-    "SampledComposition",
-    "ProductContinuousMorphism",
-    "DiscreteAsContinuous",
-    # families — original
-    "ConditionalNormal",
-    "ConditionalLogitNormal",
-    "ConditionalBeta",
-    "ConditionalTruncatedNormal",
-    "ConditionalDirichlet",
-    # families — loc-scale
-    "ConditionalCauchy",
-    "ConditionalLaplace",
-    "ConditionalGumbel",
-    "ConditionalLogNormal",
-    "ConditionalStudentT",
-    # families — positive-valued
-    "ConditionalExponential",
-    "ConditionalGamma",
-    "ConditionalChi2",
-    "ConditionalHalfCauchy",
-    "ConditionalHalfNormal",
-    "ConditionalInverseGamma",
-    "ConditionalWeibull",
-    "ConditionalPareto",
-    # families — (0, 1)-valued
-    "ConditionalKumaraswamy",
-    "ConditionalContinuousBernoulli",
-    # families — two-df
-    "ConditionalFisherSnedecor",
-    # families — special
-    "ConditionalUniform",
-    # families — multivariate
-    "ConditionalMultivariateNormal",
-    "ConditionalLowRankMVN",
-    # families — relaxed discrete
-    "ConditionalRelaxedBernoulli",
-    "ConditionalRelaxedOneHotCategorical",
-    # families — matrix-valued
-    "ConditionalWishart",
-    "ConditionalInverseWishart",
-    "ConditionalMatrixNormal",
-    # families: non-parametric and shrinkage
-    "ConditionalGaussianProcess",
-    "ConditionalHorseshoe",
-    # discrete-valued conditional distributions
-    "ConditionalBernoulli",
-    "ConditionalCategorical",
-    # discrete count families
-    "ConditionalPoisson",
-    "ConditionalNegativeBinomial",
-    "ConditionalGeometric",
-    "ConditionalBinomial",
-    # circular / simplex / one-hot / correlation
-    "ConditionalVonMises",
-    "ConditionalLogisticNormal",
-    "ConditionalOneHotCategorical",
-    "ConditionalLKJCholesky",
-    # distribution wrappers
-    "ConditionalMixture",
-    "ConditionalIndependent",
-    "ConditionalTransformed",
-    "Truncated",
-    "LKJCorrelationFactor",
-    # shim distribution families
-    "ConditionalBetaBinomial",
-    "ConditionalLogistic",
-    "ConditionalHalfStudentT",
-    "ConditionalOrderedLogistic",
-    "ConditionalOrderedProbit",
-    "ConditionalZeroInflatedPoisson",
-    "ConditionalHurdlePoisson",
-    "ConditionalZeroOneInflatedBeta",
-    "ConditionalMixtureNormal",
-    # monadic programs
-    "MonadicProgram",
-    # scan (temporal recurrence)
-    "ScanMorphism",
-    # boundaries
-    "Discretize",
-    "Embed",
-    # flows
-    "AffineCouplingLayer",
-    "ConditionalFlow",
-    # Compositional measure-algebra families from main
-    "OrderedLogistic",
-    "HurdlePoisson",
-    "MixtureNormal",
-    "ZeroInflatedPoisson",
-    "ZeroOneInflatedBeta",
-    # parameter sources
-    "ParamSource",
-    "LinearSource",
-    "MLPSource",
-    "LookupSource",
-    "EmbeddingSource",
-    "AttentionSource",
-    "IdentitySource",
-    "FunctionSource",
-    "ComposeSource",
-    "make_param_source",
-    "param_source_from_option",
+    Returns
+    -------
+    _InlineExport
+        The builder `quivers.continuous.inline` defines under that name.
+
+    Raises
+    ------
+    AttributeError
+        If ``name`` is not an inline-distribution builder.
+    """
+    if name in _INLINE_EXPORTS:
+        value: _InlineExport = getattr(
+            importlib.import_module("quivers.continuous.inline"), name
+        )
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__: list[str] = []
+__all__ += spaces.__all__
+__all__ += morphisms.__all__
+__all__ += families.__all__
+__all__ += ordered.__all__
+__all__ += _ordered.__all__
+__all__ += _zip_hurdle.__all__
+__all__ += boundaries.__all__
+__all__ += flows.__all__
+__all__ += scan.__all__
+__all__ += deterministic.__all__
+__all__ += bijectors.__all__
+__all__ += measure.__all__
+__all__ += family_spec.__all__
+__all__ += param_source.__all__
+__all__ += param_transforms.__all__
+__all__ += program_steps.__all__
+__all__ += programs.__all__
+__all__ += [
+    "FixedDistribution",
+    "MixedInlineDistribution",
+    "get_inline_param_names",
+    "get_inline_parameterizations",
+    "make_fixed_bernoulli",
+    "make_fixed_beta",
+    "make_fixed_categorical",
+    "make_fixed_dirichlet",
+    "make_fixed_exponential",
+    "make_fixed_gamma",
+    "make_fixed_halfcauchy",
+    "make_fixed_halfnormal",
+    "make_fixed_lkj_cholesky",
+    "make_fixed_logitnormal",
+    "make_fixed_lognormal",
+    "make_fixed_normal",
+    "make_fixed_truncated_normal",
+    "make_fixed_uniform",
+    "make_inline_distribution",
+    "reload_inline_registry",
 ]
+__all__ += plate.__all__

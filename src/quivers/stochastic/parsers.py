@@ -2,11 +2,11 @@
 
 A ``ChartParser`` is a ``DeductiveSystem`` that composes:
 
-- ``LexicalAxiom`` — populates length-1 spans from a learnable lexicon.
-- ``BinarySpanDeduction`` — applies binary structural rules.
-- ``UnarySpanDeduction`` — applies unary rules to convergence.
-- ``SpanGoal`` — extracts the start-symbol score for the full span.
-- ``CKYSchedule`` — bottom-up evaluation by span length.
+- ``LexicalAxiom``: populates length-1 spans from a learnable lexicon.
+- ``BinarySpanDeduction``: applies binary structural rules.
+- ``UnarySpanDeduction``: applies unary rules to convergence.
+- ``SpanGoal``: extracts the start-symbol score for the full span.
+- ``CKYSchedule``: bottom-up evaluation by span length.
 
 Concrete grammar formalisms are specific choices of ``RuleSchema``:
 
@@ -189,6 +189,11 @@ class ChartParser(DeductiveSystem):
         -------
         ChartParser
             A new parser instance.
+
+        Raises
+        ------
+        ValueError
+            If ``start`` is not in ``category_system``.
         """
         if isinstance(start, str):
             start = AtomicCategory(name=start)
@@ -250,6 +255,11 @@ class ChartParser(DeductiveSystem):
         -------
         torch.Tensor
             Score of each sentence under the grammar.
+
+        Raises
+        ------
+        ValueError
+            If the sentences are empty.
         """
         squeeze = False
 
@@ -279,6 +289,11 @@ class ChartParser(DeductiveSystem):
         -------
         torch.Tensor
             Full chart of shape ``(batch, N, seq_len, seq_len+1)``.
+
+        Raises
+        ------
+        ValueError
+            If the sentences are empty.
         """
         squeeze = False
 
@@ -317,3 +332,8 @@ class ChartParser(DeductiveSystem):
             f"unary_rules={self.n_unary_rules}"
             f"{semiring_desc}{rule_desc})"
         )
+
+
+__all__ = [
+    "ChartParser",
+]

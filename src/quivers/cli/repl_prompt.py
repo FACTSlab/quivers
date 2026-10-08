@@ -8,7 +8,7 @@ and output is rendered.
 Two render paths:
 
 - If ``rich`` is available we render `ReplResponse` bodies with
-  syntax highlighting via [`quivers.cli.repl_highlight.to_rich_text`][quivers.cli.repl_highlight.to_rich_text].
+  syntax highlighting via [`to_rich_text`][quivers.cli.to_rich_text].
 - Otherwise we print the body verbatim. Diagnostics always print to
   stderr.
 
@@ -20,14 +20,26 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from quivers.cli.repl_session import ReplResponse, ReplSession
+from quivers.cli.repl_session import ReplResponse, ReplSession
 
 
-def run_plain(session: "ReplSession") -> int:
-    """Drive ``session`` with prompt_toolkit (or bare stdin if missing)."""
+def run_plain(session: ReplSession) -> int:
+    """Run the single-line REPL front end on ``session``.
+
+    The front end reads with prompt_toolkit when it is installed and
+    with bare standard input otherwise.
+
+    Parameters
+    ----------
+    session : ReplSession
+        The session that evaluates each line.
+
+    Returns
+    -------
+    int
+        The process exit status, ``0`` when the user quits.
+    """
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.completion import Completer, Completion
@@ -89,7 +101,7 @@ def _bare_input() -> str | None:
         return None
 
 
-def _render(response: "ReplResponse") -> None:
+def _render(response: ReplResponse) -> None:
     # Try rich for nicer output, fall back to plain print.
     try:
         from rich.console import Console

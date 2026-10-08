@@ -5,43 +5,82 @@ a uniform algebraic interface for compressing structured objects to
 fixed-length vectors and decoding them under a learned distribution.
 """
 
-from .encoder import Encoder
-from .decoder import Decoder
-from .losses import LossEntry, LossRegistry
-from .signature import (
-    Binder,
-    BinderArgSpec,
-    BinderVarSpec,
-    Constructor,
-    Context,
+from __future__ import annotations
+
+from quivers.structural.signature import (
     DataLeaf,
-    EMPTY_CONTEXT,
+    TermArg,
+    SortKind,
+    SortVocabEntry,
+    Sort,
+    Constructor,
+    BinderVarSpec,
+    BinderArgSpec,
+    Binder,
+    VertexKind,
     EdgeKind,
     Signature,
-    Sort,
     Term,
-    VertexKind,
     bound_var,
     make_term,
+    ContextEntry,
+    Context,
+    EMPTY_CONTEXT,
+)
+from quivers.structural.encoder import (
+    BOUND_VAR_OP,
+    PerOpMode,
+    PerOpFn,
+    make_default_op_fn,
+    make_default_var_init,
+    Encoder,
+)
+from quivers.structural.decoder import (
+    Decoder,
+)
+from quivers.structural.losses import (
+    LossBody,
+    LossWeight,
+    TrainEnv,
+    AttachmentKind,
+    LossEntry,
+    LossRegistry,
 )
 
 __all__ = [
-    "Binder",
-    "BinderArgSpec",
-    "BinderVarSpec",
-    "Encoder",
-    "Constructor",
-    "Context",
+    # signature
     "DataLeaf",
-    "Decoder",
-    "EMPTY_CONTEXT",
-    "EdgeKind",
-    "LossEntry",
-    "LossRegistry",
-    "Signature",
+    "TermArg",
+    "SortKind",
+    "SortVocabEntry",
     "Sort",
-    "Term",
+    "Constructor",
+    "BinderVarSpec",
+    "BinderArgSpec",
+    "Binder",
     "VertexKind",
+    "EdgeKind",
+    "Signature",
+    "Term",
     "bound_var",
     "make_term",
+    "ContextEntry",
+    "Context",
+    "EMPTY_CONTEXT",
+    # encoder
+    "BOUND_VAR_OP",
+    "PerOpMode",
+    "PerOpFn",
+    "make_default_op_fn",
+    "make_default_var_init",
+    "Encoder",
+    # decoder
+    "Decoder",
+    # losses
+    "LossBody",
+    "LossWeight",
+    "TrainEnv",
+    "AttachmentKind",
+    "LossEntry",
+    "LossRegistry",
 ]

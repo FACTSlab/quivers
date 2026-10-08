@@ -17,14 +17,10 @@ All operations use log-space for numerical stability.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
 
 from quivers.core._util import clamp_probs
-
-if TYPE_CHECKING:
-    from quivers.core.algebras import Algebra
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
 def noisy_or_contract(
@@ -202,8 +198,6 @@ def componentwise_lift(
         algebra's unit value.
         For k=1, returns f unchanged.
     """
-    from quivers.core.algebras import PRODUCT_FUZZY
-
     if algebra is None:
         algebra = PRODUCT_FUZZY
 
@@ -236,3 +230,11 @@ def componentwise_lift(
         result = outer.permute(*perm)
 
     return result
+
+
+__all__ = [
+    "noisy_or_contract",
+    "noisy_or_reduce",
+    "noisy_and_reduce",
+    "componentwise_lift",
+]

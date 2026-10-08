@@ -260,7 +260,27 @@ class EinsumWiring(WiringRule):
 
 
 def einsum_wiring(composition_rule: CompositionRule, spec: str) -> EinsumWiring:
-    """Convenience constructor for `EinsumWiring`."""
+    """Convenience constructor for `EinsumWiring`.
+
+    Parameters
+    ----------
+    composition_rule : CompositionRule
+        The rule supplying ``tensor_op`` and ``join``.
+    spec : str
+        An einsum specification such as ``"ij,jk->ik"``.
+
+    Returns
+    -------
+    EinsumWiring
+        The wiring rule for ``spec``.
+
+    Raises
+    ------
+    TypeError
+        If ``composition_rule`` is not a `CompositionRule`.
+    ValueError
+        If ``spec`` is malformed.
+    """
     return EinsumWiring(composition_rule, spec)
 
 
@@ -276,6 +296,18 @@ def contract(
         result = contract(my_rule, arg1, arg2, kernel)
 
     is an alternative to the method-call form.
+
+    Parameters
+    ----------
+    rule : WiringRule
+        The wiring rule to apply.
+    *tensors : torch.Tensor
+        The input tensors, in the order the rule expects.
+
+    Returns
+    -------
+    torch.Tensor
+        The contracted tensor.
     """
     return rule.apply(*tensors)
 

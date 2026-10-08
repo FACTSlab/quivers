@@ -61,14 +61,12 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import torch
 
-if TYPE_CHECKING:
-    from quivers.structural.encoder import Encoder
-
 from quivers.stochastic.semiring import ChartSemiring, LOG_PROB
+from quivers.structural.encoder import Encoder
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +100,19 @@ class Wildcard:
         return f"_{self.name}"
 
 
-WILDCARD_SENTINEL = "__WC__"
-
-
 def make_wildcard(name: str) -> Wildcard:
-    """Build a fresh wildcard with the given variable name."""
+    """Build a fresh wildcard with the given variable name.
+
+    Parameters
+    ----------
+    name : str
+        The pattern variable the wildcard binds.
+
+    Returns
+    -------
+    Wildcard
+        The wildcard.
+    """
     return Wildcard(name)
 
 
@@ -125,7 +131,7 @@ values they captured during pattern-matching."""
 
 @dataclass(frozen=True)
 class InferenceRule:
-    """A weighted inference rule — an arity-n hyperedge.
+    """A weighted inference rule, that is, an arity-n hyperedge.
 
     Parameters
     ----------
@@ -158,13 +164,27 @@ class InferenceRule:
 def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
     """Substitute wildcards in a pattern with their bound values.
 
-    Returns a concrete item with no wildcards. Raises
-    `KeyError` if a wildcard in the pattern has no binding.
-
     The pattern may be a bare `Wildcard` (treated as "the
     entire item is the wildcard"), a structural tuple, or a leaf
     value (returned unchanged). Recursion runs over tuple
     children.
+
+    Parameters
+    ----------
+    pattern : Pattern
+        The pattern to instantiate.
+    bindings : Bindings
+        Values for the pattern's wildcards.
+
+    Returns
+    -------
+    Item
+        A concrete item with no wildcards.
+
+    Raises
+    ------
+    KeyError
+        If a wildcard in the pattern has no binding.
     """
     if isinstance(pattern, Wildcard):
         return bindings[pattern.name]
@@ -184,7 +204,28 @@ def instantiate(pattern: Pattern, bindings: Bindings) -> Item:
 def match(
     pattern: Pattern, item: Item, bindings: Bindings | None = None
 ) -> Bindings | None:
-    """Match an item against a pattern."""
+    """Match an item against a pattern.
+
+    Wildcards bind the values at their positions; a wildcard
+    already bound in ``bindings`` (or earlier in the pattern) must
+    see an equal value. Tuples match slot by slot when their
+    lengths agree, and other values match by equality.
+
+    Parameters
+    ----------
+    pattern : Pattern
+        The pattern to match.
+    item : Item
+        The item to match against.
+    bindings : Bindings or None
+        Bindings to extend; ``None`` starts from no bindings.
+
+    Returns
+    -------
+    Bindings or None
+        The extended bindings, or ``None`` when the item does not
+        match.
+    """
     if bindings is None:
         bindings = {}
     if isinstance(pattern, Wildcard):
@@ -240,7 +281,18 @@ class Chart(ABC):
 
     @abstractmethod
     def lookup(self, pattern: Pattern) -> Iterable[tuple[Item, torch.Tensor]]:
-        """Enumerate (item, weight) pairs matching a pattern."""
+        """Enumerate (item, weight) pairs matching a pattern.
+
+        Parameters
+        ----------
+        pattern : Pattern
+            The pattern to match stored items against.
+
+        Returns
+        -------
+        Iterable of (Item, torch.Tensor)
+            The matching items with their weights.
+        """
         ...
 
     @abstractmethod
@@ -252,21 +304,51 @@ class Chart(ABC):
     ) -> bool:
         """Insert or aggregate an item's weight.
 
-        Returns ``True`` if the item's stored weight changed
-        (so it should be re-enqueued for downstream firings);
-        ``False`` if the weight was unchanged (the inference was
-        redundant under the semiring's idempotent join).
+        Parameters
+        ----------
+        item : Item
+            The item to store.
+        weight : torch.Tensor
+            The weight to insert, or to aggregate with the stored
+            weight under ``semiring.plus``.
+        semiring : ChartSemiring
+            The semiring whose ``plus`` aggregates weights.
+
+        Returns
+        -------
+        bool
+            ``True`` if the item's stored weight changed (so it
+            should be re-enqueued for downstream firings);
+            ``False`` if the weight was unchanged (the inference was
+            redundant under the semiring's idempotent join).
         """
         ...
 
     @abstractmethod
     def get(self, item: Item) -> torch.Tensor | None:
-        """Return the chart's weight at an item, or ``None`` if absent."""
+        """Return the chart's weight at an item, or ``None`` if absent.
+
+        Parameters
+        ----------
+        item : Item
+            The item to look up.
+
+        Returns
+        -------
+        torch.Tensor or None
+            The stored weight, or ``None`` if the item is absent.
+        """
         ...
 
     @abstractmethod
     def items(self) -> Iterable[tuple[Item, torch.Tensor]]:
-        """Enumerate all (item, weight) pairs in the chart."""
+        """Enumerate all (item, weight) pairs in the chart.
+
+        Returns
+        -------
+        Iterable of (Item, torch.Tensor)
+            Every stored item with its weight.
+        """
         ...
 
 
@@ -286,6 +368,12 @@ class HashChart(Chart):
     final values carry gradients with respect to any
     ``requires_grad=True`` rule-weight parameters that fed into
     the agenda.
+
+    Parameters
+    ----------
+    tolerance : float
+        The smallest change in an item's weight that counts as an
+        update; ``0.0`` treats any change as an update.
     """
 
     def __init__(self, tolerance: float = 0.0) -> None:
@@ -293,6 +381,18 @@ class HashChart(Chart):
         self._tolerance: float = float(tolerance)
 
     def lookup(self, pattern: Pattern) -> Iterable[tuple[Item, torch.Tensor]]:
+        """Scan the stored items for those matching a pattern.
+
+        Parameters
+        ----------
+        pattern : Pattern
+            The pattern to match stored items against.
+
+        Returns
+        -------
+        Iterable of (Item, torch.Tensor)
+            The matching items with their weights.
+        """
         for item, w in self._store.items():
             b = match(pattern, item)
             if b is not None:
@@ -317,13 +417,27 @@ class HashChart(Chart):
         (:math:`\\ge 0`), in which case the chart total is :math:`+
         \\infty` and the model is mathematically ill-posed.
 
-        We make this distinction observable by terminating the
-        agenda when the per-item update falls below
-        `_tolerance`. The default tolerance ``0.0`` recovers
-        the original strict-equality semantics; positive
-        tolerances expose convergent cyclic fixed points while
-        still routing divergent systems through the agenda's
-        ``max_iterations`` safety net.
+        The chart makes this distinction observable by terminating
+        the agenda when the per-item update falls below the
+        tolerance. The default tolerance ``0.0`` treats any change
+        as an update; positive tolerances expose convergent cyclic
+        fixed points while still routing divergent systems through
+        the agenda's ``max_iterations`` safety net.
+
+        Parameters
+        ----------
+        item : Item
+            The item to store.
+        weight : torch.Tensor
+            The weight to insert or aggregate.
+        semiring : ChartSemiring
+            The semiring whose ``plus`` aggregates weights.
+
+        Returns
+        -------
+        bool
+            ``True`` if the stored weight changed by more than the
+            tolerance (or the item is new).
         """
         if item not in self._store:
             self._store[item] = weight
@@ -340,9 +454,28 @@ class HashChart(Chart):
         return changed
 
     def get(self, item: Item) -> torch.Tensor | None:
+        """Return the stored weight at an item.
+
+        Parameters
+        ----------
+        item : Item
+            The item to look up.
+
+        Returns
+        -------
+        torch.Tensor or None
+            The stored weight, or ``None`` if the item is absent.
+        """
         return self._store.get(item)
 
     def items(self) -> Iterable[tuple[Item, torch.Tensor]]:
+        """Enumerate all stored (item, weight) pairs.
+
+        Returns
+        -------
+        Iterable of (Item, torch.Tensor)
+            Every stored item with its weight.
+        """
         return self._store.items()
 
 
@@ -357,15 +490,15 @@ class ChartView:
     Wraps a `Chart` produced by an agenda run and exposes
     the user-facing presheaf-evaluation operations:
 
-    * `weight` — query the aggregated weight at a single
+    * `weight`: query the aggregated weight at a single
       ground item; returns a differentiable `torch.Tensor`.
-    * `enumerate` — enumerate items matching a pattern with
+    * `enumerate`: enumerate items matching a pattern with
       their weights.
-    * `derivations` — extract the derivation forest at an
+    * `derivations`: extract the derivation forest at an
       item (under the derivation semiring; for the basic
       Boolean / LOG_PROB / Viterbi semirings, returns the
       flat list of matched derivations as a placeholder).
-    * `goal_weight` — return the weight at the goal items
+    * `goal_weight`: return the weight at the goal items
       identified at run time.
 
     Categorically, the chart is the K-presheaf
@@ -374,6 +507,11 @@ class ChartView:
     Gradients flow through these operations because the
     underlying tensors carry ``requires_grad`` from the rule
     weights.
+
+    Parameters
+    ----------
+    result : AgendaResult
+        The agenda run to view.
     """
 
     def __init__(self, result: "AgendaResult") -> None:
@@ -399,8 +537,20 @@ class ChartView:
     def weight(self, item: Item) -> torch.Tensor:
         """Return the aggregated weight at a concrete ``item``.
 
-        Raises `KeyError` if the item was never derived.
-        Returns a differentiable `torch.Tensor`.
+        Parameters
+        ----------
+        item : Item
+            A ground item.
+
+        Returns
+        -------
+        torch.Tensor
+            The item's differentiable weight.
+
+        Raises
+        ------
+        KeyError
+            If the item was never derived.
         """
         w = self._result.chart.get(item)
         if w is None:
@@ -412,8 +562,21 @@ class ChartView:
         item: Item,
         default: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Return the weight at ``item`` or ``default`` (or the
-        semiring's zero) if the item is absent."""
+        """Return the weight at ``item``, or a fallback if it is absent.
+
+        Parameters
+        ----------
+        item : Item
+            A ground item.
+        default : torch.Tensor or None
+            The value to return for an absent item; ``None`` means
+            the semiring's zero.
+
+        Returns
+        -------
+        torch.Tensor
+            The item's weight, ``default``, or the semiring's zero.
+        """
         w = self._result.chart.get(item)
         if w is not None:
             return w
@@ -430,8 +593,17 @@ class ChartView:
         """Enumerate (item, weight) pairs matching ``pattern``.
 
         Wildcards in ``pattern`` (instances of `Wildcard`)
-        match any slot value. The returned weights are
-        differentiable.
+        match any slot value.
+
+        Parameters
+        ----------
+        pattern : Pattern
+            The pattern to match.
+
+        Returns
+        -------
+        list of (Item, torch.Tensor)
+            The matching items with their differentiable weights.
         """
         return list(self._result.chart.lookup(pattern))
 
@@ -443,6 +615,21 @@ class ChartView:
         ``_item_encoder`` attribute (set by the DSL compiler when
         the deduction's body declares ``encoder C``). Items are
         converted to [`quivers.structural.Term`][quivers.structural.Term] form on the fly.
+
+        Parameters
+        ----------
+        item : Item
+            The item to embed.
+
+        Returns
+        -------
+        torch.Tensor
+            The encoder's embedding of the item.
+
+        Raises
+        ------
+        RuntimeError
+            If the run carries no encoder.
         """
         encoder = getattr(self._result, "encoder", None)
         if encoder is None:
@@ -453,17 +640,25 @@ class ChartView:
         return encoder(item)
 
     def derivations(self, item: Item) -> list[Item]:
-        """Return the set of items derived under ``item`` in the
-        chart's derivation forest.
+        """Return the items of the chart in which ``item`` was derived.
 
-        For the current implementation (which records only the
-        aggregate weight at each item), this returns the chart's
-        item set as a flat enumeration. The full derivation
-        forest — a tree-structured object whose leaves are
-        axioms and whose internal nodes are rule firings — is
-        recoverable by re-running the agenda with the derivation
-        semiring (a follow-up upgrade); the public surface here
-        keeps the entry point in place for that upgrade.
+        The chart records only the aggregate weight at each item,
+        so this returns the chart's item set as a flat enumeration
+        when ``item`` is in the chart. The full derivation forest
+        (a tree-structured object whose leaves are axioms and whose
+        internal nodes are rule firings) is recoverable by running
+        the agenda with a derivation semiring.
+
+        Parameters
+        ----------
+        item : Item
+            The item whose derivations to return.
+
+        Returns
+        -------
+        list of Item
+            Every item in the chart, or an empty list when ``item``
+            was never derived.
         """
         # In the current implementation we expose the set of
         # items that contributed to the item's weight; a
@@ -482,6 +677,12 @@ class ChartView:
         directly; otherwise aggregates via the semiring's
         ``plus`` reduction (the standard parse-as-marginal
         computation).
+
+        Returns
+        -------
+        torch.Tensor
+            The aggregated goal weight, or the semiring's zero when
+            no goal item was derived.
         """
         if not self._result.goal_items:
             return torch.tensor(
@@ -523,13 +724,36 @@ class Agenda(ABC):
     """
 
     @abstractmethod
-    def push(self, item: Item, weight: torch.Tensor) -> None: ...
+    def push(self, item: Item, weight: torch.Tensor) -> None:
+        """Add an item and its weight to the agenda.
+
+        Parameters
+        ----------
+        item : Item
+            The derived item.
+        weight : torch.Tensor
+            The weight contributed by this derivation.
+        """
 
     @abstractmethod
-    def pop(self) -> tuple[Item, torch.Tensor]: ...
+    def pop(self) -> tuple[Item, torch.Tensor]:
+        """Remove and return the next item under this discipline.
+
+        Returns
+        -------
+        tuple of (Item, torch.Tensor)
+            The next item and its pending weight.
+        """
 
     @abstractmethod
-    def empty(self) -> bool: ...
+    def empty(self) -> bool:
+        """Whether no items are pending.
+
+        Returns
+        -------
+        bool
+            ``True`` when the agenda holds no items.
+        """
 
     def bind_semiring(self, semiring: ChartSemiring) -> None:
         """Give the agenda access to the engine's semiring.
@@ -539,6 +763,11 @@ class Agenda(ABC):
         instance, `FIFOAgenda` merges pending contributions
         to the same item via ``semiring.plus``. The default ignores
         the binding.
+
+        Parameters
+        ----------
+        semiring : ChartSemiring
+            The engine's semiring.
         """
 
 
@@ -568,9 +797,25 @@ class FIFOAgenda(Agenda):
         self._semiring: ChartSemiring | None = None
 
     def bind_semiring(self, semiring: ChartSemiring) -> None:
+        """Bind the semiring that merges pending contributions.
+
+        Parameters
+        ----------
+        semiring : ChartSemiring
+            The engine's semiring.
+        """
         self._semiring = semiring
 
     def push(self, item: Item, weight: torch.Tensor) -> None:
+        """Add an item and its weight to the agenda.
+
+        Parameters
+        ----------
+        item : Item
+            The derived item.
+        weight : torch.Tensor
+            The weight contributed by this derivation.
+        """
         if self._semiring is None:
             self._queue.append((item, weight))
             return
@@ -583,6 +828,13 @@ class FIFOAgenda(Agenda):
         self._pending[item] = self._semiring.plus(stacked, dim=0)
 
     def pop(self) -> tuple[Item, torch.Tensor]:
+        """Remove and return the next item under this discipline.
+
+        Returns
+        -------
+        tuple of (Item, torch.Tensor)
+            The next item and its pending weight.
+        """
         # Entries pushed before a semiring was bound drain first;
         # they were pushed earliest, so this preserves FIFO order.
         if self._queue:
@@ -591,6 +843,13 @@ class FIFOAgenda(Agenda):
         return item, self._pending.pop(item)
 
     def empty(self) -> bool:
+        """Whether no items are pending.
+
+        Returns
+        -------
+        bool
+            ``True`` when the agenda holds no items.
+        """
         return not self._queue and not self._order
 
 
@@ -607,12 +866,35 @@ class LIFOAgenda(Agenda):
         self._stack: list[tuple[Item, torch.Tensor]] = []
 
     def push(self, item: Item, weight: torch.Tensor) -> None:
+        """Add an item and its weight to the agenda.
+
+        Parameters
+        ----------
+        item : Item
+            The derived item.
+        weight : torch.Tensor
+            The weight contributed by this derivation.
+        """
         self._stack.append((item, weight))
 
     def pop(self) -> tuple[Item, torch.Tensor]:
+        """Remove and return the next item under this discipline.
+
+        Returns
+        -------
+        tuple of (Item, torch.Tensor)
+            The next item and its pending weight.
+        """
         return self._stack.pop()
 
     def empty(self) -> bool:
+        """Whether no items are pending.
+
+        Returns
+        -------
+        bool
+            ``True`` when the agenda holds no items.
+        """
         return not self._stack
 
 
@@ -639,16 +921,39 @@ class PriorityQueueAgenda(Agenda):
         self._counter = 0  # tie-breaker for deterministic ordering
 
     def push(self, item: Item, weight: torch.Tensor) -> None:
+        """Add an item and its weight to the agenda.
+
+        Parameters
+        ----------
+        item : Item
+            The derived item.
+        weight : torch.Tensor
+            The weight contributed by this derivation.
+        """
         # heapq is a min-heap; negate priority for max-heap behavior.
         priority = -float(self._priority_fn(item, weight))
         self._counter += 1
         heapq.heappush(self._heap, (priority, self._counter, item, weight))
 
     def pop(self) -> tuple[Item, torch.Tensor]:
+        """Remove and return the next item under this discipline.
+
+        Returns
+        -------
+        tuple of (Item, torch.Tensor)
+            The next item and its pending weight.
+        """
         _, _, item, weight = heapq.heappop(self._heap)
         return item, weight
 
     def empty(self) -> bool:
+        """Whether no items are pending.
+
+        Returns
+        -------
+        bool
+            ``True`` when the agenda holds no items.
+        """
         return not self._heap
 
 
@@ -738,6 +1043,19 @@ def run_agenda(
         Safety bound on agenda steps; raises if exceeded.
     chart : Chart, optional
         Initial chart (defaults to empty `HashChart`).
+    rule_callback : callable, optional
+        Called as ``(rule_name, antecedents, conclusion, weight)``
+        after each rule firing.
+
+    Returns
+    -------
+    AgendaResult
+        The final chart, the goal items, and the step count.
+
+    Raises
+    ------
+    RuntimeError
+        If the agenda runs for more than ``max_iterations`` steps.
     """
     semiring = semiring or LOG_PROB
     agenda = agenda or FIFOAgenda()
@@ -910,7 +1228,7 @@ def _fire(
         | None
     ) = None,
 ) -> None:
-    """All premises matched — instantiate and push the conclusion.
+    """All premises matched; instantiate and push the conclusion.
 
     Collects every premise's weight from the chart at the matched
     items, computes the conclusion's weight via the rule's
@@ -930,7 +1248,7 @@ def _fire(
         try:
             premise_item = instantiate(premise_pattern, bindings)
         except KeyError:
-            return  # premise has unresolved wildcards — can't fire
+            return  # premise has unresolved wildcards, so it can't fire
         w = chart.get(premise_item)
         if w is None:
             return
@@ -1064,7 +1382,23 @@ class DeductionSystem:
     tolerance: float = 0.0
 
     def run(self, input_value: Any) -> AgendaResult:
-        """Run the deduction system on an input value."""
+        """Run the deduction system on an input value.
+
+        Injects the input's axioms, runs the agenda to fixed point,
+        attaches the item encoder when one is set, and sums any
+        rule-attached and chart-attached losses.
+
+        Parameters
+        ----------
+        input_value : Any
+            The input the axiom injector reads.
+
+        Returns
+        -------
+        AgendaResult
+            The completed chart, its goal items, and any attached
+            loss.
+        """
         axioms = self.axiom_injector(input_value)
         registry = getattr(self, "_loss_registry", None)
         deduction_name = getattr(self, "_deduction_name", None)
@@ -1145,6 +1479,16 @@ class DeductionSystem:
         the chart's weights are differentiable tensors, and the
         view exposes ``weight``, ``enumerate``, ``derivations``,
         and ``goal_weight`` methods for downstream programs.
+
+        Parameters
+        ----------
+        input_value : Any
+            The input the axiom injector reads.
+
+        Returns
+        -------
+        ChartView
+            A view onto the completed chart.
         """
         return ChartView(self.run(input_value))
 
@@ -1157,6 +1501,16 @@ class DeductionSystem:
         is the standard `torch.nn.Module.parameters` signature
         so user code can pass a ``DeductionSystem`` anywhere a
         ``nn.Module`` parameter iterator is expected.
+
+        Parameters
+        ----------
+        recurse : bool
+            Whether to include parameters of nested submodules.
+
+        Returns
+        -------
+        Iterable of torch.nn.Parameter
+            The learnable parameters.
         """
         for attr in ("_axiom_module", "_rule_module"):
             mod = getattr(self, attr, None)
@@ -1168,7 +1522,20 @@ class DeductionSystem:
         prefix: str = "",
         recurse: bool = True,
     ) -> Iterable[tuple[str, torch.nn.Parameter]]:
-        """Yield ``(name, parameter)`` pairs over all learnable parameters."""
+        """Yield ``(name, parameter)`` pairs over all learnable parameters.
+
+        Parameters
+        ----------
+        prefix : str
+            A prefix prepended to every parameter name.
+        recurse : bool
+            Whether to include parameters of nested submodules.
+
+        Returns
+        -------
+        Iterable of (str, torch.nn.Parameter)
+            The named learnable parameters.
+        """
         for attr in ("_axiom_module", "_rule_module"):
             mod = getattr(self, attr, None)
             if mod is not None and hasattr(mod, "named_parameters"):
@@ -1181,26 +1548,36 @@ class DeductionSystem:
 
 
 # ---------------------------------------------------------------------------
-# Strategy factories — concrete parsers as agenda specializations
+# Strategy factories: concrete parsers as agenda specializations
 # ---------------------------------------------------------------------------
 
 
 def cky_agenda() -> Agenda:
-    """The CKY (bottom-up sweep) agenda — semi-naïve FIFO.
+    """The CKY (bottom-up sweep) agenda: semi-naïve FIFO.
 
     For context-free + Boolean / inside semirings, FIFO order
     suffices to reach the chart's fixed point in
     :math:`O(n^3 \\cdot |R|)` time (McAllester 2002).
+
+    Returns
+    -------
+    Agenda
+        A fresh `FIFOAgenda`.
     """
     return FIFOAgenda()
 
 
 def earley_agenda() -> Agenda:
-    """The Earley (predict / scan / complete) agenda — FIFO.
+    """The Earley (predict / scan / complete) agenda: FIFO.
 
     Earley's algorithm is identical to FIFO agenda-driven
     deduction over the predict / scan / complete items
     (Pereira & Warren 1983).
+
+    Returns
+    -------
+    Agenda
+        A fresh `FIFOAgenda`.
     """
     return FIFOAgenda()
 
@@ -1212,6 +1589,16 @@ def viterbi_agenda(priority_fn: Callable[[Item, torch.Tensor], float]) -> Agenda
     :math:`(\\max, \\times)` semiring; the agenda is a priority
     queue. Equivalent to Knuth's algorithm when the semiring is
     superior (Nederhof 2003).
+
+    Parameters
+    ----------
+    priority_fn : Callable[[Item, torch.Tensor], float]
+        The priority of an item given its weight; higher pops first.
+
+    Returns
+    -------
+    Agenda
+        A `PriorityQueueAgenda` ordered by ``priority_fn``.
     """
     return PriorityQueueAgenda(priority_fn)
 
@@ -1225,6 +1612,16 @@ def astar_agenda(
     accumulated cost and :math:`h` is an admissible heuristic on
     the remaining cost. With an admissible :math:`h`, the agenda
     enumerates items in optimal order (Knuth 1977).
+
+    Parameters
+    ----------
+    g_plus_h : Callable[[Item, torch.Tensor], float]
+        The priority ``g + h`` of an item given its weight; higher pops first.
+
+    Returns
+    -------
+    Agenda
+        A `PriorityQueueAgenda` ordered by ``g_plus_h``.
     """
     return PriorityQueueAgenda(g_plus_h)
 
@@ -1235,6 +1632,11 @@ def knuth_agenda() -> Agenda:
     Priority is the current chart weight (the item's best-so-far
     score). For a superior semiring, this is Dijkstra's algorithm
     on AND-OR hypergraphs (Knuth 1977; Nederhof 2003).
+
+    Returns
+    -------
+    Agenda
+        A `PriorityQueueAgenda` ordered by the item's weight.
     """
 
     def _priority(_item: Item, weight: torch.Tensor) -> float:
@@ -1244,10 +1646,51 @@ def knuth_agenda() -> Agenda:
 
 
 def depth_first_agenda() -> Agenda:
-    """LIFO agenda — depth-first proof search (Agda / Twelf style)."""
+    """LIFO agenda: depth-first proof search (Agda / Twelf style).
+
+    Returns
+    -------
+    Agenda
+        A fresh `LIFOAgenda`.
+    """
     return LIFOAgenda()
 
 
 def semi_naive_agenda() -> Agenda:
-    """Semi-naïve Datalog evaluation (McAllester 2002) — FIFO."""
+    """Semi-naïve Datalog evaluation (McAllester 2002): FIFO.
+
+    Returns
+    -------
+    Agenda
+        A fresh `FIFOAgenda`.
+    """
     return FIFOAgenda()
+
+
+__all__ = [
+    "Item",
+    "Wildcard",
+    "make_wildcard",
+    "Pattern",
+    "Bindings",
+    "InferenceRule",
+    "instantiate",
+    "match",
+    "Chart",
+    "HashChart",
+    "ChartView",
+    "Agenda",
+    "FIFOAgenda",
+    "LIFOAgenda",
+    "PriorityQueueAgenda",
+    "AgendaResult",
+    "run_agenda",
+    "DeductionSystem",
+    "cky_agenda",
+    "earley_agenda",
+    "viterbi_agenda",
+    "astar_agenda",
+    "knuth_agenda",
+    "depth_first_agenda",
+    "semi_naive_agenda",
+]

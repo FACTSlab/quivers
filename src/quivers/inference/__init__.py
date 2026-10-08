@@ -4,9 +4,8 @@ This module provides the inference layer for quivers: execution
 tracing, conditioning on observations, the
 `quivers.inference.registry.LatentRegistry` introspection
 helper, automatic variational guide construction, variational
-objectives, optimisation drivers, and posterior-predictive
-sampling. MCMC and hybrid samplers land here as the relevant
-modules grow in.
+objectives, optimisation drivers, MCMC and hybrid samplers,
+normalizing-flow transforms, and posterior-predictive sampling.
 
 Submodules
 ----------
@@ -23,6 +22,10 @@ objectives : Variational objectives (ELBO, IWAEBound, RenyiBound,
     VRIWAEBound, ChiVI, RWS, DReGsBound).
 svi : Stochastic variational inference training loop.
 predictive : Posterior predictive sampling.
+transforms : Learnable bijections that normalizing-flow guides stack.
+dais : Differentiable annealed importance sampling guide.
+warmup : Variational warmup before HMC.
+lifts : Bayesian lifts of non-Bayesian models.
 """
 
 from __future__ import annotations
@@ -78,6 +81,19 @@ from quivers.inference.svi import SVI
 from quivers.inference.predictive import Predictive
 from quivers.inference.dais import AutoDAIS
 from quivers.inference.warmup import WarmupThenHMC
+from quivers.inference.transforms import (
+    MADE,
+    AffineCouplingTransform,
+    BatchNormTransform,
+    InverseAutoregressiveTransform,
+    LULinearTransform,
+    MaskedAutoregressiveTransform,
+    NeuralSplineCouplingTransform,
+    TransformModule,
+    alternating_mask,
+    half_mask,
+    make_coupling_mlp,
+)
 from quivers.inference.lifts import (
     bayesian_lift_parameters,
     lift_to_bayesian_program,
@@ -137,4 +153,15 @@ __all__ = [
     "lift_to_bayesian_program",
     "lift_from_log_prob",
     "monte_carlo_log_joint",
+    "TransformModule",
+    "AffineCouplingTransform",
+    "MaskedAutoregressiveTransform",
+    "InverseAutoregressiveTransform",
+    "NeuralSplineCouplingTransform",
+    "LULinearTransform",
+    "BatchNormTransform",
+    "MADE",
+    "make_coupling_mlp",
+    "alternating_mask",
+    "half_mask",
 ]

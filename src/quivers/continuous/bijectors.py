@@ -34,6 +34,8 @@ of measurable isomorphisms.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from types import MappingProxyType
 
 import torch
 from torch import Tensor
@@ -70,10 +72,10 @@ class Bijector(ABC):
         """Return the bijector's inverse, swapping `forward` /
         `inverse` and negating the Jacobian log-determinant.
         """
-        return Inverse(self)
+        return InverseBijector(self)
 
 
-class Inverse(Bijector):
+class InverseBijector(Bijector):
     """The inverse of a bijector, deferring all four primitives to
     the wrapped instance with their roles swapped.
     """
@@ -94,7 +96,7 @@ class Inverse(Bijector):
         return self.base.forward_log_det_jacobian(y)
 
 
-class Compose(Bijector):
+class ComposeBijector(Bijector):
     """Composition `outer ∘ inner`. Forward applies `inner` first
     then `outer`; inverse applies `outer.inverse` first then
     `inner.inverse`. Log-Jacobians add by the chain rule.
@@ -123,7 +125,7 @@ class Compose(Bijector):
         ) + self.inner.inverse_log_det_jacobian(outer_inv)
 
 
-class Identity(Bijector):
+class IdentityBijector(Bijector):
     """The identity map. Useful as a neutral element in compositions
     and as the trivial pushforward.
     """
@@ -141,7 +143,7 @@ class Identity(Bijector):
         return torch.zeros_like(y)
 
 
-class Exp(Bijector):
+class ExpBijector(Bijector):
     """The exponential map $f(x) = e^x$ from $\\mathbb{R}$ to
     $(0, \\infty)$. Jacobian log-determinant is $x$.
     """
@@ -159,9 +161,9 @@ class Exp(Bijector):
         return -torch.log(y)
 
 
-class Log(Bijector):
+class LogBijector(Bijector):
     """The logarithm $f(x) = \\log x$ from $(0, \\infty)$ to
-    $\\mathbb{R}$. Inverse of [`Exp`][quivers.continuous.bijectors.Exp];
+    $\\mathbb{R}$. Inverse of [`ExpBijector`][quivers.continuous.bijectors.ExpBijector];
     Jacobian log-determinant is $-\\log x$.
     """
 
@@ -178,7 +180,7 @@ class Log(Bijector):
         return y
 
 
-class Sigmoid(Bijector):
+class SigmoidBijector(Bijector):
     """The logistic sigmoid $f(x) = 1/(1 + e^{-x})$ from
     $\\mathbb{R}$ to $(0, 1)$.
 
@@ -200,9 +202,9 @@ class Sigmoid(Bijector):
         return -torch.log(y) - torch.log1p(-y)
 
 
-class Logit(Bijector):
+class LogitBijector(Bijector):
     """The logit $f(x) = \\log(x / (1 - x))$ from $(0, 1)$ to
-    $\\mathbb{R}$. Inverse of [`Sigmoid`][quivers.continuous.bijectors.Sigmoid].
+    $\\mathbb{R}$. Inverse of [`SigmoidBijector`][quivers.continuous.bijectors.SigmoidBijector].
     """
 
     def forward(self, x: Tensor) -> Tensor:
@@ -218,10 +220,10 @@ class Logit(Bijector):
         return -torch.nn.functional.softplus(y) - torch.nn.functional.softplus(-y)
 
 
-class Softplus(Bijector):
+class SoftplusBijector(Bijector):
     """The softplus map $f(x) = \\log(1 + e^x)$ from $\\mathbb{R}$
     to $(0, \\infty)$. Smooth alternative to
-    [`Exp`][quivers.continuous.bijectors.Exp] with linear tail growth
+    [`ExpBijector`][quivers.continuous.bijectors.ExpBijector] with linear tail growth
     on the positive side.
 
     Forward Jacobian: $df/dx = \\sigma(x)$, so
@@ -245,7 +247,7 @@ class Softplus(Bijector):
         return -torch.log(-torch.expm1(-y))
 
 
-class Affine(Bijector):
+class AffineBijector(Bijector):
     """The affine map $f(x) = \\text{scale} \\cdot x + \\text{shift}$.
     `scale` must be strictly positive; the Jacobian log-determinant
     is $\\log\\,\\text{scale}$, broadcast to the input shape.
@@ -278,7 +280,7 @@ class Affine(Bijector):
         return (-log_scale).expand_as(y)
 
 
-class StickBreaking(Bijector):
+class StickBreakingBijector(Bijector):
     """The stick-breaking map from $\\mathbb{R}^{K-1}$ to the
     open $K$-simplex $\\{p \\in \\mathbb{R}^K_{>0} : \\sum_k p_k = 1\\}$.
 
@@ -347,16 +349,36 @@ class StickBreaking(Bijector):
         return log_z.sum(dim=-1) + log_1m_z.sum(dim=-1) + leading
 
 
+BIJECTORS_BY_NAME: Mapping[str, type[Bijector]] = MappingProxyType(
+    {
+        "Identity": IdentityBijector,
+        "Exp": ExpBijector,
+        "Log": LogBijector,
+        "Sigmoid": SigmoidBijector,
+        "Logit": LogitBijector,
+        "Softplus": SoftplusBijector,
+        "StickBreaking": StickBreakingBijector,
+    }
+)
+"""The bijectors a QVR source names by their surface spelling.
+
+``Pushforward(base, Exp)`` resolves ``Exp`` here. Only bijectors that
+take no arguments are listed; an affine or composite map is built in
+Python and passed as a value.
+"""
+
+
 __all__ = [
-    "Affine",
+    "BIJECTORS_BY_NAME",
     "Bijector",
-    "Compose",
-    "Exp",
-    "Identity",
-    "Inverse",
-    "Log",
-    "Logit",
-    "Sigmoid",
-    "Softplus",
-    "StickBreaking",
+    "AffineBijector",
+    "ComposeBijector",
+    "ExpBijector",
+    "IdentityBijector",
+    "InverseBijector",
+    "LogBijector",
+    "LogitBijector",
+    "SigmoidBijector",
+    "SoftplusBijector",
+    "StickBreakingBijector",
 ]

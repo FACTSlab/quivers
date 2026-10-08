@@ -3,7 +3,7 @@ every variational guide and MCMC kernel consumes.
 
 A `LatentRegistry` is built once from a
 [`quivers.continuous.programs.MonadicProgram`][quivers.continuous.programs.MonadicProgram] and a set of
-observed site names. It walks the model's ``_step_specs`` linear IR
+observed site names. It walks the model's ``steps`` linear IR
 exactly once, classifies each latent into "plate" vs "scalar",
 records the prior support and per-site dimensionality, builds the
 matching `torch.distributions.transforms.Transform` via
@@ -13,12 +13,12 @@ unconstrained vector can be turned into a fully constrained site
 dict (and back) in one pass.
 
 The registry is the only place in the inference layer that knows
-about [`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw], the layout
-of ``MonadicProgram._step_specs``, or the per-site
-constraint-to-bijector mapping. Every downstream component —
-[`quivers.inference.guides.base.Guide`][quivers.inference.guides.base.Guide],
-[`quivers.inference.mcmc.kernel.MCMCKernel`][quivers.inference.mcmc.kernel.MCMCKernel], the
-flow-based / structured / mixture guides — receives a fully
+about [`PlateDraw`][quivers.continuous.PlateDraw], the layout
+of ``MonadicProgram.steps``, or the per-site
+constraint-to-bijector mapping. Every downstream component
+([`Guide`][quivers.inference.guides.Guide],
+[`MCMCKernel`][quivers.inference.mcmc.MCMCKernel], the
+flow-based / structured / mixture guides) receives a fully
 populated registry and operates against its flat-vector and
 per-site dict APIs.
 
@@ -51,7 +51,7 @@ from torch.distributions.transforms import Transform
 
 from quivers.continuous.plate import PlateDraw
 from quivers.continuous.morphisms import ContinuousMorphism
-from quivers.continuous.program_steps import _LetSpec, _ScoreSpec
+from quivers.continuous.program_steps import Draw, Observe
 from quivers.continuous.programs import MonadicProgram
 from quivers.continuous.spaces import ContinuousSpace
 
@@ -64,11 +64,11 @@ def _unconstrained_event_dim(
 
     The two cases that change dim:
 
-    * `torch.distributions.constraints.simplex` — the
+    * `torch.distributions.constraints.simplex`: the
       stick-breaking bijector maps :math:`(d-1)`-dimensional
       unconstrained space onto the :math:`(d-1)`-simplex embedded
       in :math:`\\mathbb{R}^d`.
-    * `torch.distributions.constraints.corr_cholesky` — the
+    * `torch.distributions.constraints.corr_cholesky`: the
       correlation-Cholesky bijector maps :math:`d(d-1)/2` real
       coordinates onto the lower-triangular Cholesky factor of a
       :math:`d \\times d` correlation matrix.
@@ -109,11 +109,11 @@ class LatentSite:
         on a 5-simplex, ``4``; otherwise equals ``constrained_dim``).
     is_plate : bool
         Whether this site is a plate draw
-        ([`quivers.continuous.plate.PlateDraw`][quivers.continuous.plate.PlateDraw]).
+        ([`PlateDraw`][quivers.continuous.PlateDraw]).
     plate_index_size : int
         ``|A|`` for a plate site, ``0`` otherwise.
     spec_index : int
-        Position in ``model._step_specs``.
+        Position in ``model.steps``.
     flat_offset : int
         Index of this site's first element in the registry's
         flat unconstrained vector.
@@ -166,7 +166,7 @@ class LatentRegistry:
     * Iteration over latent sites in declaration order
       (`sites`, `plate_sites`, `scalar_sites`).
     * Total unconstrained dimensionality
-      (`total_unconstrained_dim`) — the dim of the flat
+      (`total_unconstrained_dim`), the dim of the flat
       vector HMC and full-rank Gaussian guides operate on.
     * Round-tripping between a flat unconstrained vector and a
       dict of constrained per-site tensors
@@ -174,7 +174,7 @@ class LatentRegistry:
     * Bijector forward / inverse with Jacobian accumulation
       (`to_constrained`, `to_unconstrained`).
 
-    All operations are vectorized — no per-site Python loops on
+    All operations are vectorized, with no per-site Python loops on
     the hot path beyond the construction-time setup.
     """
 
@@ -199,7 +199,7 @@ class LatentRegistry:
         model: MonadicProgram,
         observed_names: set[str] | frozenset[str],
     ) -> "LatentRegistry":
-        """Walk ``model._step_specs`` and assemble the registry.
+        """Walk ``model.steps`` and assemble the registry.
 
         Parameters
         ----------
@@ -221,13 +221,13 @@ class LatentRegistry:
         sites: dict[str, LatentSite] = {}
         flat_cursor = 0
 
-        for spec_idx, spec in enumerate(model._step_specs):
-            if isinstance(spec, (_LetSpec, _ScoreSpec)):
+        for spec_idx, spec in enumerate(model.steps):
+            if not isinstance(spec, Draw | Observe):
                 continue
-            for var in spec.vars:
+            for var in spec.names:
                 if var in observed:
                     continue
-                morph = model._modules[spec.morphism_name]
+                morph = model.step_module(spec)
                 if morph is None:
                     raise RuntimeError(
                         f"LatentRegistry: morphism module for site "
@@ -249,7 +249,7 @@ class LatentRegistry:
                     cod = morph_cm.codomain
                     if isinstance(cod, ContinuousSpace):
                         total_dim = int(cod.dim)
-                        constrained_dim = max(1, total_dim // max(1, len(spec.vars)))
+                        constrained_dim = max(1, total_dim // max(1, len(spec.names)))
                     else:
                         constrained_dim = 1
                     support = morph_cm.support
@@ -422,7 +422,7 @@ class LatentRegistry:
         log_abs_dets : dict[str, torch.Tensor]
             Per-site ``log |det dT/dz|`` returned by the bijector,
             at the bijector's natural shape (event axes preserved).
-            Callers aggregate as the objective requires — for ELBO
+            Callers aggregate as the objective requires: for ELBO
             we sum over event axes; for IWAE we keep particles as
             a leading axis; etc.
         """

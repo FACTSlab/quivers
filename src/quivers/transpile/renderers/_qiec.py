@@ -320,7 +320,7 @@ def carried_computations(
     target cannot represent is left out, since it is no part of the
     program the output denotes. A needed computation the target
     cannot represent is refused by
-    [`refuse_static_gaps`][quivers.transpile.renderers._qiec.refuse_static_gaps]
+    `refuse_static_gaps`
     before this is read.
 
     Parameters

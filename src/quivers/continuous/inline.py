@@ -59,8 +59,11 @@ from quivers.continuous.family_spec import (
     FamilySpec,
 )
 from quivers.core._util import EPS
+from quivers.continuous.bijectors import BIJECTORS_BY_NAME, Bijector
+from quivers.continuous.program_steps import Indexed, StepArgument
 from quivers.dsl.ast_nodes import (
     DrawArgDist,
+    DrawArgIndex,
     DrawArgList,
     DrawArgName,
     DrawArgNamed,
@@ -68,6 +71,34 @@ from quivers.dsl.ast_nodes import (
 )
 from quivers.dsl.family_schemas import family_parameterizations
 from quivers.dsl.draw_args import bind_family_arguments
+
+
+def _to_event_shape(value: torch.Tensor, dist: D.Distribution) -> torch.Tensor:
+    """Unflatten a matrix-valued value to its distribution's event shape.
+
+    A matrix space such as `CholeskyFactor` lays a value out flat, as
+    ``(..., K * K)``, while the torch distribution scores ``(..., K, K)``.
+
+    Parameters
+    ----------
+    value : torch.Tensor
+        The value scored.
+    dist : torch.distributions.Distribution
+        The distribution scoring it.
+
+    Returns
+    -------
+    torch.Tensor
+        ``value`` with its last axis split into the event shape when it
+        holds exactly the event's elements in flat form, and unchanged
+        otherwise.
+    """
+    event = tuple(dist.event_shape)
+    if len(event) < 2 or tuple(value.shape[-len(event) :]) == event:
+        return value
+    if value.dim() >= 1 and value.shape[-1] == math.prod(event):
+        return value.reshape(*value.shape[:-1], *event)
+    return value
 
 
 class FixedDistribution(ContinuousMorphism):
@@ -218,6 +249,7 @@ class FixedDistribution(ContinuousMorphism):
         # sample / observe boundary is where the algebra collapses it
         # to a probability density, so we score the renormalised
         # log-density here rather than the raw sub-measure value.
+        value = _to_event_shape(value, dist)
         if isinstance(dist, _Measure):
             lp = dist.log_prob_normalized(value)
         else:
@@ -252,8 +284,11 @@ class MixedInlineDistribution(ContinuousMorphism):
         Target space.
     param_spec : list of tuple
         For each distribution parameter position, one of:
-        - ``('var', dim)``   — variable from input; ``dim`` is its width
-        - ``('lit', value)`` — fixed literal float value
+
+        - ``('var', dim)``: a variable read from the input, ``dim``
+          columns wide, or ``None`` when its width is to be read off
+          the stacked input (see ``_variable_widths``);
+        - ``('lit', value)``: a fixed literal float value.
     dist_builder : callable
         ``(list[torch.Tensor]) -> torch.distributions.Distribution``.
         Receives one 1-D tensor per parameter (all same batch size).
@@ -268,7 +303,7 @@ class MixedInlineDistribution(ContinuousMorphism):
         self,
         domain: AnySpace,
         codomain: AnySpace,
-        param_spec: list[tuple[str, int | float]],
+        param_spec: list[tuple[str, int | float | None]],
         dist_builder: Callable,
         discrete: bool = False,
         support: _constraints.Constraint | None = None,
@@ -281,13 +316,9 @@ class MixedInlineDistribution(ContinuousMorphism):
         self._support = support if support is not None else _constraints.real
         # Per-position event rank. Position 0 = per-row scalar; >= 1 =
         # vector-shaped distribution parameter (cutpoints, mixture
-        # weights / locations / scales). Any number of vector-typed
-        # positions is supported: each consumes the number of columns
-        # recorded in its ``param_spec`` dim, so the stacked input is
-        # split by offset. The one exception is a vector whose event
-        # dimension was not resolved at construction (dim recorded as
-        # 1 while the runtime tensor is wider); a single such vector,
-        # in the last slot, absorbs the surplus columns.
+        # weights / locations / scales). Each consumes the number of
+        # columns its ``param_spec`` width records, so the stacked input
+        # is split by offset.
         self._param_event_ranks: tuple[int, ...] = (
             param_event_ranks
             if param_event_ranks is not None
@@ -299,10 +330,6 @@ class MixedInlineDistribution(ContinuousMorphism):
                 f"{len(self._param_event_ranks)} disagrees with "
                 f"param_spec length {len(param_spec)}"
             )
-        vec_positions = [i for i, r in enumerate(self._param_event_ranks) if r >= 1]
-        self._has_vector_param: bool = bool(vec_positions)
-        self._last_vector_pos: int | None = vec_positions[-1] if vec_positions else None
-        self._n_vector_params: int = len(vec_positions)
 
     @property
     def support(self) -> _constraints.Constraint:
@@ -326,43 +353,150 @@ class MixedInlineDistribution(ContinuousMorphism):
             ``(batch, dim)``.
         """
         if x.dim() == 1:
-            x = x.unsqueeze(-1)
-        params: list[torch.Tensor] = []
+            x = x.unsqueeze(0) if self._is_shared_vector(x) else x.unsqueeze(-1)
+        widths = self._variable_widths(x.shape[-1])
+        variables: list[torch.Tensor] = []
         var_offset = 0
-        # Columns the recorded dims account for; any surplus belongs to
-        # a single trailing vector whose event dim was not resolved at
-        # construction. With more than one vector param the surplus is
-        # unattributable, so the dims must be exact.
-        known_total = sum(int(v) for k, v in self._param_spec if k == "var")
-        surplus = x.shape[-1] - known_total
-        if surplus > 0 and self._n_vector_params > 1:
-            raise ValueError(
-                "MixedInlineDistribution: cannot resolve parameters: the "
-                f"stacked width {x.shape[-1]} exceeds the declared "
-                f"variable dimension {known_total}, but there is more than "
-                "one vector-typed parameter, so the surplus columns cannot "
-                "be attributed to a single parameter"
-            )
-        for pos, (kind, value) in enumerate(self._param_spec):
-            if kind == "lit":
-                params.append(
-                    torch.full(
-                        (x.shape[0],), float(value), device=x.device, dtype=x.dtype
-                    )
-                )
-                continue
-            dim = int(value)
-            if surplus > 0 and pos == self._last_vector_pos:
-                # The single trailing under-counted vector absorbs the
-                # surplus columns.
-                dim += surplus
+        positions = [
+            pos for pos, (kind, _) in enumerate(self._param_spec) if kind == "var"
+        ]
+        for pos, dim in zip(positions, widths, strict=True):
             is_vector = self._param_event_ranks[pos] >= 1
             if dim == 1 and not is_vector:
-                params.append(x[..., var_offset])
+                variables.append(x[..., var_offset])
             else:
-                params.append(x[..., var_offset : var_offset + dim])
+                variables.append(x[..., var_offset : var_offset + dim])
             var_offset += dim
+        # A literal broadcasts against the widest variable parameter: a
+        # per-row value, with a unit axis for each further axis.
+        rank = max((t.dim() for t in variables), default=1)
+        literal_shape = (x.shape[0],) + (1,) * (rank - 1)
+        params: list[torch.Tensor] = []
+        supplied = iter(variables)
+        for kind, value in self._param_spec:
+            if kind == "lit":
+                assert value is not None
+                params.append(
+                    torch.full(
+                        literal_shape, float(value), device=x.device, dtype=x.dtype
+                    )
+                )
+            else:
+                params.append(next(supplied))
         return params
+
+    def _is_shared_vector(self, x: torch.Tensor) -> bool:
+        """Whether a 1-D input is one shared vector rather than a column.
+
+        A family whose one variable parameter is a vector reads a 1-D
+        input of that vector's declared width as a single row, as the
+        stacking of program arguments does for a shared ``(dim,)``
+        vector; any other 1-D input is one scalar per row.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            A 1-D input.
+
+        Returns
+        -------
+        bool
+            Whether ``x`` is the one vector parameter's value.
+        """
+        variables = [
+            (value, rank)
+            for (kind, value), rank in zip(
+                self._param_spec, self._param_event_ranks, strict=True
+            )
+            if kind == "var"
+        ]
+        if len(variables) != 1:
+            return False
+        width, rank = variables[0]
+        return rank >= 1 and width is not None and int(width) == x.shape[0] > 1
+
+    def _variable_widths(self, stacked: int) -> list[int]:
+        """The column count of each variable parameter.
+
+        A declared width is taken as given. A parameter whose binding
+        had no known type leaves its width unresolved (``None``), and
+        the stacked width resolves it: beside one unresolved vector
+        parameter, each unresolved scalar parameter is one column per
+        row and the vector takes the rest; otherwise one unresolved
+        scalar takes every remaining column, and several take an equal
+        share when that share is one column per row or one per
+        coordinate of the codomain. The columns must be
+        accounted for exactly, so a mis-declared width is an error
+        rather than a silent shift of columns between parameters.
+
+        Parameters
+        ----------
+        stacked : int
+            The width of the stacked variable parameters.
+
+        Returns
+        -------
+        list[int]
+            One width per ``var`` entry of the parameter specification.
+
+        Raises
+        ------
+        ValueError
+            If the declared widths do not account for the stacked width,
+            or the unresolved widths admit no single reading.
+        """
+        variables = [
+            (value, rank)
+            for (kind, value), rank in zip(
+                self._param_spec, self._param_event_ranks, strict=True
+            )
+            if kind == "var"
+        ]
+        declared = [width for width, _ in variables]
+        known = sum(int(width) for width in declared if width is not None)
+        remainder = stacked - known
+        open_scalars = sum(1 for w, r in variables if w is None and r < 1)
+        open_vectors = sum(1 for w, r in variables if w is None and r >= 1)
+        if not open_scalars and not open_vectors:
+            if remainder != 0:
+                raise ValueError(
+                    "MixedInlineDistribution: the stacked parameters have "
+                    f"{stacked} columns, but the declared widths sum to {known}; "
+                    "a parameter's declared width disagrees with its value"
+                )
+            return [int(width) for width in declared if width is not None]
+        coordinates = int(getattr(self.codomain, "dim", 1))
+        scalar_share: int
+        vector_share = 0
+        if open_vectors == 1:
+            # Beside a vector parameter, a scalar one is one value per
+            # row; the vector takes the rest.
+            scalar_share = 1
+            vector_share = remainder - open_scalars
+        elif open_vectors == 0 and open_scalars == 1 and remainder >= 1:
+            scalar_share = remainder
+        elif open_vectors == 0 and remainder in (
+            open_scalars,
+            open_scalars * coordinates,
+        ):
+            scalar_share = remainder // open_scalars
+        else:
+            scalar_share = 0
+        if (open_scalars and scalar_share < 1) or (open_vectors and vector_share < 1):
+            raise ValueError(
+                "MixedInlineDistribution: the stacked parameters have "
+                f"{stacked} columns; after the declared widths ({known}) the "
+                f"{remainder} remaining cannot be divided among "
+                f"{open_scalars + open_vectors} parameters of unknown width as "
+                "one column per row or one per coordinate of the "
+                f"{coordinates}-dimensional codomain"
+            )
+        return [
+            int(width)
+            if width is not None
+            else (vector_share if rank >= 1 else scalar_share)
+            for width, rank in variables
+        ]
 
     def _get_dist(self, x: torch.Tensor) -> D.Distribution:
         """Build the distribution at an input.
@@ -452,6 +586,7 @@ class MixedInlineDistribution(ContinuousMorphism):
         # distribution carries an event dim that y lacks; drop a
         # trailing singleton from y when the distribution is scalar
         # and y carries an extra unit dim from upstream reshapes.
+        y_in = _to_event_shape(y_in, dist)
         event_dim = len(dist.event_shape)
         batch_dim = len(dist.batch_shape)
         target_dim = event_dim + batch_dim
@@ -461,239 +596,36 @@ class MixedInlineDistribution(ContinuousMorphism):
             while y_in.dim() > target_dim and y_in.shape[-1] == 1:
                 y_in = y_in.squeeze(-1)
         lp = dist.log_prob(y_in)
-        # Sum out any explicit event axes that the distribution
-        # already accounts for; PyTorch returns ``log_prob`` of
-        # shape ``batch_shape`` so no extra reduction is needed.
+        # Scalar parameters read one value per coordinate make the
+        # coordinates independent draws of one value: their densities
+        # sum, as a fixed distribution's do, leaving one per row.
+        coordinates = self._scalar_coordinates(params)
+        if coordinates > 1 and lp.dim() >= 1 and lp.shape[-1] == coordinates:
+            return lp.sum(dim=-1)
         return lp
 
-
-class DirectBernoulli(ContinuousMorphism):
-    """Bernoulli using the input value directly as the probability.
-
-    Unlike ``ConditionalBernoulli`` (which learns a mapping
-    ``x -> logit -> prob`` via a neural net), this uses the input
-    directly: ``Bernoulli(probs=x)``.
-
-    This implements the PDS pattern ``Bern x`` where ``x`` is a
-    continuous value in ``(0, 1)`` drawn from a prior like
-    ``LogitNormal``.
-
-    Parameters
-    ----------
-    domain : AnySpace
-        Source space (typically UnitInterval).
-    codomain : AnySpace
-        Target FinSet of size 2.
-    """
-
-    def __init__(self, domain: AnySpace, codomain: AnySpace) -> None:
-        super().__init__(domain, codomain)
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.boolean
-
-    def rsample(
-        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
-        """Sample from Bernoulli(probs=x).
+    def _scalar_coordinates(self, params: list[torch.Tensor]) -> int:
+        """How many coordinates per row the scalar parameters carry.
 
         Parameters
         ----------
-        x : torch.Tensor
-            Probabilities. Shape ``(batch,)`` or ``(batch, 1)``.
-        sample_shape : torch.Size
-            Additional leading sample dimensions.
+        params : list[torch.Tensor]
+            The resolved parameters.
 
         Returns
         -------
-        torch.Tensor
-            Discrete samples in {0, 1}. Shape ``(*sample_shape, batch)``.
+        int
+            The widest trailing axis among the variable scalar
+            parameters read as per-coordinate blocks, or one.
         """
-        probs = x.squeeze(-1) if x.dim() > 1 else x
-        probs = probs.clamp(EPS, 1.0 - EPS)
-        dist = D.Bernoulli(probs=probs)
-        return dist.sample(sample_shape).long()
-
-    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-probability of y under Bernoulli(probs=x).
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Probabilities.
-        y : torch.Tensor
-            Discrete outcomes in {0, 1}.
-
-        Returns
-        -------
-        torch.Tensor
-            Log-probabilities. Shape ``(batch,)``.
-        """
-        probs = x.squeeze(-1) if x.dim() > 1 else x
-        probs = probs.clamp(EPS, 1.0 - EPS)
-        dist = D.Bernoulli(probs=probs)
-        return dist.log_prob(y.float())
-
-
-class DirectNormal(ContinuousMorphism):
-    """Normal using input values directly as (loc, scale).
-
-    Input tensor has shape ``(batch, 2)`` where column 0 is loc and
-    column 1 is scale.
-
-    Parameters
-    ----------
-    domain : AnySpace
-        Source space (provides loc and scale stacked).
-    codomain : AnySpace
-        Target space.
-    """
-
-    def __init__(self, domain: AnySpace, codomain: AnySpace) -> None:
-        super().__init__(domain, codomain)
-
-    def rsample(
-        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
-        """Sample from Normal(loc, scale).
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Stacked ``(loc, scale)`` input. Shape ``(batch, 2)``.
-        sample_shape : torch.Size
-            Additional leading sample dimensions.
-
-        Returns
-        -------
-        torch.Tensor
-            Samples. Shape ``(*sample_shape, batch, 1)``.
-        """
-        loc = x[..., 0]
-        scale = x[..., 1].clamp(min=EPS)
-        dist = D.Normal(loc, scale)
-        result = dist.rsample(sample_shape)
-        if result.dim() == 1:
-            result = result.unsqueeze(-1)
-        return result
-
-    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-probability under Normal(loc, scale).
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Stacked ``(loc, scale)`` input. Shape ``(batch, 2)``.
-        y : torch.Tensor
-            Observed values.
-
-        Returns
-        -------
-        torch.Tensor
-            Log-probabilities. Shape ``(batch,)``.
-        """
-        loc = x[..., 0]
-        scale = x[..., 1].clamp(min=EPS)
-        y_flat = y.squeeze(-1) if y.dim() > 1 else y
-        dist = D.Normal(loc, scale)
-        return dist.log_prob(y_flat)
-
-
-class DirectTruncatedNormal(ContinuousMorphism):
-    """TruncatedNormal with variable ``(mu, sigma)`` and fixed bounds.
-
-    Input tensor has shape ``(batch, 2)`` where column 0 is mu and
-    column 1 is sigma. The truncation bounds ``[low, high]`` are
-    fixed at construction time.
-
-    This implements the PDS response kernel where a noisy observation
-    is drawn from a truncated normal centered on the latent state.
-
-    Parameters
-    ----------
-    domain : AnySpace
-        Source space (provides mu and sigma stacked).
-    codomain : AnySpace
-        Target space (bounded continuous).
-    low : float
-        Lower truncation bound.
-    high : float
-        Upper truncation bound.
-    """
-
-    def __init__(
-        self, domain: AnySpace, codomain: AnySpace, low: float, high: float
-    ) -> None:
-        super().__init__(domain, codomain)
-        self._low = low
-        self._high = high
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.interval(self._low, self._high)
-
-    def rsample(
-        self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
-    ) -> torch.Tensor:
-        """Sample from TruncatedNormal(mu, sigma, low, high).
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Stacked ``(mu, sigma)`` input. Shape ``(batch, 2)``.
-        sample_shape : torch.Size
-            Additional leading sample dimensions.
-
-        Returns
-        -------
-        torch.Tensor
-            Samples in ``[low, high]``. Shape ``(*sample_shape, batch, 1)``.
-        """
-        mu = x[..., 0]
-        sigma = x[..., 1].clamp(min=EPS)
-        normal = D.Normal(0, 1)
-        alpha = normal.cdf((self._low - mu) / sigma)
-        beta_cdf = normal.cdf((self._high - mu) / sigma)
-        u = torch.rand(*sample_shape, *mu.shape, device=mu.device, dtype=mu.dtype)
-        u_scaled = alpha + u * (beta_cdf - alpha)
-        u_scaled = u_scaled.clamp(min=EPS, max=1.0 - EPS)
-        result = normal.icdf(u_scaled) * sigma + mu
-        if result.dim() == 1:
-            result = result.unsqueeze(-1)
-        return result
-
-    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-probability under TruncatedNormal(mu, sigma, low, high).
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Stacked ``(mu, sigma)`` input. Shape ``(batch, 2)``.
-        y : torch.Tensor
-            Observed values.
-
-        Returns
-        -------
-        torch.Tensor
-            Log-probabilities. Shape ``(batch,)``.
-        """
-        mu = x[..., 0]
-        sigma = x[..., 1].clamp(min=EPS)
-        y_flat = y.squeeze(-1) if y.dim() > 1 else y
-        log_phi = (
-            -0.5 * ((y_flat - mu) / sigma) ** 2
-            - sigma.log()
-            - 0.5 * math.log(2 * math.pi)
-        )
-        normal = D.Normal(0, 1)
-        log_Z = torch.log(
-            (
-                normal.cdf((self._high - mu) / sigma)
-                - normal.cdf((self._low - mu) / sigma)
-            ).clamp(min=EPS)
-        )
-        return log_phi - log_Z
+        widths = [
+            int(t.shape[-1])
+            for t, (kind, _), rank in zip(
+                params, self._param_spec, self._param_event_ranks, strict=True
+            )
+            if kind == "var" and rank < 1 and t.dim() >= 2
+        ]
+        return max(widths, default=1)
 
 
 def make_fixed_logitnormal(
@@ -1080,6 +1012,46 @@ def make_fixed_categorical(
     )
 
 
+def make_fixed_lkj_cholesky(
+    concentration: float, codomain: AnySpace
+) -> FixedDistribution:
+    """Create a fixed LKJ prior over Cholesky factors of correlation matrices.
+
+    Parameters
+    ----------
+    concentration : float
+        The LKJ shape, positive; one is uniform over correlation
+        matrices and larger values concentrate toward the identity.
+    codomain : AnySpace
+        Output space; its ``cardinality`` or ``dim`` gives the
+        correlation matrix's size, as for the variable-parameter form.
+
+    Returns
+    -------
+    FixedDistribution
+        Distribution morphism sampling lower-triangular Cholesky factors.
+
+    Raises
+    ------
+    ValueError
+        If ``concentration`` is not positive, or the codomain does not
+        fix a matrix size of at least two.
+    """
+    if concentration <= 0.0:
+        raise ValueError(
+            f"LKJCholesky concentration must be positive, got {concentration}"
+        )
+    dim = _codomain_dim_or_raise("LKJCholesky", codomain)
+    if dim < 2:
+        raise ValueError(f"LKJCholesky needs a matrix size of at least 2, got {dim}")
+
+    def builder(batch: int, device: torch.device) -> D.Distribution:
+        shape = torch.full((batch,), float(concentration), device=device)
+        return D.LKJCholesky(dim, shape)
+
+    return FixedDistribution(codomain, builder, support=_constraints.corr_cholesky)
+
+
 # Families whose all-literal factory takes a single vector
 # argument (a ``list[float]`` or ``tuple[float, ...]``) rather than
 # one positional float per scalar parameter. The inline call site in
@@ -1100,6 +1072,7 @@ _FIXED_FACTORIES: dict[str, tuple[tuple[str, ...], Callable]] = {
     "LogNormal": (("loc", "scale"), make_fixed_lognormal),
     "Gamma": (("concentration", "rate"), make_fixed_gamma),
     "Dirichlet": (("concentration",), make_fixed_dirichlet),
+    "LKJCholesky": (("concentration",), make_fixed_lkj_cholesky),
     "TruncatedNormal": (
         ("mu", "sigma", "low", "high"),
         make_fixed_truncated_normal,
@@ -1671,6 +1644,8 @@ _FAMILY_BUILDERS: dict[str, tuple[tuple[str, ...], Callable, bool]] = {
 # shape ``(batch, D)``. Families not listed default to all-rank-0.
 _PARAM_EVENT_RANKS: dict[str, tuple[int, ...]] = {
     "OrderedLogistic": (0, 1),  # predictor scalar, cutpoints vector
+    "Categorical": (1,),  # probabilities or logits over the categories
+    "Dirichlet": (1,),  # concentration over the simplex
     "MixtureNormal": (1, 1, 1),  # per-component vectors
     "ZeroInflatedPoisson": (0, 0),
     "HurdlePoisson": (0, 0),
@@ -1700,15 +1675,16 @@ def _unwrap_draw_arg(arg):
     Python representation the inline machinery already understands.
 
     `DrawArgName` -> `str`, `DrawArgScalar` -> `float`, `DrawArgIndex`
-    -> `DrawArgIndex` (passed through structurally so downstream
-    var-name collection can pattern-match on the `kind`).
-    `DrawArgDist` and `DrawArgList` round-trip unchanged; the
-    operator dispatch above handles them.
+    -> [`Indexed`][quivers.continuous.program_steps.Indexed], the step
+    argument a program gathers through. `DrawArgDist` and `DrawArgList`
+    round-trip unchanged; the operator dispatch above handles them.
     """
     if isinstance(arg, DrawArgName):
         return arg.text
     if isinstance(arg, DrawArgScalar):
         return arg.value
+    if isinstance(arg, DrawArgIndex):
+        return Indexed(name=arg.name, indices=arg.indices)
     return arg
 
 
@@ -1882,13 +1858,9 @@ def _build_operator_value(
             raise ValueError(
                 f"Pushforward: expected (base, bijector), got {len(evaluated)} args"
             )
-        from quivers.continuous.bijectors import Bijector
-
         base, bij = evaluated
         if isinstance(bij, str):
-            from quivers.continuous import bijectors as _bj
-
-            bij_cls = getattr(_bj, bij, None)
+            bij_cls = BIJECTORS_BY_NAME.get(bij)
             if bij_cls is None:
                 raise ValueError(
                     f"Pushforward: unknown bijector {bij!r}; "
@@ -1976,7 +1948,7 @@ def make_inline_distribution(
     args: tuple,
     codomain: AnySpace,
     variable_types: dict[str, AnySpace] | None = None,
-) -> tuple[ContinuousMorphism, tuple[str, ...] | None]:
+) -> tuple[ContinuousMorphism, tuple[StepArgument, ...] | None]:
     """Create an inline distribution from family name and mixed args.
 
     Handles any combination of literal and variable arguments for any
@@ -2015,12 +1987,10 @@ def make_inline_distribution(
             selected_parameters,
         )
     args = _normalize_inline_args(args)
-    # A `DrawArgIndex` (structural bracket-indexed ref) counts as a
-    # variable reference for the purposes of picking the fixed vs
-    # mixed factory dispatch, alongside bare identifier strings.
-    var_names = [
-        a for a in args if isinstance(a, str) or getattr(a, "kind", None) == "index"
-    ]
+    # An indexed reference counts as a variable reference for the
+    # purposes of picking the fixed vs mixed factory dispatch, alongside
+    # bare identifier strings.
+    var_names = [a for a in args if isinstance(a, str | Indexed)]
     if not var_names:
         if family == "Categorical":
             values = _eval_draw_arg_value(args[0], variable_types)
@@ -2099,26 +2069,28 @@ def make_inline_distribution(
         family,
         tuple(0 for _ in param_names),
     )
-    param_spec: list[tuple[str, int | float]] = []
-    var_name_order: list[str] = []
+    param_spec: list[tuple[str, int | float | None]] = []
+    var_name_order: list[StepArgument] = []
     total_var_dim = 0
     for i, arg in enumerate(args):
         if isinstance(arg, (int, float)):
             param_spec.append(("lit", float(arg)))
         else:
-            var_dim = 1
-            # `DrawArgIndex` carries the base identifier under
-            # `arg.name`; the compiled step spec still references
-            # the base tensor via `_lookup_arg`, so the variable-
-            # type lookup uses that name.
-            lookup_name = arg.name if getattr(arg, "kind", None) == "index" else arg
+            # A parameter's width comes from its binding's type; without
+            # one it is left unresolved, for the stacked width to settle.
+            var_dim: int | None = None
+            lookup_name = arg.name if isinstance(arg, Indexed) else arg
             if variable_types and lookup_name in variable_types:
-                var_dim = _param_row_width(
-                    variable_types[lookup_name], fam_event_ranks[i]
-                )
+                vtype = variable_types[lookup_name]
+                if isinstance(arg, Indexed) and isinstance(vtype, Euclidean):
+                    # A gather selects whole rows of a plate, so the
+                    # argument is one row wide.
+                    var_dim = vtype.row_width
+                else:
+                    var_dim = _param_row_width(vtype, fam_event_ranks[i])
             param_spec.append(("var", var_dim))
             var_name_order.append(arg)
-            total_var_dim += var_dim
+            total_var_dim += 1 if var_dim is None else var_dim
     if family == "MixtureNormal":
         # QIEC can currently retain the component width for an indexed draw
         # while conservatively typing a derived vector-valued ``let`` as
@@ -2129,23 +2101,25 @@ def make_inline_distribution(
         known_component_dims = {
             int(value)
             for (kind, value), rank in zip(param_spec, fam_event_ranks, strict=True)
-            if kind == "var" and rank >= 1 and int(value) > 1
+            if kind == "var" and rank >= 1 and value is not None and int(value) > 1
         }
         if len(known_component_dims) == 1:
             component_dim = known_component_dims.pop()
             param_spec = [
                 (kind, component_dim)
-                if kind == "var" and rank >= 1 and int(value) == 1
+                if kind == "var" and rank >= 1 and (value is None or int(value) == 1)
                 else (kind, value)
                 for (kind, value), rank in zip(param_spec, fam_event_ranks, strict=True)
             ]
             total_var_dim = sum(
-                int(value) for kind, value in param_spec if kind == "var"
+                1 if value is None else int(value)
+                for kind, value in param_spec
+                if kind == "var"
             )
     if total_var_dim == 0:
         domain = Euclidean(name="_inline_domain", dim=1)
     elif len(var_name_order) == 1 and variable_types:
-        vtype = variable_types.get(var_name_order[0])
+        vtype = _argument_type(var_name_order[0], variable_types)
         domain = (
             vtype
             if vtype is not None
@@ -2163,7 +2137,7 @@ def make_inline_distribution(
     if family in ("TruncatedNormal", "Uniform"):
         lit_args: list[float] = []
         for kind, value in param_spec:
-            if kind == "lit":
+            if kind == "lit" and value is not None:
                 lit_args.append(float(value))
         if family == "Uniform" and len(lit_args) == 2:
             fam_support = _constraints.interval(lit_args[0], lit_args[1])
@@ -2238,15 +2212,38 @@ def _bind_inline_arguments(
     return tuple(value for _, value in bound), tuple(name for name, _ in bound)
 
 
+def _argument_type(
+    arg: StepArgument, variable_types: dict[str, AnySpace] | None
+) -> AnySpace | None:
+    """The known type of a bound argument.
+
+    Parameters
+    ----------
+    arg : StepArgument
+        A binding's name, or an indexed gather of one.
+    variable_types : dict or None
+        Known variable types.
+
+    Returns
+    -------
+    AnySpace or None
+        The binding's type, or ``None`` for an unknown binding and for a
+        gather, whose rows the base binding's type does not describe.
+    """
+    if variable_types is None or isinstance(arg, Indexed):
+        return None
+    return variable_types.get(arg)
+
+
 def _infer_domain(
-    var_names: list[str], variable_types: dict[str, AnySpace] | None
+    var_names: list[StepArgument], variable_types: dict[str, AnySpace] | None
 ) -> AnySpace:
     """Infer a domain space from variable types.
 
     Parameters
     ----------
-    var_names : list[str]
-        Variable names used as input.
+    var_names : list[StepArgument]
+        The bound arguments used as input.
     variable_types : dict or None
         Known variable types.
 
@@ -2258,7 +2255,7 @@ def _infer_domain(
     if variable_types is None or not var_names:
         return Euclidean(name="_inline_domain", dim=len(var_names))
     if len(var_names) == 1:
-        vtype = variable_types.get(var_names[0])
+        vtype = _argument_type(var_names[0], variable_types)
         if vtype is not None:
             return vtype
         return Euclidean(name="_inline_domain", dim=1)
@@ -2267,11 +2264,12 @@ def _infer_domain(
 
     components = []
     for vn in var_names:
-        vtype = variable_types.get(vn)
+        vtype = _argument_type(vn, variable_types)
         if vtype is not None:
             components.append(vtype)
         else:
-            components.append(Euclidean(name=f"_inline_{vn}", dim=1))
+            label = vn.name if isinstance(vn, Indexed) else vn
+            components.append(Euclidean(name=f"_inline_{label}", dim=1))
     if any((isinstance(c, ContinuousSpace) for c in components)):
         return ProductSpace(components=tuple(components))
     return ProductSet(components=tuple(components))
@@ -2285,7 +2283,7 @@ def _infer_domain(
 # `FixedDistribution` factory and a matching mixed-mode
 # builder.  This is the architectural seam that closes the gap
 # between the conditional path and the inline path: a family
-# declared once via [`quivers.continuous.family_spec.register`][quivers.continuous.family_spec.register]
+# declared once via `register_family`
 # automatically becomes usable in DSL ``F(args)`` syntax.
 # ---------------------------------------------------------------------------
 
@@ -2374,8 +2372,6 @@ def _auto_register_inline(spec: FamilySpec) -> None:
       parameter tensor straight to the underlying torch distribution
       constructor.
     """
-    if spec.name in _FIXED_FACTORIES or spec.name in _FAMILY_BUILDERS:
-        return  # hand-written entry takes precedence
     if spec.output_kind not in {
         "independent",
         "categorical",
@@ -2384,12 +2380,16 @@ def _auto_register_inline(spec: FamilySpec) -> None:
         "matrix",
     }:
         return
-    if spec.output_kind == "independent":
+    # A hand-written entry takes precedence in its own table: a family
+    # with a hand-written fixed factory still gets the generic mixed
+    # builder, and the other way round.
+    if spec.output_kind == "independent" and spec.name not in _FIXED_FACTORIES:
         factory = _build_generic_fixed_factory(spec)
         _FIXED_FACTORIES[spec.name] = (spec.param_names, factory)
-    builder = _build_generic_mixed_builder(spec)
-    _FAMILY_BUILDERS[spec.name] = (spec.param_names, builder, spec.discrete)
-    _FAMILY_SUPPORTS[spec.name] = spec.support
+    if spec.name not in _FAMILY_BUILDERS:
+        builder = _build_generic_mixed_builder(spec)
+        _FAMILY_BUILDERS[spec.name] = (spec.param_names, builder, spec.discrete)
+        _FAMILY_SUPPORTS.setdefault(spec.name, spec.support)
 
 
 # Ensure [`quivers.continuous.families`][quivers.continuous.families] has registered every
@@ -2409,3 +2409,27 @@ def reload_inline_registry() -> None:
     imported (test plugins, downstream extensions)."""
     for spec in FAMILY_REGISTRY.values():
         _auto_register_inline(spec)
+
+
+__all__ = [
+    "FixedDistribution",
+    "MixedInlineDistribution",
+    "get_inline_param_names",
+    "get_inline_parameterizations",
+    "make_fixed_bernoulli",
+    "make_fixed_beta",
+    "make_fixed_categorical",
+    "make_fixed_dirichlet",
+    "make_fixed_exponential",
+    "make_fixed_gamma",
+    "make_fixed_halfcauchy",
+    "make_fixed_halfnormal",
+    "make_fixed_lkj_cholesky",
+    "make_fixed_logitnormal",
+    "make_fixed_lognormal",
+    "make_fixed_normal",
+    "make_fixed_truncated_normal",
+    "make_fixed_uniform",
+    "make_inline_distribution",
+    "reload_inline_registry",
+]

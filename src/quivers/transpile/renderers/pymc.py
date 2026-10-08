@@ -84,7 +84,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     assert_no_dangling_refs,
 )
@@ -117,6 +117,13 @@ class PyMCRenderer(RendererBase):
     # ----- protocol -----
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("python")
 
     # ----- top-level render -----
@@ -125,7 +132,18 @@ class PyMCRenderer(RendererBase):
         """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
         PyMC schema. Subclasses normally call
         [`render_with_tables`][quivers.transpile.renderers.pymc.PyMCRenderer.render_with_tables]
-        when morphism / let tables are available."""
+        when morphism / let tables are available.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         return self.render_with_tables(ir, morphisms={}, lets={})
 
     def render_with_tables(
@@ -138,12 +156,27 @@ class PyMCRenderer(RendererBase):
         """Same as `render` but pre-populates `ctx.morphisms` / `ctx.defines`
         so [`IRArgFamilyRef`][quivers.transpile.ir.IRArgFamilyRef]
         rendering can read the referenced morphism's `init_family`
-        clause."""
+        clause.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+        morphisms
+            The module's morphism declarations, by name.
+        lets
+            The module's define expressions, by name.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
+        """
         assert_no_dangling_refs(ir)
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms=dict(morphisms), defines=dict(lets))
+        ctx = RenderContext(sb=sb, morphisms=dict(morphisms), defines=dict(lets))
         py = PyCtx(
             sb,
             cards=dict(ir.cards),
@@ -334,7 +367,7 @@ class PyMCRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -343,7 +376,26 @@ class PyMCRenderer(RendererBase):
     ) -> SchemaFragment:
         """PyMC declarations ARE the constructor calls (emitted in
         `sample`). `declare` is thus a no-op; the caller's emit
-        handles both declaration and assignment in one node."""
+        handles both declaration and assignment in one node.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, constraint, plate, block
         return ""
 
@@ -808,12 +860,25 @@ class PyMCRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """No-op at the protocol dispatch point: the renderer drives
         the enumeration through `_emit_marginalize`, which needs the
-        PyMC-specific with-body context."""
+        PyMC-specific with-body context.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, node
         return ""
 
@@ -1088,12 +1153,27 @@ class PyMCRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         """Emit `np.full((K,), <value>)` for 1D, `np.full((R, C),
-        <value>)` for 2D target shapes."""
+        <value>)` for 2D target shapes.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx
         msg = (
             "PyMCRenderer.broadcast: standalone broadcast emission "
@@ -1294,7 +1374,7 @@ class PyMCRenderer(RendererBase):
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -1307,7 +1387,32 @@ class PyMCRenderer(RendererBase):
         joined with declare (the constructor call IS the declaration).
         Not called by the PyMC walker (which calls `_emit_sample`
         directly); kept here so external callers using the abstract
-        protocol can drive the renderer."""
+        protocol can drive the renderer.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del ctx, name, family, args, arg_names, constraint, plate, observed
         msg = (
             "PyMCRenderer.sample is not called directly; PyMC dispatch "
@@ -1323,15 +1428,15 @@ class PyMCRenderer(RendererBase):
 
 class _PyMCCtx:
     """Renderer-internal mutable bag threaded through the dispatch
-    points: shared [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx],
-    the [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx] adapter,
+    points: shared [`RenderContext`][quivers.transpile.renderers.RenderContext],
+    the `PyCtx` adapter,
     and per-walk state (`with`-body block, parent IR for input
     lookups)."""
 
     def __init__(
         self,
         *,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         py: PyCtx,
         ir: IRProgram,
     ) -> None:

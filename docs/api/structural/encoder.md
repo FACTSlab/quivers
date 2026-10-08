@@ -18,3 +18,15 @@ rounds with functions indexed by edge and vertex kind, and a readout
 that reduces the final vertex embeddings to one graph-level vector.
 
 ::: quivers.structural.encoder
+    options:
+      filters: ["!^_", "!^(BOUND_VAR_OP|PerOpMode)$"]
+
+## Type aliases and constants
+
+::: quivers.structural
+    options:
+      members:
+        - BOUND_VAR_OP
+        - PerOpMode
+      show_root_heading: false
+      show_root_toc_entry: false

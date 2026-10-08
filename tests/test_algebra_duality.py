@@ -31,7 +31,7 @@ from quivers.core.algebras import (
     CustomAlgebra,
     DualAlgebra,
 )
-from quivers.dsl.compiler import _ALGEBRA_REGISTRY
+from quivers.dsl.compiler._prelude import _ALGEBRA_REGISTRY
 
 
 _SAMPLES_3 = torch.tensor([0.3, 0.5, 0.8])

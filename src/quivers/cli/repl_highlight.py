@@ -53,8 +53,6 @@ from quivers.dsl.pygments_lexer import (
 # ---------------------------------------------------------------------------
 
 
-# Every QVR token reduces to one of these; the order is significant for
-# the LSP semantic-token legend index.
 SEMANTIC_TOKEN_TYPES: tuple[str, ...] = (
     "comment",
     "keyword",
@@ -69,6 +67,9 @@ SEMANTIC_TOKEN_TYPES: tuple[str, ...] = (
     "decorator",
     "error",
 )
+"""The semantic token types every QVR token reduces to. The order is
+significant: a token's index here is its type in the LSP semantic-token
+legend."""
 
 
 SEMANTIC_TOKEN_MODIFIERS: tuple[str, ...] = (
@@ -76,11 +77,10 @@ SEMANTIC_TOKEN_MODIFIERS: tuple[str, ...] = (
     "definition",
     "deprecated",
 )
+"""The semantic token modifiers the language server advertises in its
+legend."""
 
 
-# Rich style strings keyed by semantic token. Centralised so the TUI,
-# the prompt_toolkit lexer, and the Jupyter kernel pick up the same
-# colours.
 STYLE_TABLE: dict[str, str] = {
     # Explicit truecolor hex codes (One-Dark inspired) instead of
     # palette-indexed names. Terminals with customised 16-colour
@@ -101,6 +101,9 @@ STYLE_TABLE: dict[str, str] = {
     "decorator": "#c678dd",
     "error": "bold #e06c75 underline",
 }
+"""Rich style strings keyed by semantic token type, shared by the TUI,
+the prompt_toolkit lexer, and the Jupyter kernel so that every front end
+colours a token alike."""
 
 
 _PUNCT = {"(", ")", "[", "]", "{", "}", ",", ":", "."}
@@ -108,7 +111,27 @@ _PUNCT = {"(", ")", "[", "]", "{", "}", ",", ":", "."}
 
 @dataclass(frozen=True)
 class Span:
-    """One styled run of source."""
+    """One styled run of source.
+
+    Parameters
+    ----------
+    start : int
+        The run's start byte offset in the source.
+    end : int
+        The run's end byte offset, exclusive.
+    token : str
+        Its semantic token type, one of `SEMANTIC_TOKEN_TYPES`.
+    text : str
+        The source text of the run.
+    line : int
+        Its 0-indexed start line.
+    col : int
+        Its 0-indexed start column, in UTF-16 code units.
+    end_line : int
+        Its 0-indexed end line.
+    end_col : int
+        Its 0-indexed end column, in UTF-16 code units.
+    """
 
     start: int
     end: int
@@ -131,6 +154,20 @@ def tokenize(
     env_kinds: dict[str, str] | None = None,
 ) -> list[Span]:
     """Return the styled span list for ``source``.
+
+    Parameters
+    ----------
+    source : str or bytes
+        The QVR source to highlight.
+    env_kinds : dict[str, str] or None
+        Semantic kinds of names bound in the environment, as described
+        below; ``None`` highlights from the grammar alone.
+
+    Returns
+    -------
+    list[Span]
+        The source's spans in order, each tagged with a semantic token
+        type.
 
     Drives directly on the tree-sitter parse so that anonymous tokens
     (keywords, punctuation) are preserved; panproto's Schema view
@@ -394,7 +431,7 @@ def to_rich_text(
 ) -> Any:
     """Build a `rich.text.Text` from the highlighted source.
 
-    Imported lazily so importing [`quivers.cli.repl_highlight`][quivers.cli.repl_highlight] does
+    Rich is imported lazily so that importing this module does
     not pull rich in for callers that need only raw spans.
 
     If ``link_action`` is set (e.g. ``"info"``), identifiers that the
@@ -403,6 +440,22 @@ def to_rich_text(
     as Rich console links pointing to ``"<link_action>:<name>"``. The
     TUI's RichLog ``on_click`` translator then runs ``:link_action
     <name>`` when the user clicks.
+
+    Parameters
+    ----------
+    source : str
+        The QVR source to highlight.
+    env_kinds : dict[str, str] or None
+        Semantic kinds of names bound in the environment, as for
+        `tokenize`.
+    link_action : str or None
+        The meta-command clickable identifiers run, or ``None`` for no
+        links.
+
+    Returns
+    -------
+    rich.text.Text
+        The styled text.
     """
     from rich.style import Style
     from rich.text import Text
@@ -432,6 +485,16 @@ def to_pygments_pairs(source: str) -> list[tuple[Any, str]]:
     prompt_toolkit's PygmentsLexer wraps a Pygments Lexer that yields
     ``(index, token, text)``; here we deliver the simpler ``(token,
     text)`` form directly used by ``prompt_toolkit.formatted_text``.
+
+    Parameters
+    ----------
+    source : str
+        The QVR source to highlight.
+
+    Returns
+    -------
+    list[tuple[pygments.token._TokenType, str]]
+        One pair per span, in source order.
     """
     from pygments.token import (
         Comment,
@@ -470,7 +533,13 @@ def to_pygments_pairs(source: str) -> list[tuple[Any, str]]:
 
 
 def to_semantic_token_legend() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return the ``(types, modifiers)`` legend exported at server init."""
+    """Return the semantic-token legend the language server advertises.
+
+    Returns
+    -------
+    tuple[tuple[str, ...], tuple[str, ...]]
+        `SEMANTIC_TOKEN_TYPES` and `SEMANTIC_TOKEN_MODIFIERS`.
+    """
     return SEMANTIC_TOKEN_TYPES, SEMANTIC_TOKEN_MODIFIERS
 
 
@@ -483,6 +552,19 @@ def to_semantic_token_data(
     tokenType, tokenModifiers]`` per LSP 3.17. See
     https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens
     for the encoding rules.
+
+    Parameters
+    ----------
+    source : str
+        The QVR source to encode.
+    env_kinds : dict[str, str] or None
+        Semantic kinds of names bound in the environment, as for
+        `tokenize`.
+
+    Returns
+    -------
+    list[int]
+        Five integers per token.
     """
     type_index = {name: i for i, name in enumerate(SEMANTIC_TOKEN_TYPES)}
     out: list[int] = []
