@@ -39,7 +39,7 @@ from quivers.continuous.spaces import (
     PositiveReals,
 )
 from quivers.continuous.families import ConditionalNormal, ConditionalBernoulli
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, Let, MonadicProgram
 ```
 
 ## Defining spaces
@@ -125,18 +125,20 @@ likelihood = ConditionalNormal(R, R)
 program = MonadicProgram(
     Unit, R,  # input space, output space
     steps=[
-        (("z",), prior, None),          # z <- prior(unit)
-        (("y",), likelihood, ("z",)),   # y <- likelihood(z)
+        Draw(names=("z",), morphism=prior),  # z <- prior(unit)
+        Draw(names=("y",), morphism=likelihood, args=("z",)),  # y <- likelihood(z)
     ],
     return_vars=("y",),
 )
 ```
 
-The tuple structure for a draw step is `(var_names, family, input_vars)`:
+Each step is a record. A [`Draw`](../../api/continuous/program_steps.md#quivers.continuous.program_steps.Draw) has three fields:
 
-- `var_names`: tuple of variable names bound in this step (a tuple, even if there is just one variable)
-- `family`: the conditional distribution, or `None` for a let binding
-- `input_vars`: tuple of prior variable names this step depends on, or `None` to take the program input
+- `names`: the variable names the step binds (a tuple, even if there is just one variable)
+- `morphism`: the conditional distribution sampled from
+- `args`: the earlier bindings the distribution reads, or `None` (the default) to read the program input
+
+[`Observe`](../../api/continuous/program_steps.md#quivers.continuous.program_steps.Observe) has the same fields and scores supplied data instead of sampling. [`Let`](../../api/continuous/program_steps.md#quivers.continuous.program_steps.Let) and [`Score`](../../api/continuous/program_steps.md#quivers.continuous.program_steps.Score) bind one `name` to a deterministic `value` or to a log-density contribution.
 
 Sample from the program. A discrete input is a 1D LongTensor of indices:
 
@@ -167,9 +169,9 @@ def double(env):
 program = MonadicProgram(
     Unit, R,
     steps=[
-        (("z",), prior, None),
-        (("w",), None, double),         # let w = z * 2
-        (("y",), likelihood, ("w",)),   # y <- likelihood(w)
+        Draw(names=("z",), morphism=prior),
+        Let(name="w", value=double),  # let w = z * 2
+        Draw(names=("y",), morphism=likelihood, args=("w",)),  # y <- likelihood(w)
     ],
     return_vars=("y",),
 )
@@ -189,8 +191,8 @@ Return multiple variables. Multi-return programs yield a dict keyed by variable 
 program = MonadicProgram(
     Unit, R * R,  # output is the product space R x R
     steps=[
-        (("z",), prior, None),
-        (("y",), likelihood, ("z",)),
+        Draw(names=("z",), morphism=prior),
+        Draw(names=("y",), morphism=likelihood, args=("z",)),
     ],
     return_vars=("z", "y"),
 )
@@ -265,9 +267,9 @@ likelihood2 = ConditionalNormal(R, R)
 program = MonadicProgram(
     Unit, R * R,
     steps=[
-        (("z",), prior, None),                  # shared latent
-        (("y1",), likelihood1, ("z",)),         # observation 1
-        (("y2",), likelihood2, ("z",)),         # observation 2
+        Draw(names=("z",), morphism=prior),                  # shared latent
+        Draw(names=("y1",), morphism=likelihood1, args=("z",)),         # observation 1
+        Draw(names=("y2",), morphism=likelihood2, args=("z",)),         # observation 2
     ],
     return_vars=("y1", "y2"),
 )

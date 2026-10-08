@@ -30,7 +30,6 @@ from quivers.transpile.family_meta import FAMILY_META
 
 _HERE = pathlib.Path(__file__).resolve().parent
 
-#: The dynamic targets and the host language each renders to.
 DYNAMIC_TARGET_LANGUAGES: dict[str, str] = {
     "pyro": "python",
     "numpyro": "python",
@@ -41,6 +40,7 @@ DYNAMIC_TARGET_LANGUAGES: dict[str, str] = {
     "webppl": "javascript",
     "church": "scheme",
 }
+"""The dynamic targets, each mapped to the host language it renders to."""
 
 #: Runtime helper roots a target must graft for a family it does not
 #: ship, keyed by target and family. Python targets graft one class per

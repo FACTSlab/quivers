@@ -12,8 +12,8 @@ ABC fixes a uniform contract:
   per-site dict and returns a ``(batch,)``-shaped tensor.
 
 Every concrete subclass under [`quivers.inference.guides`][quivers.inference.guides] is
-constructed against a `quivers.inference.registry.LatentRegistry`
-— no per-guide model walk. New guides supply the *variational
+constructed against a `quivers.inference.registry.LatentRegistry`,
+with no per-guide model walk. New guides supply the *variational
 family's structure* (Normal vs MVN vs flow), not its
 introspection.
 """

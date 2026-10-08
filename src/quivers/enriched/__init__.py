@@ -3,13 +3,13 @@
 This subpackage contains canonical implementations of advanced enriched
 category structures, organized thematically:
 
-    ends_coends       — Ends and coends (generalized joins/meets)
-    kan_extensions    — Kan extensions (indexed re-mapping)
-    weighted_limits   — Weighted limits and colimits
-    profunctors       — Profunctors (V-valued bimodules)
-    yoneda            — Yoneda embedding and representable profunctors
-    day_convolution   — Day convolution on presheaves
-    optics            — Optics (composable bidirectional transformations)
+- `ends_coends`: ends and coends (generalized joins and meets);
+- `kan_extensions`: Kan extensions (indexed re-mapping);
+- `weighted_limits`: weighted limits and colimits;
+- `profunctors`: profunctors (V-valued bimodules);
+- `yoneda`: the Yoneda embedding and representable profunctors;
+- `day_convolution`: Day convolution on presheaves;
+- `optics`: optics (composable bidirectional transformations).
 """
 
 from __future__ import annotations

@@ -40,6 +40,7 @@ from quivers.qiec.program_runtime import (
     static_arguments_for,
 )
 from quivers.qiec.programs import ProgramEntry
+from quivers.qiec.serialization import JsonValue
 from quivers.qiec.substitution import StaticSubstitution, substitute_type
 from quivers.qiec.types import IndexTerm, render_static
 
@@ -541,12 +542,6 @@ def parse_bindings(items: Sequence[str]) -> dict[str, HostValue]:
     return bindings
 
 
-type JsonValue = (
-    bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
-)
-"""What ``json.loads`` returns."""
-
-
 def json_value(value: JsonValue) -> HostValue:
     """Read a parsed JSON value as a host value.
 
@@ -607,7 +602,6 @@ __all__ = [
     "EntryPoint",
     "EntryRun",
     "HostValue",
-    "JsonValue",
     "entry_point",
     "entry_points",
     "invoke_entry",

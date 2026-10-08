@@ -235,6 +235,14 @@ Every record-shaped value (AST nodes, `FinSet`, `ProductSet`, `CoproductSet`, `C
 
 Tensor-bearing accumulators (`Presheaf`, `Weight`, `SampleSite`, `Trace`) remain `@dataclass` because they hold mutable `torch.Tensor` fields.
 
+### Exports
+
+What a module exports, and where users import it from, follows the
+[export policy](public-api.md): every public module declares `__all__`, each
+package re-exports its modules' public names, public signatures name
+only public types, and every public name renders in the API reference.
+`tests/test_public_api.py` and `tools/check_api_reference.py` enforce it.
+
 ## The DSL Pipeline
 
 The QVR DSL processes `.qvr` files through these stages:

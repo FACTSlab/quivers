@@ -464,3 +464,6 @@ class Program(nn.Module):
         """
         t = cast(Morphism, self._morphism).tensor
         return F.binary_cross_entropy(t, target)
+
+
+__all__ = ["Program"]

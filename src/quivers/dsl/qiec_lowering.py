@@ -176,6 +176,11 @@ from quivers.qiec import (
 
 
 QVR_SOURCE_VERSION = "qvr-source/v0.20"
+"""The source protocol a `QvrQiecLowerer` route accepts.
+
+`lower_qvr_to_qiec` checks its ``source_version`` argument against this
+identifier, which names the QVR surface the elaboration reads.
+"""
 
 QIEC_STATEMENT_TYPES = (
     surface.QiecIndexDecl,
@@ -185,6 +190,11 @@ QIEC_STATEMENT_TYPES = (
     surface.QiecHandlerDecl,
     surface.QiecComputationDecl,
 )
+"""The declaration classes that make up the QIEC surface of a module.
+
+`qiec_projection` keeps these statements and `non_qiec_projection`
+drops them, so the tuple fixes where the two routes divide a module.
+"""
 
 #: Declarations the program elaboration reads beside the QIEC statements:
 #: the programs and deductions themselves and the objects, morphisms, and
@@ -5178,7 +5188,6 @@ __all__ = [
     "CheckedQvrQiec",
     "QIEC_STATEMENT_TYPES",
     "QVR_SOURCE_VERSION",
-    "QiecDiagnosticError",
     "QvrQiecLowerer",
     "QvrQiecSource",
     "has_qiec_surface",

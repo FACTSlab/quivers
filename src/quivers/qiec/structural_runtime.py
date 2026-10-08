@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
-
 import torch
 
 from quivers.qiec.builtins import compute_handler
@@ -27,9 +25,6 @@ from quivers.qiec.identifiers import TypeId
 from quivers.qiec.module import NamedEffectInstance, QiecModule
 from quivers.qiec.types import REAL, TypeApplication, TypeExpr
 from quivers.structural import Term
-
-if TYPE_CHECKING:
-    from quivers.program import Program
 
 
 def _tensor_value(type_: TypeExpr, value: object) -> bool:
@@ -247,7 +242,9 @@ def structural_handler_definition(
     )
 
 
-def _loss_value(program: Program, name: str, argument: object) -> torch.Tensor:
+def _loss_value(
+    program: quivers.program.Program, name: str, argument: object
+) -> torch.Tensor:
     """Evaluate one named loss entry under its term argument.
 
     Parameters
@@ -280,7 +277,7 @@ def _loss_value(program: Program, name: str, argument: object) -> torch.Tensor:
 
 
 def _component_function(
-    program: Program,
+    program: quivers.program.Program,
     instance: NamedEffectInstance,
 ) -> Callable[[object, ClauseContext], object]:
     """Resolve one structural instance to its compiled PyTorch operation.
@@ -356,7 +353,7 @@ def _component_function(
 
 def structural_runtime_provider(
     module: QiecModule,
-    program: Program,
+    program: quivers.program.Program,
 ) -> StructuralRuntimeProvider:
     """Build the typed neural-attachment provider for a compiled module.
 
@@ -416,7 +413,7 @@ def structural_runtime_provider(
 
 def structural_runtime_configuration(
     module: QiecModule,
-    program: Program,
+    program: quivers.program.Program,
 ) -> RuntimeConfiguration:
     """Return the standard runtime configuration for structural entries.
 
@@ -442,7 +439,7 @@ def structural_runtime_configuration(
 
 def run_structural(
     module: QiecModule,
-    program: Program,
+    program: quivers.program.Program,
     name: str,
     arguments: Sequence[object],
     *,
@@ -504,3 +501,10 @@ __all__ = [
     "structural_runtime_configuration",
     "structural_runtime_provider",
 ]
+
+# `quivers.program` imports this module to configure the entry points it
+# runs, and the annotations above name its `Program`. The import binds the
+# package path rather than the class and sits at the foot of the file, so
+# whichever module loads first, the other finds every name it needs, and
+# the annotations resolve once both have finished loading.
+import quivers.program  # noqa: E402

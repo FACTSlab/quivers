@@ -580,3 +580,13 @@ def compose_optics(outer: Optic, inner: Optic) -> Optic:
         to_morph=bwd,
         algebra=outer.algebra,
     )
+
+
+__all__ = [
+    "Optic",
+    "Lens",
+    "Prism",
+    "Adapter",
+    "Grate",
+    "compose_optics",
+]

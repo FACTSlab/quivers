@@ -24,8 +24,21 @@ def graph_signature(
 ) -> Signature:
     """Construct a graph signature.
 
-    ``vertex_kinds`` maps name -> embedding dim.
-    ``edge_kinds`` maps name -> (src_kind, tgt_kind, directed).
+    Parameters
+    ----------
+    name : str
+        The signature's name.
+    vertex_kinds : dict[str, int]
+        Each vertex kind's embedding dimension, keyed by kind name.
+        Every vertex kind is data-kinded.
+    edge_kinds : dict[str, tuple[str, str, bool]]
+        Each edge kind's ``(src_kind, tgt_kind, directed)``, keyed by
+        kind name.
+
+    Returns
+    -------
+    Signature
+        The graph signature.
     """
     vk = {n: VertexKind(name=n, kind="data", dim=d) for n, d in vertex_kinds.items()}
     ek = {
@@ -45,6 +58,32 @@ def gnn_encoder(
 ) -> Encoder:
     """A GNN encoder: per-edge-kind message MLP, per-vertex-kind
     GRU update, mean / sum / max readout.
+
+    Each vertex kind embeds its payload through a lazily grown table
+    of learned vectors keyed by the payload's string form.
+
+    Parameters
+    ----------
+    sig : Signature
+        A graph signature, as built by `graph_signature`.
+    iterations : int
+        The number of message-passing rounds.
+    dim : int
+        The embedding dimension of a vertex kind that declares none.
+    readout : str
+        How the final vertex embeddings are reduced: ``"mean"``,
+        ``"sum"``, or ``"max"``.
+
+    Returns
+    -------
+    Encoder
+        The graph encoder; call its `Encoder.forward_graph`.
+
+    Raises
+    ------
+    ValueError
+        Raised by the encoder's readout when ``readout`` is not one of
+        the supported reductions.
     """
     init_fns: dict[str, Callable[[DataLeaf], torch.Tensor]] = {}
     message_fns: dict[str, Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = {}
@@ -124,3 +163,9 @@ def gnn_encoder(
         update_fns=update_fns,
         readout=readout_fn,
     )
+
+
+__all__ = [
+    "graph_signature",
+    "gnn_encoder",
+]

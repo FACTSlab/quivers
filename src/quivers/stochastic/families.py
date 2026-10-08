@@ -106,6 +106,13 @@ class DiscretizedNormal(Morphism):
         return probs.reshape(self.tensor_shape)
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._module
 
 
@@ -172,6 +179,13 @@ class DiscretizedLogitNormal(Morphism):
         return probs.reshape(self.tensor_shape)
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._module
 
 
@@ -236,6 +250,13 @@ class DiscretizedBeta(Morphism):
         return probs.reshape(self.tensor_shape)
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._module
 
 
@@ -308,4 +329,19 @@ class DiscretizedTruncatedNormal(Morphism):
         return probs.reshape(self.tensor_shape)
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._module
+
+
+__all__ = [
+    "DiscretizedNormal",
+    "DiscretizedLogitNormal",
+    "DiscretizedBeta",
+    "DiscretizedTruncatedNormal",
+]

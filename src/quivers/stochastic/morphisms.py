@@ -85,11 +85,18 @@ class StochasticMorphism(Morphism):
         return probs.reshape(self.tensor_shape)
 
     def module(self) -> nn.Module:
+        """Return the ``nn.Module`` holding this morphism's parameters.
+
+        Returns
+        -------
+        nn.Module
+            The parameter container.
+        """
         return self._module
 
 
-# convenience alias
 CategoricalMorphism = StochasticMorphism
+"""An alias of `StochasticMorphism` named for its categorical rows."""
 
 
 def stochastic(
@@ -114,3 +121,10 @@ def stochastic(
         A learnable row-stochastic morphism.
     """
     return StochasticMorphism(domain, codomain, temperature=temperature)
+
+
+__all__ = [
+    "StochasticMorphism",
+    "CategoricalMorphism",
+    "stochastic",
+]

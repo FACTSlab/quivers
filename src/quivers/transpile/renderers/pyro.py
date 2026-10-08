@@ -43,6 +43,15 @@ from quivers.transpile.renderers._python_helpers import (
     with_statement,
 )
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprBinOp,
+    LetExprCall,
+    LetExprIndex,
+    LetExprList,
+    LetExprNode,
+    LetExprUnaryOp,
+    LetExprVar,
+)
 from quivers.transpile.ir import (
     Dim,
     DimDynamic,
@@ -65,13 +74,6 @@ from quivers.transpile.ir import (
     IRSample,
     IRCall,
     IRScore,
-    LetExprBinOp,
-    LetExprCall,
-    LetExprIndex,
-    LetExprList,
-    LetExprNode,
-    LetExprUnaryOp,
-    LetExprVar,
     Plate,
     StructuredDataArg,
 )
@@ -81,7 +83,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     host_integer_input_names,
     mixture_normal_components,
@@ -100,7 +102,7 @@ _TARGET = "pyro"
 
 class PyroRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] to a
-    Python source [`panproto.Schema`][panproto.Schema] under the
+    Python source `panproto.Schema` under the
     Pyro PPL idiom.
     """
 
@@ -109,6 +111,13 @@ class PyroRenderer(RendererBase):
     # ----- panproto plumbing -----
 
     def target_protocol(self) -> panproto.Protocol:
+        """Return the panproto protocol of the target grammar.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("python")
 
     # ----- top-level render -----
@@ -121,11 +130,21 @@ class PyroRenderer(RendererBase):
         `IRObserve` nodes) and the body block are constructed up
         front; the inherited dispatch then routes each node into
         the body.
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
         sb = proto.schema()
-        ctx = _RenderCtx(sb=sb, morphisms={}, defines={})
+        ctx = RenderContext(sb=sb, morphisms={}, defines={})
         pctx = _PyroCtx(
             sb=sb,
             cards=dict(ir.cards),
@@ -234,7 +253,7 @@ class PyroRenderer(RendererBase):
     def _dispatch_pyro_node(
         self,
         pctx: _PyroCtx,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRNode,
     ) -> None:
         if isinstance(node, IRDataInput):
@@ -277,7 +296,7 @@ class PyroRenderer(RendererBase):
             self._emit_score_pyro(pctx, node)
             return
         if isinstance(node, IRMarginalize):
-            self.marginalize(ctx, node, pctx=pctx)
+            self._emit_marginalize_pyro(pctx, node)
             return
         if isinstance(node, IRCall):
             self._emit_call_pyro(pctx, node)
@@ -307,7 +326,7 @@ class PyroRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint,
         plate: Plate,
@@ -316,6 +335,24 @@ class PyroRenderer(RendererBase):
     ) -> SchemaFragment:
         """No-op outside `"function_body"`: Pyro picks data inputs up
         in the model function signature, not via a declaration block.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del ctx, name, constraint, plate, block
         return ""
@@ -324,7 +361,7 @@ class PyroRenderer(RendererBase):
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -334,7 +371,32 @@ class PyroRenderer(RendererBase):
         observed: bool,
     ) -> SchemaFragment:
         """Build the `pyro.sample(...)` call; the caller threads the
-        return vertex into the enclosing `with` / block."""
+        return vertex into the enclosing `with` / block.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del constraint, plate
         return self._build_sample_call(
             ctx,
@@ -362,7 +424,7 @@ class PyroRenderer(RendererBase):
         Mirrors the NumPyro emission with `torch` substituted for
         `jnp`. The kernel-cov expression is built using the Python
         helper API plus explicit
-        [`parenthesized_expression`][quivers.transpile.renderers._python_helpers.python_paren]
+        `parenthesized_expression`
         wrappers so operator precedence around the squared diff and
         the squared length scale survives the printer's drop-paren
         default.
@@ -491,7 +553,7 @@ class PyroRenderer(RendererBase):
     def _emit_sample_or_observe(
         self,
         pctx: _PyroCtx,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         *,
         name: str,
         family: str,
@@ -595,7 +657,7 @@ class PyroRenderer(RendererBase):
 
     def _build_sample_call(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         *,
         name: str,
         family: str,
@@ -661,7 +723,7 @@ class PyroRenderer(RendererBase):
         # `HalfStudentT`, `MatrixNormal`, `InverseWishart`); the
         # renderer grafts a helper
         # class from `quivers.transpile.runtime_pyro` (see
-        # [`_emit_runtime_helper`][quivers.transpile.renderers.pyro._emit_runtime_helper])
+        # `_emit_runtime_helper`)
         # and dispatches the call to that bare identifier rather than
         # to `pyro.distributions.<name>`.
         if dist_class in _RUNTIME_PYRO_HELPER_ROOTS:
@@ -793,13 +855,30 @@ class PyroRenderer(RendererBase):
 
     # ----- marginalize: the integrated-density lowering -----
 
-    def marginalize(
-        self,
-        ctx: _RenderCtx,
-        node: IRMarginalize,
-        *,
-        pctx: _PyroCtx | None = None,
-    ) -> SchemaFragment:
+    def marginalize(self, ctx: RenderContext, node: IRMarginalize) -> SchemaFragment:
+        """Emit nothing: Pyro integrates latents from its own walk.
+
+        [`render`][quivers.transpile.renderers.PyroRenderer.render] routes
+        each marginalize block through the Pyro walk, which carries the
+        function-body state this dispatch point does not receive, so the
+        shared dispatch point contributes no fragment of its own.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The empty fragment.
+        """
+        del ctx, node
+        return ""
+
+    def _emit_marginalize_pyro(self, pctx: _PyroCtx, node: IRMarginalize) -> None:
         """Integrate the latent out and add the reduced density to the
         model's log-density with ``pyro.factor``.
 
@@ -819,11 +898,6 @@ class PyroRenderer(RendererBase):
         integrates rather than the larger product measure a live draw
         would denote.
         """
-        if pctx is None:
-            # Standalone call: return empty fragment; the renderer
-            # drives marginalize through `_dispatch_pyro_node`.
-            return ""
-        del ctx
         raw = marginalize_body(node.scope, latent=node.latent, target=self.target)
         atoms = self.marginal_atoms(
             node,
@@ -945,7 +1019,6 @@ class PyroRenderer(RendererBase):
         es = pctx.v(pctx.fresh("es"), "expression_statement")
         pctx.e(es, factor_call, "child_of")
         pctx.e(pctx.body, es, "child_of")
-        return ""
 
     def _marginal_log_weights(
         self,
@@ -999,12 +1072,27 @@ class PyroRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         """Emit `torch.full((K,), <value>)` for rank-1, `torch.full(
-        (R, C), <value>)` for rank-2."""
+        (R, C), <value>)` for rank-2.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         pctx = _PyroCtx(sb=ctx.sb)
         return self._broadcast(pctx, value, target_shape)
 
@@ -1035,7 +1123,7 @@ class PyroRenderer(RendererBase):
             positional=(shape_vid, value_vid),
         )
 
-    def render_list(
+    def _render_list(
         self,
         pctx: _PyroCtx,
         arg: IRArgList,
@@ -1048,7 +1136,7 @@ class PyroRenderer(RendererBase):
         tensor_callee = attribute(pctx, ("torch", "tensor"))
         return call(pctx, tensor_callee, positional=(list_vid,))
 
-    def render_matrix(
+    def _render_matrix(
         self,
         pctx: _PyroCtx,
         arg: IRArgMatrix,
@@ -1136,9 +1224,9 @@ class PyroRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self._broadcast(pctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(pctx, arg)
+            return self._render_list(pctx, arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(pctx, arg)
+            return self._render_matrix(pctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             return self._resolve_family_ref(pctx, arg)
         raise UnsupportedConstruct(
@@ -1156,9 +1244,9 @@ class PyroRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self._broadcast(pctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(pctx, arg)
+            return self._render_list(pctx, arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(pctx, arg)
+            return self._render_matrix(pctx, arg)
         raise UnsupportedConstruct(
             f"qvr-{_TARGET}",
             [f"inner-arg-kind:{type(arg).__name__}"],
@@ -1243,12 +1331,12 @@ class PyroRenderer(RendererBase):
         """`<name> = <expr>; pyro.factor("<name>", <name>)`.
 
         Pyro-local emitter; never goes through the
-        [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+        [`RendererBase`][quivers.transpile.renderers.RendererBase]
         dispatch (the Pyro renderer routes through
-        [`_dispatch_pyro_node`][quivers.transpile.renderers.pyro.PyroRenderer._dispatch_pyro_node]
+        `_dispatch_pyro_node`
         instead, with its own
-        [`_PyroCtx`][quivers.transpile.renderers.pyro._PyroCtx]
-        rather than the base `_RenderCtx`).
+        `_PyroCtx`
+        rather than the base `RenderContext`).
         """
         asn = pctx.v(pctx.fresh("asn"), "assignment")
         lhs = identifier(pctx, node.name)
@@ -1269,7 +1357,7 @@ class PyroRenderer(RendererBase):
         """Emit `return <var>` / `return <a>, <b>, ...`.
 
         Pyro-local emitter; see
-        [`_emit_score_pyro`][quivers.transpile.renderers.pyro.PyroRenderer._emit_score_pyro]
+        `_emit_score_pyro`
         for why this does not override the base method.
         """
         if not names:
@@ -1291,7 +1379,7 @@ class PyroRenderer(RendererBase):
 
 
 class _PyroCtx(PyCtx):
-    """A [`PyCtx`][quivers.transpile.renderers._python_helpers.PyCtx]
+    """A `PyCtx`
     enriched with the function body block id, the set of observed
     names, and the resolved morphism table.
 
@@ -1529,7 +1617,7 @@ def _function_def_split(
 ) -> str:
     """Build `def <name>(<pos0>, <pos1>, ..., <def0>=None, ...): <body>`.
 
-    [`function_def`][quivers.transpile.renderers._python_helpers.function_def]
+    `function_def`
     emits every param as `<name>=None`; this variant carries the Pyro
     idiom of positional model params followed by `<obs>=None` for
     every observation.
@@ -1725,7 +1813,7 @@ def _load_runtime_pyro_helpers() -> tuple[
     Returns the parsed schema, a map from class name to the
     class-definition vertex id, and a map from class name to the set
     of vertex ids in that class's subtree. The renderer's
-    [`_emit_runtime_helper`][quivers.transpile.renderers.pyro._emit_runtime_helper]
+    `_emit_runtime_helper`
     grafts a class subtree (vertex + all descendants + their
     constraints + edges) into the per-render schema as a `child_of`
     of the emitted module. The emit is structurally a real Python
@@ -1788,7 +1876,7 @@ def _emit_runtime_helper(pctx: _PyroCtx, class_name: str) -> None:
     per-render schema as a top-level child of `mod`.
 
     The class definition is a real
-    [`class_definition`][panproto.schema.class_definition] panproto
+    `class_definition` panproto
     subtree (parsed once at module load via panproto's Python
     tree-sitter grammar). The renderer copies every vertex, every
     constraint, and every internal edge of the subtree into the

@@ -113,3 +113,10 @@ def expectation(
     weighted = t * v
     cod_dims = tuple(range(n_dom, n_dom + n_cod))
     return weighted.sum(dim=cod_dims)
+
+
+__all__ = [
+    "prob",
+    "marginal_prob",
+    "expectation",
+]

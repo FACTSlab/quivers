@@ -10,7 +10,7 @@ post-warmup samples per chain.
 
 Chains are run sequentially within a process. For parallel chains
 across a real multi-core / multi-GPU workload, wrap an
-`MCMC` instance in a `torch.multiprocessing` pool —
+`MCMC` instance in a `torch.multiprocessing` pool;
 the driver is stateless across runs.
 
 The result is an `MCMCResult` carrying per-site posterior
@@ -39,6 +39,11 @@ from quivers.inference.registry import LatentRegistry
 
 
 InitStrategy = Literal["prior", "zero", "guide"]
+"""How `MCMC` chooses each chain's initial point in the unconstrained
+latent space: ``"prior"`` draws a small seeded standard-normal
+perturbation of the origin, ``"zero"`` starts at the origin, and
+``"guide"`` maps one draw of a fitted guide into the unconstrained
+space."""
 
 
 @dataclass

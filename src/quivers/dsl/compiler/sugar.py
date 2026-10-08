@@ -200,4 +200,4 @@ def _desugar_arg(arg: DrawArg) -> DrawArg:
     return arg
 
 
-__all__ = ["SUGAR_TABLE", "desugar_step"]
+__all__ = []

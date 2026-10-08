@@ -165,7 +165,7 @@ class KernelError(TypeError):
 
 
 @dataclass(frozen=True, slots=True)
-class _StaticScope:
+class StaticScope:
     """The three disjoint namespaces visible in a declaration body.
 
     Parameters
@@ -201,7 +201,7 @@ class _StaticScope:
             )
         )
 
-    def extend(self, telescope: Telescope, *, subject: str) -> _StaticScope:
+    def extend(self, telescope: Telescope, *, subject: str) -> StaticScope:
         """Return this scope widened by a telescope's binders.
 
         Parameters
@@ -214,7 +214,7 @@ class _StaticScope:
 
         Returns
         -------
-        _StaticScope
+        StaticScope
             A scope carrying the original binders and the new ones.
 
         Raises
@@ -243,7 +243,7 @@ class _StaticScope:
                 effects.append(binder.name)
             else:  # pragma: no cover - closed binder union
                 raise KernelError(f"unknown binder in {subject}: {binder!r}")
-        return _StaticScope(tuple(types), tuple(indices), tuple(effects))
+        return StaticScope(tuple(types), tuple(indices), tuple(effects))
 
     def type_kind(self, name: str) -> Kind | None:
         """The kind of a type binder in scope.
@@ -473,7 +473,7 @@ class KernelRegistry:
     def validate_static(
         self,
         term: StaticArgument,
-        scope: _StaticScope | None = None,
+        scope: StaticScope | None = None,
     ) -> None:
         """Validate a static term against every declaration known here.
 
@@ -481,7 +481,7 @@ class KernelRegistry:
         ----------
         term : StaticArgument
             The static term to check.
-        scope : _StaticScope or None
+        scope : StaticScope or None
             Binders in scope at the term's position. None means the empty
             scope, so any variable reference is out of scope.
 
@@ -497,7 +497,7 @@ class KernelRegistry:
     def validate_type(
         self,
         type_: TypeExpr,
-        scope: _StaticScope | None = None,
+        scope: StaticScope | None = None,
     ) -> None:
         """Validate a value type against every declaration known here.
 
@@ -505,7 +505,7 @@ class KernelRegistry:
         ----------
         type_ : TypeExpr
             The value type to check.
-        scope : _StaticScope or None
+        scope : StaticScope or None
             Binders in scope at the type's position. None means the empty
             scope.
 
@@ -569,7 +569,7 @@ class KernelRegistry:
         """
         if family.id in self.families:
             raise KernelError(f"family already registered: {family.name!r}")
-        _StaticScope().extend(
+        StaticScope().extend(
             (*family.parameters, *family.indices),
             subject=f"family {family.name!r}",
         )
@@ -615,7 +615,7 @@ class KernelRegistry:
                 f"constructor {constructor.name!r} shadows family binders: {shadowed!r}"
             )
         scope = (
-            _StaticScope()
+            StaticScope()
             .extend(
                 family.parameters,
                 subject=f"family parameters of {family.name!r}",
@@ -661,7 +661,7 @@ class KernelRegistry:
         """
         if effect.ref.id in self.effects:
             raise KernelError(f"effect already registered: {effect.ref.name!r}")
-        interface_scope = _StaticScope().extend(
+        interface_scope = StaticScope().extend(
             effect.telescope,
             subject=f"effect {effect.ref.name!r}",
         )
@@ -707,7 +707,7 @@ class KernelRegistry:
         """
         if handler.id in self.handlers:
             raise KernelError(f"handler already registered: {handler.name!r}")
-        scope = _StaticScope().extend(
+        scope = StaticScope().extend(
             handler.telescope,
             subject=f"handler {handler.name!r}",
         )
@@ -853,7 +853,7 @@ class KernelRegistry:
         """
         if signature.id in self.computations:
             raise KernelError(f"computation already registered: {signature.name!r}")
-        scope = _StaticScope().extend(
+        scope = StaticScope().extend(
             signature.telescope,
             subject=f"computation {signature.name!r}",
         )
@@ -1243,7 +1243,7 @@ def _sort_matches(expected: IndexSort, actual: IndexSort) -> bool:
 
 def check_static(
     term: StaticArgument,
-    scope: _StaticScope | None = None,
+    scope: StaticScope | None = None,
     *,
     registry: KernelRegistry | None = None,
 ) -> None:
@@ -1253,7 +1253,7 @@ def check_static(
     ----------
     term : StaticArgument
         The static term to check.
-    scope : _StaticScope or None
+    scope : StaticScope or None
         Binders in scope. None checks the term's intrinsic structure
         alone and permits no variable reference, which is the right mode
         for a closed declaration.
@@ -1365,7 +1365,7 @@ def check_static(
 
 def check_type(
     type_: TypeExpr,
-    scope: _StaticScope | None = None,
+    scope: StaticScope | None = None,
     *,
     registry: KernelRegistry | None = None,
 ) -> None:
@@ -1375,7 +1375,7 @@ def check_type(
     ----------
     type_ : TypeExpr
         The type expression to check.
-    scope : _StaticScope or None
+    scope : StaticScope or None
         Binders in scope, or None for a closed type.
     registry : KernelRegistry or None
         Registry to resolve interface applications against, or None.
@@ -3257,17 +3257,6 @@ def _infer_new_instance(
     )
 
 
-__all__ = [
-    "CheckContext",
-    "KernelError",
-    "KernelRegistry",
-    "check_evidence",
-    "check_request",
-    "infer_computation",
-    "infer_value",
-]
-
-
 @dataclass(frozen=True, slots=True)
 class ResumptionUse:
     """How many times a clause body may invoke its continuation.
@@ -3449,3 +3438,19 @@ def check_resumption_grade(
                 "qiec-resumption",
             )
         return
+
+
+__all__ = [
+    "CheckContext",
+    "ComputationSignature",
+    "KernelError",
+    "KernelRegistry",
+    "ResumptionType",
+    "StaticScope",
+    "check_evidence",
+    "check_request",
+    "check_static",
+    "check_type",
+    "infer_computation",
+    "infer_value",
+]

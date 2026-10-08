@@ -48,25 +48,33 @@ def builtin_constructor(
 
 
 ELEMENT_BINDER = TypeBinder("a")
+"""The element-type binder ``a`` of the canonical constructors' telescopes."""
+
 SHAPE_BINDER = IndexBinder("shape", ShapeSort())
+"""The shape-index binder of :data:`TENSOR_CONSTRUCTOR`'s telescope."""
+
 ELEMENT = TypeVariable("a")
+"""The type variable :data:`ELEMENT_BINDER` binds."""
 
-#: ``Site[A]``: a named sample site whose value has type ``A``.
 SITE_CONSTRUCTOR = builtin_constructor("Site", ELEMENT_BINDER)
-#: ``Sampleable[A]``: a distribution over values of type ``A``.
-SAMPLEABLE_CONSTRUCTOR = builtin_constructor("Sampleable", ELEMENT_BINDER)
-#: ``Tensor[A](shape)``: an array of ``A`` with a static shape index.
-TENSOR_CONSTRUCTOR = builtin_constructor("Tensor", ELEMENT_BINDER, SHAPE_BINDER)
-#: ``LogWeight``: a log-density contribution.
-LOG_WEIGHT = TypeApplication(builtin_constructor("LogWeight"))
+"""``Site[A]``: a named sample site whose value has type ``A``."""
 
-#: The canonical names a source type may refer to without declaring them.
+SAMPLEABLE_CONSTRUCTOR = builtin_constructor("Sampleable", ELEMENT_BINDER)
+"""``Sampleable[A]``: a distribution over values of type ``A``."""
+
+TENSOR_CONSTRUCTOR = builtin_constructor("Tensor", ELEMENT_BINDER, SHAPE_BINDER)
+"""``Tensor[A](shape)``: an array of ``A`` with a static shape index."""
+
+LOG_WEIGHT = TypeApplication(builtin_constructor("LogWeight"))
+"""``LogWeight``: a log-density contribution."""
+
 BUILTIN_TYPE_CONSTRUCTORS: dict[str, TypeConstructorRef] = {
     "Site": SITE_CONSTRUCTOR,
     "Sampleable": SAMPLEABLE_CONSTRUCTOR,
     "Tensor": TENSOR_CONSTRUCTOR,
     "LogWeight": LOG_WEIGHT.constructor,
 }
+"""The canonical names a source type may refer to without declaring them."""
 
 
 def site_type(element: TypeExpr) -> TypeApplication:

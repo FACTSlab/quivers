@@ -20,7 +20,12 @@ the canonical quivers names.
 from __future__ import annotations
 
 from quivers.inference.guides.auto_guide_list import AutoGuideList
-from quivers.inference.guides.auto_structured import AutoStructured
+from quivers.inference.guides.auto_structured import (
+    AutoStructured,
+    ConditionalSpec,
+    DependencyKind,
+    DependencySpec,
+)
 from quivers.inference.guides.base import Guide
 from quivers.inference.guides.delta import AutoDeltaGuide
 from quivers.inference.guides.flow import (
@@ -36,13 +41,23 @@ from quivers.inference.guides.multivariate_normal import (
 )
 from quivers.inference.guides.normal import AutoNormalGuide
 
-# Pyro-compatible short-name aliases.
 AutoNormal = AutoNormalGuide
+"""Pyro-style short name for `AutoNormalGuide`."""
+
 AutoMultivariateNormal = AutoMultivariateNormalGuide
+"""Pyro-style short name for `AutoMultivariateNormalGuide`."""
+
 AutoLowRankMVN = AutoLowRankMultivariateNormalGuide
+"""Pyro-style short name for `AutoLowRankMultivariateNormalGuide`."""
+
 AutoDelta = AutoDeltaGuide
+"""Pyro-style short name for `AutoDeltaGuide`."""
+
 AutoLaplace = AutoLaplaceApproximation
+"""Pyro-style short name for `AutoLaplaceApproximation`."""
+
 AutoIAFNormal = AutoIAFGuide
+"""Pyro-style short name for `AutoIAFGuide`."""
 
 __all__ = [
     "Guide",
@@ -57,6 +72,9 @@ __all__ = [
     "AutoMixtureGuide",
     "AutoGuideList",
     "AutoStructured",
+    "ConditionalSpec",
+    "DependencyKind",
+    "DependencySpec",
     "AutoNormal",
     "AutoMultivariateNormal",
     "AutoLowRankMVN",

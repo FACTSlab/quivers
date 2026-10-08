@@ -4,6 +4,38 @@ All notable changes to the quivers library are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.25.0] - 2026-10-07
+
+### Added
+
+- **A written, enforced export policy.** The new *Public API and Exports* page of the developer guide states what Quivers exports and from where: every public module declares `__all__`, a public package re-exports the names of each of its modules as the same objects, public signatures name only public types, every class the DSL compiler places in a compiled program is public, and every public name renders in the API reference. `tests/test_public_api.py` checks the import-time rules over every module, and `tools/check_api_reference.py` checks the built site in a new CI docs job, which also builds the documentation in strict mode on every pull request.
+- **A supported Python surface for building programs without the DSL.** `quivers.continuous` exports the typed step records a `MonadicProgram` is built from (`Draw`, `Observe`, `Let`, `Score`, and the `Indexed` argument form for gathers such as `mu[group]`), together with every builder the compiler emits: `FixedDistribution`, `MixedInlineDistribution`, the `make_fixed_*` factories, `PlateDraw`, `VectorisedObserve`, `FanOutMorphism`, `MarginalizedFactor`, `reading`, and the family registry. `MonadicProgram.steps` returns a program's records and `MonadicProgram.step_module` the module a draw applies, so a compiled program can be inspected in the same vocabulary it is built from. The programs guide works through one program built both ways and checks that the two score identically.
+- **A literal-parameter inline `LKJCholesky`.** `sample L <- LKJCholesky(concentration=2.0)` compiles through the new `make_fixed_lkj_cholesky` factory, and a `PlateDraw` over either it or `LKJCorrelationFactor` draws one Cholesky factor per group.
+- The module-level names newly exported under the policy, among them the bijectors, the measure algebra, the deterministic morphisms, the agenda and category types of `quivers.stochastic`, the structural encoder helpers, the transformation and wiring morphisms of `quivers.core`, the arrow instances, the flow transforms and MCMC adaptation helpers of `quivers.inference`, `loo_pit` in `quivers.diagnostics`, and the effect-handler trace, conjugate-solver, and checked-program types of `quivers.effects`.
+
+### Changed
+
+- **`MonadicProgram` takes step records rather than tuples.** A draw is `Draw(names=("x",), morphism=f, args=("a",))` rather than `(("x",), f, ("a",))`, an observe is `Observe(...)` rather than a four-tuple ending in `True`, a let is `Let(name="w", value=fn)`, and a score step is `Score(name="s", score=fn)`. Two draws or observes that bind the same name are an error rather than a silent replacement of the first morphism.
+- **Names that collided under a package's namespace were renamed.** The bijectors carry a `Bijector` suffix (`ExpBijector`, `SoftplusBijector`, ...); the family registry functions are `register_family`, `get_family_spec`, and `family_names`; the deterministic builders are `cumsum_morphism`, `softmax_morphism`, and `cholesky_quad_form_morphism`, built on the public `DeterministicMorphism`; the homomorphism singletons of `quivers.core.algebra_morphisms` are `LOG_PROB_HOM` and `MAX_PLUS_HOM`; `quivers.monadic.instances.List` is `ListMonad`; the CLI check result types are `CheckDiagnostic` and `CheckSeverity`, with `check_file` the per-file entry point; `quivers.kernel.install.install` is `install_kernelspec`; the QIEC execution trace recorder is `ExecutionTraceRecorder`, and the static scope checking functions take is the public `StaticScope`; and the transpile renderer context is the public `RenderContext`; and the ordered-logistic morphism a `~ OrderedLogistic` declaration compiles to, which learns its cutpoints, is `ConditionalLearnedOrderedLogistic`, distinct from the `ConditionalOrderedLogistic` that takes them explicitly.
+- **Renderer helpers are private.** Each renderer's `render_list` and `render_matrix` helpers are internal, `PyroRenderer.marginalize` takes no private context keyword, and `format_stan` and `turing.render_module` are no longer exported. Renderer methods annotate only public IR types, and the full `ir` and `qiec_ir` vocabularies are exported for renderer authors.
+- **`check_monad_laws` checks the monad laws.** It verifies left unit, right unit, and associativity through `pure`, `join`, and `fmap`, and takes the instance and a carrier.
+- **`LKJCorrelationFactor` is the normalized LKJ density.** It scores and samples through `torch.distributions.LKJCholesky`, honours `sample_shape`, and accepts flat or square factors.
+
+### Fixed
+
+- **Stacked parameters keep their dtype.** Multi-argument inline parameters, and the log joint that accumulates their densities, stay in the widest floating dtype of their inputs instead of being cast to float32, so a float64 program agrees with a float64 reference to rounding.
+- **`OrderedLogistic` is exact in both tails.** A category's log probability is computed as a sum of log-sigmoids and a `log1mexp` term rather than as the log of a difference of sigmoids floored at the smallest normal float, so log likelihoods below about -708 are no longer clamped.
+- **`MixedInlineDistribution` checks its declared widths.** The stacked columns must match the widths the parameter specification declares; at most one vector parameter may leave its width unresolved (`None`) and take the remaining columns. An inline `Categorical` or `Dirichlet` reads its parameter as a vector per row, which corrects categorical formula likelihoods that had scored only the first logit column, and an observe whose logits are a plate of per-category scalars, which had scored a one-category distribution.
+- **Inline parameters of unknown width are read off their values.** A family argument whose binding has no known type leaves its width unresolved, and the stacked arguments settle it, so a vector-valued `let` passed to a scalar family parameter supplies one parameter per coordinate. Literal parameters broadcast against such a vector, and its per-coordinate densities sum to one per row. The GRU, LSTM, and vanilla-RNN language models had drawn every candidate-state coordinate around the first coordinate of its mean; a gather such as `emission_rows[state]` is now one plate row wide rather than the whole plate.
+- **A plate over a matrix-valued family sizes its rows by the matrix's element count**, so a `PlateDraw` over a Cholesky-factor family draws and scores whole factors.
+- **`loo_pit` matches ArviZ 1.x**, passing `var_names` and returning a dataset.
+
+### Removed
+
+- `check_applicative_laws` and `check_alternative_laws`, which asserted nothing.
+- The unused `DirectBernoulli`, `DirectNormal`, and `DirectTruncatedNormal` classes.
+- Exports of internal machinery: parser walkers, compiler mixins and their private re-exports, elaboration and lowering helpers, program-encoding constants, the CLI subcommand `main` functions, and `commit_id_for`.
+
 ## [0.24.0] - 2026-10-03
 
 ### Changed

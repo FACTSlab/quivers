@@ -30,10 +30,33 @@ KERNELSPEC = {
         "debugger": False,
     },
 }
+"""The ``kernel.json`` document `install_kernelspec` registers: it launches the
+kernel with the running interpreter and names the language ``qvr``."""
 
 
-def install(*, user: bool = True, prefix: str | None = None) -> Path:
-    """Install the QVR kernelspec and return the install path."""
+def install_kernelspec(*, user: bool = True, prefix: str | None = None) -> Path:
+    """Register the QVR kernelspec with Jupyter.
+
+    Parameters
+    ----------
+    user : bool
+        Install into the per-user kernel directory rather than the
+        system one.
+    prefix : str or None
+        An explicit Jupyter prefix to install under, as
+        ``PREFIX/share/jupyter/kernels``; ``None`` uses Jupyter's
+        default location.
+
+    Returns
+    -------
+    Path
+        The directory the kernelspec was installed into.
+
+    Raises
+    ------
+    ImportError
+        When ``jupyter_client`` is not installed.
+    """
     from jupyter_client.kernelspec import KernelSpecManager
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -54,7 +77,7 @@ def install(*, user: bool = True, prefix: str | None = None) -> Path:
 def main(args: argparse.Namespace) -> int:
     if args.kernel_cmd == "install":
         try:
-            path = install(user=args.user, prefix=args.prefix)
+            path = install_kernelspec(user=args.user, prefix=args.prefix)
         except ImportError as e:
             sys.stderr.write(
                 f"jupyter not installed ({e}); install with "
@@ -99,4 +122,4 @@ def _entry() -> int:
     return main(args)
 
 
-__all__ = ["KERNELSPEC", "install", "main", "_entry"]
+__all__ = ["KERNELSPEC", "install_kernelspec"]

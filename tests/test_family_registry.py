@@ -27,8 +27,8 @@ from quivers.continuous.family_spec import (
     FAMILY_REGISTRY,
     FamilySpec,
     ParamSpec,
-    get as registry_get,
-    names as registry_names,
+    get_family_spec as registry_get,
+    family_names as registry_names,
 )
 from quivers.continuous.inline import get_inline_param_names, make_inline_distribution
 from quivers.continuous.spaces import Euclidean

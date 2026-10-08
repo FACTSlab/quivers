@@ -53,8 +53,6 @@ class ForgetfulFunctor(Functor):
 
     def map_morphism(self, morph: Morphism) -> FunctorMorphism:
         """Identity on morphisms."""
-        from quivers.core.morphisms import FunctorMorphism
-
         return FunctorMorphism(self, morph, morph.domain, morph.codomain)
 
     def map_tensor(self, tensor: torch.Tensor, algebra: object) -> torch.Tensor:
@@ -307,3 +305,10 @@ class FreeForgetfulAdjunction(Adjunction):
             # else: row stays zero (exceeds truncation)
 
         return observed(fmfm, fm, data)
+
+
+__all__ = [
+    "ForgetfulFunctor",
+    "Adjunction",
+    "FreeForgetfulAdjunction",
+]

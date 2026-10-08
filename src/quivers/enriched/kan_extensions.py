@@ -268,3 +268,12 @@ def right_kan(
         met = q.meet(slices, dim=0)
         result[tgt_idx] = met
     return observed(target, codomain, result, algebra=q)
+
+
+__all__ = [
+    "ObjectMap",
+    "Projection",
+    "Inclusion",
+    "left_kan",
+    "right_kan",
+]

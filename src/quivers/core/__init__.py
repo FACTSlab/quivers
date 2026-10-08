@@ -1,39 +1,116 @@
-"""Core modules for the quivers package.
+"""Core types and functions of the quivers package.
 
-Canonical location for all core types and functions:
-- objects: SetObject, FinSet, ProductSet, CoproductSet, FreeMonoid
-- algebras: Algebra, ProductFuzzyAlgebra, BooleanAlgebra, and singletons
-- extra_algebras: LukasiewiczAlgebra, GodelAlgebra, TropicalAlgebra
-- morphisms: Morphism hierarchy and factory functions
-- tensor_ops: Tensor contraction and lifting operations
+The package re-exports every public name of its modules:
+
+- `objects`: finite sets and their products, coproducts, and free monoids;
+- `algebras`: the enrichment algebras, their composition rules, and singletons;
+- `algebra_morphisms`: homomorphisms between algebras, for change of base;
+- `morphism_transformations`: shape-aware transformations such as `softmax`;
+- `trans`: sequences of transformations built by `compose_trans`;
+- `morphisms`: the `Morphism` hierarchy and its factory functions;
+- `wiring`: einsum wiring rules for contractions;
+- `tensor_ops`: noisy-OR contraction and componentwise lifting.
 """
 
-from quivers.core._util import EPS, clamp_probs, safe_log1p_neg
+from quivers.core._util import (
+    EPS,
+    clamp_probs,
+    safe_log1p_neg,
+)
 from quivers.core.objects import (
     SetObject,
     FinSet,
+    Unit,
     ProductSet,
     CoproductSet,
     FreeMonoid,
-    Unit,
+    EnumSet,
+    FreeResiduated,
 )
 from quivers.core.algebras import (
+    CompositionRule,
+    Semigroupoid,
+    BilinearForm,
     Algebra,
+    DualAlgebra,
+    CustomAlgebra,
+    CustomSemigroupoid,
+    semigroupoid,
+    CustomBilinearForm,
+    bilinear_form,
+    material_implication,
     ProductFuzzyAlgebra,
     BooleanAlgebra,
-    PRODUCT_FUZZY,
-    BOOLEAN,
-)
-from quivers.core.algebras import (
     LukasiewiczAlgebra,
     GodelAlgebra,
     TropicalAlgebra,
+    MaxPlusAlgebra,
+    LogProbAlgebra,
+    RealAlgebra,
+    ProbabilityAlgebra,
+    CountingAlgebra,
+    MarkovAlgebra,
+    PRODUCT_FUZZY,
+    BOOLEAN,
     LUKASIEWICZ,
     GODEL,
     TROPICAL,
+    MAX_PLUS,
+    LOG_PROB,
+    REAL,
+    PROBABILITY,
+    COUNTING,
+    MARKOV,
+    REICHENBACH,
+    BOOLEAN_DUAL,
+    DUAL_LUKASIEWICZ,
+    DUAL_GODEL,
+)
+from quivers.core.algebra_morphisms import (
+    AlgebraHomomorphism,
+    IdentityHom,
+    Embedding,
+    Expectation,
+    LogProb,
+    MaxPlus,
+    Threshold,
+    MaterialImplication,
+    ProbabilityClamp,
+    CountingFromReal,
+    ProbabilityToReal,
+    CountingToReal,
+    EXPECTATION,
+    LOG_PROB_HOM,
+    MAX_PLUS_HOM,
+    MATERIAL_IMPLICATION,
+    PROBABILITY_CLAMP,
+    COUNTING_FROM_REAL,
+    PROBABILITY_TO_REAL,
+    COUNTING_TO_REAL,
+    threshold,
+    embedding,
+    HOMOMORPHISM_REGISTRY,
+    lookup_homomorphism,
+)
+from quivers.core.morphism_transformations import (
+    BayesInvert,
+    L1Normalize,
+    L2Normalize,
+    MorphismTransformation,
+    Softmax,
+    bayes_invert,
+    l1_normalize,
+    l2_normalize,
+    softmax,
+)
+from quivers.core.trans import (
+    TransSeq,
+    TransValue,
+    compose_trans,
 )
 from quivers.core.morphisms import (
     Morphism,
+    TransformedMorphism,
     ObservedMorphism,
     LatentMorphism,
     ComposedMorphism,
@@ -41,9 +118,20 @@ from quivers.core.morphisms import (
     MarginalizedMorphism,
     FunctorMorphism,
     RepeatMorphism,
+    CurriedMorphism,
     morphism,
     observed,
     identity,
+    as_torch_module,
+    extract_morphism,
+    cup,
+    cap,
+)
+from quivers.core.wiring import (
+    EinsumWiring,
+    WiringRule,
+    contract,
+    einsum_wiring,
 )
 from quivers.core.tensor_ops import (
     noisy_or_contract,
@@ -60,25 +148,92 @@ __all__ = [
     # objects
     "SetObject",
     "FinSet",
+    "Unit",
     "ProductSet",
     "CoproductSet",
     "FreeMonoid",
-    "Unit",
+    "EnumSet",
+    "FreeResiduated",
     # algebras
+    "CompositionRule",
+    "Semigroupoid",
+    "BilinearForm",
     "Algebra",
+    "DualAlgebra",
+    "CustomAlgebra",
+    "CustomSemigroupoid",
+    "semigroupoid",
+    "CustomBilinearForm",
+    "bilinear_form",
+    "material_implication",
     "ProductFuzzyAlgebra",
     "BooleanAlgebra",
-    "PRODUCT_FUZZY",
-    "BOOLEAN",
-    # extra_algebras
     "LukasiewiczAlgebra",
     "GodelAlgebra",
     "TropicalAlgebra",
+    "MaxPlusAlgebra",
+    "LogProbAlgebra",
+    "RealAlgebra",
+    "ProbabilityAlgebra",
+    "CountingAlgebra",
+    "MarkovAlgebra",
+    "PRODUCT_FUZZY",
+    "BOOLEAN",
     "LUKASIEWICZ",
     "GODEL",
     "TROPICAL",
+    "MAX_PLUS",
+    "LOG_PROB",
+    "REAL",
+    "PROBABILITY",
+    "COUNTING",
+    "MARKOV",
+    "REICHENBACH",
+    "BOOLEAN_DUAL",
+    "DUAL_LUKASIEWICZ",
+    "DUAL_GODEL",
+    # algebra_morphisms
+    "AlgebraHomomorphism",
+    "IdentityHom",
+    "Embedding",
+    "Expectation",
+    "LogProb",
+    "MaxPlus",
+    "Threshold",
+    "MaterialImplication",
+    "ProbabilityClamp",
+    "CountingFromReal",
+    "ProbabilityToReal",
+    "CountingToReal",
+    "EXPECTATION",
+    "LOG_PROB_HOM",
+    "MAX_PLUS_HOM",
+    "MATERIAL_IMPLICATION",
+    "PROBABILITY_CLAMP",
+    "COUNTING_FROM_REAL",
+    "PROBABILITY_TO_REAL",
+    "COUNTING_TO_REAL",
+    "threshold",
+    "embedding",
+    "HOMOMORPHISM_REGISTRY",
+    "lookup_homomorphism",
+    # morphism_transformations
+    "BayesInvert",
+    "L1Normalize",
+    "L2Normalize",
+    "MorphismTransformation",
+    "Softmax",
+    "bayes_invert",
+    "l1_normalize",
+    "l2_normalize",
+    "softmax",
+    # trans
+    "TransSeq",
+    "TransValue",
+    "compose_trans",
     # morphisms
     "Morphism",
+    "TransformedMorphism",
     "ObservedMorphism",
     "LatentMorphism",
     "ComposedMorphism",
@@ -86,9 +241,19 @@ __all__ = [
     "MarginalizedMorphism",
     "FunctorMorphism",
     "RepeatMorphism",
+    "CurriedMorphism",
     "morphism",
     "observed",
     "identity",
+    "as_torch_module",
+    "extract_morphism",
+    "cup",
+    "cap",
+    # wiring
+    "EinsumWiring",
+    "WiringRule",
+    "contract",
+    "einsum_wiring",
     # tensor_ops
     "noisy_or_contract",
     "noisy_or_reduce",

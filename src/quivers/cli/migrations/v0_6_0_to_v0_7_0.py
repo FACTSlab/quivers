@@ -39,3 +39,6 @@ def migrate(source: bytes) -> bytes:
 
 
 SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(_DECL_CONVERTERS)
+
+
+__all__ = []

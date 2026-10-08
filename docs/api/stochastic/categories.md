@@ -10,3 +10,14 @@ algebra to a specified depth, producing finite category inventories for
 CCG, Lambek, multimodal TLG, and custom rule systems.
 
 ::: quivers.stochastic.categories
+    options:
+      filters: ["!^_", "!^[A-Z][A-Z_]+$"]
+
+## Constructor names
+
+::: quivers.stochastic
+    options:
+      members:
+        - BUILTIN_CONSTRUCTOR_NAMES
+      show_root_heading: false
+      show_root_toc_entry: false

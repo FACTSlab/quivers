@@ -15,6 +15,7 @@ from typing import ClassVar, Literal, Self
 
 
 QIEC_ABI = "qiec-core/v1alpha1"
+"""The kernel ABI tag a module records, so a reader can reject a module built against another kernel."""
 
 
 def _canonical_value(value: object) -> object:
@@ -378,6 +379,12 @@ type AddressRelation = Literal[
     "duplicate",
     "eliminate",
 ]
+"""How an effect request relates to its source site.
+
+``"preserve"`` marks the request as written; ``"split"`` and
+``"duplicate"`` mark a request a handler derived from it; ``"eliminate"``
+marks one a handler discharged.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,8 +488,9 @@ class SiteProvenance:
 __all__ = [
     "AddressRelation",
     "AttachmentId",
-    "ConstructorId",
     "ComputationId",
+    "ConstructorId",
+    "DistributionId",
     "DynamicAddressFrame",
     "EffectId",
     "EffectInstanceId",
@@ -490,7 +498,9 @@ __all__ = [
     "FamilyId",
     "HandlerId",
     "OperationId",
+    "PrimitiveId",
     "QIEC_ABI",
+    "RowVariableId",
     "SiteId",
     "SiteProvenance",
     "SourceOrigin",
@@ -498,7 +508,4 @@ __all__ = [
     "StaticScopeId",
     "StaticVariableId",
     "TypeId",
-    "RowVariableId",
-    "PrimitiveId",
-    "DistributionId",
 ]

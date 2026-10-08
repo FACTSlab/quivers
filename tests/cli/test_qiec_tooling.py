@@ -10,7 +10,7 @@ import json
 
 from pygments.token import Name
 
-from quivers.cli.check import _check_one
+from quivers.cli import check_file
 from quivers.cli.run import main as run_main
 from quivers.cli.repl_complete import all_completions
 from quivers.cli.repl_highlight import tokenize
@@ -58,13 +58,13 @@ define read() : Int !{reader} =
 def test_check_accepts_a_qiec_module(tmp_path: Path) -> None:
     path = tmp_path / "state.qvr"
     path.write_text(SOURCE)
-    assert _check_one(path) == []
+    assert check_file(path) == []
 
 
 def test_check_exposes_stable_qiec_diagnostic_code(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.qvr"
     path.write_text("effect E\n    go : Unit -> Unit\n    go : Unit -> Unit\n")
-    diagnostics = _check_one(path)
+    diagnostics = check_file(path)
     assert [(diagnostic.code, diagnostic.line) for diagnostic in diagnostics] == [
         ("qiec-handler", 1)
     ]
@@ -82,7 +82,7 @@ export native_only
     path = tmp_path / "native-only.qvr"
     path.write_text(source)
 
-    diagnostics = _check_one(path)
+    diagnostics = check_file(path)
     assert "qiec-builtin:host-only" in {diagnostic.code for diagnostic in diagnostics}
 
     document = DocumentState(uri=path.as_uri())
@@ -105,7 +105,7 @@ export omitted
     path = tmp_path / "program-gap.qvr"
     path.write_text(source)
 
-    diagnostics = _check_one(path)
+    diagnostics = check_file(path)
     assert "qiec-program-gap" in {diagnostic.code for diagnostic in diagnostics}
 
     document = DocumentState(uri=path.as_uri())
@@ -129,7 +129,7 @@ def test_cli_and_repl_keep_parse_error_locations(tmp_path: Path) -> None:
     path.write_text("effect E\n    op Unit -> Unit\n")
     expected = ("parse", 2, 4)
 
-    check_diagnostic = _check_one(path)[0]
+    check_diagnostic = check_file(path)[0]
     assert (
         check_diagnostic.code,
         check_diagnostic.line,
@@ -534,14 +534,14 @@ def test_check_repl_and_tui_report_one_diagnostic(case: str, tmp_path: Path) -> 
     source, code, line, col = _DIAGNOSTIC_SOURCES[case]
     path = tmp_path / f"{case}.qvr"
     path.write_text(source)
-    check = [(d.code, d.line, d.col) for d in _check_one(path)]
+    check = [(d.code, d.line, d.col) for d in check_file(path)]
     assert check[0] == (code, line, col), check
     session = ReplSession()
     response = session.load_file(path)
     loaded = [(d.code, d.line, d.col) for d in response.diagnostics]
     assert loaded[0] == (code, line, col), loaded
     assert loaded == check
-    message = _check_one(path)[0].message
+    message = check_file(path)[0].message
     assert response.diagnostics[0].message == message
     assert "EffectRow(" not in message and "RowEntry(" not in message
 
@@ -550,7 +550,7 @@ def test_row_diagnostics_render_instances_by_name(tmp_path: Path) -> None:
     source, _, _, _ = _DIAGNOSTIC_SOURCES["row"]
     path = tmp_path / "row.qvr"
     path.write_text(source)
-    message = _check_one(path)[0].message
+    message = check_file(path)[0].message
     assert message == (
         "computation body has effect row !{random : Random}, not declared row !{}"
     )
@@ -571,7 +571,7 @@ def test_check_and_repl_report_the_same_target_capability(tmp_path: Path) -> Non
         "        let rest <- count(n - 1)\n"
         "        return rest + 1\n"
     )
-    checked = [(d.code, d.line, d.col) for d in _check_one(path, target="bugs")]
+    checked = [(d.code, d.line, d.col) for d in check_file(path, target="bugs")]
     session = ReplSession()
     assert session.set_option("target=bugs").ok
     response = session.load_file(path)
@@ -605,7 +605,7 @@ export demo
     path = tmp_path / "sum-marginal.qvr"
     path.write_text(source)
 
-    checked = _check_one(path, target="pyro")
+    checked = check_file(path, target="pyro")
     assert {diagnostic.code for diagnostic in checked} == {"marginalize:reduction:sum"}
 
     document = DocumentState(uri=path.as_uri(), target="pyro")

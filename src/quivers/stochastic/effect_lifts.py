@@ -2,7 +2,7 @@
 
 The `class_directed_lifts` function takes a base
 `SchemaDecl` and an effect instance and returns a tuple of
-lifted `SchemaDecl` instances — one per typeclass-class the
+lifted `SchemaDecl` instances, one per typeclass-class the
 effect inhabits.
 
 The dispatch key is the typeclass interface, never the effect's
@@ -205,9 +205,9 @@ def class_directed_lifts(
 ) -> tuple[SchemaDecl, ...]:
     """Generate the class-driven lifts for ``base_schema`` under ``effect``.
 
-    Dispatches on which typeclasses the effect inhabits — Functor,
+    Dispatches on which typeclasses the effect inhabits (Functor,
     Applicative, Monad, Alternative, MonadPlus, ArrowApply, ArrowLoop,
-    and so on — and emits one or more `SchemaDecl` instances
+    and so on) and emits one or more `SchemaDecl` instances
     per class. The lifts compose with the base schema in the chart
     parser's joint type-and-effect dispatch.
 
@@ -285,6 +285,24 @@ def make_swap_schema(
 
     The schema is consumed by the chart's *commutation firing* rule
     of [Effects §4.4](../../semantics/effects.md#4-joint-type-and-effect-dispatch).
+
+    Parameters
+    ----------
+    distributive_law : DistributiveLaw
+        The law whose outer and inner monads the schema exchanges.
+    base_schema : SchemaDecl or None
+        The schema whose name the swap schema's name extends; the
+        name ``swap`` is used when omitted.
+
+    Returns
+    -------
+    SchemaDecl
+        The ``swap_TU`` schema ``T(U(X)) -> U(T(X))``.
+
+    Raises
+    ------
+    TypeError
+        If ``distributive_law`` is not a `DistributiveLaw`.
     """
     if not isinstance(distributive_law, DistributiveLaw):
         raise TypeError(
@@ -318,6 +336,21 @@ def swap_rule_set(
     The resulting tuple is appended to the chart parser's rule set
     alongside the class-driven lifts; the chart's commutation-firing
     dispatch picks each swap schema up by name.
+
+    Parameters
+    ----------
+    distributive_laws : tuple of DistributiveLaw
+        The registered distributive laws.
+
+    Returns
+    -------
+    tuple of SchemaDecl
+        One swap schema per law, in the order given.
+
+    Raises
+    ------
+    TypeError
+        If an entry is not a `DistributiveLaw`.
     """
     return tuple(make_swap_schema(law) for law in distributive_laws)
 
@@ -330,6 +363,19 @@ def lift_rule_set(
     Returns the union of base schemas and all lifts produced for each
     (base_schema, effect) pair. The chart parser consumes the
     resulting tuple directly.
+
+    Parameters
+    ----------
+    base_schemas : tuple of SchemaDecl
+        The base rule set.
+    effects : tuple
+        The effect instances to lift each base schema under.
+
+    Returns
+    -------
+    tuple of SchemaDecl
+        The base schemas followed by every lift, grouped by base
+        schema and then by effect.
     """
     out: list[SchemaDecl] = list(base_schemas)
     for base in base_schemas:

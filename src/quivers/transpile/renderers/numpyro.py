@@ -42,6 +42,10 @@ from quivers.transpile.renderers._python_helpers import (
 )
 from quivers.transpile._pipeline import parser_registry, target_protocol
 from quivers.transpile.family_meta import FAMILY_META, FamilyMeta
+from quivers.dsl.ast_nodes.let_expressions import (
+    LetExprFactor,
+    LetExprList,
+)
 from quivers.transpile.ir import (
     ConstraintSpec,
     Dim,
@@ -65,8 +69,6 @@ from quivers.transpile.ir import (
     IRSample,
     IRCall,
     IRScore,
-    LetExprFactor,
-    LetExprList,
     Plate,
     event_dim_of,
 )
@@ -76,7 +78,7 @@ from quivers.transpile.renderers._base import (
     IRMarginalAtom,
     RendererBase,
     SchemaFragment,
-    _RenderCtx,
+    RenderContext,
     assert_no_dropped_param_map,
     mixture_normal_components,
 )
@@ -157,7 +159,7 @@ class NumPyroRenderer(RendererBase):
     """Render an [`IRProgram`][quivers.transpile.ir.IRProgram] as NumPyro
     Python source.
 
-    Subclasses [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    Subclasses [`RendererBase`][quivers.transpile.renderers.RendererBase]
     and supplies the four required dispatch points
     (`declare`, `sample`, `marginalize`, `broadcast`) plus a `render`
     override that wraps the IR walk with the ``def model(...): ...``
@@ -171,7 +173,13 @@ class NumPyroRenderer(RendererBase):
     # ------------------------------------------------------------------
 
     def target_protocol(self) -> panproto.Protocol:
-        """Use the auto-derived Python tree-sitter protocol."""
+        """Use the auto-derived Python tree-sitter protocol.
+
+        Returns
+        -------
+        panproto.Protocol
+            The protocol of the target grammar.
+        """
         return target_protocol("python")
 
     def render(self, ir: IRProgram) -> panproto.Schema:
@@ -181,6 +189,16 @@ class NumPyroRenderer(RendererBase):
         function header that lists every
         [`IRDataInput`][quivers.transpile.ir.IRDataInput] in the
         signature (observed values get a ``=None`` default).
+
+        Parameters
+        ----------
+        ir
+            The lowered program.
+
+        Returns
+        -------
+        panproto.Schema
+            The target program, in the target grammar's theory.
         """
         assert_no_dropped_param_map(ir, self.target)
         proto = self.target_protocol()
@@ -236,7 +254,7 @@ class NumPyroRenderer(RendererBase):
 
     def declare(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         constraint: ConstraintSpec,
         plate: Plate,
@@ -251,13 +269,31 @@ class NumPyroRenderer(RendererBase):
         Function-body declarations land at the
         [`sample`][quivers.transpile.renderers.numpyro.NumPyroRenderer.sample]
         dispatch point when the IR walker reaches the binding step.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        block
+            Where the declaration lands in the target program.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         del ctx, name, constraint, plate, block
         return ""
 
     def sample(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         name: str,
         family: str,
         args: tuple[IRArg, ...],
@@ -267,7 +303,32 @@ class NumPyroRenderer(RendererBase):
         observed: bool,
     ) -> SchemaFragment:
         """Emit a ``numpyro.sample`` call inside the surrounding plate
-        stack."""
+        stack.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        name
+            The variable's name.
+        family
+            The distribution family's QVR name.
+        args
+            The family's arguments, in family order.
+        arg_names
+            The parameter name of each argument.
+        constraint
+            The variable's support.
+        plate
+            The variable's event and batch dimensions.
+        observed
+            Whether the site is conditioned on data.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         del constraint
         npctx = _as_numpyro_ctx(ctx)
         return self._render_sample(
@@ -282,7 +343,7 @@ class NumPyroRenderer(RendererBase):
 
     def marginalize(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         node: IRMarginalize,
     ) -> SchemaFragment:
         """Integrate an [`IRMarginalize`][quivers.transpile.ir.IRMarginalize]
@@ -309,6 +370,18 @@ class NumPyroRenderer(RendererBase):
         scoring call reads the values that atom pins. No site is
         declared for the latent: the atoms replace it, and the emitted
         program denotes the same measure the QVR reference integrates.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        node
+            The marginalize block.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
         """
         npctx = _as_numpyro_ctx(ctx)
         body_vid = npctx.current_body
@@ -512,12 +585,27 @@ class NumPyroRenderer(RendererBase):
 
     def broadcast(
         self,
-        ctx: _RenderCtx,
+        ctx: RenderContext,
         value: IRArg,
         target_shape: tuple[int, ...],
     ) -> SchemaFragment:
         """Emit ``jnp.full((K,), value)`` for 1D / ``jnp.full((R, C),
-        value)`` for 2D."""
+        value)`` for 2D.
+
+        Parameters
+        ----------
+        ctx
+            The render call's mutable state.
+        value
+            The argument broadcast.
+        target_shape
+            The shape broadcast to.
+
+        Returns
+        -------
+        SchemaFragment
+            The emitted vertex id, or ``""`` when nothing is emitted.
+        """
         npctx = _as_numpyro_ctx(ctx)
         py = npctx.py
         shape_tuple = self._render_shape_tuple(py, target_shape)
@@ -539,7 +627,7 @@ class NumPyroRenderer(RendererBase):
     # Per-renderer rendering helpers
     # ------------------------------------------------------------------
 
-    def render_list(self, ctx: _NumPyroCtx, arg: IRArgList) -> SchemaFragment:
+    def _render_list(self, ctx: _NumPyroCtx, arg: IRArgList) -> SchemaFragment:
         """Emit ``jnp.array([e0, e1, ...])`` for an
         [`IRArgList`][quivers.transpile.ir.IRArgList]."""
         py = ctx.py
@@ -552,7 +640,7 @@ class NumPyroRenderer(RendererBase):
             positional=(lst,),
         )
 
-    def render_matrix(self, ctx: _NumPyroCtx, arg: IRArgMatrix) -> SchemaFragment:
+    def _render_matrix(self, ctx: _NumPyroCtx, arg: IRArgMatrix) -> SchemaFragment:
         """Emit ``jnp.array([[...], [...]])`` for an
         [`IRArgMatrix`][quivers.transpile.ir.IRArgMatrix]."""
         py = ctx.py
@@ -772,7 +860,7 @@ class NumPyroRenderer(RendererBase):
 
         The kernel-covariance expression is built by hand using the
         Python helper API plus explicit
-        [`parenthesized_expression`][panproto.python.parenthesized_expression]
+        `parenthesized_expression`
         nodes, since the let-expression renderer drops
         parenthesisation around nested
         [`LetExprBinOp`][quivers.transpile.ir.LetExprBinOp] children
@@ -1647,9 +1735,9 @@ class NumPyroRenderer(RendererBase):
         if isinstance(arg, IRArgBroadcast):
             return self.broadcast(ctx, arg.value, arg.target_shape)
         if isinstance(arg, IRArgList):
-            return self.render_list(ctx, arg)
+            return self._render_list(ctx, arg)
         if isinstance(arg, IRArgMatrix):
-            return self.render_matrix(ctx, arg)
+            return self._render_matrix(ctx, arg)
         if isinstance(arg, IRArgFamilyRef):
             decl = ctx.morphisms.get(arg.name)
             if decl is None or decl.init_family is None:
@@ -1780,9 +1868,9 @@ class NumPyroRenderer(RendererBase):
 # ---------------------------------------------------------------------------
 
 
-class _NumPyroCtx(_RenderCtx):
+class _NumPyroCtx(RenderContext):
     """NumPyro-specific extension of
-    [`_RenderCtx`][quivers.transpile.renderers._base._RenderCtx]
+    [`RenderContext`][quivers.transpile.renderers.RenderContext]
     carrying the Python-helpers context and the currently-active body
     vertex used by nested-plate emission."""
 
@@ -1815,8 +1903,8 @@ class _NumPyroCtx(_RenderCtx):
         self.operations_bound: set[str] = set()
 
 
-def _as_numpyro_ctx(ctx: _RenderCtx) -> _NumPyroCtx:
-    """Narrow a base `_RenderCtx` to the NumPyro extension. The
+def _as_numpyro_ctx(ctx: RenderContext) -> _NumPyroCtx:
+    """Narrow a base `RenderContext` to the NumPyro extension. The
     renderer always constructs `_NumPyroCtx` instances, so this is a
     safe assertion at the boundary."""
     if not isinstance(ctx, _NumPyroCtx):
@@ -1947,7 +2035,7 @@ def _load_runtime_numpyro_helpers() -> tuple[
     Returns the parsed schema, a map from class name to the
     class-definition vertex id, and a map from class name to the set of
     vertex ids in that class's subtree. The renderer's
-    [`_emit_runtime_helper`][quivers.transpile.renderers.numpyro._emit_runtime_helper]
+    `_emit_runtime_helper`
     grafts a class subtree (vertex + all descendants + their
     constraints + edges) into the per-render schema as a `child_of`
     of the emitted module. The emit is a real Python class definition,
@@ -1988,7 +2076,7 @@ def _ir_helper_classes_used(body: tuple[IRNode, ...]) -> set[str]:
     / [`IRObserve`][quivers.transpile.ir.IRObserve] (including nested
     [`IRMarginalize`][quivers.transpile.ir.IRMarginalize] scopes) uses a
     family in
-    [`_NUMPYRO_RUNTIME_HELPER_FAMILIES`][quivers.transpile.renderers.numpyro._NUMPYRO_RUNTIME_HELPER_FAMILIES]
+    `_NUMPYRO_RUNTIME_HELPER_FAMILIES`
     whose NumPyro target name matches a `class` in
     [`runtime_numpyro.py`][quivers.transpile.runtime_numpyro].
     """

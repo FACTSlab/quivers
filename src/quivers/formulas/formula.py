@@ -286,6 +286,19 @@ def formula_from_data(
     extra_namespace : Mapping[str, object], optional
         Additional names visible inside the formula's expression
         evaluation, merged on top of the R-style transforms.
+
+    Returns
+    -------
+    Formula
+        The formula IR: response values, one fixed column per design
+        column, the random terms, and each grouping factor's levels
+        and per-row level indices.
+
+    Raises
+    ------
+    ValueError
+        If the formula has no response on the left of ``~``, or a
+        random term is not of the form ``(slope | group)``.
     """
     nw_df = nw.from_native(data, eager_only=True)
     pandas_df = nw_df.to_pandas()
@@ -344,3 +357,12 @@ def formula_from_data(
         group_levels=group_levels,
         group_indices=group_indices,
     )
+
+
+__all__ = [
+    "FixedColumn",
+    "RandomTerm",
+    "Formula",
+    "FormulaData",
+    "formula_from_data",
+]

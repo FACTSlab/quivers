@@ -13,4 +13,14 @@ lift returns a 3-tuple `(MonadicProgram, torch.Tensor, dict[str, torch.Tensor])`
 whose first element is the matching `MonadicProgram`. Callers pass
 that first element to the runner.
 
+`quivers.inference` re-exports the kernels, the runner, and its result;
+`quivers.inference.mcmc` also exports the warmup adaptation primitives
+and the type aliases that parameterize the kernels and the runner.
+
 ::: quivers.inference.mcmc
+
+## Variational warmup
+
+`WarmupThenHMC` fits a guide with SVI and starts the chains from it.
+
+::: quivers.inference.warmup

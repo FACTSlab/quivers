@@ -28,8 +28,8 @@ import panproto
 
 from quivers.dsl.ast_nodes import Module
 from quivers.dsl.parser import parse
+from quivers.transpile._entry import _RENDERERS
 from quivers.transpile import (
-    _RENDERERS,
     available_targets,
     transpile,
 )
@@ -74,7 +74,7 @@ class _ExpandAndLower(dx.Mapping[Module, IRProgram]):
 
 class _RenderMapping(dx.Mapping[IRProgram, panproto.Schema]):
     """`IRProgram` -> `panproto.Schema`: wrap a
-    [`RendererBase`][quivers.transpile.renderers._base.RendererBase]
+    [`RendererBase`][quivers.transpile.renderers.RendererBase]
     instance's `render` method as a Mapping so it composes with
     `Lower` and `EmitPretty` via `>>`."""
 

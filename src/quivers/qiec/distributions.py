@@ -1383,7 +1383,6 @@ def install_distribution_backend(backend: DistributionBackend) -> DistributionBa
 
 __all__ = [
     "DistributionBackend",
-    "DistributionError",
     "ReferenceBackend",
     "RuntimeDistribution",
     "distribution_backend",

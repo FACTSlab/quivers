@@ -2429,10 +2429,12 @@ class Lower(dx.Mapping[Module, IRProgram]):
         return plan
 
 
-#: How a target spells the ``$`` of a name a program draw renamed:
-#: ``theta$z`` is the site of the local ``z`` of a program drawn under
-#: ``theta``, and no target language admits ``$`` in an identifier.
 TARGET_NAME_SEPARATOR = "__"
+"""How a target spells the ``$`` of a name a program draw renamed.
+
+``theta$z`` is the site of the local ``z`` of a program drawn under
+``theta``, and no target language admits ``$`` in an identifier.
+"""
 
 
 def target_name(name: str) -> str:

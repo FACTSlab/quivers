@@ -78,6 +78,7 @@ class FinSet(SetObject):
 
 
 Unit: FinSet = FinSet(name="1", cardinality=1)
+"""The terminal object, the one-element finite set."""
 
 
 def _flatten_products(items: tuple["SetObject", ...]) -> tuple["SetObject", ...]:
@@ -404,3 +405,15 @@ class FreeResiduated(SetObject):
             f"FreeResiduated(generators={self.generators.name}, "
             f"depth={self.depth}, ops=[{ops}])"
         )
+
+
+__all__ = [
+    "SetObject",
+    "FinSet",
+    "Unit",
+    "ProductSet",
+    "CoproductSet",
+    "FreeMonoid",
+    "EnumSet",
+    "FreeResiduated",
+]

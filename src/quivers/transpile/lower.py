@@ -8,6 +8,9 @@ instances and the argument constraints and supports read off them, the
 wire forms an argument takes to satisfy a constraint, and the alphabet
 of a class-index draw. Renderers consume the plan and do not materialize
 PyTorch tensors.
+
+The tables are implementation of the plan derivation and contribute no
+public names; [`Lower`][quivers.transpile.plan.Lower] is the entry point.
 """
 
 from __future__ import annotations
@@ -1447,7 +1450,7 @@ def _construct_sentinel_from_signature(
     covered by `user_args`.
 
     Used as a fallback when
-    [`_lookup_or_build_sentinel`][quivers.transpile.lower._lookup_or_build_sentinel]'s
+    `_lookup_or_build_sentinel`'s
     primary path (calling the constructor with `user_args` directly)
     raises `TypeError` because the user didn't supply enough
     arguments. The sentinel is only used to derive shape /
@@ -1834,16 +1837,4 @@ def _collect_let_expr_var_names(expr: LetExprNode, out: set[str]) -> None:
         return
 
 
-__all__ = [
-    "arg_ref_shape",
-    "axis_shape",
-    "build_shape_table",
-    "exogenous_data_inputs",
-    "exported_return_names",
-    "free_names_in_arg",
-    "free_vars_in_let",
-    "inline_list_lets",
-    "lower_factors",
-    "object_cardinalities",
-    "pick_program",
-]
+__all__: list[str] = []

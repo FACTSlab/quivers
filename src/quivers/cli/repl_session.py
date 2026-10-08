@@ -449,10 +449,10 @@ class ReplSession:
     # ----- :type / :kind ------------------------------------------------
     #
     # GHCi semantics:
-    #   :type EXPR   — print the type of a value-level expression
+    #   :type EXPR   : print the type of a value-level expression
     #                  (morphism, program, sample site, etc.).
     #                  Refuses type-level names; suggests :kind.
-    #   :kind T      — print the kind of a type-level name or type
+    #   :kind T      : print the kind of a type-level name or type
     #                  expression (object, space, sort, FinSet 3, ...).
     #                  Refuses value-level names; suggests :type.
     #
@@ -548,7 +548,7 @@ class ReplSession:
         """Emit the loaded module as source for the named transpile
         backend.
 
-        Mirrors the [`qvr transpile`][quivers.cli.transpile] CLI
+        Mirrors the ``qvr transpile`` CLI
         subcommand, dispatched in-session against the currently-loaded
         [`Module`][quivers.dsl.ast_nodes.Module]. Returns the
         transpiled bytes decoded as UTF-8; never mutates session state.
@@ -2846,6 +2846,19 @@ def render_signature(compiler: Compiler | None, name: str) -> str | None:
     signature through the same function, a binding looks identical
     regardless of whether the user is in the TUI or hovering in an
     editor.
+
+    Parameters
+    ----------
+    compiler : Compiler or None
+        The compiler holding the elaborated environment.
+    name : str
+        The top-level name to describe.
+
+    Returns
+    -------
+    str or None
+        The one-line signature, or ``None`` when there is no compiler
+        or the name is unbound.
     """
     if compiler is None:
         return None
@@ -2864,6 +2877,19 @@ def render_qiec_signature(module: Module, name: str) -> str | None:
     This works from the authored AST rather than a backend compiler object, so
     it remains available when a document contains only indexed families or
     effect interfaces.
+
+    Parameters
+    ----------
+    module : Module
+        The parsed module holding the binding.
+    name : str
+        The QIEC binding to describe.
+
+    Returns
+    -------
+    str or None
+        The compact signature, or ``None`` when ``name`` is not a QIEC
+        binding of ``module``.
     """
 
     binding = qiec_binding_map(module).get(name)

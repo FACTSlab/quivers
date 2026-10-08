@@ -164,8 +164,8 @@ from quivers.core.algebra_morphisms import (
     Threshold,
     MaterialImplication,
     EXPECTATION,
-    LOG_PROB as LOG_PROB_HOM,
-    MAX_PLUS as MAX_PLUS_HOM,
+    LOG_PROB_HOM,
+    MAX_PLUS_HOM,
     MATERIAL_IMPLICATION,
     threshold,
     embedding,
@@ -203,9 +203,8 @@ from quivers.categorical.traced import (
 )
 
 # stochastic (FinStoch / Markov kernels)
+from quivers.core.algebras import MarkovAlgebra, MARKOV
 from quivers.stochastic import (
-    MarkovAlgebra,
-    MARKOV,
     StochasticMorphism,
     CategoricalMorphism,
     DiscretizedNormal,

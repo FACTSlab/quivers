@@ -68,7 +68,6 @@ from quivers.qiec.types import (
     TypeExpr,
     TypeVariable,
     check_static_arguments,
-    validate_static_argument,
 )
 
 
@@ -419,24 +418,6 @@ def instantiate_operation(
         substitute_type(argument.type, substitution) for argument in operation.arguments
     )
     return parameter_types, substitute_type(operation.result_type, substitution)
-
-
-__all__ = [
-    "substitute_plate",
-    "StaticSubstitution",
-    "instantiate_operation",
-    "instantiate_telescope",
-    "substitute_computation",
-    "substitute_effect",
-    "substitute_evidence",
-    "substitute_index",
-    "substitute_request",
-    "substitute_row",
-    "substitute_static",
-    "substitute_type",
-    "substitute_value",
-    "validate_static_argument",
-]
 
 
 def substitute_evidence(
@@ -794,3 +775,20 @@ def substitute_computation(
             computation.origin,
         )
     raise TypeError(f"unknown computation term {computation!r}")
+
+
+__all__ = [
+    "StaticSubstitution",
+    "instantiate_operation",
+    "instantiate_telescope",
+    "substitute_computation",
+    "substitute_effect",
+    "substitute_evidence",
+    "substitute_index",
+    "substitute_plate",
+    "substitute_request",
+    "substitute_row",
+    "substitute_static",
+    "substitute_type",
+    "substitute_value",
+]

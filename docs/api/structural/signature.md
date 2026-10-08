@@ -12,3 +12,17 @@ runtime. Binder variables may carry an annotation sort:
 the variable's type is stored alongside its embedding in Γ.
 
 ::: quivers.structural.signature
+    options:
+      filters: ["!^_", "!^(DataLeaf|TermArg|SortKind|EMPTY_CONTEXT)$"]
+
+## Type aliases and constants
+
+::: quivers.structural
+    options:
+      members:
+        - DataLeaf
+        - TermArg
+        - SortKind
+        - EMPTY_CONTEXT
+      show_root_heading: false
+      show_root_toc_entry: false

@@ -10,7 +10,7 @@ and ``parenthesized_expression``. Neither language has a native
 string literal, lambda, method-call, or list-literal at the model-body
 level; those LetExpr kinds either get a structural unrolling
 (``list -> c(...)`` combine, ``factor -> c(<body[0]>, <body[1]>, ...)``
-unroll) or raise [`UnsupportedConstruct`][quivers.transpile._api.UnsupportedConstruct].
+unroll) or raise `UnsupportedConstruct`.
 
 The helper consumes a lightweight context exposing four bound methods:
 
@@ -403,7 +403,7 @@ def reorder_half_studentt_dt(
     QVR call site writes ``(df, scale)`` and names a density folded
     at zero. This returns ``(0, 1/(scale*scale), df)``, which the
     caller pairs with the lower truncation
-    [`half_support_truncation`][quivers.transpile.renderers._bugs_helpers.half_support_truncation]
+    `half_support_truncation`
     supplies for the family, so the emitted relation is
     ``dt(0, 1/(scale*scale), df) T (0 ,)``: the renormalized
     one-sided fold, not the two-sided Student-t.
@@ -667,7 +667,7 @@ def _render(ctx: _LetEnv, expr: LetExprNode) -> str:
         #    requires.
         #
         # `deduction_decl` is also stripped by the IR pipeline (see
-        # [`CATEGORICAL_METADATA_IGNORABLE`][quivers.transpile._api.CATEGORICAL_METADATA_IGNORABLE]),
+        # `CATEGORICAL_METADATA_IGNORABLE`),
         # so even if the model body could host a chart parser the
         # renderer has no access to the rules to compile against.
         # Rewriting `m.f(a)` as the static call `f(m, a)` without
@@ -809,7 +809,7 @@ def _emit_call(
     alternative). QVR-named math primitives (``sigmoid``, ...) are
     rewritten to their BUGS / JAGS library identifiers (``ilogit``,
     ...) via
-    [`_BUGS_FUNCTION_RENAMES`][quivers.transpile.renderers._bugs_helpers._BUGS_FUNCTION_RENAMES].
+    `_BUGS_FUNCTION_RENAMES`.
     """
     c = ctx.v(ctx.fresh("call"), "function_call")
     name_id = _emit_identifier(ctx, _BUGS_FUNCTION_RENAMES.get(func, func))
@@ -828,7 +828,7 @@ def _emit_call(
 #: shape every axis reduction in the gallery reduces -- the target
 #: builtin computes exactly the QVR reduction; applied to a
 #: higher-rank operand it would collapse axes the source keeps, so
-#: [`_emit_reduction_or_call`][quivers.transpile.renderers._bugs_helpers._emit_reduction_or_call]
+#: `_emit_reduction_or_call`
 #: raises instead.
 _AXIS_REDUCING_CALLS: frozenset[str] = frozenset({"sum", "mean", "prod"})
 
@@ -1263,7 +1263,7 @@ def _emit_factor(ctx: _LetEnv, expr: LetExprFactor) -> str:
     factor denotes a rank-`n` tensor, and neither language has a
     reshape that would turn a flat `c(...)` back into one, so the
     tensor form is emitted as one relation per cell by
-    [`factor_cells`][quivers.transpile.renderers._bugs_helpers.factor_cells]
+    `factor_cells`
     at the statement level rather than as an expression here.
     """
     cells = factor_cells(ctx, expr)
@@ -1609,7 +1609,7 @@ def _consumer_plate_lifts(
     ir: IRProgram,
 ) -> tuple[dict[str, Plate], dict[str, Plate]]:
     """The consumer rule of
-    [`push_scalar_dets_into_loops`][quivers.transpile.renderers._bugs_helpers.push_scalar_dets_into_loops].
+    `push_scalar_dets_into_loops`.
 
     Returns the plate each lifted deterministic acquires alongside the
     plate override each free data input it reads acquires with it.
@@ -1652,10 +1652,10 @@ def _operand_plate_lifts(
     ir: IRProgram, already_lifted: dict[str, Plate]
 ) -> dict[str, Plate]:
     """The operand rule of
-    [`push_scalar_dets_into_loops`][quivers.transpile.renderers._bugs_helpers.push_scalar_dets_into_loops].
+    `push_scalar_dets_into_loops`.
 
     A deterministic qualifies when its value still carries an axis
-    ([`axis_rank`][quivers.transpile.renderers._bugs_helpers.axis_rank]
+    (`axis_rank`
     is positive) and every bare operand that carries one agrees on a
     single batch-only plate. The map is built in body order and folded
     back into the declared-plate table as it goes, so a chain of
@@ -1948,7 +1948,7 @@ class CategoricalMixture(dx.Model):
     the mixture and whose `probs` argument it rewrites.
 
     The recogniser
-    [`categorical_mixture`][quivers.transpile.renderers._bugs_helpers.categorical_mixture]
+    `categorical_mixture`
     is the only constructor; every field it fills is read back out of
     the declaration-plate table, so a renderer can emit the mixture
     without re-deriving any shape.

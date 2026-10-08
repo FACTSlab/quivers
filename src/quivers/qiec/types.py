@@ -207,6 +207,7 @@ class ShapeIndex:
 
 
 type IndexTerm = IndexVariable | IndexLiteral | IndexConstructor | ShapeIndex
+"""A static index: a variable, a literal, a constructor application, or a shape."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -401,6 +402,7 @@ class EqualityType:
 
 
 type TypeExpr = TypeVariable | TypeApplication | FunctionType | EqualityType
+"""A type: a variable, a constructor application, a function type, or an equality."""
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -510,13 +512,19 @@ class EffectRef:
 
 
 type StaticArgument = TypeExpr | IndexTerm | EffectRef | EffectVariable
+"""Anything a telescope binder may be instantiated at: a type, an index, or an effect."""
 
 
 UNIT = TypeApplication(TypeConstructorRef.builtin("Unit"))
+"""The unit type, inhabited by ``None`` alone."""
 BOOL = TypeApplication(TypeConstructorRef.builtin("Bool"))
+"""The Boolean type."""
 INT = TypeApplication(TypeConstructorRef.builtin("Int"))
+"""The integer type."""
 REAL = TypeApplication(TypeConstructorRef.builtin("Real"))
+"""The real-number type."""
 STRING = TypeApplication(TypeConstructorRef.builtin("String"))
+"""The string type."""
 
 
 def product_type(*components: TypeExpr) -> TypeApplication:
@@ -832,9 +840,6 @@ def render_static(term: StaticArgument) -> str:
 
 __all__ = [
     "BOOL",
-    "check_static_arguments",
-    "render_static",
-    "validate_static_argument",
     "EffectRef",
     "EffectVariable",
     "EqualityType",
@@ -853,7 +858,10 @@ __all__ = [
     "TypeExpr",
     "TypeVariable",
     "UNIT",
+    "check_static_arguments",
     "index_sort",
     "product_type",
+    "render_static",
     "static_kind",
+    "validate_static_argument",
 ]

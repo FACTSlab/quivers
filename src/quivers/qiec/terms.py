@@ -62,6 +62,7 @@ class Var:
 
 
 type LiteralData = None | bool | int | float | str | bytes | tuple[LiteralData, ...]
+"""The host data a literal carries: a scalar, bytes, or a tuple of literal data."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,8 +531,10 @@ class Comprehension:
     tag: Literal["comprehension"] = "comprehension"
 
 
-#: The floor an exponentiated scale head is clamped at.
 SCALE_FLOOR = 1e-7
+"""The floor an exponentiated scale head of an :class:`AffineMap` or
+:class:`TableMap` is clamped at, which every backend applies alike.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -687,6 +690,7 @@ type Value = (
     | Rowwise
     | Comprehension
 )
+"""A value term: every pure, effect-free term a computation may mention."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -958,49 +962,50 @@ class If:
 type Computation = (
     Return | Bind | Perform | Handle | Case | If | Call | Resume | NewInstance
 )
+"""A computation term: every term that may perform effects or control flow."""
 
 
 __all__ = [
+    "AffineMap",
     "AttachmentRef",
     "Bind",
-    "Case",
-    "Resume",
-    "NewInstance",
     "Call",
+    "Case",
     "CaseBranch",
     "CaseMotive",
+    "Comprehension",
     "Computation",
     "ConstructorValue",
     "DistributionValue",
     "EvidenceValue",
+    "Gather",
     "Handle",
     "If",
+    "KernelMatrix",
     "LiteralData",
     "LiteralValue",
     "Local",
     "LogDensity",
+    "NewInstance",
     "Perform",
-    "PrimitiveApplication",
-    "Projection",
-    "Return",
-    "SiteValue",
-    "TransportValue",
-    "TupleValue",
-    "TensorValue",
     "PlateAxis",
     "PlateShape",
-    "Gather",
-    "WeightSum",
-    "SegmentSum",
-    "KernelMatrix",
-    "AffineMap",
-    "TableMap",
-    "SCALE_FLOOR",
+    "PrimitiveApplication",
+    "Projection",
     "Reduction",
     "ReductionOperator",
+    "Resume",
+    "Return",
     "Rowwise",
     "RowwiseOperator",
-    "Comprehension",
+    "SCALE_FLOOR",
+    "SegmentSum",
+    "SiteValue",
+    "TableMap",
+    "TensorValue",
+    "TransportValue",
+    "TupleValue",
     "Value",
     "Var",
+    "WeightSum",
 ]

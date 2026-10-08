@@ -18,13 +18,20 @@ class RefusedDeclaration(dx.Model):
     can name the declaration the way the user wrote it (`composition
     pmf_scores`) and point at its line, rather than echoing the
     grammar rule's name (`composition_decl`).
+
+    Parameters
+    ----------
+    kind
+        The statement's didactic discriminator, such as
+        ``"composition_decl"``.
+    name
+        The name the declaration binds, empty when the form binds none.
+    line
+        The one-based source line, 0 when the parser recorded none.
     """
 
-    #: The statement's didactic discriminator (``"composition_decl"``).
     kind: str
-    #: The name the declaration binds, empty when the form binds none.
     name: str = ""
-    #: 1-based source line, 0 when the parser recorded none.
     line: int = 0
 
 

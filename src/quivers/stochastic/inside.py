@@ -5,10 +5,10 @@ enabling end-to-end gradient-based learning of PCFG parameters.
 
 A PCFG is specified by two stochastic morphisms:
 
-- ``binary : N -> N * N`` — binary production probabilities.
+- ``binary : N -> N * N``: binary production probabilities.
   For each nonterminal A, ``binary[A, B, C]`` is the probability
   of the rule A -> B C.
-- ``lexical : N -> T`` — terminal production probabilities.
+- ``lexical : N -> T``: terminal production probabilities.
   For each nonterminal A, ``lexical[A, t]`` is the probability
   of the rule A -> t.
 
@@ -76,6 +76,9 @@ class InsideAlgorithm(nn.Module):
         P(A -> t).
     start : int
         Index of the start symbol in N (default 0).
+    unary : Morphism or None
+        Optional unary production rules, a morphism ``N -> N``
+        closed over at every chart cell.
 
     Raises
     ------
@@ -213,6 +216,11 @@ class InsideAlgorithm(nn.Module):
         torch.Tensor
             Log-probability of each sentence under the grammar.
             Shape ``(batch,)`` or scalar for a single sentence.
+
+        Raises
+        ------
+        ValueError
+            If the sentences are empty.
         """
         squeeze = False
         if tokens.dim() == 1:
@@ -241,6 +249,11 @@ class InsideAlgorithm(nn.Module):
             The full inside chart in log-space. Shape
             ``(batch, N, seq_len, seq_len+1)`` where entry
             ``[b, A, i, j]`` is ``log P(w_i..w_{j-1} | A)``.
+
+        Raises
+        ------
+        ValueError
+            If the sentences are empty.
         """
         squeeze = False
         if tokens.dim() == 1:
@@ -293,10 +306,10 @@ def _apply_unary_closure(
     Parameters
     ----------
     log_cell : torch.Tensor
-        Shape ``(batch, N)`` — the current cell's log-probabilities
+        Shape ``(batch, N)``: the current cell's log-probabilities
         for each nonterminal.
     log_unary : torch.Tensor
-        Shape ``(N, N)`` — the log-probability matrix of unary rules.
+        Shape ``(N, N)``: the log-probability matrix of unary rules.
     max_iters : int
         Closure-iteration cap.
     """
@@ -315,3 +328,8 @@ def _apply_unary_closure(
             return new_cell
         cell = new_cell
     return cell
+
+
+__all__ = [
+    "InsideAlgorithm",
+]

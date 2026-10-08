@@ -3,26 +3,10 @@
 Re-exports the public surface from the package's submodules.
 """
 
+# `core` is imported before `_prelude`: `_prelude` imports from
+# `quivers.transpile`, which imports back into this package, and loading
+# `core` first completes that cycle before `_prelude` runs.
 from quivers.dsl.compiler.core import Compiler
-from quivers.dsl.compiler._prelude import (
-    CompileError,
-    _ALGEBRA_REGISTRY,
-    _available_axes_for,
-    _family_event_rank,
-    _get_family_registry,
-    _shape_size,
-    _type_factor_names,
-    _validate_axis_spec,
-)
+from quivers.dsl.compiler._prelude import CompileError
 
-__all__ = [
-    "Compiler",
-    "CompileError",
-    "_ALGEBRA_REGISTRY",
-    "_available_axes_for",
-    "_family_event_rank",
-    "_get_family_registry",
-    "_shape_size",
-    "_type_factor_names",
-    "_validate_axis_spec",
-]
+__all__ = ["CompileError", "Compiler"]

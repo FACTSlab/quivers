@@ -15,4 +15,8 @@ The convenience functions `ccg_rules` and `lambek_rules` instantiate
 [rule schema](biclosed.md) presets over a given category system.
 For custom grammars, compose the schema primitives directly via `|`.
 
+::: quivers.stochastic._rule_system
+
 ::: quivers.stochastic.rules
+    options:
+      filters: ["!^_", "!^RuleSystem$"]

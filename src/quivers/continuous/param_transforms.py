@@ -40,12 +40,12 @@ import torch
 from torch import Tensor
 
 from quivers.continuous.bijectors import (
-    Affine,
+    AffineBijector,
     Bijector,
-    Compose,
-    Identity,
-    Sigmoid,
-    Softplus,
+    ComposeBijector,
+    IdentityBijector,
+    SigmoidBijector,
+    SoftplusBijector,
 )
 from quivers.core._util import EPS
 
@@ -107,7 +107,7 @@ class _ExpClamped(Bijector):
     that clamps the exponentiated value at
     [`EPS`][quivers.core._util.EPS] to protect downstream torch
     distribution validation. Inverse is the plain log; the
-    log-det-Jacobian matches [`Exp`][quivers.continuous.bijectors.Exp]
+    log-det-Jacobian matches [`ExpBijector`][quivers.continuous.bijectors.ExpBijector]
     on the image $(\\varepsilon, \\infty)$.
     """
 
@@ -133,12 +133,12 @@ def _softplus_shifted(shift: float) -> Bijector:
     ``softplus_shifted`` (`shift = 0.1`) entries of the transform
     registry.
     """
-    return Compose(Affine(scale=1.0, shift=shift), Softplus())
+    return ComposeBijector(AffineBijector(scale=1.0, shift=shift), SoftplusBijector())
 
 
 TRANSFORM_TO_BIJECTOR: dict[str, Bijector] = {
-    "id": Identity(),
-    "sigmoid": Sigmoid(),
+    "id": IdentityBijector(),
+    "sigmoid": SigmoidBijector(),
     "softplus": _softplus_shifted(EPS),
     "softplus_shifted": _softplus_shifted(0.1),
     "exp": _ExpClamped(),
@@ -150,16 +150,16 @@ The forward map of each bijector matches the historical
 `Callable[[Tensor], Tensor]` in
 `quivers.continuous.family_spec._RAW_TRANSFORMS` to numerical
 precision. The composition
-[`Compose`][quivers.continuous.bijectors.Compose] of
-[`Softplus`][quivers.continuous.bijectors.Softplus] with an
-[`Affine`][quivers.continuous.bijectors.Affine] shift replaces the
+[`ComposeBijector`][quivers.continuous.bijectors.ComposeBijector] of
+[`SoftplusBijector`][quivers.continuous.bijectors.SoftplusBijector] with an
+[`AffineBijector`][quivers.continuous.bijectors.AffineBijector] shift replaces the
 ad hoc `F.softplus(x) + shift` pattern; the identity, sigmoid, and
 exponential entries map to their obvious bijector counterparts.
 """
 
 
 INLINE_CLAMP_TO_BIJECTOR: dict[str, Bijector] = {
-    "id": Identity(),
+    "id": IdentityBijector(),
     "softplus": _ClampAbove(EPS),
     "softplus_shifted": _ClampAbove(EPS),
     "exp": _ClampAbove(EPS),
@@ -254,7 +254,7 @@ def resolve_inline_clamp(transform: str | Bijector) -> Bijector:
         away from the constraint boundary.
     """
     if isinstance(transform, Bijector):
-        return Identity()
+        return IdentityBijector()
     if isinstance(transform, str):
         if transform not in INLINE_CLAMP_TO_BIJECTOR:
             raise KeyError(
@@ -268,9 +268,4 @@ def resolve_inline_clamp(transform: str | Bijector) -> Bijector:
     )
 
 
-__all__ = [
-    "INLINE_CLAMP_TO_BIJECTOR",
-    "TRANSFORM_TO_BIJECTOR",
-    "resolve_inline_clamp",
-    "resolve_transform",
-]
+__all__: list[str] = []

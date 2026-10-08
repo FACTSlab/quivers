@@ -121,3 +121,6 @@ def migrate(source: bytes) -> bytes:
 SOURCE_RULE_COVERAGE: frozenset[str] = frozenset(
     {"arrow_draw_step", "draw_step", "output_decl"}
 )
+
+
+__all__ = []

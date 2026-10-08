@@ -18,7 +18,7 @@ import textwrap
 import pytest
 import torch
 
-from quivers.continuous.program_steps import _ScoreSpec
+from quivers.continuous import Draw, Score
 from quivers.dsl.compiler import CompileError, Compiler
 from quivers.dsl.parser import parse
 from quivers.stochastic.deduction import (
@@ -149,15 +149,15 @@ def test_nuts_program_is_well_shaped():
     # ``log_w__`` (the per-parameter Normal-prior sample sites).
     n_log_w_steps = sum(
         1
-        for s in model._step_specs
-        if getattr(s, "vars", None) and s.vars[0].startswith("log_w__")
+        for s in model.steps
+        if isinstance(s, Draw) and s.names[0].startswith("log_w__")
     )
     n_params = sum(1 for _ in ded.parameters())
     assert n_log_w_steps == n_params, (
         f"NUTS model has {n_log_w_steps} priors; deduction has {n_params}"
     )
     # The final step is the score.
-    assert isinstance(model._step_specs[-1], _ScoreSpec)
+    assert isinstance(model.steps[-1], Score)
     assert x.shape == (1, 1)
     assert obs == {}
 

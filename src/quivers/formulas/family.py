@@ -93,7 +93,6 @@ _SOFTMAX = Link(name="softmax", inverse_expr="softmax({eta})")
 _INVERSE = Link(name="inverse", inverse_expr="1.0 / {eta}")
 
 
-#: Built-in inverse-link registry.
 links: Mapping[str, Link] = {
     "identity": _IDENTITY,
     "logit": _LOGIT,
@@ -101,11 +100,9 @@ links: Mapping[str, Link] = {
     "softmax": _SOFTMAX,
     "inverse": _INVERSE,
 }
+"""The built-in inverse links, keyed by link name."""
 
 
-#: Built-in family registry.  Keyed by brms-style family name; the
-#: compiler dispatches on family name and slots each family's
-#: observe step + link into the emitted ``.qvr`` source.
 families: Mapping[str, Family] = {
     "gaussian": Family(
         name="gaussian",
@@ -257,3 +254,17 @@ families: Mapping[str, Family] = {
         observe_family="MixtureNormal",
     ),
 }
+"""The built-in response families, keyed by brms-style family name.
+
+The compiler dispatches on the family name and slots each family's
+observe step and link into the emitted ``.qvr`` source.
+"""
+
+
+__all__ = [
+    "Link",
+    "AuxParam",
+    "Family",
+    "links",
+    "families",
+]

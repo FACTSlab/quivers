@@ -6,20 +6,20 @@ scalar loss whose ``backward()`` produces the chosen gradient
 estimator. Different strategies trade variance against
 applicability:
 
-* `Reparameterized` — pathwise gradient (the standard SVI
+* `Reparameterized`: pathwise gradient (the standard SVI
   reparameterization trick). Lowest variance for reparameterizable
   families; requires ``rsample``.
-* `StickingTheLanding` — detaches the variational-parameter
+* `StickingTheLanding`: detaches the variational-parameter
   dependence in :math:`\\log q_\\phi(z)` so the gradient variance
   asymptotically vanishes as :math:`q \\to p^*`
   (Roeder-Wu-Duvenaud 2017,
   `doi:10.48550/arXiv.1703.09194 <https://doi.org/10.48550/arXiv.1703.09194>`_).
-* `DoublyReparameterized` — the DReG estimator for IWAE
+* `DoublyReparameterized`: the DReG estimator for IWAE
   (Tucker-Lawson-Gu-Maddison 2019,
   `doi:10.48550/arXiv.1810.04152 <https://doi.org/10.48550/arXiv.1810.04152>`_).
   Removes the score-function term whose variance grows with the
   particle count :math:`K`.
-* `ScoreFunction` — REINFORCE / black-box VI. The
+* `ScoreFunction`: REINFORCE / black-box VI. The
   fallback for non-reparameterizable sites (discrete latents,
   reject-sampled families). Highest variance; pair with a
   baseline whenever possible.
@@ -27,7 +27,7 @@ applicability:
 Estimators are *strategies* held by `Objective`
 implementations; they don't store any state themselves and
 operate on tensors only. The `Reparameterized` instance
-is a singleton — every objective defaults to it.
+is a singleton; every objective defaults to it.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class GradientEstimator(ABC):
             latents. Same shape as ``log_p``. Gradients flow back
             to the variational parameters through this tensor.
         log_q_detached : torch.Tensor or None
-            ``log q_{stop_grad(phi)}(z)`` — the guide log-density
+            ``log q_{stop_grad(phi)}(z)``, the guide log-density
             with the variational parameters detached from the
             autograd graph. Required by sticking-the-landing and
             DReG; ignored by the basic estimators.
@@ -85,7 +85,7 @@ class Reparameterized(GradientEstimator):
     reparameterization trick (Kingma-Welling 2013,
     `doi:10.48550/arXiv.1312.6114 <https://doi.org/10.48550/arXiv.1312.6114>`_).
     For higher ``num_particles`` it's the importance-weighted
-    score function with reparameterized samples — i.e. the IWAE
+    score function with reparameterized samples, i.e. the IWAE
     bound under the naive gradient.
     """
 
@@ -100,7 +100,7 @@ class Reparameterized(GradientEstimator):
         #   L = (1/K) Σ_k [ log p(z_k) − log q(z_k) ]    (ELBO, K=1: standard ELBO)
         # IWAE with K particles:
         #   L = logsumexp_k [ log p(z_k) − log q(z_k) ] − log K
-        # We don't decide which here — that's the Objective's
+        # We don't decide which here; that's the Objective's
         # job. We return the per-particle term log p − log q
         # negated and averaged over (K, batch).
         diff = log_p - log_q
@@ -120,7 +120,7 @@ class StickingTheLanding(GradientEstimator):
     so does the gradient variance.
 
     Use when training with a guide that's already close to the
-    true posterior — typically after a warm-up phase. May
+    true posterior, typically after a warm-up phase. May
     *increase* variance early in training when ``q`` is far
     from ``p``.
     """
@@ -136,7 +136,7 @@ class StickingTheLanding(GradientEstimator):
                 "StickingTheLanding: requires the caller to supply "
                 "log_q_detached (log q evaluated with the variational "
                 "parameters detached). The objective in use does not "
-                "produce this — check that the Objective implementation "
+                "produce this; check that the Objective implementation "
                 "supplies log_q_detached when this estimator is selected."
             )
         del log_q
@@ -180,7 +180,7 @@ class DoublyReparameterized(GradientEstimator):
                 "DoublyReparameterized: requires the caller to supply "
                 "log_q_detached (log q evaluated with the variational "
                 "parameters detached). The IWAE objective produces this "
-                "natively — confirm the objective is IWAEBound."
+                "natively; confirm the objective is IWAEBound."
             )
         if log_p.dim() < 1:
             raise RuntimeError(
@@ -206,7 +206,7 @@ class ScoreFunction(GradientEstimator):
     reparameterization trick. Required when sampling is not
     differentiable (discrete latents, hard-truncated families,
     accept-reject samplers). Variance is typically orders of
-    magnitude higher than reparameterized — combine with a
+    magnitude higher than reparameterized; combine with a
     control-variate baseline whenever possible.
     """
 

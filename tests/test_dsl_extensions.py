@@ -27,7 +27,8 @@ from pathlib import Path
 import pytest
 from pygments.token import Comment, Error, Keyword, Name
 
-from quivers.cli.check import _check_one, main as check_main
+from quivers.cli import check_file
+from quivers.cli.check import main as check_main
 from quivers.core.objects import FreeMonoid
 from quivers.dsl import Compiler, ParseError, parse
 from quivers.dsl.ast_nodes import (
@@ -232,7 +233,7 @@ class TestQvrCheckCli:
             bundle B : [no_such_rule]
             """,
         )
-        diags = _check_one(f)
+        diags = check_file(f)
         codes = {d.code for d in diags}
         assert "bundle_unknown_member" in codes
 

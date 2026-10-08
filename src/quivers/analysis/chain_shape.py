@@ -50,6 +50,8 @@ from quivers.dsl.ast_nodes import (
 from quivers.dsl.compiler._prelude import _ALGEBRA_REGISTRY
 
 StepKind = Literal["latent", "observe", "marginalize", "let"]
+"""The kind tag of a `StepShape`: a stochastic bind (``latent``,
+``observe``, ``marginalize``) or a deterministic ``let``."""
 
 
 class StepShape(dx.Model):
@@ -277,3 +279,6 @@ def _index_size(
         except ValueError:
             return cardinalities.get(index.name)
     return None
+
+
+__all__ = ["ChainShape", "StepKind", "StepShape"]

@@ -29,20 +29,20 @@ from typing import Literal
 import didactic.api as dx
 import torch
 
-# A raw data-leaf value: anything a user can pass at a data-sorted
-# argument position. The union enumerates the cases we accept;
-# anything outside this list is rejected at runtime with a typed
-# error rather than silently coerced.
 type DataLeaf = str | int | float | bytes | bool
+"""A raw value at a data-sorted argument position of a `Term`.
 
-# A positional argument inside a Term. Object positions carry a
-# Term; data positions carry a DataLeaf; index positions carry an
-# int. (Term is a forward reference here because it's defined
-# below in this module.)
+Values outside this union are rejected at runtime with a typed
+error rather than coerced.
+"""
+
 type TermArg = Term | DataLeaf | int
+"""A positional argument of a `Term`: a subterm at an object
+position, a `DataLeaf` at a data position, or an ``int`` at an index
+position."""
 
-# The closed enumeration of sort kinds a signature can declare.
 type SortKind = Literal["object", "index", "data"]
+"""The kinds of sort a `Signature` can declare."""
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +91,7 @@ class Constructor(dx.Model):
 
     @property
     def arity(self) -> int:
+        """The number of arguments the constructor takes."""
         return len(self.domain)
 
 
@@ -98,7 +99,7 @@ class BinderVarSpec(dx.Model):
     """A scoped variable introduced by a binder.
 
     ``sort`` is the variable's own sort. ``annot_sort`` is the sort
-    of an optional *type annotation* — a sibling argument in the
+    of an optional *type annotation*, a sibling argument in the
     enclosing Term that travels alongside the variable's embedding
     in Γ. Used to track per-variable type information.
     """
@@ -126,6 +127,11 @@ class Binder(dx.Model):
 
     @property
     def arity(self) -> int:
+        """The number of positional arguments of the binder in a `Term`.
+
+        Each annotated bound variable contributes one annotation
+        argument, and each scoped argument contributes one more.
+        """
         n_annots = sum(1 for b in self.binds if b.annot_sort is not None)
         return n_annots + len(self.scoped)
 
@@ -134,6 +140,11 @@ class Binder(dx.Model):
         enclosing `Term`: type-annotations for each annotated
         bound variable (in declaration order, outer-context-evaluated),
         followed by the scoped arguments (extended-context-evaluated).
+
+        Returns
+        -------
+        tuple[str, ...]
+            The sort name of each positional argument.
         """
         return tuple(
             b.annot_sort for b in self.binds if b.annot_sort is not None
@@ -185,39 +196,83 @@ class Signature(dx.Model):
 
     @property
     def sorts(self) -> dict[str, Sort]:
+        """The sort declarations keyed by sort name."""
         return {s.name: s for s in self.sorts_t}
 
     @property
     def constructors(self) -> dict[str, Constructor]:
+        """The constructor declarations keyed by constructor name."""
         return {c.name: c for c in self.constructors_t}
 
     @property
     def binders(self) -> dict[str, Binder]:
+        """The binder declarations keyed by binder name."""
         return {b.name: b for b in self.binders_t}
 
     @property
     def vertex_kinds(self) -> dict[str, VertexKind]:
+        """The graph vertex kinds keyed by kind name."""
         return {v.name: v for v in self.vertex_kinds_t}
 
     @property
     def edge_kinds(self) -> dict[str, EdgeKind]:
+        """The graph edge kinds keyed by kind name."""
         return {e.name: e for e in self.edge_kinds_t}
 
     # ---- shape queries ----
 
     def is_inductive(self) -> bool:
+        """Whether the signature declares any constructor or binder.
+
+        Returns
+        -------
+        bool
+            ``True`` when terms over the signature are inductive.
+        """
         return bool(self.constructors_t) or bool(self.binders_t)
 
     def is_graph(self) -> bool:
+        """Whether the signature declares both vertex and edge kinds.
+
+        Returns
+        -------
+        bool
+            ``True`` when the signature is graph-shaped.
+        """
         return bool(self.vertex_kinds_t) and bool(self.edge_kinds_t)
 
     def all_ops(self) -> Iterable[str]:
+        """Iterate over every operation name of the signature.
+
+        Yields
+        ------
+        str
+            Each constructor name in declaration order, then each
+            binder name in declaration order.
+        """
         for c in self.constructors_t:
             yield c.name
         for b in self.binders_t:
             yield b.name
 
     def codomain_of(self, op: str) -> str:
+        """Return the codomain sort of a constructor or binder.
+
+        Parameters
+        ----------
+        op : str
+            The constructor or binder name.
+
+        Returns
+        -------
+        str
+            The name of the sort the operation produces.
+
+        Raises
+        ------
+        KeyError
+            If ``op`` is neither a constructor nor a binder.
+        """
         for c in self.constructors_t:
             if c.name == op:
                 return c.codomain
@@ -229,6 +284,24 @@ class Signature(dx.Model):
         )
 
     def domain_of(self, op: str) -> tuple[str, ...]:
+        """Return the positional argument sorts of a constructor or binder.
+
+        Parameters
+        ----------
+        op : str
+            The constructor or binder name.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The sort of each positional argument; for a binder, as
+            given by `Binder.domain`.
+
+        Raises
+        ------
+        KeyError
+            If ``op`` is neither a constructor nor a binder.
+        """
         for c in self.constructors_t:
             if c.name == op:
                 return c.domain
@@ -240,9 +313,34 @@ class Signature(dx.Model):
         )
 
     def is_binder(self, op: str) -> bool:
+        """Whether an operation name is a binder of the signature.
+
+        Parameters
+        ----------
+        op : str
+            The operation name.
+
+        Returns
+        -------
+        bool
+            ``True`` when a binder of that name is declared.
+        """
         return any(b.name == op for b in self.binders_t)
 
     def sort_dim(self, sort: str) -> int | None:
+        """Return the declared embedding dimension of a sort or vertex kind.
+
+        Parameters
+        ----------
+        sort : str
+            The sort or vertex-kind name.
+
+        Returns
+        -------
+        int or None
+            The declared dimension, or ``None`` when the name is not
+            declared or declares no dimension.
+        """
         for s in self.sorts_t:
             if s.name == sort:
                 return s.dim
@@ -288,7 +386,13 @@ class Term(dx.Model):
         """A serialisable form matching the agenda's item-tuple
         convention: ``(op, *args_serialised)``. Children that are
         `Term`s are recursively serialised; data leaves and
-        indices pass through."""
+        indices pass through.
+
+        Returns
+        -------
+        tuple
+            The nested tuple ``(op, *args_serialised)``.
+        """
         out: list = [self.op]
         for a in self.args:
             if isinstance(a, Term):
@@ -299,7 +403,23 @@ class Term(dx.Model):
 
 
 def bound_var(index: int) -> Term:
-    """A de-Bruijn variable reference."""
+    """A de-Bruijn variable reference.
+
+    Parameters
+    ----------
+    index : int
+        The de-Bruijn index: 0 refers to the innermost bound variable.
+
+    Returns
+    -------
+    Term
+        The term ``BoundVar(index)``.
+
+    Raises
+    ------
+    TypeError
+        If ``index`` is not a non-negative ``int``.
+    """
     if not isinstance(index, int) or index < 0:
         raise TypeError(f"bound_var requires a non-negative int, got {index!r}")
     return Term(op="BoundVar", args=(index,))
@@ -312,6 +432,23 @@ def make_term(op: str, *args) -> Term:
     value, or a non-negative int (for index-sorted positions). The
     encoder / decoder runtime validate sort agreement at use
     time.
+
+    Parameters
+    ----------
+    op : str
+        The constructor or binder name.
+    *args : TermArg
+        The positional children.
+
+    Returns
+    -------
+    Term
+        The term ``op(*args)``.
+
+    Raises
+    ------
+    TypeError
+        If ``op`` is not a string.
     """
     if not isinstance(op, str):
         raise TypeError(f"make_term requires a string op, got {type(op).__name__}")
@@ -362,6 +499,23 @@ class Context:
         embedding: torch.Tensor,
         type_term: Term | None = None,
     ) -> "Context":
+        """Return the context extended by one innermost bound variable.
+
+        Parameters
+        ----------
+        var_sort : str
+            The sort of the new variable.
+        embedding : torch.Tensor
+            The variable's embedding.
+        type_term : Term or None
+            The binder's annotation term for the variable, if any.
+
+        Returns
+        -------
+        Context
+            A new context whose index 0 is the new variable; ``self``
+            is unchanged.
+        """
         return Context(
             entries=(
                 ContextEntry(
@@ -374,6 +528,23 @@ class Context:
         )
 
     def var(self, index: int) -> torch.Tensor:
+        """Return the embedding of a bound variable.
+
+        Parameters
+        ----------
+        index : int
+            The de-Bruijn index, counted from the innermost variable.
+
+        Returns
+        -------
+        torch.Tensor
+            The variable's embedding.
+
+        Raises
+        ------
+        IndexError
+            If ``index`` is negative or not below the context depth.
+        """
         if index < 0 or index >= len(self.entries):
             raise IndexError(
                 f"Context.var({index}): out of range "
@@ -382,16 +553,71 @@ class Context:
         return self.entries[index].embedding
 
     def type_of(self, index: int) -> Term | None:
+        """Return the annotation term of a bound variable.
+
+        Parameters
+        ----------
+        index : int
+            The de-Bruijn index, counted from the innermost variable.
+
+        Returns
+        -------
+        Term or None
+            The annotation captured when the variable was bound, or
+            ``None`` when it carries none.
+        """
         return self.entries[index].type_term
 
     def depth(self) -> int:
+        """Return the number of variables in scope.
+
+        Returns
+        -------
+        int
+            The context depth.
+        """
         return len(self.entries)
 
     def by_sort(self, sort: str) -> list[tuple[int, ContextEntry]]:
         """All entries whose ``var_sort`` matches; returned as
         ``(depth-index, entry)`` pairs for the decoder's
-        categorical-over-in-scope-variables."""
+        categorical-over-in-scope-variables.
+
+        Parameters
+        ----------
+        sort : str
+            The variable sort to select.
+
+        Returns
+        -------
+        list[tuple[int, ContextEntry]]
+            The matching entries with their de-Bruijn indices, innermost
+            first.
+        """
         return [(i, e) for i, e in enumerate(self.entries) if e.var_sort == sort]
 
 
 EMPTY_CONTEXT = Context()
+"""The context with no bound variables."""
+
+
+__all__ = [
+    "DataLeaf",
+    "TermArg",
+    "SortKind",
+    "SortVocabEntry",
+    "Sort",
+    "Constructor",
+    "BinderVarSpec",
+    "BinderArgSpec",
+    "Binder",
+    "VertexKind",
+    "EdgeKind",
+    "Signature",
+    "Term",
+    "bound_var",
+    "make_term",
+    "ContextEntry",
+    "Context",
+    "EMPTY_CONTEXT",
+]

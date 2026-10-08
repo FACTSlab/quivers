@@ -2,6 +2,6 @@
 
 Effect instances registered with their typeclass ABCs: `Identity`,
 `Maybe`, `Alternative_`, `Continuation`, `State`, `Reader`, `Writer`,
-and `List`.
+and `ListMonad`.
 
 ::: quivers.monadic.instances

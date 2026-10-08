@@ -899,14 +899,14 @@ def _validate_named_static_scope(value: object, telescope: Telescope) -> None:
 
 
 __all__ = [
-    "called_computations",
-    "computation_type_conforms",
-    "program_computations",
-    "reachable_computations",
     "NamedComputation",
     "NamedEffectInstance",
     "QiecModule",
+    "called_computations",
+    "computation_type_conforms",
     "inferred_computation_type",
+    "program_computations",
+    "reachable_computations",
     "render_computation_type",
     "validate_module",
 ]

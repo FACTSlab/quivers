@@ -19,7 +19,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+
 from quivers.qiec.effects import (
     EffectRequest,
     HandlerDef,
@@ -83,20 +83,42 @@ from quivers.qiec.substitution import (
     substitute_type,
 )
 from quivers.qiec.checking import CheckContext, KernelRegistry, infer_computation
+from quivers.qiec.module import NamedComputation, QiecModule
 from quivers.qiec.types import IndexLiteral, StaticArgument, TypeExpr
-
-if TYPE_CHECKING:
-    from quivers.qiec.module import NamedComputation, QiecModule
 
 
 type RuntimeValidator = Callable[[object], bool | None]
+"""A predicate a host value must pass to inhabit a QIEC type.
+
+It returns ``False`` to reject the value; ``True`` or ``None`` accepts it.
+"""
+
 type OperationClause = Callable[
     ["RuntimeRequest", "Resumption", "ClauseContext"],
     object,
 ]
+"""A host implementation of one handler operation clause.
+
+It receives the request, the delimited continuation, and the clause's
+runtime services, and returns the clause's answer, a :class:`Forward`, or a
+:class:`TailResume`.
+"""
+
 type ReturnClause = Callable[[object, "ClauseContext"], object]
+"""A host implementation of a handler's return clause.
+
+It receives the handled computation's final value and the clause's runtime
+services, and returns the handler's answer.
+"""
+
 type ResponseHook = Callable[[object], object]
+"""A callback applied to the reply a forwarded request receives.
+
+It returns the value the resumed computation receives in place of the reply.
+"""
+
 type EvaluationTraceHook = Callable[[str, Mapping[str, object]], None]
+"""A callback receiving each evaluator event's name and detail mapping."""
 
 
 class EvaluationError(RuntimeError):
@@ -668,8 +690,20 @@ class TailResume:
     value: object
 
 
+class ContinuationFrame:
+    """One frame of the reference evaluator's explicit continuation stack.
+
+    The evaluator creates and consumes every frame. A handler clause sees
+    frames only through the :class:`ClauseContext` and :class:`Resumption`
+    the evaluator hands it, and never inspects or builds one itself; the
+    class exists so those two constructors can name the stack they capture.
+    """
+
+    __slots__ = ()
+
+
 @dataclass(frozen=True, slots=True)
-class _BindFrame:
+class _BindFrame(ContinuationFrame):
     """A continuation frame awaiting the first half of a bind.
 
     Parameters
@@ -732,7 +766,7 @@ class _HandlerLifecycle:
 
 
 @dataclass(frozen=True, slots=True)
-class _HandlerFrame:
+class _HandlerFrame(ContinuationFrame):
     """A stack frame marking an installed handler.
 
     Parameters
@@ -766,7 +800,7 @@ class _HandlerFrame:
 
 
 @dataclass(frozen=True, slots=True)
-class _ResponseHookFrame:
+class _ResponseHookFrame(ContinuationFrame):
     """A stack frame observing the answer to a forwarded request.
 
     Parameters
@@ -779,7 +813,7 @@ class _ResponseHookFrame:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class _DelimiterFrame:
+class _DelimiterFrame(ContinuationFrame):
     """Stop a nested clause evaluation before consuming its outer context.
 
     Compared by identity: each host resumption or clause evaluation
@@ -815,7 +849,7 @@ class _HostUnwind(BaseException):
 
 
 @dataclass(frozen=True, slots=True)
-class _CallFrame:
+class _CallFrame(ContinuationFrame):
     """A stack frame marking an entered named computation.
 
     Parameters
@@ -838,7 +872,7 @@ class _CallFrame:
 
 
 @dataclass(frozen=True, slots=True)
-class _InstanceFrame:
+class _InstanceFrame(ContinuationFrame):
     """A stack frame marking a live local effect instance.
 
     Parameters
@@ -855,7 +889,7 @@ class _InstanceFrame:
 
 
 @dataclass(frozen=True, slots=True)
-class _ClauseFrame:
+class _ClauseFrame(ContinuationFrame):
     """A stack frame beneath an authored clause body while it runs.
 
     The frame stands where the handler stood: the clause body's answer
@@ -885,7 +919,7 @@ class _ClauseFrame:
 
 
 @dataclass(frozen=True, slots=True)
-class _AnswerFrame:
+class _AnswerFrame(ContinuationFrame):
     """A stack frame beneath an authored return clause body while it runs.
 
     Parameters
@@ -898,7 +932,7 @@ class _AnswerFrame:
 
 
 @dataclass(frozen=True, slots=True)
-class _PathFrame:
+class _PathFrame(ContinuationFrame):
     """A stack frame restoring the resumption address after a shot.
 
     Parameters
@@ -954,6 +988,44 @@ type _Frame = (
     | _PathFrame
 )
 
+_FRAME_CLASSES = (
+    _BindFrame,
+    _HandlerFrame,
+    _ResponseHookFrame,
+    _DelimiterFrame,
+    _CallFrame,
+    _InstanceFrame,
+    _ClauseFrame,
+    _AnswerFrame,
+    _PathFrame,
+)
+
+
+def _frames(stack: tuple[ContinuationFrame, ...]) -> tuple[_Frame, ...]:
+    """Narrow a captured stack to the evaluator's closed set of frames.
+
+    Parameters
+    ----------
+    stack : tuple[ContinuationFrame, ...]
+        The frames, outermost first.
+
+    Returns
+    -------
+    tuple[_Frame, ...]
+        The same frames, typed as the closed union the machine matches on.
+
+    Raises
+    ------
+    TypeError
+        If a frame is not one the evaluator creates.
+    """
+    narrowed: list[_Frame] = []
+    for frame in stack:
+        if not isinstance(frame, _FRAME_CLASSES):
+            raise TypeError(f"not an evaluator continuation frame: {frame!r}")
+        narrowed.append(frame)
+    return tuple(narrowed)
+
 
 class ClauseContext:
     """Disciplined runtime services available to an attached handler clause.
@@ -984,13 +1056,13 @@ class ClauseContext:
         self,
         evaluator: Evaluator,
         environment: Mapping[Local, object],
-        outer_stack: tuple[_Frame, ...],
+        outer_stack: tuple[ContinuationFrame, ...],
         resumption_path: tuple[int, ...],
         request: RuntimeRequest | None,
     ) -> None:
         self._evaluator = evaluator
         self._environment = environment
-        self._outer_stack = outer_stack
+        self._outer_stack = _frames(outer_stack)
         self._resumption_path = resumption_path
         self._request = request
 
@@ -1145,8 +1217,8 @@ class Resumption:
         request: RuntimeRequest,
         grade: ResumptionGrade,
         captured_environment: Mapping[Local, object],
-        captured_stack: tuple[_Frame, ...],
-        outer_stack: tuple[_Frame, ...],
+        captured_stack: tuple[ContinuationFrame, ...],
+        outer_stack: tuple[ContinuationFrame, ...],
         validator: RuntimeValidator,
         path: tuple[int, ...],
     ) -> None:
@@ -1154,29 +1226,29 @@ class Resumption:
         self._request = request
         self._grade = grade
         self._captured_environment = captured_environment
-        self._captured_stack = captured_stack
-        self._outer_stack = outer_stack
+        self._captured_stack = _frames(captured_stack)
+        self._outer_stack = _frames(outer_stack)
         self._validator = validator
         self._path = path
         self._calls = 0
         self._closed = False
         delimiters = tuple(
             index
-            for index, frame in enumerate(captured_stack)
+            for index, frame in enumerate(self._captured_stack)
             if isinstance(frame, _DelimiterFrame)
         )
         self._owned_start = delimiters[-1] + 1 if delimiters else 0
         if grade is ResumptionGrade.UNRESTRICTED:
             evaluator._validate_duplicable_capture(
                 captured_environment,
-                captured_stack[self._owned_start :],
+                self._captured_stack[self._owned_start :],
             )
             # Snapshot before the clause body runs. Every shot, including the
             # first, forks from this untouched seed rather than a previous
             # branch or the live handler context.
-            self._seed_stack = self._fork_owned(captured_stack)
+            self._seed_stack = self._fork_owned(self._captured_stack)
         else:
-            self._seed_stack = captured_stack
+            self._seed_stack = self._captured_stack
 
     @property
     def grade(self) -> ResumptionGrade:
@@ -3420,16 +3492,18 @@ __all__ = [
     "AttachmentBinding",
     "ClauseComputation",
     "ClauseContext",
+    "ContinuationFrame",
     "EvaluationError",
     "EvaluationTraceHook",
     "Evaluator",
     "Forward",
-    "TailResume",
+    "FuelExhaustedError",
     "HandlerManifest",
     "InvalidHandlerError",
     "MissingAttachmentError",
     "NonDuplicableContinuationError",
     "OperationClause",
+    "ResponseHook",
     "Resumption",
     "ResumptionUsageError",
     "ReturnClause",
@@ -3440,5 +3514,7 @@ __all__ = [
     "RuntimeRequest",
     "RuntimeTypeMismatch",
     "RuntimeValidator",
+    "TailResume",
     "UnhandledEffectError",
+    "UnknownComputationError",
 ]

@@ -10,10 +10,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from quivers.continuous.bijectors import Exp
+from quivers.continuous.bijectors import ExpBijector
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.inline import MixedInlineDistribution, _normal_builder
 from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
 from quivers.effects import clamp, reparam
@@ -40,8 +41,8 @@ def _simple_program() -> MonadicProgram:
         Unit,
         R1,
         steps=[
-            (("z",), prior, None),
-            (("y",), likelihood, ("z",)),
+            Draw(names=("z",), morphism=prior),
+            Draw(names=("y",), morphism=likelihood, args=("z",)),
         ],
         return_vars=("y",),
     )
@@ -121,7 +122,7 @@ class TestTransformReparam:
     def test_exp_bijector_produces_positive_reals(self) -> None:
         prog = _simple_program()
         x = _batch(4)
-        with reparam({"z": TransformReparam(Exp())}):
+        with reparam({"z": TransformReparam(ExpBijector())}):
             tr = trace(prog, x)
         # The value at z is still whatever the morphism sampled,
         # but the log-density is scored under the original
@@ -173,7 +174,10 @@ class TestConjugateReparam:
         prog = MonadicProgram(
             Unit,
             R1,
-            steps=[(("z",), prior, None), (("y",), child, ("z",))],
+            steps=[
+                Draw(names=("z",), morphism=prior),
+                Draw(names=("y",), morphism=child, args=("z",)),
+            ],
             return_vars=("y",),
         )
         x = _batch(4)
@@ -211,7 +215,7 @@ class TestReparamComposesWithOtherHandlers:
         z_val = torch.zeros(4, 1)
         # Condition on z; TransformReparam on y should still fire.
         with clamp({"z": z_val}):
-            with reparam({"y": TransformReparam(Exp())}):
+            with reparam({"y": TransformReparam(ExpBijector())}):
                 tr = trace(prog, x)
         assert "y" in tr.sites
         assert tr.sites["z"].is_observed

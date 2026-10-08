@@ -4,17 +4,17 @@ A semiring (S, ⊕, ⊗, 0, 1) provides the algebraic structure for
 chart parsing (Goodman, 1999). Different semirings yield different
 parsing algorithms from the same CKY skeleton:
 
-- **LogProbSemiring** — marginal log-probability (logsumexp / +)
-- **ViterbiSemiring** — best-derivation log-probability (max / +)
-- **BooleanSemiring** — recognition (or / and)
-- **CountingSemiring** — derivation counting (+ / ×)
+- **LogProbSemiring**: marginal log-probability (logsumexp / +)
+- **ViterbiSemiring**: best-derivation log-probability (max / +)
+- **BooleanSemiring**: recognition (or / and)
+- **CountingSemiring**: derivation counting (+ / ×)
 
 Each semiring defines:
 
-- ``times(a, b)`` — multiplicative combination (⊗)
-- ``plus(scores, dim)`` — additive aggregation (⊕) over a dimension
-- ``zero`` — additive identity (0): score for impossible derivations
-- ``one`` — multiplicative identity (1): score for trivial derivations
+- ``times(a, b)``: multiplicative combination (⊗)
+- ``plus(scores, dim)``: additive aggregation (⊕) over a dimension
+- ``zero``: additive identity (0): score for impossible derivations
+- ``one``: multiplicative identity (1): score for trivial derivations
 
 Categorical perspective
 -----------------------
@@ -120,20 +120,64 @@ class LogProbSemiring(ChartSemiring):
     """
 
     def times(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Multiply probabilities by adding log-probabilities.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            Left operand scores.
+        b : torch.Tensor
+            Right operand scores.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return a + b
 
     def plus(self, scores: torch.Tensor, dim: int) -> torch.Tensor:
+        """Sum probabilities over ``dim`` by logsumexp.
+
+        Parameters
+        ----------
+        scores : torch.Tensor
+            Scores to aggregate.
+        dim : int
+            Dimension to aggregate over.
+
+        Returns
+        -------
+        torch.Tensor
+            The aggregated scores, with ``dim`` removed.
+        """
         return torch.logsumexp(scores, dim=dim)
 
     def plus_pair(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Sum two log-probabilities by logaddexp.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            First operand.
+        b : torch.Tensor
+            Second operand.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return torch.logaddexp(a, b)
 
     @property
     def zero(self) -> float:
+        """Negative infinity, the log-probability of an impossible derivation."""
         return float("-inf")
 
     @property
     def one(self) -> float:
+        """Zero, the log-probability of a certain derivation."""
         return 0.0
 
     def __repr__(self) -> str:
@@ -149,20 +193,64 @@ class ViterbiSemiring(ChartSemiring):
     """
 
     def times(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Multiply probabilities by adding log-probabilities.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            Left operand scores.
+        b : torch.Tensor
+            Right operand scores.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return a + b
 
     def plus(self, scores: torch.Tensor, dim: int) -> torch.Tensor:
+        """Take the best score over ``dim``.
+
+        Parameters
+        ----------
+        scores : torch.Tensor
+            Scores to aggregate.
+        dim : int
+            Dimension to aggregate over.
+
+        Returns
+        -------
+        torch.Tensor
+            The aggregated scores, with ``dim`` removed.
+        """
         return scores.max(dim=dim).values
 
     def plus_pair(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Take the elementwise best of two scores.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            First operand.
+        b : torch.Tensor
+            Second operand.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return torch.maximum(a, b)
 
     @property
     def zero(self) -> float:
+        """Negative infinity, the score of an impossible derivation."""
         return float("-inf")
 
     @property
     def one(self) -> float:
+        """Zero, the score of a trivial derivation."""
         return 0.0
 
     def __repr__(self) -> str:
@@ -177,22 +265,66 @@ class BooleanSemiring(ChartSemiring):
     """
 
     def times(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Conjoin truth values in {0, 1} by multiplication.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            Left operand scores.
+        b : torch.Tensor
+            Right operand scores.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         # and in {0, 1}: min or product
         return a * b
 
     def plus(self, scores: torch.Tensor, dim: int) -> torch.Tensor:
+        """Disjoin truth values in {0, 1} over ``dim`` by max.
+
+        Parameters
+        ----------
+        scores : torch.Tensor
+            Scores to aggregate.
+        dim : int
+            Dimension to aggregate over.
+
+        Returns
+        -------
+        torch.Tensor
+            The aggregated scores, with ``dim`` removed.
+        """
         # or in {0, 1}: clamp of sum or max
         return scores.max(dim=dim).values
 
     def plus_pair(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Disjoin two truth values by elementwise max.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            First operand.
+        b : torch.Tensor
+            Second operand.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return torch.maximum(a, b)
 
     @property
     def zero(self) -> float:
+        """``0.0``, false."""
         return 0.0
 
     @property
     def one(self) -> float:
+        """``1.0``, true."""
         return 1.0
 
     def __repr__(self) -> str:
@@ -210,28 +342,91 @@ class CountingSemiring(ChartSemiring):
     """
 
     def times(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Multiply derivation counts.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            Left operand scores.
+        b : torch.Tensor
+            Right operand scores.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return a * b
 
     def plus(self, scores: torch.Tensor, dim: int) -> torch.Tensor:
+        """Sum derivation counts over ``dim``.
+
+        Parameters
+        ----------
+        scores : torch.Tensor
+            Scores to aggregate.
+        dim : int
+            Dimension to aggregate over.
+
+        Returns
+        -------
+        torch.Tensor
+            The aggregated scores, with ``dim`` removed.
+        """
         return scores.sum(dim=dim)
 
     def plus_pair(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Add two derivation counts.
+
+        Parameters
+        ----------
+        a : torch.Tensor
+            First operand.
+        b : torch.Tensor
+            Second operand.
+
+        Returns
+        -------
+        torch.Tensor
+            The combined scores.
+        """
         return a + b
 
     @property
     def zero(self) -> float:
+        """``0.0``, the count of an impossible derivation."""
         return 0.0
 
     @property
     def one(self) -> float:
+        """``1.0``, the count of a trivial derivation."""
         return 1.0
 
     def __repr__(self) -> str:
         return "CountingSemiring()"
 
 
-# default semiring instance
 LOG_PROB = LogProbSemiring()
+"""The log-probability semiring singleton, the default for chart parsing."""
+
 VITERBI = ViterbiSemiring()
+"""The Viterbi (max-product in log space) semiring singleton."""
+
 BOOLEAN = BooleanSemiring()
+"""The Boolean (or-and) semiring singleton, for recognition."""
+
 COUNTING = CountingSemiring()
+"""The counting (sum-product over naturals) semiring singleton."""
+
+
+__all__ = [
+    "ChartSemiring",
+    "LogProbSemiring",
+    "ViterbiSemiring",
+    "BooleanSemiring",
+    "CountingSemiring",
+    "LOG_PROB",
+    "VITERBI",
+    "BOOLEAN",
+    "COUNTING",
+]

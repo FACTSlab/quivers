@@ -98,6 +98,7 @@ References
 
 from __future__ import annotations
 
+import math
 from typing import cast
 
 import torch
@@ -105,12 +106,31 @@ import torch
 
 from quivers.continuous.morphisms import ContinuousMorphism, AnySpace
 from quivers.continuous.param_source import LookupSource
-from quivers.continuous.spaces import Euclidean
+from quivers.continuous.spaces import (
+    CholeskyFactor,
+    Correlation,
+    Covariance,
+    Euclidean,
+    LowerTriangular,
+    Orthogonal,
+    Stiefel,
+)
 
 
 # ---------------------------------------------------------------------------
 # Plate / vectorized observe / program-level marginalise Python builders
 # ---------------------------------------------------------------------------
+
+
+_MATRIX_SPACES = (
+    CholeskyFactor,
+    Correlation,
+    Covariance,
+    LowerTriangular,
+    Orthogonal,
+    Stiefel,
+)
+"""Spaces whose ``dim`` is a matrix size and whose ``shape`` is flat."""
 
 
 class PlateDraw(ContinuousMorphism):
@@ -145,11 +165,16 @@ class PlateDraw(ContinuousMorphism):
         family: ContinuousMorphism,
         domain: AnySpace | None = None,
     ) -> None:
-        # Continuous spaces use `dim` instead of `shape`; treat
-        # them uniformly by extracting a flat dim count.
-        if hasattr(family.codomain, "dim"):
+        # A matrix-valued space (a Cholesky factor, a covariance) keeps
+        # `dim` as its matrix size and states its flat element count as
+        # `shape`; other continuous spaces state only `dim`.
+        per_row_shape: tuple[int, ...]
+        if isinstance(family.codomain, _MATRIX_SPACES):
+            per_row_shape = family.codomain.shape
+            per_row_dim = math.prod(per_row_shape)
+        elif hasattr(family.codomain, "dim"):
             per_row_dim = int(family.codomain.dim)
-            per_row_shape: tuple[int, ...] = (per_row_dim,)
+            per_row_shape = (per_row_dim,)
         else:
             per_row_shape = tuple(family.codomain.shape)
             per_row_dim = (
@@ -390,7 +415,7 @@ class VectorisedObserve(ContinuousMorphism):
     Realised as a `ContinuousMorphism` whose domain is the
     parameter-input space (the morphism conditions on θ) and whose
     codomain is the per-observation response space — so the
-    existing `MonadicProgram` ``_StepSpec`` machinery treats
+    existing `MonadicProgram` observe-step machinery treats
     it as an observed site and threads the score through
     ``log_joint`` via the usual ``morph.log_prob(theta, response)``
     call, with ``log_prob`` here summing over the leading index axis.
@@ -434,7 +459,7 @@ class VectorisedObserve(ContinuousMorphism):
         return getattr(self._family, "_param_event_ranks", None)
 
     @property
-    def _param_spec(self) -> list[tuple[str, int | float]] | None:
+    def _param_spec(self) -> list[tuple[str, int | float | None]] | None:
         """Forward the per-parameter spec (kinds and dims) from the
         wrapped family so `_resolve_input` can stack multiple vector-
         typed parameters (e.g. `MixtureNormal` weights / locs / scales)

@@ -260,7 +260,7 @@ The [`Predictive`](../api/inference/predictive.md) driver:
 
 <!-- python: skip -->
 ```python
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, MonadicProgram
 from quivers.continuous.families import ConditionalNormal
 from quivers.continuous.spaces import Euclidean
 from quivers.core.objects import FinSet
@@ -281,8 +281,8 @@ program = MonadicProgram(
     R1,
     R1,
     steps=[
-        (("w",), prior_w, None),
-        (("y",), likelihood, ("w",)),
+        Draw(names=("w",), morphism=prior_w),
+        Draw(names=("y",), morphism=likelihood, args=("w",)),
     ],
     return_vars=("y",),
 )

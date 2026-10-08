@@ -788,3 +788,6 @@ class _ExpressionsMixin:
             return ChartParser.from_schema(schema, cs, n_terminals=n_term, start=start)
         except (TypeError, ValueError) as e:
             raise CompileError(str(e), expr.line, expr.col) from e
+
+
+__all__ = []

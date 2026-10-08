@@ -35,6 +35,7 @@ import torch.distributions as D
 from torch.distributions import constraints as _constraints
 
 from quivers.continuous._ordered import OrderedLogistic
+from quivers.core.objects import SetObject
 from quivers.continuous._zip_hurdle import (
     HurdlePoisson,
     MixtureNormal,
@@ -45,7 +46,7 @@ from quivers.continuous.bijectors import Bijector
 from quivers.continuous.family_spec import (
     FamilySpec,
     ParamSpec,
-    register as _register_family,
+    register_family as _register_family,
 )
 from quivers.continuous.param_transforms import resolve_transform
 from quivers.continuous.spaces import (
@@ -742,6 +743,7 @@ ConditionalCauchy = _make_family(
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Cauchy(loc(x), scale(x)). Heavy-tailed, no finite moments.",
 )
+"""Conditional Cauchy(loc(x), scale(x)). Heavy-tailed, no finite moments."""
 
 ConditionalLaplace = _make_family(
     "ConditionalLaplace",
@@ -749,6 +751,7 @@ ConditionalLaplace = _make_family(
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Laplace(loc(x), scale(x)). Sharp peak, heavier tails than normal.",
 )
+"""Conditional Laplace(loc(x), scale(x)). Sharp peak, heavier tails than normal."""
 
 ConditionalGumbel = _make_family(
     "ConditionalGumbel",
@@ -756,6 +759,7 @@ ConditionalGumbel = _make_family(
     [("loc", "id"), ("scale", "softplus")],
     "Conditional Gumbel(loc(x), scale(x)). Extreme value distribution (type I).",
 )
+"""Conditional Gumbel(loc(x), scale(x)). Extreme value distribution (type I)."""
 
 ConditionalLogNormal = _make_family(
     "ConditionalLogNormal",
@@ -763,6 +767,7 @@ ConditionalLogNormal = _make_family(
     [("loc", "id"), ("scale", "softplus")],
     "Conditional LogNormal(loc(x), scale(x)). Positive-valued, right-skewed.",
 )
+"""Conditional LogNormal(loc(x), scale(x)). Positive-valued, right-skewed."""
 
 ConditionalStudentT = _make_family(
     "ConditionalStudentT",
@@ -770,6 +775,7 @@ ConditionalStudentT = _make_family(
     [("df", "softplus_shifted"), ("loc", "id"), ("scale", "softplus")],
     "Conditional StudentT(df(x), loc(x), scale(x)). Heavy-tailed with learnable df.",
 )
+"""Conditional StudentT(df(x), loc(x), scale(x)). Heavy-tailed with learnable df."""
 
 # -- positive-valued distributions -------------------------------------------
 
@@ -779,6 +785,7 @@ ConditionalExponential = _make_family(
     [("rate", "softplus")],
     "Conditional Exponential(rate(x)). Memoryless, positive-valued.",
 )
+"""Conditional Exponential(rate(x)). Memoryless, positive-valued."""
 
 ConditionalGamma = _make_family(
     "ConditionalGamma",
@@ -786,6 +793,7 @@ ConditionalGamma = _make_family(
     [("concentration", "softplus_shifted"), ("rate", "softplus")],
     "Conditional Gamma(concentration(x), rate(x)). Positive-valued, flexible shape.",
 )
+"""Conditional Gamma(concentration(x), rate(x)). Positive-valued, flexible shape."""
 
 ConditionalChi2 = _make_family(
     "ConditionalChi2",
@@ -793,6 +801,7 @@ ConditionalChi2 = _make_family(
     [("df", "softplus_shifted")],
     "Conditional Chi2(df(x)). Positive-valued, sum of squared normals.",
 )
+"""Conditional Chi2(df(x)). Positive-valued, sum of squared normals."""
 
 ConditionalHalfCauchy = _make_family(
     "ConditionalHalfCauchy",
@@ -800,6 +809,7 @@ ConditionalHalfCauchy = _make_family(
     [("scale", "softplus")],
     "Conditional HalfCauchy(scale(x)). Heavy-tailed positive prior.",
 )
+"""Conditional HalfCauchy(scale(x)). Heavy-tailed positive prior."""
 
 ConditionalHalfNormal = _make_family(
     "ConditionalHalfNormal",
@@ -807,6 +817,7 @@ ConditionalHalfNormal = _make_family(
     [("scale", "softplus")],
     "Conditional HalfNormal(scale(x)). Folded normal, positive-valued.",
 )
+"""Conditional HalfNormal(scale(x)). Folded normal, positive-valued."""
 
 ConditionalInverseGamma = _make_family(
     "ConditionalInverseGamma",
@@ -814,6 +825,7 @@ ConditionalInverseGamma = _make_family(
     [("concentration", "softplus_shifted"), ("rate", "softplus")],
     "Conditional InverseGamma(concentration(x), rate(x)). Conjugate prior for normal variance.",
 )
+"""Conditional InverseGamma(concentration(x), rate(x)). Conjugate prior for normal variance."""
 
 ConditionalWeibull = _make_family(
     "ConditionalWeibull",
@@ -821,6 +833,7 @@ ConditionalWeibull = _make_family(
     [("scale", "softplus"), ("concentration", "softplus")],
     "Conditional Weibull(scale(x), concentration(x)). Survival analysis, reliability.",
 )
+"""Conditional Weibull(scale(x), concentration(x)). Survival analysis, reliability."""
 
 ConditionalPareto = _make_family(
     "ConditionalPareto",
@@ -828,6 +841,7 @@ ConditionalPareto = _make_family(
     [("scale", "softplus"), ("alpha", "softplus")],
     "Conditional Pareto(scale(x), alpha(x)). Power-law tail.",
 )
+"""Conditional Pareto(scale(x), alpha(x)). Power-law tail."""
 
 # -- (0, 1)-valued distributions ---------------------------------------------
 
@@ -837,6 +851,7 @@ ConditionalKumaraswamy = _make_family(
     [("concentration1", "softplus_shifted"), ("concentration0", "softplus_shifted")],
     "Conditional Kumaraswamy(a(x), b(x)). Beta-like on (0,1), closed-form CDF.",
 )
+"""Conditional Kumaraswamy(a(x), b(x)). Beta-like on (0,1), closed-form CDF."""
 
 ConditionalContinuousBernoulli = _make_family(
     "ConditionalContinuousBernoulli",
@@ -844,6 +859,7 @@ ConditionalContinuousBernoulli = _make_family(
     [("logits", "id")],
     "Conditional ContinuousBernoulli(logits(x)). Continuous relaxation of Bernoulli.",
 )
+"""Conditional ContinuousBernoulli(logits(x)). Continuous relaxation of Bernoulli."""
 
 # -- two-df distributions ----------------------------------------------------
 
@@ -853,6 +869,7 @@ ConditionalFisherSnedecor = _make_family(
     [("df1", "softplus_shifted"), ("df2", "softplus_shifted")],
     "Conditional FisherSnedecor(df1(x), df2(x)). F-distribution, ratio of chi-squared.",
 )
+"""Conditional FisherSnedecor(df1(x), df2(x)). F-distribution, ratio of chi-squared."""
 
 # -- discrete count distributions --------------------------------------------
 
@@ -862,6 +879,7 @@ ConditionalPoisson = _make_family(
     [("rate", "softplus")],
     "Conditional Poisson(rate(x)). Discrete, non-negative integer counts.",
 )
+"""Conditional Poisson(rate(x)). Discrete, non-negative integer counts."""
 
 ConditionalGeometric = _make_family(
     "ConditionalGeometric",
@@ -869,6 +887,7 @@ ConditionalGeometric = _make_family(
     [("probs", "sigmoid")],
     "Conditional Geometric(probs(x)). Number of failures before first success.",
 )
+"""Conditional Geometric(probs(x)). Number of failures before first success."""
 
 ConditionalNegativeBinomial = _make_family(
     "ConditionalNegativeBinomial",
@@ -877,6 +896,7 @@ ConditionalNegativeBinomial = _make_family(
     "Conditional NegativeBinomial(total_count(x), probs(x)). "
     "Discrete, over-dispersed count distribution.",
 )
+"""Conditional NegativeBinomial(total_count(x), probs(x)). Discrete, over-dispersed count distribution."""
 
 # -- circular distributions --------------------------------------------------
 
@@ -892,6 +912,7 @@ ConditionalVonMises = _make_family(
     "Circular analogue of the Normal distribution.",
     discrete=False,
 )
+"""Conditional VonMises(loc(x), concentration(x)). Circular analogue of the Normal distribution."""
 
 # -- uniform distribution (special parameterization) -------------------------
 
@@ -1925,74 +1946,6 @@ class ConditionalLogisticNormal(ContinuousMorphism):
         return dist.rsample(sample_shape)
 
 
-class ConditionalOrderedLogistic(ContinuousMorphism):
-    """Conditional OrderedLogistic(predictor(x), cutpoints(x)).
-
-    The continuous input drives a parameter source that produces
-    `1 + (K - 1)` numbers: one real predictor and a `K - 1` cutpoint
-    vector. The cutpoints are passed through a strictly-monotonic
-    transform (first entry free, subsequent entries via cumulative
-    softplus) so the cumulative-link contract `c_0 < c_1 < ... <
-    c_{K-2}` is satisfied unconditionally.
-
-    Outputs integer categories in `{0, …, K - 1}` where `K =
-    codomain.size`. The codomain must be a finite set.
-    """
-
-    def __init__(
-        self,
-        domain: AnySpace,
-        codomain: AnySpace,
-        hidden_dim: int | Sequence[int] | None = None,
-        param_source: ParamSource | None = None,
-        param_source_option: str | None = None,
-    ) -> None:
-        from quivers.core.objects import SetObject
-
-        if not isinstance(codomain, SetObject):
-            raise ValueError(
-                "ConditionalOrderedLogistic requires a FinSet codomain, "
-                f"got {codomain!r}"
-            )
-        if codomain.size < 2:
-            raise ValueError(
-                "ConditionalOrderedLogistic requires K >= 2 categories, "
-                f"got codomain.size = {codomain.size}"
-            )
-        super().__init__(domain, codomain)
-        self._k = codomain.size
-        self.param_source = _make_source(
-            domain,
-            1 + (self._k - 1),
-            hidden_dim,
-            param_source=param_source,
-            param_source_option=param_source_option,
-        )
-
-    @property
-    def support(self) -> _constraints.Constraint:
-        return _constraints.integer_interval(0, self._k - 1)
-
-    def _get_dist(self, x: torch.Tensor) -> OrderedLogistic:
-        raw = self.param_source(x)
-        predictor = raw[..., 0]
-        cut_raw = raw[..., 1:]
-        first = cut_raw[..., :1]
-        rest = F.softplus(cut_raw[..., 1:]) + EPS
-        cutpoints = torch.cat([first, first + torch.cumsum(rest, dim=-1)], dim=-1)
-        return OrderedLogistic(predictor, cutpoints)
-
-    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return self._get_dist(x).log_prob(y.long())
-
-    def rsample(
-        self,
-        x: torch.Tensor,
-        sample_shape: torch.Size = torch.Size(),
-    ) -> torch.Tensor:
-        return self._get_dist(x).sample(sample_shape).long()
-
-
 class ConditionalZeroInflatedPoisson(ContinuousMorphism):
     """Conditional ZeroInflatedPoisson(zero_prob(x), rate(x)).
 
@@ -2918,6 +2871,93 @@ class ConditionalHorseshoe(ContinuousMorphism):
         return log_p_per_coord.sum(dim=-1)
 
 
+class ConditionalLearnedOrderedLogistic(ContinuousMorphism):
+    """Conditional OrderedLogistic(predictor(x), cutpoints(x)), cutpoints learned.
+
+    This is the morphism a ``~ OrderedLogistic`` declaration compiles to.
+    [`ConditionalOrderedLogistic`][quivers.continuous.ordered.ConditionalOrderedLogistic]
+    is the variant that takes its cutpoints explicitly.
+
+    The continuous input drives a parameter source that produces
+    `1 + (K - 1)` numbers: one real predictor and a `K - 1` cutpoint
+    vector. The cutpoints are passed through a strictly-monotonic
+    transform (first entry free, subsequent entries via cumulative
+    softplus) so the cumulative-link contract `c_0 < c_1 < ... <
+    c_{K-2}` is satisfied unconditionally.
+
+    Outputs integer categories in `{0, ..., K - 1}` where `K =
+    codomain.size`.
+
+    Parameters
+    ----------
+    domain : AnySpace
+        Source space.
+    codomain : AnySpace
+        A finite set of at least two ordered categories.
+    hidden_dim : int or sequence of int
+        Hidden widths, read only by a source that has hidden layers.
+    param_source, param_source_option
+        Select the parameter source directly, or by the DSL's
+        ``[param_source=...]`` text.
+
+    Raises
+    ------
+    ValueError
+        If the codomain is not a finite set of at least two categories.
+    """
+
+    def __init__(
+        self,
+        domain: AnySpace,
+        codomain: AnySpace,
+        hidden_dim: int | Sequence[int] | None = None,
+        param_source: ParamSource | None = None,
+        param_source_option: str | None = None,
+    ) -> None:
+        if not isinstance(codomain, SetObject):
+            raise ValueError(
+                "ConditionalLearnedOrderedLogistic requires a FinSet codomain, "
+                f"got {codomain!r}"
+            )
+        if codomain.size < 2:
+            raise ValueError(
+                "ConditionalLearnedOrderedLogistic requires K >= 2 categories, "
+                f"got codomain.size = {codomain.size}"
+            )
+        super().__init__(domain, codomain)
+        self._k = codomain.size
+        self.param_source = _make_source(
+            domain,
+            1 + (self._k - 1),
+            hidden_dim,
+            param_source=param_source,
+            param_source_option=param_source_option,
+        )
+
+    @property
+    def support(self) -> _constraints.Constraint:
+        return _constraints.integer_interval(0, self._k - 1)
+
+    def _get_dist(self, x: torch.Tensor) -> OrderedLogistic:
+        raw = self.param_source(x)
+        predictor = raw[..., 0]
+        cut_raw = raw[..., 1:]
+        first = cut_raw[..., :1]
+        rest = F.softplus(cut_raw[..., 1:]) + EPS
+        cutpoints = torch.cat([first, first + torch.cumsum(rest, dim=-1)], dim=-1)
+        return OrderedLogistic(predictor, cutpoints)
+
+    def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self._get_dist(x).log_prob(y.long())
+
+    def rsample(
+        self,
+        x: torch.Tensor,
+        sample_shape: torch.Size = torch.Size(),
+    ) -> torch.Tensor:
+        return self._get_dist(x).sample(sample_shape).long()
+
+
 # ============================================================================
 # optional: generalized Pareto (requires recent torch)
 # ============================================================================
@@ -3639,66 +3679,64 @@ class LKJCorrelationFactor(ContinuousMorphism):
         self._dim = dim
         self._eta = float(eta)
 
+    def _distribution(self, x: torch.Tensor) -> D.LKJCholesky:
+        """The LKJ distribution, on the input's device and float dtype.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input; it carries no parameters.
+
+        Returns
+        -------
+        torch.distributions.LKJCholesky
+            The prior over ``dim``-by-``dim`` Cholesky factors.
+        """
+        dtype = x.dtype if x.is_floating_point() else torch.get_default_dtype()
+        concentration = torch.tensor(self._eta, device=x.device, dtype=dtype)
+        return D.LKJCholesky(self._dim, concentration)
+
     def rsample(
         self, x: torch.Tensor, sample_shape: torch.Size = torch.Size()
     ) -> torch.Tensor:
-        del sample_shape
-        """Onion-method sample from the LKJ Cholesky prior.
+        """Draw one Cholesky factor per input row, by the onion method.
 
-        Following Stan's reference implementation: for each row
-        :math:`i = 1 \\ldots K-1` of :math:`L` (1-indexed),
-        sample a vector :math:`y` on the unit sphere and a beta-
-        distributed radius :math:`r_i \\sim \\mathrm{Beta}(i/2,
-        \\eta + (K - i - 1)/2)` (when :math:`\\eta = 1` this reduces
-        to the uniform-on-correlations LKJ-1 case).
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input; only its row count, device, and dtype are read.
+        sample_shape : torch.Size
+            Leading sample dimensions.
+
+        Returns
+        -------
+        torch.Tensor
+            Flat factors, shape ``(*sample_shape, batch, dim * dim)``.
         """
         batch = x.shape[0]
-        K = self._dim
-        eta = self._eta
-        # The Cholesky factor and partial-correlation calculations are
-        # continuous; pick a float dtype so the Beta sampler accepts
-        # the concentration parameters. Discrete-domain `x` arrives as
-        # `torch.long`, so the morphism's own working dtype is fixed
-        # by `torch.get_default_dtype()`.
-        dtype = x.dtype if x.is_floating_point() else torch.get_default_dtype()
-        L = torch.zeros(batch, K, K, device=x.device, dtype=dtype)
-        L[:, 0, 0] = 1.0
-        for i in range(1, K):
-            # Beta parameters for row i (Stan's onion method).
-            alpha = eta + (K - 1 - i) / 2.0
-            beta = i / 2.0
-            r2 = torch.distributions.Beta(
-                torch.full((batch,), alpha, device=x.device, dtype=dtype),
-                torch.full((batch,), beta, device=x.device, dtype=dtype),
-            ).rsample()
-            # Sample a vector uniformly on the unit (i)-sphere.
-            u = torch.randn(batch, i, device=x.device, dtype=dtype)
-            u = u / torch.linalg.vector_norm(u, dim=-1, keepdim=True)
-            # row i has off-diagonal entries r * u, diagonal sqrt(1 - r^2).
-            L[:, i, :i] = torch.sqrt(r2).unsqueeze(-1) * u
-            L[:, i, i] = torch.sqrt(1.0 - r2)
-        return L.reshape(batch, K * K)
+        factors = self._distribution(x).sample(torch.Size(sample_shape) + (batch,))
+        return factors.reshape(*factors.shape[:-2], self._dim * self._dim)
 
     def log_prob(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Log-density of the LKJ prior at the Cholesky factor ``y``.
+        """Normalized log density of the LKJ prior at Cholesky factors.
 
-        Up to a normalizing constant that doesn't depend on
-        :math:`L`, :math:`\\log p(L) = \\sum_{k=2}^{K} (K-k+2(\\eta-1))
-        \\log L_{kk}`. The diagonal entries are extracted from the
-        flattened representation.
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input; it carries no parameters.
+        y : torch.Tensor
+            Factors, flat ``(..., dim * dim)`` or square
+            ``(..., dim, dim)``.
+
+        Returns
+        -------
+        torch.Tensor
+            One log density per factor.
         """
-        batch = y.shape[0]
         K = self._dim
-        L = y.reshape(batch, K, K)
-        diag = torch.diagonal(L, dim1=-2, dim2=-1)  # (batch, K)
-        # Coefficients per diagonal entry (Stan's lkj_corr_cholesky_lpdf):
-        # log_jac_term[k] = (K - k + 2*(eta - 1)) * log(L_kk)  for k = 2..K
-        # Pre-K-indexed: power[0..K-1] where power[k] = (K-1-k) + 2*(eta-1).
-        # The first diagonal is fixed at 1 so log(1)=0 contributes nothing.
-        ks = torch.arange(K, device=y.device, dtype=y.dtype)
-        powers = (K - 1 - ks) + 2.0 * (self._eta - 1.0)
-        log_diag = torch.log(diag.clamp(min=1e-30))
-        return (powers * log_diag).sum(dim=-1)
+        if y.shape[-2:] != (K, K):
+            y = y.reshape(*y.shape[:-1], K, K)
+        return self._distribution(x).log_prob(y)
 
     def __repr__(self) -> str:
         return f"LKJCorrelationFactor(dim={self._dim}, eta={self._eta})"
@@ -3842,3 +3880,63 @@ class Truncated(ContinuousMorphism):
 
     def __repr__(self) -> str:
         return f"Truncated({self._base!r}, lower={self._lower}, upper={self._upper})"
+
+
+__all__ = [
+    "ConditionalNormal",
+    "ConditionalLogitNormal",
+    "ConditionalBeta",
+    "ConditionalTruncatedNormal",
+    "ConditionalDirichlet",
+    "ConditionalCauchy",
+    "ConditionalLaplace",
+    "ConditionalGumbel",
+    "ConditionalLogNormal",
+    "ConditionalStudentT",
+    "ConditionalExponential",
+    "ConditionalGamma",
+    "ConditionalChi2",
+    "ConditionalHalfCauchy",
+    "ConditionalHalfNormal",
+    "ConditionalInverseGamma",
+    "ConditionalWeibull",
+    "ConditionalPareto",
+    "ConditionalKumaraswamy",
+    "ConditionalContinuousBernoulli",
+    "ConditionalFisherSnedecor",
+    "ConditionalPoisson",
+    "ConditionalGeometric",
+    "ConditionalNegativeBinomial",
+    "ConditionalVonMises",
+    "ConditionalUniform",
+    "ConditionalMultivariateNormal",
+    "ConditionalLowRankMVN",
+    "ConditionalRelaxedBernoulli",
+    "ConditionalRelaxedOneHotCategorical",
+    "ConditionalWishart",
+    "ConditionalMatrixNormal",
+    "ConditionalInverseWishart",
+    "ConditionalBernoulli",
+    "ConditionalCategorical",
+    "ConditionalBinomial",
+    "ConditionalLogisticNormal",
+    "ConditionalLearnedOrderedLogistic",
+    "ConditionalZeroInflatedPoisson",
+    "ConditionalHurdlePoisson",
+    "ConditionalZeroOneInflatedBeta",
+    "ConditionalMixtureNormal",
+    "ConditionalOneHotCategorical",
+    "ConditionalMixture",
+    "ConditionalIndependent",
+    "ConditionalTransformed",
+    "ConditionalLKJCholesky",
+    "ConditionalGaussianProcess",
+    "ConditionalHorseshoe",
+    "ConditionalBetaBinomial",
+    "ConditionalLogistic",
+    "ConditionalHalfStudentT",
+    "LKJCorrelationFactor",
+    "Truncated",
+]
+if _HAS_GPD:
+    __all__.append("ConditionalGeneralizedPareto")

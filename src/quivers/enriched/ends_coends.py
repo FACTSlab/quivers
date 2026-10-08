@@ -11,12 +11,9 @@ the functor category (end over all objects).
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
-
 import torch
 
-if TYPE_CHECKING:
-    from quivers.core.algebras import Algebra
+from quivers.core.algebras import PRODUCT_FUZZY, Algebra
 
 
 def coend(
@@ -50,8 +47,6 @@ def coend(
     torch.Tensor
         Result with matched dimension pairs removed via join.
     """
-    from quivers.core.algebras import PRODUCT_FUZZY
-
     if algebra is None:
         algebra = PRODUCT_FUZZY
 
@@ -94,8 +89,6 @@ def end(
     torch.Tensor
         Result with matched dimension pairs removed via meet.
     """
-    from quivers.core.algebras import PRODUCT_FUZZY
-
     if algebra is None:
         algebra = PRODUCT_FUZZY
 
@@ -165,3 +158,9 @@ def _trace_and_reduce(
         result = reduce_fn(result, dim=-1)
 
     return result
+
+
+__all__ = [
+    "coend",
+    "end",
+]

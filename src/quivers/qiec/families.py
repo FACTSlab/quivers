@@ -1457,11 +1457,14 @@ _FAMILIES: tuple[DistributionFamily, ...] = (
     ),
 )
 
-#: Every family by source name. The mapping is closed: a name absent here
-#: is not a distribution family, and no backend may invent one.
 FAMILIES: Mapping[str, DistributionFamily] = MappingProxyType(
     {item.name: item for item in _FAMILIES}
 )
+"""Every family by source name.
+
+The mapping is closed: a name absent here is not a distribution family, and
+no backend may invent one.
+"""
 
 
 def family(name: str) -> DistributionFamily:
@@ -1489,8 +1492,8 @@ def family(name: str) -> DistributionFamily:
 
 
 __all__ = [
-    "FAMILIES",
     "DistributionFamily",
+    "FAMILIES",
     "FamilyParameter",
     "ParameterConstraint",
     "SupportKind",

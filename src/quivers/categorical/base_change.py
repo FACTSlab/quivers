@@ -148,3 +148,10 @@ class FuzzyToBool(BaseChange):
     def apply_to_values(self, tensor: torch.Tensor) -> torch.Tensor:
         """Threshold: values >= threshold → 1, else → 0."""
         return (tensor >= self._threshold).float()
+
+
+__all__ = [
+    "BaseChange",
+    "BoolToFuzzy",
+    "FuzzyToBool",
+]

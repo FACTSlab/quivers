@@ -16,14 +16,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING
-
 import torch
 
-if TYPE_CHECKING:
-    from quivers.categorical.functors import Functor
-    from quivers.core.morphisms import Morphism
-    from quivers.core.objects import SetObject
+from quivers.categorical.functors import Functor
+from quivers.core.morphisms import Morphism
+from quivers.core.objects import SetObject
 
 
 class NaturalTransformation(ABC):
@@ -137,3 +134,9 @@ class ComponentwiseNT(NaturalTransformation):
     def component(self, obj: SetObject) -> Morphism:
         """Return η_A by calling the stored function."""
         return self._component_fn(obj)
+
+
+__all__ = [
+    "NaturalTransformation",
+    "ComponentwiseNT",
+]

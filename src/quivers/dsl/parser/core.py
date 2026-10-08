@@ -18,7 +18,26 @@ _RETURN_WORD = re.compile(rb"\breturn\b")
 
 
 def parse(source: str | bytes, file_path: str = "<source>") -> Module:
-    """Parse `.qvr` source bytes into a `Module`."""
+    """Parse `.qvr` source into a `Module`.
+
+    Parameters
+    ----------
+    source : str | bytes
+        The source text, or its UTF-8 bytes.
+    file_path : str
+        The path recorded on diagnostics.
+
+    Returns
+    -------
+    Module
+        The module's statements in source order.
+
+    Raises
+    ------
+    ParseError
+        If the source has a syntax error or a node the AST cannot
+        represent.
+    """
     if isinstance(source, str):
         source_bytes = source.encode("utf-8")
     else:
@@ -59,7 +78,25 @@ def parse(source: str | bytes, file_path: str = "<source>") -> Module:
 
 
 def parse_file(path: str | Path) -> Module:
-    """Parse a `.qvr` file at `path`."""
+    """Parse a `.qvr` file at `path`.
+
+    Parameters
+    ----------
+    path : str | Path
+        The file to read.
+
+    Returns
+    -------
+    Module
+        The file's statements in source order.
+
+    Raises
+    ------
+    OSError
+        If the file cannot be read.
+    ParseError
+        If the file does not parse.
+    """
     p = Path(path)
     return parse(p.read_bytes(), str(p))
 
@@ -149,3 +186,6 @@ def _source_line(source: bytes, pos: int) -> str:
     if end < 0:
         end = len(source)
     return source[start:end].decode("utf-8", errors="replace").strip()
+
+
+__all__ = ["parse", "parse_file"]

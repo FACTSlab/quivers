@@ -1058,4 +1058,4 @@ def _walk_program_decl(t: _Tree, vid: str, line: int, col: int) -> ProgramDecl:
     )
 
 
-__all__ = ["_walk_statement"]
+__all__ = []

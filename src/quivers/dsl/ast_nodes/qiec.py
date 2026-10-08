@@ -522,6 +522,11 @@ class QiecOperationDecl(dx.Model):
 
 
 type QiecResumptionGrade = Literal["0", "aff", "1", "omega"]
+"""How many times an operation clause may resume its continuation.
+
+``"0"`` never resumes, ``"aff"`` resumes at most once, ``"1"`` resumes
+exactly once, and ``"omega"`` resumes any number of times.
+"""
 
 
 class QiecHandlerClause(dx.TaggedUnion, discriminator="kind"):
@@ -539,11 +544,14 @@ class QiecHandlerClause(dx.TaggedUnion, discriminator="kind"):
 # ---------------------------------------------------------------------------
 
 
-#: A QIEC value is the shared pure-expression tree. Variables, literals,
-#: operators, tuples, and builtin applications are the same nodes a
-#: ``program`` let step uses; constructor application below joins that
-#: tree, so there is one value language rather than two isomorphic ones.
 QiecValue = LetExprNode
+"""A QIEC value, which is the shared pure-expression tree.
+
+Variables, literals, operators, tuples, and builtin applications are
+the same nodes a ``program`` let step uses; constructor application
+joins that tree, so there is one value language rather than two
+isomorphic ones.
+"""
 
 
 class QiecConstructorValue(LetExprNode):
@@ -1101,6 +1109,12 @@ class QiecEffectInstanceDecl(Statement):
 
 
 type QiecHandlerImplementation = Literal["authored", "foreign"]
+"""Whether a handler's clause bodies are written in source.
+
+An ``"authored"`` handler carries a body for every clause; a
+``"foreign"`` handler may give clause signatures without bodies, which
+the target runtime supplies.
+"""
 
 
 class QiecHandlerDecl(Statement):
@@ -1196,4 +1210,65 @@ class QiecComputationDecl(Statement):
     kind: Literal["computation_decl"] = "computation_decl"
 
 
-__all__ = [name for name in globals() if name.startswith("Qiec")]
+__all__ = [
+    "QiecKindExpr",
+    "QiecTypeKind",
+    "QiecEffectKind",
+    "QiecIndexExpr",
+    "QiecIndexName",
+    "QiecIndexLiteral",
+    "QiecIndexApplication",
+    "QiecShapeIndex",
+    "QiecIndexSort",
+    "QiecNatSort",
+    "QiecShapeSort",
+    "QiecContextSort",
+    "QiecUserIndexSort",
+    "QiecBinder",
+    "QiecTypeBinder",
+    "QiecIndexBinder",
+    "QiecEffectBinder",
+    "QiecIndexConstructor",
+    "QiecTypeExpr",
+    "QiecStaticArgument",
+    "QiecTypeName",
+    "QiecTypeApplication",
+    "QiecProductType",
+    "QiecFunctionType",
+    "QiecEffectRef",
+    "QiecRowEntry",
+    "QiecEffectRow",
+    "QiecValueParameter",
+    "QiecFamilyConstructor",
+    "QiecOperationDecl",
+    "QiecResumptionGrade",
+    "QiecHandlerClause",
+    "QiecValue",
+    "QiecConstructorValue",
+    "QiecLocalBinding",
+    "QiecEffectRequest",
+    "QiecHandlerApplication",
+    "QiecComputation",
+    "QiecCaseMotive",
+    "QiecCaseBranch",
+    "QiecReturnComputation",
+    "QiecBindComputation",
+    "QiecSequenceComputation",
+    "QiecPerformComputation",
+    "QiecHandleComputation",
+    "QiecCaseComputation",
+    "QiecIfComputation",
+    "QiecPureBinding",
+    "QiecCallComputation",
+    "QiecResumeComputation",
+    "QiecInstanceComputation",
+    "QiecHandlerReturnClause",
+    "QiecHandlerOperationClause",
+    "QiecIndexDecl",
+    "QiecFamilyDecl",
+    "QiecEffectDecl",
+    "QiecEffectInstanceDecl",
+    "QiecHandlerImplementation",
+    "QiecHandlerDecl",
+    "QiecComputationDecl",
+]

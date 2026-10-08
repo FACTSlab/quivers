@@ -37,7 +37,7 @@ import math
 import pytest
 import torch
 
-from quivers.continuous.bijectors import Affine, Exp
+from quivers.continuous.bijectors import AffineBijector, ExpBijector
 from quivers.continuous.measure import (
     Independent,
     Mixture,
@@ -90,7 +90,7 @@ def test_restrict_log_prob_zero_outside_support() -> None:
 
 
 def test_pushforward_normal_through_exp_equals_lognormal() -> None:
-    ln_via_push = Pushforward(_Normal(0.0, 1.0), Exp())
+    ln_via_push = Pushforward(_Normal(0.0, 1.0), ExpBijector())
     ln_ref = torch.distributions.LogNormal(0.0, 1.0)
     y = torch.tensor([0.5, 1.0, 2.0, 3.5])
     torch.testing.assert_close(
@@ -102,7 +102,7 @@ def test_pushforward_normal_through_exp_equals_lognormal() -> None:
 
 
 def test_pushforward_through_affine_shifts_normal() -> None:
-    a = Affine(scale=2.0, shift=1.0)
+    a = AffineBijector(scale=2.0, shift=1.0)
     push = Pushforward(_Normal(0.0, 1.0), a)
     ref = _Normal(1.0, 2.0)
     y = torch.tensor([-1.0, 0.0, 1.0, 3.0])
@@ -170,7 +170,7 @@ def test_normalize_at_boundary_lifts_sub_measure() -> None:
 def test_pushforward_preserves_lognormalizer_of_sub_measure() -> None:
     base = _Normal(0.0, 1.0)
     r = Restrict(base, low=torch.tensor(0.0))
-    push = Pushforward(r, Exp())
+    push = Pushforward(r, ExpBijector())
     torch.testing.assert_close(
         push.log_normalizer(),
         r.log_normalizer(),
@@ -230,8 +230,8 @@ def test_mixture_pushforward_commute() -> None:
         torch.tensor([0.3, 0.7]),
         [_Normal(0.0, 1.0), _Normal(1.0, 0.5)],
     )
-    outside = Pushforward(mix, Exp())
-    inside = mix.pushforward_inside(Exp())
+    outside = Pushforward(mix, ExpBijector())
+    inside = mix.pushforward_inside(ExpBijector())
     y = torch.tensor([0.5, 1.0, 2.5])
     torch.testing.assert_close(
         outside.log_prob(y),
@@ -295,7 +295,7 @@ def test_pointmass_in_mixture_lift_is_identity_for_zip_shape() -> None:
 
 def test_restrict_of_pushforward_round_trips() -> None:
     base = _Normal(0.0, 1.0)
-    push = Pushforward(base, Exp())  # LogNormal
+    push = Pushforward(base, ExpBijector())  # LogNormal
     r = Restrict(push, low=torch.tensor(0.5), high=torch.tensor(2.0))
     assert math.isinf(r.log_prob(torch.tensor(0.1)).item())
     assert math.isinf(r.log_prob(torch.tensor(3.0)).item())
@@ -305,7 +305,7 @@ def test_restrict_of_pushforward_round_trips() -> None:
 def test_pushforward_of_restrict_round_trips() -> None:
     base = _Normal(0.0, 1.0)
     r = Restrict(base, low=torch.tensor(0.0))  # half-normal
-    push = Pushforward(r, Exp())
+    push = Pushforward(r, ExpBijector())
     # Support is now (1, inf) because exp(0) = 1
     assert torch.isfinite(push.log_prob(torch.tensor(2.0)))
 

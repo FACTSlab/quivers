@@ -24,7 +24,17 @@ from quivers.core.morphisms import Morphism, ObservedMorphism
 
 from quivers.continuous.inline import get_inline_param_names, make_inline_distribution
 from quivers.continuous.plate import PlateDraw, VectorisedObserve, marginalize_grouped
-from quivers.continuous.program_steps import reading, reads_of
+from quivers.continuous.program_steps import (
+    Draw,
+    Indexed,
+    Let,
+    Observe,
+    Score,
+    Step,
+    StepArgument,
+    reading,
+    reads_of,
+)
 from quivers.continuous.programs import MonadicProgram, _lookup_arg
 from quivers.effects.checked_program import CheckedProgram
 from quivers.continuous.spaces import (
@@ -129,8 +139,9 @@ def _arg_names(args: tuple) -> tuple[str, ...]:
 
     Parameters
     ----------
-    args : tuple[DrawArgName | DrawArgIndex | str, ...]
-        The arguments as the compiler carries them.
+    args : tuple[DrawArgName | DrawArgIndex | Indexed | str, ...]
+        The arguments as the compiler carries them, in source form or
+        as step arguments.
 
     Returns
     -------
@@ -148,7 +159,7 @@ def _arg_names(args: tuple) -> tuple[str, ...]:
             names.extend(_arg_names(arg.items))
         elif isinstance(arg, str):
             names.append(arg)
-        elif isinstance(arg, DrawArgIndex):
+        elif isinstance(arg, DrawArgIndex | Indexed):
             names.append(arg.name)
             names.extend(arg.indices)
         elif isinstance(arg, DrawArgName):
@@ -2240,7 +2251,7 @@ class _ProgramsMixin:
         # arguments, contributing its own factors to the parent's
         # joint kernel.
         expanded_draws = self._expand_template_calls(ir_draws)
-        steps: list[tuple] = []
+        steps: list[Step] = []
         for step in expanded_draws:
             if isinstance(step, PlateDrawStep):
                 # draw v : A -> B ~ Family(args).  By the natural iso
@@ -2321,11 +2332,13 @@ class _ProgramsMixin:
                     )
                 if is_matrix_draw:
                     bound_vars[step.name] = family.codomain
-                    steps.append(((step.name,), family, step_args, False))
+                    steps.append(
+                        Draw(names=(step.name,), morphism=family, args=step_args)
+                    )
                     continue
                 plate = PlateDraw(idx_space.size, family, domain=family.domain)
                 bound_vars[step.name] = plate.codomain
-                steps.append(((step.name,), plate, step_args, False))
+                steps.append(Draw(names=(step.name,), morphism=plate, args=step_args))
                 continue
             if isinstance(step, GroupedLatentInitStep):
                 # Initialise the latent's environment slot to
@@ -2346,7 +2359,7 @@ class _ProgramsMixin:
                     )
                 bound_vars[step.latent_name] = None
                 steps.append(
-                    ((step.latent_name,), None, reading(_grouped_latent_init, ()))
+                    Let(name=step.latent_name, value=reading(_grouped_latent_init, ()))
                 )
                 continue
             if isinstance(step, GroupedBodyObserveStep):
@@ -2509,10 +2522,9 @@ class _ProgramsMixin:
 
                 bound_vars[ll_slot] = None
                 steps.append(
-                    (
-                        (ll_slot,),
-                        None,
-                        reading(
+                    Let(
+                        name=ll_slot,
+                        value=reading(
                             _captured_observe,
                             (resp_var, "_x_input", *_arg_names(step_args or ())),
                         ),
@@ -2571,7 +2583,11 @@ class _ProgramsMixin:
                 # automatically clamps the placeholder.
                 if step.response_var not in bound_vars:
                     bound_vars[step.response_var] = family.codomain
-                steps.append(((step.response_var,), vec_obs, step_args, True))
+                steps.append(
+                    Observe(
+                        names=(step.response_var,), morphism=vec_obs, args=step_args
+                    )
+                )
                 continue
             if isinstance(step, GroupedMarginalizeStep):
                 # marginalize v — pushforward G(π_{Φ\\C}). Realised as a
@@ -2916,10 +2932,19 @@ class _ProgramsMixin:
                             marginal_reads.extend(fib_axes)
                     steps.append(
                         (
-                            (marg_name,),
-                            None,
-                            reading(_marginalize_grouped_callable, marginal_reads),
-                            not is_nested_inner,
+                            Score(
+                                name=marg_name,
+                                score=reading(
+                                    _marginalize_grouped_callable, marginal_reads
+                                ),
+                            )
+                            if not is_nested_inner
+                            else Let(
+                                name=marg_name,
+                                value=reading(
+                                    _marginalize_grouped_callable, marginal_reads
+                                ),
+                            )
                         )
                     )
                     continue
@@ -2950,10 +2975,10 @@ class _ProgramsMixin:
                     # conditioning data exactly like the same name
                     # inside a compound expression.
                     bound_vars[step.name] = bound_vars[step.value.name]
-                    steps.append(((step.name,), None, step.value.name))
+                    steps.append(Let(name=step.name, value=step.value.name))
                 elif isinstance(step.value, LetExprLiteral):
                     bound_vars[step.name] = None
-                    steps.append(((step.name,), None, step.value.value))
+                    steps.append(Let(name=step.name, value=step.value.value))
                 else:
                     # Let-expressions inside a program body may
                     # reference compiled deductions by name (for
@@ -2978,7 +3003,7 @@ class _ProgramsMixin:
                         _let_expr_reads(step.value),
                     )
                     bound_vars[step.name] = None
-                    steps.append(((step.name,), None, compiled_fn))
+                    steps.append(Let(name=step.name, value=compiled_fn))
                 continue
             if isinstance(step, ScoreStep):
                 # Score step: bind ``name`` to the value of the
@@ -3012,7 +3037,7 @@ class _ProgramsMixin:
                     _let_expr_reads(step.value),
                 )
                 bound_vars[step.name] = None
-                steps.append(((step.name,), None, compiled_fn, True))
+                steps.append(Score(name=step.name, score=compiled_fn))
                 continue
             draw = step
             for v in draw.vars:
@@ -3055,7 +3080,11 @@ class _ProgramsMixin:
                     draw.line,
                     draw.col,
                 )
-            steps.append((draw.vars, morph, step_args, draw.is_observed))
+            steps.append(
+                (Observe if draw.is_observed else Draw)(
+                    names=draw.vars, morphism=morph, args=step_args
+                )
+            )
         for rv in decl.return_vars:
             if rv not in bound_vars:
                 raise CompileError(
@@ -3149,7 +3178,7 @@ class _ProgramsMixin:
             tuple[DrawArgName | DrawArgIndex | str, ...],
             tuple[ProgramStep, ...],
         ],
-        steps: list[tuple],
+        steps: list[Step],
         bound_vars: dict[str, AnySpace | None],
         codomain: SetObject | ContinuousSpace | None,
     ) -> None:
@@ -3291,7 +3320,7 @@ class _ProgramsMixin:
         # the single ``var`` slot whose declared width exceeds one.
         obs_param_spec = getattr(obs_family, "_param_spec", None)
         obs_var_slots = (
-            [int(v) for kind, v in obs_param_spec if kind == "var"]
+            [1 if v is None else int(v) for kind, v in obs_param_spec if kind == "var"]
             if obs_param_spec is not None
             else []
         )
@@ -3321,7 +3350,7 @@ class _ProgramsMixin:
             _obs_family: ContinuousMorphism | None = obs_family,
             _obs_args: tuple | None = obs_args,
             _response: str | None = response_var,
-            _prior_arg: DrawArgIndex | str = prior_arg,
+            _prior_arg: StepArgument = prior_arg,
             _categorical: bool = _CATEGORICAL,
             _parameterization: str | None = prior_parameterization,
             _reduction: str = reduction,
@@ -3416,29 +3445,32 @@ class _ProgramsMixin:
         def _latent_prior_sample(
             env: dict[str, torch.Tensor],
             _prior: ContinuousMorphism = prior_morph,
-            _arg: DrawArgIndex | str = prior_arg,
+            _arg: StepArgument = prior_arg,
         ) -> torch.Tensor:
             return _prior.rsample(_lookup_arg(env, _arg))
 
         bound_vars[latent_name] = None
         steps.append(
-            (
-                (latent_name,),
-                None,
-                reading(_latent_prior_sample, _arg_names((prior_arg,))),
+            Let(
+                name=latent_name,
+                value=reading(_latent_prior_sample, _arg_names((prior_arg,))),
             )
         )
         marginal_reads: set[str] = {*_arg_names((prior_arg,)), "_x_input"}
         for name, fn in body_lets:
             bound_vars[name] = None
-            steps.append(((name,), None, fn))
+            steps.append(Let(name=name, value=fn))
             declared = reads_of(fn)
             assert declared is not None
             marginal_reads |= declared
         if obs_family is not None and response_var is not None:
             bound_vars[response_var] = None
             steps.append(
-                ((response_var,), MarginalizedFactor(obs_family), obs_args, True)
+                Observe(
+                    names=(response_var,),
+                    morphism=MarginalizedFactor(obs_family),
+                    args=obs_args,
+                )
             )
             marginal_reads.add(response_var)
             if obs_args is not None:
@@ -3446,7 +3478,7 @@ class _ProgramsMixin:
         marg_name = f"_marg_{latent_name}"
         bound_vars[marg_name] = None
         steps.append(
-            ((marg_name,), None, reading(_ungrouped_marginal, marginal_reads), True)
+            Score(name=marg_name, score=reading(_ungrouped_marginal, marginal_reads))
         )
 
     def _resolve_draw_morphism(
@@ -3492,19 +3524,18 @@ class _ProgramsMixin:
                         draw.line,
                         draw.col,
                     )
-            # Preserve `DrawArgIndex` in the step-spec so the
-            # runtime resolver can gather structurally rather than
-            # re-parsing a stringified surface form.
-            step_args: tuple | None
+            # A bracket-indexed reference becomes an `Indexed` step
+            # argument, which the program gathers through at runtime.
+            step_args: tuple[StepArgument, ...] | None
             if draw.args is None:
                 step_args = None
             else:
-                converted: list = []
+                converted: list[StepArgument] = []
                 for a in draw.args:
                     if isinstance(a, DrawArgName):
                         converted.append(a.text)
                     elif isinstance(a, DrawArgIndex):
-                        converted.append(a)
+                        converted.append(Indexed(name=a.name, indices=a.indices))
                     else:
                         converted.append(str(a))
                 step_args = tuple(converted)
@@ -4709,3 +4740,6 @@ class _ProgramsMixin:
         if isinstance(expr, ExprMorphismCall):
             return expr.callee in self._trans_constructors
         return False
+
+
+__all__ = []

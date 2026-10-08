@@ -710,3 +710,6 @@ def migrate(source: bytes) -> bytes:
     # so we parse with the v0.9.0 parser and validate each converted
     # declaration against the pinned v0.11.0 snapshot.
     return migrate_source(source, "v0.9.0", "v0.11.0", _DECL_CONVERTERS)
+
+
+__all__ = []

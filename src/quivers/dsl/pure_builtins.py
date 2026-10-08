@@ -383,13 +383,4 @@ PRIMITIVE_BUILTINS: Mapping[str, str] = {
 }
 
 
-__all__ = [
-    "BUILTIN_REGISTRY",
-    "EAGER_BUILTINS",
-    "EAGER_BUILTIN_NAMES",
-    "HOST_ONLY_BUILTINS",
-    "PRIMITIVE_BUILTINS",
-    "PRIMITIVE_OPERATORS",
-    "PURE_BUILTINS",
-    "BuiltinSpec",
-]
+__all__ = []

@@ -227,7 +227,23 @@ _INDENT = "    "
 
 
 def module_to_source(module: Module) -> str:
-    """Serialize a `Module` AST to canonical ``.qvr`` source."""
+    """Serialize a `Module` AST to canonical ``.qvr`` source.
+
+    Parameters
+    ----------
+    module : Module
+        The module to print.
+
+    Returns
+    -------
+    str
+        The canonical source, ending in a single newline.
+
+    Raises
+    ------
+    EmitError
+        If a node in ``module`` has no valid ``.qvr`` surface form.
+    """
     parts = [_emit_statement(stmt, 0) for stmt in module.statements]
     return "\n\n".join(parts) + "\n"
 

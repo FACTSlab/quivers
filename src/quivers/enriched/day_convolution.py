@@ -235,3 +235,10 @@ def day_convolution_profunctors(
     result = outer.permute(*perm)
 
     return Profunctor(contra=contra, co=co, tensor=result, algebra=qnt)
+
+
+__all__ = [
+    "day_convolution",
+    "day_unit",
+    "day_convolution_profunctors",
+]

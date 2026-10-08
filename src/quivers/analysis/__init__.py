@@ -30,20 +30,73 @@ for the user-facing workflow.
 
 from __future__ import annotations
 
-from quivers.analysis.chain_shape import ChainShape, StepShape
+from quivers.analysis.chain_shape import ChainShape, StepKind, StepShape
 from quivers.analysis.init_spec import (
     InitSpec,
     apply_init_spec,
     recommend_init,
 )
+from quivers.analysis.plate_graph import (
+    Edge,
+    NodeKind,
+    Plate,
+    PlateGraph,
+    PlateNode,
+    build_plate_graph,
+)
+from quivers.analysis.plate_render import (
+    render_daft,
+    render_dot,
+    render_mermaid,
+    render_table,
+    render_table_plain,
+    render_tikz,
+)
 from quivers.analysis.saturation import SaturationWarning, saturation_warnings
+from quivers.analysis.scope import (
+    SCOPE_SEPARATOR,
+    TOP_LEVEL_KINDS,
+    ScopedRef,
+    ScopeKind,
+    find_all_references,
+    resolve_scoped_path,
+    scope_children,
+    split_path,
+)
 
 __all__ = [
+    # chain_shape
     "ChainShape",
+    "StepKind",
     "StepShape",
+    # init_spec
     "InitSpec",
     "recommend_init",
     "apply_init_spec",
+    # plate_graph
+    "Edge",
+    "NodeKind",
+    "Plate",
+    "PlateGraph",
+    "PlateNode",
+    "build_plate_graph",
+    # plate_render
+    "render_daft",
+    "render_dot",
+    "render_mermaid",
+    "render_table",
+    "render_table_plain",
+    "render_tikz",
+    # saturation
     "SaturationWarning",
     "saturation_warnings",
+    # scope
+    "SCOPE_SEPARATOR",
+    "TOP_LEVEL_KINDS",
+    "ScopedRef",
+    "ScopeKind",
+    "find_all_references",
+    "resolve_scoped_path",
+    "scope_children",
+    "split_path",
 ]

@@ -19,6 +19,7 @@ from quivers.core.objects import SetObject
 from quivers.continuous.spaces import ContinuousSpace
 
 type AnySpace = SetObject | ContinuousSpace
+"""A space a morphism maps between: a finite set or a continuous space."""
 
 _QUANTILE_EPS = 1e-12
 """Clamp keeping the standard-normal quantile function finite.
@@ -1241,3 +1242,14 @@ def _combine_spaces(a: AnySpace, b: AnySpace) -> AnySpace:
         return Euclidean(name=f"idx({s!r})", dim=1)
 
     return ProductSpace(components=(_as_continuous(a), _as_continuous(b)))
+
+
+__all__ = [
+    "AnySpace",
+    "ContinuousMorphism",
+    "DiscreteAsContinuous",
+    "FanOutMorphism",
+    "MarginalizedFactor",
+    "ProductContinuousMorphism",
+    "SampledComposition",
+]

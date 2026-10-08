@@ -45,4 +45,4 @@ def _entry() -> int:
     return main(args)
 
 
-__all__ = ["main", "_entry"]
+__all__ = []

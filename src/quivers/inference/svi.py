@@ -1,7 +1,7 @@
 """Stochastic Variational Inference (SVI) training loop.
 
 SVI optimizes a [`quivers.inference.objectives.Objective`][quivers.inference.objectives.Objective]
-— the ELBO, IWAE, Rényi, or VR-IWAE bound — by taking gradient
+(the ELBO, IWAE, Rényi, or VR-IWAE bound) by taking gradient
 steps on the guide and model parameters. The ``objective``
 parameter accepts any `Objective` subclass.
 """
@@ -69,3 +69,6 @@ class SVI:
         loss_val.backward()
         self.optim.step()
         return loss_val.item()
+
+
+__all__ = ["SVI"]

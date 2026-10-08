@@ -45,7 +45,7 @@ import torch.optim as optim
 from quivers.core.objects import FinSet
 from quivers.continuous.spaces import Euclidean
 from quivers.continuous.families import ConditionalNormal
-from quivers.continuous.programs import MonadicProgram
+from quivers.continuous import Draw, MonadicProgram
 from quivers.inference import (
     trace,
     condition,
@@ -70,8 +70,8 @@ likelihood = ConditionalNormal(R, R)
 model = MonadicProgram(
     Unit, R,
     steps=[
-        (("z",), prior, None),           # z <- prior(unit)
-        (("y",), likelihood, ("z",)),    # y <- likelihood(z)
+        Draw(names=("z",), morphism=prior),           # z <- prior(unit)
+        Draw(names=("y",), morphism=likelihood, args=("z",)),    # y <- likelihood(z)
     ],
     return_vars=("z", "y"),
 )
