@@ -46,7 +46,7 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 define factor_analysis = Z >> W
 
-# Probabilistic surface: every entry of the loading matrix and
+# Probabilistic model: every entry of the loading matrix and
 # per-item latent code carries an independent Normal(0, 1) prior
 # (the matrix-normal special case with V = U = I), the noise
 # scale carries a HalfCauchy(2.5) prior, and the observed
@@ -161,7 +161,7 @@ The top-level mean is the real-algebra composition $Z \mathbin{>>} W$, whose ten
 ## See also
 
 - [Probabilistic PCA](ppca.md), the isotropic-noise special case.
-- [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the morphism-valued prior surface.
+- [DSL Guide: Hierarchical Bayesian Models](../guides/programs-hierarchical.md#hierarchical-models-with-parametric-templates) for the morphism-valued prior syntax.
 
 
 ## References

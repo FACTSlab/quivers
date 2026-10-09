@@ -137,7 +137,11 @@ K-fold, or exact leave-one-out analysis.
 
 ## Next
 
-If you want to extend the categorical machinery itself (custom algebras, custom transformations, custom composition rules), continue to the Python-API track starting at [chapter 1](../python/01-first-quiver.md). If you want a deeper formal treatment, the [semantics section](../../semantics/index.md) gives the full denotational semantics of the DSL.
+If you want to extend the categorical system itself with custom algebras,
+transformations, or composition rules, continue to the Python API track
+starting at [chapter 1](../python/01-first-quiver.md). For a formal treatment,
+the [semantics section](../../semantics/index.md) gives the denotational
+semantics of QVR.
 
 
 ## References

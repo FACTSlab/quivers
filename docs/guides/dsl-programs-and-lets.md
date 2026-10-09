@@ -1,10 +1,10 @@
 # DSL Programs and Let-Expressions
 
-This page covers the `program` block surface: program declarations
+This page covers `program` block syntax: program declarations
 and their effect signatures, the bind / observe / marginalize / let
 steps that make up a program body, the axis-role clause that
 configures structured priors and likelihoods, the let-expression
-language with its full primitive surface, and factor expressions.
+language with its complete set of primitives, and factor expressions.
 
 The grammar summary lives in the
 [DSL overview](dsl-overview.md#grammar); declarations of objects,
@@ -62,11 +62,11 @@ program deterministic : X -> X [effects=[Pure]]
 ```
 
 See the [compositional effects guide](effects.md) for the algebraic
-basis of the effect surface.
+basis of the effect system.
 
 ### QIEC typed computations
 
-The **typed computation surface** is what a `program` block elaborates to; a
+The **typed computation layer** is what a `program` block elaborates to; a
 `define` writes such a computation directly. Its header gives a value result
 and an instance row, while `perform` names an operation through a lexical
 effect instance:
@@ -111,7 +111,7 @@ target runtimes. Stan lowers closed monomorphic effect-free scalar computations
 as user-defined functions and refuses every other feature under
 `qiec:capability:<feature>:<name>`; BUGS and JAGS refuse a call under
 `call:graph:<name>`. A module with QIEC declarations but no computation the
-program reaches remains valid on every target. The complete surface appears in
+program reaches remains valid on every target. The complete syntax appears in
 [QVR computation reference](../reference/qvr/computations.md) and
 [probabilistic-program reference](../reference/qvr/probabilistic-programs.md).
 
@@ -299,7 +299,7 @@ family's declared `event_rank` (0 for scalar families like Normal /
 Beta / Gamma; 1 for vector families like
 [`MultivariateNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMultivariateNormal),
 [`Dirichlet`](../api/continuous/families.md#quivers.continuous.families.ConditionalDirichlet),
-[`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) (DSL surface name `GP`),
+[`ConditionalGaussianProcess`](../api/continuous/families.md#quivers.continuous.families.ConditionalGaussianProcess) (named `GP` in QVR),
 or
 [`ConditionalHorseshoe`](../api/continuous/families.md#quivers.continuous.families.ConditionalHorseshoe);
 2 for matrix families like
@@ -312,7 +312,7 @@ axes corresponds positionally to the family's declared event-axis
 ordering (for asymmetric families like `MatrixNormal`, the first
 axis is the row axis, the second the column axis). The full
 event-rank table lives in
-[continuous families](continuous-families.md#event-rank-and-the-axis-role-surface).
+[continuous families](continuous-families.md#event-rank-and-axis-role-syntax).
 
 `iid_over=<axes>` is an optional readability assertion naming the
 batch axes (the complement of `over`). Any axis not in `over` is
@@ -338,7 +338,7 @@ on a sample / observe step). The reserved tokens `dom` and `cod`
 are shortcuts when that side is a single unfactored object; for a
 product-typed side, every factor must be named explicitly.
 
-**Categorical reading.** The surface preserves the distinction
+**Categorical reading.** The axis-role clause preserves the distinction
 between joint-on-a-product-space (the family's event with possibly
 non-trivial correlation) and product-of-independents (iid batches
 across an axis), and between a flat MVN over $\dim(A) \cdot \dim(B)$
@@ -411,7 +411,7 @@ kernel](https://en.wikipedia.org/wiki/Dirac_delta_function).
 
 ### Checked primitive reference
 
-The checked registry is the portable QIEC surface. Operators and calls are
+The checked registry defines the portable QIEC expression set. Operators and calls are
 resolved by argument type before execution or transpilation. Reductions act on
 the entire supplied tensor; rowwise operations act on its last axis. For a
 contraction over a named axis, use a typed
@@ -505,7 +505,7 @@ let class_probs = factor cls : Class in {
 The case labels must cover `{0, ..., |Index|-1}` exactly; the
 compiler rejects gaps, duplicates, or out-of-range labels at
 compile time. Braces and comma separators delimit the cases. This
-is the natural surface for structured categorical priors: each
+is the natural syntax for structured categorical priors: each
 cell of a `Class`-shape probability vector is built from a
 different combination of upstream scalar latents.
 

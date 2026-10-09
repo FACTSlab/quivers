@@ -81,7 +81,7 @@ The `define` binding invokes the contraction on the three declared arrows. Each 
 
 > The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
-The exported arrow is a deterministic score tensor materialised from whatever the three latents currently hold, so the module fixes a mean surface rather than a measure. The snippets below supply the probabilistic surface around it: every entry of the two embeddings and of the interaction tensor carries an independent $\mathcal{N}(0, 1)$ prior, and each judgment is scored under $y_{i, g} \sim \mathcal{N}(s_{i, g}, \sigma^2)$. The likelihood re-runs the wiring on every evaluation rather than reading the materialised tensor, so gradients and Hamiltonian trajectories reach all three arrows. The compiled contraction is reachable through the [`Compiler`](../api/dsl/compiler.md#quivers.dsl.compiler.Compiler) environment's `contractions` mapping.
+The exported arrow is a deterministic score tensor materialised from the current values of the three latents, so the module defines a mean tensor rather than a probability measure. The snippets below add priors and a likelihood: every entry of the two embeddings and of the interaction tensor carries an independent $\mathcal{N}(0, 1)$ prior, and each judgment is scored under $y_{i, g} \sim \mathcal{N}(s_{i, g}, \sigma^2)$. The likelihood re-runs the wiring on every evaluation rather than reading the materialised tensor, so gradients and Hamiltonian trajectories reach all three arrows. The compiled contraction is available through the [`Compiler`](../api/dsl/compiler.md#quivers.dsl.compiler.Compiler) environment's `contractions` mapping.
 
 ### Generating synthetic data
 
@@ -229,7 +229,7 @@ Binary composition `>>` is the 2-ary case of a wider operadic structure: a `cont
 
 ## See also
 
-- [DSL Contractions](../guides/dsl-contractions.md) for the declaration surface, wiring inference, and the `share=` / `wiring=` clauses.
+- [DSL Contractions](../guides/dsl-contractions.md) for declaration syntax, wiring inference, and the `share=` / `wiring=` clauses.
 - [Composition Rules § 4](../semantics/composition-rules.md#4-operadic-contractions) for the categorical semantics of operadic contractions.
 - [Probabilistic Matrix Factorization](pmf.md) for the 2-ary bilinear score expressed with `.dagger` and `>>`.
 

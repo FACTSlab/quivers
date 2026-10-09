@@ -155,7 +155,9 @@ program poisson_reg : Item -> Item [effects=[Sample, Score]]
 export poisson_reg
 ```
 
-The fit code is identical to the logistic case; only the model file changes. The `Predictive` machinery handles the count-valued likelihood with no special configuration.
+The fit code is identical to the logistic case; only the model file changes.
+`Predictive` handles the count-valued likelihood without additional
+configuration.
 
 ## Common mistakes
 
@@ -165,7 +167,7 @@ Most "why does this fail at runtime" questions trace to one of three slips:
 2. **Shape mismatch in host data.** If `x_design` has shape `(200,)` but the object `Item` was declared `: 100`, the per-row broadcast over `Item` fails with a torch shape error. The compiler doesn't know `x_design`'s runtime shape, so this one surfaces at the first forward pass. Sanity-check tensor lengths against object cardinalities.
 3. **Re-using an `<-` name on the LHS of `let`.** Once a name is bound by a sample step, you can't reassign it. To name a deterministic transform, pick a fresh name (`let mu = beta_0 + beta_1 * x`, not `let beta_0 = beta_0 + 1`).
 
-## What the QVR surface gives you here
+## What QVR adds
 
 Three observations from this chapter you may have already noticed:
 
@@ -173,7 +175,7 @@ Three observations from this chapter you may have already noticed:
 2. **`let` is not sampling.** PyMC `pm.Deterministic`, NumPyro `numpyro.deterministic`, Pyro `pyro.deterministic`: every PPL has a different name for "this is a function of random variables, not itself random." QVR uses `let`. The compiler tracks the dependency for autograd.
 3. **Several entries, one module.** A `.qvr` file may declare several
    programs and computations. `Program.entry_points()` lists the checked
-   execution surface; `export` selects the classic compiled morphism exposed
+   entry points; `export` selects the classic compiled morphism exposed
    as `program.morphism`.
 
 ## Try this

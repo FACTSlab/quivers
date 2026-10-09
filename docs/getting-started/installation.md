@@ -5,7 +5,7 @@
 - **Python** >= 3.14
 - **PyTorch** >= 2.0
 - **didactic** >= 0.17.1
-- **panproto** >= 0.74.4 (provides the schema/lens machinery and historical-object validation)
+- **panproto** >= 0.74.4 (provides schema and lens operations plus historical-object validation)
 - **panproto-grammars-all** >= 0.74.4 (provides the eleven transpiler-target grammars)
 - **Pygments** >= 2.10, **tree-sitter** >= 0.21
 
@@ -27,7 +27,7 @@ pip install quivers
 To install directly from source:
 
 ```bash
-git clone https://github.com/FACTSlab/quivers
+git clone https://github.com/quivers-dev/quivers
 cd quivers
 pip install -e .
 ```
@@ -52,14 +52,15 @@ This adds:
 - `pyright`: static type checker
 - `numpy`, `pandas`, `polars`, `pyarrow`: data-frame fixtures used by the data-encoding tests
 
-The `[docs]` extra (mkdocs, mkdocstrings[python], mkdocs-terminal,
-pymdown-extensions, pygments) is needed to build the documentation
-site locally; `mkdocs-terminal` is the theme `mkdocs.yml` declares.
+The `[docs]` extra (MkDocs, Material for MkDocs, mkdocstrings[python],
+PyMdown Extensions, and Pygments) is needed to build the documentation
+site locally. Material provides navigation and search; the Quivers styles in
+`docs/css/custom.css` define the visual system.
 
-## Optional capability extras
+## Optional feature groups
 
-Opt-in extras pull in the dependencies for surfaces that quivers can
-do without:
+These extras install dependencies for features that the core package does not
+require:
 
 ```bash
 pip install 'quivers[repl]'         # qvr repl + Jupyter kernel
@@ -85,7 +86,7 @@ and [scikit-learn](https://scikit-learn.org/); `[diagnostics]` adds
 and [netCDF4](https://unidata.github.io/netcdf4-python/). `[formulas]`
 is a superset that also brings in
 [formulae](https://bambinos.github.io/formulae/) for the R-style
-formula surface.
+formula DSL.
 
 After installing the extras you have these new console scripts:
 
@@ -97,7 +98,7 @@ After installing the extras you have these new console scripts:
 | `qvr-kernel install` | `[repl]` | Register the Jupyter kernelspec |
 | `qvr kernel install` | `[repl]` | Same, as a subcommand |
 
-See [Interactive surface](../guides/repl-and-lsp.md) for the full
+See [Interactive tools](../guides/repl-and-lsp.md) for the full
 guide.
 
 ## Verify Installation
@@ -121,8 +122,8 @@ Quivers depends on:
 
 - **torch** (>= 2.0): differentiable tensors and automatic differentiation
 - **didactic** (>= 0.17.1): typed-data, indexed-family checking, and exact extension-lowering boundary used by QVR-to-QIEC checking
-- **panproto** (>= 0.74.4): schema/theory machinery used to check indexed declarations and extract a `Schema` from each `.qvr` program for diff/migrate workflows
-- **panproto-grammars-all** (>= 0.74.4): supplies the eleven target-language grammars used by the transpiler pipeline; it is not the QVR source of truth
+- **panproto** (>= 0.74.4): schema and theory operations used to check indexed declarations and extract a `Schema` from each `.qvr` program for diff/migrate workflows
+- **panproto-grammars-all** (>= 0.74.4): supplies the eleven target-language grammars used by the transpiler pipeline; it does not define QVR syntax
 - **Pygments** (>= 2.10): in-tree `qvr` lexer for documentation and notebooks
 - **tree-sitter** (>= 0.21): runtime bindings for the QVR grammar
 
@@ -132,11 +133,11 @@ metadata. The same source-bound pairing is included for every parser snapshot
 used by `qvr migrate`. Installed wheels load these verified libraries directly,
 so neither parsing, highlighting, nor migration launches a compiler. An
 editable checkout instead prefers its current `grammars/qvr/src` and may build a
-content-addressed library for development. Loading fails closed if a wheel's
-source, library, or manifest is absent or inconsistent; Quivers does not
+content-addressed library for development. Quivers refuses to load a parser if
+the wheel's source, library, or manifest is absent or inconsistent; it does not
 substitute the QVR parser from `panproto-grammars-all`.
 
 The optional capability
 extras (`[repl]`, `[lsp]`, `[data]`, `[diagnostics]`, `[formulas]`)
-pull in the interactive surfaces and data/diagnostics integrations
+install the interactive tools and data or diagnostics integrations
 described above.

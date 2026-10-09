@@ -8,7 +8,7 @@ $$
 r_{u, m} \mid U_{:, u}, V_{:, m} \sim \mathcal{N}(\langle U_{:, u}, V_{:, m} \rangle, \sigma_{\text{obs}}^2).
 $$
 
-In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is $\sum_k U_{k,u}V_{k,m}$. The source declares learnable latent parameters but no explicit priors; the fits below supply the Normal priors that turn the score surface into a joint density.
+In quivers, the two factor matrices are arrows $U : \mathsf{LatentDim} \to \mathsf{User}$ and $V : \mathsf{LatentDim} \to \mathsf{Movie}$. The bilinear score is the composition $U^\dagger \mathbin{>>} V : \mathsf{User} \to \mathsf{Movie}$, whose `(u, m)` entry is $\sum_k U_{k,u}V_{k,m}$. The source declares learnable latent parameters but no explicit priors; the fits below supply the Normal priors that turn the deterministic score into a joint density.
 
 ## QVR source
 
@@ -49,7 +49,7 @@ export pmf
 
 ## Walkthrough
 
-The two top-level declarations introduce the factor matrices as first-class arrows. The following `MatrixNormal` declarations illustrate an optional prior surface and are not present in the loaded source:
+The two top-level declarations introduce the factor matrices as first-class arrows. The following `MatrixNormal` declarations illustrate optional priors and are not present in the loaded source:
 
 <!-- compile: false -->
 ```qvr
@@ -59,14 +59,14 @@ morphism V : LatentDim -> Movie [role=latent, over=[dom, cod]] ~ MatrixNormal(lo
 
 The `.dagger` modifier on $U$ transposes the morphism to $\mathsf{User} \to \mathsf{LatentDim}$. The composition `U.dagger >> V` contracts along `LatentDim` and recovers the full `(User, Movie)` score matrix; under `composition real [level=algebra]` this is a real matmul and the resulting tensor entry at `(u, m)` is exactly $\sum_k U_{k, u} V_{k, m}$.
 
-Working over discrete `User` and `Movie` plates materialises the full dense score matrix. For very large catalogues the dense materialisation is wasteful and a per-rating gather is preferable; the morphism surface in quivers can lift that gather as a separate fibration $\mathsf{Rating} \to \mathsf{User} \times \mathsf{Movie}$ composed with the bilinear pmf morphism.
+Working over discrete `User` and `Movie` plates materialises the full dense score matrix. For very large catalogues the dense materialisation is wasteful and a per-rating gather is preferable; the morphism API can lift that gather as a separate fibration $\mathsf{Rating} \to \mathsf{User} \times \mathsf{Movie}$ composed with the bilinear PMF morphism.
 
 ## Try it
 
 > The short fits below demonstrate the API. Assess convergence with multiple chains and diagnostics before interpreting a posterior.
 
 
-The QVR source declares $U^\dagger \mathbin{>>} V$ as a deterministic morphism, so it fixes a mean surface rather than a measure. The snippets below supply the probabilistic surface the source leaves open, and it is the standard PMF one: every entry of each factor matrix carries an independent $\mathcal{N}(0, 1)$ prior, and every cell of the rating matrix is scored under $r_{u, m} \sim \mathcal{N}(S_{u, m}, \sigma^2)$ with $S = U^\top V$. The mean is rebuilt from the sampled factors on each evaluation by composing them exactly as the source does, which keeps $U$ and $V$ latent variables of the model rather than fixed tensors.
+The QVR source declares $U^\dagger \mathbin{>>} V$ as a deterministic morphism, so it defines a mean tensor rather than a probability measure. The snippets below add the standard PMF probability model: every entry of each factor matrix carries an independent $\mathcal{N}(0, 1)$ prior, and every cell of the rating matrix is scored under $r_{u, m} \sim \mathcal{N}(S_{u, m}, \sigma^2)$ with $S = U^\top V$. The mean is rebuilt from the sampled factors on each evaluation by composing them exactly as the source does, which keeps $U$ and $V$ latent variables of the model rather than fixed tensors.
 
 ### Generating synthetic data
 
@@ -219,4 +219,4 @@ in the real algebra, whose tensor is the dense score matrix $U^\top V$. The load
 ## See also
 
 - [Isotropic Bayesian Factor Model](factor-analysis.md) for a single-side morphism-valued loading.
-- [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface and the [`.dagger`](../api/core/morphisms.md) transpose.
+- [DSL Guide](../guides/dsl-overview.md) for morphism-valued prior syntax and the [`.dagger`](../api/core/morphisms.md) transpose.

@@ -2,8 +2,8 @@
 
 This page covers the `ContinuousSpace` hierarchy, the
 [`ContinuousMorphism`](../api/continuous/morphisms.md#quivers.continuous.morphisms.ContinuousMorphism)
-interface, composition surfaces, the discrete /
-continuous boundary, and normalizing flows. The full registry of
+interface, composition operations, the boundary between discrete and
+continuous models, and normalizing flows. The full registry of
 parameterized distribution families lives in
 [continuous families](continuous-families.md).
 
@@ -294,12 +294,12 @@ a stack of coupling layers wrapped as a `ContinuousMorphism`.
 - [Continuous Families](continuous-families.md): the more than forty
   parameterized distribution families used to build
   `ContinuousMorphism`s and the event-rank table that drives the
-  axis-role surface.
+  axis-role syntax.
 - [Monadic Programs](programs.md): how `ContinuousMorphism`s
   compose into probabilistic programs.
 - [Stochastic Morphisms](stochastic.md): the finite-state
   counterpart and the
-  [Giry monad](https://ncatlab.org/nlab/show/Giry+monad) substrate.
+  [Giry monad](https://ncatlab.org/nlab/show/Giry+monad) construction.
 
 
 ## References

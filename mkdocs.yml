@@ -1,38 +1,83 @@
 site_name: Quivers
-site_description: V-enriched categorical relations as differentiable PyTorch tensors
+site_description: Functional probabilistic programming for PyTorch
 site_author: Aaron Steven White
-site_url: https://factslab.github.io/quivers/
+site_url: https://quivers.dev/
+repo_url: https://github.com/quivers-dev/quivers
+repo_name: quivers-dev/quivers
+edit_uri: edit/main/docs/
+copyright: Quivers is open source under the MIT License.
 
 theme:
-  name: terminal
+  name: material
   custom_dir: docs/overrides
+  logo: assets/quivers-mark.svg
+  favicon: assets/quivers-mark.svg
+  language: en
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Use dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Use light mode
   features:
-    # Promote each section's `Overview` child into the section
-    # heading so the parent label itself is clickable, instead of
-    # appearing as inert grey text alongside its children.
-    - navigation.side.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.path
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.action.edit
+    - content.action.view
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
 
 extra:
-  # Pair with `navigation.side.indexes`: the child whose nav title
-  # matches this is treated as the section's index page.
-  INDEX_PAGE_NAV_TITLE: Overview
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/quivers-dev/quivers
+      name: Quivers on GitHub
 
 extra_css:
-  - css/pygments.css
   - css/custom.css
 
 extra_javascript:
   - js/mathjax.js
   - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
-  - js/mermaid-init.js
   - https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js
-  - js/tabbed.js
+  - js/mermaid-init.js
+  - js/quivers.js
 
 markdown_extensions:
   - admonition
+  - abbr
+  - tables
+  - md_in_html
   - pymdownx.highlight:
       use_pygments: true
       guess_lang: false
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - toc:
       permalink: true
   - pymdownx.arithmatex:
@@ -46,6 +91,8 @@ markdown_extensions:
       alternate_style: true
       slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
   - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
   - attr_list
   - def_list
   - footnotes
@@ -83,50 +130,78 @@ plugins:
 
 nav:
   - Home: index.md
-  - Getting Started:
-    - Installation: getting-started/installation.md
-    - Quickstart: getting-started/quickstart.md
-    - Architecture: getting-started/architecture.md
-    - Editor highlighting: getting-started/highlighting.md
-  - Guides:
-    - Overview: guides/index.md
-    - Core Types & Algebras: guides/core.md
-    - Transformations & Composition Rules: guides/transformations.md
-    - Morphisms & Composition: guides/morphisms.md
-    - DSL Overview: guides/dsl-overview.md
-    - DSL Declarations: guides/dsl-declarations.md
-    - DSL Programs and Let-Expressions: guides/dsl-programs-and-lets.md
-    - DSL Contractions: guides/dsl-contractions.md
-    - Monadic Programs: guides/programs.md
-    - Hierarchical Programs: guides/programs-hierarchical.md
-    - Continuous Spaces and Morphisms: guides/continuous-spaces.md
-    - Continuous Families: guides/continuous-families.md
-    - Stochastic Morphisms: guides/stochastic.md
-    - Inference Foundations: guides/inference-foundations.md
-    - "Inference: Guides, Objectives, and SVI": guides/inference-svi.md
-    - Inference MCMC and Hybrid Samplers: guides/inference-mcmc.md
-    - Categorical Structures: guides/categorical.md
-    - Monads & Comonads: guides/monadic.md
-    - Enriched Category Theory: guides/enriched.md
-    - Compositional Effects: guides/effects.md
-    - Weighted Deduction Systems: guides/deduction.md
-    - "Structural Compression: Signatures and Encoders": guides/structural-compression-signatures-and-encoders.md
-    - "Structural Compression: Decoders and Losses": guides/structural-compression-decoders-and-losses.md
-    - "Analysis: Data and Formulas": guides/analysis-data-and-formulas.md
-    - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
-    - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
-    - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
-  - QVR Language Reference:
-    - Overview: reference/qvr/index.md
-    - Types and Indexed Families: reference/qvr/types-and-indexed-families.md
-    - Effects and Handlers: reference/qvr/effects-and-handlers.md
-    - Computations: reference/qvr/computations.md
-    - Finite Collection Expressions: reference/qvr/collection-expressions.md
-    - Probabilistic Programs: reference/qvr/probabilistic-programs.md
-    - Generated Computation Graphs: reference/qvr/generated-computations.md
-    - Execution and Tooling: reference/qvr/execution-and-tooling.md
-    - Transpilation Support: transpile-support.md
-  - Denotational Semantics:
+  - Learn:
+    - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Architecture: getting-started/architecture.md
+      - Editor highlighting: getting-started/highlighting.md
+    - Tutorial overview: tutorials/index.md
+    - QVR tutorials:
+      - 1. Your first model: tutorials/qvr/01-first-model.md
+      - 2. Generalized linear models: tutorials/qvr/02-glms.md
+      - 3. Hierarchical models: tutorials/qvr/03-hierarchical.md
+      - 4. Mixtures and discrete latents: tutorials/qvr/04-marginalize.md
+      - 5. Sequence models: tutorials/qvr/05-time-series.md
+      - 6. Choosing an inference algorithm: tutorials/qvr/06-inference-zoo.md
+      - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
+      - 8. Diagnostics and model comparison: tutorials/qvr/08-diagnostics-and-comparison.md
+      - 9. Indexed data and total functions: tutorials/qvr/09-indexed-data.md
+      - 10. Effects and handlers: tutorials/qvr/10-effects-and-handlers.md
+      - 11. Parsing as an effectful computation: tutorials/qvr/11-parsing-and-search.md
+      - 12. Structural autoencoders: tutorials/qvr/12-structural-autoencoders.md
+      - 13. Check, inspect, and transpile: tutorials/qvr/13-release-workflow.md
+      - 14. Exact Bayes with finite collections: tutorials/qvr/14-collection-programs.md
+    - Python API tutorials:
+      - 1. Your first quiver: tutorials/python/01-first-quiver.md
+      - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md
+      - 3. Probabilistic programs: tutorials/python/03-probabilistic-programs.md
+      - 4. Fuzzy logic factorization: tutorials/python/04-fuzzy-factorization.md
+      - 5. Variational inference: tutorials/python/05-variational-inference.md
+      - 6. First-class transformations: tutorials/python/06-first-class-trans.md
+      - 7. Composition rules: tutorials/python/07-composition-rules.md
+      - 8. Analysis pipelines: tutorials/python/08-analysis-pipelines.md
+      - 9. Debugging quivers programs: tutorials/python/09-debugging.md
+  - QVR:
+    - Guides:
+      - Overview: guides/index.md
+      - Core Types & Algebras: guides/core.md
+      - Transformations & Composition Rules: guides/transformations.md
+      - Morphisms & Composition: guides/morphisms.md
+      - DSL Overview: guides/dsl-overview.md
+      - DSL Declarations: guides/dsl-declarations.md
+      - DSL Programs and Let-Expressions: guides/dsl-programs-and-lets.md
+      - DSL Contractions: guides/dsl-contractions.md
+      - Monadic Programs: guides/programs.md
+      - Hierarchical Programs: guides/programs-hierarchical.md
+      - Continuous Spaces and Morphisms: guides/continuous-spaces.md
+      - Continuous Families: guides/continuous-families.md
+      - Stochastic Morphisms: guides/stochastic.md
+      - Inference Foundations: guides/inference-foundations.md
+      - "Inference: Guides, Objectives, and SVI": guides/inference-svi.md
+      - Inference MCMC and Hybrid Samplers: guides/inference-mcmc.md
+      - Categorical Structures: guides/categorical.md
+      - Monads & Comonads: guides/monadic.md
+      - Enriched Category Theory: guides/enriched.md
+      - Compositional Effects: guides/effects.md
+      - Weighted Deduction Systems: guides/deduction.md
+      - "Structural Compression: Signatures and Encoders": guides/structural-compression-signatures-and-encoders.md
+      - "Structural Compression: Decoders and Losses": guides/structural-compression-decoders-and-losses.md
+      - "Analysis: Data and Formulas": guides/analysis-data-and-formulas.md
+      - "Analysis: Fitting and Diagnostics": guides/analysis-fitting-and-diagnostics.md
+      - "Interactive: REPL and Language Server": guides/repl-and-lsp.md
+      - Migrating .qvr Source Between Grammar Revisions: guides/migration.md
+    - Language reference:
+      - Overview: reference/qvr/index.md
+      - Types and Indexed Families: reference/qvr/types-and-indexed-families.md
+      - Effects and Handlers: reference/qvr/effects-and-handlers.md
+      - Computations: reference/qvr/computations.md
+      - Finite Collection Expressions: reference/qvr/collection-expressions.md
+      - Probabilistic Programs: reference/qvr/probabilistic-programs.md
+      - Generated Computation Graphs: reference/qvr/generated-computations.md
+      - Execution and Tooling: reference/qvr/execution-and-tooling.md
+      - Transpilation Support: transpile-support.md
+  - Semantics:
     - Overview: semantics/index.md
     - Setting and Notation: semantics/setting.md
     - Algebras and Base Change: semantics/algebras.md
@@ -156,7 +231,7 @@ nav:
       - Stan: semantics/transpile-correctness/stan.md
       - Turing: semantics/transpile-correctness/turing.md
       - WebPPL: semantics/transpile-correctness/webppl.md
-  - Examples Gallery:
+  - Examples:
     - Overview: examples/index.md
     - Amortized Bayesian Semantics: examples/amortized-bayesian-semantics.md
     - Bayesian Linear Regression: examples/bayesian-regression.md
@@ -205,34 +280,7 @@ nav:
     - PMCFG (WH-movement): examples/pmcfg.md
     - Schema-Bundled Chart Parser: examples/schema-chart-parser.md
     - Term Autoencoder: examples/term-autoencoder.md
-  - Tutorials:
-    - Overview: tutorials/index.md
-  - QVR DSL tutorials:
-    - 1. Your first model: tutorials/qvr/01-first-model.md
-    - 2. Generalized linear models: tutorials/qvr/02-glms.md
-    - 3. Hierarchical models: tutorials/qvr/03-hierarchical.md
-    - 4. Mixtures and discrete latents: tutorials/qvr/04-marginalize.md
-    - 5. Sequence models: tutorials/qvr/05-time-series.md
-    - 6. Choosing an inference algorithm: tutorials/qvr/06-inference-zoo.md
-    - "7. Under the hood: the categorical surface": tutorials/qvr/07-categorical.md
-    - 8. Diagnostics and model comparison: tutorials/qvr/08-diagnostics-and-comparison.md
-    - 9. Indexed data and total functions: tutorials/qvr/09-indexed-data.md
-    - 10. Effects and handlers: tutorials/qvr/10-effects-and-handlers.md
-    - 11. Parsing as an effectful computation: tutorials/qvr/11-parsing-and-search.md
-    - 12. Structural autoencoders: tutorials/qvr/12-structural-autoencoders.md
-    - 13. Check, inspect, and transpile: tutorials/qvr/13-release-workflow.md
-    - 14. Exact Bayes with finite collections: tutorials/qvr/14-collection-programs.md
-  - Python API tutorials:
-    - 1. Your first quiver: tutorials/python/01-first-quiver.md
-    - 2. Stochastic relations: tutorials/python/02-stochastic-relations.md
-    - 3. Probabilistic programs: tutorials/python/03-probabilistic-programs.md
-    - 4. Fuzzy logic factorization: tutorials/python/04-fuzzy-factorization.md
-    - 5. Variational inference: tutorials/python/05-variational-inference.md
-    - 6. First-class transformations: tutorials/python/06-first-class-trans.md
-    - 7. Composition rules: tutorials/python/07-composition-rules.md
-    - 8. Analysis pipelines: tutorials/python/08-analysis-pipelines.md
-    - 9. Debugging quivers programs: tutorials/python/09-debugging.md
-  - API Reference:
+  - API:
     - Overview: api/index.md
     - Core:
       - Overview: api/core/objects.md
@@ -423,7 +471,7 @@ nav:
       - Program runtime: api/qiec/program_runtime.md
       - Structural runtime: api/qiec/structural_runtime.md
       - Entry points: api/qiec/entries.md
-  - Developer Guide:
+  - Develop:
     - Overview: developer/contributing.md
     - Public API and exports: developer/public-api.md
     - Indexed effects and GADTs: developer/qiec.md

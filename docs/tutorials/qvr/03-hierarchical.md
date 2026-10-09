@@ -182,7 +182,8 @@ print("predictive school 1:", y_hat[..., 0].mean().item(),
 
 ## Next
 
-[Chapter 4](04-marginalize.md) introduces the `marginalize` block: QVR's typed-scope marginalization surface for discrete latents and mixtures.
+[Chapter 4](04-marginalize.md) introduces the `marginalize` block, which gives
+discrete latents and mixtures a typed scope.
 
 
 ## References

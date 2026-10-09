@@ -1,10 +1,10 @@
 # Tutorials
 
-Quivers exposes the same model through two surfaces: a `.qvr` DSL aimed at people who write probabilistic programs, and a typed Python API aimed at people who build libraries on top of the category-theoretic core. These tutorials are organized into two parallel tracks accordingly. Pick the one that matches what you're trying to do.
+Quivers provides two ways to work with a model: a `.qvr` language for writing probabilistic programs and a typed Python API for building on the category-theoretic core. The tutorials follow these two tracks. Choose the one that matches your task.
 
 ## QVR DSL track
 
-If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to do the same thing in quivers, start here. The `.qvr` syntax is the primary user-facing surface: you declare types, write a `program` block whose steps look like `v <- Normal(loc=0, scale=1)` or `observe y <- Bernoulli(probs=p)`, and fit it with SVI or NUTS. Category theory is mostly invisible; the categorical machinery is the implementation, not the API.
+If you have written a model in Pyro, NumPyro, Stan, or PyMC and want to express it in Quivers, start here. QVR is the primary user-facing language: you declare types, write a `program` block whose steps look like `v <- Normal(loc=0, scale=1)` or `observe y <- Bernoulli(probs=p)`, and fit it with SVI or NUTS. The categorical structure informs the implementation but need not appear in the model.
 
 Each chapter shows the QVR version of a familiar model alongside its Pyro / NumPyro / Stan equivalent, then explains what's different and why.
 
@@ -12,9 +12,9 @@ Each chapter shows the QVR version of a familiar model alongside its Pyro / NumP
 2. **[Generalized linear models](qvr/02-glms.md)**. Logistic and Poisson regression. Link functions. Posterior calibration plots.
 3. **[Hierarchical models](qvr/03-hierarchical.md)**. Random intercepts; the eight-schools model; centered vs non-centered parameterizations; running NUTS with diagnostics.
 4. **[Mixtures and discrete latents](qvr/04-marginalize.md)**. Finite mixtures and HMM-shaped models via the `marginalize` block: QVR's typed-scope marginalization, the feature that distinguishes it most from Pyro/NumPyro.
-5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and the deduction surface for chart-shaped models. State-space models and HMMs.
+5. **[Sequence models](qvr/05-time-series.md)**. Plates, `scan`, and weighted deduction for chart-shaped models. State-space models and HMMs.
 6. **[Choosing an inference algorithm](qvr/06-inference-zoo.md)**. A decision tree over eleven concrete guide classes, seven objectives, two MCMC kernels, and two hybrid approaches. Which combination matches which model shape.
-7. **[The categorical surface](qvr/07-categorical.md)**. *(Optional reading.)* Algebras as enrichment algebras, `>>` as enriched composition, and change-of-base as a functor. This chapter supplies the background needed to extend the library or interpret its algebra type errors.
+7. **[Categorical foundations](qvr/07-categorical.md)**. *(Optional reading.)* Algebras as enrichment algebras, `>>` as enriched composition, and change-of-base as a functor. This chapter supplies the background needed to extend the library or interpret its algebra type errors.
 8. **[Diagnostics and model comparison](qvr/08-diagnostics-and-comparison.md)**. ArviZ end-to-end: `to_datatree`, convergence diagnostics, posterior-predictive checks, PSIS-LOO model comparison.
 9. **[Indexed data and total functions](qvr/09-indexed-data.md)**. Closed index sorts, indexed families, constructor refinement, recursive case analysis, and direct entry execution.
 10. **[Effects and handlers](qvr/10-effects-and-handlers.md)**. Lexical instances, open rows, authored handlers, resumption grades, and stable execution traces.
@@ -27,7 +27,7 @@ You can read the first six chapters without touching category theory. Chapter 7 
 
 ## Python API track
 
-The Python API gives you direct access to the typed categorical surface: `FinSet`, `Morphism`, `Algebra`, `MonadicProgram`, the inference primitives, the structural-compression building blocks. Use this track if you are building tooling on top of quivers, extending the categorical machinery, or want to understand what the DSL compiles into.
+The Python API gives you direct access to the typed categorical layer: `FinSet`, `Morphism`, `Algebra`, `MonadicProgram`, inference primitives, and structural-compression components. Use this track to build tooling on top of Quivers, extend its categorical implementation, or inspect what the DSL compiles into.
 
 1. **[Your first quiver](python/01-first-quiver.md)**. `FinSet` objects, observed and latent morphisms, the `>>` composition operator, `Program`.
 2. **[Stochastic relations](python/02-stochastic-relations.md)**. Markov kernels and the FinStoch category. Conditioning, marginalization, expectation queries.
@@ -35,7 +35,7 @@ The Python API gives you direct access to the typed categorical surface: `FinSet
 4. **[Fuzzy logic factorization](python/04-fuzzy-factorization.md)**. Factorizing an observed fuzzy relation into a composition of latents, training under product-fuzzy noisy-OR composition.
 5. **[Variational inference](python/05-variational-inference.md)**. `Guide` + `Objective` + `SVI` + `Predictive`. Setting up the full inference loop end-to-end.
 6. **[First-class transformations](python/06-first-class-trans.md)**. `MorphismTransformation` and `AlgebraHomomorphism` as values: let-binding, the `>>>` composition operator, change-of-base pipelines.
-7. **[Composition rules beyond algebras](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Algebra` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` surface for n-ary contractions.
+7. **[Composition rules beyond algebras](python/07-composition-rules.md)**. The `CompositionRule → Semigroupoid → Algebra` hierarchy, `BilinearForm`, and the operadic `EinsumWiring` API for n-ary contractions.
 8. **[Analysis pipelines](python/08-analysis-pipelines.md)**. Formula → fit → diagnostics: brms-style `fit("y ~ x + (1|g)", data=df, ...)`, the emitted `.qvr` source, SVI on a hierarchical model, NUTS + PSIS-LOO model comparison, and ArviZ `DataTree` posterior-predictive checks.
 9. **[Debugging quivers programs](python/09-debugging.md)**. Reading `CompileError`, inspecting a compiled `Program`, tracing intermediate values, watching SVI gradients, and using NUTS diagnostics to find the root cause of a misbehaving fit.
 
@@ -50,7 +50,7 @@ For the QVR track:
 For the Python API track:
 
 - Python and PyTorch as above.
-- Working knowledge of category theory: objects, morphisms, composition, functors. The denotational [semantics](../semantics/index.md) section assumes Kelly-level enriched category theory; the tutorials don't, but a refresher on algebras as enrichment algebras ([Core Types & Algebras](../guides/core.md)) is recommended before chapter 4.
+- Working knowledge of category theory: objects, morphisms, composition, and functors. The [semantics](../semantics/index.md) section assumes enriched category theory at Kelly's level. The tutorials do not, though [Core Types & Algebras](../guides/core.md) is useful preparation for chapter 4.
 
 ## How to read
 

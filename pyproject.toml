@@ -52,9 +52,9 @@ dev = [
     "pyarrow",
 ]
 docs = [
-    "mkdocs",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9,<10",
     "mkdocstrings[python]",
-    "mkdocs-terminal",
     "pymdown-extensions",
     "pygments",
 ]
@@ -93,10 +93,10 @@ targets = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/FACTSlab/quivers"
-Repository = "https://github.com/FACTSlab/quivers"
-Documentation = "https://FACTSlab.github.io/quivers"
-Changelog = "https://github.com/FACTSlab/quivers/blob/main/CHANGELOG.md"
+Homepage = "https://quivers.dev"
+Repository = "https://github.com/quivers-dev/quivers"
+Documentation = "https://quivers.dev"
+Changelog = "https://github.com/quivers-dev/quivers/blob/main/CHANGELOG.md"
 
 [project.entry-points."pygments.lexers"]
 qvr = "quivers.dsl.pygments_lexer:QvrLexer"

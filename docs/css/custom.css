@@ -1,162 +1,1332 @@
-/* MathJax display equations get a horizontal scroll bar when wider
-   than the column. */
-.MathJax_Display {
-    overflow-x: auto;
-    overflow-y: hidden;
-}
+@import url("https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,400i;8..60,600&display=swap");
 
-/* Match the built-in `monokai` Pygments style emitted by
-   `pygments.css` by switching the terminal theme's two code-area
-   CSS variables to the Monokai background/foreground. */
+/* --------------------------------------------------------------------------
+   Quivers: the compositional notebook
+
+   Material for MkDocs supplies the behavior. This layer supplies the visual
+   system: a cool paper canvas, a mathematical reading face, an arrow-like
+   navigation rail, and a content grid with a dedicated wide track.
+   -------------------------------------------------------------------------- */
+
 :root {
-    --code-bg-color: #272822;
-    --block-background-color: #272822;
-    --code-font-color: #f8f8f2;
+  --qv-canvas: #f3f6fa;
+  --qv-surface: #ffffff;
+  --qv-ink: #1b2430;
+  --qv-muted: #647184;
+  --qv-faint: #dce3ec;
+  --qv-rail: #c7d1df;
+  --qv-arrow: #3157c8;
+  --qv-arrow-soft: #e7edff;
+  --qv-witness: #a05a14;
+  --qv-success: #15705f;
+  --qv-code-bg: #222d3b;
+  --qv-code-fg: #edf2f7;
+  --qv-diagram-input: #e7edff;
+  --qv-diagram-input-border: #3157c8;
+  --qv-diagram-checked: #f1ebfb;
+  --qv-diagram-checked-border: #7654a8;
+  --qv-diagram-output: #e8f5f1;
+  --qv-diagram-output-border: #15705f;
+  --qv-diagram-decision: #fff3e2;
+  --qv-diagram-decision-border: #a05a14;
+  --qv-diagram-foundation: #edf1f6;
+  --qv-diagram-foundation-border: #647184;
+  --qv-reading-measure: 75ch;
+  --qv-wide-measure: 68rem;
+  --qv-radius: 0.35rem;
 }
 
-/* terminal.css only sets `color` on `pre code`; inline `<code>` falls
-   back to the page text colour and disappears on the dark bg. */
-code {
-    color: var(--code-font-color);
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--qv-canvas);
+  --md-default-fg-color: var(--qv-ink);
+  --md-default-fg-color--light: var(--qv-muted);
+  --md-default-fg-color--lighter: #8a96a7;
+  --md-default-fg-color--lightest: var(--qv-faint);
+  --md-primary-fg-color: var(--qv-surface);
+  --md-primary-fg-color--light: var(--qv-surface);
+  --md-primary-fg-color--dark: #e9eef5;
+  --md-primary-bg-color: var(--qv-ink);
+  --md-primary-bg-color--light: var(--qv-muted);
+  --md-accent-fg-color: var(--qv-arrow);
+  --md-accent-fg-color--transparent: rgba(49, 87, 200, 0.1);
+  --md-typeset-color: var(--qv-ink);
+  --md-typeset-a-color: #284bb1;
+  --md-code-bg-color: var(--qv-code-bg);
+  --md-code-fg-color: var(--qv-code-fg);
+  --md-footer-bg-color: #e9eef5;
+  --md-footer-bg-color--dark: #dde4ed;
+  --md-footer-fg-color: var(--qv-ink);
+  --md-footer-fg-color--light: var(--qv-muted);
+  --md-footer-fg-color--lighter: #7d8999;
 }
 
-/* Standard code-block convention: never wrap, scroll horizontally
-   when the line doesn't fit. Terminal.css ships with `pre-wrap +
-   break-all`, which wraps mid-token; replace with the canonical
-   `pre + overflow-x: auto` instead. */
-pre {
-    white-space: pre;
-    overflow-x: auto;
+[data-md-color-scheme="slate"] {
+  --qv-canvas: #171c24;
+  --qv-surface: #202732;
+  --qv-ink: #edf1f6;
+  --qv-muted: #a8b3c2;
+  --qv-faint: #343e4c;
+  --qv-rail: #3d4959;
+  --qv-arrow: #8fa9ff;
+  --qv-arrow-soft: #283657;
+  --qv-witness: #e1a66d;
+  --qv-success: #70c6b2;
+  --qv-code-bg: #253142;
+  --qv-code-fg: #edf2f7;
+  --qv-diagram-input: #283657;
+  --qv-diagram-input-border: #8fa9ff;
+  --qv-diagram-checked: #352e46;
+  --qv-diagram-checked-border: #bba5e7;
+  --qv-diagram-output: #273c39;
+  --qv-diagram-output-border: #70c6b2;
+  --qv-diagram-decision: #493827;
+  --qv-diagram-decision-border: #e1a66d;
+  --qv-diagram-foundation: #2c3441;
+  --qv-diagram-foundation-border: #8793a3;
+  --md-default-bg-color: var(--qv-canvas);
+  --md-default-fg-color: var(--qv-ink);
+  --md-default-fg-color--light: var(--qv-muted);
+  --md-default-fg-color--lighter: #8793a3;
+  --md-default-fg-color--lightest: var(--qv-faint);
+  --md-primary-fg-color: #202732;
+  --md-primary-fg-color--light: #27303d;
+  --md-primary-fg-color--dark: #171c24;
+  --md-primary-bg-color: var(--qv-ink);
+  --md-primary-bg-color--light: var(--qv-muted);
+  --md-accent-fg-color: var(--qv-arrow);
+  --md-accent-fg-color--transparent: rgba(143, 169, 255, 0.12);
+  --md-typeset-color: var(--qv-ink);
+  --md-typeset-a-color: #9db4ff;
+  --md-code-bg-color: var(--qv-code-bg);
+  --md-code-fg-color: var(--qv-code-fg);
+  --md-footer-bg-color: #131820;
+  --md-footer-bg-color--dark: #10151c;
 }
 
-/* CSS Grid items default to `min-width: auto` (== content width),
-   which lets a wide <pre> inside the main content cell push the
-   whole grid cell — and thus the page — wider. Setting
-   `min-width: 0` on the grid items lets them shrink below their
-   intrinsic content width, so the <pre>'s `overflow-x: auto`
-   actually engages and the cell width stays bounded by the grid
-   template. */
-.terminal-mkdocs-main-grid > * {
-    min-width: 0;
+html {
+  scroll-padding-top: 6.4rem;
 }
 
-/* Style the horizontal scrollbar inside <pre> to match the dark
-   code-block background, so the default white scrollbar track
-   doesn't show through. WebKit / Blink only. */
-pre {
-    scrollbar-color: #6e6e6e var(--code-bg-color);
-}
-pre::-webkit-scrollbar {
-    height: 8px;
-}
-pre::-webkit-scrollbar-track {
-    background: var(--code-bg-color);
-}
-pre::-webkit-scrollbar-thumb {
-    background: #555;
-    border-radius: 4px;
-}
-pre::-webkit-scrollbar-thumb:hover {
-    background: #777;
+body {
+  background: var(--qv-canvas);
 }
 
-/* ---------------------------------------------------------------
- * Tabbed code blocks (pymdownx.tabbed with alternate_style: true).
- * The terminal theme has no built-in CSS for these; we provide
- * minimal styling and rely on docs/js/tabbed.js to add the
- * `.is-active` class to the currently-selected label / block.
- * ------------------------------------------------------------- */
-
-.tabbed-set {
-    margin: 1em 0;
-    border: 1px solid #444;
-    border-radius: 4px;
-    overflow: hidden;
+::selection {
+  background: rgba(49, 87, 200, 0.22);
 }
 
-.tabbed-set .tabbed-labels {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0;
-    background: #1a1a1a;
-    border-bottom: 1px solid #444;
+/* Header and top-level documentation spaces */
+
+.md-header {
+  color: var(--qv-ink);
+  background: color-mix(in srgb, var(--qv-canvas) 92%, transparent);
+  border-bottom: 1px solid var(--qv-faint);
+  box-shadow: none;
+  backdrop-filter: blur(14px);
 }
 
-.tabbed-set .tabbed-labels > label {
-    padding: 0.5em 1em;
-    cursor: pointer;
-    color: #888;
-    background: transparent;
-    border-right: 1px solid #333;
-    user-select: none;
-    font-family: inherit;
+.md-header__inner,
+.md-tabs__inner,
+.md-grid {
+  max-width: 96rem;
 }
 
-.tabbed-set .tabbed-labels > label:hover {
-    color: #ddd;
-    background: #222;
+.md-header__inner {
+  height: 3.25rem;
 }
 
-.tabbed-set .tabbed-labels > label.is-active {
-    color: #fff;
-    background: #2a2a2a;
-    border-bottom: 2px solid #4af;
+.md-header__button.md-logo {
+  margin-right: 0.25rem;
+  padding: 0.45rem;
 }
 
-.tabbed-set .tabbed-content {
-    padding: 0;
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.55rem;
+  width: 1.75rem;
+  transform-origin: 50% 52%;
+  animation: qv-logo-settle 620ms cubic-bezier(0.25, 0.8, 0.35, 1) 420ms both;
 }
 
-.tabbed-set .tabbed-content > .tabbed-block {
-    display: none;
-    padding: 1em;
+.md-header__button.md-logo:hover img,
+.md-header__button.md-logo:hover svg {
+  animation: qv-logo-quiver 430ms ease-in-out both;
 }
 
-.tabbed-set .tabbed-content > .tabbed-block.is-active {
-    display: block;
+@keyframes qv-logo-settle {
+  0% { transform: translateX(0); }
+  16% { transform: translateX(-3.2px) rotate(-1.2deg); }
+  32% { transform: translateX(2.6px) rotate(1deg); }
+  49% { transform: translateX(-1.8px) rotate(-0.7deg); }
+  66% { transform: translateX(1.1px) rotate(0.4deg); }
+  82% { transform: translateX(-0.45px) rotate(-0.15deg); }
+  100% { transform: translateX(0); }
 }
 
-/* Hide the radio inputs themselves; the labels carry the
- * interaction (handled by tabbed.js). */
-.tabbed-set > input[type="radio"] {
-    display: none;
+@keyframes qv-logo-quiver {
+  0%, 100% { transform: translateX(0); }
+  16% { transform: translateX(-3px) rotate(-1deg); }
+  33% { transform: translateX(2.5px) rotate(0.85deg); }
+  50% { transform: translateX(-1.8px) rotate(-0.6deg); }
+  67% { transform: translateX(1.2px) rotate(0.35deg); }
+  84% { transform: translateX(-0.5px) rotate(-0.15deg); }
 }
 
-/* ---------------------------------------------------------------
- * Source code block overflow inside collapsed details (mkdocstrings
- * source code accordions). Long lines must scroll horizontally
- * instead of spilling outside the dark code-block background.
- * ------------------------------------------------------------- */
-
-details > .highlight,
-details > div.highlight,
-details > pre,
-details > div > pre {
-    overflow-x: auto;
-    max-width: 100%;
+.md-header__title {
+  font-weight: 600;
+  letter-spacing: -0.025em;
 }
 
-details > .highlight pre,
-details pre {
-    overflow-x: auto;
-    max-width: 100%;
-    white-space: pre;
+.md-header__topic:first-child {
+  font-size: 1rem;
 }
 
-/* ---------------------------------------------------------------
- * MathJax inline math sizing: by default MathJax renders math
- * at 100% of the surrounding text size, but with a serif font
- * face that pops out visually against the terminal theme's
- * monospace prose. We keep the serif (it's still the most
- * readable choice for math) but trim the font-size so the
- * baseline aligns with the surrounding monospace.
- * ------------------------------------------------------------- */
+.md-tabs {
+  color: var(--qv-muted);
+  background: var(--qv-surface);
+  border-bottom: 1px solid var(--qv-faint);
+  box-shadow: none;
+}
+
+.md-tabs__list {
+  gap: 0.2rem;
+}
+
+.md-tabs__link {
+  margin-top: 0;
+  padding: 0.72rem 0.8rem 0.62rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  opacity: 1;
+}
+
+.md-tabs__item--active .md-tabs__link {
+  color: var(--qv-arrow);
+  box-shadow: inset 0 -2px 0 var(--qv-arrow);
+}
+
+.md-search__form {
+  color: var(--qv-ink);
+  background: color-mix(in srgb, var(--qv-ink) 7%, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--qv-radius);
+}
+
+.md-search__form:hover,
+.md-search__input:focus-within {
+  border-color: var(--qv-rail);
+}
+
+.md-search__input::placeholder {
+  color: var(--qv-muted);
+  opacity: 1;
+}
+
+/* Three-rail reading shell */
+
+.md-main__inner {
+  margin-top: 0;
+}
+
+.md-sidebar {
+  color: var(--qv-muted);
+}
+
+.md-sidebar--primary {
+  width: 14rem;
+}
+
+.md-sidebar--secondary {
+  width: 12rem;
+}
+
+.md-sidebar--primary .md-sidebar__scrollwrap {
+  border-right: 1px solid var(--qv-faint);
+}
+
+.md-sidebar--secondary .md-sidebar__scrollwrap {
+  border-left: 1px solid var(--qv-faint);
+}
+
+.md-nav {
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.md-nav__title {
+  color: var(--qv-ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  background: var(--qv-canvas);
+  box-shadow: none;
+}
+
+.md-nav__link {
+  position: relative;
+  margin-top: 0.42rem;
+  color: var(--qv-muted);
+}
+
+.md-nav__link:hover,
+.md-nav__link:focus,
+.md-nav__link--active {
+  color: var(--qv-arrow);
+}
+
+/* Nested lists become a literal composition rail. The active node is the
+   quiver vertex; the border records its path through the documentation. */
+.md-nav--primary .md-nav__list .md-nav__list {
+  margin-left: 0.35rem;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--qv-rail);
+}
+
+.md-nav--primary .md-nav__link--active::before {
+  position: absolute;
+  top: 0.48em;
+  left: -0.91rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  content: "";
+  background: var(--qv-canvas);
+  border: 2px solid var(--qv-arrow);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--qv-canvas);
+}
+
+.md-nav--secondary .md-nav__link--active {
+  font-weight: 600;
+}
+
+.md-nav--secondary .md-nav__link--active::before {
+  position: absolute;
+  top: 0.2rem;
+  bottom: 0.2rem;
+  left: -0.65rem;
+  width: 2px;
+  content: "";
+  background: var(--qv-arrow);
+}
+
+/* Article grid: prose occupies the middle measure; formal objects can use the
+   whole center canvas. */
+
+.md-content {
+  min-width: 0;
+}
+
+.md-content__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--qv-reading-measure)) minmax(0, 1fr);
+  column-gap: clamp(0.8rem, 2vw, 2rem);
+  max-width: var(--qv-wide-measure);
+  margin: 0 auto 3rem;
+  padding-top: 1.65rem;
+}
+
+.md-content__inner > * {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.md-content__inner > :is(
+  .tabbed-set,
+  .md-typeset__table,
+  .mermaid,
+  figure,
+  .doc
+) {
+  grid-column: 1 / -1;
+}
+
+.md-content__inner > .md-content__button {
+  position: relative;
+  z-index: 2;
+  grid-row: 1;
+  grid-column: 3;
+  justify-self: end;
+  margin: 0 0 0 0.45rem;
+}
+
+.md-content__inner > .md-content__button + .md-content__button {
+  margin-right: 2rem;
+}
+
+.md-path {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--qv-reading-measure)) minmax(0, 1fr);
+  column-gap: clamp(0.8rem, 2vw, 2rem);
+  width: calc(100% - 2.4rem);
+  max-width: var(--qv-wide-measure);
+  margin: 0 auto 1.1rem;
+  color: var(--qv-muted);
+  font-family: var(--md-text-font-family);
+  font-size: 0.64rem;
+}
+
+.md-path__list {
+  grid-column: 2;
+}
+
+/* Reading typography */
+
+.md-typeset {
+  color: var(--qv-ink);
+  font-family: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 0.86rem;
+  line-height: 1.72;
+}
+
+.md-typeset :is(h1, h2, h3, h4, h5, h6),
+.md-typeset .admonition-title,
+.md-typeset summary,
+.md-typeset .tabbed-labels,
+.md-typeset figcaption,
+.md-typeset table,
+.md-typeset .doc-label,
+.md-typeset .doc-signature {
+  font-family: var(--md-text-font-family);
+}
+
+.md-typeset h1 {
+  max-width: 18ch;
+  margin: 0 0 1.45rem;
+  color: var(--qv-ink);
+  font-size: clamp(2.15rem, 4vw, 3.05rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+}
+
+.md-typeset h2 {
+  margin-top: 3.4rem;
+  padding-top: 0.85rem;
+  color: var(--qv-ink);
+  border-top: 1px solid var(--qv-faint);
+  font-size: 1.48rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.032em;
+}
+
+.md-typeset h3 {
+  margin-top: 2.2rem;
+  color: var(--qv-ink);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h4 {
+  margin-top: 1.7rem;
+  color: var(--qv-ink);
+  font-size: 0.91rem;
+  font-weight: 600;
+}
+
+.md-typeset p,
+.md-typeset ul,
+.md-typeset ol,
+.md-typeset blockquote {
+  margin-top: 0;
+  margin-bottom: 1.05rem;
+}
+
+.md-typeset a {
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.18em;
+}
+
+.md-typeset a:hover {
+  color: var(--qv-arrow);
+  text-decoration-thickness: 0.1em;
+}
+
+.md-typeset .headerlink {
+  text-decoration: none;
+}
+
+.md-typeset strong {
+  color: var(--qv-ink);
+  font-weight: 600;
+}
+
+.md-typeset blockquote {
+  padding: 0.15rem 0 0.15rem 1rem;
+  color: var(--qv-muted);
+  border-left: 2px solid var(--qv-arrow);
+}
+
+.md-typeset hr {
+  margin: 2.8rem 0;
+  border-bottom-color: var(--qv-faint);
+}
+
+/* Code, signatures, tabs, and tables */
+
+.md-typeset code,
+.md-typeset kbd,
+.md-typeset pre {
+  font-family: var(--md-code-font-family);
+}
+
+.md-typeset code {
+  padding: 0.08em 0.3em;
+  color: color-mix(in srgb, var(--qv-arrow) 75%, var(--qv-ink));
+  background: var(--qv-arrow-soft);
+  border-radius: 0.2rem;
+  box-decoration-break: clone;
+}
+
+.md-typeset pre,
+.md-typeset .highlight > pre {
+  margin: 0;
+  padding: 1.15rem 1.2rem;
+  color: var(--qv-code-fg);
+  background: var(--qv-code-bg);
+  border: 1px solid color-mix(in srgb, var(--qv-code-fg) 13%, transparent);
+  border-radius: var(--qv-radius);
+  box-shadow: none;
+  line-height: 1.6;
+  scrollbar-color: #5c6b7e var(--qv-code-bg);
+}
+
+.md-typeset pre > code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 0;
+}
+
+/*
+ * Pygments emits line-numbered listings as a two-cell table. Treat that
+ * table as one code surface: the gutter and source must share an edge,
+ * vertical rhythm, and outer border.
+ */
+.md-typeset table.highlighttable {
+  display: block;
+  margin: 1.35rem 0 1.7rem;
+  overflow: hidden;
+  background: var(--qv-code-bg);
+  border: 1px solid color-mix(in srgb, var(--qv-code-fg) 13%, transparent);
+  border-radius: var(--qv-radius);
+  border-collapse: separate;
+}
+
+.md-typeset table.highlighttable > tbody,
+.md-typeset table.highlighttable > tbody > tr {
+  display: block;
+  width: 100%;
+}
+
+.md-typeset table.highlighttable > tbody > tr {
+  display: flex;
+  align-items: stretch;
+}
+
+.md-typeset table.highlighttable > tbody > tr > td {
+  display: block;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.md-typeset table.highlighttable > tbody > tr > .linenos {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--qv-code-fg) 48%, transparent);
+  background: color-mix(in srgb, var(--qv-code-bg) 88%, black);
+  border-right: 1px solid color-mix(in srgb, var(--qv-code-fg) 12%, transparent);
+  border-radius: 0;
+}
+
+.md-typeset table.highlighttable > tbody > tr > .code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.md-typeset table.highlighttable :is(.linenodiv, td.code > div) {
+  height: 100%;
+}
+
+.md-typeset table.highlighttable pre {
+  height: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.md-typeset table.highlighttable .linenodiv pre {
+  padding: 1.15rem 0.8rem 1.15rem 1rem;
+  text-align: right;
+}
+
+.md-typeset table.highlighttable td.code pre {
+  padding: 1.15rem 1.2rem;
+}
+
+/* A compact, high-contrast palette shared by every Pygments lexer. */
+.md-typeset .highlight :is(.k, .kc, .kd, .kn, .kp, .kr, .kt) {
+  color: #a9c1ff;
+}
+
+.md-typeset .highlight :is(.s, .sa, .sb, .sc, .dl, .sd, .s1, .s2, .se, .sh, .si, .sr, .ss, .sx) {
+  color: #8bd5c3;
+}
+
+.md-typeset .highlight :is(.m, .mb, .mf, .mh, .mi, .mo, .il) {
+  color: #ff9d8f;
+}
+
+.md-typeset .highlight :is(.nc, .nd, .ne, .nf, .fm) {
+  color: #dcb0ff;
+}
+
+.md-typeset .highlight :is(.na, .nb, .bp, .nv, .vc, .vg, .vi, .vm, .o, .ow, .p) {
+  color: #c7d3e3;
+}
+
+.md-typeset .highlight :is(.c, .ch, .cm, .cp, .cpf, .c1, .cs) {
+  color: #9aa9bd;
+  font-style: italic;
+}
+
+.md-typeset .highlight,
+.md-typeset .tabbed-set {
+  margin: 1.35rem 0 1.7rem;
+}
+
+.md-typeset .tabbed-labels {
+  gap: 0.3rem;
+  box-shadow: inset 0 -1px var(--qv-faint);
+}
+
+.md-typeset .tabbed-labels > label {
+  color: var(--qv-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.md-typeset .tabbed-labels > label:hover,
+.md-typeset .tabbed-set > input:checked + label {
+  color: var(--qv-arrow);
+}
+
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+  font-size: 0.69rem;
+  background: var(--qv-surface);
+  border: 1px solid var(--qv-faint);
+  border-radius: var(--qv-radius);
+  box-shadow: none;
+}
+
+.md-typeset table:not([class]) th {
+  color: var(--qv-ink);
+  background: color-mix(in srgb, var(--qv-arrow) 6%, var(--qv-surface));
+  font-weight: 600;
+}
+
+.md-typeset table:not([class]) :is(th, td) {
+  padding: 0.65rem 0.75rem;
+  border-color: var(--qv-faint);
+}
+
+.doc-signature {
+  overflow-x: auto;
+  padding: 0.75rem 0.9rem;
+  color: var(--qv-code-fg);
+  background: var(--qv-code-bg);
+  border: 0;
+  border-left: 3px solid var(--qv-arrow);
+  border-radius: 0 var(--qv-radius) var(--qv-radius) 0;
+}
+
+.doc-contents > :is(p, ul, ol, blockquote) {
+  max-width: var(--qv-reading-measure);
+}
+
+/* Formal objects */
+
+.md-typeset div.arithmatex {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 1.35em 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  scrollbar-color: var(--qv-rail) transparent;
+}
+
+.md-typeset span.arithmatex {
+  display: inline;
+}
 
 mjx-container[jax="CHTML"][display="false"] {
-    font-size: 95% !important;
+  font-size: 100% !important;
 }
 
-mjx-container[jax="CHTML"][display="true"] {
-    margin: 0.6em 0 !important;
-    font-size: 105% !important;
+.md-typeset div.arithmatex mjx-container[jax="CHTML"][display="true"] {
+  min-width: max-content;
+  margin: 0 !important;
+  /* TeX Modern has a smaller apparent body than Source Serif at the same
+     nominal size; this optical correction restores a LaTeX-like proportion. */
+  font-size: 110% !important;
+}
+
+.md-typeset .qv-diagram-frame {
+  display: block;
+  width: 100%;
+  margin: 1.7rem 0 2.25rem;
+  background: var(--qv-surface);
+  border-top: 2px solid var(--qv-arrow);
+  border-bottom: 1px solid var(--qv-faint);
+}
+
+.md-typeset .qv-diagram-caption {
+  display: flex;
+  gap: 0.7rem;
+  align-items: baseline;
+  margin: 0;
+  max-width: none;
+  padding: 0.72rem 1rem 0.68rem;
+  color: var(--qv-muted);
+  background: color-mix(in srgb, var(--qv-surface) 88%, var(--qv-arrow-soft));
+  border-bottom: 1px solid var(--qv-faint);
+  font-family: var(--md-text-font-family);
+  font-size: 0.62rem;
+  font-style: normal;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.qv-diagram-caption__title {
+  color: var(--qv-ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.qv-diagram-caption__kind {
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--qv-rail);
+}
+
+.qv-diagram-caption__action {
+  margin-left: auto;
+}
+
+.mermaid {
+  position: relative;
+  overflow: auto;
+  margin: 0;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  background-color: var(--qv-surface);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--qv-rail) 42%, transparent) 0.65px,
+    transparent 0.75px
+  );
+  background-size: 16px 16px;
+  border: 0;
+  border-radius: 0;
+  cursor: zoom-in;
+}
+
+.mermaid::after {
+  content: none;
+}
+
+.mermaid > svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.mermaid[data-qv-diagram-kind="sequence"] > svg {
+  min-width: 40rem;
+}
+
+.mermaid[data-qv-diagram-kind="flow-map"][data-qv-diagram-direction="lr"] > svg,
+.mermaid[data-qv-diagram-kind="flow-map"][data-qv-diagram-direction="rl"] > svg {
+  min-width: 44rem;
+}
+
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .label,
+.mermaid .messageText,
+.mermaid .loopText,
+.mermaid .actor {
+  font-family: var(--md-text-font-family) !important;
+}
+
+.mermaid .nodeLabel,
+.mermaid .edgeLabel {
+  line-height: 1.35;
+}
+
+.mermaid small {
+  color: var(--qv-muted);
+  font-size: 0.78em;
+}
+
+.mermaid .edgeLabel {
+  color: var(--qv-muted) !important;
+  background: var(--qv-surface) !important;
+  font-size: 0.78rem;
+}
+
+.mermaid .edgeLabel p {
+  padding: 0.12rem 0.28rem;
+  background: var(--qv-surface) !important;
+}
+
+.mermaid .cluster rect {
+  rx: 3px;
+  ry: 3px;
+  stroke-dasharray: 4 3;
+}
+
+.mermaid .cluster-label {
+  color: var(--qv-muted) !important;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.mermaid .flowchart-link,
+.mermaid .messageLine0,
+.mermaid .messageLine1 {
+  stroke-width: 1.45px !important;
+}
+
+.mermaid marker path {
+  fill: var(--qv-muted) !important;
+  stroke: var(--qv-muted) !important;
+}
+
+.mermaid :is(.qv-input, .qv-checked, .qv-output, .qv-decision, .qv-foundation)
+  > :is(rect, polygon, path, circle, ellipse) {
+  stroke-width: 1.6px !important;
+}
+
+.mermaid .qv-input > :is(rect, polygon, path, circle, ellipse) {
+  fill: var(--qv-diagram-input) !important;
+  stroke: var(--qv-diagram-input-border) !important;
+}
+
+.mermaid .qv-checked > :is(rect, polygon, path, circle, ellipse) {
+  fill: var(--qv-diagram-checked) !important;
+  stroke: var(--qv-diagram-checked-border) !important;
+}
+
+.mermaid .qv-output > :is(rect, polygon, path, circle, ellipse) {
+  fill: var(--qv-diagram-output) !important;
+  stroke: var(--qv-diagram-output-border) !important;
+}
+
+.mermaid .qv-decision > :is(rect, polygon, path, circle, ellipse) {
+  fill: var(--qv-diagram-decision) !important;
+  stroke: var(--qv-diagram-decision-border) !important;
+}
+
+.mermaid .qv-foundation > :is(rect, polygon, path, circle, ellipse) {
+  fill: var(--qv-diagram-foundation) !important;
+  stroke: var(--qv-diagram-foundation-border) !important;
+}
+
+.mermaid.is-zoomed {
+  position: fixed;
+  z-index: 20;
+  inset: 1.25rem;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 2rem;
+  background-color: color-mix(in srgb, var(--qv-canvas) 97%, transparent);
+  background-image: none;
+  border-color: var(--qv-rail);
+  box-shadow: 0 1rem 4rem rgba(11, 18, 28, 0.24);
+  cursor: zoom-out;
+}
+
+.mermaid.is-zoomed::after {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.85rem;
+  display: block;
+  color: var(--qv-muted);
+  content: "Click or press Esc to close";
+  font-family: var(--md-text-font-family);
+  font-size: 0.6rem;
+}
+
+.mermaid.is-zoomed svg {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 6.5rem);
+}
+
+body.qv-diagram-open {
+  overflow: hidden;
+}
+
+/* Content primitives */
+
+.md-typeset .admonition,
+.md-typeset details {
+  color: var(--qv-ink);
+  background: var(--qv-surface);
+  border-width: 0 0 0 3px;
+  border-radius: 0 var(--qv-radius) var(--qv-radius) 0;
+  box-shadow: none;
+}
+
+.md-typeset :is(.admonition-title, summary) {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.md-typeset .admonition.definition,
+.md-typeset details.definition {
+  border-color: var(--qv-arrow);
+}
+
+.md-typeset .admonition.law,
+.md-typeset details.law {
+  border-color: var(--qv-success);
+}
+
+.md-typeset .admonition.implementation,
+.md-typeset details.implementation {
+  border-color: var(--qv-witness);
+}
+
+/* Focus mode */
+
+.qv-focus-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-left: 0.1rem;
+  padding: 0;
+  color: var(--qv-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--qv-radius);
+  cursor: pointer;
+}
+
+.qv-focus-toggle:hover,
+.qv-focus-toggle[aria-pressed="true"] {
+  color: var(--qv-arrow);
+  background: var(--qv-arrow-soft);
+}
+
+.qv-focus-toggle svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+body.qv-focus .md-sidebar {
+  display: none;
+}
+
+body.qv-focus .md-main__inner {
+  max-width: 82rem;
+}
+
+body.qv-focus .md-content__inner {
+  --qv-reading-measure: 78ch;
+  --qv-wide-measure: 64rem;
+}
+
+/* Home page */
+
+.md-content__inner:has(.qv-home) {
+  display: block;
+  max-width: 80rem;
+  padding-inline: clamp(1rem, 3vw, 3rem);
+  padding-top: 0;
+}
+
+.md-content__inner:has(.qv-home) .md-content__button {
+  display: none;
+}
+
+.qv-home {
+  font-family: var(--md-text-font-family);
+}
+
+.qv-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(26rem, 1.08fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  align-items: center;
+  min-height: 33rem;
+  padding: clamp(3.5rem, 8vw, 7rem) 0;
+  border-bottom: 1px solid var(--qv-faint);
+}
+
+.qv-hero > * {
+  min-width: 0;
+}
+
+.qv-hero h1 {
+  max-width: 10ch;
+  margin: 0 0 1.25rem;
+  font-size: clamp(3.2rem, 7vw, 5.8rem);
+  line-height: 0.92;
+  letter-spacing: -0.065em;
+}
+
+.qv-hero__lede {
+  max-width: 31rem;
+  color: var(--qv-muted);
+  font-family: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  font-size: clamp(1rem, 2vw, 1.22rem);
+  line-height: 1.55;
+}
+
+.qv-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.6rem;
+}
+
+.qv-hero__actions .md-button {
+  padding: 0.55rem 0.9rem;
+  color: var(--qv-ink);
+  border: 1px solid var(--qv-rail);
+  border-radius: var(--qv-radius);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.qv-hero__actions .md-button--primary {
+  color: #fff;
+  background: var(--qv-arrow);
+  border-color: var(--qv-arrow);
+}
+
+.qv-hero__actions .md-button:hover {
+  color: var(--qv-arrow);
+  background: var(--qv-arrow-soft);
+  border-color: var(--qv-arrow);
+}
+
+.qv-hero__actions .md-button--primary:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--qv-arrow) 86%, #000);
+}
+
+.qv-hero__code {
+  position: relative;
+}
+
+.qv-hero__code::before {
+  position: absolute;
+  z-index: 1;
+  top: -1.6rem;
+  left: 0;
+  color: var(--qv-muted);
+  content: "A typed probabilistic program";
+  font-size: 0.62rem;
+}
+
+.qv-hero__code .highlight {
+  margin: 0;
+}
+
+.qv-hero__code pre {
+  min-height: 22rem;
+  padding: 1.45rem;
+  border-left: 3px solid var(--qv-arrow);
+}
+
+.qv-pathways {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin: 3.8rem 0 4.5rem;
+}
+
+.qv-pathway {
+  position: relative;
+  padding: 1.15rem 0.3rem 0;
+  border-top: 1px solid var(--qv-rail);
+}
+
+.qv-pathway::before {
+  position: absolute;
+  top: -0.29rem;
+  left: 0;
+  width: 0.48rem;
+  height: 0.48rem;
+  content: "";
+  background: var(--qv-canvas);
+  border: 2px solid var(--qv-arrow);
+  border-radius: 50%;
+}
+
+.qv-pathway h2 {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  border: 0;
+  font-size: 0.93rem;
+}
+
+.qv-pathway p {
+  margin: 0;
+  color: var(--qv-muted);
+  font-family: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.qv-pathway a {
+  text-decoration: none;
+}
+
+.qv-crosswalk {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2.4rem;
+  margin: 1.4rem 0 3rem;
+}
+
+.qv-crosswalk__stage h3 {
+  margin: 0 0 0.55rem;
+}
+
+.qv-crosswalk__stage p {
+  color: var(--qv-muted);
+  font-family: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  font-size: 0.78rem;
+}
+
+/* Footer */
+
+.md-footer {
+  border-top: 1px solid var(--qv-faint);
+}
+
+.md-footer,
+.md-footer-meta {
+  color: var(--qv-muted);
+  background: var(--md-footer-bg-color);
+}
+
+.md-footer__title,
+.md-copyright,
+.md-social {
+  font-family: var(--md-text-font-family);
+}
+
+/* Accessible interaction states */
+
+:focus-visible {
+  outline: 2px solid var(--qv-arrow);
+  outline-offset: 3px;
+}
+
+@media (max-width: 76.234375em) {
+  .md-sidebar--primary {
+    width: 12.1rem;
+  }
+
+  .md-sidebar--secondary {
+    width: 12.1rem;
+  }
+
+  .md-content__inner {
+    grid-template-columns: minmax(0, 1fr) minmax(0, var(--qv-reading-measure)) minmax(0, 1fr);
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .md-content > .md-path {
+    display: grid;
+    width: 100%;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .md-content > .md-path > .md-path__list {
+    grid-column: 2;
+  }
+
+  .md-nav--primary .md-nav__title {
+    color: var(--qv-ink);
+    background: var(--qv-canvas);
+  }
+
+  .md-nav--primary .md-nav__list {
+    background: var(--qv-canvas);
+  }
+
+  /* The desktop rail marker sits outside the link. Keep the drawer marker
+     inside its clipping boundary so the active item reads as intentional. */
+  .md-nav--primary .md-nav__link--active {
+    padding-left: 0.65rem;
+    background: linear-gradient(90deg, var(--qv-arrow-soft), transparent 78%);
+  }
+
+  .md-nav--primary .md-nav__link--active::before {
+    top: 0.2rem;
+    bottom: 0.2rem;
+    left: 0;
+    width: 2px;
+    height: auto;
+    background: var(--qv-arrow);
+    border: 0;
+    border-radius: 1px;
+    box-shadow: none;
+  }
+
+  .qv-focus-toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 60em) {
+  .qv-hero {
+    grid-template-columns: 1fr;
+    gap: 3.2rem;
+    min-height: 0;
+    padding: 4rem 1rem;
+  }
+
+  .qv-hero h1 {
+    max-width: 12ch;
+  }
+
+  .qv-pathways {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 1rem;
+  }
+
+  .qv-crosswalk {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 48em) {
+  html {
+    scroll-padding-top: 4.2rem;
+  }
+
+  .md-content__inner {
+    display: block;
+    margin-bottom: 2rem;
+    padding: 1.3rem 1rem 0;
+  }
+
+  .md-content__inner > .md-content__button {
+    float: right;
+    margin-left: 0.5rem;
+  }
+
+  .md-typeset {
+    font-size: 0.82rem;
+    line-height: 1.68;
+  }
+
+  .md-typeset h1 {
+    font-size: 2.35rem;
+  }
+
+  .md-typeset h2 {
+    margin-top: 2.7rem;
+    font-size: 1.3rem;
+  }
+
+  .md-typeset .highlight,
+  .md-typeset .tabbed-set,
+  .md-typeset__table,
+  .md-typeset .qv-diagram-frame {
+    width: calc(100% + 1rem);
+    margin-right: -0.5rem;
+    margin-left: -0.5rem;
+  }
+
+  .qv-hero {
+    padding: 3.2rem 0 3.6rem;
+  }
+
+  .qv-hero h1 {
+    font-size: clamp(3rem, 17vw, 4.25rem);
+  }
+
+  .qv-hero__code pre {
+    min-height: 0;
+    padding: 1rem;
+  }
+
+  .qv-hero__code,
+  .qv-hero__copy {
+    width: 100%;
+  }
+
+  .qv-pathways {
+    grid-template-columns: 1fr;
+    margin: 2.8rem 0 3.5rem;
+    padding: 0;
+  }
+
+  .qv-diagram-caption__kind {
+    display: none;
+  }
+
+  .qv-diagram-caption__action {
+    font-size: 0;
+  }
+
+  .qv-diagram-caption__action::after {
+    content: "Tap to enlarge";
+    font-size: 0.62rem;
+  }
+
+  .mermaid.is-zoomed::after {
+    content: "Tap to close";
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media print {
+  .md-header,
+  .md-tabs,
+  .md-sidebar,
+  .md-footer,
+  .qv-focus-toggle {
+    display: none !important;
+  }
+
+  .md-content__inner {
+    display: block;
+    max-width: none;
+  }
+
+  .arithmatex,
+  .highlight,
+  .qv-diagram-frame {
+    break-inside: avoid;
+  }
 }

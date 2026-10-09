@@ -11,8 +11,8 @@ The development is organized as follows.
 5. **[Morphisms](morphisms.md).** $\mathcal{V}$-relations, stochastic kernels, and continuous conditional families as the three morphism strata; their composition, tensor product, marginalization, and trace.
 6. **[Expressions](expressions.md).** Compositional semantics of expression-level combinators: `>>`, `>>>`, `@`, `.marginalize`, `.change_base`, `fan`, `repeat`, `stack`, `scan`, and the parser combinators.
 7. **[Programs](programs.md).** Probability- and weighted-kernel semantics of `program` blocks; the denotation of bind (`<-`), `observe`, `let`, `score`, finite `marginalize`, and `return`; grouped marginalization with multi-observe fibrations; and the boundary between exact finite enumeration and ordinary sampling.
-8. **[Typing and checking](typing.md).** The current two-layer checker: surface objects, spaces, axes, and family shapes; QIEC kinds, indexed families, computations, lexical effect rows, handlers, and program elaboration; plus the guarantees and dynamic limits of that implementation.
-9. **[Weighted deduction fragment](grammar.md).** Item algebras, rule systems as hyperedges in a multicategory, semiring-weighted chart enumeration, axiom injectors, strategy independence, and differentiable charts. Includes learnable per-rule and bindings-keyed weights, hierarchical (`parent=`) and bounded (`bounded`) rule parameterizations, alpha-renamed binder blocks, convergent-cycle (`tolerance=`) chart evaluation, and the chart-access surface (`parse(D, x)`, `compose(D_1, D_2)`, `subst(t, v, w)`) that lifts a chart's goal weight into a `program`'s log-joint via a [`score`](programs.md#210-score-factor) step.
+8. **[Typing and checking](typing.md).** The current two-layer checker: source-level objects, spaces, axes, and family shapes; QIEC kinds, indexed families, computations, lexical effect rows, handlers, and program elaboration; plus the guarantees and dynamic limits of that implementation.
+9. **[Weighted deduction fragment](grammar.md).** Item algebras, rule systems as hyperedges in a multicategory, semiring-weighted chart enumeration, axiom injectors, strategy independence, and differentiable charts. Includes learnable per-rule and bindings-keyed weights, hierarchical (`parent=`) and bounded (`bounded`) rule parameterizations, alpha-renamed binder blocks, convergent-cycle (`tolerance=`) chart evaluation, and the chart API (`parse(D, x)`, `compose(D_1, D_2)`, `subst(t, v, w)`) that lifts a chart's goal weight into a `program`'s log-joint via a [`score`](programs.md#210-score-factor) step.
 10. **[Schemas, rules, categories, bundles](schemas.md).** Category atoms; rule declarations as universally-quantified hyperedges; pattern-polymorphic schema declarations; bundles as first-class rule sets; the residuated type formers $/$, $\backslash$, $T(\cdot)$; free residuated category universes; object- and space-level aliases.
 11. **[Structural compression](structural.md).** Signatures as generalized algebraic theories; encoders as initial-algebra catamorphisms into a vector carrier; decoders as Kleisli coalgebras of the Giry monad; losses as attached scalar functionals on training-site traces.
 12. **[Compositional effects](effects.md).** Typeclass + algebraic-effects framework over a residuated category universe; class-driven schema lifting; joint type-and-effect dispatch in the chart parser; conservativity over the bare deduction fragment.
@@ -21,7 +21,7 @@ The development is organized as follows.
 15. **[Transpilation architecture](transpile-architecture.md).** The `Module -> IRProgram -> panproto.Schema -> bytes` pipeline, its shared family metadata, and backend renderers.
 16. **[Transpilation correctness](transpile-correctness/index.md).** Structural, re-emission, external-syntax, and numeric-equivalence evidence, with per-target support notes: [Stan](transpile-correctness/stan.md), [NumPyro](transpile-correctness/numpyro.md), [Pyro](transpile-correctness/pyro.md), [PyMC](transpile-correctness/pymc.md), [Edward2](transpile-correctness/edward2.md), [Turing.jl](transpile-correctness/turing.md), [Gen.jl](transpile-correctness/gen.md), [Church](transpile-correctness/church.md), [WebPPL](transpile-correctness/webppl.md), [BUGS](transpile-correctness/bugs.md), and [JAGS](transpile-correctness/jags.md).
 
-## Declaration surfaces
+## Declaration syntax
 
 The categorical and probabilistic declarations use a shared option-block and
 initializer vocabulary. Their common schematic shape is:
@@ -68,7 +68,7 @@ Throughout, we use the following conventions.
 | $\Gamma \vdash \phi : \tau$ | $\phi$ is well-typed of type $\tau$ under environment $\Gamma$. |
 | $\rho$ | A semantic environment (assignment of denotations to free names). |
 
-In the classic categorical surface, a *type* is a finite-set object and a
+In the categorical fragment, a *type* is a finite-set object and a
 *space* is a standard Borel object. QIEC additionally has a `Type` kind for
 primitive, product, distribution, and indexed-family types; [Typing and
 checking](typing.md#4-qiec-kinds-and-types) keeps those two uses separate. We

@@ -26,7 +26,7 @@ print(f.tensor.shape)  # torch.Size([3, 4])
 print(f.domain.name, "->", f.codomain.name)  # X -> Y
 ```
 
-Create an **observed** (fixed) morphism with a fixed tensor:
+Create an **observed** morphism from a fixed tensor:
 
 ```python
 data = torch.tensor([
@@ -179,7 +179,7 @@ Supported DSL operators:
 | `.change_base(t)` | change of base under transformation `t` | `f.change_base(softmax(B))` |
 | `identity(X)` | identity morphism | `morphism id : X -> X [role=observed] ~ identity(X)` |
 
-The DSL also has surface for monadic probabilistic programs (`program ... [effects = [Sample, Score]]`), composition rules at four algebraic levels via `composition NAME [level=<algebra | semigroupoid | bilinear_form | rule>]`, and operadic contractions (`contraction op : ... [rule = R, wiring = "..."]`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) walks through the full API.
+The DSL also supports monadic probabilistic programs (`program ... [effects = [Sample, Score]]`), composition rules at four algebraic levels via `composition NAME [level=<algebra | semigroupoid | bilinear_form | rule>]`, and operadic contractions (`contraction op : ... [rule = R, wiring = "..."]`). The [QVR tutorial](../tutorials/qvr/01-first-model.md) introduces the complete language.
 
 ## 6. Stochastic Morphisms
 
@@ -234,8 +234,8 @@ print(comp.tensor.shape)  # [3, 3]
 
 ## 8. Interactive exploration
 
-`pip install 'quivers[repl,lsp]'` adds two interactive surfaces over
-the same elaborator the library uses internally.
+`pip install 'quivers[repl,lsp]'` adds a REPL, a Jupyter kernel, and a
+language server. All three use the compiler and type checker from the library.
 
 ### The REPL
 
@@ -243,13 +243,12 @@ the same elaborator the library uses internally.
 qvr repl docs/examples/source/seq2seq.qvr
 ```
 
-A four-pane Textual TUI: input editor (top-left), output log (mid-left),
-environment browser (right, click any leaf to `:info` it), watches and
-diagnostics strips at the bottom (auto-hidden when empty), plus a
-status bar showing the loaded file, active algebra, and binding
-counts.
+The four-pane Textual TUI contains an input editor, an output log, and an
+environment browser whose leaves open `:info`. Watch and diagnostic strips
+appear at the bottom when needed, and the status bar reports the loaded file,
+active algebra, and binding counts.
 
-GHCi-shaped meta-commands:
+GHCi-style meta-commands:
 
 ```
 qvr> :type seq2seq
@@ -266,7 +265,7 @@ qvr> :save my_edits.qvr        # write the live module to disk
 `Ctrl-G` (or `Ctrl-O`, `F8`) evaluates; `Tab` cycles completions;
 `Ctrl-P` opens a fuzzy command palette; the loaded file auto-reloads
 on save. The full reference is in
-[Interactive surface](../guides/repl-and-lsp.md).
+[Interactive tools](../guides/repl-and-lsp.md).
 
 ### The language server
 
@@ -275,14 +274,14 @@ pip install 'quivers[lsp]'    # provides `qvr-lsp` on your PATH
 ```
 
 The
-[`vscode-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr)
+[`vscode-qvr`](https://github.com/quivers-dev/quivers/tree/main/editors/vscode-qvr)
 and
-[`zed-extension-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr)
-extensions auto-discover it. Capabilities: hover (QVR declaration plus
-collapsible AST), go-to-definition, references, document symbols,
-semantic highlighting, completion, formatting, live diagnostics. The
-same `STYLE_TABLE` drives the REPL and the LSP so the colours never
-disagree.
+[`zed-extension-qvr`](https://github.com/quivers-dev/quivers/tree/main/editors/zed-extension-qvr)
+extensions discover it automatically. It supports hover information (the QVR
+declaration plus a collapsible AST), go-to-definition, references, document
+symbols, semantic highlighting, completion, formatting, and live diagnostics.
+The REPL and language server share `STYLE_TABLE`, so a symbol receives the same
+color in both.
 
 ### The Jupyter kernel
 
@@ -296,7 +295,7 @@ other lines append statements to the live module.
 
 ## Next Steps
 
-- **[Interactive surface](../guides/repl-and-lsp.md):** REPL, language server, and Jupyter kernel reference.
+- **[Interactive tools](../guides/repl-and-lsp.md):** REPL, language server, and Jupyter kernel reference.
 - **[Architecture](architecture.md):** learn the package structure and design principles.
 - **[API Reference](../api/index.md):** detailed documentation of all classes and functions.
 - **Guides:** core types, morphisms, categorical structures, stochastic and continuous morphisms, the DSL, and variational inference.

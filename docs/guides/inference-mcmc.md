@@ -132,7 +132,7 @@ samples = predictive(x_new)
 - [SVI guide](inference-svi.md): the variational counterpart, and
   the SVI driver wrapping the `AutoDAIS` hybrid sampler.
 - [Analysis Pipelines: Fitting and Diagnostics](analysis-fitting-and-diagnostics.md):
-  the high-level `fit(...)` surface that wraps the MCMC and SVI
+  the high-level `fit(...)` API that wraps the MCMC and SVI
   drivers under one entry point.
 
 

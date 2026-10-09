@@ -109,6 +109,10 @@ flowchart LR
     gate_o["gate_o"] --> h_new["h_new"]
     c_new["c_new"] --> h_new["h_new"]
     h_new["h_new"] --> scan["scan"]
+    class x_t,h_prev qv-input
+    class gate_i,gate_f,gate_o,cell_cand qv-checked
+    class c_new,h_new qv-foundation
+    class scan qv-output
 ```
 
 ## Try it

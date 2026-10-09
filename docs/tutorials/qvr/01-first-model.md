@@ -2,7 +2,10 @@
 
 This chapter develops a Bayesian linear regression in QVR: it defines the model, generates synthetic data, fits the model with variational inference, and inspects the posterior. Each stage is paired with its analogue in another probabilistic-programming language.
 
-If you're coming from Stan, PyMC, NumPyro, or Pyro, the punchline is: QVR puts a typed signature on each model, runs a compiler pass before any tensor evaluation, and exposes the same SVI / NUTS surface you already know. The categorical machinery underneath the DSL stays invisible until chapter 7.
+If you're coming from Stan, PyMC, NumPyro, or Pyro, the main difference is that
+QVR gives each model a typed signature and checks it before evaluating any
+tensors. You can still fit the model with familiar SVI and NUTS workflows. The
+categorical implementation becomes relevant in chapter 7.
 
 ## Prerequisites
 
@@ -193,7 +196,10 @@ Prefer this over a `for _ in range(N): guide.rsample(...)` loop. `Predictive` ba
 Three things:
 
 1. **Types on the outside, names on the inside.** Every program has a typed signature `dom -> cod`; latents in the body are scoped to that signature. In Pyro/NumPyro, names live in a global trace and types are implicit.
-2. **Compile, then fit.** `loads` runs the QVR compiler before training: malformed models, source-level type mismatches, and undefined QVR declarations surface before tensor evaluation. Shapes that depend on host data are checked when those tensors cross the runtime boundary.
+2. **Compile, then fit.** `loads` runs the QVR compiler before training:
+   malformed models, source-level type mismatches, and undefined declarations
+   produce errors before tensor evaluation. Shapes that depend on host data are
+   checked when those tensors cross the runtime boundary.
 3. **Effects in the option block.** The `effects = [Sample, Score, Marginal, Pure]` entry on a program declaration is a static promise about what the body does. It's optional but lets the compiler reject programs that, say, try to `observe` inside a `Pure` block.
 
 ## Try this

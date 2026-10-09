@@ -1,7 +1,7 @@
 # Inference Foundations
 
 This page introduces the inference stack's architecture, the trace
-and sample-site interface, and the conditioning surface used to
+and sample-site interface, and the conditioning API used to
 clamp observations. The variational-family layer (guides,
 objectives, SVI) lives in
 [Variational Inference: SVI](inference-svi.md); the
@@ -16,13 +16,16 @@ independently and re-exported from
 
 ```mermaid
 flowchart TB
-    L6["Layer 6: SVI, MCMC, Predictive drivers"]
-    L5["Layer 5: Hybrid samplers<br/>AutoDAIS, WarmupThenHMC"]
-    L4["Layer 4: Guides Auto*Guide and MCMC kernels HMC, NUTS"]
-    L3["Layer 3: Objectives ELBO, IWAE, Renyi, VR-IWAE<br/>times Estimators Reparam, StL, DReG, Score"]
-    L2["Layer 2: Transforms and normalizing-flow primitives<br/>affine coupling, MAF, IAF, NSF, BN, LU"]
-    L1["Layer 1: LatentRegistry<br/>model introspection of support, dims, plate, parent"]
-    L6 --> L5 --> L4 --> L3 --> L2 --> L1
+    L6["Drivers<br/><small>SVI · MCMC · Predictive</small>"]
+    L5["Hybrid algorithms<br/><small>AutoDAIS · WarmupThenHMC</small>"]
+    L4["Posterior approximations<br/><small>Auto*Guide · HMC · NUTS</small>"]
+    L3["Objectives × estimators<br/><small>ELBO · IWAE · Rényi × Reparam · StL · DReG · Score</small>"]
+    L2["Transforms<br/><small>affine coupling · MAF · IAF · NSF · BN · LU</small>"]
+    L1["LatentRegistry<br/><small>support · dimensions · plates · parents</small>"]
+    L6 -->|orchestrate| L5 -->|combine| L4 -->|optimize with| L3 -->|parameterize through| L2 -->|read structure from| L1
+    class L6,L5 qv-output
+    class L4,L3 qv-checked
+    class L2,L1 qv-foundation
 ```
 
 Every guide and MCMC kernel consumes a single
@@ -35,15 +38,16 @@ unconstrained vector and routes every per-site bijector through
 
 ```mermaid
 flowchart TB
-    M["Model<br/>MonadicProgram"]
-    T["Trace<br/>record sample sites"]
-    C["Condition<br/>clamp observations"]
-    LR["LatentRegistry<br/>introspect remaining sites"]
-    G["Guide<br/>variational family<br/>Auto*Guide subclass"]
-    O["Objective<br/>ELBO, IWAEBound, RenyiBound, VRIWAEBound<br/>plus Estimator"]
-    S["SVI<br/>stochastic optimization"]
-    P["Predictive<br/>sample from posterior<br/>consumes a Guide or an MCMCResult"]
-    M --> T --> C --> LR --> G --> O --> S --> P
+    M["Model<br/><small>MonadicProgram</small>"] -->|execute once| T["Trace<br/><small>record sample sites</small>"]
+    T -->|clamp observed sites| C["Conditioned model"]
+    C -->|inspect latent sites| LR["LatentRegistry"]
+    LR -->|choose family| G["Guide<br/><small>Auto*Guide subclass</small>"]
+    G -->|estimate bound| O["Objective + estimator<br/><small>ELBO · IWAE · Rényi · VR-IWAE</small>"]
+    O -->|differentiate| S["SVI<br/><small>stochastic optimization</small>"]
+    S -->|fitted posterior| P["Predictive draws"]
+    class M qv-input
+    class T,C,LR,G,O qv-checked
+    class S,P qv-output
 ```
 
 ## Trace and sample sites
@@ -174,4 +178,4 @@ fit (see [SVI](inference-svi.md#svi-stochastic-variational-inference)).
   hybrid samplers, and predictive sampling from MCMC chains.
 - [Analysis Pipelines: Fitting and Diagnostics](analysis-fitting-and-diagnostics.md):
   the higher-level fit / compare / posterior-predictive-check
-  surface built on top of these primitives.
+  interface built on top of these primitives.

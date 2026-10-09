@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://FACTSlab.github.io/quivers
+    url: https://quivers.dev
     about: User guides, API reference, and the formal denotational semantics.
   - name: Discussions
-    url: https://github.com/FACTSlab/quivers/discussions
+    url: https://github.com/quivers-dev/quivers/discussions
     about: Open-ended questions, design discussions, and how-to questions.

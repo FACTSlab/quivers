@@ -28,7 +28,7 @@ composition counting [level=algebra]
 The keyword `algebra` resolves a name against the built-in
 composition-rule registry and verifies the registered rule is at
 the [`Algebra`](../api/core/algebras.md) level. Three weaker levels
-are also surface-declarable:
+can also be declared in QVR:
 
 <!-- compile: false -->
 ```qvr
@@ -48,7 +48,7 @@ Operations that need the identity element
 [`cap(A)`](../api/core/morphisms.md#quivers.core.morphisms.cap))
 compile only under `algebra`. See [Composition
 Rules](../semantics/composition-rules.md) for the algebraic
-hierarchy and the operadic contraction surface.
+hierarchy and operadic contraction syntax.
 
 A composition rule can also be defined inline via an indented body,
 with each entry a `let`-expression:
@@ -77,7 +77,7 @@ the entry set against the declared level.
 
 ## Object
 
-Three surface forms:
+Three forms are available:
 
 <!-- compile: false -->
 ```qvr
@@ -248,7 +248,7 @@ morphism flow : R3 -> R3 ~ Flow [n_layers=6, hidden_dim=32]
 ```
 
 The kernel role unifies the discrete (finite-set lookup) and
-continuous / stochastic (parametric Family) cases under one surface;
+continuous or stochastic (parametric `Family`) cases under one declaration;
 the runtime branches on whether the codomain is a
 [`FinSet`](../api/core/objects.md) or a
 [`ContinuousSpace`](../api/continuous/spaces.md).
@@ -698,7 +698,7 @@ handlers](../reference/qvr/effects-and-handlers.md), and
 
 ## Structural compression: `signature`, `encoder`, `decoder`, `loss`
 
-The structural-compression surface gives transformers, tree LSTMs,
+The structural-compression declarations represent transformers, tree LSTMs,
 GNNs, RNNs, autoregressive language models, and the vector
 inside-outside parser as instances of one interface. A
 `signature { ... }` block declares sorts and constructors over a

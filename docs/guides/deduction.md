@@ -18,7 +18,7 @@ The chart is the $K$-presheaf $C : I^{\mathrm{op}} \to K$ that is the least pre-
 
 See [References](#references) below.
 
-## Surface
+## QVR syntax
 
 ```text
 object Atom : FinSet 4
@@ -34,7 +34,7 @@ The unified option block carries the deduction-level configuration (semiring, st
 
 ## Charts as first-class differentiable values
 
-Running a deduction yields a `ChartView`, a $K$-presheaf value with surface methods for querying:
+Running a deduction yields a `ChartView`, a $K$-presheaf value with query methods:
 
 <!-- python: skip -->
 ```python

@@ -5,23 +5,23 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/FACTSlab/quivers/actions/workflows/ci.yml"><img src="https://github.com/FACTSlab/quivers/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://FACTSlab.github.io/quivers"><img src="https://github.com/FACTSlab/quivers/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
+  <a href="https://github.com/quivers-dev/quivers/actions/workflows/ci.yml"><img src="https://github.com/quivers-dev/quivers/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://quivers.dev"><img src="https://github.com/quivers-dev/quivers/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
   <a href="https://pypi.org/project/quivers/"><img src="https://img.shields.io/pypi/v/quivers" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.14%2B-blue" alt="Python 3.14+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
 </p>
 
 <p align="center">
-  <a href="https://FACTSlab.github.io/quivers/getting-started/quickstart/"><strong>Quickstart</strong></a>
+  <a href="https://quivers.dev/getting-started/quickstart/"><strong>Quickstart</strong></a>
   ·
-  <a href="https://FACTSlab.github.io/quivers/tutorials/"><strong>Tutorials</strong></a>
+  <a href="https://quivers.dev/tutorials/"><strong>Tutorials</strong></a>
   ·
-  <a href="https://FACTSlab.github.io/quivers/examples/"><strong>Examples</strong></a>
+  <a href="https://quivers.dev/examples/"><strong>Examples</strong></a>
   ·
-  <a href="https://FACTSlab.github.io/quivers/reference/qvr/"><strong>Language reference</strong></a>
+  <a href="https://quivers.dev/reference/qvr/"><strong>Language reference</strong></a>
   ·
-  <a href="https://FACTSlab.github.io/quivers/api/"><strong>Python API</strong></a>
+  <a href="https://quivers.dev/api/"><strong>Python API</strong></a>
 </p>
 
 ---
@@ -62,7 +62,7 @@ python -m pip install 'quivers[formulas,diagnostics,repl,lsp,targets]'
 The user-facing extras are `formulas`, `data`, `diagnostics`, `repl`, `lsp`,
 and `targets`. The `dev` and `docs` extras are for work on Quivers itself.
 Some transpilation targets require their own runtime or compiler. The
-[installation guide](https://FACTSlab.github.io/quivers/getting-started/installation/)
+[installation guide](https://quivers.dev/getting-started/installation/)
 covers editor setup and target-specific dependencies.
 
 ## Quick start
@@ -106,13 +106,13 @@ export gru_lm
 Download the example and check it:
 
 ```bash
-curl -LO https://raw.githubusercontent.com/FACTSlab/quivers/main/docs/examples/source/gru_lm.qvr
+curl -LO https://raw.githubusercontent.com/quivers-dev/quivers/main/docs/examples/source/gru_lm.qvr
 qvr check gru_lm.qvr
 ```
 
-The [QVR tutorial](https://FACTSlab.github.io/quivers/tutorials/qvr/01-first-model/)
+The [QVR tutorial](https://quivers.dev/tutorials/qvr/01-first-model/)
 develops the language and inference workflow from a first model. The
-[examples gallery](https://FACTSlab.github.io/quivers/examples/) covers
+[examples gallery](https://quivers.dev/examples/) covers
 hierarchical and state-space models, mixture models, neural language models,
 formal grammars, and structural autoencoders.
 
@@ -152,8 +152,8 @@ result.dump_qvr("model.qvr")
 For language work, `qvr repl` opens the interactive environment,
 `qvr-kernel install` registers the Jupyter kernel, and `qvr-lsp` starts the
 language server. The repository contains extensions for
-[VS Code and Cursor](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr)
-and [Zed](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr).
+[VS Code and Cursor](https://github.com/quivers-dev/quivers/tree/main/editors/vscode-qvr)
+and [Zed](https://github.com/quivers-dev/quivers/tree/main/editors/zed-extension-qvr).
 
 ## How the pieces fit together
 
@@ -175,26 +175,26 @@ flowchart LR
 
 | Resource | Use it for |
 | --- | --- |
-| [Getting started](https://FACTSlab.github.io/quivers/getting-started/quickstart/) | Installation and a first working model. |
-| [QVR tutorials](https://FACTSlab.github.io/quivers/tutorials/qvr/01-first-model/) | Guided lessons from core syntax through indexed effects, handlers, inference, and release checks. |
-| [Python tutorials](https://FACTSlab.github.io/quivers/tutorials/python/01-first-quiver/) | The typed categorical library and its composition rules. |
-| [Examples](https://FACTSlab.github.io/quivers/examples/) | Complete models organized by statistical family and language feature. |
-| [Language reference](https://FACTSlab.github.io/quivers/reference/qvr/) | QVR syntax, types, effects, execution, and tooling behavior. |
-| [Guides](https://FACTSlab.github.io/quivers/guides/) | Inference, formulas and data, transpilation, the REPL, the LSP, and extension points. |
-| [Python API](https://FACTSlab.github.io/quivers/api/) | Public classes, functions, and modules. |
-| [Semantics](https://FACTSlab.github.io/quivers/semantics/) | Formal denotations for well-typed programs. |
-| [QIEC internals](https://FACTSlab.github.io/quivers/developer/qiec/) | The stable core, serialization format, and runtime ABI. |
+| [Getting started](https://quivers.dev/getting-started/quickstart/) | Installation and a first working model. |
+| [QVR tutorials](https://quivers.dev/tutorials/qvr/01-first-model/) | Guided lessons from core syntax through indexed effects, handlers, inference, and release checks. |
+| [Python tutorials](https://quivers.dev/tutorials/python/01-first-quiver/) | The typed categorical library and its composition rules. |
+| [Examples](https://quivers.dev/examples/) | Complete models organized by statistical family and language feature. |
+| [Language reference](https://quivers.dev/reference/qvr/) | QVR syntax, types, effects, execution, and tooling behavior. |
+| [Guides](https://quivers.dev/guides/) | Inference, formulas and data, transpilation, the REPL, the LSP, and extension points. |
+| [Python API](https://quivers.dev/api/) | Public classes, functions, and modules. |
+| [Semantics](https://quivers.dev/semantics/) | Formal denotations for well-typed programs. |
+| [QIEC internals](https://quivers.dev/developer/qiec/) | The stable core, serialization format, and runtime ABI. |
 
 ## Project status
 
 Quivers is alpha software. Language and API changes are recorded in the
 [changelog](CHANGELOG.md), and published releases are available from
 [PyPI](https://pypi.org/project/quivers/) and
-[GitHub Releases](https://github.com/FACTSlab/quivers/releases).
+[GitHub Releases](https://github.com/quivers-dev/quivers/releases).
 
 ## Support
 
-Use [GitHub Issues](https://github.com/FACTSlab/quivers/issues) for bug reports,
+Use [GitHub Issues](https://github.com/quivers-dev/quivers/issues) for bug reports,
 feature requests, and documentation problems. Include a minimal `.qvr` file,
 the command you ran, and the complete diagnostic when reporting compiler or
 runtime behavior.

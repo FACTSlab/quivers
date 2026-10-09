@@ -1,12 +1,12 @@
 # 7. Composition rules beyond algebras
 
-The default categorical surface composes morphisms under Quivers' [`Algebra`](../../api/core/algebras.md) interface. It provides the operations that `f >> g` needs: a binary tensor operation, a reduction over the shared dimension, unit and zero elements, meet, and negation. Some built-in instances have additional lattice or quantale structure, but the Python interface itself does not verify all of those laws.
+By default, Quivers composes morphisms through its [`Algebra`](../../api/core/algebras.md) interface. This interface defines the operations that `f >> g` needs: a binary tensor operation, a reduction over the shared dimension, unit and zero elements, meet, and negation. Some built-in instances have additional lattice or quantale structure, but the Python interface itself does not verify all of those laws.
 
 ## Why weaker rules at all?
 
-Most probabilistic models live happily inside one algebra: Markov for probability kernels, LogProb for numerical stability, ProductFuzzy for fuzzy logic. The reason quivers ships weaker rules is that two important construct families don't satisfy the full algebra contract and would otherwise be unrepresentable in the type system:
+Most probabilistic models use one algebra: Markov for probability kernels, LogProb for numerical stability, or ProductFuzzy for fuzzy logic. Quivers also provides weaker rules because two important families of constructs do not satisfy the full algebra contract and would otherwise be unrepresentable in the type system:
 
-1. **Fuzzy-logic implication.** Reichenbach's implication, $a \to b = 1 - a + a \cdot b$, has no element $e$ such that $e \to b = b$ for every $b$. Quivers exposes it through the semigroupoid-level interface, but this particular operation is not associative; the constructor thus skips the associativity check. Do not reassociate chains that use it.
+1. **Fuzzy-logic implication.** Reichenbach's implication, $a \to b = 1 - a + a \cdot b$, has no element $e$ such that $e \to b = b$ for every $b$. Quivers represents it through the semigroupoid-level interface, but this particular operation is not associative; the constructor thus skips the associativity check. Do not reassociate chains that use it.
 2. **Tensor-network contractions and attention.** A signed dot product `<u, v> = sum_i u_i * v_i` is neither associative as a composition (the product nests but the inner contractions don't commute with rebracketing) nor identity-bearing. Attention scores in transformer-style models behave the same way: softmax-then-multiply is a perfectly good per-row operation but is not an algebra. These live at the [bilinear form](https://en.wikipedia.org/wiki/Bilinear_form) level.
 
 The takeaway: pick the weakest level that your construct satisfies. Library code that needs `identity` or `dagger` reaches for `Algebra`; code that only needs associative composition uses `Semigroupoid`; code that does an arbitrary n-ary tensor contraction uses `CompositionRule`. The compiler rejects calls that require a level above what your rule provides.
@@ -16,7 +16,7 @@ Two strictly weaker settings come up regularly enough that the library gives the
 - [Semigroupoids](https://ncatlab.org/nlab/show/semigroupoid): an interface for composition without algebra-only operations such as `identity`. Custom semigroupoids are normally checked for associativity. The shipped Reichenbach helper is a documented exception because its operation is not associative.
 - [Bilinear forms](https://en.wikipedia.org/wiki/Bilinear_form): a tensor contraction with neither associativity nor identity guarantees. Signed dot product, top-k truncating compositions, and attention-style softmax-then-multiply rules all sit here.
 
-This chapter walks through the [`CompositionRule`](../../api/core/algebras.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/algebras.md) surface for n-ary contractions, and the user-facing DSL constructs (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`) that surface them.
+This chapter describes the [`CompositionRule`](../../api/core/algebras.md) hierarchy, the [operadic](https://ncatlab.org/nlab/show/operad) [`EinsumWiring`](../../api/core/algebras.md) API for n-ary contractions, and the corresponding DSL declarations (`semigroupoid`, `bilinear_form`, `composition_rule`, `contraction`).
 
 ## The hierarchy
 
@@ -134,7 +134,7 @@ with pytest.raises(AttributeError):
     mi.identity_tensor((3,))               # also unavailable
 ```
 
-The DSL surface raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared with `composition X [level=semigroupoid]` or `[level=bilinear_form]`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user surface.
+The DSL compiler raises a typed `CompileError` at parse time if you try `identity(A)`, `cup(A)`, `cap(A)`, `f.dagger`, or `f.trace(A)` inside a module declared with `composition X [level=semigroupoid]` or `[level=bilinear_form]`. The [QVR categorical tutorial](../qvr/07-categorical.md) covers the corresponding syntax.
 
 ## Operadic n-ary contractions
 
@@ -146,7 +146,7 @@ $$
 \mathrm{out}[s, o] = \bigoplus_{p, q}\Big(\mathrm{arg}_1[s, p] \otimes \mathrm{arg}_2[s, q] \otimes \mathrm{kernel}[p, q, o]\Big).
 $$
 
-This is an operadic operation, not a binary composition. [`EinsumWiring`](../../api/core/algebras.md) provides the surface:
+This is an operadic operation, not a binary composition. [`EinsumWiring`](../../api/core/algebras.md) provides the Python API:
 
 ```python
 from quivers.core.wiring import EinsumWiring, einsum_wiring, contract
@@ -190,11 +190,11 @@ out   = wmi.apply(
 - The output must not repeat a letter (`"ij, jk -> iik"` is refused).
 - Every output letter must appear in at least one input.
 
-At apply time, the tensor count and per-input dim count are checked. Shape mismatches between inputs surface as the underlying torch broadcast error.
+At apply time, the tensor count and per-input dimension count are checked. Shape mismatches between inputs appear as the underlying PyTorch broadcast error.
 
-## From the DSL surface
+## From QVR
 
-The user surface mirrors the Python API. Inside `.qvr` files:
+QVR mirrors the Python API. Inside `.qvr` files:
 
 <!-- compile: false -->
 ```qvr
@@ -236,11 +236,11 @@ define combined = op_apply(arg1_morph, arg2_morph, kernel_morph)
 
 ## Next
 
-[Tutorial 8](08-analysis-pipelines.md) walks through the analysis-pipeline surface: one-line brms-style `fit("y ~ x + (1|g)", data=df, ...)` regression, the QVR program it compiles to, NUTS sampling, PSIS-LOO model comparison, and ArviZ posterior-predictive checks.
+[Tutorial 8](08-analysis-pipelines.md) covers the analysis workflow: a one-line brms-style `fit("y ~ x + (1|g)", data=df, ...)` regression, the QVR program it compiles to, NUTS sampling, PSIS-LOO model comparison, and ArviZ posterior-predictive checks.
 
 ## Further reading
 
 - Use the [QVR tutorial](../qvr/01-first-model.md) if you want to write models in the DSL.
 - Read the [guides](../../guides/index.md) for feature-area-specific deep dives.
-- The [denotational semantics](../../semantics/index.md) covers the full categorical setting, including the formal denotation of every construct in this chapter.
-- The [API reference](../../api/index.md) gives you the typed surface in full.
+- The [denotational semantics](../../semantics/index.md) covers the full categorical setting and defines every construct in this chapter.
+- The [API reference](../../api/index.md) documents the complete typed API.

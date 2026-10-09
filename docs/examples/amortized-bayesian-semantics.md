@@ -50,6 +50,9 @@ flowchart LR
     Y --> J
     T[logical-form term] --> E[encoder]
     E --> D[decoder NLL]
+    class W,X,A,T qv-input
+    class P,H,M,E,Z,Y qv-checked
+    class J,D qv-output
 ```
 
 ## Indexed missingness

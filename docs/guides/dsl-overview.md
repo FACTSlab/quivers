@@ -24,15 +24,15 @@ export f
 optimizer = torch.optim.Adam(prog.parameters())
 ```
 
-`load("model.qvr")` reads the same surface from a file path.
+`load("model.qvr")` reads the same syntax from a file path.
 
-The program-block surface looks familiar if you've used Pyro,
+The `program` block looks familiar if you've used Pyro,
 NumPyro, Stan, or PyMC: `sample x <- F(...)` draws a value,
 `observe` scores data, `marginalize` integrates out a discrete latent,
 `let` is a deterministic binding, and `return` names the program's
 output.
 
-A few features distinguish the QVR surface from those alternatives:
+A few features distinguish QVR from those alternatives:
 
 - **First-class structured priors on weight matrices** via
   `morphism W : A -> B [role=latent] ~ Family(args)` with an
@@ -64,16 +64,14 @@ A few features distinguish the QVR surface from those alternatives:
 
 ```mermaid
 flowchart TB
-    SRC[".qvr source"]
-    PARSE["tree-sitter parse from the packaged current grammar"]
-    AST["typed source AST (didactic dx.Model)"]
-    OLD["probabilistic compiler"]
-    QIEC["QIEC route: Didactic GADT + Quivers kernel"]
-    PROG["Program (nn.Module)"]
-    CORE["checked QiecModule"]
-    SRC --> PARSE --> AST
-    AST --> OLD --> PROG
-    AST --> QIEC --> CORE
+    SRC[".qvr source"] -->|packaged grammar| PARSE["tree-sitter parse"] --> AST["Typed source AST<br/><small>didactic dx.Model</small>"]
+    AST -->|runtime route| COMPILER["Probabilistic compiler"] --> PROG["Program<br/><small>torch.nn.Module</small>"]
+    AST -->|kernel route| ELAB["QIEC elaboration<br/><small>Didactic GADT</small>"] --> CORE["Checked QiecModule"]
+    PROG -->|execute| RUN["Inference runtime"]
+    CORE -->|evaluate or lower| PORTABLE["Reference machine<br/>or target transpiler"]
+    class SRC qv-input
+    class PARSE,AST,COMPILER,ELAB,CORE qv-checked
+    class PROG,RUN,PORTABLE qv-output
 ```
 
 The grammar at `grammars/qvr/` is authoritative. Quivers compiles that current
@@ -114,7 +112,11 @@ in source order, dispatching each to a per-form handler
 ```python
 from quivers.dsl import Compiler, parse
 
-source = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f"
+source = """
+object X : FinSet 3
+morphism f : X -> X [role=latent]
+export f
+""".strip()
 ast = parse(source)
 compiler = Compiler(ast)
 program = compiler.compile()
@@ -124,8 +126,8 @@ program = compiler.compile()
 
 Every executable declaration of a module elaborates to a computation of the
 [QVR language reference](../reference/qvr/index.md): `index`, `family`,
-`effect`, `instance`, `handler`, and typed `define` declarations are its
-surface directly, and a `program` is domain-specific notation for a named
+`effect`, `instance`, `handler`, and typed `define` declarations map to it
+directly, and a `program` is domain-specific notation for a named
 computation over the module's canonical `random` and `score` instances, whose
 `sample` and `observe` steps perform `Random.sample` and `Score.add`, whose
 plates are typed tensor shapes, and whose `marginalize` blocks are helper
@@ -137,7 +139,7 @@ Panproto; Didactic then negotiates the exact route `qvr-source/v0.20` to
 coverage, call graphs, and branch-local evidence over the whole module at
 once.
 
-The checked module is what every downstream surface reads. The reference
+The checked module is what every downstream tool reads. The reference
 machine runs a `define` or a `program` through one entry-point invocation
 ([`invoke_entry`](../api/qiec/entries.md)); the torch runtime binds a program
 whose steps call a computation to a
@@ -148,8 +150,8 @@ NumPyro, PyMC, Edward2, Turing, Gen, WebPPL, and Church execute the complete
 computation graph through generated host runtimes. Stan, BUGS, and JAGS accept
 a checked, effect-free scalar subset and report a feature-specific capability
 diagnostic for other computations. See
-[QVR language reference](../reference/qvr/index.md) for the complete user
-surface and target boundary, and the [QIEC developer note](../developer/qiec.md)
+[QVR language reference](../reference/qvr/index.md) for the complete syntax
+and target boundary, and the [QIEC developer note](../developer/qiec.md)
 for the kernel and runtime ABI.
 
 ### Programs as panproto schemas
@@ -160,7 +162,11 @@ panproto `Schema` over `QVR_PROGRAM_PROTOCOL`:
 ```python
 from quivers.dsl import parse, Compiler, extract_program_schema
 
-source = "object X : FinSet 3\nmorphism f : X -> X [role=latent]\nexport f"
+source = """
+object X : FinSet 3
+morphism f : X -> X [role=latent]
+export f
+""".strip()
 ast = parse(source)
 compiler = Compiler(ast)
 compiler.compile()
@@ -360,7 +366,7 @@ morphism f : X -> X [role=latent]
 ### Doc comments
 
 Lines starting with `#!` are *doc comments*: they're attached to
-the declaration that immediately follows and surface through the
+the declaration that immediately follows and remain available through the
 AST, the panproto schema, and tooling (`qvr check --json`, LSP
 hover). Plain `#` line comments are dropped at parse time.
 
@@ -390,7 +396,11 @@ The DSL provides two error types:
 ```python
 from quivers.dsl import loads, ParseError, CompileError
 
-bad_source = "object X : FinSet 3\nmorphism f : X -> Y [role=latent]\nexport f"
+bad_source = """
+object X : FinSet 3
+morphism f : X -> Y [role=latent]
+export f
+""".strip()
 try:
     prog = loads(bad_source)
 except ParseError as e:
@@ -400,7 +410,7 @@ except CompileError as e:
 ```
 
 Tree-sitter's lexer is integrated with the grammar, so lexical
-errors surface as `ParseError`.
+errors raise `ParseError`.
 
 ## Tips
 
@@ -418,9 +428,9 @@ errors surface as `ParseError`.
   (objects, morphisms, spaces, kernels, algebras, deductions,
   aliases, combinators, exports).
 - [Programs and Let-Expressions](dsl-programs-and-lets.md): the
-  `program` block surface, bind / observe / marginalize / let
+  `program` block syntax, bind / observe / marginalize / let
   steps, the axis-role clause, factor expressions, the
-  let-expression primitive surface, and inline distribution
+  let-expression primitives, and inline distribution
   families.
 - [Contractions](dsl-contractions.md): operadic n-ary contractions,
   type-driven wiring inference, `share`, and the explicit `wiring`

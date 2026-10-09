@@ -27,7 +27,7 @@ object Rule : FinSet 16
 
 object Weight : Real 1
 
-# Probabilistic surface for transpile: each learnable rule weight
+# Probabilistic model for transpilation: each learnable rule weight
 # carries an independent Normal(0, 1) prior, and a treebank reports
 # how often each rule fired. Exponentiating a weight gives that
 # rule's firing rate, so the counts are Poisson in the rate; the
@@ -106,12 +106,12 @@ summed over every derivation $d$ that the start symbol licenses for
 the input. Fitting the lexicon and rule weights together is then a
 regression-style problem: minimise $-\sum_n \log Z(s_n)$ over a
 corpus of sentences. The
-[`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the
-two standard surfaces.
+[`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module provides
+the fitting utilities used below.
 
 ### Generating synthetic data
 
-The `custom_rules_prior` program is the standalone Bayesian surface over the same
+The `custom_rules_prior` program is a standalone Bayesian model over the same
 rule weights. Each rule draws one log-weight from a unit Normal;
 exponentiating that weight gives the rate at which the rule fires, and
 a treebank reports the count. Drawing the weights from their own prior

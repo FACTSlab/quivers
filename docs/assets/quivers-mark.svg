@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 64" role="img" aria-labelledby="title">
+  <title id="title">Quivers: a vibrating Q</title>
+  <g fill="none" stroke="#3157c8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M57 46c-8 6-21 6-30-1S17 25 23 16 42 5 53 10s17 17 13 28l12 12" stroke-width="3.2" opacity=".44" transform="translate(-7 -1.5)"/>
+    <path d="M57 46c-8 6-21 6-30-1S17 25 23 16 42 5 53 10s17 17 13 28l12 12" stroke-width="5"/>
+    <path d="M57 46c-8 6-21 6-30-1S17 25 23 16 42 5 53 10s17 17 13 28l12 12" stroke-width="3.2" opacity=".44" transform="translate(7 1.5)"/>
+  </g>
+</svg>

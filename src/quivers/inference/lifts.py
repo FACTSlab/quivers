@@ -561,31 +561,33 @@ def monte_carlo_log_joint(
 
     Mathematics
     -----------
-    Given an inner program with parameters :math:`\\theta`, named
-    intermediate latents :math:`\\mathbf{z}` (in ``sample_sites``),
-    and observed data :math:`y`, the wrapper returns
+    Given an inner program with parameters $\\theta$, named
+    intermediate latents $\\mathbf{z}$ (in ``sample_sites``),
+    and observed data $y$, the wrapper returns
 
-    .. math::
-        \\log p_{\\mathrm{inner}}(y \\mid \\mathbf{z}_*, \\theta),
-        \\qquad
-        \\mathbf{z}_* \\sim p_{\\mathrm{inner}}(\\mathbf{z} \\mid x, \\theta).
+    $$
+    \\log p_{\\mathrm{inner}}(y \\mid \\mathbf{z}_*, \\theta),
+    \\qquad
+    \\mathbf{z}_* \\sim p_{\\mathrm{inner}}(\\mathbf{z} \\mid x, \\theta).
+    $$
 
     This is a *single-sample Monte-Carlo estimator* of
-    :math:`\\log p_{\\mathrm{inner}}(y \\mid x, \\theta)`. By Jensen,
+    $\\log p_{\\mathrm{inner}}(y \\mid x, \\theta)$. By Jensen,
     its expectation lower-bounds the true marginal likelihood:
 
-    .. math::
-        \\mathbb{E}_{\\mathbf{z}}\\bigl[\\log p(y \\mid \\mathbf{z}, \\theta)\\bigr]
-        \\;\\le\\; \\log p(y \\mid x, \\theta).
+    $$
+    \\mathbb{E}_{\\mathbf{z}}\\bigl[\\log p(y \\mid \\mathbf{z}, \\theta)\\bigr]
+    \\;\\le\\; \\log p(y \\mid x, \\theta).
+    $$
 
     Implementation: for each name in ``sample_sites`` the wrapper
     resolves the site's morphism (through the inner's
     ``steps`` or, as a fallback, ``inner._modules`` under the
     conventional ``_step_<site>`` / ``<site>`` keys), draws
-    :math:`\\mathbf{z}_* = \\mathrm{morphism.rsample}(x)`, merges
+    $\\mathbf{z}_* = \\mathrm{morphism.rsample}(x)$, merges
     the draws into the observation dict, calls
     ``inner_model.log_joint(x, merged_obs)``, and subtracts
-    :math:`\\log p(\\mathbf{z}_* \\mid x, \\theta)` so the residual
+    $\\log p(\\mathbf{z}_* \\mid x, \\theta)$ so the residual
     is the conditional likelihood above (not the joint, which
     would double-count the latent's prior).
 
@@ -593,20 +595,20 @@ def monte_carlo_log_joint(
     ------------
     * **SVI / SGD**: this is a valid stochastic gradient estimator
       of the parameters' marginal-likelihood gradient. The mean of
-      :math:`\\nabla_\\theta \\log p(y \\mid \\mathbf{z}_*, \\theta)`
-      over draws of :math:`\\mathbf{z}_*` equals the corresponding
+      $\\nabla_\\theta \\log p(y \\mid \\mathbf{z}_*, \\theta)$
+      over draws of $\\mathbf{z}_*$ equals the corresponding
       ELBO-style descent direction, and SVI converges to a
       stationary point of that bound.
     * **NUTS / HMC**: *do not* use this wrapper for NUTS over a
-      model whose log-density depends on :math:`\\mathbf{z}`.
-      Re-drawing :math:`\\mathbf{z}_*` on every leapfrog evaluation
+      model whose log-density depends on $\\mathbf{z}$.
+      Re-drawing $\\mathbf{z}_*$ on every leapfrog evaluation
       makes the energy stochastic, which breaks the Hamiltonian
       symplectic invariant and biases the chain. The rigorous
-      route is to lift :math:`\\mathbf{z}` as an additional NUTS
+      route is to lift $\\mathbf{z}$ as an additional NUTS
       latent via
       `bayesian_lift_parameters` with
       ``additional_latents={'<name>': <shape>}`` and let NUTS
-      sample :math:`(\\theta, \\mathbf{z})` from the exact joint
+      sample $(\\theta, \\mathbf{z})$ from the exact joint
       posterior. The lifted log-density is then deterministic
       given the full state.
 

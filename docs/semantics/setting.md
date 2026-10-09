@@ -16,7 +16,7 @@ We write $\bigoplus$ for the implementation's reduction operation. It is a latti
 
 Strict quantales are standard enrichment bases. QVR's eleven built-ins are cataloged in [Algebras and base change](algebras.md), but several are finite-reduction semirings or t-norm/t-conorm pairs rather than strict quantales. QVR still evaluates their tensor contractions through the shared `Algebra` interface. It does not follow that every categorical equation in this chapter holds for every built-in.
 
-## 2. $\mathcal{V}$-enriched relations
+## 2. V-enriched relations
 
 Let $X, Y$ be finite sets. A *$\mathcal{V}$-relation* from $X$ to $Y$ is a function
 
@@ -71,7 +71,7 @@ A *semantic environment* $\rho$ is a partial function from identifiers to denota
 - $\rho_{\mathrm{spc}}$: standard Borel spaces;
 - $\rho_{\mathrm{mor}}$: morphisms (discrete, stochastic, or continuous);
 - $\rho_{\mathrm{cat}}$: category atoms in the grammar fragment;
-- $\rho_{\mathrm{rv}}$: random variables bound earlier in a `program` body, each carrying its current Kleisli arrow (see [Programs §1](programs.md#1-the-giry-monad-as-semantic-substrate)).
+- $\rho_{\mathrm{rv}}$: random variables bound earlier in a `program` body, each carrying its current Kleisli arrow (see [Programs §1](programs.md#1-the-giry-monad)).
 
 Following established practice, we write $\rho[x \mapsto v]$ for the environment obtained by extending $\rho$ with the binding $x = v$. The denotation of a phrase $\phi$ in environment $\rho$ is written $\llbracket \phi \rrbracket_{\rho}$; we elide $\rho$ when the binding context is clear.
 

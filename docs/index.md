@@ -1,112 +1,167 @@
-# Quivers
+---
+title: Quivers
+hide:
+  - navigation
+  - toc
+  - path
+---
 
-A functional probabilistic programming language for PyTorch.
+<div class="qv-home" markdown="block">
 
-Quivers is a functional probabilistic programming language for PyTorch. The syntax will look familiar if you have used Pyro, NumPyro, Stan, or PyMC, with a few distinguishing features:
+<section class="qv-hero" markdown="block">
+<div class="qv-hero__copy" markdown="block">
 
-- **Programs are first-class composable typed values.** A program has a domain, codomain, algebra, and effect signature (`Sample`, `Score`, `Marginal`, `Pure`), checked at compile time. Programs compose with `>>`, parallel-compose with `@`, change base across algebras with `change_base`, and marginalize discrete latents with `marginalize z : K <- ...` followed by an indented body.
-- **Shared substrate for inference, deduction, and structural compression.** A CKY parser written as a `deduction` block, a transformer-as-encoder over a `signature` block, and a Bayesian regression all compile to the same underlying semantics, with the same composition operators, and can thus compose with each other.
-- **Indexed families and algebraic effects have a typed core.** QVR has GADT-style indexed constructors, lexical effect instances, row-polymorphic computations, handlers, and resumption grades, and every executable declaration, a probabilistic `program` included, checks and lowers to the stable [Quivers Indexed Effect Core](developer/qiec.md). Each transpiler either emits the reachable computation graph or reports the unsupported QIEC capabilities. Stan, BUGS, and JAGS accept the closed pure scalar fragment and report precise capability diagnostics for other forms.
-- **Algebra-parametric semantics.** Programs can be parameterized by eleven built-in or user-defined algebras. Homomorphisms between algebras are values along which models can be transported. The compiler checks their source and target types; the algebraic laws remain assumptions of each instance.
+# Functional probabilistic programming for PyTorch.
 
-The probabilistic-programming surface also includes:
+<p class="qv-hero__lede">Each Quivers program is a typed value with an executable PyTorch implementation and a precise mathematical interpretation.</p>
 
-- **An inference toolkit.** More than forty distribution families. SVI with automatic guides from mean-field and full-rank multivariate normals through low-rank, mixture, structured, IAF, neural-spline flow, and AutoDAIS guides; seven objectives (ELBO, IWAE, Renyi, VR-IWAE, ChiVI, RWS, and DReGs); and reparameterized, score-function, sticking-the-landing, and DReG gradient estimators. NUTS and HMC use dual-averaging step-size adaptation and Welford mass-matrix adaptation.
-- **An analysis toolkit.** Static introspection of compiled programs (per-step algebra, chain depth, intermediate shape, source mapping); algebra-specific initialization recipes that adapt to whichever value algebra a program is parameterized over; compile-time diagnostics flagging latents whose default initialization differs materially from the recommended recipe.
-- **Diagnostics and model comparison.** ArviZ ecosystem integration: posteriors from any inference method (NUTS, HMC, or SVI) export to ArviZ for trace plots, rank plots, ESS, and $\hat R$. PSIS-LOO (Pareto-smoothed importance-sampling leave-one-out cross-validation) for ranking competing models; posterior-predictive checks against user-defined test statistics; LOO-PIT for calibration.
-- **A mixed-effect model API.** A [brms-style formula frontend](guides/analysis-data-and-formulas.md) for mixed-effect regression compiles formulas to typed QVR programs through a bidirectional lens, taking pandas / polars dataframes as input and using R-canonical conventions (orthogonal polynomials, R-style transforms in the formula evaluation namespace) as defaults. The emitted QVR is inspectable, so a formula-fitted model is a starting point you can hand-edit rather than a closed black box.
-- **Interactive tooling.** [`qvr repl`](guides/repl-and-lsp.md) is a GHCi-style four-pane Textual TUI with live syntax highlighting, an environment browser, file-watcher reloads, a command palette, and meta-commands (`:type`, `:info`, `:browse`, `:edit`, `:save`, `:watch`, …). [`qvr-lsp`](guides/repl-and-lsp.md) implements LSP 3.17 features including hover, definition, references, document symbols, semantic tokens, completion, formatting, and live diagnostics for VS Code, Cursor, Zed, and Neovim. A Jupyter kernel (`qvr-kernel install`) drives the same elaborator from notebooks.
+<div class="qv-hero__actions">
+  <a href="getting-started/installation/" class="md-button md-button--primary">Install Quivers</a>
+  <a href="getting-started/quickstart/" class="md-button">Run the quickstart</a>
+</div>
 
-## Quick start
+</div>
+
+<div class="qv-hero__code" markdown="block">
 
 ```qvr
 object Item : FinSet 100
-# Predictor `x` flows in as exogenous data via the observations
-# dict; free variables in `let` expressions resolve from the
-# conditioning data at trace time (host-data channel).
-program regression : Item -> Item [effects=[Sample, Score]]
+
+program regression : Item -> Item
+    [effects=[Sample, Score]]
     sample sigma  <- HalfNormal(scale=1.0)
     sample beta_0 <- Normal(loc=0.0, scale=5.0)
     sample beta_1 <- Normal(loc=0.0, scale=2.0)
     let mu = beta_0 + beta_1 * x
-    observe y : Item <- Normal(loc=mu, scale=sigma)
+    observe y : Item <- Normal(
+        loc=mu, scale=sigma
+    )
     return y
 
 export regression
 ```
 
-```python
-from quivers.dsl import load
-from quivers.inference import AutoNormalGuide, ELBO, SVI
-import torch
+</div>
+</section>
 
-program = load("docs/examples/source/bayesian_regression.qvr")
-model   = program.morphism
-guide   = AutoNormalGuide(model, observed_names={"y"})
-optim   = torch.optim.Adam(guide.parameters(), lr=1e-2)
-svi     = SVI(model, guide, optim, ELBO())
-# Training loop (illustrative shape; pass real x_data, y_data in practice).
-```
+<nav class="qv-pathways" aria-label="Choose a documentation path" markdown="block">
+<article class="qv-pathway" markdown="block">
 
-The same regression also expresses through a [brms-style formula frontend](guides/analysis-data-and-formulas.md):
+## [Fit a model](getting-started/quickstart.md)
 
-```python
-from quivers.formulas import fit
-# Call shape: fit("y ~ x + (1 | g)", data=df, family="gaussian", method="nuts")
-# returns a result with a `.dump_qvr(path)` method for inspecting the emitted QVR.
-print(fit.__name__)
-```
+Install Quivers, compile a QVR program, and run inference over observed data.
 
-## Where to start
+</article>
+<article class="qv-pathway" markdown="block">
 
-- **[Installation](getting-started/installation.md)** for setup.
-- **[Quickstart](getting-started/quickstart.md)** for a working model in five minutes.
-- **[QVR tutorial](tutorials/qvr/01-first-model.md)** for probabilistic-programming users: thirteen chapters from regression and inference through indexed data, handlers, generated search, structural attachments, and target-aware release checks.
-- **[Python API tutorial](tutorials/python/01-first-quiver.md)** for library developers and category-theory-fluent users: nine chapters covering the typed categorical API.
-- **[QVR language reference](reference/qvr/index.md)** for the current syntax, type-and-effect rules, program elaboration, entry execution, runtime providers, LSP behavior, and grammar ownership.
-- **[Examples gallery](examples/index.md)** for end-to-end models grouped by statistical family and language feature, including the integrated [Amortized Bayesian Semantics](examples/amortized-bayesian-semantics.md) case study.
-- **[Conceptual guides](guides/index.md)** for feature-area deep dives.
-- **[Quivers Indexed Effect Core](developer/qiec.md)** for kernel internals, serialization, and the target runtime ABI.
-- **[API reference](api/index.md)** for the typed Python API.
-- **[Denotational semantics](semantics/index.md)** for the formal meaning of every well-typed program.
+## [Learn QVR](tutorials/qvr/01-first-model.md)
+
+Work from a first model through indexed data, handlers, deduction, and transpilation.
+
+</article>
+<article class="qv-pathway" markdown="block">
+
+## [Read the semantics](semantics/index.md)
+
+Connect each well-typed phrase to its denotation and the assumptions that support it.
+
+</article>
+<article class="qv-pathway" markdown="block">
+
+## [Extend the library](getting-started/architecture.md)
+
+Trace the implementation from enriched relations through compilation and inference.
+
+</article>
+</nav>
+
+## One language, three levels
+
+The documentation presents each construct at three levels: QVR syntax, mathematical interpretation, and executable implementation. Links between those levels show how a source phrase is parsed, what it denotes, and how it runs.
+
+<div class="qv-crosswalk" markdown="block">
+<section class="qv-crosswalk__stage" markdown="block">
+
+### QVR syntax
+
+Programs, effects, indexed families, handlers, deductions, and structural attachments use one typed source language.
+
+[Read the language reference](reference/qvr/index.md)
+
+</section>
+<section class="qv-crosswalk__stage" markdown="block">
+
+### Denotation
+
+The semantics interprets programs in enriched categories, stochastic kernels, and effectful computation structures.
+
+[Open the semantics](semantics/index.md)
+
+</section>
+<section class="qv-crosswalk__stage" markdown="block">
+
+### Implementation
+
+The compiler lowers checked QVR to the indexed effect core, Python runtimes, and supported probabilistic languages.
+
+[Inspect the API](api/index.md)
+
+</section>
+</div>
+
+## What composes
+
+First, a program has a domain, codomain, algebra, and effect signature. The compiler checks these components before execution. Programs sequentially compose with `>>`, parallel-compose with `@`, change base across algebras, and scope finite marginalization over a typed body.
+
+Second, inference, deduction, and structural compression all compile to the same typed core. The compiler can thus combine a Bayesian regression, a CKY parser declared as a `deduction`, and a transformer attached to a `signature` while preserving their distinct types.
+
+Third, the same checked representation supports inspection as well as execution. Quivers provides more than forty distribution families, automatic variational guides, HMC and NUTS, ArviZ integration, mixed-effect formulas, static program analysis, a REPL, a language server, and transpilers for eleven probabilistic programming systems. Each transpiler either emits the reachable computation graph or reports which indexed-core capability it cannot represent.
 
 ## Architecture
 
-The DSL is a thin layer over a typed categorical API. If you want to extend the library, write a new distribution family, or prove anything about a model, the categorical layer is what you read. If you just want to fit models, you can ignore it.
-
-The library decomposes into eight layers. Each is consumable in isolation; each builds on those below it:
+The map separates four questions: what a user writes, what the compiler checks, what the checked program can do, and which mathematical structure gives those operations their meaning. Read solid arrows as computation and dotted arrows as interpretation.
 
 ```mermaid
-flowchart TB
-    L8["Layer 8: QVR DSL<br/>.qvr files, tree-sitter grammar, panproto AST"]
-    L7["Layer 7: Structural compression<br/>signature, encoder, decoder, loss blocks"]
-    L6["Layer 6: Inference<br/>guides, objectives, MCMC kernels, hybrid samplers"]
-    L5["Layer 5: Continuous probabilistic programs<br/>MonadicProgram, distribution families, flows, plates"]
-    L4["Layer 4: Stochastic morphisms<br/>Markov kernels, Giry monad, chart deduction surface"]
-    L3["Layer 3: Monadic and enriched constructs<br/>monads, algebras, ends, coends, Kan, profunctors"]
-    L2["Layer 2: Categorical structure<br/>functors, naturals, adjunctions, monoidal, traced"]
-    L1["Layer 1: Core V-enriched algebra<br/>FinSet, Morphism, CompositionRule hierarchy, wiring"]
-    L8 --> L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
+flowchart LR
+    subgraph AUTHOR["1 · Author"]
+        direction TB
+        QVR["QVR source<br/><small>programs · effects · handlers</small>"]
+        PY["Python API<br/><small>morphisms · algebras · composition</small>"]
+    end
+
+    subgraph CHECK["2 · Parse, elaborate, and check"]
+        direction TB
+        AST["Typed source AST"] -->|"elaborate + check"| QIEC["Checked QIEC module<br/><small>indexed types · effect rows</small>"]
+    end
+
+    subgraph USE["3 · Use the checked program"]
+        direction TB
+        RUN["Execute + infer<br/><small>SVI · HMC · NUTS</small>"]
+        INSPECT["Inspect<br/><small>analysis · diagnostics · LSP</small>"]
+        TARGET["Translate<br/><small>11 PPL targets</small>"]
+    end
+
+    subgraph SEM["4 · Shared denotation"]
+        FOUNDATION["Probabilistic program → stochastic morphism<br/><small>monadic + enriched structure over a V-enriched algebra</small>"]
+    end
+
+    QVR -->|parse| AST
+    QIEC -->|run| RUN
+    QIEC -->|analyze| INSPECT
+    QIEC -->|lower| TARGET
+    QIEC -. interpret .-> FOUNDATION
+    PY -->|construct| FOUNDATION
+
+    class QVR,PY qv-input
+    class AST,QIEC qv-checked
+    class RUN,INSPECT,TARGET qv-output
+    class FOUNDATION qv-foundation
 ```
 
-The central abstraction is a morphism between finite sets, parameterized by a
-composition algebra. A morphism `f : A -> B` is a PyTorch tensor of shape
-`(|A|, |B|)` whose entries take values in that algebra; composition `f >> g`
-contracts along the shared dimension under the algebra's tensor and join
-operations. Different instances impose different laws: Boolean composes by
-AND / OR (relational composition), ProductFuzzy by multiplication / noisy-OR,
-Real by sum-product, and Markov by row-stochastic kernel composition. The
-runtime `Algebra` interface does not claim that every built-in instance is a
-strict quantale.
+The central abstraction is a morphism between finite sets, parameterized by a composition algebra. A morphism `f : A -> B` is a PyTorch tensor of shape `(|A|, |B|)` whose entries take values in that algebra. Composition `f >> g` contracts along the shared dimension under the algebra's tensor and join operations. Different algebras satisfy different laws; the documentation states those assumptions instead of treating them as properties of every runtime `Algebra`.
 
-The [denotational semantics](semantics/index.md) gives every well-typed QVR phrase a formal meaning in a $\mathcal{V}$-enriched symmetric monoidal closed category. The implementation rests on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), the categorical foundations of probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and the SVI / HMC inference substrate ([Hoffman, Blei, Wang & Paisley, 2013](https://www.jmlr.org/papers/v14/hoffman13a.html); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman & Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
+## Foundations
 
+The [denotational semantics](semantics/index.md) interprets each well-typed QVR phrase in a $\mathcal{V}$-enriched symmetric monoidal closed category. The implementation draws on enriched category theory ([Kelly, 1982](http://www.tac.mta.ca/tac/reprints/articles/10/tr10abs.html)), categorical approaches to probability ([Giry, 1982](https://doi.org/10.1007/BFb0092872); [Fritz, 2020](https://doi.org/10.1016/j.aim.2020.107239)), and standard methods for SVI and HMC ([Hoffman et al., 2013](https://www.jmlr.org/papers/v14/hoffman13a.html); [Neal, 2011](https://doi.org/10.1201/b10905-6); [Hoffman and Gelman, 2014](https://www.jmlr.org/papers/v15/hoffman14a.html)).
 
-## References
-
-- Tobias Fritz. 2020. A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics. *Advances in Mathematics*, 370:107239.
-- Michèle Giry. 1982. A categorical approach to probability theory. In Bernhard Banaschewski, editor, *Categorical Aspects of Topology and Analysis*, volume 915 of *Lecture Notes in Mathematics*, pages 68–85. Springer, Berlin, Heidelberg.
-- Matthew D. Hoffman and Andrew Gelman. 2014. The No-U-Turn Sampler: adaptively setting path lengths in Hamiltonian Monte Carlo. *Journal of Machine Learning Research*, 15(47):1593–1623.
-- Matthew D. Hoffman, David M. Blei, Chong Wang, and John Paisley. 2013. Stochastic variational inference. *Journal of Machine Learning Research*, 14(40):1303–1347.
-- Gregory M. Kelly. 1982. *Basic Concepts of Enriched Category Theory*. Cambridge University Press; reprinted as *Reprints in Theory and Applications of Categories* 10 (2005):1–136.
-- Radford M. Neal. 2011. MCMC using Hamiltonian dynamics. In Steve Brooks, Andrew Gelman, Galin L. Jones, and Xiao-Li Meng, editors, *Handbook of Markov Chain Monte Carlo*, chapter 5. Chapman & Hall/CRC.
+</div>

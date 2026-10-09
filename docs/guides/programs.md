@@ -112,7 +112,7 @@ let weight = 0.5
 ```
 
 Supports literals, variable references, arithmetic, and the
-let-expression primitive surface; see
+let-expression primitives; see
 [DSL Programs and Let-Expressions](dsl-programs-and-lets.md#let-expressions-arithmetic-primitives-and-collections)
 for the full primitive list.
 
@@ -482,7 +482,7 @@ export my_prog
 ```
 
 into a `MonadicProgram` instance that can be trained. The full DSL
-surface for programs lives in
+syntax for programs is documented in
 [DSL Programs and Let-Expressions](dsl-programs-and-lets.md).
 
 ## Where to next

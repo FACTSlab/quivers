@@ -148,7 +148,10 @@ output = program.rsample(batch)
 print(output.shape)  # [10, 1]
 ```
 
-Note that `MonadicProgram.log_prob` is intractable in general (it requires marginalizing over intermediate latents) and raises `NotImplementedError`. To score a program, use a guide and the SVI machinery covered in [Tutorial 5](05-variational-inference.md).
+Note that `MonadicProgram.log_prob` is intractable in general because it must
+marginalize over intermediate latents, so it raises `NotImplementedError`. To
+score a program, use a guide and the SVI implementation covered in
+[Tutorial 5](05-variational-inference.md).
 
 ## Let bindings
 

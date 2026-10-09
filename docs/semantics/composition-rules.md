@@ -33,6 +33,9 @@ graph TD
   CR --> BF
   CR --> SG
   SG --> Q
+  class CR qv-input
+  class BF,SG qv-checked
+  class Q qv-output
 ```
  The eleven shipped algebras of [§ Algebras](algebras.md#1-the-eleven-algebras) are at the strongest level.
 
@@ -165,7 +168,11 @@ $$
 \llbracket t_1 \mathbin{>\!>\!>} t_2 \rrbracket(f) \;=\; \llbracket t_2 \rrbracket\bigl(\,\llbracket t_1 \rrbracket(f)\,\bigr).
 $$
 
-The seam check $\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is verified at compose time; a mismatch raises a typed error before any tensor evaluation runs. Sequential composition is associative (a free monoidal product on transformation values, modulo the seam discipline), so chains of length $\ge 3$ flatten unambiguously into a single sequence of base steps.
+The boundary condition
+$\mathrm{target}(t_1) = \mathrm{source}(t_2)$ is verified at compose time; a
+mismatch raises a typed error before any tensor evaluation runs. Sequential
+composition is associative, so chains of length $\ge 3$ flatten unambiguously
+into a single sequence of base steps.
 
 The implementation realizes the composition as a flattened `TransSeq` whose `apply` method iterates the steps. Single-step transformations need no boxing; they are their own representation.
 
@@ -199,10 +206,12 @@ When $t$ is a `TransSeq` of base steps $(t_1, \dots, t_k)$, the denotation unfol
 
 The type-checker verifies, at compose time and at change-of-base call time:
 
-- $\mathrm{source}(t_1)$ in `compose_trans(t_1, t_2, \dots)` matches $\mathrm{target}(t_0)$ for each adjacent pair (where the seam check is by algebra class identity, not name).
+- $\mathrm{source}(t_1)$ in `compose_trans(t_1, t_2, \dots)` matches $\mathrm{target}(t_0)$ for each adjacent pair (the boundary check uses algebra class identity, not name).
 - $f.\mathrm{change\_base}(t)$ requires $\mathrm{source}(t) = \mathrm{algebra}(f)$.
 
-A mismatch surfaces as a typed compile-time error naming the two clashing algebras. Inside a `program` block the same surface produces a `CompileError` with line / column of the offending expression.
+A mismatch produces a typed compile-time error naming the two clashing
+algebras. Inside a `program` block, the compiler raises a `CompileError` with
+the line and column of the offending expression.
 
 ## 6. Relation to the rest of the language
 

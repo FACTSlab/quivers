@@ -79,7 +79,7 @@ computation can lower to Pyro:
 ## Verify the language surface
 
 Open
-[`docs/tutorials/qvr/source/authored-handler.qvr`](https://github.com/FACTSlab/quivers/blob/main/docs/tutorials/qvr/source/authored-handler.qvr).
+[`docs/tutorials/qvr/source/authored-handler.qvr`](https://github.com/quivers-dev/quivers/blob/main/docs/tutorials/qvr/source/authored-handler.qvr).
 `effect`, `instance`, `handler`, `resumes`, `define`, `handle`, and `perform`
 should be colored before the server starts. Once it attaches, hovering
 `robustify` should show a pure residual effect row, while `robust_request`
@@ -88,8 +88,8 @@ retains its open `Robust` effect.
 If plain syntax colors appear but typed features do not, inspect the QVR output
 channel and run `qvr-lsp --help` in the editor's environment. The full launch
 order, capability table, and setup for other editors are documented in
-[Editor support and syntax highlighting](https://FACTSlab.github.io/quivers/getting-started/highlighting/)
-and the [REPL and LSP guide](https://FACTSlab.github.io/quivers/guides/repl-and-lsp/).
+[Editor support and syntax highlighting](https://quivers.dev/getting-started/highlighting/)
+and the [REPL and LSP guide](https://quivers.dev/guides/repl-and-lsp/).
 
 ## Release maintenance
 

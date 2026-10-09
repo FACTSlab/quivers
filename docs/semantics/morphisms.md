@@ -4,7 +4,7 @@ This page assigns denotations to the three QVR morphism strata (discrete $\mathc
 
 ## 0. The unified `morphism` declaration
 
-Every morphism, kernel, latent, observed, embed, and discretize binding ships through a single declaration form
+Every morphism, kernel, latent, observed, embed, and discretize binding uses a single declaration form
 
 ```
 morphism f : DOM -> COD [k = v, ...] [~ INIT]
@@ -21,13 +21,13 @@ with the *role* selected by the option block; `kernel` is the default, so a `mor
 | `discretize` | quotient kernel                           | `~ expr` (partition) | uniform-quantile     |
 | `let`      | deterministic morphism (alias for `~ expr`) | `~ expr`             | required             |
 
-Other option-block keys carry per-role configuration, and each is read by the role it configures: `scale` and `init` (the `latent` lowering's initial parameter scale and named initialization regime), `bins` (`discretize`), `param_source` and `hidden_dim` (the `kernel` lowering's parameter map $\theta$, §2.1), `replicate=N` (allocate $N$ independently-parameterized copies under names `f_0, …, f_{N-1}` with a group binding $f$, read by every role), and the axis-role keys (`over`, `iid`) consumed by the family-prior surface of §6.
+Other option-block keys configure individual roles: `scale` and `init` set a `latent` lowering's initial parameter scale and named initialization regime; `bins` configures `discretize`; `param_source` and `hidden_dim` configure the `kernel` lowering's parameter map $\theta$ (§2.1); `replicate=N` allocates $N$ independently parameterized copies under names `f_0, …, f_{N-1}` and binds the group as $f$; and the axis-role keys (`over`, `iid`) configure the family priors in §6.
 
 A key outside the resolved role's set is rejected rather than ignored. The set is per role, not per declaration: `scale` is an initial value for a `latent`'s tensor and means nothing to a `kernel`, whose parameters are computed from its input by $\theta$ rather than held.
 
 The remainder of this page uses the legacy keyword form (`latent`, `kernel`, `embed`) when illustrating individual strata; every snippet desugars to the unified form by `morphism f : … [role=KIND, …]`.
 
-## 1. Discrete $\mathcal{V}$-enriched morphisms
+## 1. Discrete V-enriched morphisms
 
 A discrete morphism declaration
 
@@ -50,7 +50,7 @@ The implementation does not distinguish the two cases at the categorical level: 
 
 ### 1.1 Composition, tensor, identity
 
-Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\mathbf{Rel}$ are defined as in [Setting and notation §2](setting.md#2-mathcalv-enriched-relations). The DSL operators correspond directly:
+Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\mathbf{Rel}$ are defined as in [Setting and notation §2](setting.md#2-v-enriched-relations). The DSL operators correspond directly:
 
 | Syntax | Denotation | Definition |
 |--------|-----------|------------|
@@ -61,9 +61,11 @@ Composition $;$, tensor $\boxtimes$, and identity $1_X$ in $\mathcal{V}\text{-}\
 **Proposition (Categorical structure).** *Assume $\mathcal{V}$ is a strict quantale ([Setting §1](setting.md#1-algebras-as-enrichment-bases)): $\otimes$ distributes over arbitrary joins $\bigoplus$ on both sides. Then $\mathcal{V}\text{-}\mathbf{Rel}$ is a symmetric monoidal category, with $;$ as composition, $1_X$ as identities, $\boxtimes$ as monoidal product, $\mathbf{1}$ (the singleton) as monoidal unit, and the braid $\sigma_{X, Y}(x, y) = \mathbf{1}$ iff coordinates swap. Under the same hypothesis $\mathcal{V}\text{-}\mathbf{Rel}$ is also compact closed with every object self-dual. For the lax $\mathcal{V}_{\mathrm{pf}}$ / $\mathcal{V}_{\mathrm{L}}$ algebras (where distributivity is sub-equational, [Algebras §2.1](algebras.md#21-a-note-on-the-product-fuzzy-and-ukasiewicz-pairs)) the same diagrams commute laxly rather than strictly; the chart parser and SVI use the lax denotation but the equational claims of this chapter require the strict hypothesis.*
 
 *Proof.* Associativity of $;$ unfolds to
+
 $$
 ((f; g); h)(x, w) \;=\; \bigoplus_z \Bigl( \bigoplus_y f(x, y) \otimes g(y, z) \Bigr) \otimes h(z, w).
 $$
+
 The strict-quantale distributivity law of [Setting §1](setting.md#1-algebras-as-enrichment-bases) commutes the outer $\otimes h(z, w)$ past the inner join over $y$, giving $\bigoplus_z \bigoplus_y f(x, y) \otimes g(y, z) \otimes h(z, w)$; the associativity of $\otimes$ (standing assumption on $\mathcal{V}$ as a commutative monoid, [Setting §1](setting.md#1-algebras-as-enrichment-bases)) means the bracketing of the threefold tensor is immaterial. The join's universal-colimit property collapses $\bigoplus_z \bigoplus_y = \bigoplus_{(y, z)}$ and the two-variable joins commute by the same property (a colimit cone is determined by its components in any order), so we can re-bracket as $\bigoplus_y f(x, y) \otimes \bigoplus_z g(y, z) \otimes h(z, w)$, applying distributivity once more to absorb $f(x, y)$ into the inner join. This is $(f; (g; h))(x, w)$. Without strict distributivity, the equation degrades to an inequality $((f; g); h) \le (f; (g; h))$, so the associativity isomorphism is lax. The identity laws use $1_X(x, x') = \mathbf{1}$ iff $x = x'$ and $\bot$ otherwise to collapse one join to a single term, using $\bot \otimes a = \bot$ (absorption) for the off-diagonal entries: this requires $\bot$ to be the bottom of the lattice, which holds in every strict quantale. Symmetry of $\boxtimes$ follows from commutativity of $\otimes$ (a standing assumption on $\mathcal{V}$, [Setting §1](setting.md#1-algebras-as-enrichment-bases)). Compact closure is established in [Expressions §2.9](expressions.md#29-compact-closed-structure) under the strict-quantale hypothesis. $\square$
 
 ### 1.2 Marginalization
@@ -280,7 +282,7 @@ an iid product over the *batch axes* $\{a_i\} \cup \{b_j\} \setminus E$ of an $F
 
 **Positional binding.**  For families with two distinguishable event axes (row and column for `MatrixNormal`; the two correlation indices for `LKJCholesky`), the ordering of `over (e_1, e_2)` corresponds positionally to the family's declared event-axis ordering.
 
-**Naturality.**  Refactoring a morphism's dom or cod (e.g. $B \mapsto B_1 \otimes B_2$) invalidates the axis references at type-check time rather than silently rebinding; this is the price of the surface preserving categorical structure under refactoring.
+**Naturality.**  Refactoring a morphism's dom or cod (e.g. $B \mapsto B_1 \otimes B_2$) invalidates the old axis references at type-check time rather than silently rebinding them. This rejection preserves the declared product structure instead of guessing how the old axes map to the new factors.
 
 The `dom` and `cod` shortcuts are legal in $E$ only when the corresponding side of the morphism is a single unfactored object; for a product-typed side, every factor must be named explicitly, since silently flattening a categorical product into an opaque single axis would erase the product structure.
 

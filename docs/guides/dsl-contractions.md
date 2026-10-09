@@ -1,12 +1,12 @@
 # DSL Contractions
 
 A `contraction` block declares an operadic n-ary morphism under a
-named composition rule. The contraction is the explicit surface
+named composition rule. The declaration gives explicit syntax
 for "combine these typed morphisms by joining shared axes," with
 the einsum wiring either inferred from the typed signature or
 supplied explicitly. The categorical setup is detailed in
 [Composition Rules § 4](../semantics/composition-rules.md#4-operadic-contractions);
-this page covers the DSL surface.
+this page covers the QVR syntax.
 
 ## Declaration
 

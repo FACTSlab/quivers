@@ -1,9 +1,8 @@
 # Transformations and Composition Rules
 
-This guide covers two related surfaces: *transformations*, the
-first-class value-level surface for change of base, and the
-*composition-rule hierarchy*, the algebraic surface beneath `>>`.
-Together they specify how morphisms cross enrichment algebras.
+This guide covers two related mechanisms: first-class *transformations* for
+change of base and the *composition-rule hierarchy* beneath `>>`. Together
+they specify how morphisms cross enrichment algebras.
 
 ## First-class transformations
 
@@ -44,7 +43,7 @@ Parametric transformations take one argument (an object or a morphism) and produ
 
 ### Let-binding and composition
 
-Both forms can be let-bound and composed with `>>>`. Composition checks the seam at compile time: `t1 >>> t2` requires `target(t1) = source(t2)`.
+Both forms can be let-bound and composed with `>>>`. The compiler checks their boundary: `t1 >>> t2` requires `target(t1) = source(t2)`.
 
 <!-- compile: false -->
 ```qvr
@@ -65,7 +64,7 @@ The `change_base` postfix accepts any expression that denotes a transformation: 
 
 ### Python API
 
-The same surface is exposed in the Python core at `quivers.core.trans`:
+The Python core provides the same operations in `quivers.core.trans`:
 
 <!-- python: skip -->
 ```python
@@ -77,7 +76,7 @@ pipe = compose_trans(softmax(B), EXPECTATION)
 g    = f.change_base(pipe)
 ```
 
-The same flat-sequence representation underpins both surfaces; the DSL's `>>>` desugars to `compose_trans`.
+The DSL and Python APIs use the same flat-sequence representation; the DSL's `>>>` desugars to `compose_trans`.
 
 ## The composition-rule hierarchy
 
@@ -94,8 +93,8 @@ The four `.qvr` level keywords select the level:
 
 | Declaration | Required level | Available operations |
 |---|---|---|
-| `composition X [level=algebra]` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed surface |
-| `composition X [level=semigroupoid]` | `Semigroupoid` | `>>`, `@`, no identity / compact-closed surface |
+| `composition X [level=algebra]` | `Algebra` | `>>`, `@`, `identity(A)`, `f.dagger`, `f.trace(A)`, `cup(A)`, `cap(A)`, all compact-closed operations |
+| `composition X [level=semigroupoid]` | `Semigroupoid` | `>>`, `@`, no identity or compact-closed operations |
 | `composition X [level=bilinear_form]` | `BilinearForm` | `>>`, `@`, no associativity guarantee |
 | `composition X [level=rule]` | `CompositionRule` | permissive; accepts any rule |
 
@@ -147,11 +146,11 @@ define composed = f >> g
 export composed
 ```
 
-The compact-closed surface is not available; the module is otherwise normal.
+Compact-closed operations are unavailable; the module otherwise behaves normally.
 
 ## Operadic contractions
 
-Binary composition `f >> g` contracts two morphisms along a single shared axis. Many tensor-network patterns contract three or more inputs at a shared reduction; the `contraction` declaration is the surface for this.
+Binary composition `f >> g` contracts two morphisms along a single shared axis. Many tensor-network patterns contract three or more inputs at a shared reduction; the `contraction` declaration provides this syntax.
 
 ### Wiring spec
 
@@ -191,7 +190,7 @@ A spec violating any of these constraints raises `CompileError` at the declarati
 
 ### Python API
 
-`quivers.core.wiring` exposes the same surface:
+`quivers.core.wiring` provides the corresponding Python functions:
 
 <!-- python: skip -->
 ```python
@@ -214,7 +213,7 @@ out    = wiring.apply(f_tensor, g_tensor)
 
 ## Further reading
 
-- The [QVR tutorial chapter 7](../tutorials/qvr/07-categorical.md) gives a user-friendly introduction to the categorical surface, including transformations and composition rules.
+- The [QVR tutorial chapter 7](../tutorials/qvr/07-categorical.md) introduces the categorical foundations of transformations and composition rules.
 - The [Python tutorial chapters 6 and 7](../tutorials/python/06-first-class-trans.md) cover the Python API in detail.
-- [Composition Rules](../semantics/composition-rules.md) is the formal denotational treatment.
+- [Composition Rules](../semantics/composition-rules.md) gives the formal semantics.
 - [Algebras and Base Change](../semantics/algebras.md) covers the eleven shipped algebras and the homomorphism registry.

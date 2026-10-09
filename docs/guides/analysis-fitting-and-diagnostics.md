@@ -4,8 +4,8 @@ This page covers the back-half of the analysis stack: the one-line
 `fit(...)` entry point, the
 [ArviZ](https://python.arviz.org/)-based diagnostics adapter,
 algebra-guided initialization and saturation diagnostics, and
-autograd-safe morphism transforms. The data and formula surface
-lives in [Data and Formulas](analysis-data-and-formulas.md).
+autograd-safe morphism transforms. [Data and Formulas](analysis-data-and-formulas.md)
+covers data loading and the formula DSL.
 
 ## One-line fit
 
@@ -188,7 +188,7 @@ spec = algebra.init_spec(depth=6, intermediate_size=1)
 The `[init=auto]` annotation on a latent declaration consumes this
 spec at compile time; see the
 [DSL declarations guide](dsl-declarations.md#init-recipes-initauto)
-for the surface syntax.
+for the corresponding syntax.
 
 ### recommend_init and apply_init_spec
 
@@ -270,7 +270,7 @@ access, and whose `.module()` registers the source as a submodule
 so `.parameters()` walks reach the upstream learnable parameters.
 Every backward through a fresh `.tensor` access gets its own
 autograd graph, so multi-step optimisation propagates gradients
-through the V-Cat surface correctly.
+through the V-Cat representation correctly.
 
 [`ObservedMorphism`](../api/core/morphisms.md#quivers.core.morphisms.ObservedMorphism)
 is the wrapper for genuinely frozen data tensors (the
@@ -376,7 +376,7 @@ program, the user edits the source, and feeds it back through
   [MCMC](inference-mcmc.md): the inference drivers `fit(...)`
   wraps.
 - [DSL Declarations](dsl-declarations.md#init-recipes-initauto):
-  the surface `[init=auto]` annotation that consumes
+  the `[init=auto]` annotation that consumes
   `Algebra.init_spec` at compile time.
 
 

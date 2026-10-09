@@ -159,13 +159,26 @@ print(f"acceptance:  {float(result.acceptance_rates.mean()):.2f}")
 print(f"divergences: {int(result.divergence_counts.sum())}")
 ```
 
-`log_prob_fn` runs inside the lifted program's score step, after the sampled weights are substituted into the network's parameter slots, so it reads the current draw rather than the values the fit above left behind. Sampling 4418 weights is a genuine posterior over networks and the budget here is far too small to converge; it demonstrates the surface, not a usable posterior.
+`log_prob_fn` runs inside the lifted program's score step, after the sampled
+weights are substituted into the network's parameter slots, so it reads the
+current draw rather than the values the fit above left behind. Sampling 4418
+weights defines a genuine posterior over networks, but the budget here is far
+too small for convergence. This example demonstrates the API rather than a
+usable posterior fit.
 
 ## Categorical perspective
 
 `net : Feature -> Target` is a Kleisli arrow $\mathbb{R} \to \mathcal{G}(\mathbb{R})$ in the [Giry monad](https://doi.org/10.1007/BFb0092872), sending an input to a Gaussian measure over the response. The MLP is not part of that arrow's type: it is the map from the domain into the family's parameter space, and composing it with the Gaussian's parameterisation is what makes the kernel's mean and scale depend nonlinearly on the input.
 
-This is the difference between a nonlinearity in the parameter network and a nonlinearity between composed morphisms. Under a strictly linear algebra a chain `W_1 >> W_2 >> W_3` of tensor morphisms collapses: the composite is a single linear map, and the intermediate objects buy nothing but a rank bound. Placing the nonlinearity inside the kernel's parameter source avoids that collapse without leaving the V-Cat surface, because the kernel was never required to be linear in its input. The [`ParamSource`](../api/continuous/param_source.md#quivers.continuous.param_source.ParamSource) abstraction is the seam: `mlp`, `linear`, `attention`, and `identity` all present the same interface to the family and differ only in what they compute.
+This distinction separates a nonlinearity in the parameter network from one
+between composed morphisms. Under a strictly linear algebra, a chain
+`W_1 >> W_2 >> W_3` of tensor morphisms collapses to a single linear map; the
+intermediate objects impose only a rank bound. Placing the nonlinearity inside
+the kernel's parameter source avoids that collapse while retaining the V-Cat
+representation, because the kernel need not be linear in its input. The
+[`ParamSource`](../api/continuous/param_source.md#quivers.continuous.param_source.ParamSource)
+interface supplies the common boundary: `mlp`, `linear`, `attention`, and
+`identity` differ only in what they compute.
 
 Putting a prior on the weights is then a second, independent move. It lifts the deterministic parameter $\theta$ into a sample site, so the model becomes a mixture of networks $\int p(y \mid x, \theta)\, p(\theta)\, d\theta$ rather than a single one.
 

@@ -84,6 +84,10 @@ flowchart LR
     scan_cell_["scan(rnn_cell)"] --> h_T["h_T"]
     h_T["h_T"] --> lm_head["lm_head"]
     lm_head["lm_head"] --> next_token["next_token"]
+    class tok qv-input
+    class embed,scan_cell_,lm_head qv-checked
+    class h_T qv-foundation
+    class next_token qv-output
 ```
 
 ## Try it

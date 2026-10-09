@@ -6,7 +6,7 @@ top-level modules. The categorical core (`core/`, `categorical/`,
 surrounded by a DSL layer (`dsl/`), an inference layer (`inference/`),
 a data layer (`data/`, `diagnostics/`, `formulas/`), structural and
 analysis utilities (`structural/`, `analysis/`), effect handlers
-(`effects/`), transpilers (`transpile/`), and the interactive surfaces
+(`effects/`), transpilers (`transpile/`), and the interactive tools
 (`cli/`, `kernel/`, `lsp/`). This document describes the
 package hierarchy, dependencies, and key abstractions in each module.
 
@@ -187,7 +187,7 @@ programs that drive the test suite and the tree-sitter grammar fixtures live at
 `docs/examples/source/`, not under the package itself.
 
 - **`parser/`:** A package that walks the panproto-produced parse tree and builds a tree of `dx.Model` AST nodes. The top-level module re-exports `parse()`, `parse_file()`, `ParseError`; `qiec.py` owns indexed-family, effect, handler, and computation forms, while the remaining submodules partition the established declarations and expressions.
-- **`ast_nodes/`:** A package whose every node is a `dx.Model`. Recursive sums (`ObjectExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field. `qiec.py` defines the complete QIEC surface; the other submodules split the probabilistic and structural nodes by category.
+- **`ast_nodes/`:** A package whose every node is a `dx.Model`. Recursive sums (`ObjectExpr`, `Expr`, `LetExprNode`, `ProgramStep`, `Statement`) are `dx.TaggedUnion` roots discriminated by a `kind: Literal[...]` field. `qiec.py` defines the complete QIEC node set; the other submodules split the probabilistic and structural nodes by category.
 - **`compiler/`:** A package that walks the AST and produces a `quivers.Program`. `core.py` defines `Compiler` (composed via mixins from `declarations.py`, `deductions.py`, `expressions.py`, `programs.py`, `structural.py`); `resolution.py` provides the `_ResolutionMixin` whose `_resolve_any_space` routes an `ObjectExpr` to either a `SetObject` (discrete) or a `ContinuousSpace`; `_options.py` parses option blocks and `_prelude.py` defines `CompileError` plus shared compiler-state primitives.
 - **`program_theory.py`:** Defines `QVR_PROGRAM_PROTOCOL` (a panproto protocol whose vertex kinds enumerate every `SetObject` and `ContinuousSpace` variant plus the QVR declaration variants), `extract_program_schema(compiler)`, and `extract_deduction_schema(compiler)`. These make every `.qvr` program a schema in panproto's sense, diff, migrate, and lens-generation workflows apply.
 - **`constraints.py`:** post-parse axiom checks: `check_constraints(module)` returns a list of `Violation` records (used by the LSP, the REPL, and `qvr check`).

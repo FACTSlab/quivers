@@ -24,7 +24,7 @@ The pieces:
   recommended init, would saturate the surrounding algebra's
   value range.
 
-See [*Analysis Pipelines: Fitting and Diagnostics*](https://factslab.github.io/quivers/guides/analysis-fitting-and-diagnostics/)
+See [*Analysis Pipelines: Fitting and Diagnostics*](https://quivers.dev/guides/analysis-fitting-and-diagnostics/)
 for the user-facing workflow.
 """
 

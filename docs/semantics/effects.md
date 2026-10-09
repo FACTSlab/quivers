@@ -1,10 +1,9 @@
 # Denotational Semantics of Compositional Effects
 
-QVR layers monadic / applicative effects over the residuated category
+QVR layers monadic and applicative effects over the residuated category
 universe through two parallel typeclass towers (monads and arrows)
-plus a class-driven schema-lifting machinery. This page assigns
-formal denotations to the surface constructs and proves the layering
-is a conservative extension of the bare deduction fragment of
+and a class-driven schema-lifting system. This page assigns denotations to
+these constructs and proves that they conservatively extend the bare deduction fragment of
 [Weighted Deduction Fragment](grammar.md).
 
 ## 1. Setting
@@ -21,11 +20,9 @@ We work in the V-enriched semantic universe of
   the diamond modality $\diamondsuit$) up to a finite `depth` bound,
   yielding a finite-set object whose elements are the well-formed
   category expressions of bounded complexity.
-- A finite list of declared effects $T_1, \dots, T_n$ each registered
-  against one or more of the typeclass ABCs in
-  $\mathbf{Functor}, \mathbf{Applicative}, \mathbf{Monad},
-  \mathbf{Alternative}, \mathbf{MonadPlus}, \mathbf{Traversable},
-  \mathbf{ArrowApply}, \mathbf{ArrowLoop}$.
+- A finite list of declared effects $T_1, \dots, T_n$, each registered against
+  one or more typeclass ABCs: `Functor`, `Applicative`, `Monad`, `Alternative`,
+  `MonadPlus`, `Traversable`, `ArrowApply`, or `ArrowLoop`.
 
 The *effect-typed category universe* is
 
@@ -179,10 +176,10 @@ In $\textsc{Base}$ and $\textsc{Lift}_T$ the substitution $\sigma$ is fixed by t
 
 The denotation of every derivation built from these four rules is
 the corresponding composite natural transformation in
-$\widehat{\mathcal{C}}$; Theorem [Lifting Adequacy](#5-adequacy-of-the-lifting-machinery)
+$\widehat{\mathcal{C}}$; Theorem [Lifting Adequacy](#5-adequacy-of-effect-lifting)
 below identifies the chart's inside score with that composite.
 
-## 5. Adequacy of the lifting machinery
+## 5. Adequacy of effect lifting
 
 **Theorem (Lifting Adequacy).** *Let $r$ be a base SchemaDecl and
 $T$ an effect instance registered against the typeclasses

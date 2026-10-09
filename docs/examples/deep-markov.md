@@ -5,13 +5,15 @@
 The [deep Markov model](https://doi.org/10.1609/aaai.v31i1.10779) of Krishnan, Shalit, and Sontag (2017) is a state-space model with nonlinear, neural-network-parameterized transition and emission kernels:
 
 $$
-s_t = f_\theta(s_{t-1}) + \varepsilon_t, \quad \varepsilon_t \sim \mathcal{N}(0, \sigma_s^2 I)
-$$
-$$
-o_t = g_\phi(s_t) + \eta_t, \quad \eta_t \sim \mathcal{N}(0, \sigma_o^2 I)
+\begin{aligned}
+s_t &= f_\theta(s_{t-1}) + \varepsilon_t,
+& \varepsilon_t &\sim \mathcal{N}(0, \sigma_s^2 I), \\
+o_t &= g_\phi(s_t) + \eta_t,
+& \eta_t &\sim \mathcal{N}(0, \sigma_o^2 I).
+\end{aligned}
 $$
 
-The transition and emission means are MLPs; per-step Normal noise gives a tractable density. A separate `scan(infer_cell)` declaration has the shape of a recognition recurrence, but it is not connected to the exported `generative_step` or used by the fitted guide below. The combinator surface mirrors the [linear-Gaussian SSM](linear-gaussian-ssm.md): only the per-step cells change.
+The transition and emission means are MLPs; per-step Normal noise gives a tractable density. A separate `scan(infer_cell)` declaration has the shape of a recognition recurrence, but it is not connected to the exported `generative_step` or used by the fitted guide below. The combinator structure mirrors the [linear-Gaussian SSM](linear-gaussian-ssm.md): only the per-step cells change.
 
 ## QVR source
 
@@ -19,7 +21,7 @@ The transition and emission means are MLPs; per-step Normal noise gives a tracta
 # Deep Markov Model
 #
 # A state-space model with nonlinear, neural-network-parameterized
-# transition and emission kernels. The combinator surface mirrors the
+# transition and emission kernels. The combinator structure mirrors the
 # linear-Gaussian SSM and replaces its linear maps with kernels whose
 # parameters come from an MLP.
 #
@@ -57,7 +59,7 @@ define emission = emit_mlp_1 >> emit_mlp_2
 define generate = scan(transition_cell) >> emission
 define recognize = scan(infer_cell)
 
-# Probabilistic surface: the exported one-step kernel pushes the
+# Probabilistic model: the exported one-step kernel pushes the
 # previous (driver, state) pair through the two-layer transition
 # MLP, then scores one observation under the emission MLP. The
 # separate `generate` composition scans transition_cell and
@@ -181,6 +183,10 @@ flowchart LR
     emit_mlp_1["emit_mlp_1"] --> h_emit["h_emit"]
     h_emit["h_emit"] --> emit_mlp_2["emit_mlp_2"]
     emit_mlp_2["emit_mlp_2"] --> o_t["o_t"]
+    class s__t_1_,u_t qv-input
+    class trans_mlp_1,h_trans,trans_mlp_2,emit_mlp_1,h_emit,emit_mlp_2 qv-checked
+    class s_t qv-foundation
+    class o_t qv-output
 ```
 
 

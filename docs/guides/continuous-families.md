@@ -4,7 +4,7 @@ quivers ships more than forty built-in conditional distribution families. Each
 takes an input (the domain) and produces learnable parameters via a
 parameter network. This page groups the registry by output shape
 and details the families whose event structure interacts with the
-[axis-role surface](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over).
+[axis-role syntax](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over).
 The spaces and base
 [`ContinuousMorphism`](../api/continuous/morphisms.md#quivers.continuous.morphisms.ContinuousMorphism)
 interface live in [continuous spaces](continuous-spaces.md).
@@ -127,10 +127,10 @@ from quivers.continuous.families import (
 )
 ```
 
-## Event rank and the axis-role surface
+## Event rank and axis-role syntax
 
 `event_rank` per family controls the
-[axis-role surface in the DSL](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over):
+[axis-role syntax](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over):
 
 | Family | Event rank | Categorical reading |
 |---|---|---|
@@ -138,13 +138,13 @@ from quivers.continuous.families import (
 | `MultivariateNormal`, `LowRankMVN`, `Dirichlet`, `OneHotCategorical`, `RelaxedOneHotCategorical`, `LogisticNormal`, `GP`, `Horseshoe` | 1 | Vector; one named event axis carries the joint distribution |
 | `Wishart`, `InverseWishart`, `MatrixNormal`, `LKJCholesky` | 2 | Matrix; two named event axes carry the joint distribution |
 
-The DSL surface `~ Family over <axes>` requires the axis count to
+The QVR form `~ Family over <axes>` requires the axis count to
 match the family's event rank exactly; mismatch is a compile-time
 error. In particular, a flat MVN over $\dim(A) \cdot \dim(B)$
 (dense covariance, event_rank 1 with a single named axis whose dim
 equals the product) is categorically distinct from a `MatrixNormal`
 over `(A, B)` (Kronecker structure $V \otimes U$, event_rank 2);
-the surface keeps the two distinguishable rather than
+the syntax keeps the two distinguishable rather than
 auto-substituting.
 
 ## Structured priors over weight matrices
@@ -324,7 +324,7 @@ one named axis carries the per-coordinate marginal product.
 ## See also
 
 - [Continuous Spaces and Morphisms](continuous-spaces.md): the
-  surrounding space hierarchy and composition surface.
+  surrounding space hierarchy and composition operations.
 - [DSL Programs and Let-Expressions](dsl-programs-and-lets.md#axis-role-clause-over-and-iid_over):
   the `over` / `iid over` axis-role clause that depends on
   `event_rank`.

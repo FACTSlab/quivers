@@ -1,11 +1,11 @@
 # Hierarchical Programs
 
-This page covers the advanced program-composition surface that
-makes idiomatic hierarchical Bayesian models expressible:
+This page describes the program-composition features used to express
+hierarchical Bayesian models:
 parametric program templates that share structure across grouping
 factors, and the grouped marginalization construct for jointly
 identifying a discrete class indicator by multiple heterogeneous
-response axes. The basic `MonadicProgram` surface lives in the
+response axes. The basic `MonadicProgram` API is described in the
 [programs guide](programs.md).
 
 ## Hierarchical models with parametric templates
@@ -122,7 +122,7 @@ Product fibrations are supported on each observe via
 grouping plate on the marginalize header. The product-fibration
 arity must match the grouping plate's arity. See the
 [composition-rule semantics](../semantics/composition-rules.md) for
-the formal denotation and
+the denotation and
 `tests/test_grouped_marginalize_combinations.py` for examples.
 
 ## End-to-end fit
@@ -152,9 +152,9 @@ for _ in range(2000):
 - [Monadic Programs](programs.md): the basic program semantics and
   the `rsample` / `log_joint` contract this page builds on.
 - [DSL Programs and Let-Expressions](dsl-programs-and-lets.md#parametric-programs):
-  the surface syntax for parametric templates and the axis-role
+  the syntax for parametric templates and the axis-role
   clause used in the observe / plate steps.
 - [Analysis Pipelines: Data and Formulas](analysis-data-and-formulas.md):
   the brms-style formula entry point that compiles a
-  random-intercepts formula into this hierarchical surface
+  random-intercepts formula into this hierarchical program
   automatically.

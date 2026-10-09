@@ -30,7 +30,7 @@ and `return` enter through the probability-kernel embedding; `observe` and
 `score` multiply the current measure by a nonnegative factor; and finite
 `marginalize` pushes that measure forward along a projection.
 
-## 1. The Giry monad as semantic substrate
+## 1. The Giry monad
 
 Let $\mathcal{G}$ denote the Giry monad on $\mathbf{SBor}$, with unit $\eta_S : S \to \mathcal{G}(S)$ given by $s \mapsto \delta_s$ (Dirac at $s$) and multiplication $\mu_S : \mathcal{G}(\mathcal{G}(S)) \to \mathcal{G}(S)$ given by integration. The Kleisli category $\mathbf{Kern}$ of $\mathcal{G}$ has the same objects as $\mathbf{SBor}$ and morphisms $S \to T$ given by Markov kernels $S \to \mathcal{G}(T)$.
 
@@ -179,7 +179,7 @@ QIEC primitive registry. Each application is selected by argument type; a
 name without a matching signature is a static error. Reductions consume the
 supplied tensor, while rowwise operations act on its final axis. Reductions
 over a *named* axis go through the typed
-[`contraction`](../api/dsl/compiler.md) surface.
+[`contraction`](../api/dsl/compiler.md) syntax.
 
 | Category | Primitives |
 | --- | --- |
@@ -277,7 +277,10 @@ At compile time, the let-expression compiler checks the positional arity of ever
 * a [`MonadicProgram`](../api/continuous/programs.md) with named `params` is `len(params)`-ary, otherwise unary;
 * any other callable is introspected through [`inspect.signature`](https://docs.python.org/3/library/inspect.html#inspect.signature), counting positional parameters without defaults; `*args` makes the arity unknowable, in which case the check is skipped.
 
-Tensor-shape mismatches inside a user-defined callable surface as `RuntimeError` from PyTorch; the dispatcher wraps these (and any `TypeError`) into a [`CompileError`](../api/dsl/compiler.md) that names the call site, so the diagnostic is `call to 'L' failed: ...` rather than a bare PyTorch trace.
+Tensor-shape mismatches inside a user-defined callable initially raise a
+PyTorch `RuntimeError`. The dispatcher wraps these errors, together with any
+`TypeError`, in a [`CompileError`](../api/dsl/compiler.md) that names the call
+site. The result is `call to 'L' failed: ...` rather than a bare PyTorch trace.
 
 ### 2.4 Indexed Bind (Plate)
 
@@ -375,7 +378,7 @@ $$
 
 where $\ell_m(n, k) = \log p_{F_m}\bigl(r^{\mathrm{obs}}_m(n);\, \theta_m(n, k, \phi)\bigr)$ is the per-row per-class log-likelihood of observe $m$, $\pi$ is the per-group per-class prior weight, and $\mathrm{aggr}_R \in \{\mathrm{logsumexp}, \mathrm{sum}, \mathrm{mean}\}$ is the reduction selected by the optional `reduction = R` annotation (default `logsumexp`, the canonical mixture-marginalization form).
 
-The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1, idx_2, …)` on each observe extends the right-Kan-extension target to a flat plate of cardinality $\prod_i |G_i|$; the surface arity must match. The flat position of a row is the row-major combination of its factor indices, $\iota(n) = \sum_i \iota_i(n) \prod_{j > i} |G_j|$, so the last factor varies fastest.
+The product-grouping case `over G_1 * G_2 * …` paired with `via product(idx_1, idx_2, …)` on each observe extends the right-Kan-extension target to a flat plate of cardinality $\prod_i |G_i|$; the source arity must match. The flat position of a row is the row-major combination of its factor indices, $\iota(n) = \sum_i \iota_i(n) \prod_{j > i} |G_j|$, so the last factor varies fastest.
 
 A grouped block may nest inside another. The inner block then contributes one aggregate per position of its own group to the outer group's accumulator rather than a single number, and its group must stand in one of two relations to the outer group $G$: it is an axis of the same extent, identified with $G$ position by position, or it is a product $G \times H$ with $G$ as a factor, in which case the inner per-position aggregates are summed along the projection $G \times H \to G$ and any inner argument indexed by $G$ (a prior `theta[z]` selected by the outer latent) is pulled back along that projection. A `sample` inside a block that reads nothing the block binds is drawn once before the block, since every value of the latent shares it; a draw whose arguments read the latent would be a draw per class and is rejected.
 
@@ -414,7 +417,7 @@ Categorically, the summary distinguishes deterministic maps, probability
 kernels, weighted kernels in $\mathcal M_+$, and finite-support pushforwards.
 The elaborated QIEC row is the precise effect type: it records the lexical
 `Random` and `Score` instances and any effects of reachable calls. The
-four-name surface summary is a checked convenience, not a replacement for
+four-name effect summary is a checked convenience, not a replacement for
 that row.
 
 The `over = <model>` entry in a program's option block marks the program as consuming the named model's latents: the consumed coordinates appear as data parameters and the body is restricted to $\mathsf{Pure}$ (a *posterior consumer*, the deterministic Kleisli arrow $\Theta \to \tau_2$ that lifts to $\mathrm{Data} \to \mathcal{G}(\tau_2)$ by post-composition with the model's posterior kernel).

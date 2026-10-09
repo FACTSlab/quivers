@@ -53,7 +53,7 @@ define decoder = dec_1 >> stack(dec_deep, 1) >> dec_to_obs
 define generative = prior >> decoder
 define reconstruct = encoder >> decoder
 
-# Probabilistic surface for the generative branch: sample the
+# Probabilistic model for the generative branch: sample the
 # latent code under the standard-Normal prior, then push it
 # through the decoder Kleisli morphism to score the observation
 # Y. The decoder's per-layer weights carry the kernel-prior
@@ -167,7 +167,7 @@ The [ELBO](https://en.wikipedia.org/wiki/Evidence_lower_bound) decomposes catego
 ## See also
 
 - [Probabilistic PCA](ppca.md) for a linear-Gaussian latent-variable model.
-- [DSL Guide](../guides/dsl-overview.md) for the morphism composition surface (`>>`, `stack`, `embed`).
+- [DSL Guide](../guides/dsl-overview.md) for morphism composition (`>>`, `stack`, `embed`).
 
 
 ## References

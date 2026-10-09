@@ -1,11 +1,10 @@
 # Conceptual Guides
 
-This section gives feature-area introductions to the mathematical
-and computational foundations of quivers. The guides assume
-familiarity with basic category theory or a willingness to learn
-it alongside the material. For a more discursive treatment, see
-the [tutorial](../tutorials/index.md); for the formal denotational
-semantics, see [Semantics](../semantics/index.md).
+These guides explain the mathematical and computational foundations of
+Quivers by feature area. They assume familiarity with basic category theory or
+a willingness to learn it alongside the material. For complete worked
+examples, see the [tutorials](../tutorials/index.md); for formal semantics, see
+[Semantics](../semantics/index.md).
 
 For declaration-by-declaration syntax and operational behavior, use the
 [QVR language reference](../reference/qvr/index.md). The guides explain why a
@@ -18,7 +17,7 @@ clearest picture of how the pieces fit together.
 
 ## Foundations
 
-The categorical primitives every other layer is built on.
+These guides introduce the categorical primitives used throughout the library.
 
 1. [Core Types & Algebras](core.md). Finite sets (the SetObject
    hierarchy), algebras as enrichment algebras, and the algebraic
@@ -30,7 +29,7 @@ The categorical primitives every other layer is built on.
 3. [Morphisms & Composition](morphisms.md). What a morphism is as
    a tensor in $\mathcal{V}^{|A| \times |B|}$, the morphism
    hierarchy, composition, tensor product, marginalization, and
-   the compact-closed surface (`dagger`, `trace`, `cup`, `cap`).
+   the compact-closed operations (`dagger`, `trace`, `cup`, `cap`).
 
 ## DSL
 
@@ -46,7 +45,7 @@ Writing programs in the typed `.qvr` language.
 6. [DSL Programs and Let-Expressions](dsl-programs-and-lets.md).
    `program` blocks, bind / observe / marginalize / let steps, the
    axis-role clause, factor expressions, the let-expression
-   primitive surface, and inline distributions.
+   primitive operators, and inline distributions.
 7. [DSL Contractions](dsl-contractions.md). Operadic n-ary
    contractions, type-driven wiring inference, `share` clause,
    explicit `wiring` escape hatch.
@@ -70,7 +69,7 @@ The runtime semantics of programs and distributions.
 11. [Continuous Families](continuous-families.md). The registry of more than forty
     parameterized distributions, event ranks, and the
     structured priors (MatrixNormal, InverseWishart, GP,
-    Horseshoe, LKJ) that interact with the axis-role surface.
+    Horseshoe, LKJ) that use the axis-role syntax.
 12. [Stochastic Morphisms](stochastic.md). The FinStoch category:
     Markov kernels, conditioning, queries, the Giry monad.
 
@@ -91,8 +90,8 @@ Fitting models to data.
 
 ## Categorical Structures
 
-Higher-order categorical machinery the rest of the library is
-built on or reuses.
+These guides cover higher-order categorical constructions used elsewhere in
+the library.
 
 16. [Categorical Structures](categorical.md). Functors, natural
     transformations, adjunctions, monoidal structures, base change.
@@ -107,14 +106,14 @@ built on or reuses.
 
 ## Structured Prediction
 
-The chart-parser and structural-compression substrate.
+These guides cover weighted parsing and the structural-compression framework.
 
 20. [Weighted Deduction Systems](deduction.md). Agenda-engine
     runtime, semirings, charts as differentiable values, the seven
     canonical parameters.
 21. [Structural Compression: Signatures and
     Encoders](structural-compression-signatures-and-encoders.md).
-    `signature` and `encoder` blocks; F-algebra surface for
+    `signature` and `encoder` blocks; the F-algebra interface for
     compressing structured objects; factory form and
     sequence / graph sugar.
 22. [Structural Compression: Decoders and
@@ -124,7 +123,7 @@ The chart-parser and structural-compression substrate.
 
 ## Analysis
 
-Workflow surface around inference.
+These guides cover data preparation, model fitting, and diagnostics.
 
 23. [Analysis: Data and Formulas](analysis-data-and-formulas.md).
     `DatasetSchema`, brms-style formulas, the formula-to-QVR

@@ -1,6 +1,6 @@
 # Migrating `.qvr` source between grammar revisions
 
-QVR's surface grammar evolves between releases. `qvr migrate` lowers
+QVR's source grammar evolves between releases. `qvr migrate` lowers
 `.qvr` source written for one tagged grammar revision into source
 shaped for a later revision. The transformation is grammar-bound at
 every step: every per-declaration output is parse-validated against
@@ -16,15 +16,19 @@ The pipeline runs per source file:
 
 ```mermaid
 flowchart LR
-    A["source bytes<br/>(written against revision X)"]
-    B["parse with X's<br/>tree-sitter grammar"]
-    C["walk the parse-tree<br/>schema"]
-    D["per-declaration<br/>converter (X → Y)"]
-    E["per-declaration<br/>parse-validate (Y)"]
-    F["concatenate"]
-    G["whole-file<br/>parse-validate (Y)"]
-    H["source bytes<br/>(shaped for revision Y)"]
-    A --> B --> C --> D --> E --> F --> G --> H
+    A["Source bytes<br/><small>revision X</small>"] -->|parse with X| B["Versioned tree-sitter grammar"]
+    B --> C["Parse-tree schema"] -->|convert each declaration| D["X → Y converter"]
+    D -->|validate with Y| E{"Declaration valid?"}
+    E -->|yes| F["Concatenate converted declarations"]
+    F -->|parse + validate as one file| G{"Whole file valid?"}
+    G -->|yes| H["Source bytes<br/><small>revision Y</small>"]
+    E -->|no| STOP1["Stop with declaration diagnostic"]
+    G -->|no| STOP2["Stop with file diagnostic"]
+    class A qv-input
+    class B,C,D,F qv-checked
+    class E,G qv-decision
+    class H qv-output
+    class STOP1,STOP2 qv-foundation
 ```
 
 Each adjacent revision pair `(X, Y)` on the migration
@@ -94,7 +98,7 @@ What's preserved by the migrator today:
 
 - **Declarations handled by a converter.** Each supported source
   declaration becomes the semantically equivalent target declaration,
-  even when the surface changed (e.g. `latent f : A -> B` becomes
+  even when the syntax changed (e.g. `latent f : A -> B` becomes
   `morphism f : A -> B [role=latent]`). The two hops with empty converter
   tables still parse both endpoints and reject output that the target grammar
   cannot accept.
@@ -131,7 +135,7 @@ What's intentionally dropped or transformed:
 ## The migration chain
 
 The chain is declared in
-[`src/quivers/cli/migrations/__init__.py`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/migrations/__init__.py)
+[`src/quivers/cli/migrations/__init__.py`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/migrations/__init__.py)
 as the tuple `CHAIN`:
 
 | Pair | Status |
@@ -289,8 +293,8 @@ the coverage / blame tooling layered on top.
 
 ## Related
 
-- [`grammars/qvr/vcs/README.md`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/vcs/README.md):
+- [`grammars/qvr/vcs/README.md`](https://github.com/quivers-dev/quivers/blob/main/grammars/qvr/vcs/README.md):
   the VCS workflow for grammar authors.
 - The
   [DSL overview](dsl-overview.md)
-  for the current source-level surface.
+  for the current source syntax.

@@ -34,19 +34,19 @@ To highlight a file to a terminal:
 pygmentize -l qvr -O style=monokai docs/examples/source/bayesian_regression.qvr
 ```
 
-The lexer source lives at [`src/quivers/dsl/pygments_lexer.py`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/dsl/pygments_lexer.py); the highlight rules and keyword list are kept in sync with the [tree-sitter grammar](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr) by `tests/test_dsl_extensions.py`.
+The lexer source lives at [`src/quivers/dsl/pygments_lexer.py`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/dsl/pygments_lexer.py); the highlight rules and keyword list are kept in sync with the [tree-sitter grammar](https://github.com/quivers-dev/quivers/tree/main/grammars/qvr) by `tests/test_dsl_extensions.py`.
 
 ## Tree-sitter (editors)
 
 The authoritative tree-sitter grammar lives at
-[`grammars/qvr/`](https://github.com/FACTSlab/quivers/tree/main/grammars/qvr)
+[`grammars/qvr/`](https://github.com/quivers-dev/quivers/tree/main/grammars/qvr)
 in the quivers repository. The Python package includes its generated source;
 platform wheels pair that source with a manifest-verified native parser. The
 Pygments lexer, CLI, REPL, and language server load this pair directly and fail
 closed if either component is absent or inconsistent. Editable checkouts may
 compile a content-addressed development parser after grammar changes.
 `panproto-grammars-all` remains a dependency for the eleven transpiler-target
-grammars, but it is not the QVR source of truth.
+grammars, but it does not define QVR syntax.
 
 Editor integrations use the first-party extensions below or clone the quivers
 repository and build against `grammars/qvr/`. The grammar follows standard
@@ -63,7 +63,7 @@ With [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter):
 local parsers = require("nvim-treesitter.parsers").get_parser_configs()
 parsers.qvr = {
   install_info = {
-    url = "https://github.com/FACTSlab/quivers",
+    url = "https://github.com/quivers-dev/quivers",
     files = { "grammars/qvr/src/parser.c" },
     location = "grammars/qvr",
     branch = "main",
@@ -92,7 +92,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "qvr"
-source = { git = "https://github.com/FACTSlab/quivers", subpath = "grammars/qvr" }
+source = { git = "https://github.com/quivers-dev/quivers", subpath = "grammars/qvr" }
 ```
 
 Then:
@@ -110,7 +110,7 @@ With [tree-sitter-langs](https://github.com/emacs-tree-sitter/tree-sitter-langs)
 
 ```elisp
 (add-to-list 'treesit-language-source-alist
-             '(qvr . ("https://github.com/FACTSlab/quivers"
+             '(qvr . ("https://github.com/quivers-dev/quivers"
                       "main"  ; branch
                       "grammars/qvr/src")))
 (define-derived-mode qvr-mode prog-mode "QVR"
@@ -150,12 +150,12 @@ Run `M-x treesit-install-language-grammar RET qvr RET` once after Emacs starts t
 ### Zed
 
 The quivers repository ships a Zed extension at
-[`editors/zed-extension-qvr/`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr).
+[`editors/zed-extension-qvr/`](https://github.com/quivers-dev/quivers/tree/main/editors/zed-extension-qvr).
 Until the extension is published to Zed's public registry, install it
 locally from a checkout:
 
 ```bash
-git clone https://github.com/FACTSlab/quivers
+git clone https://github.com/quivers-dev/quivers
 mkdir -p ~/.config/zed/extensions
 ln -s "$(pwd)/quivers/editors/zed-extension-qvr" ~/.config/zed/extensions/qvr
 ```
@@ -168,7 +168,7 @@ and the editor packaging.
 ### VS Code / Cursor
 
 The repository ships a first-party VS Code extension at
-[`editors/vscode-qvr/`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr).
+[`editors/vscode-qvr/`](https://github.com/quivers-dev/quivers/tree/main/editors/vscode-qvr).
 It provides:
 
 - a TextMate grammar for the initial render,
@@ -194,7 +194,7 @@ setting (with `${workspaceFolder}` expansion), (2)
 (4) plain `qvr-lsp` on `$PATH`. Install the LSP extra with
 `pip install 'quivers[lsp]'`.
 
-The full configuration surface and the launch resolution order live in
+The full configuration options and launch resolution order are documented in
 the [Interactive guide](../guides/repl-and-lsp.md#vs-code-cursor).
 
 ## GitHub source view (Linguist)
@@ -273,4 +273,4 @@ option keys should receive their semantic classes once the LSP attaches. The
 [QVR language reference](../reference/qvr/index.md) contains tested blocks for
 the remaining computation and program forms.
 
-If a token is unhighlighted (rendered as default-foreground text), the corresponding rule in the editor's highlight query is the place to look; the canonical reference is [`grammars/qvr/queries/highlights.scm`](https://github.com/FACTSlab/quivers/blob/main/grammars/qvr/queries/highlights.scm).
+If a token is unhighlighted (rendered as default-foreground text), the corresponding rule in the editor's highlight query is the place to look; the canonical reference is [`grammars/qvr/queries/highlights.scm`](https://github.com/quivers-dev/quivers/blob/main/grammars/qvr/queries/highlights.scm).

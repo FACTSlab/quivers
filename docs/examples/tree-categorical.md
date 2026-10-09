@@ -84,7 +84,7 @@ let leaf_log = factor cls : Class in {
 
 The pattern-match form `factor cls : I in { 0 -> e_0, ..., n-1 -> e_{n-1} }` denotes a tensor of shape `(|I|, ...)` whose `i`-th cell is `e_i`. Here each leaf class is a structurally different product of internal-node log-probabilities, reflecting the geometry of a binary decision tree: classes 0 and 1 sit beneath the left child of the root (`1 - p_root` × left branch); classes 2 and 3 sit beneath the right (`p_root` × right branch). The compiler enforces label coverage of `{0, ..., |Class|-1}` exactly and rejects gaps, duplicates, or out-of-range labels at compile time.
 
-This is the categorical surface for *structurally heterogeneous* indexed families: distributions over $\mathsf{Class}$ whose cells come from different upstream latents in different ways.
+This is the categorical representation of *structurally heterogeneous* indexed families: distributions over $\mathsf{Class}$ whose cells come from different upstream latents in different ways.
 
 ### Multi-binder uniform factor: the joint score tensor
 
@@ -104,7 +104,12 @@ The binder variables `v` and `cls` are integer-valued and visible only inside th
 
 A plate-bound draw `delta : Verb <- Normal(0.0, sigma_v)` and a factor expression `factor v : Verb in <body>` are not interchangeable. The plate draws an `|Verb|`-shape tensor of *independent* samples from the same kernel; the factor evaluates a *deterministic body* once per index and assembles the results into a tensor. The plate's family is exchangeable in its index; the factor's body is allowed to depend on the index in arbitrary structurally-different ways.
 
-This is why no other example in the gallery uses `factor`: existing models all use exchangeable priors (symmetric Dirichlet, plate-bound Normal) where the plate surface is correct. `factor` becomes the right tool when the index axis is structured (a binary tree, a directed acyclic group structure, a heterogeneous mixture of distinct sub-priors) and the cells of that index are different functions of upstream latents.
+This is why no other example in the gallery uses `factor`: existing models all
+use exchangeable priors, such as symmetric Dirichlet and plate-bound Normal
+priors, for which plate parameterization is appropriate. `factor` becomes the
+right tool when the index axis is structured, as in a binary tree, a directed
+acyclic group structure, or a heterogeneous mixture of distinct sub-priors,
+and the cells of that index are different functions of upstream latents.
 
 ## Try it
 

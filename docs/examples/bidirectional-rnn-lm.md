@@ -61,7 +61,11 @@ export bidirectional_rnn_lm
 
 ### Two independent scans
 
-`forward_path = tok_embed >> scan(fwd_cell)` and `backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli morphisms, `Token -> FwdHidden` and `Token -> BwdHidden`. Both thread state left to right over the same token sequence with the same `scan` machinery; what distinguishes the two paths is their cells, which carry independent parameters and thus learn separate summaries of the sequence.
+`forward_path = tok_embed >> scan(fwd_cell)` and
+`backward_path = tok_embed >> scan(bwd_cell)` are two independent Kleisli
+morphisms, `Token -> FwdHidden` and `Token -> BwdHidden`. Both use `scan` to
+thread state from left to right over the same token sequence. Their cells carry
+independent parameters and thus learn separate sequence summaries.
 
 ### Parallel composition
 
@@ -82,6 +86,9 @@ flowchart LR
     bwd["bwd"] --> combine["combine"]
     combine["combine"] --> lm_head["lm_head"]
     lm_head["lm_head"] --> masked_token["masked_token"]
+    class tok qv-input
+    class embed,fwd,bwd,combine,lm_head qv-checked
+    class masked_token qv-output
 ```
 
 ## Try it

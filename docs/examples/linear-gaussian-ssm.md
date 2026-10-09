@@ -5,10 +5,12 @@
 The classical linear-Gaussian [state-space model](https://en.wikipedia.org/wiki/State-space_representation) has a closed-form [Kalman filter](https://doi.org/10.1115/1.3662552) and [Rauch-Tung-Striebel smoother](https://doi.org/10.2514/3.3166):
 
 $$
-s_t = A s_{t-1} + B u_t + w_t, \quad w_t \sim \mathcal{N}(0, Q)
-$$
-$$
-o_t = C s_t + v_t, \quad v_t \sim \mathcal{N}(0, R)
+\begin{aligned}
+s_t &= A s_{t-1} + B u_t + w_t,
+& w_t &\sim \mathcal{N}(0, Q), \\
+o_t &= C s_t + v_t,
+& v_t &\sim \mathcal{N}(0, R).
+\end{aligned}
 $$
 
 The QVR source below uses learned conditional-Normal kernels. Their means and diagonal scales are produced from each input, so the source does not guarantee constant covariance, and its separate `filter_cell` is not the analytic Kalman update. It demonstrates the state-space wiring used again in the [continuous-state](continuous-hmm.md) and [deep Markov](deep-markov.md) examples.
@@ -48,7 +50,7 @@ morphism filter_cell : Obs * State -> State ~ Normal
 define generate = scan(transition_cell) >> emission
 define filter = scan(filter_cell)
 
-# Probabilistic surface: the exported one-step kernel takes the
+# Probabilistic model: the exported one-step kernel takes the
 # previous (driver, state) pair, draws a new state, and scores one
 # observation under the emission kernel. The separate `generate`
 # composition scans transition_cell and emits once from the
@@ -68,7 +70,7 @@ export generative_step
 
 `scan(transition_cell)` threads the latent state forward across a driver sequence and returns the terminal state; composing with `emission` draws one observation from that terminal state. `scan(filter_cell)` is a separately learned recognition path. Nothing in the declaration constrains `filter_cell` to equal the closed-form posterior update.
 
-A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role surface applies once the state factorizes into named components.
+A matrix-Normal prior on the transition matrix is the natural conjugate choice when the analyst wants to separate row and column correlation structure: `~ MatrixNormal(loc, row_scale, col_scale) over (dom, cod)` puts a [Kronecker-covariance](https://en.wikipedia.org/wiki/Kronecker_product) prior on the representing tensor of a finite-state transition morphism. The Euclidean state space here uses parameter networks instead, but the same axis-role syntax applies once the state factorizes into named components.
 
 ## Try it
 
@@ -111,7 +113,14 @@ observations = sites
 
 ### SVI fit
 
-The exported `generative_step` is a monadic program whose linear-Gaussian transition and emission weights are kernel parameters without explicit `sample` priors; [`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters) lifts each leaf parameter into a unit-Normal sample site so the standard guide-plus-ELBO machinery applies uniformly. The per-step `(s_new, o)` trajectory is supplied as the observation dict, so `log_joint` scores the clamped trajectory under each lifted parameter draw.
+The exported `generative_step` is a monadic program whose linear-Gaussian
+transition and emission weights are kernel parameters without explicit
+`sample` priors.
+[`bayesian_lift_parameters`](../api/inference/lifts.md#quivers.inference.lifts.bayesian_lift_parameters)
+lifts each leaf parameter into a unit-Normal sample site, allowing the standard
+guide and ELBO implementation to apply uniformly. The per-step `(s_new, o)`
+trajectory is supplied as the observation dictionary, so `log_joint` scores
+the clamped trajectory under each lifted parameter draw.
 
 ```python
 from quivers.inference import AutoNormalGuide, ELBO, SVI, bayesian_lift_parameters
@@ -174,6 +183,10 @@ flowchart LR
     s_1["s_1"] --> transition_cell_2["transition_cell_2"]
     u_2["u_2"] --> transition_cell_2["transition_cell_2"]
     transition_cell_2["transition_cell_2"] --> s_2["s_2"]
+    class u_1,s_0,u_2 qv-input
+    class transition_cell,emission,transition_cell_2 qv-checked
+    class s_1,s_2 qv-foundation
+    class o_1 qv-output
 ```
 
 

@@ -1,9 +1,8 @@
 # Structural Compression: Decoders and Losses
 
-This page covers the decoder dual to the encoder surface (the
-Kleisli arrow back from vectors to terms), the loss-declaration
-surface, and the integration points with the chart-parser and
-Bayesian-program machinery. The signature and encoder side lives
+This page covers the decoder dual to the encoder (the Kleisli arrow back from
+vectors to terms), loss declarations, and integration with chart parsers and
+Bayesian programs. The signature and encoder side lives
 in
 [Signatures and Encoders](structural-compression-signatures-and-encoders.md).
 
@@ -95,7 +94,7 @@ the semiring abstraction is not broken.
 ## Bayesian integration
 
 A decoder is a Kleisli arrow into a structured type: a distribution
-over terms. So everything the program / posterior machinery does
+over terms. Thus everything that programs and posterior approximations do
 with distributions over scalars and vectors extends, with no
 special-casing, to distributions over structured objects:
 
@@ -130,8 +129,8 @@ coalgebra pattern, no special-casing.
 
 - [Signatures and Encoders](structural-compression-signatures-and-encoders.md):
   the encoder side of the autoencoder pair.
-- [Weighted Deduction Systems](deduction.md): the chart-parser
-  substrate that decoders couple to.
+- [Weighted Deduction Systems](deduction.md): the chart representation to
+  which decoders attach.
 - [Compositional Effects](effects.md): the algebraic-effects
   framework over which the decoder's stochasticity is realized.
 - [Structural autoencoders tutorial](../tutorials/qvr/12-structural-autoencoders.md):

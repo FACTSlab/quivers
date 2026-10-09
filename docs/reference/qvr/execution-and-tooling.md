@@ -167,7 +167,7 @@ to the entry boundary are:
 | `:dump NAME --json` | inspect the checked declaration |
 
 The Textual status bar shows the active runtime and last result. The complete
-command and key-binding reference is in [Interactive surface: REPL, kernel,
+command and key-binding reference is in [Interactive tools: REPL, kernel, and
 language server](../../guides/repl-and-lsp.md).
 
 ## Language-server features

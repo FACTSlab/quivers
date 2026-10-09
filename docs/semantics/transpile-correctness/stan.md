@@ -27,7 +27,7 @@ non-identity $\Psi_{\mathsf{Stan}}$. Constrained-parameter
 declarations introduce the following changes of variables and
 Jacobians (Stan Reference Manual §10):
 
-| Declaration | $\Psi^{-1}_{\mathsf{Stan}}$ (constraint → unconstrained) | $\log\bigl|\det J_{\Psi_{\mathsf{Stan}}}\bigr|$ |
+| Declaration | $\Psi^{-1}_{\mathsf{Stan}}$ (constraint → unconstrained) | $\log\bigl\lvert\det J_{\Psi_{\mathsf{Stan}}}\bigr\rvert$ |
 |---|---|---|
 | `real<lower=0>` | $\theta = \exp(\widetilde\theta)$ | $\widetilde\theta$ |
 | `real<lower=0, upper=1>` | $\theta = \mathrm{logit}^{-1}(\widetilde\theta)$ | $\widetilde\theta - 2\log(1 + e^{\widetilde\theta})$ |

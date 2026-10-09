@@ -21,6 +21,9 @@ flowchart TB
     F --> E
     F --> G
     D --> G
+    class F qv-input
+    class D,E qv-checked
+    class G qv-output
 ```
 
 Each subpackage is gated behind an optional dependency extra, so a
@@ -133,7 +136,7 @@ formula in the test suite.
   named coefficients (`beta_x`, `beta_z`, `beta_x_z`). The
   per-column data flows in as a free variable via the host-data
   channel (see the
-  [conditioning surface](inference-foundations.md#host-data-per-row-covariates-and-index-arrays)).
+  [conditioning API](inference-foundations.md#host-data-per-row-covariates-and-index-arrays)).
 - **R-style transforms** preloaded into the formulae evaluation
   namespace: `log`, `exp`, `sqrt`, `abs`, `sin`, `cos`, `tan`,
   `log10`, `log2`, `log1p`, `expm1`, `asin`, `acos`, `atan`,
@@ -186,8 +189,8 @@ fit(
 ```
 
 The emitted likelihood is `Binomial(trials, sigmoid(eta))`. The
-negative-binomial family uses the NB2 mean/concentration form at the
-formula surface: `mu = exp(eta)`, `disp > 0`, and the compiler emits
+negative-binomial family uses the NB2 mean/concentration form in the
+formula DSL: `mu = exp(eta)`, `disp > 0`, and the compiler emits
 `NegativeBinomial(disp, mu / (mu + disp))`, matching QVR's
 `(total_count, probs)` convention.
 
@@ -363,4 +366,4 @@ autoscaling above. The full call shape lives in
 - [DSL Overview](dsl-overview.md): the typed DSL the formula
   frontend emits source for.
 - [Hierarchical Programs](programs-hierarchical.md): the program
-  surface that random-effects formulas compile to.
+  representation that random-effects formulas compile to.

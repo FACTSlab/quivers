@@ -50,7 +50,7 @@
 # parameter dictionary allocates one log-weight per distinct
 # binding tuple at run time. ``inside_NP`` is thus the
 # log-marginal of the corpus under a learnable MCFG, fittable
-# with the standard regression-style SVI and NUTS surfaces.
+# with the standard regression-style SVI and NUTS workflows.
 
 object Term : FinSet 16
 
@@ -58,7 +58,7 @@ object Rule : FinSet 16
 
 object Weight : Real 1
 
-# Probabilistic surface for transpile: each learnable rule weight
+# Probabilistic model for transpilation: each learnable rule weight
 # carries an independent Normal(0, 1) prior, and a treebank reports
 # how often each rule fired. Exponentiating a weight gives that
 # rule's firing rate, so the counts are Poisson in the rate; the
@@ -138,15 +138,15 @@ implements the linear yield function `RC(w x y) :- who(w) sg(x, y)`: the WH-word
 
 - **Tuple-valued chart items** for non-terminals of rank $\ge 2$. The `sg(I1, J1, I2, J2)` item is a four-position structural pattern; the chart engine pattern-matches it the same way it does the rank-1 `span(I, J, X)`.
 - **Linear yield functions** as ordinary sequent rules. Concatenation and component permutation across premises are expressed by where each variable appears in the conclusion.
-- **`#[learnable]` weights on every production**, lexicon entries and rules alike. The bindings-keyed parameter dictionary stores one log-weight per distinct binding tuple, giving the same partial-application weight surface as a per-production-instantiation PCFG.
+- **`#[learnable]` weights on every production**, lexicon entries and rules alike. The bindings-keyed parameter dictionary stores one log-weight per distinct binding tuple, giving the same partial-application parameterization as a per-production-instantiation PCFG.
 
 ## Try it
 
-The deduction system is callable: `ded(sentence)` returns a [`ChartView`](../api/stochastic/agenda.md#quivers.stochastic.agenda.ChartView) whose `goal_weight()` is the differentiable log-marginal $\log Z(s; \mathbf{w})$ summed over every derivation the start symbol licenses for the input. Fitting the lexicon and rule weights together is then a regression-style problem; the [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module ships the two standard surfaces.
+The deduction system is callable: `ded(sentence)` returns a [`ChartView`](../api/stochastic/agenda.md#quivers.stochastic.agenda.ChartView) whose `goal_weight()` is the differentiable log-marginal $\log Z(s; \mathbf{w})$ summed over every derivation the start symbol licenses for the input. Fitting the lexicon and rule weights together is then a regression-style problem; the [`quivers.stochastic.deduction`](../api/stochastic/deduction.md) module provides the fitting utilities used below.
 
 ### Generating synthetic data
 
-The `pmcfg_prior` program is the standalone Bayesian surface over the same
+The `pmcfg_prior` program is a standalone Bayesian model over the same
 rule weights. Each rule draws one log-weight from a unit Normal;
 exponentiating that weight gives the rate at which the rule fires, and
 a treebank reports the count. Drawing the weights from their own prior

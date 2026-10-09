@@ -32,6 +32,9 @@ flowchart TD
     multi -- no  --> tails{"Non-Gaussian tails?"}
     tails -- yes --> flow["AutoIAFGuide<br/>or AutoNeuralSplineGuide"]
     tails -- no  --> normal2["back to AutoNormalGuide"]
+    class start qv-input
+    class id,corr,dim,multi,tails qv-decision
+    class normal,mvn,lr,mix,flow,normal2 qv-output
 ```
 
 The shipped guides:
@@ -177,7 +180,7 @@ Whenever you're unsure which guide handles a model shape, look at
 
 ## Next
 
-[Chapter 7](07-categorical.md) describes the categorical machinery behind
+[Chapter 7](07-categorical.md) describes the categorical structure behind
 algebras, change-of-base, and enriched composition. Chapters 9–12 then build
 indexed families, authored handlers, checked search, and structural
 attachments; chapter 13 collects the release checks for a QVR module.

@@ -4,7 +4,10 @@ QVR has three constructs for sequence-shaped problems such as time series, text,
 
 - **Plate-draws** for IID-along-an-index data (chapter 3 used this for `sample theta : School <- Normal(...)`).
 - **`scan`** for sequential evaluation: a per-step cell function fold-applied along the sequence dimension.
-- **The deduction layer** for chart-shaped problems whose computation is not a simple left-to-right scan (CKY, Earley, or another bounded weighted search). [Chapter 11](11-parsing-and-search.md) introduces that layer, and the deduction guide covers the full surface.
+- **The deduction layer** for chart-shaped problems whose computation is not a
+  simple left-to-right scan, such as CKY, Earley, or another bounded weighted
+  search. [Chapter 11](11-parsing-and-search.md) introduces that layer, and the
+  deduction guide describes its complete API.
 
 This chapter covers the first two, then distinguishes the finite-state path
 demonstration in the gallery from a normalized hidden Markov model (HMM).
@@ -99,8 +102,8 @@ version would use: one Dirichlet initial row, one transition row per source
 state, and one emission row per state. Its checked likelihood marginalizes a
 single state shared by the observed emission sequence. `transition_rows` is a
 prior-only draw and does not enter that likelihood. Thus the program is a
-finite-state marginal mixture, not a multi-step HMM. The current checked
-surface does not silently substitute this model for the recurrent HMM that
+finite-state marginal mixture, not a multi-step HMM. The compiler therefore
+does not silently substitute this model for the recurrent HMM that
 the filename might suggest.
 
 This boundary is structural. `scan` currently requires a vector-valued hidden

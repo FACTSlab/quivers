@@ -10,7 +10,7 @@ $$
 
 The model is identifiable up to a $K \times K$ orthogonal rotation of $W$; the maximum-likelihood $W$ recovers the leading-$K$ [principal components](https://en.wikipedia.org/wiki/Principal_component_analysis) scaled by $\sqrt{\lambda_k - \sigma^2}$, where $\lambda_k$ are the data covariance eigenvalues. In general, PPCA differs from classical factor analysis in the observation noise: PPCA uses a single isotropic scalar $\sigma$, while classical factor analysis uses a free diagonal $\psi$. The gallery's [isotropic factor-model page](factor-analysis.md) intentionally has the same noise structure as this program and emphasizes the shared low-rank composition instead.
 
-In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ and the per-item code is $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W`. The exported program below supplies explicit Normal priors through `Z_mat` and `W_mat`; the top-level morphisms themselves have no family declaration.
+In quivers, the loading matrix is a [`LatentMorphism`](../api/core/morphisms.md) $W : \mathsf{LatentDim} \to \mathsf{ObsDim}$ and the per-item code is $Z : \mathsf{Item} \to \mathsf{LatentDim}$. The model mean is the composition $Z \mathbin{>>} W$. The exported program below supplies explicit Normal priors through `Z_mat` and `W_mat`; the top-level morphisms themselves have no family declaration.
 
 ## QVR source
 
@@ -50,7 +50,7 @@ morphism W : LatentDim -> ObsDim [role=latent]
 
 define ppca = Z >> W
 
-# Probabilistic surface: every entry of the loading matrix and
+# Probabilistic model: every entry of the loading matrix and
 # per-item latent code carries an independent Normal(0, 1) prior
 # (the matrix-normal special case with V = U = I), the isotropic
 # noise scale sigma carries a HalfCauchy(2.5) prior, and the
@@ -88,7 +88,7 @@ morphism W : LatentDim -> ObsDim [role=latent] ~ MatrixNormal(loc=0.0, row_covar
 
 It would place a [`MatrixNormal`](../api/continuous/families.md#quivers.continuous.families.ConditionalMatrixNormal) prior on the loading matrix. The runnable `ppca_program` uses indexed Normal draws instead.
 
-The PPCA / factor analysis distinction lives in the choice of downstream observation kernel applied to the matmul mean: a single shared scalar `sigma` for PPCA, a free diagonal `psi_d` for factor analysis. The morphism surface itself (the `Z >> W` matmul) is shared.
+The PPCA / factor analysis distinction lies in the downstream observation kernel applied to the matrix-product mean: a single shared scalar `sigma` for PPCA or a free diagonal `psi_d` for factor analysis. Both models use the same morphism composition, `Z >> W`.
 
 ## Try it
 
@@ -167,7 +167,7 @@ The optional morphism-valued [`MatrixNormal`](../api/continuous/families.md#quiv
 ## See also
 
 - [Isotropic Bayesian Factor Model](factor-analysis.md), the same low-rank mean and shared-noise structure presented as a factor model.
-- [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior surface.
+- [DSL Guide](../guides/dsl-overview.md) for the morphism-valued prior syntax.
 
 
 ## References

@@ -185,10 +185,15 @@ There is no repository-wide support-size threshold at which one method wins. Pro
 
 ```mermaid
 flowchart LR
-    A["program block"] -- "marginalize z : K" --> B["body runs K times,<br/>once per z value"]
-    B --> C["logsumexp over K"]
-    C --> D["score added to ELBO"]
-    A --> D
+    A["Program reaches<br/>discrete latent z : K"] --> CHOICE{"How is z handled?"}
+    CHOICE -->|sample z| SAMPLE["One sampled branch"] --> SCORE["Stochastic score"]
+    CHOICE -->|marginalize z| ENUM["Run body once<br/>for every z ∈ K"]
+    ENUM --> REDUCE["logsumexp across K"] --> SCORE
+    SCORE --> ELBO["Add result to ELBO"]
+    class A qv-input
+    class CHOICE qv-decision
+    class SAMPLE,ENUM,REDUCE,SCORE qv-checked
+    class ELBO qv-output
 ```
 
 ## Try this
@@ -203,7 +208,8 @@ flowchart LR
 
 ## Next
 
-[Chapter 5](05-time-series.md) looks at sequence-shaped models: HMMs, state-space models, and the chart-shaped deduction surface.
+[Chapter 5](05-time-series.md) examines sequence-shaped models: HMMs,
+state-space models, and chart-based weighted deduction.
 
 
 ## References

@@ -2,7 +2,12 @@
 
 ## Overview
 
-A two-stage natural-language-inference architecture composed entirely out of QVR's weighted-deduction surface: a Montague-style grammar that derives a logical form for every token span, then an entailment prover that closes those logical forms under three syllogistic rules. Everything is declared in `atoms` and `binders` plus `rule` sequents; no grammar formalism and no proof system is baked into the language.
+A two-stage natural-language-inference architecture built entirely in QVR's
+weighted-deduction fragment: a Montague-style grammar derives a logical form
+for every token span, then an entailment prover closes those logical forms
+under three syllogistic rules. The model declares everything through `atoms`,
+`binders`, and `rule` sequents; QVR does not build in either the grammar
+formalism or the proof system.
 
 The two halves share one term language, so the prover's items are literally the terms the grammar builds. That is what lets a single Adam step move the lexicon's log-weights in response to an entailment error.
 
@@ -12,7 +17,7 @@ The two halves share one term language, so the prover's items are literally the 
 # Montague Grammar + Syllogistic Entailment
 #
 # Two-stage natural-language-inference architecture composed
-# entirely out of QVR's weighted-deduction surface:
+# entirely in QVR's weighted-deduction fragment:
 #
 #   1. A Montague-style grammar derives a logical form for every
 #      token span. Common nouns and intransitive verbs denote
@@ -21,7 +26,7 @@ The two halves share one term language, so the prover's items are literally the 
 #      treats its first argument as a bound variable and
 #      alpha-renames it to a fresh canonical symbol per term
 #      construction. Structural equality on the chart is thus
-#      alpha-equivalence on the surface.
+#      alpha-equivalence in the source language.
 #
 #   2. An entailment prover closes the resulting claims under
 #      three syllogistic rules. The prover's items are the
@@ -47,7 +52,7 @@ The two halves share one term language, so the prover's items are literally the 
 # A determiner contributes a nullary LF constant (``every_q`` or
 # ``some_q``); sentence rules inspect that constant to build the
 # matching constructor. Restrictor and scope stay genuine lambda
-# terms, so the ``binders`` machinery is doing real work at the
+# terms, so the ``binders`` declaration is doing real work at the
 # predicate level.
 #
 # Reference: [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10).
@@ -151,15 +156,22 @@ export fit_grammar
 
 ## Walkthrough
 
-The grammar half declares the categories (`S`, `N`, `VP`, `Nom`, `QNP`, and the closed-class categories `Art`, `Cop`, `Det`), the chart-item constructor `span(I, J, X, F)` that packages a derivation covering tokens `[I, J)` of category `X` with logical form `F`, the logical-form constructors `App`, `Var`, `Every`, and `Some`, and the predicate constants `dog_p`, `cat_p`, `animal_p`, `bark_p`, `walk_p`. The `binders Lam` block tells the compiler that `Lam`'s first argument is a binding site, so every bound variable is alpha-renamed to a fresh canonical symbol per lexicon entry and structural equality on the chart is [alpha-equivalence](https://en.wikipedia.org/wiki/Lambda_calculus#Alpha_equivalence) on the surface. This matters for the prover: because "dog" is compiled once, the predicate it denotes is one canonical term, and the prover's pattern variables bind it by structural equality wherever it occurs.
+The grammar half declares the categories (`S`, `N`, `VP`, `Nom`, `QNP`, and the closed-class categories `Art`, `Cop`, `Det`), the chart-item constructor `span(I, J, X, F)` that packages a derivation covering tokens `[I, J)` of category `X` with logical form `F`, the logical-form constructors `App`, `Var`, `Every`, and `Some`, and the predicate constants `dog_p`, `cat_p`, `animal_p`, `bark_p`, `walk_p`. The `binders Lam` block tells the compiler that `Lam`'s first argument is a binding site, so every bound variable is alpha-renamed to a fresh canonical symbol per lexicon entry and structural equality on the chart uses [alpha-equivalence](https://en.wikipedia.org/wiki/Lambda_calculus#Alpha_equivalence). This matters for the prover: because "dog" is compiled once, the predicate it denotes is one canonical term, and the prover's pattern variables bind it by structural equality wherever it occurs.
 
 ### Why the sentence LF is built in normal form
 
-One constraint on the surface drives the whole design, so it is worth stating precisely. A deduction rule's conclusion is a constructor tree over the rule's pattern variables, and the runtime instantiates it with [`instantiate`](../api/stochastic/agenda.md#quivers.stochastic.agenda.instantiate), which performs structural substitution and nothing else. There is no beta-rule anywhere: a rule conclusion cannot call a function, no chart item is normalised on the way in, and the `binders` machinery only alpha-renames lexicon logical forms at compile time.
+One constraint in the deduction language drives the design. A rule's conclusion
+is a constructor tree over the rule's pattern variables, and the runtime
+instantiates it with
+[`instantiate`](../api/stochastic/agenda.md#quivers.stochastic.agenda.instantiate),
+which performs structural substitution and nothing else. There is no beta
+rule: a conclusion cannot call a function, no chart item is normalized on
+entry, and a `binders` declaration only alpha-renames lexical logical forms at
+compile time.
 
 Thus a determiner cannot denote a continuation-form lambda term such as `Lam(P, Lam(Q, App(forall_t, ...)))` and rely on later beta-reduction against its arguments. Nothing would reduce the redex; the chart would carry `App(App(Lam(...), dog_LF), bark_LF)` forever, and no prover rule could pattern-match through the unreduced application to find the quantifier.
 
-The grammar thus builds the sentence logical form in normal form directly, in the [generalized quantifier](https://en.wikipedia.org/wiki/Generalized_quantifier) style of [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139): a determiner denotes a relation between two sets, written here as the binary constructors `Every(P, Q)` and `Some(P, Q)`. Both determiners have category `Det`; their lexical constants distinguish their force. The shared `det_np` rule retains that constant in `App(D, P)`, and the `every_s` and `some_s` rules select the appropriate constructor by matching `every_q` or `some_q` inside that logical form. The restrictor and the scope remain genuine lambda terms, so the binder machinery does real work at the predicate level, where it is what makes `Lam(x, App(dog_p, Var(x)))` a single canonical object rather than a name-dependent one. See [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10) for the type-driven compositionality this fragment instantiates.
+The grammar thus builds the sentence logical form in normal form directly, in the [generalized quantifier](https://en.wikipedia.org/wiki/Generalized_quantifier) style of [Barwise and Cooper (1981)](https://doi.org/10.1007/BF00350139): a determiner denotes a relation between two sets, written here as the binary constructors `Every(P, Q)` and `Some(P, Q)`. Both determiners have category `Det`; their lexical constants distinguish their force. The shared `det_np` rule retains that constant in `App(D, P)`, and the `every_s` and `some_s` rules select the appropriate constructor by matching `every_q` or `some_q` inside that logical form. The restrictor and the scope remain genuine lambda terms, so the binder declaration matters at the predicate level: it makes `Lam(x, App(dog_p, Var(x)))` a single canonical object rather than a name-dependent one. See [Montague (1973)](https://doi.org/10.1007/978-94-010-2506-5_10) for the type-driven compositionality this fragment instantiates.
 
 Two consequences follow, and both are visible in the source. First, `every` and `some` make a semantic contribution through `every_q` and `some_q`; unlike a category split, this factorization keeps their shared syntax in one rule. Second, the article and the copula are semantically vacuous, so `art_n` and `cop_nom` pass the noun's predicate through unchanged, which is what makes `every dog is an animal` and `every animal barks` come out as `Every(DOG, ANIMAL)` and `Every(ANIMAL, BARK)` over the *same* `ANIMAL` term.
 
@@ -346,7 +358,7 @@ The final loop reports a calibrated probability per pair. The non-entailment sit
 
 ### NUTS posterior
 
-Full Bayesian inference over the grammar's log-weights uses [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel). [`nuts_program_from_deduction`](../api/stochastic/deduction.md#quivers.stochastic.deduction.nuts_program_from_deduction) lifts every learnable parameter into a [`Normal`](../api/continuous/families.md) sample site and adds the corpus log-marginal to the joint via a `score` step, so the standard MCMC machinery applies unchanged.
+Full Bayesian inference over the grammar's log-weights uses [`NUTSKernel`](../api/inference/mcmc.md#quivers.inference.mcmc.NUTSKernel). [`nuts_program_from_deduction`](../api/stochastic/deduction.md#quivers.stochastic.deduction.nuts_program_from_deduction) lifts every learnable parameter into a [`Normal`](../api/continuous/families.md) sample site and adds the corpus log-marginal to the joint via a `score` step, so the standard MCMC implementation applies unchanged.
 
 ```python
 from quivers.inference import MCMC, NUTSKernel
@@ -373,7 +385,14 @@ The two deductions are chained by hand rather than by a `compose(...)` step, and
 
 ## Limitations
 
-The fragment is deliberately small, and one limit is structural rather than incidental. There is no beta-reduction on the deduction surface, so the grammar cannot use continuation-form determiner denotations and recover a readable logical form; it builds the normal form directly instead. A grammar that genuinely needed higher-order denotations (quantifier raising, for instance, or the scope ambiguities the [quantifier-scope example](quantifier-scope.md) encodes in its categories) would have to encode the reduction in its rules or its categories, not rely on the runtime to normalise.
+The fragment is deliberately small, and one limit is structural rather than
+incidental. The deduction system does not perform beta reduction, so the
+grammar cannot use continuation-form determiner denotations and recover a
+readable logical form; it builds the normal form directly instead. A grammar
+that needed higher-order denotations, such as quantifier raising or the scope
+ambiguities encoded by the
+[quantifier-scope example](quantifier-scope.md), would have to encode reduction
+in its rules or categories rather than rely on the runtime to normalize.
 
 ## References
 

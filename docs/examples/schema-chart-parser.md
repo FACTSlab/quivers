@@ -55,7 +55,7 @@ Each `schema` declaration is a family of chart rules parameterized by typed meta
 
 `bundle lp_rules : [fwd_app, bwd_app, perm]` binds the rule set as a first-class name ([Bundles](../semantics/schemas.md#7-bundles)). The `parser(...)` expression resolves each entry in `rules=` against declared rules, schema primitives, and bundles; a bundle reference is spliced, that is, replaced by its members exactly as if they had been listed verbatim.
 
-`parser(rules=[lp_rules], terminal=Token, start=S, depth=1)` builds the chart parser via [`ChartParser.from_schema`](../api/stochastic/parsers.md#quivers.stochastic.parsers.ChartParser.from_schema). The category atoms are inferred from the uniquely declared `FreeResiduated` object in scope, and `depth=1` bounds the [`CategorySystem`](../api/stochastic/categories.md#quivers.stochastic.categories.CategorySystem) to the atoms plus every depth-1 slash category, 21 categories in all. Instantiating the three schemas over this inventory yields a [`RuleSystem`](../api/stochastic/rules.md#quivers.stochastic.rules.RuleSystem) with 18 binary and 9 unary firings, each carrying its own learnable log-weight; the lexical axiom contributes a learnable `(4, 21)` token-to-category log-weight table.
+`parser(rules=[lp_rules], terminal=Token, start=S, depth=1)` builds the chart parser via [`ChartParser.from_schema`](../api/stochastic/parsers.md#quivers.stochastic.parsers.ChartParser.from_schema). The category atoms are inferred from the uniquely declared `FreeResiduated` object in scope, and `depth=1` bounds the [`CategorySystem`](../api/stochastic/categories.md#quivers.stochastic.categories.CategorySystem) to the atoms plus every depth-1 slash category, 21 categories in all. Instantiating the three schemas over this inventory yields a [`RuleSystem`](../api/stochastic/rules.md#quivers.stochastic._rule_system.RuleSystem) with 18 binary and 9 unary firings, each carrying its own learnable log-weight; the lexical axiom contributes a learnable `(4, 21)` token-to-category log-weight table.
 
 The QIEC lowering instantiates that same finite rule system as a deduction. Its recursive computation carries the expected ground category, chooses only rules that can produce it, chooses split points for binary rules, and adds lexical and rule weights through the core effects. Thus `run_deduction(module, "lp_parser", tokens=...)` computes the same inside weight as the classic chart. A transpile target without the search runtime rejects this computation under `qiec:capability:search:lp_parser__run`.
 
@@ -125,7 +125,13 @@ weights before fitting mutates the classic module.
 
 ## The chart_fold primitive
 
-`parser(rules=...)` is surface sugar over the `chart_fold(...)` primitive, which builds the same inside computation from morphism-valued arguments instead of named schemas. Given a lexical kernel `emit : NT -> Tok` and a branching kernel `grow : NT -> NT * NT`, `chart_fold` constructs an [`InsideAlgorithm`](../api/stochastic/inside.md#quivers.stochastic.inside.InsideAlgorithm) directly, so the rule tensors are user-declared morphisms rather than schema instantiations:
+`parser(rules=...)` is syntactic sugar for the `chart_fold(...)` primitive,
+which builds the same inside computation from morphism-valued arguments rather
+than named schemas. Given a lexical kernel `emit : NT -> Tok` and a branching
+kernel `grow : NT -> NT * NT`, `chart_fold` constructs an
+[`InsideAlgorithm`](../api/stochastic/inside.md#quivers.stochastic.inside.InsideAlgorithm)
+directly, so the rule tensors are user-declared morphisms rather than schema
+instantiations:
 
 ```qvr
 object NT : FinSet 3

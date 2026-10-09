@@ -5,9 +5,15 @@ A *change-of-base* transformation turns a $\mathcal{V}$-enriched morphism into a
 - [`AlgebraHomomorphism`](../../api/core/algebras.md) values (Rosenthal, 1990, *Quantales and Their Applications*, Pitman Research Notes in Mathematics 234, Longman; ISBN 978-0-582-06423-2) are lax monoidal [lattice](https://en.wikipedia.org/wiki/Lattice_(order)) maps $\varphi : \mathcal{V} \to \mathcal{W}$ that act pointwise: every entry of the morphism's tensor is sent through $\varphi$.
 - [`MorphismTransformation`](../../api/core/morphisms.md) values act on the whole tensor, not entry-by-entry. Softmax row-normalization, L1/L2 row-normalization, Bayes inversion under a prior; all consume axis information that pointwise actions don't see.
 
-Both inherit a common interface: a `.source` algebra, a `.target` algebra, and an `apply` that ingests a tensor (plus a morphism for shape resolution). The Python API treats them as first-class values: you bind them to local names, compose them by calling [`compose_trans`](../../api/core/algebras.md) (the DSL surface spells this as `>>>`), and pass either kind into [`Morphism.change_base`](../../api/core/morphisms.md).
+Both inherit a common interface: a `.source` algebra, a `.target` algebra, and
+an `apply` method that accepts a tensor plus a morphism for shape resolution.
+The Python API treats transformations as first-class values: you can bind them
+to local names, compose them with
+[`compose_trans`](../../api/core/algebras.md), written as `>>>` in QVR, and pass
+either kind to
+[`Morphism.change_base`](../../api/core/morphisms.md).
 
-### Why a typed transformation surface?
+### Why typed transformations?
 
 In a PyTorch program you'd write `softmax(logits, dim=-1)` whenever you needed to normalise. That's fine for a one-shot call, but it has no record of *which algebra the result lives in* once normalised. If you then compose with another morphism that lives in a fuzzy algebra, nothing flags the mismatch and the result is mathematically incoherent (you've sum-product-composed a row-stochastic tensor with a noisy-OR one).
 
@@ -71,7 +77,13 @@ The result is an `ObservedMorphism` over `Markov`. The transformation is applied
 
 ## Composing transformations
 
-In Python the call site is [`compose_trans`](../../api/core/algebras.md); in `.qvr` source it surfaces as the `>>>` operator. Both wrap two or more [`MorphismTransformation`](../../api/core/morphisms.md) or [`AlgebraHomomorphism`](../../api/core/algebras.md) values into a sequential composition. The compose-time check verifies that `t1.target` matches `t2.source`; otherwise it raises.
+In Python the call site is
+[`compose_trans`](../../api/core/algebras.md); `.qvr` source uses the `>>>`
+operator. Both combine two or more
+[`MorphismTransformation`](../../api/core/morphisms.md) or
+[`AlgebraHomomorphism`](../../api/core/algebras.md) values into a sequence. The
+compose-time check verifies that `t1.target` matches `t2.source` and raises a
+typed error when they differ.
 
 ```python
 from quivers.core.algebra_morphisms import EXPECTATION
@@ -86,7 +98,9 @@ g = f.change_base(pipe)
 print(g.algebra.name)            # back to 'ProductFuzzyAlgebra'
 ```
 
-If the seams don't match (e.g. `compose_trans(softmax(B), PROBABILITY_TO_REAL)` would try to go `Markov` to `Probability`), `compose_trans` raises a `TypeError` naming the mismatch.
+If the boundary types do not match (for instance,
+`compose_trans(softmax(B), PROBABILITY_TO_REAL)` would try to map `Markov` to
+`Probability`), `compose_trans` raises a `TypeError` naming the mismatch.
 
 `compose_trans` returns a [`TransSeq`](../../api/core/algebras.md) value: a flattened sequence of single steps. Calling `change_base` on a `TransSeq` iterates the steps, applying each in turn. Nested compositions flatten so the result is always a flat tuple of steps.
 
@@ -123,9 +137,10 @@ g = f.change_base(bayes_invert(prior))
 print(g.tensor.sum(dim=-1))      # rows of g sum to 1 (Markov)
 ```
 
-## From the DSL surface
+## From QVR
 
-Inside `.qvr` files, the same machinery is the `change_base(t)` postfix and the `>>>` operator:
+Inside `.qvr` files, the corresponding forms are the `change_base(t)` postfix
+and the `>>>` operator:
 
 ```qvr
 composition product_fuzzy [level=algebra]
@@ -139,7 +154,10 @@ define g    = f.change_base(pipe)
 export g
 ```
 
-`let` for trans-valued RHS lands the binding in the compiler's transformation namespace (disjoint from morphisms). The [QVR categorical tutorial](../qvr/07-categorical.md) covers the user-side; this Python-side surface mirrors it directly.
+A `let` binding with a transformation-valued right-hand side enters the
+compiler's transformation namespace, which is distinct from the morphism
+namespace. The [QVR categorical tutorial](../qvr/07-categorical.md) describes
+the QVR syntax; the Python API provides the same operations directly.
 
 ## Composition checks
 
@@ -153,4 +171,6 @@ Transformations can be bound to local names, passed to functions, and composed i
 
 ## Next
 
-[Tutorial 7](07-composition-rules.md) introduces the `CompositionRule → BilinearForm | Semigroupoid → Algebra` hierarchy and the `EinsumWiring` surface for operadic n-ary contractions.
+[Tutorial 7](07-composition-rules.md) introduces the
+`CompositionRule → BilinearForm | Semigroupoid → Algebra` hierarchy and the
+`EinsumWiring` API for operadic n-ary contractions.

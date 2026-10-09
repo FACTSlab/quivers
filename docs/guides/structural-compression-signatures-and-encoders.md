@@ -32,7 +32,7 @@ pipelines (binders with annotation sorts threading the type of each
 bound variable through a de-Bruijn context).
 
 This page covers signature and encoder declarations; the
-[decoder and loss surface](structural-compression-decoders-and-losses.md)
+[decoder and loss declarations](structural-compression-decoders-and-losses.md)
 lives on its own page.
 
 ## Signature blocks
@@ -171,8 +171,8 @@ arity rules:
   `*args` parameter makes arity unknowable, in which case the
   compiler accepts the call.
 
-**Shape-error reporting.** Errors raised inside a user callable
-surface to the user with the encoder call site named, not buried in
+**Shape-error reporting.** Errors raised inside a user callable are
+reported with the encoder call site named, rather than being buried in
 the PyTorch traceback. The dispatcher captures the call site
 (filename, line, column from the tree-sitter parse) and re-raises
 with that frame attached.
@@ -312,10 +312,9 @@ algebra-homomorphism / Kleisli coalgebra pattern, no special-casing.
 ## See also
 
 - [Structural Compression: Decoders and Losses](structural-compression-decoders-and-losses.md):
-  the dual Kleisli arrow back to terms and the loss-declaration
-  surface.
+  the dual Kleisli arrow back to terms and the loss declarations.
 - [Weighted Deduction Systems](deduction.md): the chart-parser
-  substrate that an encoder can attach to, exposing
+  representation to which an encoder can attach, exposing
   `chart.embedding(item)` as a differentiable value.
 - [Structural autoencoders tutorial](../tutorials/qvr/12-structural-autoencoders.md):
   checked entry invocation, autograd, and checkpoint registration.

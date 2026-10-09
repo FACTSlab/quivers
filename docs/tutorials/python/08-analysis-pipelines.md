@@ -1,6 +1,6 @@
 # Tutorial 8: Analysis Pipelines
 
-The formula surface compiles a regression specification and a dataframe into a QVR program. This chapter inspects that program, fits hierarchical and Bernoulli regressions with SVI and NUTS, compares models with PSIS-LOO, and runs a posterior-predictive check on synthetic data.
+The formula compiler turns a regression specification and a dataframe into a QVR program. This chapter inspects that program, fits hierarchical and Bernoulli regressions with SVI and NUTS, compares models with PSIS-LOO, and runs a posterior-predictive check on synthetic data.
 
 ## Concepts
 
@@ -12,7 +12,7 @@ The formula surface compiles a regression specification and a dataframe into a Q
 
 ## Setup
 
-The analysis-pipeline surface is gated behind the `formulas`, `data`, and `diagnostics` extras:
+The analysis workflow requires the `formulas`, `data`, and `diagnostics` extras:
 
 ```bash
 pip install "quivers[formulas,data,diagnostics]"
@@ -475,16 +475,22 @@ The lens behind the scenes (`FormulaToQVRModule`) is a typed [`dx.Lens`](https:/
 
 You have:
 
-- Fit a Gaussian regression with one line of code and recovered the true coefficients via SVI.
-- Inspected the emitted `.qvr` source and seen how predictors flow in through the host-data channel rather than as latent draws.
-- Fit a hierarchical model with `(1 | g)` random intercepts and seen where SVI's mean-field approximation under-shrinks group-level variance.
-- Fit identified unordered categorical and finite Gaussian-mixture regressions.
-- Run NUTS on a Bernoulli regression and compared two models via PSIS-LOO with stacking weights.
-- Wrapped MCMC results into an ArviZ `DataTree` and run a posterior-predictive check.
-- Inspected the lens machinery that maps a `Formula` to a QVR `Module`.
+- Fitted a Gaussian regression with one line of code and recovered the true
+  coefficients via SVI.
+- Inspected the emitted `.qvr` source and saw how predictors enter through the
+  host-data channel rather than as latent draws.
+- Fitted a hierarchical model with `(1 | g)` random intercepts and saw where
+  SVI's mean-field approximation under-shrinks group-level variance.
+- Fitted identified unordered-categorical and finite Gaussian-mixture
+  regressions.
+- Ran NUTS on a Bernoulli regression and compared two models via PSIS-LOO with
+  stacking weights.
+- Wrapped MCMC results in an ArviZ `DataTree` and ran a posterior-predictive
+  check.
+- Inspected the lens that maps a `Formula` to a QVR `Module`.
 
 ## Next
 
-- The [Analysis Pipelines guide](../../guides/analysis-data-and-formulas.md) is the reference for the whole `quivers.formulas` / `quivers.data` / `quivers.diagnostics` surface, including the full prior-override syntax and the [`DatasetSchema`](../../api/data/schema.md) bridge from dataframes to QVR programs without writing a formula.
-- The [Variational Inference tutorial](05-variational-inference.md) shows the lower-level path: building a `MonadicProgram` by hand, tracing, and running SVI without the formula surface.
+- The [Analysis Pipelines guide](../../guides/analysis-data-and-formulas.md) documents `quivers.formulas`, `quivers.data`, and `quivers.diagnostics`, including the full prior-override syntax and the [`DatasetSchema`](../../api/data/schema.md) bridge from dataframes to QVR programs without writing a formula.
+- The [Variational Inference tutorial](05-variational-inference.md) shows the lower-level path: building a `MonadicProgram` by hand, tracing, and running SVI without the formula compiler.
 - The [DSL guide](../../guides/dsl-overview.md) is the right place to go if you want to write or hand-edit `.qvr` programs directly.

@@ -1,4 +1,4 @@
-# 7. The categorical surface
+# 7. Categorical foundations
 
 Four categorical constructs appear directly in QVR's type system: *objects*, *morphisms*, *algebras*, and *change-of-base*. They determine why a composition may raise `Source algebra 'ProductFuzzyAlgebra' does not match this morphism's algebra 'Real'` and what a call to `change_base` changes. This chapter gives their categorical interpretation.
 
@@ -79,7 +79,7 @@ So `f >> g` composes in whatever enrichment both operands carry, and errors on a
 
 An `AlgebraHomomorphism` records a source algebra, a target algebra, and an entrywise map. `f.change_base(phi)` applies that map and updates the morphism's algebra tag. Particular instances may support a stronger categorical reading, but the runtime contract is the typed transformation just described.
 
-The DSL exposes a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each of these is a first-class transformation value: you can let-bind them, compose them with `>>>`, pass them through `change_base`. The Python API track chapter 6 walks through the full surface; here's the short version:
+The DSL provides a catalog of named homomorphisms (`expectation`, `log_prob`, `max_plus`, `material_implication`, `threshold`, `boolean_embedding`, ...) and a small set of *constructors* parameterized by an object or morphism (`softmax(B)`, `l1_normalize(B)`, `l2_normalize(B)`, `bayes_invert(prior)`). Each is a first-class transformation value: you can let-bind it, compose it with `>>>`, and pass it through `change_base`. Python API chapter 6 covers the complete interface; here is the short version:
 
 ```qvr
 composition product_fuzzy [level=algebra]
@@ -112,7 +112,7 @@ forms are:
   sampled once rather than integrated continuously; and
 - `return v` projects the weighted trace onto `v`.
 
-The surface summaries `Sample`, `Score`, `Marginal`, and `Pure` are checked
+The effect summaries `Sample`, `Score`, `Marginal`, and `Pure` are checked
 against the body. The elaborated QIEC computation carries the more precise row
 of lexical `Random` and `Score` instances.
 
@@ -136,12 +136,12 @@ The guides under `guides/` cover individual feature areas at the level of "what'
 
 At this point, you can write models in QVR, fit them with the shipped inference
 algorithms, marginalize discrete latents, build hierarchical and
-sequence-shaped models, and read the categorical machinery underneath when you
+sequence-shaped models, and read the categorical structure underneath when you
 need to. Chapters 8–13 continue with diagnostics, indexed data, effects,
 generated computation graphs, and release checks. Suggested next stops:
 
 - The [examples gallery](../../examples/index.md) for end-to-end model code (Bayesian regression, mixture models, VAE, transformer, vanilla RNN).
-- The [QVR language reference](../../reference/qvr/index.md) for the current source and execution surface.
+- The [QVR language reference](../../reference/qvr/index.md) for the current syntax and execution behavior.
 - The [inference benchmark report](../../developer/inference-benchmarks.md) for the empirical truth-table of which algorithm fits which problem.
 
 

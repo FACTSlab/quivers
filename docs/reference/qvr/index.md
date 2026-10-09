@@ -82,16 +82,24 @@ its body.
 ## Compilation and execution map
 
 ```mermaid
-flowchart LR
-    S[QVR source] --> P[Quivers QVR parser]
-    P --> A[typed source AST]
-    A --> E[elaboration]
-    E --> Q[checked QIEC module]
-    Q --> R[reference machine]
-    Q --> T[target lowering]
-    Q --> J[qiec-json/v1]
-    R --> C[qvr run / REPL / Program.run]
-    T --> H[11 host-language targets]
+flowchart TB
+    subgraph AUTHOR["Source boundary"]
+        direction LR
+        S["QVR source<br/><small>qvr-source/v0.20</small>"] -->|parse| P["Quivers parser"] --> A["Typed source AST"]
+    end
+    subgraph KERNEL["Checked interchange boundary"]
+        direction LR
+        A -->|elaborate + check| Q["QIEC module<br/><small>qiec-core/v1alpha1</small>"]
+        Q -->|serialize| J["qiec-json/v1"]
+    end
+    subgraph CONSUMERS["Consumers"]
+        direction LR
+        Q -->|evaluate| R["Reference machine"] --> C["qvr run · REPL · Program.run"]
+        Q -->|lower| T["Target-independent IR"] --> H["11 host-language targets"]
+    end
+    class S qv-input
+    class P,A,Q,J,T qv-checked
+    class R,C,H qv-output
 ```
 
 Quivers owns and vendors the QVR grammar used by this path. It installs

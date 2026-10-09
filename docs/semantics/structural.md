@@ -164,17 +164,17 @@ The `recurrent state` and `attention prefix` modes on a constructor rule are syn
 
 - **Recurrent.** The rule $\mathrm{Cons}(h, t)\,\mathrm{recurrent}\,\mathrm{state} \mapsto \mathrm{body}(h,\,\mathrm{state})$ denotes the right-fold of the constructor body over the list:
 
-  $$
-  \llbracket C \rrbracket(\mathrm{Cons}(h_1, \mathrm{Cons}(h_2, \dots, \mathrm{Cons}(h_n, \mathrm{Nil})))) \;=\; \mathrm{body}\bigl(h_1,\,\mathrm{body}(h_2,\, \dots\,\mathrm{body}(h_n,\,\llbracket C \rrbracket(\mathrm{Nil}))\dots)\bigr),
-  $$
+$$
+\llbracket C \rrbracket(\mathrm{Cons}(h_1, \mathrm{Cons}(h_2, \dots, \mathrm{Cons}(h_n, \mathrm{Nil})))) \;=\; \mathrm{body}\bigl(h_1,\,\mathrm{body}(h_2,\, \dots\,\mathrm{body}(h_n,\,\llbracket C \rrbracket(\mathrm{Nil}))\dots)\bigr),
+$$
 
   with `state` bound at each step to the recursive child's already-computed embedding. The outermost body call sees $h_1$ (the head); the innermost sees $h_n$ together with the encoded $\mathrm{Nil}$.
 
 - **Attention.** The rule $\mathrm{Cons}(h, t)\,\mathrm{attention}\,\mathrm{prefix} \mapsto \mathrm{body}(h, \mathrm{prefix})$ denotes the outside-in walk
 
-  $$
-  \llbracket C \rrbracket(\mathrm{Cons}(h_1, \mathrm{Cons}(h_2, \dots))) \;=\; \mathrm{body}\bigl(h_k,\, [\llbracket C \rrbracket(h_1),\, \dots,\, \llbracket C \rrbracket(h_{k-1})]\bigr),
-  $$
+$$
+\llbracket C \rrbracket(\mathrm{Cons}(h_1, \mathrm{Cons}(h_2, \dots))) \;=\; \mathrm{body}\bigl(h_k,\, [\llbracket C \rrbracket(h_1),\, \dots,\, \llbracket C \rrbracket(h_{k-1})]\bigr),
+$$
 
   where `prefix` is the running list of prior non-recursive children's embeddings collected outside-in. The encoder's final embedding is the innermost step's output.
 
@@ -217,10 +217,10 @@ A decoder body declares four per-sort logits-producing maps (each is a let-expre
 
 | Head | Signature | Role |
 |---|---|---|
-| $\mathrm{structure}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{|K_s| + |B_s| + [\mathrm{BoundVar}]_s - 1}$ | Distribution over the productions at sort $s$: every constructor / binder of $s$, plus a $\mathrm{BoundVar}$ option when $\Gamma$ contains at least one variable of sort $s$ |
-| $\mathrm{primitive}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{|\mathrm{Vocab}_s| - 1}$ | Distribution over data leaves of sort $s$. Data sorts must carry a vocabulary (declared inline in the signature or registered at runtime); the primitive head returns logits whose support is restricted to that vocabulary. |
+| $\mathrm{structure}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{\lvert K_s\rvert + \lvert B_s\rvert + [\mathrm{BoundVar}]_s - 1}$ | Distribution over the productions at sort $s$: every constructor / binder of $s$, plus a $\mathrm{BoundVar}$ option when $\Gamma$ contains at least one variable of sort $s$ |
+| $\mathrm{primitive}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{\lvert \mathrm{Vocab}_s\rvert - 1}$ | Distribution over data leaves of sort $s$. Data sorts must carry a vocabulary (declared inline in the signature or registered at runtime); the primitive head returns logits whose support is restricted to that vocabulary. |
 | $\mathrm{factor}_s(v)$ | $\mathbb{R}^{d_s} \to \prod_i \mathbb{R}^{d_{s_i}}$ | Factorisation of the parent embedding into per-child embeddings; the per-constructor arity / dim sequence is selected by the chosen production |
-| $\mathrm{binder\_select}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{|\Gamma_s| - 1}$ | Distribution over in-scope variables of matching sort, where $\Gamma_s$ is the sub-sequence of $\Gamma$ at sort $s$ |
+| $\mathrm{binder\_select}_s(v)$ | $\mathbb{R}^{d_s} \to \Delta^{\lvert \Gamma_s\rvert - 1}$ | Distribution over in-scope variables of matching sort, where $\Gamma_s$ is the sub-sequence of $\Gamma$ at sort $s$ |
 
 The required `body |-> recursive` clause selects the framework's structural corecursion as the body shape; `recursive` is the sole legal body keyword.
 

@@ -1,4 +1,4 @@
-# Interactive surface: REPL, kernel, language server
+# Interactive tools: REPL, kernel, and language server
 
 quivers ships an interactive type-explorer and a matching language
 server. Both share the same bundled QVR tree-sitter parser, installed into
@@ -169,9 +169,9 @@ Clear the filter to bring everything back.
 Rendered responses appear here in source order. Bodies tagged as QVR
 (every `:type`, `:info`, `:doc`, `:dump`, `:watch`, `:browse` result)
 are passed through the shared
-[`tokenize`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py)
+[`tokenize`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_highlight.py)
 pipeline and rendered with the
-[`STYLE_TABLE`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py)
+[`STYLE_TABLE`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_highlight.py)
 colours. Identifiers known to the env are upgraded to their semantic
 colour even when the surrounding line wasn't a parseable QVR
 declaration; the same identifier always reads the same way.
@@ -199,7 +199,7 @@ is cleared on success.
 
 ### Meta-commands
 
-GHCi-shaped, leading `:`. The dispatcher is exact-match: use one of
+GHCi-style, with a leading `:`. The dispatcher is exact-match: use one of
 the full names below or the explicit short alias in the second
 column.
 
@@ -657,7 +657,7 @@ parse error appears in the diagnostics strip.
 #### `:trace EXPR`
 
 Step through elaboration of `EXPR` as a morphism expression. For
-each intermediate sub-expression, surfaces the inferred
+each intermediate sub-expression, shows the inferred
 domain / codomain. Useful for understanding why a composition
 fails to type-check.
 
@@ -777,7 +777,7 @@ full `::` path on its node data; clicking any node, top-level or
 nested, fires `:info PATH` against that exact binding. Tab
 completion completes `lda::` to the program's children, `lda::z::`
 to the inner marginalize's children, and so on. A bare-name
-prefix like `thet` also surfaces scoped descendants (`lda::theta`)
+prefix like `thet` also includes scoped descendants (`lda::theta`)
 so users discover nested bindings without typing the prefix.
 
 ### Program exploration
@@ -861,7 +861,7 @@ otherwise a TextArea action.
 3. Subsequent `Tab` presses cycle through the remaining candidates without rebuilding the list.
 
 The completer is the exact one the LSP and the Jupyter kernel call;
-the surfaces never disagree about what's available.
+the frontends never disagree about what's available.
 
 ### Command palette
 
@@ -933,7 +933,7 @@ The strip is hidden when there are no diagnostics.
 
 ### Click handlers
 
-Two surfaces are click-aware:
+Two frontends are click-aware:
 
 - **Identifiers in rendered output.** Clicking a type-, function-,
   or namespace-coloured identifier fires `:info NAME` in the eval
@@ -1046,7 +1046,7 @@ diagnostics without restarting the server.
 
 ### VS Code / Cursor
 
-The [`vscode-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/vscode-qvr)
+The [`vscode-qvr`](https://github.com/quivers-dev/quivers/tree/main/editors/vscode-qvr)
 extension in the repository ships:
 
 - the TextMate grammar (for the initial render before the LSP
@@ -1080,7 +1080,7 @@ code --install-extension vscode-qvr-*.vsix         # or cursor --install-extensi
 
 ### Zed
 
-The [`zed-extension-qvr`](https://github.com/FACTSlab/quivers/tree/main/editors/zed-extension-qvr)
+The [`zed-extension-qvr`](https://github.com/quivers-dev/quivers/tree/main/editors/zed-extension-qvr)
 extension exports `qvr-lsp` as a `language_server`. Symlink the
 extension into Zed's extensions directory:
 
@@ -1162,7 +1162,7 @@ MorphismDecl(morphism_kind='latent', name='f', domain=TypeName(...), ...)
 
 ## Architecture
 
-All four surfaces fan out from one class:
+All four frontends share the same session and language services:
 
 ```
                     ┌─────────────────────┐
@@ -1185,19 +1185,18 @@ All four surfaces fan out from one class:
                                                completer
 ```
 
-Components shared across all surfaces:
+Components shared across all frontends:
 
-- [`quivers.cli.repl_session`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_session.py), `ReplSession`, the meta-command dispatcher, the live env, the watch list.
-- [`quivers.cli.repl_complete`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_complete.py), `all_completions(session, prefix)`; fans out to env, grammar, paths.
-- [`quivers.cli.repl_highlight`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_highlight.py), `tokenize`, `STYLE_TABLE`, `to_rich_text`, `to_semantic_token_data`; one classifier feeds every renderer.
+- [`quivers.cli.repl_session`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_session.py), `ReplSession`, the meta-command dispatcher, the live env, the watch list.
+- [`quivers.cli.repl_complete`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_complete.py), `all_completions(session, prefix)`; combines completions from the environment, grammar, and file paths.
+- [`quivers.cli.repl_highlight`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_highlight.py), `tokenize`, `STYLE_TABLE`, `to_rich_text`, `to_semantic_token_data`; one classifier feeds every renderer.
 
 Each frontend is a thin adapter:
 
-- [`quivers.cli.repl_tui`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_tui.py). Textual app.
-- [`quivers.cli.repl_prompt`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/cli/repl_prompt.py), prompt_toolkit single-line frontend.
-- [`quivers.kernel.quivers_kernel`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/kernel/quivers_kernel.py), ipykernel adapter.
-- [`quivers.lsp.server`](https://github.com/FACTSlab/quivers/blob/main/src/quivers/lsp/server.py), pygls server.
+- [`quivers.cli.repl_tui`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_tui.py). Textual app.
+- [`quivers.cli.repl_prompt`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/cli/repl_prompt.py), prompt_toolkit single-line frontend.
+- [`quivers.kernel.quivers_kernel`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/kernel/quivers_kernel.py), ipykernel adapter.
+- [`quivers.lsp.server`](https://github.com/quivers-dev/quivers/blob/main/src/quivers/lsp/server.py), pygls server.
 
-This is the seam that keeps the four surfaces in sync: anywhere a
-user sees `Source`, it's classified by the same call and rendered
-with the same colour, regardless of which frontend is asking.
+The shared classifier keeps the four frontends consistent: `Source` receives
+the same category and color regardless of which frontend renders it.

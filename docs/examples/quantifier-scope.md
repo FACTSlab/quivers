@@ -37,7 +37,7 @@ object Rule : FinSet 16
 
 object Weight : Real 1
 
-# Probabilistic surface for transpile: each learnable rule weight
+# Probabilistic model for transpilation: each learnable rule weight
 # carries an independent Normal(0, 1) prior, and a treebank reports
 # how often each rule fired. Exponentiating a weight gives that
 # rule's firing rate, so the counts are Poisson in the rate; the
@@ -95,7 +95,7 @@ To use the deduction inside a probabilistic program, wrap the chart's per-deriva
 
 ### Generating synthetic data
 
-The `quantifier_scope_prior` program is the standalone Bayesian surface over the same
+The `quantifier_scope_prior` program is a standalone Bayesian model over the same
 rule weights. Each rule draws one log-weight from a unit Normal;
 exponentiating that weight gives the rate at which the rule fires, and
 a treebank reports the count. Drawing the weights from their own prior

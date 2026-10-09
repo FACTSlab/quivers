@@ -41,7 +41,7 @@ morphism emission : State -> Obs [role=latent]
 define n_step = repeat(transition) >> emission
 define hmm = initial >> n_step
 
-# Probabilistic surface for transpile: the initial, transition,
+# Probabilistic model for transpilation: the initial, transition,
 # and emission parameter blocks are row-stochastic Dirichlet
 # draws. The initial-state vector is one draw on the State
 # simplex; transition_rows allocates one State-simplex row per
@@ -76,7 +76,7 @@ export hmm_program
 
 `repeat` builds the algebraic power of `transition` by repeated squaring, with $n$ supplied via `prog(n_steps=N)`. Under the current algebra, the result is a product-fuzzy relation. Also note that `initial : State -> State`, so the exported domain is `State`, not a singleton initial-distribution object.
 
-`hmm_program` is the separate probabilistic surface exported from the same source. Its three `sample` steps draw the initial-state vector, the transition kernel, and the emission kernel from symmetric `Dirichlet(1.0)` priors: `[over=State]` names the simplex axis of the initial row, which carries no plate annotation because it is a single draw, and `iid_over=State` allocates one independent Dirichlet row per source state for `transition_rows` and per latent state for `emission_rows`. The `marginalize` block integrates the latent `state` out of the observation by log-sum-exp over the eight `State` atoms, so the observation body scores `obs` under `Categorical(probs=emission_rows[state])` alone and `transition_rows` never enters the likelihood.
+`hmm_program` is the separate probabilistic model exported from the same source. Its three `sample` steps draw the initial-state vector, the transition kernel, and the emission kernel from symmetric `Dirichlet(1.0)` priors: `[over=State]` names the simplex axis of the initial row, which carries no plate annotation because it is a single draw, and `iid_over=State` allocates one independent Dirichlet row per source state for `transition_rows` and per latent state for `emission_rows`. The `marginalize` block integrates the latent `state` out of the observation by log-sum-exp over the eight `State` atoms, so the observation body scores `obs` under `Categorical(probs=emission_rows[state])` alone and `transition_rows` never enters the likelihood.
 
 ## Try it
 

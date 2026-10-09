@@ -103,6 +103,9 @@ flowchart LR
     decoder["decoder"] --> cross["cross"]
     cross["cross"] --> lm_head["lm_head"]
     lm_head["lm_head"] --> next_token["next_token"]
+    class src,tgt qv-input
+    class src_embed,tgt_embed,encoder,decoder,cross,lm_head qv-checked
+    class next_token qv-output
 ```
 
 ## Try it

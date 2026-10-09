@@ -1,6 +1,7 @@
 name: Deploy Docs
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -18,12 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
       - run: pip install -e ".[docs]"
       - run: mkdocs build --strict
-      - uses: actions/upload-pages-artifact@v3
+      - run: python scripts/check_rendered_math.py site
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site/
 
