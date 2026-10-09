@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import runpy
 import tomllib
 
 
@@ -45,6 +46,13 @@ def test_textmate_recognizes_the_complete_qiec_vocabulary() -> None:
         control.findall(source)
     )
     assert {"Type", "coverage", "total"} <= set(modifier.findall(source))
+
+
+def test_textmate_recognizes_every_distribution_family() -> None:
+    from quivers.dsl.family_schemas import DISTRIBUTION_FAMILIES
+
+    pattern = re.compile(_repository()["distribution-family"]["match"])
+    assert all(pattern.fullmatch(name) for name in DISTRIBUTION_FAMILIES)
 
 
 def test_zed_uses_an_immutable_grammar_revision() -> None:
@@ -94,12 +102,19 @@ _CORPUS = (
     "handler doubling for Echo : Int -> Int [coverage=total, implementation=authored]\n"
     "    ping(n : Int) resumes 1 =>\n"
     "        resume(n)\n"
+    "\n"
+    "object Row : FinSet 8\n"
+    "program regression : Row -> Row [effects=[Sample, Score]]\n"
+    "    sample location <- Normal(loc=0.0, scale=2.0)\n"
+    "    observe y : Row <- Normal(loc=location, scale=1.0)\n"
+    "    return y\n"
 )
 
 #: Each token of interest by position, with the class every highlighter
 #: must give it: (line, text) -> class.
 _EXPECTED: dict[tuple[int, str], str] = {
     (0, "effect"): "keyword",
+    (3, "define"): "keyword",
     (1, "ping"): "function",
     (3, "twice"): "function",
     (4, "twice"): "function",
@@ -114,6 +129,13 @@ _EXPECTED: dict[tuple[int, str], str] = {
     (13, "1"): "number",
     (14, "resume"): "keyword",
     (1, "Int"): "type",
+    (16, "object"): "keyword",
+    (17, "program"): "keyword",
+    (18, "sample"): "keyword",
+    (18, "Normal"): "type",
+    (19, "observe"): "keyword",
+    (19, "Normal"): "type",
+    (20, "return"): "keyword",
 }
 
 #: The tree-sitter capture names and Pygments token families that stand
@@ -165,6 +187,51 @@ def _pygments_classes() -> dict[tuple[int, str], str]:
     return out
 
 
+def _docs_hook_namespace() -> dict[str, object]:
+    """Load the MkDocs lexer while containing its deliberate monkey-patch."""
+    import markdown.extensions.codehilite as codehilite
+    import pygments.lexers
+    import pymdownx.highlight as highlight
+
+    targets = (pygments.lexers, codehilite, highlight)
+    originals = {
+        (module, "get_lexer_by_name"): getattr(module, "get_lexer_by_name", None)
+        for module in targets
+    }
+    try:
+        return runpy.run_path(str(ROOT / "docs/hooks/register_qvr_lexer.py"))
+    finally:
+        for (module, name), value in originals.items():
+            if value is None:
+                if hasattr(module, name):
+                    delattr(module, name)
+            else:
+                setattr(module, name, value)
+
+
+def _docs_classes() -> dict[tuple[int, str], str]:
+    from pygments.token import Keyword, Name, Number
+
+    lexer = _docs_hook_namespace()["QvrLexer"]()
+    families = (
+        (Keyword, "keyword"),
+        (Number, "number"),
+        (Name.Class, "type"),
+        (Name.Builtin, "function"),
+        (Name.Function, "function"),
+    )
+    out: dict[tuple[int, str], str] = {}
+    for index, token, text in lexer.get_tokens_unprocessed(_CORPUS):
+        line = _CORPUS.count("\n", 0, index)
+        if (line, text) not in _EXPECTED:
+            continue
+        for family, name in families:
+            if token in family:
+                out[(line, text)] = name
+                break
+    return out
+
+
 def _tree_sitter_classes() -> dict[tuple[int, str], str]:
     import tree_sitter
 
@@ -197,7 +264,7 @@ def _textmate_classes() -> dict[tuple[int, str], str]:
     rules = {
         "keyword": ("keyword-control", "keyword-declaration", "keyword-qiec-modifier"),
         "function": ("builtin-function",),
-        "type": ("builtin-type",),
+        "type": ("builtin-type", "distribution-family"),
     }
     out: dict[tuple[int, str], str] = {}
     for (line, text), expected in _EXPECTED.items():
@@ -219,6 +286,7 @@ def test_highlighters_classify_the_corpus_alike() -> None:
     grammar agrees on every keyword and builtin it names."""
     assert _repl_classes() == _EXPECTED
     assert _pygments_classes() == _EXPECTED
+    assert _docs_classes() == _EXPECTED
     assert _tree_sitter_classes() == _EXPECTED
     textmate = _textmate_classes()
     for key, expected in _EXPECTED.items():
@@ -227,3 +295,10 @@ def test_highlighters_classify_the_corpus_alike() -> None:
     assert {key for key, value in _EXPECTED.items() if value == "keyword"} <= set(
         textmate
     )
+
+
+def test_docs_highlighter_uses_the_authoritative_lexer() -> None:
+    """MkDocs must not carry a second, drift-prone QVR vocabulary."""
+    from quivers.dsl.pygments_lexer import QvrLexer
+
+    assert _docs_hook_namespace()["QvrLexer"] is QvrLexer

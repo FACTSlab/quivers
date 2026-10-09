@@ -97,6 +97,15 @@ A key is a name a source may write; its value is the family whose
 specification builds the distribution.
 """
 
+DISTRIBUTION_FAMILIES: frozenset[str] = frozenset(
+    (*_FAMILY_PARAMETERS, *FAMILY_ALIASES)
+)
+"""Every distribution-family name accepted in QVR source.
+
+Highlighters consume this set so their surface vocabulary follows the same
+schemas used by validation and lowering.
+"""
+
 
 def family_parameterizations(
     family: str, canonical: tuple[str, ...]
@@ -147,6 +156,7 @@ def render_parameterizations(schemas: tuple[tuple[str, ...], ...]) -> str:
 
 
 __all__ = [
+    "DISTRIBUTION_FAMILIES",
     "FAMILY_ALIASES",
     "family_parameter_names",
     "family_parameterizations",

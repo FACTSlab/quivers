@@ -44,6 +44,7 @@ from quivers.dsl._grammar_introspection import (
     KEYWORDS as _GRAMMAR_KEYWORDS,
     OPERATORS as _GRAMMAR_OPERATORS,
 )
+from quivers.dsl.family_schemas import DISTRIBUTION_FAMILIES
 from quivers.dsl.pure_builtins import PURE_BUILTINS
 
 
@@ -134,6 +135,8 @@ def _node_kind_to_pygments_token(
             return Name.Builtin if text in PURE_BUILTINS else Name.Function
         if text in _BUILTIN_FUNCTION_TOKENS:
             return Name.Builtin
+        if text in DISTRIBUTION_FAMILIES:
+            return Name.Class
         if text in _BUILTIN_TYPE_TOKENS:
             return Name.Class
         if text in _EFFECT_TOKENS:

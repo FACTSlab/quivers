@@ -151,6 +151,71 @@
   "Stiefel"
 ] @type.builtin
 
+; Registered distribution-family identifiers.
+((identifier) @type.builtin
+  (#any-of? @type.builtin
+    "Bernoulli"
+    "Beta"
+    "BetaBinomial"
+    "Binomial"
+    "Categorical"
+    "Cauchy"
+    "Chi2"
+    "ContinuousBernoulli"
+    "Dirichlet"
+    "Exponential"
+    "FisherSnedecor"
+    "GP"
+    "Gamma"
+    "GeneralizedPareto"
+    "Geometric"
+    "Gumbel"
+    "HalfCauchy"
+    "HalfNormal"
+    "HalfStudentT"
+    "Horseshoe"
+    "HurdlePoisson"
+    "Independent"
+    "InverseGamma"
+    "InverseWishart"
+    "Kumaraswamy"
+    "LKJCholesky"
+    "LKJCorrelationFactor"
+    "Laplace"
+    "LogNormal"
+    "Logistic"
+    "LogisticNormal"
+    "LogitNormal"
+    "LowRankMVN"
+    "MatrixNormal"
+    "Mixture"
+    "MixtureNormal"
+    "MultivariateNormal"
+    "NegativeBinomial"
+    "Normal"
+    "Normalize"
+    "OneHotCategorical"
+    "OrderedLogistic"
+    "OrderedProbit"
+    "Pareto"
+    "PointMass"
+    "Poisson"
+    "Pushforward"
+    "RelaxedBernoulli"
+    "RelaxedOneHotCategorical"
+    "Restrict"
+    "StudentT"
+    "Transformed"
+    "Truncate"
+    "Truncated"
+    "TruncatedNormal"
+    "Uniform"
+    "VonMises"
+    "Weibull"
+    "Wishart"
+    "ZeroInflatedPoisson"
+    "ZeroOneInflatedBeta"))
+
 ; ---------------------------------------------------------------------------
 ; builtin functions (combinators, intrinsics)
 ; ---------------------------------------------------------------------------
@@ -212,6 +277,8 @@
 ; declarations and identifiers
 ; ---------------------------------------------------------------------------
 
+(object_decl "object" @keyword)
+(index_decl "index" @keyword)
 (category_decl    names: (identifier) @type)
 (object_decl      names: (identifier) @type)
 (rule_decl        name: (identifier) @function)
