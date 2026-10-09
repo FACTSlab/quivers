@@ -983,6 +983,8 @@ body.qv-focus .md-content__inner {
   font-size: clamp(3.2rem, 7vw, 5.8rem);
   line-height: 0.92;
   letter-spacing: -0.065em;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 
 .qv-hero__lede {
@@ -1196,7 +1198,7 @@ body.qv-focus .md-content__inner {
   }
 }
 
-@media (max-width: 60em) {
+@media (max-width: 72em) {
   .qv-hero {
     grid-template-columns: 1fr;
     gap: 3.2rem;
@@ -1262,7 +1264,7 @@ body.qv-focus .md-content__inner {
   }
 
   .qv-hero h1 {
-    font-size: clamp(3rem, 17vw, 4.25rem);
+    font-size: clamp(2rem, 13.75vw, 4.25rem);
   }
 
   .qv-hero__code pre {
