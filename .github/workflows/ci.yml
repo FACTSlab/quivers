@@ -105,9 +105,10 @@ jobs:
       - name: Validate current and migration parsers without a compiler
         run: python tools/release_wheel_smoke.py .
 
-  # Fast tier. Everything that does not launch a probe container, which
-  # is most of the suite by count and a small share of its runtime. This
-  # is the job a pull request waits on.
+  # Fast tier. Everything marked neither `slow` nor `probe`, which is most
+  # of the suite by count and a small share of its runtime. This is the job
+  # a pull request waits on. Keep both exclusions explicit: a command-line
+  # `-m` expression replaces pytest's `addopts` marker expression.
   fast:
     runs-on: ubuntu-latest
     steps:
@@ -150,7 +151,7 @@ jobs:
       # Most of this tier is thousands of sub-millisecond text checks,
       # and handing those out individually costs more than running
       # them; whole files are the unit worth distributing.
-      - run: python -m pytest tests/ -q -m "not probe" -n auto --dist loadfile
+      - run: python -m pytest tests/ -q -m "not slow and not probe" -n auto --dist loadfile
         env:
           QUIVERS_SKIP_DOCKER: "1"
 
